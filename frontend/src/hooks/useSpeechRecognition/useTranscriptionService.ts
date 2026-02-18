@@ -60,6 +60,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
   } = useSessionStore();
 
   const isMountedRef = useRef(true);
+  const isStartingRef = useRef(false);
   const optionsRef = useRef(options);
   const manualPolicyRef = useRef<TranscriptionPolicy | null>(null);
 
@@ -131,15 +132,14 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
   // LIFECYCLE MANAGEMENT (Start/Init)
   // ============================================
   useEffect(() => {
-    if (!service || !isServiceReady || !isListening) return;
+    // 🏎️ RACE CONDITION FIX: Prevent multiple simultaneous transcription starts (Fixes Domain 2)
+    if (!service || !isServiceReady || !isListening || isStartingRef.current) return;
 
     // GUARD: Profile loading
     if (optionsRef.current.profileLoading) return;
 
-    // GUARD: Already recording? (Optimization)
-    // if (isRecording) return; // Maybe?
-
     const manageSession = async () => {
+      isStartingRef.current = true;
       try {
         await service.startTranscription(optionsRef.current.policy);
 
@@ -147,12 +147,11 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
           setSTTMode(service.getMode());
         }
       } catch (err) {
-        // Errors handled via state hook -> effect above
-        // But synchronous start errors might be caught here too?
-        // Service startPropagation throws? Yes.
         if (isMountedRef.current) {
           handleTranscriptionError(err, stopSession);
         }
+      } finally {
+        isStartingRef.current = false;
       }
     };
 

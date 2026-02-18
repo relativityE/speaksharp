@@ -36,8 +36,18 @@ serve(async (req: Request) => {
             const adminSecret = Deno.env.get('PROMO_GEN_ADMIN_SECRET');
             const requestSecret = req.headers.get('X-Promo-Admin-Key');
 
-            if (!adminSecret || requestSecret !== adminSecret) {
-                console.error(`[apply-promo] Unauthorized generation attempt. Secret Match: ${!!adminSecret && requestSecret === adminSecret}`);
+            // 🔒 SECURITY: Constant-time comparison to prevent timing attacks (Fixes Domain 6)
+            const isMatch = (a: string | null, b: string | null): boolean => {
+                if (!a || !b || a.length !== b.length) return false;
+                let result = 0;
+                for (let i = 0; i < a.length; i++) {
+                    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+                }
+                return result === 0;
+            };
+
+            if (!adminSecret || !isMatch(requestSecret, adminSecret)) {
+                console.error(`[apply-promo] Unauthorized generation attempt.`);
                 return new Response(
                     JSON.stringify({ error: 'Unauthorized: Admin secret required' }),
                     { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

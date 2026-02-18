@@ -28,7 +28,7 @@ describe('useSpeechRecognition Integration', () => {
         MockTranscriptionService.latestInstance = null;
         // Setup the registry to return our MockTranscriptionService constructor
         // We use a specific constructor type to avoid the 'any' lint error while maintaining compatibility
-        vi.mocked(testRegistry.get).mockReturnValue(() => new MockTranscriptionService({} as TranscriptionModeOptions));
+        vi.mocked(testRegistry.get).mockReturnValue((opts: TranscriptionModeOptions) => new MockTranscriptionService(opts));
 
         const win = window as unknown as Window & {
             __E2E_MOCK_NATIVE__?: boolean;
@@ -48,20 +48,22 @@ describe('useSpeechRecognition Integration', () => {
         const { result } = renderHookWithProviders(
             () => useSpeechRecognition(),
             {
-                session: {
-                    user: {
-                        id: 'test-user-id',
-                        email: 'test@example.com',
-                        app_metadata: {},
-                        user_metadata: {},
-                        aud: 'authenticated',
-                        created_at: new Date().toISOString(),
-                    },
-                    access_token: 'fake-token',
-                    refresh_token: 'fake-refresh',
-                    expires_in: 3600,
-                    token_type: 'bearer',
-                } as unknown as SupabaseSession,
+                authMock: {
+                    session: {
+                        user: {
+                            id: 'test-user-id',
+                            email: 'test@example.com',
+                            app_metadata: {},
+                            user_metadata: {},
+                            aud: 'authenticated',
+                            created_at: new Date().toISOString(),
+                        },
+                        access_token: 'fake-token',
+                        refresh_token: 'fake-refresh',
+                        expires_in: 3600,
+                        token_type: 'bearer',
+                    } as unknown as SupabaseSession,
+                }
             }
         );
 

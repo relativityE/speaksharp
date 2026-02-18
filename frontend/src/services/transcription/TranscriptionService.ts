@@ -62,6 +62,7 @@ export default class TranscriptionService {
   private startTimestamp: number = 0;
   private startTime: number | null = null;
   private mode: TranscriptionMode | null = null;
+  private lastError: Error | null = null;
   private readonly MIN_RECORDING_DURATION_MS = 100;
 
   constructor(options: Partial<TranscriptionServiceOptions> = {}) {
@@ -145,8 +146,16 @@ export default class TranscriptionService {
 
     // Circuit Breaker: Fallback if too many failures
     if (mode === 'private' && this.failureManager.getEffectiveFailureCount() >= STT_CONFIG.MAX_PRIVATE_ATTEMPTS) {
-      logger.warn('[TranscriptionService] Max Private attempts reached. Forcing Native Fallback.');
-      this.options.onStatusChange?.({ type: 'fallback', message: 'Using Native STT (too many private failures)', newMode: 'native' });
+      logger.warn({
+        failures: this.failureManager.getEffectiveFailureCount(),
+        max: STT_CONFIG.MAX_PRIVATE_ATTEMPTS
+      }, '[TranscriptionService] Max Private attempts reached. Forcing Native Fallback.');
+
+      this.options.onStatusChange?.({
+        type: 'fallback',
+        message: 'Using Native STT (too many private failures)',
+        newMode: 'native'
+      });
       mode = 'native';
     }
 
@@ -380,7 +389,7 @@ export default class TranscriptionService {
       case 'READY': status = { type: 'idle', message: 'Mic ready' }; break;
       case 'INITIALIZING_ENGINE': status = { type: 'initializing', message: 'Initializing engine...' }; break;
       case 'RECORDING': status = { type: 'recording', message: 'Recording active' }; break;
-      case 'ERROR': status = { type: 'error', message: 'Error occurred' }; break;
+      case 'ERROR': status = { type: 'error', message: this.lastError?.message || 'Error occurred' }; break;
       default: status = { type: 'idle', message: 'Ready' };
     }
 
@@ -411,6 +420,7 @@ export default class TranscriptionService {
       this.options.onStatusChange?.({ type: 'fallback', message: 'Falling back to Native browser mode', newMode: 'native' });
       this.startTranscription({ ...this.policy, preferredMode: 'native' });
     } else {
+      this.lastError = error;
       this.fsm.transition({ type: 'ERROR_OCCURRED', error });
       this.options.onError?.(error);
     }

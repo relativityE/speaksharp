@@ -26,6 +26,10 @@ vi.mock('../../useVocalAnalysis', () => ({
   }))
 }));
 
+vi.mock('../../useProfile', () => ({
+  useProfile: vi.fn(() => ({ subscription_status: 'pro' }))
+}));
+
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), loading: vi.fn(), dismiss: vi.fn(), success: vi.fn() }
 }));

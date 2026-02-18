@@ -42,6 +42,9 @@ vi.mock('../useTranscriptionService');
 vi.mock('../useSessionTimer');
 vi.mock('../../useVocalAnalysis');
 
+vi.mock('../../useProfile', () => ({
+    useProfile: vi.fn(() => ({ subscription_status: 'pro' }))
+}));
 
 describe('useSpeechRecognition - Stale Closure Fix', () => {
     // Typed mocks

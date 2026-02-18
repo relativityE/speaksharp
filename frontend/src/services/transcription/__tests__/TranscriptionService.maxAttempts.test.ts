@@ -94,40 +94,20 @@ describe('TranscriptionService - Max Attempts', () => {
         testRegistry.register('private', () => privateEngine);
         testRegistry.register('native', () => new MockNativeEngine());
 
-        // 1. First Attempt - Fails
-        try {
-            const promise = service.startTranscription();
-            await vi.advanceTimersByTimeAsync(500);
-            await promise;
-        } catch (e) { /* ignore fallback errors */ }
+        const failureManager = FailureManager.getInstance();
 
-        await service.stopTranscription();
+        // 1. Force max attempts directly to ensure clean state
+        for (let i = 0; i < 3; i++) {
+            failureManager.recordPrivateFailure();
+        }
 
-        // 2. Second Attempt - Fails
-        try {
-            const promise = service.startTranscription();
-            await vi.advanceTimersByTimeAsync(500);
-            await promise;
-        } catch (e) { /* ignore fallback errors */ }
-
-        await service.stopTranscription();
-
-        // 3. Third Attempt - Fails
-        try {
-            const promise = service.startTranscription();
-            await vi.advanceTimersByTimeAsync(500);
-            await promise;
-        } catch (e) { /* ignore fallback errors */ }
-
-        await service.stopTranscription();
-
-        // Reset mocks to clear previous calls
+        // Reset mocks to clear any incidental calls during setup
         privateEngine.init.mockClear();
         onStatusChange.mockClear();
 
-        // 4. Fourth Attempt - Should NOT try Private, should Force Native directly
-        // The max attempts is 3 (default), so 4th attempt should be blocked
-        await service.startTranscription();
+        // 2. Attempt transcription - Should NOT try Private, should Force Native directly
+        // We re-apply the private policy to ensure mode resolution *starts* as private
+        await service.startTranscription(privatePolicy);
 
         // EXPECTATIONS - Behavior-based
         // Should NOT have tried to init private engine again

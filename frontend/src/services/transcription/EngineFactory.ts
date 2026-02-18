@@ -39,10 +39,10 @@ export class EngineFactory {
                 logger.info('[EngineFactory] 🌐 Starting Native Browser mode');
 
                 // PRIORITY 1: TestRegistry
-                const nativeFactory = testRegistry.get<() => ITranscriptionMode>('native');
+                const nativeFactory = testRegistry.get<(opts: TranscriptionModeOptions) => ITranscriptionMode>('native');
                 if (nativeFactory) {
                     logger.info('[EngineFactory] 🧪 Injecting Native engine from Registry');
-                    return nativeFactory();
+                    return nativeFactory(options);
                 }
 
                 return new NativeBrowser(options);
@@ -52,10 +52,10 @@ export class EngineFactory {
                 logger.info('[EngineFactory] ☁️ Starting Cloud (AssemblyAI) mode');
 
                 // PRIORITY 1: TestRegistry
-                const cloudFactory = testRegistry.get<() => ITranscriptionMode>('cloud');
+                const cloudFactory = testRegistry.get<(opts: TranscriptionModeOptions) => ITranscriptionMode>('cloud');
                 if (cloudFactory) {
                     logger.info('[EngineFactory] 🧪 Injecting Cloud engine from Registry');
-                    return cloudFactory();
+                    return cloudFactory(options);
                 }
 
                 return new CloudAssemblyAI(options);
