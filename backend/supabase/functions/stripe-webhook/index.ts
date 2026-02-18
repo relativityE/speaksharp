@@ -179,18 +179,17 @@ export async function handler(
   }
 }
 
+const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY")!
+const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET")!
+const supabaseUrl = Deno.env.get("SUPABASE_URL")!
+const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+
+const stripe = new Stripe(stripeSecretKey, {
+  httpClient: Stripe.createFetchHttpClient(),
+})
+
+const supabase = createClient(supabaseUrl, supabaseServiceRoleKey)
+
 serve(async (req) => {
-  const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY")!
-  const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET")!
-
-  const stripe = new Stripe(stripeSecretKey, {
-    httpClient: Stripe.createFetchHttpClient(),
-  })
-
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-  )
-
   return handler(req, stripe, supabase, webhookSecret)
 })
