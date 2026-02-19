@@ -21,7 +21,9 @@ import { SttStatus, TranscriptUpdate } from '../../types/transcription';
 import {
   isCacheMiss,
   isExpectedEvent,
+  CacheMissEvent,
 } from './errors';
+import { IS_TEST_ENVIRONMENT } from '../../config/env';
 
 // Types moved to src/types/transcription.ts
 
@@ -172,6 +174,7 @@ export default class TranscriptionService {
         ...this.options,
         // Explicitly override the progress callback to ensure store updates happen
         onModelLoadProgress: (progress) => {
+          logger.debug({ progress }, '[TranscriptionService] modelLoadProgress callback triggered');
           // We must manually replicate the proxy's behavior here since we are bypassing it
           this.options.onModelLoadProgress?.(progress);
           useSessionStore.getState().setModelLoadingProgress(progress !== null ? Math.round(progress * 100) : null);
@@ -185,7 +188,50 @@ export default class TranscriptionService {
       logger.info(`[TranscriptionService] Creating engine for mode: ${mode}`);
 
       this.engine = await EngineFactory.create(mode, engineConfig, this.policy);
-      await this.engine.init();
+
+      if (mode === 'private') {
+        const timeout = this.getLoadTimeout();
+        logger.info({ timeout }, '[TranscriptionService] Starting Private STT with Optimistic Entry race');
+
+        let timeoutId: NodeJS.Timeout;
+        const timeoutPromise = new Promise((_, reject) => {
+          timeoutId = setTimeout(() => reject(new CacheMissEvent()), timeout);
+        });
+
+        const initPromise = this.engine.init();
+
+        // ✅ INDUSTRY STANDARD: Handle background completion for Optimistic Entry
+        initPromise.then(() => {
+          // If we are recording in fallback mode (e.g. native), notify the user that private is now ready
+          const activeEngine = useSessionStore.getState().activeEngine;
+          if (this.fsm.is('RECORDING') && activeEngine === 'native') {
+            logger.info('[TranscriptionService] Background private engine init complete');
+            this.options.onStatusChange?.({
+              type: 'info',
+              message: 'Private model ready'
+            });
+          }
+          // Clear progress indicator upon successful load
+          useSessionStore.getState().setModelLoadingProgress(null);
+        }).catch(err => {
+          if (!isCacheMiss(err)) {
+            logger.error({ err }, '[TranscriptionService] Background private engine init failed');
+          }
+        });
+
+        try {
+          await Promise.race([
+            initPromise,
+            timeoutPromise
+          ]);
+        } finally {
+          // @ts-expect-error - timeoutId is assigned in Promise executor
+          if (timeoutId) clearTimeout(timeoutId);
+        }
+      } else {
+        await this.engine.init();
+      }
+
       await this.executeEngine(mode);
     } catch (error) {
       // ✅ EXPECTED EVENT: Cache miss - start background download
@@ -353,6 +399,17 @@ export default class TranscriptionService {
   public getState(): TranscriptionState { return this.fsm.getState(); }
   public getMode(): TranscriptionMode | null { return this.mode; }
   public getPolicy(): TranscriptionPolicy { return this.policy; }
+
+  private getLoadTimeout(): number {
+    // ✅ EXPERT FIX: Allow E2E tests to override timeout for resilience testing
+    const win = typeof window !== 'undefined' ? window as unknown as { __STT_LOAD_TIMEOUT__?: number } : null;
+    if (win && win.__STT_LOAD_TIMEOUT__) {
+      return win.__STT_LOAD_TIMEOUT__;
+    }
+    return IS_TEST_ENVIRONMENT
+      ? STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.CI
+      : STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.PROD;
+  }
 
   /**
    * Internal helpers

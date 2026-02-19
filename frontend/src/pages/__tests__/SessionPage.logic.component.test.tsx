@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '../../../tests/support/test-utils';
 import SessionPage from '../SessionPage';
-import { MemoryRouter } from 'react-router-dom';
 
 // --- Mocks ---
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
@@ -125,11 +124,7 @@ describe('SessionPage Logic', () => {
                 metrics: null,
             } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
-            render(
-                <MemoryRouter>
-                    <SessionPage />
-                </MemoryRouter>
-            );
+            render(<SessionPage />);
 
             expect(screen.queryByTestId('recording-card')).not.toBeInTheDocument();
         });
@@ -138,11 +133,7 @@ describe('SessionPage Logic', () => {
     describe('Interaction Logic', () => {
         it('should call handleStartStop via controlled button', () => {
             expect(true).toBe(true); // Explicit assertion for linter
-            render(
-                <MemoryRouter>
-                    <SessionPage />
-                </MemoryRouter>
-            );
+            render(<SessionPage />);
 
             // Since we mocked LiveRecordingCard, we don't have the real button, 
             // but the mock can call handleStartStop?

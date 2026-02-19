@@ -114,14 +114,27 @@ export class TestRegistryClass {
      * Hydrate from __TEST_REGISTRY_QUEUE__ if it exists
      */
     private hydrateFromQueue(): void {
-        if (typeof window !== 'undefined' && Array.isArray(window.__TEST_REGISTRY_QUEUE__)) {
-            const queue = window.__TEST_REGISTRY_QUEUE__;
-            while (queue.length > 0) {
-                const item = queue.shift();
-                if (item && item.key && item.factory) {
-                    const mode = item.key.replace('STT', '') as STTMode;
-                    logger.info({ mode, key: item.key }, '[TestRegistry] Hydrating from queue');
-                    this.register(mode, item.factory, { testName: 'queued-injection' });
+        if (typeof window !== 'undefined') {
+            const win = window as unknown as {
+                __TEST_REGISTRY_ENABLE__?: boolean;
+                __TEST_REGISTRY_QUEUE__?: { key: string; factory: unknown; opts?: unknown }[];
+            };
+
+            // Handle early enable flag
+            if (win.__TEST_REGISTRY_ENABLE__) {
+                this.enable();
+                delete win.__TEST_REGISTRY_ENABLE__;
+            }
+
+            if (Array.isArray(win.__TEST_REGISTRY_QUEUE__)) {
+                const queue = win.__TEST_REGISTRY_QUEUE__;
+                while (queue.length > 0) {
+                    const item = queue.shift();
+                    if (item && item.key && item.factory) {
+                        const mode = item.key.replace('STT', '') as STTMode;
+                        logger.info({ mode, key: item.key }, '[TestRegistry] Hydrating from queue');
+                        this.register(mode, item.factory, { testName: 'queued-injection' });
+                    }
                 }
             }
         }
@@ -152,9 +165,24 @@ export class TestRegistryClass {
 }
 
 // Singleton instance
-export const testRegistry = new TestRegistryClass();
+const registryInstance = new TestRegistryClass();
 
-// Expose to window for E2E tests
+// Expose to window for E2E tests (Industrial Strength Re-hydration)
 if (typeof window !== 'undefined') {
-    window.__TEST_REGISTRY__ = testRegistry;
+    if (window.__TEST_REGISTRY__) {
+        // If a registry already exists (e.g. from addInitScript), we must preserve it.
+        // We do NOT overwrite it, instead we'll make our exported constant point to it
+        // so that the app uses the same instance that the test configured.
+        logger.info('[TestRegistry] Re-using existing registry from window');
+    } else {
+        window.__TEST_REGISTRY__ = registryInstance;
+    }
 }
+
+/**
+ * EXPORTED REGISTRY SINGLETON
+ * Always favors the one on the window if available (for E2E compatibility)
+ */
+export const testRegistry = (typeof window !== 'undefined' && window.__TEST_REGISTRY__)
+    ? (window.__TEST_REGISTRY__ as TestRegistryClass)
+    : registryInstance;

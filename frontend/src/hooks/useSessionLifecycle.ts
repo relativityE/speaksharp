@@ -32,6 +32,7 @@ export const useSessionLifecycle = () => {
     const [mode, setMode] = useState<'cloud' | 'native' | 'private'>('native');
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const [sessionFeedbackMessage, setSessionFeedbackMessage] = useState<string | null>(null);
+    const isProcessingRef = useRef(false);
 
     const isProUser = isPro(profile?.subscription_status);
 
@@ -66,6 +67,9 @@ export const useSessionLifecycle = () => {
     });
 
     const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string }) => {
+        if (isProcessingRef.current) return;
+        isProcessingRef.current = true;
+
         if (isListening) {
             // Bypass minimum duration check if there is an external stop reason (e.g. tier limits)
             if (elapsedTime < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
@@ -132,6 +136,8 @@ export const useSessionLifecycle = () => {
 
             } catch (error) {
                 logger.error({ err: error }, '[useSessionLifecycle] Error stopping recording');
+            } finally {
+                isProcessingRef.current = false;
             }
         } else {
             if (!isProUser && usageLimit && !usageLimit.can_start) {
@@ -141,10 +147,14 @@ export const useSessionLifecycle = () => {
                 return;
             }
 
-            setSessionFeedbackMessage(null);
-            const policy = buildPolicyForUser(isProUser, mode);
-            await startListening(policy);
-            posthog.capture('session_started', { mode });
+            try {
+                setSessionFeedbackMessage(null);
+                const policy = buildPolicyForUser(isProUser, mode);
+                await startListening(policy);
+                posthog.capture('session_started', { mode });
+            } finally {
+                isProcessingRef.current = false;
+            }
         }
     }, [isListening, elapsedTime, stopListening, updateStreak, saveSession, queryClient, isProUser, usageLimit, mode, startListening]);
 
@@ -169,9 +179,9 @@ export const useSessionLifecycle = () => {
 
     // Tier enforcement: Auto-stop when daily limit reached
     useEffect(() => {
-        if (!isProUser && isListening && usageLimit && usageLimit.remaining_seconds > 0) {
-            if (elapsedTime >= usageLimit.remaining_seconds) {
-                logger.warn('[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
+        if (!isProUser && isListening && usageLimit && typeof usageLimit.remaining_seconds === 'number') {
+            if (elapsedTime >= usageLimit.remaining_seconds && usageLimit.remaining_seconds >= 0) {
+                logger.warn({ elapsedTime, remaining: usageLimit.remaining_seconds }, '[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
                 const errorMsg = usageLimit.error || 'Daily usage limit reached.';
                 const prefix = errorMsg.startsWith('⚠️') || errorMsg.startsWith('⛔') ? '' : '⛔ ';
                 handleStartStop({

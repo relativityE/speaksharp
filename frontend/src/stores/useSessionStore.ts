@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { FillerCounts } from '@/utils/fillerWordUtils';
+import logger from '@/lib/logger';
 import { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { SttStatus } from '@/types/transcription';
 
@@ -98,14 +99,11 @@ export const useSessionStore = create<SessionStore>((set) => ({
         }),
 
     setSTTStatus: (status) => {
-        // console.log('[Store] setSTTStatus called:', status);
-        // console.trace('[Store] Call stack trace'); // Uncomment for deep debugging if needed
-
         set((state) => {
             // ✅ GUARD: Don't allow overwriting 'recording' with 'idle' or 'ready' silently
             if (state.sttStatus.type === 'recording') {
                 if (status.type === 'idle' || status.type === 'ready') {
-                    console.warn('[Store] ⚠️ Attempted to overwrite recording state with:', status);
+                    logger.warn({ status }, '[Store] ⚠️ Attempted to overwrite recording state');
                 }
             }
             return { sttStatus: status };
@@ -122,10 +120,12 @@ export const useSessionStore = create<SessionStore>((set) => ({
             activeEngine: engine,
         }),
 
-    setModelLoadingProgress: (progress) =>
+    setModelLoadingProgress: (progress) => {
+        logger.debug({ progress }, '[Store] setModelLoadingProgress');
         set({
             modelLoadingProgress: progress,
-        }),
+        });
+    },
 
     tick: () => set((state) => {
         if (!state.isListening || !state.startTime) return state;

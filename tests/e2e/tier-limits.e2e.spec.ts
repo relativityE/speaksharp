@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
-import { injectMockSession, registerEdgeFunctionMock } from './mock-routes';
+import { registerEdgeFunctionMock } from './mock-routes';
 import { enableTestRegistry, registerMockInE2E } from '../helpers/testRegistry.helpers';
-import { waitForStoreState } from './helpers/e2e-state.helpers';
+import { waitForStoreState, setE2ETime, clearQueryCache } from './helpers/e2e-state.helpers';
 
 interface TierLimitsWindow extends Window {
     __E2E_CONFIG__?: unknown;
@@ -95,35 +95,18 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         // 1. Login with free tier
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
 
-        await navigateToRoute(page, '/');
-
-        // 1. Mock usage limit to have 5 seconds remaining
+        // 2. Setup mock usage limit with 2 seconds remaining
         await registerEdgeFunctionMock(page, 'check-usage-limit', {
             can_start: true,
-            remaining_seconds: 5,
+            remaining_seconds: 2,
             limit_seconds: 3600,
-            used_seconds: 3595,
+            used_seconds: 3598,
             subscription_status: 'free',
             is_pro: false
         });
 
-        // 2. Setup mock session and E2E Config
-        await injectMockSession(page);
+        // 3. Setup mock STT
         await enableTestRegistry(page);
-
-        // Register mock limits
-        await page.addInitScript(() => {
-            (window as unknown as TierLimitsWindow).__E2E_CONFIG__ = {
-                limits: {
-                    mode: 'mock',
-                    mockLimit: {
-                        remaining_seconds: 5
-                    }
-                }
-            };
-        });
-
-        // Mock STT to prevent real device access
         await registerMockInE2E(page, 'native', `() => ({
              init: async () => {},
              startTranscription: async () => {},
@@ -132,32 +115,45 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
              terminate: async () => {},
              getEngineType: () => 'mock-native'
         })`);
-        await page.reload();
-        await page.waitForLoadState('networkidle');
 
-        // 3. Start session
+        // 4. Go to session page
         await navigateToRoute(page, '/session');
+
+        // 5. Force React Query to fetch the new mock and wait for it
+        await clearQueryCache(page);
+        await expect(async () => {
+            const data = await page.evaluate(() => {
+                const win = window as unknown as { queryClient?: { getQueryCache: () => { findAll: (o: unknown) => { state: { data: unknown } }[] } } };
+                if (!win.queryClient) return null;
+                const queries = win.queryClient.getQueryCache().findAll({ queryKey: ['usageLimit'] });
+                return queries.length > 0 ? queries[0].state.data : null;
+            }) as { remaining_seconds: number } | null;
+            if (!data || data.remaining_seconds !== 2) {
+                throw new Error(`Usage limit not yet 2: ${JSON.stringify(data)}`);
+            }
+            return true;
+        }).toPass({ timeout: 15000 });
+
+        // 6. Start session
         const startButton = page.getByTestId('session-start-stop-button');
         await startButton.click();
 
-        // 4. Wait for session to start recording
+        // 7. Wait for recording to begin
         await expect(page.getByTestId('recording-indicator')).toBeVisible();
 
-        // 5. DETERMINISTIC PROGRESSION (Expert Solution)
-        // Force the elapsed time to 6s (past the 5s limit)
-        await waitForStoreState(page,
-            (state: Record<string, unknown>) => state.setElapsedTime,
-            true
-        );
+        // 8. DETERMINISTIC JUMP
+        await setE2ETime(page, 2);
+        await waitForStoreState(page, (state) => state.elapsedTime, 2);
 
-        // 6. Verify auto-stop notification
-        await expect(page.getByTestId('session-status-indicator')).toContainText(/(Daily|Monthly) usage limit reached/i, { timeout: 10000 });
+        // 9. Wait for auto-stop
+        // The button should revert from 'Stop Recording' to 'Start Recording'
+        await expect(page.getByRole('button', { name: /Start Recording/i })).toBeVisible({ timeout: 15000 });
 
-        // 7. Verify session stopped (Header reverted)
-        await expect(page.getByTestId('live-session-header')).toContainText(/Ready to record/i, { timeout: 10000 });
+        // 10. Check for usage limit reached status message
+        await expect(page.getByTestId('session-status-indicator')).toContainText(/(Daily|Monthly) usage limit reached/i);
 
-        // Verify session stopped (Button reverted to 'Start')
-        await expect(page.getByTestId('session-start-stop-button').getByLabel(/Start Recording/i)).toBeVisible();
+        // 11. Verify session stopped (Header reverted)
+        await expect(page.getByTestId('live-session-header')).toContainText(/Ready to record/i, { timeout: 5000 });
     });
 
     test('Free users can add up to 100 filler words', async ({ page }) => {

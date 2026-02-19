@@ -87,41 +87,16 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         policy: buildPolicyForUser(profile?.subscription_status === 'pro', null),
         onReady: () => {
             logger.info('[useSpeechRecognition] Service ready');
-            // console.log('[E2E_DEBUG] Fallback onReady called');
-
-            const currentProgress = useSessionStore.getState().modelLoadingProgress;
-            // console.log('[E2E_DEBUG] Current store state (progress):', currentProgress);
-
-            // ✅ Update store to reflect recording has started
-            // Use startSession() which sets isListening=true and startTime=Date.now()
-            useSessionStore.getState().startSession();
-
-            // ✅ If background download is active, preserve it
-            const isBackgroundDownload = currentProgress !== null;
-
-            if (isBackgroundDownload) {
-                // Fallback mode: recording via Native while Private downloads
-                useSessionStore.getState().setSTTStatus({
-                    type: 'recording', // ✅ FIXED: Changed from 'ready' to 'recording'
-                    message: 'Recording active'
-                    // Note: modelLoadingProgress stays set (not cleared)
-                });
-                // console.log('[E2E_DEBUG] Fallback recording active, download continuing');
-            } else {
-                // Normal mode: recording via selected engine
-                useSessionStore.getState().setSTTStatus({
-                    type: 'recording', // ✅ FIXED: Changed from 'ready' to 'recording'
-                    message: 'Recording active'
-                });
-                // console.log('[E2E_DEBUG] Normal recording active');
-            }
+            useSessionStore.getState().setReady(true);
         },
         onError: (err) => stt.setError(err),
-        onModelLoadProgress: (progress) => {
-            useSessionStore.getState().setModelLoadingProgress(progress);
+        onModelLoadProgress: (_progress) => {
+            // TranscriptionService handles store updates for progress (percentages)
+            // No action needed here to avoid Decimal-vs-Percentage conflicts
         },
         onStatusChange: (status) => {
             if (status.type === 'error') handleTranscriptionError(new Error(status.message), stopSession);
+            if (status.type === 'info') toast.info(status.message);
         }
     });
 

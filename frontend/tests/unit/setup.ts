@@ -7,7 +7,7 @@ import { cleanup } from '@testing-library/react';
 
 // Mock Worker (infrastructure polyfill)
 if (typeof window !== 'undefined') {
-    (window as any).Worker = class MockWorker {
+    (window as unknown as { Worker: unknown }).Worker = class MockWorker {
         constructor(public url: string) { }
         onmessage: ((event: MessageEvent) => void) | null = null;
         onerror: ((event: ErrorEvent) => void) | null = null;
@@ -16,7 +16,7 @@ if (typeof window !== 'undefined') {
         addEventListener = vi.fn();
         removeEventListener = vi.fn();
         dispatchEvent = vi.fn().mockReturnValue(true);
-    } as any;
+    };
 }
 
 // Mock AudioProcessor (prevents Worker import chain)
@@ -46,8 +46,8 @@ vi.mock('@/services/transcription/utils/AudioProcessor', async () => {
         })),
         downsampleAudio: vi.fn().mockImplementation(audio => audio),
         downsampleAudioAsync: vi.fn().mockImplementation(async audio => audio),
-        floatToWavAsync: vi.fn().mockImplementation(async samples => new Uint8Array(0)),
-        floatToInt16Async: vi.fn().mockImplementation(async float32Array => ({ result: new Int16Array(0), base64: '' }))
+        floatToWavAsync: vi.fn().mockImplementation(async () => new Uint8Array(0)),
+        floatToInt16Async: vi.fn().mockImplementation(async () => ({ result: new Int16Array(0), base64: '' }))
     };
 });
 
@@ -70,6 +70,11 @@ vi.mock('@/hooks/useProfile', () => ({
     })
 }));
 
+// Mock Toaster globally to prevent sonner mock collisions in tests and Happy-DOM stability issues
+vi.mock('@/components/ui/sonner', () => ({
+    Toaster: () => null
+}));
+
 // ============================================
 // DOM Polyfills
 // ============================================
@@ -82,24 +87,24 @@ if (typeof window !== 'undefined') {
         disconnect = vi.fn();
     };
 
-    // Match media
+    // Match media (Improved for sonner/radix compatibility)
     Object.defineProperty(window, 'matchMedia', {
         writable: true,
         value: vi.fn().mockImplementation(query => ({
             matches: false,
             media: query,
             onchange: null,
-            addListener: vi.fn(),
-            removeListener: vi.fn(),
+            addListener: vi.fn(), // Deprecated
+            removeListener: vi.fn(), // Deprecated
             addEventListener: vi.fn(),
             removeEventListener: vi.fn(),
-            dispatchEvent: vi.fn(),
+            dispatchEvent: vi.fn().mockReturnValue(true),
         })),
     });
 
     // PointerEvent polyfill
     if (!window.PointerEvent) {
-        (window as any).PointerEvent = class PointerEvent extends MouseEvent {
+        (window as unknown as { PointerEvent: unknown }).PointerEvent = class PointerEvent extends MouseEvent {
             public pointerId: number;
             public pointerType: string;
             public isPrimary: boolean;
@@ -123,7 +128,7 @@ if (typeof window !== 'undefined') {
         continuous: false,
         interimResults: false,
     }));
-    (window as any).webkitSpeechRecognition = MockSpeechRecognition;
+    (window as unknown as { webkitSpeechRecognition: unknown }).webkitSpeechRecognition = MockSpeechRecognition;
 }
 
 // Import styles and jest-dom (safe)
@@ -135,7 +140,6 @@ import '@testing-library/jest-dom';
 
 beforeEach(async () => {
     vi.clearAllMocks();
-    vi.useFakeTimers();
 
     // Lazy load the store to prevent top-level poisoning
     const storeModule = await import('@/stores/useSessionStore');
@@ -143,14 +147,13 @@ beforeEach(async () => {
 
     // Some tests mock useSessionStore locally; only reset if it's the real one or a compliant mock
     if (useSessionStore && typeof useSessionStore.getState === 'function') {
-        const store = useSessionStore.getState();
-        if (store && typeof (store as any).resetSession === 'function') {
-            (store as any).resetSession();
+        const store = useSessionStore.getState() as { resetSession?: () => void };
+        if (store && typeof store.resetSession === 'function') {
+            store.resetSession();
         }
     }
 });
 
 afterEach(() => {
     cleanup();
-    vi.clearAllTimers();
 });

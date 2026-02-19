@@ -1,6 +1,5 @@
 import { renderHook, act } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
 import React from 'react';
 import { TranscriptionProvider } from '../../../providers/TranscriptionProvider';
 import { useSpeechRecognition_prod as useSpeechRecognition } from '../index';
@@ -31,12 +30,17 @@ vi.mock('../../useProfile', () => ({
 }));
 
 vi.mock('sonner', () => ({
-  toast: { error: vi.fn(), loading: vi.fn(), dismiss: vi.fn(), success: vi.fn() }
+  toast: { error: vi.fn(), loading: vi.fn(), dismiss: vi.fn(), success: vi.fn() },
+  Toaster: vi.fn(() => null)
 }));
 
-vi.mock('../../../contexts/AuthProvider', () => ({
-  useAuthProvider: vi.fn(() => ({ session: { user: { id: 'mock-id' } } }))
-}));
+vi.mock('../../../contexts/AuthProvider', async () => {
+  const actual = await vi.importActual('../../../contexts/AuthProvider') as object;
+  return {
+    ...actual,
+    useAuthProvider: vi.fn(() => ({ session: { user: { id: 'mock-id' } } }))
+  };
+});
 
 vi.mock('../../useProfile', () => ({
   useProfile: vi.fn(() => ({ subscription_status: 'free' }))
@@ -65,11 +69,9 @@ class MockEngine implements ITranscriptionMode {
 
 function wrapper({ children }: { children: React.ReactNode }): React.ReactElement {
   return (
-    <MemoryRouter>
-      <TranscriptionProvider>
-        {children}
-      </TranscriptionProvider>
-    </MemoryRouter>
+    <TranscriptionProvider>
+      {children}
+    </TranscriptionProvider>
   );
 }
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';

@@ -65,7 +65,7 @@ const mockSupabaseClient = {
 describe('AuthPage Integration', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        (getSupabaseClient as any).mockReturnValue(mockSupabaseClient);
+        (getSupabaseClient as unknown as { mockReturnValue: (v: unknown) => void }).mockReturnValue(mockSupabaseClient);
 
         // Reset mock context to ensure form renders
         mockAuthContextValue.user = null;

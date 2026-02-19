@@ -61,7 +61,6 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     // Secondary Status (Background Download) - Read directly from store to persist across mode changes
     const modelLoadingProgress = useSessionStore((s) => s.modelLoadingProgress);
     const hasSecondary = modelLoadingProgress !== null;
-    // console.log('[E2E_DEBUG] [StatusNotificationBar] Render. Status:', status.type, 'Progress:', modelLoadingProgress, 'HasSecondary:', hasSecondary);
 
     // ✅ FIX: Explicit defaults for display message
     let displayMessage = status.message?.replace(/^(?:⛔|⚠️|🚫)\s*/u, '').trim();

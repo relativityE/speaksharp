@@ -45,6 +45,9 @@ const queryClient = new QueryClient({
     },
   },
 });
+if (IS_TEST_ENVIRONMENT) {
+  (window as unknown as { queryClient: typeof queryClient }).queryClient = queryClient;
+}
 logger.info('[React Query] ✅ QueryClient initialized');
 
 // 🔴 CRITICAL: Initialize Sentry FIRST before any async operations
