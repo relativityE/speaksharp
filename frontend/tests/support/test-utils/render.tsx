@@ -1,12 +1,19 @@
 import React, { ReactElement, ReactNode } from 'react';
-import { render, renderHook, RenderOptions } from '@testing-library/react';
+import { render, renderHook, RenderOptions, RenderHookOptions } from '@testing-library/react';
 import { Location } from 'react-router-dom';
 import { AuthContextType } from '@/contexts/AuthProvider';
 import { AllTheProviders } from './components';
 
 import { UserProfile } from '@/types/user';
 
-interface CustomRenderOptions extends Omit<RenderOptions, 'wrapper'> {
+interface CustomRenderOptions extends RenderOptions {
+  authMock?: Partial<AuthContextType>;
+  profileMock?: Partial<UserProfile>;
+  route?: string | Partial<Location>;
+  path?: string;
+}
+
+interface CustomRenderHookOptions<Props> extends RenderHookOptions<Props> {
   authMock?: Partial<AuthContextType>;
   profileMock?: Partial<UserProfile>;
   route?: string | Partial<Location>;
@@ -14,25 +21,25 @@ interface CustomRenderOptions extends Omit<RenderOptions, 'wrapper'> {
 }
 
 export const renderWithAllProviders = (ui: ReactElement, options: CustomRenderOptions = {}) => {
-  const { authMock, profileMock, route, path, ...renderOptions } = options;
+  const { authMock, profileMock, route, path, wrapper: InnerWrapper, ...renderOptions } = options;
   const Wrapper = ({ children }: { children: ReactNode }) => (
     <AllTheProviders authMock={authMock} profileMock={profileMock} route={route} path={path}>
-      {children}
+      {InnerWrapper ? <InnerWrapper>{children}</InnerWrapper> : children}
     </AllTheProviders>
   );
   return render(ui, { wrapper: Wrapper, ...renderOptions });
 };
 
-export const renderHookWithProviders = <TProps, TResult>(
-  hook: (props: TProps) => TResult,
-  options: CustomRenderOptions = {}
+export const renderHookWithProviders = <Result, Props>(
+  render: (initialProps: Props) => Result,
+  options: CustomRenderHookOptions<Props> = {}
 ) => {
-  const { authMock, profileMock, route, path, ...renderOptions } = options;
+  const { authMock, profileMock, route, path, wrapper: InnerWrapper, ...renderOptions } = options;
   const Wrapper = ({ children }: { children: ReactNode }) => (
     <AllTheProviders authMock={authMock} profileMock={profileMock} route={route} path={path}>
-      {children}
+      {InnerWrapper ? <InnerWrapper>{children}</InnerWrapper> : children}
     </AllTheProviders>
   );
-  return renderHook(hook, { wrapper: Wrapper, ...renderOptions });
+  return renderHook(render, { wrapper: Wrapper, ...renderOptions });
 };
 

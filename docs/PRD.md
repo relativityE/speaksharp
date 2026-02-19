@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-09
+**Last Reviewed:** 2026-02-17
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Product Requirements Document
 
-**Version 9.4** | **Last Updated:** 2026-02-16
+**Version: 9.5** | **Last Updated:** 2026-02-17
 
 ## 1. Executive Summary
 
@@ -92,7 +92,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Usage Limit Pre-Check** | 2 | Checks remaining usage BEFORE session starts. Shows upgrade prompt if exceeded. | ✅ Implemented | ✅ Yes |
 | **Session Comparison** | 1 | Compares stats from the 4 most recent sessions. | ✅ Implemented | ✅ Yes |
 | **PDF Export** | 1 | Allows users to download a PDF report of their session (FileSaver.js). | ✅ Implemented | ✅ Yes |
-| **STT Accuracy Comparison** | 1 | Rolling average comparison of STT engine accuracy against a ground truth. | Partial | ✅ Yes |
+| **STT Accuracy Comparison** | 1 | Rolling average comparison of STT engine accuracy against a ground truth. | 🟡 Partial (UI Done, Needs Data) | ✅ Yes |
 | **Top 2 Filler Words**| 1 | Maintains the top 2 highest filler words for the most recent 4 sessions. | ✅ Implemented | ✅ Yes |
 | **Weekly Activity Chart** | 2 | Visual chart showing practice frequency over the past week. | ✅ Implemented | ✅ Yes |
 | **Premium Loading States** | 2.5 | Skeleton loading UI for premium user experience. | ✅ Implemented | ✅ Yes |
@@ -194,9 +194,11 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 ### Active Constraints
 
 - **Theming:** Dark Theme fully implemented with polished UI (Inter font, glassmorphism). Light theme pending.
-- **Unit Test Coverage:** 61.73% (509 tests). Target: 75%. Tracked in tech debt.
-- **UX - Mobile Experience:** Controls on `SessionPage` scroll away ("thumb stretch" issue). Sticky footer required. (Tracked in ROADMAP)
-- **🟡 Testimonials:** `TestimonialsSection` has placeholder content. Needs real user testimonials.
+- **Unit Test Coverage:** 100% Codebase Health (Lint/Typecheck). Tracked in Phase 5.
+- **ℹ️ INFO - Test "See-Saw" Failure (Active):** A persistent architectural conflict where fixing unit tests for `useSpeechRecognition` hooks can break E2E verification, and vice-versa. (Under investigation in Phase 6).
+- **UX - Mobile Experience:** Controls on `SessionPage` scroll away ("thumb stretch" issue). Sticky footer required. (✅ RESOLVED - `MobileActionBar` implemented).
+- **🟡 Testimonials:** `TestimonialsSection` has placeholder content ("TBD"). Needs real user testimonials.
+- **✅ REFACTORED - God File Decomposition (2026-02-16):** Successfully split monolithic `useSpeechRecognition_prod.ts` and `TranscriptionProvider.tsx` into atomic, testable hooks. Resolved Fast Refresh compliance issues.
 - **ℹ️ Mock Timeout Bypass:** The `TranscriptionService` now explicitly bypasses the 2s Optimistic Entry timeout when a mock is detected. This ensures deterministic behavior in CI but introduces a tight coupling between the service and test infrastructure. (Tracked as tech debt).
 
 ### Tech Debt (Testing)
@@ -211,7 +213,8 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 - ✅ **CI Path Resolution (2026-02-09):** Resolved Lighthouse CI `MODULE_NOT_FOUND` by implementing subshells `()` for backgrounded preview processes, ensuring stable CWD for subsequent steps.
 - ✅ **Live Test Identity Stability (2026-02-09):** Prevented MSW from hijacking live database sessions by ensuring `shouldEnableMocks` respects `USE_REAL_DATABASE`.
 - ✅ **Model Loading Indicator (2026-02-09):** Normalized progress reporting to a standard 0-100% scale and fixed UI display multipliers.
-- **ℹ️ User Filler Words Native STT:** Native STT doesn't support user filler words (browser-controlled). Only Cloud STT (`word_boost`) supports this.
+- ✅ **User Filler Words Native STT:** Native STT doesn't support user filler words (browser-controlled). Only Cloud STT (`word_boost`) supports this.
+- ✅ **100% Type Safety (2026-02-16):** Eliminated all `any` usage in transcription types and resolved literal widening issues. Permanent "Zero-Debt" pass.
 
 ### Gap Analysis: Alpha Launch Blockers
 
@@ -239,7 +242,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Mon, 16 Feb 2026 00:44:01 GMT
+**Last Updated:** Tue, 17 Feb 2026 01:00:00 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 

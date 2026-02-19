@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '../../../tests/support/test-utils';
 import { describe, it, expect, vi } from 'vitest';
 import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
 

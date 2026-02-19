@@ -22,9 +22,18 @@ interface AllTheProvidersProps {
   path?: string;
 }
 
-const queryClient = new QueryClient();
-
 export const AllTheProviders = ({ children, authMock, profileMock, route = '/', path }: AllTheProvidersProps) => {
+  // ✅ FIX: Instantiate QueryClient INSIDE component to ensure isolation (Strategy 16)
+  // This prevents cache leaking between tests
+  const [queryClient] = React.useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false, // Fail fast in tests
+        gcTime: 0, // No garbage collection delay
+      },
+    },
+  }));
+
   const initialEntries = [typeof route === 'string' ? { pathname: route } : route];
 
   const defaultAuthMock: AuthContextType = {

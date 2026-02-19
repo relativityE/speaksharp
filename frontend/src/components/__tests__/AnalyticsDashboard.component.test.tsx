@@ -1,7 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen } from '../../../tests/support/test-utils';
 import { AnalyticsDashboard } from '../AnalyticsDashboard';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { BrowserRouter } from 'react-router-dom';
 import React from 'react';
 import type { UserProfile } from '@/types/user';
 
@@ -88,11 +87,7 @@ describe('AnalyticsDashboard', () => {
 
     const renderComponent = (propsOverride = {}) => {
         const props = { ...defaultProps, ...propsOverride };
-        return render(
-            <BrowserRouter>
-                <AnalyticsDashboard {...props} />
-            </BrowserRouter>
-        );
+        return render(<AnalyticsDashboard {...props} />);
     };
 
     it('should render loading skeleton when loading', () => {

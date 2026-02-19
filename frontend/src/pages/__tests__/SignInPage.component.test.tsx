@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '../../../tests/support/test-utils';
 import userEvent from '@testing-library/user-event';
-import { BrowserRouter } from 'react-router-dom';
 import SignInPage from '../SignInPage';
 import * as AuthProvider from '@/contexts/AuthProvider';
 import * as supabaseClient from '@/lib/supabaseClient';
@@ -38,11 +37,7 @@ describe('SignInPage', () => {
     });
 
     const renderSignInPage = () => {
-        return render(
-            <BrowserRouter>
-                <SignInPage />
-            </BrowserRouter>
-        );
+        return render(<SignInPage />);
     };
 
     describe('Rendering', () => {

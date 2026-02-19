@@ -73,16 +73,22 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       target: 'esnext',
-      sourcemap: false,
+      emptyOutDir: true,
+      sourcemap: true,
+      minify: process.env.NODE_ENV === 'test' ? false : 'esbuild',
       outDir: 'dist',
       rollupOptions: {
         output: {
+          // Add timestamp to filenames to force cache bust
+          entryFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
+          chunkFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
+          assetFileNames: `assets/[name]-[hash]-${Date.now()}.[ext]`,
           manualChunks: {
-            'vendor-transformers': ['@xenova/transformers'],
-            'vendor-charts': ['recharts'],
-            'vendor-utils': ['html2canvas', 'jspdf', 'lucide-react', 'clsx', 'tailwind-merge'],
-            'vendor-react': ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query'],
+            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
             'vendor-supabase': ['@supabase/supabase-js'],
+            'vendor-utils': ['lodash', 'date-fns', 'clsx', 'tailwind-merge'],
+            'vendor-transformers': ['@xenova/transformers'],
+            'vendor-charts': ['recharts', 'lucide-react']
           }
         }
       },
@@ -98,7 +104,7 @@ export default defineConfig(({ mode }) => {
     define: {
       // Vite automatically exposes VITE_* prefixed env vars on import.meta.env
       // We only need to override specific values here
-      'process.env': {},
+
       'global': 'globalThis',
       'import.meta.env.VITE_TEST_MODE': JSON.stringify(String(isTestMode)),
       '__BUILD_ID__': JSON.stringify(process.env.BUILD_ID ?? new Date().toISOString()),

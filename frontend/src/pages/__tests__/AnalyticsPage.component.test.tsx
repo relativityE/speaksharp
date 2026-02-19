@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { render, screen, fireEvent } from '../../../tests/support/test-utils';
 import { AnalyticsPage } from '../AnalyticsPage';
 import * as AnalyticsHook from '../../hooks/useAnalytics';
 import * as AuthProvider from '../../contexts/AuthProvider';
@@ -55,14 +54,9 @@ describe('AnalyticsPage', () => {
     });
 
     const renderAnalyticsPage = (initialEntry = '/analytics') => {
-        return render(
-            <MemoryRouter initialEntries={[initialEntry]}>
-                <Routes>
-                    <Route path="/analytics" element={<AnalyticsPage />} />
-                    <Route path="/analytics/:sessionId" element={<AnalyticsPage />} />
-                </Routes>
-            </MemoryRouter>
-        );
+        // Map the initial entry to the correct path pattern
+        const path = initialEntry.includes('/analytics/') ? '/analytics/:sessionId' : '/analytics';
+        return render(<AnalyticsPage />, { route: initialEntry, path });
     };
 
     describe('Loading States', () => {

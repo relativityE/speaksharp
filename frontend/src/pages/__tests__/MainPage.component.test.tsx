@@ -1,7 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen } from '../../../tests/support/test-utils';
 import { MainPage } from '../MainPage';
 
 /**
@@ -37,16 +35,7 @@ vi.mock('@/hooks/useBrowserSupport', () => ({
 }));
 
 const renderWithProviders = (ui: React.ReactElement) => {
-    const queryClient = new QueryClient({
-        defaultOptions: { queries: { retry: false } }
-    });
-    return render(
-        <QueryClientProvider client={queryClient}>
-            <MemoryRouter>
-                {ui}
-            </MemoryRouter>
-        </QueryClientProvider>
-    );
+    return render(ui);
 };
 
 describe('MainPage', () => {

@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '../../../tests/support/test-utils';
 import userEvent from '@testing-library/user-event';
-import { BrowserRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import SignUpPage from '../SignUpPage';
 import * as AuthProvider from '@/contexts/AuthProvider';
 import * as supabaseClient from '@/lib/supabaseClient';
@@ -43,20 +41,7 @@ describe('SignUpPage', () => {
     });
 
     const renderSignUpPage = () => {
-        const queryClient = new QueryClient({
-            defaultOptions: {
-                queries: {
-                    retry: false,
-                },
-            },
-        });
-        return render(
-            <QueryClientProvider client={queryClient}>
-                <BrowserRouter>
-                    <SignUpPage />
-                </BrowserRouter>
-            </QueryClientProvider>
-        );
+        return render(<SignUpPage />);
     };
 
     describe('Rendering', () => {

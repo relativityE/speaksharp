@@ -1,4 +1,4 @@
-import { renderHook } from '@testing-library/react';
+import { renderHook } from '../../../../tests/support/test-utils';
 import { useTranscriptionService, type UseTranscriptionServiceOptions } from '../useTranscriptionService';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { testRegistry } from '../../../services/transcription/TestRegistry';

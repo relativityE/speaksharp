@@ -1,5 +1,5 @@
-import { renderHook, act } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { renderHook } from '../../../../tests/support/test-utils';
+import { describe, it, expect } from 'vitest';
 import { useFillerWords } from '../useFillerWords';
 import { Chunk } from '../types';
 
@@ -27,7 +27,7 @@ describe('useFillerWords', () => {
   it('should handle interim transcript transiently', () => {
     const chunks: Chunk[] = [];
     const { result, rerender } = renderHook(
-      ({ chunks, interim }) => useFillerWords(chunks, interim, customWords),
+      ({ chunks, interim }: { chunks: Chunk[], interim: string }) => useFillerWords(chunks, interim, customWords),
       { initialProps: { chunks, interim: '' } }
     );
 
@@ -48,7 +48,7 @@ describe('useFillerWords', () => {
   it('should reset when chunks are cleared', () => {
     const chunks: Chunk[] = [{ text: 'um', id: 1, timestamp: Date.now() }];
     const { result, rerender } = renderHook(
-      ({ chunks }) => useFillerWords(chunks, '', customWords),
+      ({ chunks }: { chunks: Chunk[] }) => useFillerWords(chunks, '', customWords),
       { initialProps: { chunks } }
     );
 

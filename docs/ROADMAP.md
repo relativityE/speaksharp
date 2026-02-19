@@ -37,6 +37,9 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Rem
 | **S1** | **Universal Secret Migration** | **CRITICAL** | ✅ Complete | Migrated all workflows to `SUPABASE_SERVICE_ROLE_KEY`. Verified 0 legacy key usage. |
 | **S2** | **Gemini 3.0 Flash Upgrade** | **HIGH** | ✅ Complete | Upgraded AI Coach for faster, smarter feedback. |
 | **S3** | **Tier Limit Dynamic Labels** | **HIGH** | ✅ Complete | Unified ensuring "Daily" and "Monthly" limits are correctly handled in UI/Tests. |
+| **S3.1**| **Tier Limit Logic** | **HIGH** | ✅ Complete | `tier-limits.e2e.spec.ts` now dynamically verifies "Daily" (Edge Function) or "Monthly" (RPC) limits based on backend response. Mock duration remains 6s to satisfy `MIN_SESSION_DURATION_SECONDS` (5s). |
+| **S3.2**| **PDF Content Extraction** | **MEDIUM** | 🟡 In Progress | `pdf-parse` requires `DOMMatrix`. PDF structure validated only. (By design) |
+| **S3.3**| **STT Accuracy Comparison** | **MEDIUM** | 🟡 In Progress | Component implemented (`STTAccuracyComparison.tsx`) but `@deferred` waiting for ground truth data ingestion feature. |
 | **S4** | **Canary User Persistence** | **MEDIUM** | ✅ Complete | Migrated from automated cleanup to unique email persistence for easier debugging. |
 | **S5** | **Design Parity Audit** | **MEDIUM** | ✅ Complete | Fixed "interpolation mud" in radial gradients and de-bloated upgrade banners. |
 | **S6** | **Phase 2 Hardening Remediation**| **CRITICAL**| ✅ Complete | **Zero Tolerance CI:** Resolved all lint/type errors. Implemented stability guards (Stale closures, DI pattern, Global Error Handlers) and security hardening (Atomic updates, Rate limiting). |
@@ -68,11 +71,12 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ⏸️ **DEFERRED** - Upgrade Postgres version (not critical for alpha)
 - ✅ **COMPLETED - Integration Test (Usage Limits):** Deno unit tests exist at `backend/supabase/functions/check-usage-limit/index.test.ts` (167 lines, 6 test cases covering auth, free/pro users, exceeded limits, graceful degradation, CORS).
 - 🔴 **Domain Services DI Refactor:** Evolve `domainServices.ts` from internal client retrieval to dependency injection pattern for fully pure, easily testable functions. Low priority - current spy-based testing works for alpha.
-- 🟡 **Console Error Highlighting (P0 - Debugging) [HIGH PRIORITY]:** Add automatic ANSI color highlighting for ERROR/FAILED/FATAL (red bold) and WARNING/WARN (yellow bold) in all terminal output. Should apply globally to any console usage (not require agents to remember a specific script). Improves developer experience for spotting issues.
+- ✅ **Console Error Highlighting (P0 - Debugging):** Implemented via `pino-pretty` with `colorize: true` in `lib/logger.ts`. Standardized for all domain services and async modes. (2026-02-16)
 - ✅ **Independent Documentation Review (2026-01-28):** Conducted full audit of all project documents against `docs/OUTLINE.md` requirements. Verified sync across PRD, Architecture, and Roadmap.
-- 🟡 **Gap Analysis [HIGH PRIORITY]:** Do a Gap Analysis of current implementation against the Current Phase requirements.
+- ✅ **Gap Analysis [HIGH PRIORITY]:** Conducted full audit of Zero-Debt status, tech debt, and architectural drift. (2026-02-16)
 - ✅ **Side-by-Side Session Comparison:** Implemented `SessionComparisonDialog.tsx` supporting 2-session diffs (WPM, Clarity, Fillers).
 - 🔴 **Speaker Identification:** Not started. `CloudAssemblyAI.ts` implementation does not currently request `speaker_labels`.
+- ✅ **Canary Tests:** Real-API `@canary` tests for staging environment implemented in `tests/canary/`.
 - ✅ **COMPLETED (2025-12-15) - E2E Test Infrastructure: MSW-to-Playwright Routes Migration:**
   - **Problem:** MSW service workers are browser-global per-origin. Parallel shards race for registration, causing intermittent `ui-state-capture` flakiness.
   - **Root Cause:** 99.5% confidence - service worker race conditions in parallel CI.
@@ -192,7 +196,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 > **Goal:** Increase line coverage from 56% → 75% with integrity-preserving, adversarial validation. Focus on resilience and design invariants over structural coverage.
 
 *   **P0: Resilience & Revenue Integrity**
-    *   🟡 **WebSocket Resilience:** Test `CloudAssemblyAI.test.ts` with `vi.useFakeTimers()` (backoff, heartbeats).
+    *   ✅ **WebSocket Resilience (2026-02-16):** Fully tested in `CloudAssemblyAI.test.ts` using `vi.useFakeTimers()` for backoff and heartbeat verification.
     *   ✅ **Billing Idempotency (2025-12-19):** 15 tests covering webhook replay, idempotency lock, and partial failure recovery.
     *   ✅ **Auth Resilience (2025-12-19):** 7 tests in `fetchWithRetry.test.ts` (exponential backoff, custom retry count, error preservation).
 *   **P1: Business Logic**
@@ -200,7 +204,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
     *   🔴 **Domain Services:** CRUD validation in `domainServices.ts`.
     *   🔴 **Analytics Correctness:** Month-boundary rollover and session aggregation logic.
 *   **P2: E2E Trust**
-    *   🔴 **Canary Tests:** Real-API `@canary` tests for staging environment.
+    *   ✅ **Canary Tests:** Real-API `@canary` tests implemented in `tests/canary/` (`smoke.canary.spec.ts`).
 
 ### 🚨 Alpha Launch Blockers (Comprehensive Audit - 2025-12-12)
 
@@ -270,12 +274,8 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 - 🟡 **E2E Test Console Warnings (2025-12-22):** The following console logs appear during E2E tests and should be addressed:
   - **Recharts Dimension Warning:** `The width(-1) and height(-1) of chart should be greater than 0` - Chart renders before container has dimensions in headless browser.
-    - **Fix:** Add `minWidth`/`minHeight` props or guard rendering until container is measured.
-  - **Failed to fetch (Supabase signOut):** `TypeError: Failed to fetch` during tests that don't mock the signOut endpoint.
-    - **Fix:** Add signOut mock to `mock-routes.ts`.
-  - **`[FREE] ⚠️ No upgrade button found`:** Expected conditional behavior when upgrade button isn't shown (e.g., session count threshold not met).
-    - **Status:** Expected behavior, not a bug.
-  - **Status:** P3 - Cosmetic warnings only, tests pass.
+    - **Status:** Acceptable for Alpha, cosmetic only.
+  - **✅ FIXED - Failed to fetch (Supabase signOut):** Added `auth/v1/logout*` mock to `mock-routes.ts`.
 
 
 - 🟢 **Vocal Analysis Disabled:** The `useVocalAnalysis` hook exists but is initialized with `false`. Pause detection feature intentionally disabled pending microphone stream integration.
@@ -378,16 +378,7 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Analytics UI Restoration & Consolidation (2025-12-31):** Resolved MSW initialization regression. Consolidated redundant upgrade prompts and merged plan status indicators for a cleaner Analytics dashboard.
 - ✅ **Port Centralization (2025-12-21):** Eliminated hardcoded port numbers. Created `scripts/build.config.ts` with `PORTS.DEV` (5173) and `PORTS.PREVIEW` (4173). Updated 10+ files.
 - ✅ **PERPETUAL - Documentation Audit (2026-02-09):** Verified PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Resolved CI path resolution and MSW identity issues. **Frequency:** Before each release and after major feature work.
-- 🔴 **Side-by-Side Session Comparison:** Implement full comparison UI to complement existing trend analysis.
-  - **Context:** Session history list currently displays metrics for trend analysis. Full comparison requires additional UI and logic.
-  - **Requirements:**
-    1. Add checkboxes/multi-select to session history items
-    2. Create comparison modal/dialog component
-    3. Calculate deltas between 2-3 selected sessions (WPM, Clarity, Filler count, Duration)
-    4. Display visual indicators: green ↑ for improvement, red ↓ for regression
-    5. Show percentage change and absolute differences
-  - **Test Coverage:** E2E test exists in `session-comparison.e2e.spec.ts` documenting expected behavior
-  - **Priority:** MEDIUM - Enhances trend analysis but not blocking for alpha
+- ✅ **Side-by-Side Session Comparison (2025-12-06):** Implemented `SessionComparisonDialog.tsx` with `ProgressIndicator` and integrated into `AnalyticsDashboard.tsx`. Verified via `session-comparison.e2e.spec.ts`.
 
 ### 🚧 Should-Have (Tech Debt)
 
@@ -483,8 +474,8 @@ This phase is about confirming the core feature set works as expected and polish
   - Showcases Cloud AI and Native STT modes with brief recording sessions
   - Captures full user journey: Landing → Auth → Session (STT mode selection) → Analytics
   - Run: `pnpm build:test && pnpm exec playwright test --config=playwright.demo.config.ts`
-- **✅ COMPLETED (2025-12-07) - Populate Testimonials:**
-  - [x] **Testimonials Section** (Implemented but Disabled pending real content)
+- **🟡 PARTIAL (2025-12-07) - Populate Testimonials:**
+  - [x] **Testimonials Section** (Implemented but contains "TBD" placeholders. Needs real content.)
 - **✅ COMPLETED (2025-12-03) - Resolve TypeScript 'any' Type Errors in Test Suite:**
   - Fixed 23+ `Unexpected any` lint errors across 7 test files
   - Replaced `as any` with proper type assertions using `ReturnType<typeof hook>` pattern
@@ -537,7 +528,7 @@ This phase is about confirming the core feature set works as expected and polish
 | 6 | **SessionPage Mega Component** | `SessionPage.tsx` | P2 | ✅ DECOMPOSED - Logic moved to hooks, UI split into cards |
 | ~~7~~ | ~~**Filler/Min Rounding Edge Case**~~ | ~~`analyticsUtils.ts:61`~~ | ~~P3~~ | ✅ FIXED 2026-01-06 - Now uses precise minutes |
 | 8 | **Minimum Session Duration UX** | `SessionPage.tsx` | P2 | ✅ FIXED - Added HUD indicator and feedback message |
-| 9 | **Test Harness Config (Stale Closure)** | `useSpeechRecognition/__tests__` | P3 | 🔴 Skipped reproduction test due to module resolution issues. Simulator misconfigured for this file. |
+| 9 | **Test Harness Config (Stale Closure)** | `useSpeechRecognition/__tests__` | P3 | ✅ FIXED - Atomic hook decomposition (`useTranscriptionCallbacks`) and `useRef`-based proxying eliminates stale closure risk. |
 | 10 | **Unified Documentation Metric Sync** | `scripts/update-prd-metrics.mjs` | P2 | Automate metric sync for `README.md` and `ARCHITECTURE.md` using markers (currently manual). |
 | 11 | **Remove Mock Timeout Bypass** | `TranscriptionService.ts` | P2 | Evolve the Optimistic Entry logic to handle mocks via a more generic "ready-on-init" flag rather than explicitly checking for mocks, reducing test-prod coupling. |
 
@@ -563,8 +554,8 @@ This phase addresses findings from the December 2025 UX Audit (`ux_audit.md`) to
 - ✅ **HeroSection Contrast Fixed (2025-12-07):** Added drop-shadow and backdrop-blur for WCAG AA compliance.
 
 ### 🚧 Should-Have
-- 🔴 **Guest Mode / Quick Start:** Allow users to try a "Demo Session" without full sign-up (reduce friction).
-- ✅ **Mobile Optimization (2025-12-11):** Implement "Sticky Bottom" controls for `SessionPage` on mobile viewports. (Implemented in `SessionPage.tsx`).
+- 🔴 **Guest Mode / Quick Start:** Allow users to try a "Demo Session" without full sign-up (reduce friction). No generic login logic in `SignInPage.tsx` yet.
+- ✅ **Mobile Optimization (2025-12-11):** Implement "Sticky Bottom" controls for `SessionPage` on mobile viewports. (Implemented in `SessionPage.tsx` via `MobileActionBar`).
 
 ### 🌱 Could-Have
 - 🔴 **Live Overlay / Mini-Mode:** Create a compact "Heads Up Display" view for use during real video calls (vs practice mode).
@@ -593,6 +584,7 @@ This phase focuses on hardening the interface between frontend and backend and e
   - ✅ **Cache WASM Model:** Service Worker caches `.bin` and `.wasm` via Cache Storage API.
   - ✅ **Offline Support:** Model loads from cache when offline.
 - 🔴 **Add Platform Integrations (e.g., Zoom, Google Meet):** Allow SpeakSharp to connect to and analyze audio from third-party meeting platforms.
+- 🔴 **Speaker Identification:** Distinguish between multiple speakers (diarization). Currently not implemented in `CloudAssemblyAI.ts`.
 - 🟡 **Set up Multi-Env CI/CD:** A basic implementation for DB migrations exists, but needs expansion.
 - ✅ **COMPLETED (2025-12-15) - Replace E2E Custom Event Synchronization:** Migrated from `programmaticLogin` (which relied on custom events like `e2e-profile-loaded`) to `programmaticLoginWithRoutes` which uses Playwright route interception. No longer dependent on internal event synchronization.
 - ✅ **Create Mock Data Factory Functions:** Rich mock data implemented in `handlers.ts` (2025-12-07) - 5 sessions with improvement trend, 6 vocabulary words. Supports trend analysis and goal verification.
@@ -651,8 +643,34 @@ This phase focuses on hardening the interface between frontend and backend and e
 | D7.1 | **Non-Atomic Usage Updates** | **CRITICAL** | ✅ FIXED | `create_session_and_update_usage`: Implemented atomic SQL counter increment. |
 | D7.2 | **Missing Orphan Protection** | **HIGH** | ✅ Complete | `sessions.user_id`: Added `ON DELETE CASCADE` via migration. |
 
+
 ### 🛡️ DOMAIN 8: Scalability Architecture ✅ COMPLETE
 | ID | Title | Severity | Status | Notes |
 |----|-------|----------|--------|-------|
 | D8.1 | **Missing Server-Side Rate Limits** | **CRITICAL** | ✅ Complete | Implemented Signal-based Rate Limiting in Edge Functions. |
 | D8.2 | **Edge Function Cold Starts** | **HIGH** | ✅ FIXED | Optimized imports and implemented background warmup retry logic. |
+
+---
+
+## 💎 Phase 5: Zero-Debt & Architectural Refinement (Feb 2026) ✅ COMPLETE
+
+> **Goal:** Eliminate all linting and type errors while decomposing core providers into atomic, maintainable hooks.
+
+| ID | Title | Priority | Status | Notes |
+|----|-------|----------|--------|-------|
+| **Z1** | **Zero-Debt Linting** | **CRITICAL** | ✅ Complete | Resolved all remaining linting errors (no `eslint-disable`) across 100+ files. |
+| **Z2** | **Full Type Safety** | **CRITICAL** | ✅ Complete | Achieved 100% type-check pass with unified transcription types and literal widening fixes. |
+| **Z3** | **God File Decomposition** | **HIGH** | ✅ Complete | Split `TranscriptionProvider.tsx` and refactored `useSpeechRecognition_prod.ts` into specialized atomic hooks. |
+| **Z4** | **TestRegistry Standardization**| **HIGH** | ✅ Complete | Unified engine injection via `TestRegistry`, enabling deterministic mocking in Vitest and E2E. |
+| **Z5** | **React Refresh Compliance** | **MEDIUM** | ✅ Complete | Resolved Fast Refresh export warnings by isolating provider components. |
+
+
+ ## ⚖️ Phase 6: Test Consistency & "See-Saw" Investigation (Active)
+ 
+ > **Goal:** Resolve the "See-Saw" failure where fixing Unit tests breaks E2E tests, and vice-versa.
+ 
+ | ID | Title | Priority | Status | Notes |
+ |----|-------|----------|--------|-------|
+ | **T1** | **Unit vs E2E Context Divergence** | **CRITICAL** | 🟡 In Progress | Investigating `TestRegistry` isolation between Vitest and Playwright. |
+ | **T2** | **Component Hook Mocking Parity** | **HIGH** | 🔴 Not Started | Ensuring `TranscriptionProvider` mocks behave identically in both test environments. |
+ | **T3** | **Global State Reset Hardening** | **HIGH** | 🔴 Not Started | Preventing state leakage in `useSessionStore` during rapid test cycles. |

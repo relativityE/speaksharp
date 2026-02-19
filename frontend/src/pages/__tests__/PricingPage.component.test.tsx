@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '../../../tests/support/test-utils';
 import userEvent from '@testing-library/user-event';
-import { BrowserRouter } from 'react-router-dom';
 import { PricingPage } from '../PricingPage';
 import * as supabaseClient from '@/lib/supabaseClient';
 
@@ -25,11 +24,7 @@ describe('PricingPage', () => {
     });
 
     const renderPricingPage = () => {
-        return render(
-            <BrowserRouter>
-                <PricingPage />
-            </BrowserRouter>
-        );
+        return render(<PricingPage />);
     };
 
     describe('Rendering', () => {

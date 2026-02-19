@@ -11,7 +11,7 @@
  * @see useSessionLifecycle.ts for the hook under test
  */
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act } from '../../../tests/support/test-utils';
 import { useSessionLifecycle } from '../../hooks/useSessionLifecycle';
 import * as SpeechRecognitionHook from '../../hooks/useSpeechRecognition';
 import * as SessionStore from '../../stores/useSessionStore';

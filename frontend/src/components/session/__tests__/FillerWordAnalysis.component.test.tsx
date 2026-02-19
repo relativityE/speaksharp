@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup } from '../../../../tests/support/test-utils';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import FillerWordAnalysis from '@/components/session/FillerWordAnalysis';
@@ -302,7 +302,7 @@ describe('FillerWordAnalysis Integration', () => {
             expect(cards.length).toBe(defaultFillerWords.length);
 
             // All should have count of 0
-            cards.forEach(card => {
+            cards.forEach((card: HTMLElement) => {
                 expect(card).toHaveTextContent('0');
             });
         });

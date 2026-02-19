@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen } from '../../../../tests/support/test-utils';
 import { WeeklyActivityChart } from '../WeeklyActivityChart';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { describe, it, expect, vi, Mock } from 'vitest';

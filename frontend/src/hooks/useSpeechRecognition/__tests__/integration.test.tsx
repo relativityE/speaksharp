@@ -1,5 +1,6 @@
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, waitFor } from '@testing-library/react';
+import { act, waitFor } from '../../../../tests/support/test-utils';
 import { renderHookWithProviders } from '@test-utils/renderHookWithProviders';
 import { MockTranscriptionService } from '@test-mocks/MockTranscriptionService';
 import useSpeechRecognition from '../index';

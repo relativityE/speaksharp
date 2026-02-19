@@ -7,6 +7,19 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
+- **Infrastructure & Logic Reliability (2026-02-17):**
+  - **Infrastructure:** Eliminated "Zombie Builds" in E2E testing by implementing `scripts/nuclear-clean.sh` (aggressive cache clearing) and switching to `pnpm dev` (Vite Dev Server) for test execution.
+  - **Logic:** Resolved "Shadowed State" bug in `useSpeechRecognition_prod.ts` where the `onReady` status was hardcoded, masking the actual store state.
+  - **Tooling:** Added `scripts/verify-build.sh` to deterministically verify build artifact freshness before testing.
+
+- **Zero-Debt Phase Completion & Hook Decomposition (2026-02-17):**
+  - **Quality:** Achieved 100% codebase health with zero linting and type-checking errors across all modules.
+  - **Architecture:** Successfully decomposed the "God File" `TranscriptionProvider.tsx` into atomic components, improving maintainability and React Refresh compatibility.
+  - **Architecture:** Refactored `useSpeechRecognition_prod.ts` by extracting logic into specialized hooks: `useTranscriptionState`, `useTranscriptionControl`, `useTranscriptionCallbacks`, and `useFillerWordCounter`.
+  - **Type Safety:** Unified transcription types (`SttStatus`, `TranscriptUpdate`) into `src/types/transcription.ts` to ensure consistency across the service and UI layers.
+  - **Hardening:** Standardized on `TestRegistry` for all STT engine injection, enabling deterministic mocking in both Vitest and Playwright.
+
+
 - **Architectural Hardening & Test Stabilization (2026-02-16):**
   - **Stability:** Fixed E2E deadlocks in `useSessionLifecycle.ts` by implementing a mutual exclusion lock.
   - **Stability:** Hardened `TranscriptionService` state machine by ensuring internal state updates immediately during transitions.

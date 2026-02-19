@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen } from '../../../tests/support/test-utils';
 import userEvent from '@testing-library/user-event';
 import { SessionPage } from '../SessionPage';
 import * as UsageLimitHook from '@/hooks/useUsageLimit';
@@ -46,15 +44,8 @@ vi.mock('posthog-js', () => ({ default: { capture: vi.fn() } }));
 vi.mock('@/components/session/PauseMetricsDisplay', () => ({ PauseMetricsDisplay: () => <div>Pause Metrics</div> }));
 vi.mock('@/components/session/UserFillerWordsManager', () => ({ UserFillerWordsManager: () => <div>User Filler Words</div> }));
 
-// Helper to render with router
-const renderWithRouter = (ui: React.ReactElement) => {
-    const queryClient = new QueryClient();
-    return render(
-        <QueryClientProvider client={queryClient}>
-            <MemoryRouter>{ui}</MemoryRouter>
-        </QueryClientProvider>
-    );
-};
+// Helper removed - using custom render from test-utils
+
 
 const mockUseUsageLimit = vi.mocked(UsageLimitHook.useUsageLimit);
 // Unused mocks removed
@@ -121,7 +112,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
             isProUser: false
         } as unknown as ReturnType<typeof useSessionLifecycle>);
 
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
 
         // Open dropdown using userEvent
         const trigger = screen.getByText('Native Browser'); // Initial label
@@ -146,7 +137,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
             isProUser: true
         } as unknown as ReturnType<typeof useSessionLifecycle>);
 
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
 
         const trigger = screen.getByText('Native Browser');
         await user.click(trigger);

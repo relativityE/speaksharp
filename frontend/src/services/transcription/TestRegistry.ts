@@ -22,7 +22,7 @@ declare global {
     }
 }
 
-class TestRegistryClass {
+export class TestRegistryClass {
     private registry = new Map<string, RegistryEntry>();
     private isEnabled = true; // Default to true in test environments
 

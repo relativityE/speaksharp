@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi, Mock } from 'vitest';
 import { TopFillerWords } from '../TopFillerWords';
 import { useAnalytics } from '@/hooks/useAnalytics';

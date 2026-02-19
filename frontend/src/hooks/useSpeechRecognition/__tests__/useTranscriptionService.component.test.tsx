@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useTranscriptionService } from '../useTranscriptionService';
 import { E2E_DETERMINISTIC_NATIVE } from '../types';

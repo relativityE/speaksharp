@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent } from '../../../tests/support/test-utils';
 import { LocalErrorBoundary } from '../LocalErrorBoundary';
 import logger from '../../lib/logger';
 import * as Sentry from '@sentry/react';

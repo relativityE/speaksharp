@@ -139,7 +139,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
             toast.dismiss(toastIdRef.current);
             toastIdRef.current = null;
         }
-    }, [stt, filler, timer, stopSession]);
+    }, [stt, timer, stopSession]);
 
     const startListening = useCallback(async (policy: TranscriptionPolicy = E2E_DETERMINISTIC_NATIVE) => {
         reset();

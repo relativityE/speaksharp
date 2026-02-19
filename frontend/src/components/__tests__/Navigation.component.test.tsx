@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { render, screen, fireEvent } from '../../../tests/support/test-utils';
 import Navigation from '../Navigation';
 import * as AuthProvider from '../../contexts/AuthProvider';
 
@@ -31,11 +30,7 @@ describe('Navigation', () => {
     });
 
     const renderNavigation = (initialRoute = '/') => {
-        return render(
-            <MemoryRouter initialEntries={[initialRoute]}>
-                <Navigation />
-            </MemoryRouter>
-        );
+        return render(<Navigation />, { route: initialRoute });
     };
 
     describe('Rendering', () => {

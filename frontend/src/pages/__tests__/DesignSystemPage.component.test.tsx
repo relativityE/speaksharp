@@ -1,22 +1,19 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen } from '../../../tests/support/test-utils';
 import { describe, it, expect } from 'vitest';
 import { DesignSystemPage } from '../DesignSystemPage';
-import { BrowserRouter } from 'react-router-dom';
 import React from 'react';
 
-const renderWithRouter = (ui: React.ReactElement) => {
-    return render(<BrowserRouter>{ui}</BrowserRouter>);
-};
+// Helper removed - using custom render from test-utils
 
 describe('DesignSystemPage', () => {
     it('renders correctly', () => {
-        renderWithRouter(<DesignSystemPage />);
+        render(<DesignSystemPage />);
         expect(screen.getByText('Design System Showcase')).toBeInTheDocument();
         expect(screen.getByText(/A visual reference/i)).toBeInTheDocument();
     });
 
     it('renders all component sections', () => {
-        renderWithRouter(<DesignSystemPage />);
+        render(<DesignSystemPage />);
         expect(screen.getByText('Typography')).toBeInTheDocument();
         expect(screen.getByText('Buttons')).toBeInTheDocument();
         expect(screen.getByText('Inputs')).toBeInTheDocument();
@@ -26,7 +23,7 @@ describe('DesignSystemPage', () => {
     });
 
     it('renders component examples', () => {
-        renderWithRouter(<DesignSystemPage />);
+        render(<DesignSystemPage />);
         expect(screen.getByRole('button', { name: /primary/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /destructive/i })).toBeInTheDocument();
     });

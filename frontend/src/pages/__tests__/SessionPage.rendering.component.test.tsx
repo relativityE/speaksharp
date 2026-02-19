@@ -8,7 +8,7 @@ vi.mock('@sentry/react', () => ({
     captureException: vi.fn(),
 }));
 
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup } from '../../../tests/support/test-utils';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SessionPage } from '../SessionPage';
