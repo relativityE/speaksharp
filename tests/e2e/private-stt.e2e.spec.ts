@@ -32,12 +32,7 @@ interface E2EWindow extends Window {
 test.describe('Private STT (Whisper)', () => {
 
     test.beforeEach(async ({ page }) => {
-        page.on('console', msg => {
-            const text = msg.text();
-            if (text.includes('[Hook]') || text.includes('[TranscriptionService]') || text.includes('[MockPrivateWhisper]') || text.includes('[DIAG]') || text.includes('[E2E_DEBUG]')) {
-                console.log(`[BROWSER] ${text}`);
-            }
-        });
+        attachLiveTranscript(page);
         await setupE2EMocks(page);
         await enableTestRegistry(page);
         // Reset FailureManager to prevent sticky failures from previous tests
@@ -45,7 +40,6 @@ test.describe('Private STT (Whisper)', () => {
             const win = window as unknown as E2EWindow;
             if (win.__FAILURE_MANAGER__) {
                 win.__FAILURE_MANAGER__.resetFailureCount();
-                console.log('[E2E Setup] FailureManager count reset');
             }
         });
     });
@@ -72,24 +66,20 @@ test.describe('Private STT (Whisper)', () => {
 
         // Register mock with diagnostics
         await registerMockInE2E(page, 'private', `(opts) => {
-            console.log('[DIAGNOSTIC] Factory called with opts:', opts);
+            console.debug('[DIAGNOSTIC] Factory called with opts:', opts);
             if (!window.__DIAGNOSTIC__) window.__DIAGNOSTIC__ = {}; 
             window.__DIAGNOSTIC__.factoryCalled = true;
             window.__DIAGNOSTIC__.factoryReceivedOpts = Object.keys(opts || {});
             
             // Try to access the callback
             const hasProp = 'onModelLoadProgress' in (opts || {});
-            const propValue = opts?.onModelLoadProgress;
-            const propType = typeof propValue;
             
-            console.log('[DIAGNOSTIC] Has onModelLoadProgress prop:', hasProp);
-            console.log('[DIAGNOSTIC] Property value:', propValue);
-            console.log('[DIAGNOSTIC] Property type:', propType);
+            console.debug('[DIAGNOSTIC] Has onModelLoadProgress prop:', hasProp);
             
             let progressCb = opts?.onModelLoadProgress || null;
             
             if (progressCb) {
-                console.log('[DIAGNOSTIC] Callback captured successfully');
+                console.debug('[DIAGNOSTIC] Callback captured successfully');
                 window.__DIAGNOSTIC__.callbackCaptured = true;
             } else {
                 console.error('[DIAGNOSTIC] Callback is null!');
@@ -99,15 +89,15 @@ test.describe('Private STT (Whisper)', () => {
                 init: async () => {
                    // Expose controller
                    window.__E2E_ADVANCE_PROGRESS__ = (p) => {
-                       console.log('[DIAGNOSTIC] Advance called with:', p);
+                       console.debug('[DIAGNOSTIC] Advance called with:', p);
                        window.__DIAGNOSTIC__.callbackInvoked = true;
                        window.__DIAGNOSTIC__.callbackValue = p;
                        
                        if (progressCb) {
-                           console.log('[DIAGNOSTIC] Invoking callback...');
+                           console.debug('[DIAGNOSTIC] Invoking callback...');
                            try {
                                progressCb(p);
-                               console.log('[DIAGNOSTIC] Callback invoked successfully');
+                               console.debug('[DIAGNOSTIC] Callback invoked successfully');
                            } catch (e) {
                                console.error('[DIAGNOSTIC] Callback threw error:', e);
                            }
@@ -161,7 +151,7 @@ test.describe('Private STT (Whisper)', () => {
             }
             return (window as unknown as E2EWindow).__DIAGNOSTIC__;
         }) as DiagnosticResult;
-        console.log('=== DIAGNOSTICS (INIT) ===', JSON.stringify(diag1, null, 2));
+        debugLog('=== DIAGNOSTICS (INIT) ===', JSON.stringify(diag1, null, 2));
 
         // FORCE FAILURE WITH DATA if suspicious
         if (diag1.error) {
@@ -194,17 +184,14 @@ test.describe('Private STT (Whisper)', () => {
         );
         await expect(loadingIndicator).toContainText('50%');
 
-        // Manually advance to 100% (Complete)
+        // Manually advance to 100% (Complete) - it should auto-hide
         await page.evaluate(() => (window as unknown as E2EWindow).__E2E_ADVANCE_PROGRESS__?.(1));
 
-        // Helper to ensure UI updates before we clear it
-        await expect(loadingIndicator).toContainText('100%');
-
-        // Signal completion (set progress to null to hide indicator)
-        await page.evaluate(() => (window as unknown as E2EWindow).__E2E_ADVANCE_PROGRESS__?.(null));
-
-        // Wait for download to finish (indicator hidden)
+        // Wait for download to finish (indicator hidden automatically at 100%)
         await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
+
+        // Signal completion (set progress to null as extra safety)
+        await page.evaluate(() => (window as unknown as E2EWindow).__E2E_ADVANCE_PROGRESS__?.(null));
 
         // Recording should still be active
         await expect(page.getByTestId('session-status-indicator')).toContainText(/Recording active/i);

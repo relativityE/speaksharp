@@ -23,6 +23,19 @@ vi.mock('@sentry/react', () => ({
     captureException: vi.fn(),
 }));
 
+// Mock sonner to avoid matchMedia issues in ErrorBoundary tests
+vi.mock('sonner', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('sonner')>();
+    return {
+        ...actual,
+        Toaster: () => <div data-testid="mock-toaster" />,
+        toast: {
+            error: vi.fn(),
+            success: vi.fn(),
+        },
+    };
+});
+
 // Test Component that throws
 const Bomb = ({ message = 'KABOOM' }: { message?: string }) => {
     throw new Error(message);

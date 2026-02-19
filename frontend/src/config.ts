@@ -52,6 +52,7 @@ export const SUBSCRIPTION_LIMITS = {
 
 export const STT_CONFIG = {
   MAX_PRIVATE_ATTEMPTS: 2,
+  LOAD_CACHE_TIMEOUT_MS: 2000, // Threshold for Private STT cache hit vs download
   // AssemblyAI requires audio packets between 50-1000ms
   // At 16kHz: 50ms = 800 samples, 1000ms = 16000 samples
   ASSEMBLYAI_MIN_PACKET_MS: 50,

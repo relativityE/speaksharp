@@ -57,16 +57,24 @@ vi.mock('posthog-js', () => ({
 }));
 
 // Mock react-router-dom
-vi.mock('react-router-dom', () => ({
-    useNavigate: () => vi.fn(),
-}));
+vi.mock('react-router-dom', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('react-router-dom')>();
+    return {
+        ...actual,
+        useNavigate: () => vi.fn(),
+    };
+});
 
 // Mock react-query
-vi.mock('@tanstack/react-query', () => ({
-    useQueryClient: () => ({
-        invalidateQueries: vi.fn(),
-    }),
-}));
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@tanstack/react-query')>();
+    return {
+        ...actual,
+        useQueryClient: () => ({
+            invalidateQueries: vi.fn(),
+        }),
+    };
+});
 
 const mockUseSpeechRecognition = vi.mocked(SpeechRecognitionHook.useSpeechRecognition);
 const mockUseSessionStore = vi.mocked(SessionStore.useSessionStore);

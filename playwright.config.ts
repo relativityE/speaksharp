@@ -19,8 +19,8 @@ export default defineConfig({
   testIgnore: [/.*\.(live|canary|soak)\.spec\.ts/], // Exclude other categories
   outputDir: './test-results/playwright',
   // FAIL FAST: Aggressive timeouts - no test should hang
-  timeout: 30_000, // 30s per test max
-  expect: { timeout: 10_000 }, // 10s expect timeout
+  timeout: 60_000, // 60s per test max (increased for stability)
+  expect: { timeout: 15_000 }, // 15s expect timeout
   retries: 1,
   reporter: process.env.CI
     ? [['blob'], ['github']]

@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { MetricsCollector } from './metrics-collector';
-import { navigateToRoute } from '../e2e/helpers';
+import { navigateToRoute, debugLog } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, TIMEOUTS } from '../constants';
 
 /**
@@ -55,7 +55,7 @@ export class UserSimulator {
 
             this.metrics.recordSuccess();
         } catch (error) {
-            console.error(`[User ${userId}] ❌ Journey failed:`, error);
+            debugLog(`[User ${userId}] ❌ Journey failed:`, error);
             this.metrics.recordError();
         }
     }
@@ -79,7 +79,7 @@ export class UserSimulator {
         });
 
         this.metrics.recordResponseTime(Date.now() - startTime);
-        console.log(`[User ${userId}] ✓ Logged in`);
+        debugLog(`[User ${userId}] ✓ Logged in`);
     }
 
     /**
@@ -88,24 +88,24 @@ export class UserSimulator {
     private async navigateToSessions(page: Page): Promise<void> {
         const startTime = Date.now();
 
-        console.log(`[User] 📍 Navigating to session page: ${ROUTES.SESSION}`);
+        debugLog(`[User] 📍 Navigating to session page: ${ROUTES.SESSION}`);
         await navigateToRoute(page, ROUTES.SESSION);
-        console.log(`[User] 📍 Current URL: ${page.url()}`);
+        debugLog(`[User] 📍 Current URL: ${page.url()}`);
 
         // Wait for the session page to fully load - look for the start/stop button
-        console.log(`[User] ⏳ Waiting for start button...`);
+        debugLog(`[User] ⏳ Waiting for start button...`);
         try {
             await page.waitForSelector(`[data-testid="${TEST_IDS.SESSION_START_STOP_BUTTON}"]`, {
                 timeout: TIMEOUTS.PAGE_LOAD
             });
-            console.log(`[User] ✅ Session page loaded, start button visible`);
+            debugLog(`[User] ✅ Session page loaded, start button visible`);
         } catch {
             // Capture what we see for debugging
             const bodyText = await page.textContent('body');
-            console.log(`[User] ❌ Start button not found! Page body (first 1000 chars):`);
-            console.log(bodyText?.substring(0, 1000));
+            debugLog(`[User] ❌ Start button not found! Page body (first 1000 chars):`);
+            debugLog(bodyText?.substring(0, 1000));
             await page.screenshot({ path: `test-results/soak/debug-session-${Date.now()}.png` });
-            console.log(`[User] 📸 Screenshot saved`);
+            debugLog(`[User] 📸 Screenshot saved`);
             throw new Error(`Start button not found on session page. URL: ${page.url()}`);
         }
 
@@ -138,7 +138,7 @@ export class UserSimulator {
         });
 
         this.metrics.recordResponseTime(Date.now() - startTime);
-        console.log(`[User] ✓ Session started (Native mode: ${this.config.useNativeMode})`);
+        debugLog(`[User] ✓ Session started (Native mode: ${this.config.useNativeMode})`);
     }
 
     /**
@@ -150,7 +150,7 @@ export class UserSimulator {
         let lastStatus: string | null = null;
         const progressLogInterval = 6; // Log every 6 iterations (60 seconds = 1 minute heartbeat)
 
-        console.log(`[User ${userId}] 🏁 Journey: Practice Session started (${(this.config.sessionDuration / 60000).toFixed(1)}m)`);
+        debugLog(`[User ${userId}] 🏁 Journey: Practice Session started (${(this.config.sessionDuration / 60000).toFixed(1)}m)`);
 
         for (let i = 0; i < iterations; i++) {
             // Simulate speech input
@@ -174,9 +174,9 @@ export class UserSimulator {
             // Log on status CHANGE
             if (statusText !== lastStatus) {
                 if (statusText === 'Session Active') {
-                    console.log(`[User ${userId}] ✓ Session Active`);
+                    debugLog(`[User ${userId}] ✓ Session Active`);
                 } else {
-                    console.warn(`[User ${userId}] ⚠️ Status Change: ${statusText} (at ${i}/${iterations})`);
+                    debugLog(`[User ${userId}] ⚠️ Status Change: ${statusText} (at ${i}/${iterations})`);
                 }
                 lastStatus = statusText;
             }
@@ -185,10 +185,10 @@ export class UserSimulator {
             if ((i + 1) % progressLogInterval === 0) {
                 const elapsedSeconds = (i + 1) * (checkInterval / 1000);
                 const remainingSeconds = ((iterations - i - 1) * checkInterval) / 1000;
-                console.log(`[User ${userId}] ⏱️ Progress: ${elapsedSeconds}s elapsed, ${remainingSeconds}s remaining`);
+                debugLog(`[User ${userId}] ⏱️ Progress: ${elapsedSeconds}s elapsed, ${remainingSeconds}s remaining`);
             }
         }
-        console.log(`[User ${userId}] 🏁 Journey: Practice Session complete`);
+        debugLog(`[User ${userId}] 🏁 Journey: Practice Session complete`);
     }
 
     /**
@@ -223,7 +223,7 @@ export class UserSimulator {
         }
 
         this.metrics.recordResponseTime(Date.now() - startTime);
-        console.log(`[User ${userId}] ✓ Session Stopped`);
+        debugLog(`[User ${userId}] ✓ Session Stopped`);
     }
 
     /**
@@ -242,7 +242,7 @@ export class UserSimulator {
         await statsLocator.or(emptyStateLocator).first().waitFor({ timeout: TIMEOUTS.SHORT });
 
         this.metrics.recordResponseTime(Date.now() - startTime);
-        console.log(`[User ${userId}] ✓ Analytics Loaded`);
+        debugLog(`[User ${userId}] ✓ Analytics Loaded`);
     }
 
     /**

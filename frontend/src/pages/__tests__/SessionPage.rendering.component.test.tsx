@@ -9,20 +9,9 @@ vi.mock('@sentry/react', () => ({
 }));
 
 import { render, screen, cleanup } from '../../../tests/support/test-utils';
-import { MemoryRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SessionPage } from '../SessionPage';
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
 
-// Helper
-const renderWithRouter = (ui: React.ReactElement) => {
-    const queryClient = new QueryClient();
-    return render(
-        <QueryClientProvider client={queryClient}>
-            <MemoryRouter>{ui}</MemoryRouter>
-        </QueryClientProvider>
-    );
-};
 
 // Mock everything
 // Child component mocks for deterministic testing
@@ -159,30 +148,30 @@ describe('SessionPage Rendering', () => {
     });
 
     it('renders without crashing', () => {
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
         expect(screen.getByText('Practice Session')).toBeInTheDocument();
     });
 
     it('should render the live recording card', () => {
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
         expect(screen.getByTestId('live-recording-card')).toBeInTheDocument();
         expect(screen.getByText('Ready to record')).toBeInTheDocument();
     });
 
     it('should render metrics cards', () => {
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
         expect(screen.getByText('Clarity Score')).toBeInTheDocument();
         expect(screen.getByText('Speaking Pace')).toBeInTheDocument();
         expect(screen.getByText('Filler Words')).toBeInTheDocument();
     });
 
     it('should render pause metrics display', () => {
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
         expect(screen.getByTestId('pause-metrics-display')).toBeInTheDocument();
     });
 
     it('should render Add Custom Word settings button', () => {
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
         // The settings button is passed as headerAction to FillerWordsCard
         expect(screen.getByTestId('add-custom-word-button')).toBeInTheDocument();
         expect(screen.getByText('Custom')).toBeInTheDocument();
@@ -196,7 +185,7 @@ describe('Loading States', () => {
             metrics: null,
         } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
         expect(screen.getByTestId('session-page-skeleton')).toBeInTheDocument();
     });
 });
@@ -209,7 +198,7 @@ describe('Session Control', () => {
             handleStartStop: mockHandleStartStop,
         } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
 
         const startButton = screen.getByTestId('session-start-stop-button');
         const { fireEvent } = await import('@testing-library/react');
@@ -219,7 +208,7 @@ describe('Session Control', () => {
     });
 
     it('should show Ready status when not listening', () => {
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
         expect(screen.getByTestId('session-status-indicator')).toHaveTextContent('Ready');
     });
 
@@ -229,7 +218,7 @@ describe('Session Control', () => {
             sttStatus: { type: 'initializing', message: 'Connecting...' },
         } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
         expect(screen.getByTestId('session-status-indicator')).toHaveTextContent('Connecting...');
     });
 });
@@ -241,7 +230,7 @@ describe('Metrics Display', () => {
             metrics: { ...defaultLifecycle.metrics, formattedTime: '01:05' },
         } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
         expect(screen.getByText('01:05')).toBeInTheDocument();
     });
 
@@ -251,7 +240,7 @@ describe('Metrics Display', () => {
             metrics: { ...defaultLifecycle.metrics, wpm: 145 },
         } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
         expect(screen.getByText(/145/)).toBeInTheDocument();
     });
 
@@ -261,7 +250,7 @@ describe('Metrics Display', () => {
             metrics: { ...defaultLifecycle.metrics, fillerCount: 7 },
         } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
         expect(screen.getByTestId('filler-count-value')).toHaveTextContent('(7)');
     });
 });
@@ -273,7 +262,7 @@ describe('Transcript Display', () => {
             transcriptContent: 'Hello world',
         } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
 
-        renderWithRouter(<SessionPage />);
+        render(<SessionPage />);
         expect(screen.getByText(/Hello/)).toBeInTheDocument();
         expect(screen.getByText(/world/)).toBeInTheDocument();
     });

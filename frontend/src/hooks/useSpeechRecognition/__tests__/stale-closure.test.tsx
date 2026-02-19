@@ -17,9 +17,13 @@ vi.mock('../../../utils/fillerWordUtils', () => ({
     calculateTranscriptStats: vi.fn(), // We spy on this
 }));
 
-vi.mock('../../../contexts/AuthProvider', () => ({
-    useAuthProvider: vi.fn(() => ({ session: { user: { id: 'test-user' } } })),
-}));
+vi.mock('../../../contexts/AuthProvider', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../../contexts/AuthProvider')>();
+    return {
+        ...actual,
+        useAuthProvider: vi.fn(() => ({ session: { user: { id: 'test-user' } } })),
+    };
+});
 
 vi.mock('../../useProfile', () => ({
     useProfile: vi.fn(() => ({ subscription_status: 'free' })),
@@ -33,9 +37,13 @@ vi.mock('@/lib/toast', () => ({
     toast: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn(), info: vi.fn() },
 }));
 
-vi.mock('react-router-dom', () => ({
-    useNavigate: vi.fn(),
-}));
+vi.mock('react-router-dom', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('react-router-dom')>();
+    return {
+        ...actual,
+        useNavigate: vi.fn(),
+    };
+});
 
 // Mock internal hooks using simple factories
 vi.mock('../useTranscriptionState');

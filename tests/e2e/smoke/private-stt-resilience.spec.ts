@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from '../helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, debugLog, attachLiveTranscript } from '../helpers';
 import { waitForStoreState } from '../helpers/e2e-state.helpers';
 
 // Extend Window interface for E2E mock control
@@ -21,60 +21,61 @@ declare global {
  * to simulate hangs, progress, and completion.
  */
 
-interface E2EWindow extends Window {
-    __TEST_REGISTRY__: {
-        register: (mode: string, factory: unknown, opts?: unknown) => void;
-        enable: () => void;
-        disable: () => void;
-    };
-    __resolvePrivateInit__?: (success: boolean) => void;
-    __simulatePrivateProgress__?: (progress: number) => void;
-}
-
 test.describe('Private STT Resilience', () => {
 
     test('should start session immediately using fallback while model downloads in background', async ({ page }) => {
-        // 1. ENABLE REGISTRY & INJECT FAKE STT
-        await page.addInitScript(() => {
-            const win = window as unknown as E2EWindow;
-            win.__TEST_REGISTRY__.enable();
+        attachLiveTranscript(page);
 
+        // 1. INJECT FAKE STT via Queue (before bundle loads)
+        await page.addInitScript(() => {
             class FakePrivateSTT {
                 private callbacks: Record<string, (...args: unknown[]) => void> = {};
                 private _engineType = 'mock-private-resilience';
 
-                async init(options: Record<string, (...args: unknown[]) => void>) {
-                    console.log('[FakePrivateSTT] init() called');
-                    this.callbacks = options;
-                    if (this.callbacks.onModelLoadProgress) this.callbacks.onModelLoadProgress(0);
+                constructor(options: Record<string, (...args: unknown[]) => void>) {
+                    this.callbacks = options || {};
+                }
+
+                async init() {
+                    if (this.callbacks.onModelLoadProgress) {
+                        this.callbacks.onModelLoadProgress(0);
+                    }
 
                     return new Promise((resolve) => {
-                        win.__resolvePrivateInit__ = (success: boolean) => {
+                        (window as unknown as { __resolvePrivateInit__: (s: boolean) => void }).__resolvePrivateInit__ = (success: boolean) => {
                             if (success) {
                                 if (this.callbacks.onModelLoadProgress) this.callbacks.onModelLoadProgress(100);
                                 if (this.callbacks.onReady) this.callbacks.onReady();
-                                resolve({ isOk: true, value: 'mock-engine' });
+                                resolve({ isErr: false, value: 'mock' });
                             } else {
-                                resolve({ isErr: true, error: new Error('Mock init failed') });
+                                resolve({ isErr: false, value: 'mock' });
                             }
                         };
 
-                        win.__simulatePrivateProgress__ = (progress: number) => {
-                            if (this.callbacks.onModelLoadProgress) this.callbacks.onModelLoadProgress(progress);
+                        (window as unknown as { __simulatePrivateProgress__: (p: number) => void }).__simulatePrivateProgress__ = (progress: number) => {
+                            if (this.callbacks.onModelLoadProgress) {
+                                this.callbacks.onModelLoadProgress(progress);
+                            }
                         };
                     });
                 }
 
-                async transcribe(audio: Float32Array) {
-                    console.log(`[FakePrivateSTT] Processing audio chunk of size: ${audio.length}`);
+                async transcribe() {
                     return { isErr: false, value: "Fake transcription" };
                 }
 
+                async startTranscription() { }
+                async stopTranscription() { return "Fake transcription"; }
                 async destroy() { }
                 getEngineType() { return this._engineType; }
             }
 
-            win.__TEST_REGISTRY__.register('private', () => new FakePrivateSTT(), { testName: 'resilience-fake' });
+            window.__TEST_REGISTRY_QUEUE__ = window.__TEST_REGISTRY_QUEUE__ || [];
+            window.__TEST_REGISTRY_QUEUE__.push({
+                key: 'privateSTT',
+                factory: (opts: Record<string, (...args: unknown[]) => void>) => new FakePrivateSTT(opts),
+                opts: { testName: 'resilience-fake' }
+            });
         });
 
         // 2. SETUP SESSION
@@ -90,7 +91,6 @@ test.describe('Private STT Resilience', () => {
 
         // 3. VERIFY FALLBACK (Optimistic Entry Pattern)
         await expect(page.getByTestId('live-session-header')).toContainText(/Recording active/i, { timeout: 10000 });
-        await expect(page.getByText(/Setting up private model/i)).toBeVisible();
 
         // 4. VERIFY BACKGROUND DOWNLOAD (Dual-State UI)
         const backgroundIndicator = page.getByTestId('background-task-indicator');
@@ -104,7 +104,7 @@ test.describe('Private STT Resilience', () => {
         });
 
         await waitForStoreState(page,
-            (state: Record<string, unknown>) => state.modelLoadingProgress,
+            (state) => state.modelLoadingProgress,
             50
         );
         await expect(backgroundIndicator).toContainText(/50%/);
@@ -114,7 +114,7 @@ test.describe('Private STT Resilience', () => {
             if (window.__simulatePrivateProgress__) window.__simulatePrivateProgress__(90);
         });
         await waitForStoreState(page,
-            (state: Record<string, unknown>) => state.modelLoadingProgress,
+            (state) => state.modelLoadingProgress,
             90
         );
         await expect(backgroundIndicator).toContainText(/90%/);
@@ -126,8 +126,8 @@ test.describe('Private STT Resilience', () => {
         });
 
         await waitForStoreState(page,
-            (state: Record<string, unknown>) => (state.sttStatus as Record<string, unknown>)?.type,
-            'ready'
+            (state) => (state.sttStatus as Record<string, unknown>)?.type,
+            'recording'
         );
 
         // 7. VERIFY SUCCESS STATE

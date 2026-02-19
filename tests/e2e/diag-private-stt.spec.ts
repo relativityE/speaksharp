@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, attachLiveTranscript, debugLog } from './helpers';
 
 interface E2EWindow {
     __E2E_MOCK_LOCAL_WHISPER__?: boolean;
@@ -10,10 +10,7 @@ interface E2EWindow {
 }
 
 test('DIAGNOSTIC: check isProUser and profile state', async ({ page }) => {
-    // Capture ALL browser console output
-    page.on('console', msg => {
-        console.log(`[BROWSER ${msg.type()}] ${msg.text()}`);
-    });
+    attachLiveTranscript(page);
 
     await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
     await navigateToRoute(page, '/session');
@@ -27,7 +24,7 @@ test('DIAGNOSTIC: check isProUser and profile state', async ({ page }) => {
             profileLoaded: win.__e2eProfileLoaded__,
         };
     });
-    console.log(`[DIAG] Window profile state:`, JSON.stringify(profileState));
+    debugLog(`[DIAG] Window profile state:`, JSON.stringify(profileState));
 
     // Set mock flags
     await page.evaluate(() => {
@@ -44,7 +41,7 @@ test('DIAGNOSTIC: check isProUser and profile state', async ({ page }) => {
             profileLoaded: win.__e2eProfileLoaded__,
         };
     });
-    console.log(`[DIAG] Profile state AFTER flags:`, JSON.stringify(profileStateAfter));
+    debugLog(`[DIAG] Profile state AFTER flags:`, JSON.stringify(profileStateAfter));
 
     // Check what the profile fetched data actually contains in React state
     // We can expose this by checking the profile query cache
@@ -58,13 +55,13 @@ test('DIAGNOSTIC: check isProUser and profile state', async ({ page }) => {
             flagSubscriptionStatus: profileFlag?.subscription_status,
         };
     });
-    console.log(`[DIAG] React profile state:`, JSON.stringify(reactProfileState));
+    debugLog(`[DIAG] React profile state:`, JSON.stringify(reactProfileState));
 
     // Select Private mode
     await page.getByTestId('stt-mode-select').click();
     await page.getByRole('menuitemradio', { name: /private/i }).click();
     await expect(page.getByTestId('stt-mode-select')).toHaveText(/Private|Native/i, { timeout: 3000 });
-    console.log(`[DIAG] Mode confirmed: Private`);
+    debugLog(`[DIAG] Mode confirmed: Private`);
 
     // Check one more time before clicking Start
     const preStartProfile = await page.evaluate(() => {
@@ -74,7 +71,7 @@ test('DIAGNOSTIC: check isProUser and profile state', async ({ page }) => {
             profileLoaded: win.__e2eProfileLoaded__,
         };
     });
-    console.log(`[DIAG] Pre-start profile state:`, JSON.stringify(preStartProfile));
+    debugLog(`[DIAG] Pre-start profile state:`, JSON.stringify(preStartProfile));
 
     // Click Start
     await page.getByTestId('session-start-stop-button').click();
@@ -82,10 +79,10 @@ test('DIAGNOSTIC: check isProUser and profile state', async ({ page }) => {
 
     // Check results
     const statusText = await page.getByTestId('stt-status-bar').textContent();
-    console.log(`[DIAG] Status bar: "${statusText}"`);
+    debugLog(`[DIAG] Status bar: "${statusText}"`);
 
     const modeText = await page.getByTestId('stt-mode-select').textContent();
-    console.log(`[DIAG] Mode button: "${modeText}"`);
+    debugLog(`[DIAG] Mode button: "${modeText}"`);
 
     // The test: Status should show Private, not Native (case-insensitive to allow for "Downloading private model")
     expect(statusText?.toLowerCase()).toContain('private');

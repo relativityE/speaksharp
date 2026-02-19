@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '../../../tests/support/test-utils';
-import { BrowserRouter, MemoryRouter } from 'react-router-dom';
 import Index from '../Index';
 import * as AuthProvider from '@/contexts/AuthProvider';
 
@@ -33,11 +32,7 @@ describe('Index', () => {
                 signOut: vi.fn(),
             });
 
-            render(
-                <BrowserRouter>
-                    <Index />
-                </BrowserRouter>
-            );
+            render(<Index />);
 
             // Landing page should render immediately for unauthenticated users
             // This is by design - public pages don't wait for auth state
@@ -55,11 +50,7 @@ describe('Index', () => {
                 signOut: vi.fn(),
             });
 
-            render(
-                <MemoryRouter initialEntries={['/']}>
-                    <Index />
-                </MemoryRouter>
-            );
+            render(<Index />, { route: '/' });
 
             // Should not render landing page components when redirecting
             expect(screen.queryByTestId('hero-section')).not.toBeInTheDocument();
@@ -79,11 +70,7 @@ describe('Index', () => {
         });
 
         it('should render the landing page when not authenticated', () => {
-            render(
-                <BrowserRouter>
-                    <Index />
-                </BrowserRouter>
-            );
+            render(<Index />);
 
             expect(screen.getByTestId('hero-section')).toBeInTheDocument();
             expect(screen.getByTestId('features-section')).toBeInTheDocument();
@@ -91,11 +78,7 @@ describe('Index', () => {
         });
 
         it('should have correct page structure', () => {
-            const { container } = render(
-                <BrowserRouter>
-                    <Index />
-                </BrowserRouter>
-            );
+            const { container } = render(<Index />);
 
             // Check main container has min-h-screen
             const mainDiv = container.firstChild as HTMLElement;
@@ -106,11 +89,7 @@ describe('Index', () => {
         });
 
         it('should render main element with flex-1 class', () => {
-            render(
-                <BrowserRouter>
-                    <Index />
-                </BrowserRouter>
-            );
+            render(<Index />);
 
             const mainElement = screen.getByRole('main');
             expect(mainElement).toHaveClass('flex-1');

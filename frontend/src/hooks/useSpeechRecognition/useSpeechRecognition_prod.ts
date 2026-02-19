@@ -87,10 +87,8 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         policy: buildPolicyForUser(profile?.subscription_status === 'pro', null),
         onReady: () => {
             logger.info('[useSpeechRecognition] Service ready');
-            // console.log('[E2E_DEBUG] Fallback onReady called');
 
             const currentProgress = useSessionStore.getState().modelLoadingProgress;
-            // console.log('[E2E_DEBUG] Current store state (progress):', currentProgress);
 
             // ✅ Update store to reflect recording has started
             // Use startSession() which sets isListening=true and startTime=Date.now()
@@ -101,19 +99,17 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
 
             if (isBackgroundDownload) {
                 // Fallback mode: recording via Native while Private downloads
+                // We set type to 'recording' to keep the Red bar, but with a completion message.
                 useSessionStore.getState().setSTTStatus({
-                    type: 'recording', // ✅ FIXED: Changed from 'ready' to 'recording'
-                    message: 'Recording active'
-                    // Note: modelLoadingProgress stays set (not cleared)
+                    type: 'recording',
+                    message: 'Private model ready'
                 });
-                // console.log('[E2E_DEBUG] Fallback recording active, download continuing');
             } else {
                 // Normal mode: recording via selected engine
                 useSessionStore.getState().setSTTStatus({
-                    type: 'recording', // ✅ FIXED: Changed from 'ready' to 'recording'
+                    type: 'recording',
                     message: 'Recording active'
                 });
-                // console.log('[E2E_DEBUG] Normal recording active');
             }
         },
         onError: (err) => stt.setError(err),

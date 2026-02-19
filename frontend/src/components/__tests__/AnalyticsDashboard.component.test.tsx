@@ -29,11 +29,15 @@ vi.mock('recharts', () => ({
 }));
 
 // Mock Sonner toast
-vi.mock('sonner', () => ({
-    toast: {
-        error: vi.fn(),
-    },
-}));
+vi.mock('sonner', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('sonner')>();
+    return {
+        ...actual,
+        toast: {
+            error: vi.fn(),
+        },
+    };
+});
 
 // Define strict Mock Data matching Interfaces
 const mockProfile: UserProfile = {

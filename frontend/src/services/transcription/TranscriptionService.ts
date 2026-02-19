@@ -97,6 +97,10 @@ export default class TranscriptionService {
    * Primary Entry Point: Pre-warms the microphone stream.
    */
   public async init(): Promise<{ success: boolean }> {
+    // Reset destruction flags to allow re-initialization
+    this.isDestroyed = false;
+    this.isDestroying = false;
+
     if (!this.fsm.is('IDLE') && !this.fsm.is('ERROR')) return { success: true };
 
     this.fsm.transition({ type: 'START_REQUESTED' });
@@ -172,9 +176,7 @@ export default class TranscriptionService {
         ...this.options,
         // Explicitly override the progress callback to ensure store updates happen
         onModelLoadProgress: (progress) => {
-          // We must manually replicate the proxy's behavior here since we are bypassing it
-          this.options.onModelLoadProgress?.(progress);
-          useSessionStore.getState().setModelLoadingProgress(progress !== null ? Math.round(progress * 100) : null);
+          this.updateProgress(progress);
         },
         onError: (err) => {
           // Forward to the main handler
@@ -185,7 +187,21 @@ export default class TranscriptionService {
       logger.info(`[TranscriptionService] Creating engine for mode: ${mode}`);
 
       this.engine = await EngineFactory.create(mode, engineConfig, this.policy);
-      await this.engine.init();
+
+      // ✅ OPTIMISTIC ENTRY PATTERN (Expert Resilience)
+      // If Private engine takes too long to load (cache miss), fallback immediately
+      // but continue loading in the background.
+      if (mode === 'private') {
+        await Promise.race([
+          this.engine.init(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('CACHE_MISS')), STT_CONFIG.LOAD_CACHE_TIMEOUT_MS)
+          )
+        ]);
+      } else {
+        await this.engine.init();
+      }
+
       await this.executeEngine(mode);
     } catch (error) {
       // ✅ EXPECTED EVENT: Cache miss - start background download
@@ -216,7 +232,7 @@ export default class TranscriptionService {
     if (!this.engine) return;
 
     try {
-      await this.engine.init();
+      // ✅ NOTE: engine.init() has already been called in startTranscription or handleCacheMiss
       await this.engine.startTranscription(this.mic!);
 
       this.startTime = Date.now();
@@ -281,10 +297,12 @@ export default class TranscriptionService {
 
     // ✅ GUARD 2: Currently destroying - wait for it to complete
     if (this.isDestroying) {
-      // Wait for the current destroy to complete
+      // Wait for the current destroy to complete with a safety timeout
+      let attempts = 0;
       await new Promise(resolve => {
         const checkInterval = setInterval(() => {
-          if (!this.isDestroying) {
+          attempts++;
+          if (!this.isDestroying || attempts > 200) { // 2s safety
             clearInterval(checkInterval);
             resolve(undefined);
           }
@@ -358,13 +376,27 @@ export default class TranscriptionService {
    * Internal helpers
    */
 
+  /**
+   * Normalizes model loading progress (0-1 or 0-100) and updates store.
+   */
+  private updateProgress(p: number | null): void {
+    if (p === null) {
+      this.options.onModelLoadProgress(null);
+      useSessionStore.getState().setModelLoadingProgress(null);
+      return;
+    }
+
+    // Normalize: some engines send 0-1, others 0-100
+    const progress = p <= 1 && p > 0 ? Math.round(p * 100) : Math.round(p);
+
+    this.options.onModelLoadProgress(progress);
+    useSessionStore.getState().setModelLoadingProgress(progress);
+  }
+
   private getProxyOptions(): TranscriptionModeOptions {
     return {
       onTranscriptUpdate: this.options.onTranscriptUpdate,
-      onModelLoadProgress: (progress) => {
-        this.options.onModelLoadProgress(progress);
-        useSessionStore.getState().setModelLoadingProgress(progress !== null ? Math.round(progress * 100) : null);
-      },
+      onModelLoadProgress: (progress) => this.updateProgress(progress),
       onReady: this.options.onReady,
       session: this.options.session,
       navigate: this.options.navigate,
@@ -437,7 +469,11 @@ export default class TranscriptionService {
     // Start fallback engine immediately so user can record while downloading
     // This matches the "Optimistic Entry" pattern
     // FIX: Must create a new Native engine instance, otherwise we reuse the failing Private engine!
-    const engineConfig: TranscriptionModeOptions = { ...this.options }; // Use base options for native
+    // Also ensure progress updates still reach the store even during fallback
+    const engineConfig: TranscriptionModeOptions = {
+      ...this.options,
+      onModelLoadProgress: (progress) => this.updateProgress(progress)
+    };
     this.engine = await EngineFactory.create('native', engineConfig, this.policy);
     await this.engine.init(); // Init native engine
 

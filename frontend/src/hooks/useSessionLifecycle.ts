@@ -32,6 +32,7 @@ export const useSessionLifecycle = () => {
     const [mode, setMode] = useState<'cloud' | 'native' | 'private'>('native');
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const [sessionFeedbackMessage, setSessionFeedbackMessage] = useState<string | null>(null);
+    const isStoppingRef = useRef(false);
 
     const isProUser = isPro(profile?.subscription_status);
 
@@ -67,9 +68,13 @@ export const useSessionLifecycle = () => {
 
     const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string }) => {
         if (isListening) {
+            if (isStoppingRef.current) return;
+            isStoppingRef.current = true;
+
             // Bypass minimum duration check if there is an external stop reason (e.g. tier limits)
             if (elapsedTime < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
                 await stopListening();
+                isStoppingRef.current = false;
                 setShowAnalyticsPrompt(false);
                 setSessionFeedbackMessage(`⚠️ Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`);
                 return;
@@ -132,6 +137,8 @@ export const useSessionLifecycle = () => {
 
             } catch (error) {
                 logger.error({ err: error }, '[useSessionLifecycle] Error stopping recording');
+            } finally {
+                isStoppingRef.current = false;
             }
         } else {
             if (!isProUser && usageLimit && !usageLimit.can_start) {

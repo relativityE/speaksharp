@@ -21,6 +21,7 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { debugLog } from '../e2e/helpers';
 
 // Skip this test unless we're in live mode (not using mock.supabase.co)
 const isMockSupabase = !process.env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL.includes('mock.supabase.co');
@@ -31,16 +32,16 @@ test.describe('Stripe Checkout Flow', () => {
     const testPassword = process.env.E2E_FREE_PASSWORD || 'TestPassword123!';
 
     test.beforeEach(async ({ page }) => { // beforeEach is correct for page fixture
-        console.log('🚨 Running LIVE Stripe checkout test against real Supabase');
-        console.log(`📧 Test user: ${testEmail}`);
+        debugLog('🚨 Running LIVE Stripe checkout test against real Supabase');
+        debugLog(`📧 Test user: ${testEmail}`);
         // DIAGNOSTIC: Monitor network for 400 errors
         page.on('response', async response => {
             if (response.url().includes('stripe-checkout')) {
-                console.log(`[Network] 📡 Stripe Endpoint Status: ${response.status()}`);
+                debugLog(`[Network] 📡 Stripe Endpoint Status: ${response.status()}`);
                 if (response.status() >= 400) {
                     try {
                         const body = await response.json();
-                        console.log('[Network] ❌ Error Body:', JSON.stringify(body, null, 2));
+                        debugLog('[Network] ❌ Error Body:', JSON.stringify(body, null, 2));
 
                         // Semantic assertions for negative verification (as per Architecture Review)
                         // We expect this specific error because we are running in CI without SITE_URL
@@ -59,7 +60,7 @@ test.describe('Stripe Checkout Flow', () => {
 
     test('should sign in and verify Stripe checkout Edge Function', async ({ page }) => {
         // Step 1: Sign in
-        console.log('[Stripe Test] Step 1: Signing in...');
+        debugLog('[Stripe Test] Step 1: Signing in...');
         await page.goto('/auth/signin');
         await page.getByTestId('auth-form').waitFor();
 
@@ -68,13 +69,13 @@ test.describe('Stripe Checkout Flow', () => {
         await page.click('button[type="submit"]');
 
         await page.waitForURL('/session');
-        console.log('✅ Sign-in successful, redirect complete');
+        debugLog('✅ Sign-in successful, redirect complete');
 
         // Step 2: Navigate to analytics
-        console.log('[Stripe Test] Step 2: Navigating to analytics...');
+        debugLog('[Stripe Test] Step 2: Navigating to analytics...');
 
         // Forward browser console to test output for debugging
-        page.on('console', msg => console.log(`[BROWSER] ${msg.text()}`));
+        page.on('console', msg => debugLog(`[BROWSER] ${msg.text()}`));
 
         await page.goto('/analytics');
 
@@ -84,10 +85,10 @@ test.describe('Stripe Checkout Flow', () => {
 
         // Wait for the upgrade button to be visible (works for both states)
         await upgradeButton.waitFor({ state: 'visible', timeout: 30000 });
-        console.log('✅ Analytics page loaded, upgrade button visible');
+        debugLog('✅ Analytics page loaded, upgrade button visible');
 
         // Step 3: Click upgrade and capture Edge Function response
-        console.log('[Stripe Test] Step 3: Clicking Upgrade to Pro...');
+        debugLog('[Stripe Test] Step 3: Clicking Upgrade to Pro...');
 
         // Set up response listener BEFORE clicking
         const responsePromise = page.waitForResponse(
@@ -97,38 +98,38 @@ test.describe('Stripe Checkout Flow', () => {
         await upgradeButton.click();
 
         // Step 4: Verify Edge Function response
-        console.log('[Stripe Test] Step 4: Verifying Edge Function response...');
+        debugLog('[Stripe Test] Step 4: Verifying Edge Function response...');
         const response = await responsePromise;
 
         // Assert the Edge Function returned 200 (success)
         const status = response.status();
-        console.log(`[Network] 📡 Stripe Endpoint Status: ${status}`);
+        debugLog(`[Network] 📡 Stripe Endpoint Status: ${status}`);
         expect(status).toBe(200);
 
         // Try to read response body - may fail if browser already navigated
         let responseBody: { checkoutUrl?: string } = {};
         try {
             responseBody = await response.json();
-            console.log('[Network] ✅ Response body parsed:', JSON.stringify(responseBody).substring(0, 100));
+            debugLog('[Network] ✅ Response body parsed:', JSON.stringify(responseBody).substring(0, 100));
         } catch {
             // Response body unavailable - validate we navigated to Stripe
             const currentUrl = page.url();
             if (!currentUrl.includes('checkout.stripe.com')) {
                 throw new Error(`[P1 Hardening] Expected Stripe redirect, got: ${currentUrl}`);
             }
-            console.log('[Network] ℹ️ JSON unavailable, URL validation passed');
+            debugLog('[Network] ℹ️ JSON unavailable, URL validation passed');
         }
 
         // If we got the body, validate it
         if (responseBody.checkoutUrl) {
             expect(responseBody.checkoutUrl).toContain('checkout.stripe.com');
-            console.log('✅ Edge function returned valid checkout URL:', responseBody.checkoutUrl);
+            debugLog('✅ Edge function returned valid checkout URL:', responseBody.checkoutUrl);
         } else {
             // Alternatively, verify by checking the page navigated to Stripe
             await page.waitForURL(/checkout\.stripe\.com/, { timeout: 10000 });
-            console.log('✅ Browser navigated to Stripe Checkout');
+            debugLog('✅ Browser navigated to Stripe Checkout');
         }
 
-        console.log('✅ Stripe Checkout Test PASSED');
+        debugLog('✅ Stripe Checkout Test PASSED');
     });
 });

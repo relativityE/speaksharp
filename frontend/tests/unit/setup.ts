@@ -135,7 +135,7 @@ import '@testing-library/jest-dom';
 
 beforeEach(async () => {
     vi.clearAllMocks();
-    vi.useFakeTimers();
+    // vi.useFakeTimers(); // Disabled globally to prevent userEvent timeouts. Use locally if needed.
 
     // Lazy load the store to prevent top-level poisoning
     const storeModule = await import('@/stores/useSessionStore');
@@ -152,5 +152,5 @@ beforeEach(async () => {
 
 afterEach(() => {
     cleanup();
-    vi.clearAllTimers();
+    // vi.clearAllTimers();
 });

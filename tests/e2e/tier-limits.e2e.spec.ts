@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, attachLiveTranscript, debugLog } from './helpers';
 import { injectMockSession, registerEdgeFunctionMock } from './mock-routes';
 import { enableTestRegistry, registerMockInE2E } from '../helpers/testRegistry.helpers';
-import { waitForStoreState } from './helpers/e2e-state.helpers';
+import { setE2ETime } from './helpers/e2e-state.helpers';
 
 interface TierLimitsWindow extends Window {
     __E2E_CONFIG__?: unknown;
@@ -11,6 +11,7 @@ interface TierLimitsWindow extends Window {
 test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
 
     test('Free user is blocked when daily limit is exhausted', async ({ page }) => {
+        attachLiveTranscript(page);
         // 1. Login with free tier
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
 
@@ -92,6 +93,7 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
     });
 
     test('Daily limit auto-stops an active session', async ({ page }) => {
+        attachLiveTranscript(page);
         // 1. Login with free tier
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
 
@@ -138,17 +140,19 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         // 3. Start session
         await navigateToRoute(page, '/session');
         const startButton = page.getByTestId('session-start-stop-button');
+        debugLog('[TEST] Clicking Start button...');
         await startButton.click();
 
         // 4. Wait for session to start recording
-        await expect(page.getByTestId('recording-indicator')).toBeVisible();
+        debugLog('[TEST] Waiting for recording-indicator...');
+        await expect(page.getByTestId('recording-indicator')).toBeVisible({ timeout: 10000 });
+        debugLog('[TEST] Recording started.');
 
         // 5. DETERMINISTIC PROGRESSION (Expert Solution)
         // Force the elapsed time to 6s (past the 5s limit)
-        await waitForStoreState(page,
-            (state: Record<string, unknown>) => state.setElapsedTime,
-            true
-        );
+        debugLog('[TEST] Setting E2E time to 6s...');
+        await setE2ETime(page, 6);
+        debugLog('[TEST] Time set.');
 
         // 6. Verify auto-stop notification
         await expect(page.getByTestId('session-status-indicator')).toContainText(/(Daily|Monthly) usage limit reached/i, { timeout: 10000 });
@@ -157,7 +161,7 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         await expect(page.getByTestId('live-session-header')).toContainText(/Ready to record/i, { timeout: 10000 });
 
         // Verify session stopped (Button reverted to 'Start')
-        await expect(page.getByTestId('session-start-stop-button').getByLabel(/Start Recording/i)).toBeVisible();
+        await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('aria-label', /Start Recording/i, { timeout: 10000 });
     });
 
     test('Free users can add up to 100 filler words', async ({ page }) => {

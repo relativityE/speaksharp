@@ -56,10 +56,12 @@ export async function exposeStateForTesting(page: Page, key: string, value: unkn
  */
 export async function setE2ETime(page: Page, seconds: number): Promise<void> {
     await page.evaluate((s) => {
-        const win = window as unknown as { __SESSION_STORE_API__?: { setState: (s: unknown) => void } };
-        const store = win.__SESSION_STORE_API__;
-        if (store && store.setState) {
-            store.setState({ elapsedTime: s });
+        const win = window as unknown as { __SESSION_STORE_API__?: { setState: (state: unknown) => void } };
+        if (win.__SESSION_STORE_API__ && win.__SESSION_STORE_API__.setState) {
+            win.__SESSION_STORE_API__.setState({
+                elapsedTime: s,
+                startTime: Date.now() - (s * 1000)
+            });
         }
     }, seconds);
 }

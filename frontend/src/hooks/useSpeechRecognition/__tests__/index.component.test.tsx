@@ -1,11 +1,12 @@
 import { renderHook, act } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { MemoryRouter } from 'react-router-dom';
 import React from 'react';
 import { TranscriptionProvider } from '../../../providers/TranscriptionProvider';
 import { useSpeechRecognition_prod as useSpeechRecognition } from '../index';
 import { useTranscriptionState } from '../useTranscriptionState';
 import { useFillerWords } from '../useFillerWords';
+import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
+
 // Real service dependencies
 import { testRegistry } from '../../../services/transcription/TestRegistry';
 import { ITranscriptionMode } from '../../../services/transcription/modes/types';
@@ -15,7 +16,6 @@ import { Mock } from 'vitest';
 vi.mock('../useTranscriptionState');
 vi.mock('../useFillerWords');
 vi.mock('@/providers/useTranscriptionContext');
-// REMOVED: vi.mock('../useTranscriptionService'); -- We want the real one!
 
 vi.mock('../../useVocalAnalysis', () => ({
   useVocalAnalysis: vi.fn(() => ({
@@ -26,20 +26,24 @@ vi.mock('../../useVocalAnalysis', () => ({
   }))
 }));
 
+vi.mock('sonner', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('sonner')>();
+  return {
+    ...actual,
+    toast: { error: vi.fn(), loading: vi.fn(), dismiss: vi.fn(), success: vi.fn() }
+  };
+});
+
+vi.mock('../../../contexts/AuthProvider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../contexts/AuthProvider')>();
+  return {
+    ...actual,
+    useAuthProvider: vi.fn(() => ({ session: { user: { id: 'mock-id' } } }))
+  };
+});
+
 vi.mock('../../useProfile', () => ({
   useProfile: vi.fn(() => ({ subscription_status: 'pro' }))
-}));
-
-vi.mock('sonner', () => ({
-  toast: { error: vi.fn(), loading: vi.fn(), dismiss: vi.fn(), success: vi.fn() }
-}));
-
-vi.mock('../../../contexts/AuthProvider', () => ({
-  useAuthProvider: vi.fn(() => ({ session: { user: { id: 'mock-id' } } }))
-}));
-
-vi.mock('../../useProfile', () => ({
-  useProfile: vi.fn(() => ({ subscription_status: 'free' }))
 }));
 
 vi.mock('../../../utils/fillerWordUtils', () => ({
@@ -50,8 +54,6 @@ vi.mock('../../../utils/fillerWordUtils', () => ({
     duration: 30
   }))
 }));
-
-
 
 // --- Test Helper: Mock Engine ---
 class MockEngine implements ITranscriptionMode {
@@ -65,14 +67,11 @@ class MockEngine implements ITranscriptionMode {
 
 function wrapper({ children }: { children: React.ReactNode }): React.ReactElement {
   return (
-    <MemoryRouter>
-      <TranscriptionProvider>
-        {children}
-      </TranscriptionProvider>
-    </MemoryRouter>
+    <TranscriptionProvider>
+      {children}
+    </TranscriptionProvider>
   );
 }
-import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 
 describe('useSpeechRecognition', () => {
   const mockUseTranscriptionState = {
@@ -157,8 +156,6 @@ describe('useSpeechRecognition', () => {
     expect(result.current.stopListening).toBeDefined();
     expect(result.current.reset).toBeDefined();
   });
-
-  // REMOVED: "should call sub-hooks with correct parameters" - Implementation Detail
 
   it('should handle stopListening with stats (Behavior)', async () => {
     const { result } = renderHook(() => useSpeechRecognition(), { wrapper });

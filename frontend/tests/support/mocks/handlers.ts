@@ -13,7 +13,7 @@ interface SignupRequestBody {
 export const handlers = [
   http.post('https://*.supabase.co/auth/v1/token', async ({ request }) => {
     const body = await request.json() as TokenRequestBody;
-    console.log(`[MSW] Auth token request for grant_type=${body.grant_type}`);
+    console.debug(`[MSW] Auth token request for grant_type=${body.grant_type}`);
 
     if (body.grant_type === 'password') {
       const email = body.email || '';
@@ -69,7 +69,7 @@ export const handlers = [
   }),
   http.post('https://*.supabase.co/auth/v1/signup', async ({ request }) => {
     const body = await request.json() as SignupRequestBody;
-    console.log(`[MSW] Sign-up request for ${body.email}`);
+    console.debug(`[MSW] Sign-up request for ${body.email}`);
 
     if (body.email === 'existing-user@example.com') {
       return HttpResponse.json(

@@ -24,7 +24,7 @@
  */
 
 import { test, expect, Page } from '@playwright/test';
-import { navigateToRoute, attachLiveTranscript, verifyCredentialsAndInjectSession } from '../e2e/helpers';
+import { navigateToRoute, attachLiveTranscript, verifyCredentialsAndInjectSession, debugLog } from '../e2e/helpers';
 import { TEST_IDS, ROUTES } from '../constants';
 
 // Configuration from environment
@@ -66,7 +66,7 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
             throw new Error('Spec failed: EDGE_FN_URL is required when AGENT_SECRET is present.');
         }
 
-        console.log(`🔄 Provisioning unique user (${testEmail}) via Edge Function...`);
+        debugLog(`🔄 Provisioning unique user (${testEmail}) via Edge Function...`);
 
         // Resilience: Retry provisioning up to 3 times to handle Edge Function cold starts/500s
         let provisionSuccess = false;
@@ -88,11 +88,11 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
 
                 const text = await response.text();
                 if (response.ok) {
-                    console.log(`✅ User provisioned successfully (Attempt ${i + 1}).`);
+                    debugLog(`✅ User provisioned successfully (Attempt ${i + 1}).`);
                     provisionSuccess = true;
                     break;
                 } else if (text.includes('already registered')) {
-                    console.log('ℹ️ User already exists (assuming valid credentials).');
+                    debugLog('ℹ️ User already exists (assuming valid credentials).');
                     provisionSuccess = true;
                     break;
                 } else {

@@ -21,7 +21,7 @@ export const StandardMocks = {
      */
     privateSTTFailure: () => ({
         async init() {
-            console.log('[FakePrivateSTT] Simulating load failure');
+            console.debug('[FakePrivateSTT] Simulating load failure');
             await new Promise(resolve => setTimeout(resolve, 100));
             throw new Error('Model failed to load');
         },
@@ -37,7 +37,7 @@ export const StandardMocks = {
      */
     privateSTTSlow: (delayMs: number = 5000) => ({
         async init() {
-            console.log('[SlowPrivateSTT] Simulating slow load:', delayMs, 'ms');
+            console.debug('[SlowPrivateSTT] Simulating slow load:', delayMs, 'ms');
             await new Promise(resolve => setTimeout(resolve, delayMs));
         },
         async transcribe() {
@@ -53,7 +53,7 @@ export const StandardMocks = {
     nativeSTTWithTranscript: (transcript: string) => ({
         async init() { },
         async startTranscription(onTranscript: (update: unknown) => void) {
-            console.log('[FakeNativeSTT] Emitting transcript:', transcript);
+            console.debug('[FakeNativeSTT] Emitting transcript:', transcript);
             setTimeout(() => onTranscript({ transcript: { text: transcript, isFinal: true } }), 100);
         },
         async stopTranscription() { return transcript; },
@@ -85,12 +85,12 @@ export async function registerMockInE2E(
 
             if (window.__TEST_REGISTRY__) {
                 window.__TEST_REGISTRY__.register(mode, registration.factory, opts);
-                console.log('[E2E Help] Registered mock for (init):', mode);
+                console.debug('[E2E Help] Registered mock for (init):', mode);
             } else {
                 // Buffer for late hydration
                 window.__TEST_REGISTRY_QUEUE__ = window.__TEST_REGISTRY_QUEUE__ || [];
                 window.__TEST_REGISTRY_QUEUE__.push(registration);
-                console.log('[E2E Help] Queued mock for (init):', mode);
+                console.debug('[E2E Help] Queued mock for (init):', mode);
             }
         },
         {
@@ -108,11 +108,11 @@ export async function registerMockInE2E(
 
             if (window.__TEST_REGISTRY__) {
                 window.__TEST_REGISTRY__.register(mode, registration.factory, opts);
-                console.log('[E2E Help] Registered mock for (immediate):', mode);
+                console.debug('[E2E Help] Registered mock for (immediate):', mode);
             } else {
                 window.__TEST_REGISTRY_QUEUE__ = window.__TEST_REGISTRY_QUEUE__ || [];
                 window.__TEST_REGISTRY_QUEUE__.push(registration);
-                console.log('[E2E Help] Queued mock for (immediate):', mode);
+                console.debug('[E2E Help] Queued mock for (immediate):', mode);
             }
         },
         {
