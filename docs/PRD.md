@@ -5,7 +5,7 @@
 
 # SpeakSharp Product Requirements Document
 
-**Version: 9.5** | **Last Updated:** 2026-02-17
+**Version: 10.0** | **Last Updated:** 2026-02-19
 
 ## 1. Executive Summary
 

@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 5.5** | **Last Updated: 2026-02-16**
+**Version 6.0** | **Last Updated: 2026-02-19**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 

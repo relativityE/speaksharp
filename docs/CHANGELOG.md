@@ -7,6 +7,17 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
+### [3.5.0] - 2026-02-19
+
+- **CI Fixes Consolidation (Best-of-Breed):**
+  - **Consolidation:** Successfully merged PR #2 (Infrastructure foundation) and cherry-picked PR #1 (Observability) into a final unified solution.
+  - **Stability:** Resolved widespread Vitest timeouts by disabling global `vi.useFakeTimers()`, ensuring compatibility with `userEvent` v14+.
+  - **Hardening:** Restored essential mocks in 10+ tests using `importOriginal` pattern to prevent "over-mocking" regressions.
+  - **UX:** Implemented "Optimistic Entry Pattern" in `TranscriptionService`, allowing Native STT fallback during background Private model downloads.
+  - **UI/UX:** Unified and normalized model loading progress reporting (0-100 scale) and fixed `StatusNotificationBar` auto-hide behavior.
+  - **E2E:** Stabilized `private-stt-resilience.spec.ts` and `tier-limits.e2e.spec.ts` via `__TEST_REGISTRY_QUEUE__` injection and deterministic time synchronization.
+  - **Verification:** Verified 100% green status across all suites (**528 unit tests**, **15 E2E core journals**, and Lighthouse audit).
+
 - **Infrastructure & Logic Reliability (2026-02-17):**
   - **Infrastructure:** Eliminated "Zombie Builds" in E2E testing by implementing `scripts/nuclear-clean.sh` (aggressive cache clearing) and switching to `pnpm dev` (Vite Dev Server) for test execution.
   - **Logic:** Resolved "Shadowed State" bug in `useSpeechRecognition_prod.ts` where the `onReady` status was hardcoded, masking the actual store state.
