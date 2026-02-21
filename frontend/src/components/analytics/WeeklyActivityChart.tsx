@@ -63,13 +63,19 @@ export const WeeklyActivityChart: React.FC = () => {
     }
 
     return (
-        <Card className="h-full bg-card border-border p-6 rounded-xl shadow-sm">
-            <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-semibold text-foreground">Weekly Activity</h3>
+        <div className="h-full glass p-8 rounded-[2rem] shadow-sm">
+            <div className="flex items-center justify-between mb-8">
+                <h3 className="text-xl font-bold text-foreground">Weekly Activity</h3>
             </div>
             <div className="h-[250px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartData}>
+                        <defs>
+                            <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="hsl(var(--secondary))" stopOpacity={1} />
+                                <stop offset="100%" stopColor="hsl(var(--secondary))" stopOpacity={0.8} />
+                            </linearGradient>
+                        </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.1} />
                         <XAxis
                             dataKey="day"
@@ -87,25 +93,26 @@ export const WeeklyActivityChart: React.FC = () => {
                             allowDecimals={false}
                         />
                         <Tooltip
-                            cursor={{ fill: 'hsl(var(--muted))', opacity: 0.2 }}
+                            cursor={{ fill: 'rgba(255,255,255,0.05)', radius: 8 }}
                             contentStyle={{
                                 backgroundColor: 'hsl(var(--popover))',
                                 borderColor: 'hsl(var(--border))',
                                 color: 'hsl(var(--popover-foreground))',
-                                borderRadius: '8px',
-                                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                                borderRadius: '12px',
+                                border: '1px solid hsl(var(--border))',
+                                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'
                             }}
                         />
                         <Bar
                             dataKey="sessions"
-                            fill="hsl(var(--primary))"
-                            radius={[6, 6, 0, 0]}
+                            fill="url(#barGradient)"
+                            radius={[6, 6, 2, 2]}
                             barSize={32}
-                            activeBar={{ fill: 'hsl(var(--primary))', opacity: 0.8 }}
+                            activeBar={{ opacity: 0.9 }}
                         />
                     </BarChart>
                 </ResponsiveContainer>
             </div>
-        </Card>
+        </div>
     );
 };

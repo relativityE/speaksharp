@@ -195,8 +195,9 @@ const AuthenticatedAnalyticsView: React.FC = () => {
 
 export const AnalyticsPage: React.FC = () => {
     return (
-        <div className="min-h-screen bg-background pt-20">
-            <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="min-h-screen bg-background bg-gradient-radial pt-20 relative overflow-hidden">
+            <div className="fixed inset-0 bg-grid opacity-20 pointer-events-none" />
+            <div className="relative z-10 max-w-7xl mx-auto px-6 py-8">
                 <AuthenticatedAnalyticsView />
             </div>
         </div>

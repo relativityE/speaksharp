@@ -97,11 +97,11 @@ const Navigation = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
-            <Link to="/" className="flex items-center space-x-2" aria-label="SpeakSharp Home">
-              <div className="w-8 h-8 bg-gradient-hero rounded-lg flex items-center justify-center">
-                <Mic className="h-5 w-5 text-white" aria-hidden="true" />
+            <Link to="/" className="flex items-center gap-2 group cursor-pointer" aria-label="SpeakSharp Home">
+              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center glow-primary transition-transform group-hover:scale-110">
+                <Mic className="w-5 h-5 text-primary-foreground" aria-hidden="true" />
               </div>
-              <span className="text-xl font-bold text-foreground">SpeakSharp</span>
+              <span className="font-bold text-xl tracking-tight text-foreground">SpeakSharp</span>
             </Link>
 
             {/* Navigation Items */}

@@ -26,17 +26,17 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
     const config = metricConfig[metric];
 
     return (
-        <Card className="bg-card border-border p-6 rounded-xl shadow-sm" data-testid={`${metric}-trend-chart`}>
-            <div className="mb-6">
-                <h3 className="text-lg font-semibold text-foreground">{title}</h3>
-                {description && <p className="text-sm text-muted-foreground">{description}</p>}
+        <div className="glass p-8 rounded-[2rem] shadow-sm" data-testid={`${metric}-trend-chart`}>
+            <div className="mb-8">
+                <h3 className="text-xl font-bold text-foreground">{title}</h3>
+                {description && <p className="text-sm text-muted-foreground mt-1">{description}</p>}
             </div>
 
             <div className="h-[300px] w-full">
                 {data.length < 2 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground bg-muted/20 rounded-xl border border-dashed border-border">
-                        <p className="font-medium">Not enough data yet</p>
-                        <p className="text-sm">Complete at least 2 sessions to see your {config.label.toLowerCase()} trend.</p>
+                    <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground glass rounded-2xl border-dashed">
+                        <p className="font-bold">Not enough data yet</p>
+                        <p className="text-sm mt-1">Complete at least 2 sessions to see your {config.label.toLowerCase()} trend.</p>
                     </div>
                 ) : (
                     <ResponsiveContainer width="100%" height="100%">
@@ -62,23 +62,30 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
                                     backgroundColor: 'hsl(var(--popover))',
                                     borderColor: 'hsl(var(--border))',
                                     color: 'hsl(var(--popover-foreground))',
-                                    borderRadius: '8px',
-                                    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+                                    borderRadius: '12px',
+                                    border: '1px solid hsl(var(--border))',
+                                    boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'
                                 }}
                             />
+                            <defs>
+                                <linearGradient id={`color-${metric}`} x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor={config.color} stopOpacity={0.3} />
+                                    <stop offset="95%" stopColor={config.color} stopOpacity={0} />
+                                </linearGradient>
+                            </defs>
                             <Area
                                 type="monotone"
                                 dataKey={metric}
                                 stroke={config.color}
                                 fill={`url(#color-${metric})`}
-                                strokeWidth={2}
+                                strokeWidth={3}
                                 dot={false}
-                                activeDot={{ r: 4, strokeWidth: 0 }}
+                                activeDot={{ r: 6, strokeWidth: 0, fill: config.color }}
                             />
                         </AreaChart>
                     </ResponsiveContainer>
                 )}
             </div>
-        </Card>
+        </div>
     );
 };

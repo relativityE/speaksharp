@@ -14,20 +14,20 @@ export const ClarityScoreCard: React.FC<ClarityScoreCardProps> = ({
     clarityLabel,
 }) => {
     return (
-        <div className="bg-card border border-border rounded-xl p-4 shadow-sm">
-            <h3 className="text-base font-semibold text-foreground mb-2">Live Stats</h3>
-            <div className="bg-muted/30 rounded-lg p-3">
+        <div className="glass rounded-2xl p-6 shadow-sm">
+            <h3 className="text-base font-semibold text-foreground mb-4">Clarity</h3>
+            <div className="space-y-4">
                 <div className="flex items-center justify-between mb-1">
-                    <span className="text-muted-foreground text-sm">Clarity Score</span>
+                    <span className="text-muted-foreground text-sm">Score</span>
                     <span className="text-primary font-bold" data-testid="clarity-score-value">{Math.round(clarityScore)}%</span>
                 </div>
-                <div className="h-2 bg-muted rounded-full overflow-hidden mb-2">
+                <div className="h-2 bg-white/5 rounded-full overflow-hidden">
                     <div
                         className="h-full bg-primary rounded-full transition-all duration-300"
                         style={{ width: `${clarityScore}%` }}
                     />
                 </div>
-                <p className="text-xs text-muted-foreground text-right">
+                <p className="text-xs text-muted-foreground text-right mt-2">
                     {clarityLabel || 'Keep speaking clearly'}
                 </p>
             </div>

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Settings } from 'lucide-react';
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
@@ -95,109 +96,137 @@ export const SessionPage: React.FC = () => {
         progress: modelLoadingProgress ?? undefined
     };
 
+    const fadeUp = {
+        hidden: { opacity: 0, y: 30 },
+        visible: (i: number) => ({
+            opacity: 1, y: 0,
+            transition: { delay: i * 0.1, duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] },
+        }),
+    };
+
     return (
-        <div className="min-h-screen bg-gradient-subtle pt-20">
+        <div className="min-h-screen bg-background bg-gradient-radial pt-20">
+            {/* Grid Overlay */}
+            <div className="fixed inset-0 bg-grid opacity-20 pointer-events-none" />
+
             {/* Page Header */}
-            <div className="text-center py-4 px-6 max-w-7xl mx-auto">
-                <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>
-                <p className="text-xs text-muted-foreground">We'll analyze your speech patterns in real-time</p>
-            </div>
+            <header className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-white/5">
+                <motion.div
+                    initial="hidden"
+                    animate="visible"
+                    variants={fadeUp}
+                    custom={0}
+                >
+                    <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>
+                    <p className="text-xs text-muted-foreground">We'll analyze your speech patterns in real-time</p>
+                </motion.div>
+            </header>
 
             {/* Status Bar */}
-            <div className="max-w-7xl mx-auto px-6 mb-2">
+            <motion.div
+                className="relative z-10 max-w-6xl mx-auto px-6 mt-4"
+                initial="hidden"
+                animate="visible"
+                variants={fadeUp}
+                custom={1}
+            >
                 <StatusNotificationBar status={displayStatus} />
-            </div>
+            </motion.div>
 
             {/* Main Content Grid */}
-            <div className="max-w-7xl mx-auto px-6 pb-6">
-                <div className="space-y-6">
-                    {/* Row 1: Session Control & Pause Analysis */}
-                    <div className="grid lg:grid-cols-3 gap-6">
-                        <div className="lg:col-span-2">
-                            <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
-                                <LiveRecordingCard
-                                    mode={mode}
-                                    isListening={isListening}
-                                    isReady={isReady}
-                                    isProUser={isProUser}
-                                    activeEngine={activeEngine}
-                                    statusMessage={sttStatus.message}
-                                    formattedTime={metrics.formattedTime}
-                                    elapsedSeconds={elapsedTime}
-                                    isButtonDisabled={isButtonDisabled}
-                                    onModeChange={setMode}
-                                    onStartStop={handleStartStop}
-                                />
-                            </LocalErrorBoundary>
-                        </div>
-                        <div className="h-full">
-                            <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
-                                <PauseMetricsDisplay
-                                    metrics={pauseMetrics}
-                                    className="h-full"
-                                />
-                            </LocalErrorBoundary>
-                        </div>
-                    </div>
-
-                    {/* Row 2: Transcript & Filler Words */}
-                    <div className="grid lg:grid-cols-3 gap-6">
-                        <div className="lg:col-span-2">
-                            <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
-                                <LiveTranscriptPanel
-                                    transcript={transcriptContent}
-                                    isListening={isListening}
-                                    containerRef={transcriptContainerRef}
-                                    className="h-full"
-                                />
-                            </LocalErrorBoundary>
-                        </div>
-                        <div className="h-full">
-                            <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
-                                <FillerWordsCard
-                                    fillerCount={metrics.fillerCount}
-                                    fillerData={fillerData}
-                                    headerAction={
-                                        <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                                            <PopoverTrigger asChild>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="text-primary underline-offset-4 hover:underline"
-                                                    data-testid="add-custom-word-button"
-                                                >
-                                                    <Settings className="h-4 w-4" />
-                                                    Custom
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-80 bg-card border-border shadow-xl mr-6">
-                                                <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
-                                            </PopoverContent>
-                                        </Popover>
-                                    }
-                                />
-                            </LocalErrorBoundary>
-                        </div>
-                    </div>
-
-                    {/* Row 3: Secondary Metrics & Tips */}
-                    <div className="grid lg:grid-cols-3 gap-6">
-                        <LocalErrorBoundary isolationKey="clarity-score" componentName="ClarityScoreCard">
-                            <ClarityScoreCard
-                                clarityScore={metrics.clarityScore}
-                                clarityLabel={metrics.clarityLabel}
+            <div className="relative z-10 max-w-6xl mx-auto px-6 py-8">
+                <div className="grid lg:grid-cols-3 gap-6">
+                    {/* Main Area */}
+                    <motion.div
+                        className="lg:col-span-2 space-y-6"
+                        initial="hidden"
+                        animate="visible"
+                        variants={fadeUp}
+                        custom={2}
+                    >
+                        <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
+                            <LiveRecordingCard
+                                mode={mode}
+                                isListening={isListening}
+                                isReady={isReady}
+                                isProUser={isProUser}
+                                activeEngine={activeEngine}
+                                statusMessage={sttStatus.message}
+                                formattedTime={metrics.formattedTime}
+                                elapsedSeconds={elapsedTime}
+                                isButtonDisabled={isButtonDisabled}
+                                onModeChange={setMode}
+                                onStartStop={handleStartStop}
                             />
                         </LocalErrorBoundary>
-                        <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
-                            <SpeakingRateCard
-                                wpm={metrics.wpm}
-                                wpmLabel={metrics.wpmLabel}
+
+                        <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
+                            <LiveTranscriptPanel
+                                transcript={transcriptContent}
+                                isListening={isListening}
+                                containerRef={transcriptContainerRef}
+                                className="min-h-[400px]"
                             />
                         </LocalErrorBoundary>
+                    </motion.div>
+
+                    {/* Sidebar */}
+                    <motion.div
+                        className="space-y-6"
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: 0.4, duration: 0.6 }}
+                    >
+                        <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
+                            <FillerWordsCard
+                                fillerCount={metrics.fillerCount}
+                                fillerData={fillerData}
+                                headerAction={
+                                    <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="text-primary underline-offset-4 hover:underline"
+                                                data-testid="add-custom-word-button"
+                                            >
+                                                <Settings className="h-4 w-4" />
+                                                Custom
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-80 bg-card border-border shadow-xl mr-6">
+                                            <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
+                                        </PopoverContent>
+                                    </Popover>
+                                }
+                            />
+                        </LocalErrorBoundary>
+
+                        <div className="grid grid-cols-2 gap-4">
+                            <LocalErrorBoundary isolationKey="clarity-score" componentName="ClarityScoreCard">
+                                <ClarityScoreCard
+                                    clarityScore={metrics.clarityScore}
+                                    clarityLabel={metrics.clarityLabel}
+                                />
+                            </LocalErrorBoundary>
+                            <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
+                                <SpeakingRateCard
+                                    wpm={metrics.wpm}
+                                    wpmLabel={metrics.wpmLabel}
+                                />
+                            </LocalErrorBoundary>
+                        </div>
+
+                        <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
+                            <PauseMetricsDisplay
+                                metrics={pauseMetrics}
+                            />
+                        </LocalErrorBoundary>
+
                         <LocalErrorBoundary isolationKey="speaking-tips" componentName="SpeakingTipsCard">
                             <SpeakingTipsCard />
                         </LocalErrorBoundary>
-                    </div>
+                    </motion.div>
                 </div>
             </div>
 

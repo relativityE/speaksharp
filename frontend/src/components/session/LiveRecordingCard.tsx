@@ -60,100 +60,101 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     };
 
     return (
-        <div className="bg-card border border-border rounded-xl p-5 shadow-sm relative overflow-hidden h-[160px] flex flex-col justify-center" data-testid="live-recording-card">
-            {/* Horizontal Layout for efficiency */}
-            <div className="flex items-center justify-between gap-8">
-                {/* Timer & Mode */}
-                <div className="flex flex-col">
-                    <div className="flex items-center gap-2.5 mb-2">
-                        <span className="text-4xl font-mono font-bold text-foreground tracking-tight">
-                            {formattedTime}
-                        </span>
-                        <div className="h-6 w-px bg-border" />
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild disabled={isListening}>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 px-2.5 gap-1.5 text-sm text-muted-foreground hover:text-foreground disabled:opacity-80 font-semibold"
-                                    title={isListening ? "Cannot change mode during recording" : "Select transcription mode"}
-                                    data-testid={TEST_IDS.STT_MODE_SELECT}
-                                >
-                                    {getModeLabel(mode)}
-                                    {!isListening && <ChevronDown className="h-4 w-4" />}
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start">
-                                <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
-                                    <DropdownMenuRadioItem value="native" data-testid={TEST_IDS.STT_MODE_NATIVE}>Native Browser</DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="private" disabled={!isProUser}>Private</DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="cloud" disabled={!isProUser} data-testid={TEST_IDS.STT_MODE_CLOUD}>Cloud</DropdownMenuRadioItem>
-                                </DropdownMenuRadioGroup>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <h1 className="text-base font-semibold text-foreground" data-testid="live-session-header">
-                            {isListening ? (activeEngine && activeEngine !== 'none' ? "Recording active" : (statusMessage || "Connecting...")) : "Ready to record"}
-                        </h1>
-                        {isListening && mode === 'private' && (
-                            <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/20 uppercase tracking-tighter">
-                                <Shield className="h-3 w-3" />
-                                Secure
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Waveform (Comfortable size) */}
-                <div
-                    className="flex-1 flex items-center justify-center gap-1 h-10 bg-muted/20 rounded-xl px-3"
-                    data-testid="recording-indicator"
-                >
-                    {[...Array(24)].map((_, i) => (
-                        <div
-                            key={i}
-                            className={`w-0.5 rounded-full transition-all duration-150 ${isListening && isReady ? "bg-secondary" : "bg-muted-foreground/10"
-                                }`}
-                            style={{
-                                height: isListening && isReady
-                                    ? `${Math.max(4, Math.random() * 25 + 4)}px`
-                                    : "4px"
-                            }}
-                        />
-                    ))}
-                </div>
-
-                {/* Main Action Button (Stable UX) */}
-                <div>
-                    {!isListening ? (
+        <div className="glass-strong rounded-3xl p-8 relative overflow-hidden flex flex-col items-center justify-center space-y-8" data-testid="live-recording-card">
+            {/* Mode Selector */}
+            <div className="absolute top-6 right-8">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild disabled={isListening}>
                         <Button
-                            onClick={onStartStop}
-                            disabled={isButtonDisabled}
-                            data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
-                            data-ready={!isButtonDisabled}
-                            data-recording="false"
-                            size="icon"
-                            aria-label="Start Recording"
-                            className="w-14 h-14 rounded-full bg-secondary hover:bg-secondary/90 text-secondary-foreground shadow-lg hover:scale-105 transition-all duration-200"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2.5 gap-1.5 text-sm text-muted-foreground hover:text-foreground disabled:opacity-80 font-semibold glass border-white/5"
+                            title={isListening ? "Cannot change mode during recording" : "Select transcription mode"}
+                            data-testid={TEST_IDS.STT_MODE_SELECT}
                         >
-                            <Mic className="w-6 h-6" />
+                            {getModeLabel(mode)}
+                            {!isListening && <ChevronDown className="h-4 w-4" />}
                         </Button>
-                    ) : (
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                        <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
+                            <DropdownMenuRadioItem value="native" data-testid={TEST_IDS.STT_MODE_NATIVE}>Native Browser</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="private" disabled={!isProUser}>Private</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="cloud" disabled={!isProUser} data-testid={TEST_IDS.STT_MODE_CLOUD}>Cloud</DropdownMenuRadioItem>
+                        </DropdownMenuRadioGroup>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+            </div>
+
+            {/* Timer Display */}
+            <div className="text-center">
+                <span className="text-6xl font-mono font-bold text-foreground tracking-wider">
+                    {formattedTime}
+                </span>
+                <div className="mt-2 flex items-center justify-center gap-2">
+                    <h1 className="text-base font-semibold text-muted-foreground" data-testid="live-session-header">
+                        {isListening ? (activeEngine && activeEngine !== 'none' ? "Recording active" : (statusMessage || "Connecting...")) : "Ready to record"}
+                    </h1>
+                    {isListening && mode === 'private' && (
+                        <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/20 uppercase tracking-tighter">
+                            <Shield className="h-3 w-3" />
+                            Secure
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Waveform (Comfortable size) */}
+            <div
+                className="w-full max-w-md flex items-center justify-center gap-1.5 h-16"
+                data-testid="recording-indicator"
+            >
+                {[...Array(32)].map((_, i) => (
+                    <div
+                        key={i}
+                        className={`w-[3px] rounded-full transition-all duration-150 ${isListening && isReady ? "bg-primary animate-pulse" : "bg-muted-foreground/20"
+                            }`}
+                        style={{
+                            height: isListening && isReady
+                                ? `${Math.max(6, Math.random() * 40 + 6)}px`
+                                : "6px",
+                            animationDelay: `${i * 0.05}s`
+                        }}
+                    />
+                ))}
+            </div>
+
+            {/* Main Action Button (Stable UX) */}
+            <div className="flex items-center gap-6">
+                {!isListening ? (
+                    <Button
+                        onClick={onStartStop}
+                        disabled={isButtonDisabled}
+                        data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
+                        data-ready={!isButtonDisabled}
+                        data-recording="false"
+                        size="icon"
+                        aria-label="Start Recording"
+                        className="w-24 h-24 rounded-full bg-secondary hover:bg-secondary/90 text-secondary-foreground glow-secondary shadow-lg hover:scale-105 transition-all duration-300"
+                    >
+                        <Mic className="w-10 h-10" />
+                    </Button>
+                ) : (
+                    <div className="flex items-center gap-6">
                         <Button
                             onClick={onStartStop}
                             disabled={isButtonDisabled}
                             data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
-                            data-ready="true" // Stop button is always "ready" once session is active
+                            data-ready="true"
                             data-recording="true"
                             size="icon"
                             aria-label="Stop Recording"
-                            className="w-14 h-14 rounded-full bg-secondary hover:bg-secondary/80 text-secondary-foreground shadow-lg active:scale-95 transition-all duration-200"
+                            className="w-24 h-24 rounded-full bg-destructive hover:bg-destructive/90 text-white glow-secondary shadow-lg active:scale-95 transition-all duration-300"
                         >
-                            <Square className="w-6 h-6 fill-current" />
+                            <Square className="w-10 h-10 fill-current" />
                         </Button>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
 
             {isTooShort && (

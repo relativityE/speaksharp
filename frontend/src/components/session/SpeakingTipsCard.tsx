@@ -38,12 +38,12 @@ export const SpeakingTipsCard: React.FC<SpeakingTipsCardProps> = ({
     const [tip] = React.useState(() => tips[Math.floor(Math.random() * tips.length)]);
 
     return (
-        <div className="bg-secondary/10 border border-secondary/30 rounded-xl p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-secondary mb-2 flex items-center gap-2">
+        <div className="glass rounded-2xl p-6 border-secondary/20 shadow-sm">
+            <h2 className="text-lg font-semibold text-secondary mb-4 flex items-center gap-2">
                 <Lightbulb className="h-5 w-5" />
                 Quick Tip
             </h2>
-            <div className="space-y-1">
+            <div className="space-y-2">
                 <h4 className="font-medium text-foreground text-sm">{tip.title}</h4>
                 <p className="text-muted-foreground text-sm leading-relaxed">
                     {tip.description}

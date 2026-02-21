@@ -8,154 +8,137 @@
 All colors MUST be HSL.
 */
 
-@layer base {
-  :root {
-    --background: 220 20% 14%;
-    --foreground: 210 40% 98%;
+:root {
+  --background: 220 20% 14%;
+  --foreground: 210 40% 98%;
 
-    --card: 220 20% 17%;
-    --card-foreground: 210 40% 98%;
+  --card: 220 20% 17%;
+  --card-foreground: 210 40% 98%;
 
-    --popover: 220 20% 17%;
-    --popover-foreground: 210 40% 98%;
+  --popover: 220 20% 17%;
+  --popover-foreground: 210 40% 98%;
 
-    --primary: 199 89% 48%;
-    --primary-foreground: 0 0% 100%;
+  --primary: 199 89% 48%;
+  --primary-foreground: 210 40% 98%;
 
-    --secondary: 45 85% 50%;
-    --secondary-foreground: 0 0% 10%;
+  --secondary: 45 85% 50%;
+  --secondary-foreground: 210 40% 98%;
 
-    --muted: 220 15% 22%;
-    --muted-foreground: 220 15% 58%;
+  --muted: 220 15% 22%;
+  --muted-foreground: 220 15% 58%;
 
-    --accent: 199 89% 48%;
-    --accent-foreground: 0 0% 100%;
+  --accent: 199 89% 48%;
+  --accent-foreground: 210 40% 98%;
 
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
+  --destructive: 0 63% 31%;
+  --destructive-foreground: 210 40% 98%;
 
-    --border: 220 15% 22%;
-    --input: 220 15% 22%;
-    --ring: 199 89% 48%;
+  --border: 220 15% 22%;
+  --input: 220 15% 22%;
+  --ring: 199 89% 48%;
 
-    --radius: 0.75rem;
+  --radius: 0.75rem;
 
-    --sidebar-background: 220 20% 11%;
-    --sidebar-foreground: 210 40% 95%;
-    --sidebar-primary: 199 89% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 45 85% 50%;
-    --sidebar-accent-foreground: 0 0% 10%;
-    --sidebar-border: 220 15% 20%;
-    --sidebar-ring: 199 89% 48%;
+  --sidebar-background: 220 20% 14%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-primary: 199 89% 48%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 220 15% 22%;
+  --sidebar-accent-foreground: 210 40% 98%;
+  --sidebar-border: 220 15% 22%;
+  --sidebar-ring: 199 89% 48%;
 
-    /* Standardized Toast Offset */
-    --toast-offset-top: 96px;
-  }
-
-  .dark {
-    --background: 220 20% 14%;
-    --foreground: 210 40% 98%;
-
-    --card: 220 20% 17%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 220 20% 17%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 199 89% 48%;
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 45 85% 50%;
-    --secondary-foreground: 0 0% 10%;
-
-    --muted: 220 15% 22%;
-    --muted-foreground: 220 15% 58%;
-
-    --accent: 199 89% 48%;
-    --accent-foreground: 0 0% 100%;
-
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
-
-    --border: 220 15% 22%;
-    --input: 220 15% 22%;
-    --ring: 199 89% 48%;
-
-    --radius: 0.75rem;
-
-    --sidebar-background: 220 20% 11%;
-    --sidebar-foreground: 210 40% 95%;
-    --sidebar-primary: 199 89% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 45 85% 50%;
-    --sidebar-accent-foreground: 0 0% 10%;
-    --sidebar-border: 220 15% 20%;
-    --sidebar-ring: 199 89% 48%;
-  }
+  --toast-offset-top: 96px;
 }
 
-/* Utility classes for specific visual effects */
+.dark {
+  --background: 220 20% 14%;
+  --foreground: 210 40% 98%;
+
+  --card: 220 20% 17%;
+  --card-foreground: 210 40% 98%;
+
+  --popover: 220 20% 17%;
+  --popover-foreground: 210 40% 98%;
+
+  --primary: 199 89% 48%;
+  --primary-foreground: 210 40% 98%;
+
+  --secondary: 45 85% 50%;
+  --secondary-foreground: 210 40% 98%;
+
+  --muted: 220 15% 22%;
+  --muted-foreground: 220 15% 58%;
+
+  --accent: 199 89% 48%;
+  --accent-foreground: 210 40% 98%;
+
+  --destructive: 0 63% 31%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 220 15% 22%;
+  --input: 220 15% 22%;
+  --ring: 199 89% 48%;
+
+  --radius: 0.75rem;
+
+  --sidebar-background: 220 20% 14%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-primary: 199 89% 48%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 220 15% 22%;
+  --sidebar-accent-foreground: 210 40% 98%;
+  --sidebar-border: 220 15% 22%;
+  --sidebar-ring: 199 89% 48%;
+}
+
+/* Utility classes outside @layer utilities as requested */
 .glass {
-  @apply bg-white/5 backdrop-blur-xl border border-white/10;
+  @apply bg-white/5 backdrop-blur-md border border-white/10;
 }
 
 .glass-strong {
-  @apply bg-white/10 backdrop-blur-2xl border border-white/15;
+  @apply bg-white/10 backdrop-blur-xl border border-white/20;
 }
 
 .glow-primary {
-  box-shadow: 0 0 40px -10px hsl(199 89% 48% / 0.4);
+  @apply shadow-[0_0_20px_rgba(14,165,233,0.3)];
 }
 
 .glow-secondary {
-  box-shadow: 0 0 40px -10px hsl(45 85% 50% / 0.4);
+  @apply shadow-[0_0_20px_rgba(234,179,8,0.3)];
 }
 
 .text-gradient-hero {
-  @apply bg-clip-text text-transparent;
-  background-image: linear-gradient(135deg, hsl(0 0% 100%), hsl(199 89% 58%), hsl(45 85% 55%));
+  @apply bg-gradient-to-r from-white via-white/90 to-white/70 bg-clip-text text-transparent;
 }
 
 .text-gradient-cyan {
-  @apply bg-clip-text text-transparent;
-  background-image: linear-gradient(135deg, hsl(199 89% 48%), hsl(199 60% 70%));
+  @apply bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent;
 }
 
 .bg-gradient-radial {
-  background-image:
-    radial-gradient(at 30% 20%, rgba(13, 162, 231, 0.08) 0%, rgba(0, 0, 0, 0) 50%),
-    radial-gradient(at 70% 80%, rgba(236, 182, 19, 0.06) 0%, rgba(0, 0, 0, 0) 50%);
+  background: radial-gradient(circle at 50% 50%, hsl(220 20% 18%) 0%, hsl(220 20% 14%) 100%);
 }
 
 .bg-grid {
-  background-image: linear-gradient(hsl(220 15% 18% / 0.5) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(220 15% 18% / 0.5) 1px, transparent 1px);
-  background-size: 60px 60px;
+  background-image: linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
 }
 
 @layer base {
   * {
     @apply border-border;
   }
-
   body {
     @apply bg-background text-foreground;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
-  /* 
-   * Anti-Jarring Toast Positioning 
-   * Ensures the container is positioned statically BEFORE the first toast enters.
-   */
+  /* Toast positioning rule */
   [data-sonner-toaster][data-position="top-right"] {
     top: var(--toast-offset-top) !important;
   }
-}
-/* Industry Standard: Compact Density (2/3 Height) */
-.compact-density {
-  padding-top: 0.5rem !important;
-  padding-bottom: 0.5rem !important;
-  min-height: auto !important;
 }

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { motion } from 'framer-motion';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from '@/lib/toast';
@@ -208,16 +209,14 @@ const ANALYSIS_STORAGE_KEY = 'speaksharp_selected_analysis_slides_v3';
 // --- Sub-components ---
 
 const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className, testId }) => (
-    <Card className={`bg-card border-border p-6 rounded-xl shadow-sm ${className}`} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
-        <div className="flex items-center justify-between mb-4">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${label.includes('Filler') ? 'bg-secondary/10 text-secondary' : 'bg-primary/10 text-primary'}`}>
-                {/* Clone icon to enforce size and styling if needed, but usually props are fine. Wrapper handles color. */}
-                {React.cloneElement(icon as React.ReactElement, { size: 24, className: "stroke-current" })}
+    <div className={`glass rounded-2xl p-6 shadow-sm ${className}`} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+        <div className="flex items-center justify-between mb-6">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${label.includes('Filler') ? 'bg-secondary/15 text-secondary' : 'bg-primary/15 text-primary'}`}>
+                {React.cloneElement(icon as React.ReactElement, { size: 20, className: "stroke-current" })}
             </div>
-            {/* Trend placeholder - could be passed as prop later */}
             {label.includes('Pace') && (
-                <span className="flex items-center gap-1 text-sm text-emerald-500 font-medium">
-                    <TrendingUp className="w-4 h-4" />
+                <span className="flex items-center gap-1 text-[10px] text-emerald-500 font-bold uppercase tracking-wider">
+                    <TrendingUp className="w-3 h-3" />
                     Target: 130-150
                 </span>
             )}
@@ -231,7 +230,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className
             </div>
             <p className="text-sm text-muted-foreground mt-1 font-medium">{label}</p>
         </div>
-    </Card>
+    </div>
 );
 
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro, isSelected, onToggleSelect, profileName }) => {
@@ -246,7 +245,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro,
     return (
         <NavLink
             to={`/analytics/${session.id}`}
-            className="group flex flex-col md:flex-row items-center justify-between p-4 bg-muted/30 rounded-xl hover:bg-muted/50 transition-all border border-transparent hover:border-border mb-3 last:mb-0"
+            className="group flex flex-col md:flex-row items-center justify-between p-4 glass rounded-xl hover:bg-white/10 transition-all border border-transparent hover:border-white/5 mb-3 last:mb-0 cursor-pointer"
             data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}
         >
             <div className="flex items-center gap-4 w-full md:w-auto mb-4 md:mb-0">
@@ -258,15 +257,15 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro,
                         aria-label={`Select session for comparison`}
                     />
                 </div>
-                <div className="w-12 h-12 bg-secondary/20 rounded-xl flex items-center justify-center shrink-0">
-                    <Mic className="w-6 h-6 text-secondary" />
+                <div className="w-10 h-10 bg-secondary/15 rounded-xl flex items-center justify-center shrink-0">
+                    <Mic className="w-5 h-5 text-secondary" />
                 </div>
                 <div>
-                    <p className="font-semibold text-foreground text-base truncate max-w-[200px]">{session.title || 'Practice Session'}</p>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <p className="font-bold text-foreground text-base truncate max-w-[200px]">{session.title || 'Practice Session'}</p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Clock className="w-3 h-3" />
-                        <span>{durationStr} duration</span>
-                        <span className="text-muted-foreground/50">•</span>
+                        <span>{durationStr}</span>
+                        <span className="text-muted-foreground/30">•</span>
                         <span>{formatDateTime(session.created_at)}</span>
                     </div>
                 </div>
@@ -274,40 +273,54 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro,
 
             <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end px-4 md:px-0">
                 <div className="text-center">
-                    <p className="font-bold text-foreground text-lg">{wpm}</p>
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">WPM</p>
+                    <p className="font-bold text-primary text-lg">{wpm}</p>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">WPM</p>
                 </div>
                 <div className="text-center">
                     <p className={`font-bold text-lg ${totalFillers <= 3 ? "text-emerald-500" : "text-secondary"}`}>
                         {totalFillers}
                     </p>
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Fillers</p>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Fillers</p>
                 </div>
                 <div className="text-center">
-                    <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? clarity.toFixed(0) : '0'}%</p>
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Clarity</p>
+                    <p className="font-bold text-foreground text-lg">{typeof clarity === 'number' ? clarity.toFixed(0) : '0'}%</p>
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Clarity</p>
                 </div>
 
                 {isPro && (
-                    <div className="pl-4 border-l border-border hidden md:block">
+                    <div className="pl-4 border-l border-white/5 hidden md:block">
                         <Button
-                            variant="secondary"
+                            variant="ghost"
                             size="sm"
-                            className="gap-2 hover:bg-primary hover:text-primary-foreground transition-all shadow-sm"
-                            onClick={() => generateSessionPdf(session, profileName)}
+                            className="glass text-xs h-8 px-3 gap-2 hover:bg-white/10 transition-all"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                generateSessionPdf(session, profileName);
+                            }}
                             title="Download Session PDF"
                             data-testid={`download-pdf-btn-${session.id}`}
                         >
-                            <Download className="h-4 w-4" />
+                            <Download className="h-3.5 w-3.5" />
                             PDF
                         </Button>
                     </div>
                 )}
             </div>
             {isPro && (
-                <div className="w-full flex justify-end md:hidden pt-4 border-t border-border mt-4">
-                    <Button variant="secondary" size="sm" className="w-full gap-2 text-muted-foreground" onClick={() => generateSessionPdf(session, profileName)} data-testid={`download-pdf-btn-mobile-${session.id}`}>
-                        <Download className="h-4 w-4" /> Download Session PDF
+                <div className="w-full flex justify-end md:hidden pt-4 border-t border-white/5 mt-4">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full glass gap-2 text-muted-foreground"
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            generateSessionPdf(session, profileName);
+                        }}
+                        data-testid={`download-pdf-btn-mobile-${session.id}`}
+                    >
+                        <Download className="h-4 w-4" /> Download PDF
                     </Button>
                 </div>
             )}
@@ -541,6 +554,14 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         return sessionHistory.find(s => s.id === sessionId);
     }, [sessionId, sessionHistory]);
 
+    const fadeUp = {
+        hidden: { opacity: 0, y: 30 },
+        visible: (i: number) => ({
+            opacity: 1, y: 0,
+            transition: { delay: i * 0.1, duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] },
+        }),
+    };
+
     return (
         <div className="space-y-8" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
             {loading ? (
@@ -552,33 +573,39 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 <div className="space-y-8">
                     {/* Session Metrics Summary */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                        <StatCard
-                            icon={<Gauge />}
-                            label="Speaking Pace"
-                            value={targetSession.wpm ?? (targetSession.duration > 0 && targetSession.total_words ? Math.round((targetSession.total_words / targetSession.duration) * 60) : 0)}
-                            unit="WPM"
-                        />
-                        <StatCard
-                            icon={<Target />}
-                            label="Clarity Score"
-                            value={targetSession.clarity_score ?? (targetSession.accuracy ? (targetSession.accuracy * 100).toFixed(0) : 0)}
-                            unit="%"
-                        />
-                        <StatCard
-                            icon={<TrendingUp />}
-                            label="Filler Words"
-                            value={Object.values(targetSession.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0)}
-                        />
+                        <motion.div initial="hidden" animate="visible" variants={fadeUp} custom={0}>
+                            <StatCard
+                                icon={<Gauge />}
+                                label="Speaking Pace"
+                                value={targetSession.wpm ?? (targetSession.duration > 0 && targetSession.total_words ? Math.round((targetSession.total_words / targetSession.duration) * 60) : 0)}
+                                unit="WPM"
+                            />
+                        </motion.div>
+                        <motion.div initial="hidden" animate="visible" variants={fadeUp} custom={1}>
+                            <StatCard
+                                icon={<Target />}
+                                label="Clarity Score"
+                                value={targetSession.clarity_score ?? (targetSession.accuracy ? (targetSession.accuracy * 100).toFixed(0) : 0)}
+                                unit="%"
+                            />
+                        </motion.div>
+                        <motion.div initial="hidden" animate="visible" variants={fadeUp} custom={2}>
+                            <StatCard
+                                icon={<TrendingUp />}
+                                label="Filler Words"
+                                value={Object.values(targetSession.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0)}
+                            />
+                        </motion.div>
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                         {/* Transcript Panel */}
-                        <Card className="lg:col-span-2">
-                            <CardHeader className="flex flex-row items-center justify-between">
-                                <CardTitle className="flex items-center gap-2">
+                        <div className="lg:col-span-2 glass rounded-2xl p-8 shadow-sm">
+                            <div className="flex items-center justify-between mb-6">
+                                <h3 className="text-xl font-bold flex items-center gap-2">
                                     <Mic className="h-5 w-5 text-primary" />
                                     Transcript
-                                </CardTitle>
+                                </h3>
                                 <div className="flex items-center gap-2">
                                     {isProUser && (
                                         <>
@@ -590,21 +617,21 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                                 className="hidden"
                                             />
                                             <Button
-                                                variant="outline"
+                                                variant="ghost"
                                                 size="sm"
                                                 onClick={() => fileInputRef.current?.click()}
                                                 disabled={isUploading}
-                                                className="gap-2 border-primary/30 hover:bg-primary/5"
+                                                className="glass gap-2 border-white/10 hover:bg-white/10"
                                                 data-testid="upload-ground-truth-btn"
                                             >
                                                 <Target className={`h-4 w-4 ${isUploading ? 'animate-spin' : ''}`} />
                                                 {targetSession.ground_truth ? 'Update Script' : 'Upload Script'}
                                             </Button>
                                             <Button
-                                                variant="outline"
+                                                variant="ghost"
                                                 size="sm"
                                                 onClick={() => generateSessionPdf(targetSession, profile?.email || 'User')}
-                                                className="gap-2"
+                                                className="glass gap-2 border-white/10 hover:bg-white/10"
                                             >
                                                 <Download className="h-4 w-4" />
                                                 Export PDF
@@ -612,25 +639,25 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         </>
                                     )}
                                 </div>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="p-4 bg-muted/30 rounded-lg min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
+                            </div>
+                            <div className="space-y-6">
+                                <div className="p-6 glass rounded-xl min-h-[200px] max-h-[400px] overflow-y-auto whitespace-pre-wrap text-base leading-relaxed text-foreground">
                                     {targetSession.transcript || "No transcript available for this session."}
                                 </div>
 
                                 {targetSession.ground_truth && (
-                                    <div className="space-y-2">
-                                        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                    <div className="space-y-3">
+                                        <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">
                                             <Target className="h-3 w-3" />
-                                            Reference Script (Ground Truth)
+                                            Reference Script
                                         </div>
-                                        <div className="p-4 bg-primary/5 border border-primary/10 rounded-lg max-h-[150px] overflow-y-auto whitespace-pre-wrap text-sm italic text-muted-foreground">
+                                        <div className="p-6 bg-primary/5 border border-white/5 rounded-xl max-h-[200px] overflow-y-auto whitespace-pre-wrap text-sm italic text-muted-foreground leading-relaxed">
                                             {targetSession.ground_truth}
                                         </div>
                                     </div>
                                 )}
-                            </CardContent>
-                        </Card>
+                            </div>
+                        </div>
 
                         {/* AI Suggestions Panel */}
                         <div className="h-full">
@@ -712,15 +739,16 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                         {STAT_CARD_OPTIONS
                             .filter(option => selectedStatCards.includes(option.id))
-                            .map(option => (
-                                <StatCard
-                                    key={option.id}
-                                    icon={option.icon}
-                                    label={option.label}
-                                    value={option.getValue(overallStats)}
-                                    unit={option.unit}
-                                    testId={`stat-card-${option.id}`}
-                                />
+                            .map((option, i) => (
+                                <motion.div key={option.id} initial="hidden" animate="visible" variants={fadeUp} custom={i}>
+                                    <StatCard
+                                        icon={option.icon}
+                                        label={option.label}
+                                        value={option.getValue(overallStats)}
+                                        unit={option.unit}
+                                        testId={`stat-card-${option.id}`}
+                                    />
+                                </motion.div>
                             ))
                         }
                     </div>
@@ -758,7 +786,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     </div>
 
                     {/* Analysis Carousel */}
-                    <div className="space-y-4">
+                    <motion.div
+                        className="space-y-4"
+                        initial="hidden"
+                        animate="visible"
+                        variants={fadeUp}
+                        custom={5}
+                    >
                         <Carousel className="w-full" opts={{ loop: true }} setApi={setApi}>
                             <CarouselContent>
                                 {ANALYSIS_SLIDE_OPTIONS
@@ -847,12 +881,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
                         {/* Session History Section - Moved below carousel */}
                         <div id="session-history-section">
-                            <Card className="bg-card border-border p-6 rounded-2xl shadow-sm">
-                                <div className="flex items-center justify-between mb-6">
-                                    <div>
-                                        <h2 className="text-xl font-bold text-foreground">Export Reports</h2>
+                            <div className="glass p-8 rounded-[2rem] shadow-sm">
+                                <div className="flex items-center justify-between mb-8">
+                                    <div className="space-y-1">
+                                        <h2 className="text-2xl font-bold text-foreground">Session History</h2>
                                         <p className="text-sm text-muted-foreground mt-1">Review your latest performance and export detailed reports.</p>
-                                        <div className="mt-3 flex items-center gap-2 text-[10px] md:text-xs font-semibold uppercase tracking-wider bg-secondary/10 text-secondary border border-secondary/20 px-3 py-1.5 rounded-full inline-flex">
+                                        <div className="mt-4 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest bg-secondary/10 text-secondary border border-secondary/20 px-3 py-1.5 rounded-full inline-flex">
                                             <Activity className="h-3 w-3" />
                                             <span>Rolling History: Last 50 Sessions Kept</span>
                                         </div>
@@ -884,9 +918,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         </div>
                                     )}
                                 </div>
-                            </Card>
+                            </div>
                         </div>
-                    </div>
+                    </motion.div>
 
                     {
                         selectedSessionData && (

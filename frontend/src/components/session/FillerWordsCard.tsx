@@ -21,37 +21,26 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
     headerAction,
 }) => {
     return (
-        <div className="bg-card border border-border rounded-xl p-4 shadow-sm h-full">
-            <div className="flex items-center justify-between mb-2">
+        <div className="glass rounded-2xl p-6 shadow-sm h-full">
+            <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-foreground">
-                    Filler Words <span data-testid="filler-count-value" className="text-secondary ml-1">{fillerCount > 0 ? `(${fillerCount})` : ''}</span>
+                    Filler Words
                 </h2>
                 {headerAction}
             </div>
 
-            <div className="space-y-2" data-testid="filler-words-list">
+            <div className="space-y-3" data-testid="filler-words-list">
                 {Object.entries(fillerData)
                     .filter(([key]) => key !== 'total')
                     .sort(([, a], [, b]) => b.count - a.count)
                     .map(([word, data]) => {
                         const isZero = data.count === 0;
-                        const wordColor = getWordColor(word.toLowerCase());
                         return (
                             <div key={word} className="flex items-center justify-between" data-testid="filler-badge">
-                                <span
-                                    className="text-sm font-bold px-2 py-0.5 rounded border"
-                                    style={{
-                                        color: isZero ? 'inherit' : wordColor,
-                                        borderColor: isZero ? 'transparent' : `${wordColor}40`,
-                                        backgroundColor: isZero ? 'transparent' : `${wordColor}10`
-                                    }}
-                                >
-                                    "{word}"
-                                </span>
+                                <span className="text-sm text-muted-foreground">"{word}"</span>
                                 <span
                                     data-testid="filler-badge-count"
-                                    className={`font-bold ${!isZero ? "" : "text-muted-foreground"}`}
-                                    style={{ color: !isZero ? wordColor : undefined }}
+                                    className={`font-bold ${!isZero ? "text-secondary" : "text-muted-foreground/40"}`}
                                 >
                                     {data.count}
                                 </span>

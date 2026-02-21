@@ -50,9 +50,10 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-subtle flex flex-col">
+    <div className="min-h-screen bg-background bg-gradient-radial flex flex-col relative overflow-hidden">
+      <div className="fixed inset-0 bg-grid opacity-20 pointer-events-none" />
       {/* LandingHeader removed to avoid overlap with App Navigation */}
-      <main className="flex-1">
+      <main className="flex-1 relative z-10">
         <HeroSection />
         <FeaturesSection />
         <BenefitsSection />
