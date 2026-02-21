@@ -194,6 +194,8 @@ export default class TranscriptionService {
 
       this.engine = await EngineFactory.create(mode, engineConfig, this.policy);
 
+      let skipInitInExecute = false;
+
       if (mode === 'private') {
         const timeout = this.getLoadTimeout();
         logger.info({ timeout }, '[TranscriptionService] Starting Private STT with Optimistic Entry race');
@@ -229,15 +231,14 @@ export default class TranscriptionService {
             initPromise,
             timeoutPromise
           ]);
+          skipInitInExecute = true; // Successfully initialized within timeout
         } finally {
           // @ts-expect-error - timeoutId is assigned in Promise executor
           if (timeoutId) clearTimeout(timeoutId);
         }
-      } else {
-        await this.engine.init();
       }
 
-      await this.executeEngine(mode);
+      await this.executeEngine(mode, skipInitInExecute);
     } catch (error) {
       // ✅ EXPECTED EVENT: Cache miss - start background download
       if (isCacheMiss(error)) {
@@ -263,11 +264,13 @@ export default class TranscriptionService {
   /**
    * Internal engine lifecycle execution.
    */
-  private async executeEngine(mode: TranscriptionMode): Promise<void> {
+  private async executeEngine(mode: TranscriptionMode, skipInit: boolean = false): Promise<void> {
     if (!this.engine) return;
 
     try {
-      await this.engine.init();
+      if (!skipInit) {
+        await this.engine.init();
+      }
       await this.engine.startTranscription(this.mic!);
 
       this.startTime = Date.now();
@@ -492,8 +495,7 @@ export default class TranscriptionService {
     // FIX: Must create a new Native engine instance, otherwise we reuse the failing Private engine!
     const engineConfig: TranscriptionModeOptions = { ...this.options }; // Use base options for native
     this.engine = await EngineFactory.create('native', engineConfig, this.policy);
-    await this.engine.init(); // Init native engine
 
-    await this.executeEngine('native');
+    await this.executeEngine('native', false); // executeEngine will handle init()
   }
 }

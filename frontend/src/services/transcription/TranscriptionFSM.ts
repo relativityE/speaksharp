@@ -78,10 +78,9 @@ export class TranscriptionFSM {
         { from: 'INITIALIZING_ENGINE', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'READY', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
 
-        // Finalize cleanup
+        // Finalize cleanup - Strict outbound transitions per Senior Audit
         { from: 'CLEANING_UP', to: 'IDLE', event: 'RESET_REQUESTED' },
         { from: 'CLEANING_UP', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'CLEANING_UP', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
 
         // Reset from Terminal
         { from: 'TERMINATED', to: 'IDLE', event: 'RESET_REQUESTED' },

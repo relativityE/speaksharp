@@ -80,9 +80,6 @@ serve(async (req) => {
     // 3. User Authentication
     console.log('[Stripe Checkout] 👤 Authenticating user...');
 
-    // Body parsing (no longer used for origin override)
-    await req.json().catch(() => ({}));
-
     const { data: { user }, error: userError } = await supabase.auth.getUser()
 
     if (userError) {

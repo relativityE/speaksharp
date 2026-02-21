@@ -145,7 +145,7 @@ export const calculateAccuracyData = (sessionHistory: PracticeSession[]) => {
             const wer = calculateWordErrorRate(s.ground_truth!, s.transcript!);
             return {
                 date: new Date(s.created_at).toLocaleDateString(),
-                accuracy: Math.max(0, (1 - wer) * 100),
+                accuracy: Math.max(0, Math.round((1 - wer) * 100)),
                 engine: s.engine!,
             };
         })

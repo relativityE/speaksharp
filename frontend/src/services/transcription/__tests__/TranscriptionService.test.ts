@@ -166,4 +166,41 @@ describe('TranscriptionService', () => {
         vi.advanceTimersByTime(100);
         await destroyPromise;
     });
+
+    it('should reject startTranscription if in CLEANING_UP state', async () => {
+        // Arrange
+        const engine = new SuccessNativeEngine();
+        testRegistry.register('native', () => engine);
+
+        // Make terminate take a while so we stay in CLEANING_UP
+        engine.terminate.mockImplementation(() => new Promise(res => setTimeout(res, 100)));
+
+        service.updatePolicy({
+            allowNative: true,
+            allowCloud: false,
+            allowPrivate: false,
+            preferredMode: 'native',
+            allowFallback: false,
+            executionIntent: 'test'
+        });
+
+        await service.startTranscription();
+        expect(service.fsm.getState()).toBe('RECORDING');
+
+        // Start destroy but don't await yet
+        const destroyPromise = service.destroy();
+
+        // Assert: should be in CLEANING_UP
+        expect(service.fsm.getState()).toBe('CLEANING_UP');
+
+        // Act
+        await service.startTranscription();
+
+        // Assert: engine should not be re-initialized (still 1 call from initial start)
+        expect(engine.init).toHaveBeenCalledTimes(1);
+
+        // Cleanup
+        vi.advanceTimersByTime(200);
+        await destroyPromise;
+    });
 });
