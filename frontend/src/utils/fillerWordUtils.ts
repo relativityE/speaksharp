@@ -49,20 +49,35 @@ const STATIC_FILLER_PATTERNS: FillerPatterns = {
 // Cache for compiled custom word regex patterns
 const customWordRegexCache = new Map<string, RegExp>();
 
-// Single-item cache for the NLP document to avoid redundant parsing of the same text
-let lastTextForNlp: string | null = null;
-let lastNlpDoc: ReturnType<typeof nlp> | null = null;
+// LRU cache for the NLP document to avoid redundant parsing of the same text
+const MAX_NLP_CACHE_SIZE = 10;
+const nlpCache = new Map<string, ReturnType<typeof nlp>>();
 
 /**
- * Returns a parsed compromise document, using a cached version if the text matches.
+ * Returns a parsed compromise document, using a cached version if available.
+ * Implements a simple LRU cache to handle alternating calls efficiently.
  */
 const getParsedDoc = (text: string): ReturnType<typeof nlp> => {
-    if (text === lastTextForNlp && lastNlpDoc) {
-        return lastNlpDoc;
+    const cachedDoc = nlpCache.get(text);
+    if (cachedDoc) {
+        // Move to end (most recent)
+        nlpCache.delete(text);
+        nlpCache.set(text, cachedDoc);
+        return cachedDoc;
     }
-    lastTextForNlp = text;
-    lastNlpDoc = nlp(text);
-    return lastNlpDoc;
+
+    const doc = nlp(text);
+
+    // Maintain cache size
+    if (nlpCache.size >= MAX_NLP_CACHE_SIZE) {
+        const firstKey = nlpCache.keys().next().value;
+        if (firstKey !== undefined) {
+            nlpCache.delete(firstKey);
+        }
+    }
+
+    nlpCache.set(text, doc);
+    return doc;
 };
 
 const FILLER_WORD_COLORS: string[] = ['#BFDBFE', '#FCA5A5', '#FDE68A', '#86EFAC', '#FDBA74', '#C4B5FD', '#6EE7B7'];
