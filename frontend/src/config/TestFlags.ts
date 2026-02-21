@@ -26,6 +26,8 @@ declare global {
     interface Window {
         __E2E_CONTEXT__?: boolean;
         TEST_MODE?: boolean;
+        __FORCE_TRANSFORMERS_JS__?: boolean;
+        __STT_LOAD_TIMEOUT__?: number;
     }
 }
 
@@ -51,7 +53,9 @@ export const TestFlags = {
     /**
      * Force CPU Override: Force model execution on CPU (TransformersJS) even if WebGPU is available.
      */
-    FORCE_CPU_TRANSCRIPTION: getEnvVar('VITE_TEST_TRANSCRIPTION_FORCE_CPU') === 'true',
+    FORCE_CPU_TRANSCRIPTION:
+        getEnvVar('VITE_TEST_TRANSCRIPTION_FORCE_CPU') === 'true' ||
+        (typeof window !== 'undefined' && window.__FORCE_TRANSFORMERS_JS__ === true),
 
     /**
      * Debug Switch: Exposes internal logs and bridge state for E2E runners.

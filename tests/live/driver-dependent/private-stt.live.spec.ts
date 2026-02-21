@@ -52,6 +52,7 @@ declare global {
         __E2E_CONTEXT__?: boolean;
         REAL_WHISPER_TEST?: boolean;
         micStream?: MicStream;
+        __STT_LOAD_TIMEOUT__?: number;
     }
 }
 
@@ -70,7 +71,7 @@ test.use({
 });
 
 // Mark as slow test (90s timeout for model loading)
-test.describe.configure({ timeout: 90000 });
+test.describe.configure({ timeout: 120000, mode: 'serial' });
 
 test.describe('Private STT Real Audio (High Fidelity)', () => {
 
@@ -88,6 +89,8 @@ test.describe('Private STT Real Audio (High Fidelity)', () => {
             window.REAL_WHISPER_TEST = true;
             // Force TransformersJS (skip WhisperTurbo WebGPU for stability in headless)
             window.__FORCE_TRANSFORMERS_JS__ = true;
+            // Extend timeout for model loading in headless environment
+            window.__STT_LOAD_TIMEOUT__ = 90000;
         });
     });
 
@@ -122,8 +125,8 @@ test.describe('Private STT Real Audio (High Fidelity)', () => {
         }, { timeout: 30000 });
         debugLog('✅ MicStream is READY');
 
-        // 6. Wait for UI to reflect recording state
-        await expect(startButton.first()).toContainText(/stop/i, { timeout: 60000 });
+        // 6. Wait for UI to reflect recording state (Stop button visible)
+        await expect(page.getByLabel(/stop/i).first()).toBeVisible({ timeout: 60000 });
         debugLog('✅ UI indicates recording active');
 
         // 7. Wait for transcript to appear
@@ -138,7 +141,7 @@ test.describe('Private STT Real Audio (High Fidelity)', () => {
 
         // 8. Stop recording
         await startButton.click();
-        await expect(startButton).toContainText(/start/i, { timeout: 5000 });
+        await expect(page.getByLabel(/start/i).first()).toBeVisible({ timeout: 5000 });
         debugLog('✅ Recording stopped');
     });
 });

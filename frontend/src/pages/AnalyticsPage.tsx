@@ -129,8 +129,11 @@ const AuthenticatedAnalyticsView: React.FC = () => {
             if (updateError) throw updateError;
 
             // Invalidate cache to trigger re-calculation
-            await queryClient.invalidateQueries({ queryKey: ["sessionHistory"] });
-            await queryClient.invalidateQueries({ queryKey: ["accuracyData"] });
+            // We use the specific userId to avoid over-invalidation,
+            // though prefix matching would also work.
+            await queryClient.invalidateQueries({
+                queryKey: ["sessionHistory", profile?.id]
+            });
 
         } catch (err: unknown) {
             logger.error({ err }, 'Error updating ground truth:');

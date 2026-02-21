@@ -75,7 +75,8 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
                 stt.setInterimTranscript(data.transcript.partial);
             }
             if (data.transcript?.final) {
-                stt.addChunk(data.transcript.final);
+                // Pass speaker if available (Speaker ID support)
+                stt.addChunk(data.transcript.final, data.transcript.speaker);
                 stt.setInterimTranscript('');
             }
         },

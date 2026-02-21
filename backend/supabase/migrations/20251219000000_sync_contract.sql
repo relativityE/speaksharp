@@ -31,17 +31,15 @@ BEGIN
         );
     END IF;
     
-    -- 1. Update Usage if free user
-    IF p_is_free_user THEN
-        -- Call the existing usage update function
-        IF NOT update_user_usage(v_duration) THEN
-            v_usage_exceeded := TRUE;
-            -- Return early with usage_exceeded=true if limit hit
-            RETURN json_build_object(
-                'new_session', null,
-                'usage_exceeded', true
-            );
-        END IF;
+    -- 1. Update Usage (Atomic & Secure)
+    -- We ignore p_is_free_user and check status internally in update_user_usage
+    IF NOT update_user_usage(v_duration) THEN
+        v_usage_exceeded := TRUE;
+        -- Return early with usage_exceeded=true if limit hit
+        RETURN json_build_object(
+            'new_session', null,
+            'usage_exceeded', true
+        );
     END IF;
 
     -- 2. Insert Session
