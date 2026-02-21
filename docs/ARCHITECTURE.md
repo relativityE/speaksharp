@@ -1465,15 +1465,14 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 | `user-filler-words.canary.spec.ts` | Filler words canary | `!CANARY_PASSWORD` | Requires staging credentials from GitHub Secrets | ✅ None |
 
 > [!NOTE]
-> **Constrained Test: Private STT Real Audio**
+> **Verified High-Fidelity Testing: Private STT Real Audio**
 > 
-> The `private-stt.live.spec.ts › should transcribe real audio using TransformersJS` test is currently **conditionally skipped** due to environmental orchestration costs:
-> - **Fact-check:** Chrome's `--use-file-for-fake-audio-capture` flag *does* feed PCM data into the audio pipeline, making the test technically viable.
-> - **Real Constraints:**
->   1. **No Parallelism:** The flag is global to the browser launch; tests using different audio files cannot run concurrently.
->   2. **Fixture Dependency:** Requires a high-quality WAV speech sample (e.g., `jfk_16k.wav`) and careful `test.use()` configuration.
->   3. **Performance:** Inference on ONNX CPU can be slow, requiring robust `toPass()` polling patterns.
-> - **Workaround:** Local inference is verified via unit tests, while E2E suite uses `MockEngine` for fast, parallel PR validation.
+> The `private-stt.live.spec.ts › should transcribe real audio using TransformersJS` test is **fully restored** and verified as a high-fidelity path for ML verification.
+> - **Mechanism:** Chrome's `--use-file-for-fake-audio-capture` flag feeds real PCM data into the audio pipeline.
+> - **Orchestration Rules:**
+>   1. **Serial Execution:** Must run in `mode: 'serial'` to prevent `test.use()` interference with other browser instances.
+>   2. **Fixture Path:** Uses `tests/fixtures/test_speech_16k.wav` as the canonical source.
+>   3. **Environment:** Best run in `test:live` suite or nightly CI to avoid slowing down fast PR validation.
 
 
 > [!CAUTION]

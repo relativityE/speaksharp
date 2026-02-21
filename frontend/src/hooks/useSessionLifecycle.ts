@@ -113,6 +113,7 @@ export const useSessionLifecycle = () => {
                     transcript: finalStats.transcript,
                     duration: elapsedTime,
                     filler_words: finalStats.filler_words as FillerCounts,
+                    phrases: finalStats.phrases, // Store diarized phrases
                     wpm: finalWpm,
                     clarity_score: finalStats.accuracy,
                     title: `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`

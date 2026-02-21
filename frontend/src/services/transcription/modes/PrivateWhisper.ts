@@ -219,10 +219,11 @@ export default class PrivateWhisper implements ITranscriptionMode {
     // Store the disposer returned by onFrame
     this.frameListenerDisposer = mic.onFrame(listener);
 
-    // Start processing loop (every 500ms) for more responsive UI
+    // Start processing loop (every 3000ms) for optimal Whisper context
+    // 500ms was too short and caused accuracy degradation due to lack of context
     this.processingInterval = setInterval(() => {
       this.processAudio();
-    }, 500);
+    }, 3000);
 
     logger.info('[PrivateWhisper] Streaming started.');
   }

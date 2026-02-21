@@ -22,6 +22,8 @@ interface WordConfidence {
 
 interface FinalChunk {
     text: string;
+    speaker?: string;
+    timestamp?: number;
 }
 
 export interface TranscriptStats {
@@ -29,6 +31,7 @@ export interface TranscriptStats {
     total_words: number;
     accuracy: number;
     duration: number;
+    phrases?: FinalChunk[];
 }
 
 const STATIC_FILLER_PATTERNS: FillerPatterns = {
@@ -196,6 +199,7 @@ export const calculateTranscriptStats = (
         total_words: total_words,
         accuracy: averageConfidence,
         duration: duration,
+        phrases: finalChunks
     };
 };
 

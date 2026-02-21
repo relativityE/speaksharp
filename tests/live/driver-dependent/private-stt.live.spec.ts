@@ -70,7 +70,8 @@ test.use({
 });
 
 // Mark as slow test (90s timeout for model loading)
-test.describe.configure({ timeout: 90000 });
+// CRITICAL: Run in serial mode to prevent launch option interference with other tests
+test.describe.configure({ timeout: 90000, mode: 'serial' });
 
 test.describe('Private STT Real Audio (High Fidelity)', () => {
 

@@ -155,7 +155,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
         ? `&keyterms_prompt=${encodeURIComponent(vocabulary.join(','))}`
         : '';
 
-      const wsUrl = `wss://streaming.assemblyai.com/v3/realtime/ws?sample_rate=16000&token=${token}${keytermsParam}`;
+      const wsUrl = `wss://streaming.assemblyai.com/v3/realtime/ws?sample_rate=16000&token=${token}${keytermsParam}&speaker_labels=true`;
 
       this.socket = new WebSocket(wsUrl);
 

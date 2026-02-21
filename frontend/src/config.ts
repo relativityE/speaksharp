@@ -20,7 +20,7 @@ export const FILLER_WORD_KEYS = {
 // Session time limits (in seconds)
 export const SESSION_LIMITS = {
   ANONYMOUS: 120,        // 2 minutes for anonymous users
-  FREE: 1800,            // 30 minutes for free tier
+  FREE: 3600,            // 60 minutes (1 hour) for free tier (Standardized v3.5.0)
   PRO: null,             // unlimited for pro users
 } as const;
 
@@ -47,7 +47,7 @@ export const API_CONFIG = {
 } as const;
 
 export const SUBSCRIPTION_LIMITS = {
-  FREE_MONTHLY_MINUTES: 30,
+  FREE_DAILY_MINUTES: 60,
 } as const;
 
 export const STT_CONFIG = {

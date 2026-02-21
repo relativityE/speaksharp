@@ -99,6 +99,23 @@ export default class TranscriptionService {
    * Primary Entry Point: Pre-warms the microphone stream.
    */
   public async init(): Promise<{ success: boolean }> {
+    // ✅ HARDENING: If cleaning up, wait for completion before re-initializing
+    // Replaces brittle while/polling with event-driven wait
+    if (this.fsm.is('CLEANING_UP')) {
+      logger.info('[TranscriptionService] init() waiting for cleanup sequence...');
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          const unsubscribe = this.fsm.subscribe((state) => {
+            if (state !== 'CLEANING_UP') {
+              unsubscribe();
+              resolve();
+            }
+          });
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Cleanup timeout')), 5000))
+      ]).catch(err => logger.error({ err }, '[TranscriptionService] Cleanup wait failed'));
+    }
+
     if (!this.fsm.is('IDLE') && !this.fsm.is('ERROR')) return { success: true };
 
     this.fsm.transition({ type: 'START_REQUESTED' });

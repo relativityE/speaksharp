@@ -16,6 +16,11 @@ export interface PracticeSession {
   engine?: string;
   clarity_score?: number;
   wpm?: number;
+  phrases?: Array<{
+    text: string;
+    speaker?: string;
+    timestamp: number;
+  }>;
   pause_metrics?: {
     silencePercentage: number;
     transitionPauses: number;

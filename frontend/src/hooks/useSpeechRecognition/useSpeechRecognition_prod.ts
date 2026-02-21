@@ -75,7 +75,8 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
                 stt.setInterimTranscript(data.transcript.partial);
             }
             if (data.transcript?.final) {
-                stt.addChunk(data.transcript.final);
+                // ✅ DIARIZATION FIX: Pass speaker field to state manager
+                stt.addChunk(data.transcript.final, data.transcript.speaker);
                 stt.setInterimTranscript('');
             }
         },
@@ -122,7 +123,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         await control.startListening(policy);
     }, [control, reset, startSession]);
 
-    const stopListening = useCallback(async (): Promise<(TranscriptStats & { filler_words: FillerCounts }) | null> => {
+    const stopListening = useCallback(async (): Promise<(TranscriptStats & { filler_words: FillerCounts; phrases: Chunk[] }) | null> => {
         if (toastIdRef.current) toast.dismiss(toastIdRef.current);
 
         const result = await control.stopListening();
@@ -138,6 +139,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
             return {
                 ...stats,
                 filler_words: filler.counts,
+                phrases: stt.finalChunks,
             };
         }
         return null;
