@@ -1,30 +1,24 @@
 import type { Session, User } from '@supabase/supabase-js';
 import type { UserProfile } from '@/types/user';
+import { MOCK_USER, MOCK_USER_PROFILE, SUBSCRIPTION_STATUS } from '@shared/test-fixtures';
 
-export const TEST_USER_ID = 'test-user-123';
-export const TEST_USER_EMAIL = 'test@example.com';
+export const TEST_USER_ID = MOCK_USER.id;
+export const TEST_USER_EMAIL = MOCK_USER.email;
 
 export function createMockUser(overrides: Partial<User> = {}): User {
   const now = new Date().toISOString();
   return {
-    id: TEST_USER_ID,
-    email: TEST_USER_EMAIL,
-    app_metadata: { provider: 'email', providers: ['email'] },
-    user_metadata: { name: 'Test User' },
-    aud: 'authenticated',
-    role: 'authenticated',
+    ...MOCK_USER,
     created_at: now,
     updated_at: now,
     ...overrides,
-  };
+  } as User;
 }
 
 export function createMockUserProfile(overrides: Partial<UserProfile> = {}): UserProfile {
   return {
-    id: TEST_USER_ID,
-    subscription_status: 'pro',
-    usage_seconds: 1250,
-    usage_reset_date: new Date(Date.now() + 15 * 86400000).toISOString(),
+    ...MOCK_USER_PROFILE,
+    subscription_status: SUBSCRIPTION_STATUS.PRO,
     created_at: new Date().toISOString(),
     ...overrides,
   };

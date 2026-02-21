@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from '../helpers';
-import { waitForStoreState } from '../helpers/e2e-state.helpers';
+import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from './helpers.js';
+import { waitForStoreState } from './helpers/e2e-state.helpers.js';
 
 // Extend Window interface for E2E mock control
 declare global {
     interface Window {
-        __TEST_REGISTRY_QUEUE__?: unknown[];
+        __TEST_REGISTRY_QUEUE__?: { key: string; factory: unknown; opts?: unknown }[];
         // Control methods attached by the FakePrivateSTT during init
         __resolvePrivateInit__?: (success: boolean) => void;
         __simulatePrivateProgress__?: (progress: number) => void;
@@ -21,22 +21,20 @@ declare global {
  * to simulate hangs, progress, and completion.
  */
 
-interface E2EWindow extends Window {
-    __TEST_REGISTRY__: {
-        register: (mode: string, factory: unknown, opts?: unknown) => void;
-        enable: () => void;
-        disable: () => void;
-    };
-    __resolvePrivateInit__?: (success: boolean) => void;
-    __simulatePrivateProgress__?: (progress: number) => void;
-}
+// E2EWindow replaced by inline casts for brevity
 
 test.describe('Private STT Resilience', () => {
 
     test('should start session immediately using fallback while model downloads in background', async ({ page }) => {
         // 1. ENABLE REGISTRY & INJECT FAKE STT via Queue (Industrial Strength)
         await page.addInitScript(() => {
-            const win = window as any;
+            const win = window as unknown as {
+                __TEST_REGISTRY_ENABLE__: boolean;
+                __TEST_REGISTRY_QUEUE__: unknown[];
+                __STT_LOAD_TIMEOUT__: number;
+                __resolvePrivateInit__?: (success: boolean) => void;
+                __simulatePrivateProgress__?: (progress: number) => void;
+            };
             win.__TEST_REGISTRY_ENABLE__ = true;
             win.__TEST_REGISTRY_QUEUE__ = win.__TEST_REGISTRY_QUEUE__ || [];
 
@@ -87,7 +85,7 @@ test.describe('Private STT Resilience', () => {
 
             win.__TEST_REGISTRY_QUEUE__.push({
                 key: 'privateSTT',
-                factory: (opts: any) => new FakePrivateSTT(opts),
+                factory: (opts: Record<string, unknown>) => new FakePrivateSTT(opts as Record<string, (...args: unknown[]) => void>),
                 opts: { testName: 'resilience-fake' }
             });
         });
@@ -119,7 +117,7 @@ test.describe('Private STT Resilience', () => {
         });
 
         await waitForStoreState(page,
-            (state: Record<string, unknown>) => state.modelLoadingProgress,
+            (state: unknown) => (state as { modelLoadingProgress: number }).modelLoadingProgress,
             50
         );
         await expect(backgroundIndicator).toContainText(/50%/);
@@ -129,7 +127,7 @@ test.describe('Private STT Resilience', () => {
             if (window.__simulatePrivateProgress__) window.__simulatePrivateProgress__(0.9);
         });
         await waitForStoreState(page,
-            (state: Record<string, unknown>) => state.modelLoadingProgress,
+            (state: unknown) => (state as { modelLoadingProgress: number }).modelLoadingProgress,
             90
         );
         await expect(backgroundIndicator).toContainText(/90%/);
@@ -141,7 +139,7 @@ test.describe('Private STT Resilience', () => {
         });
 
         await waitForStoreState(page,
-            (state: Record<string, unknown>) => (state.sttStatus as Record<string, unknown>)?.type,
+            (state: unknown) => ((state as { sttStatus: { type: string } }).sttStatus)?.type,
             'recording'
         );
 

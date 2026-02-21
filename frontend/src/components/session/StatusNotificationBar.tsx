@@ -45,6 +45,11 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
         bgClass: 'bg-red-600 border-red-800 shadow-xl',
         textClass: 'text-white font-black uppercase',
     },
+    info: {
+        icon: Info,
+        bgClass: 'bg-blue-400 border-blue-600 shadow-md',
+        textClass: 'text-white font-black uppercase',
+    },
 };
 
 /**
@@ -81,6 +86,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 break;
             case 'downloading':
                 displayMessage = 'Downloading...';
+                break;
+            case 'info':
+                displayMessage = 'Information';
                 break;
             default:
                 displayMessage = 'Ready';

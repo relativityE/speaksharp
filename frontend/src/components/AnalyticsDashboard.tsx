@@ -50,6 +50,7 @@ interface AnalyticsDashboardProps {
     loading: boolean;
     error: Error | null;
     onUpgrade: () => void;
+    onUpdateGroundTruth?: (sessionId: string, groundTruth: string) => Promise<void>;
     sessionId?: string;
 }
 
@@ -339,8 +340,30 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     loading,
     error,
     onUpgrade,
+    onUpdateGroundTruth,
     sessionId
 }) => {
+    const [isUploading, setIsUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !sessionId || !onUpdateGroundTruth) return;
+
+        try {
+            setIsUploading(true);
+            const { extractTextFromPdf } = await import('@/lib/pdfParser');
+            const text = await extractTextFromPdf(file);
+            await onUpdateGroundTruth(sessionId, text);
+            toast.success('Reference script uploaded and metrics updated!');
+        } catch (err) {
+            logger.error({ err }, 'Failed to parse or upload PDF');
+            toast.error('Failed to process PDF. Please try again.');
+        } finally {
+            setIsUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
     const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
     const [showComparison, setShowComparison] = useState(false);
 
@@ -556,22 +579,56 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                     <Mic className="h-5 w-5 text-primary" />
                                     Transcript
                                 </CardTitle>
-                                {isProUser && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => generateSessionPdf(targetSession, profile?.email || 'User')}
-                                        className="gap-2"
-                                    >
-                                        <Download className="h-4 w-4" />
-                                        Export PDF
-                                    </Button>
-                                )}
+                                <div className="flex items-center gap-2">
+                                    {isProUser && (
+                                        <>
+                                            <input
+                                                type="file"
+                                                ref={fileInputRef}
+                                                accept=".pdf"
+                                                onChange={handleFileUpload}
+                                                className="hidden"
+                                            />
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => fileInputRef.current?.click()}
+                                                disabled={isUploading}
+                                                className="gap-2 border-primary/30 hover:bg-primary/5"
+                                                data-testid="upload-ground-truth-btn"
+                                            >
+                                                <Target className={`h-4 w-4 ${isUploading ? 'animate-spin' : ''}`} />
+                                                {targetSession.ground_truth ? 'Update Script' : 'Upload Script'}
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => generateSessionPdf(targetSession, profile?.email || 'User')}
+                                                className="gap-2"
+                                            >
+                                                <Download className="h-4 w-4" />
+                                                Export PDF
+                                            </Button>
+                                        </>
+                                    )}
+                                </div>
                             </CardHeader>
-                            <CardContent>
-                                <div className="p-4 bg-muted/30 rounded-lg min-h-[200px] max-h-[400px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
+                            <CardContent className="space-y-4">
+                                <div className="p-4 bg-muted/30 rounded-lg min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
                                     {targetSession.transcript || "No transcript available for this session."}
                                 </div>
+
+                                {targetSession.ground_truth && (
+                                    <div className="space-y-2">
+                                        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                            <Target className="h-3 w-3" />
+                                            Reference Script (Ground Truth)
+                                        </div>
+                                        <div className="p-4 bg-primary/5 border border-primary/10 rounded-lg max-h-[150px] overflow-y-auto whitespace-pre-wrap text-sm italic text-muted-foreground">
+                                            {targetSession.ground_truth}
+                                        </div>
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
 

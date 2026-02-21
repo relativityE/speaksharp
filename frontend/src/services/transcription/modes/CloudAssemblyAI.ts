@@ -14,7 +14,9 @@ interface AssemblyAIMessage {
     start: number;
     end: number;
     confidence: number;
+    speaker?: string;
   }>;
+  speaker?: string;
   confidence?: number;
   error?: string;
 }
@@ -233,7 +235,13 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
       case 'FinalTranscript':
         if (data.text) {
           // Strict Turn Assembly: Final overwrites partial
-          this.onTranscriptUpdate({ transcript: { final: data.text } });
+          // Map AssemblyAI 'speaker' (e.g. 'A', 'B') to transcript update
+          this.onTranscriptUpdate({
+            transcript: {
+              final: data.text,
+              speaker: data.speaker
+            }
+          });
         }
         break;
 

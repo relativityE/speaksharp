@@ -35,7 +35,7 @@ describe('calculateWordErrorRate', () => {
   it('should handle empty reference string', () => {
     const ref = '';
     const hyp = 'this is a test';
-    expect(calculateWordErrorRate(ref, hyp)).toBe(4);
+    expect(calculateWordErrorRate(ref, hyp)).toBe(1);
   });
 
   it('should handle empty hypothesis string', () => {

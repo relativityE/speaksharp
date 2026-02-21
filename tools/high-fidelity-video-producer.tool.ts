@@ -1,5 +1,5 @@
-import { test } from '@playwright/test';
-import { programmaticLogin, navigateToRoute } from '../e2e/helpers';
+import { test, expect } from '@playwright/test';
+import { programmaticLogin, navigateToRoute } from '../tests/e2e/helpers';
 
 /**
  * Demo Recording Test - Shows Cloud AI and Native STT Modes
@@ -55,6 +55,12 @@ test.describe('SpeakSharp Demo Recording', () => {
             console.log(`[DEMO] Stopping ${modeName} session`);
             await startButton.click();
             await page.waitForTimeout(1000);
+
+            // ✅ AUDIT: Marketing Integrity Assertion
+            // Ensure UI consistency for pro/free modes
+            await expect(page).toHaveScreenshot(`${modeName}-state.png`, {
+                maxDiffPixelRatio: 0.05
+            });
 
             // Handle any dialog - stay on page
             const stayButton = page.getByRole('button', { name: 'Stay on Page' });

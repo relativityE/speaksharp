@@ -20,17 +20,24 @@
  * because window.location.href redirects are unreliable in headless CI.
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
+import { navigateToRoute } from './helpers';
 
-// Skip this test unless we're in live mode (not using mock.supabase.co)
-const isMockSupabase = !process.env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL.includes('mock.supabase.co');
-test.skip(isMockSupabase, 'Skipping Stripe test in mock environment');
+// Configure Selective Skip:
+// 1. Always run MOCK mode if SUPABASE_URL is local/mocked
+// 2. ONLY run LIVE mode if ALL required credentials are present
+const isMocked = !process.env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL.includes('mock.supabase.co');
+const hasLiveCredentials = !!(process.env.E2E_FREE_EMAIL && process.env.E2E_FREE_PASSWORD);
+
+if (!isMocked && !hasLiveCredentials) {
+    test.skip(true, 'Skipping LIVE Stripe test: SUPABASE_URL is real but E2E_FREE_EMAIL/PASSWORD are missing (Check CI secrets)');
+}
 
 test.describe('Stripe Checkout Flow', () => {
     const testEmail = process.env.E2E_FREE_EMAIL || 'e2e-free-user@test.com';
     const testPassword = process.env.E2E_FREE_PASSWORD || 'TestPassword123!';
 
-    test.beforeEach(async ({ page }) => { // beforeEach is correct for page fixture
+    test.beforeEach(async ({ mockedPage: page }) => { // Uses auto-mocked fixture
         console.log('🚨 Running LIVE Stripe checkout test against real Supabase');
         console.log(`📧 Test user: ${testEmail}`);
         // DIAGNOSTIC: Monitor network for 400 errors
@@ -60,7 +67,7 @@ test.describe('Stripe Checkout Flow', () => {
     test('should sign in and verify Stripe checkout Edge Function', async ({ page }) => {
         // Step 1: Sign in
         console.log('[Stripe Test] Step 1: Signing in...');
-        await page.goto('/auth/signin');
+        await navigateToRoute(page, '/auth/signin');
         await page.getByTestId('auth-form').waitFor();
 
         await page.fill('input[type="email"]', testEmail);
@@ -76,7 +83,7 @@ test.describe('Stripe Checkout Flow', () => {
         // Forward browser console to test output for debugging
         page.on('console', msg => console.log(`[BROWSER] ${msg.text()}`));
 
-        await page.goto('/analytics');
+        await navigateToRoute(page, '/analytics');
 
         // Both empty state and full dashboard have upgrade button with same testid
         // Both now trigger handleUpgrade which calls stripe-checkout Edge Function

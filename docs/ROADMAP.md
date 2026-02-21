@@ -38,8 +38,8 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Rem
 | **S2** | **Gemini 3.0 Flash Upgrade** | **HIGH** | ✅ Complete | Upgraded AI Coach for faster, smarter feedback. |
 | **S3** | **Tier Limit Dynamic Labels** | **HIGH** | ✅ Complete | Unified ensuring "Daily" and "Monthly" limits are correctly handled in UI/Tests. |
 | **S3.1**| **Tier Limit Logic** | **HIGH** | ✅ Complete | `tier-limits.e2e.spec.ts` now dynamically verifies "Daily" (Edge Function) or "Monthly" (RPC) limits based on backend response. Mock duration remains 6s to satisfy `MIN_SESSION_DURATION_SECONDS` (5s). |
-| **S3.2**| **PDF Content Extraction** | **MEDIUM** | 🟡 In Progress | `pdf-parse` requires `DOMMatrix`. PDF structure validated only. (By design) |
-| **S3.3**| **STT Accuracy Comparison** | **MEDIUM** | 🟡 In Progress | Component implemented (`STTAccuracyComparison.tsx`) but `@deferred` waiting for ground truth data ingestion feature. |
+| **S3.2**| **PDF Content Extraction** | **MEDIUM** | ✅ Complete | Migrated to `pdfjs-dist` for browser-native extraction. (2026-02-21) |
+| **S3.3**| **STT Accuracy Comparison** | **MEDIUM** | ✅ Complete | Integrated WER scoring and Ground Truth ingestion. (2026-02-21) |
 | **S4** | **Canary User Persistence** | **MEDIUM** | ✅ Complete | Migrated from automated cleanup to unique email persistence for easier debugging. |
 | **S5** | **Design Parity Audit** | **MEDIUM** | ✅ Complete | Fixed "interpolation mud" in radial gradients and de-bloated upgrade banners. |
 | **S6** | **Phase 2 Hardening Remediation**| **CRITICAL**| ✅ Complete | **Zero Tolerance CI:** Resolved all lint/type errors. Implemented stability guards (Stale closures, DI pattern, Global Error Handlers) and security hardening (Atomic updates, Rate limiting). |
@@ -75,7 +75,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ **Independent Documentation Review (2026-01-28):** Conducted full audit of all project documents against `docs/OUTLINE.md` requirements. Verified sync across PRD, Architecture, and Roadmap.
 - ✅ **Gap Analysis [HIGH PRIORITY]:** Conducted full audit of Zero-Debt status, tech debt, and architectural drift. (2026-02-16)
 - ✅ **Side-by-Side Session Comparison:** Implemented `SessionComparisonDialog.tsx` supporting 2-session diffs (WPM, Clarity, Fillers).
-- 🔴 **Speaker Identification:** Not started. `CloudAssemblyAI.ts` implementation does not currently request `speaker_labels`.
+- ✅ **Speaker Identification (2026-02-21):** Implemented diarization support in `CloudAssemblyAI.ts` and propagated via `Transcript` interface.
 - ✅ **Canary Tests:** Real-API `@canary` tests for staging environment implemented in `tests/canary/`.
 - ✅ **COMPLETED (2025-12-15) - E2E Test Infrastructure: MSW-to-Playwright Routes Migration:**
   - **Problem:** MSW service workers are browser-global per-origin. Parallel shards race for registration, causing intermittent `ui-state-capture` flakiness.
@@ -241,11 +241,6 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Diagnostics:** Added "Diagnostic Logging" and "Negative Verification" (expect 400 with specific error body) to prove configuration in CI without exposing secrets.
   - **Testing:** Added `stripe-checkout-test.yml` workflow and `setup-test-users.yml` for E2E testing with real credentials.
 
-- ✅ **Stripe Test Response Handling (2025-12-15):** Fixed test to handle response body read after Stripe redirect.
-  - **Problem:** Browser navigates to Stripe Checkout URL before `response.json()` can be called, causing "Protocol error".
-  - **Fix:** Validate status (200) first, gracefully handle parse error, fall back to verifying browser navigated to `checkout.stripe.com`.
-  - **Files:** `tests/stripe/stripe-checkout.spec.ts`
-
 - ✅ **Independent Review Remediation (2025-12-17):** Addressed findings from external codebase audit.
   - **P0 - Secret Sanitization:** Removed real Stripe Price ID from `.env.development`, added code fallback.
   - **P1 - Test Hardening:** Added URL validation in catch block for fail-fast behavior.
@@ -257,13 +252,13 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 #### P2 - Known Limitations (Alpha Acceptable)
 
-- 🟡 **Code Bloat Index Above Industry Standard:** Current bloat index is 26.48% (industry std: <20%).
-  - **Metric:** Initial Chunk (876KB) / Total Source (3.2MB) = 26.48%
+- 🟡 **Code Bloat Index Above Industry Standard (Updated 2026-02-20):** Current bloat index is 26.3% (industry std: <20%).
+  - **Metric:** Initial Chunk (933.63KB) / Estimated Total Source (3.5MB) = 26.3%
   - **Optimizations:** Lazy-load Recharts, lazy-load Whisper model loader, aggressive route-based code splitting
-  - **Status:** Acceptable for Alpha, optimize in Beta for performance SLO compliance
+  - **Status:** Acceptable for Alpha, optimize in Beta for performance SLO compliance. *Note: AnalyticsPage chunk optimized from 877KB to 500.64KB via RPC migration.*
 
-- 🟡 **Bundle Chunk Size Warning (2025-12-22):** Vite build emits warning about chunks >500KB.
-  - **Affected Chunks:** `AnalyticsPage-*.js` (877KB), `index-*.js` (902KB)
+- 🟡 **Bundle Chunk Size Warning (2026-02-20):** Vite build emits warning about chunks >500KB.
+  - **Affected Chunks:** `index-*.js` (933.63KB), `vendor-transformers-*.js` (823.85KB)
   - **Warning Text:** `(!) Some chunks are larger than 500 kB after minification`
   - **Recommended Fixes:**
     - Use `dynamic import()` for code-splitting heavy components (Recharts, html2canvas)

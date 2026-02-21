@@ -9,8 +9,6 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
  * 
  * Compares transcription engine accuracy (AssemblyAI vs Whisper vs Browser)
  * against user-provided ground truth transcripts over time.
- * 
- * @deferred Waiting for ground truth transcript input feature
  */
 export const STTAccuracyComparison: React.FC = () => {
     const { accuracyData, loading, error } = useAnalytics();

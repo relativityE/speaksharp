@@ -8,6 +8,7 @@ export type TranscriptionState =
     | 'RECORDING'
     | 'PAUSED'
     | 'STOPPING'
+    | 'CLEANING_UP'
     | 'ERROR'
     | 'TERMINATED';
 
@@ -67,15 +68,20 @@ export class TranscriptionFSM {
         { from: 'PAUSED', to: 'ERROR', event: 'ERROR_OCCURRED' },
         { from: 'STOPPING', to: 'ERROR', event: 'ERROR_OCCURRED' },
 
-        // Terminal
+        // Terminal & Cleanup Sequence
         { from: 'IDLE', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
         { from: 'ERROR', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
-        { from: 'RECORDING', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' }, // Force kill
-        { from: 'PAUSED', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
-        { from: 'STOPPING', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
-        { from: 'ACTIVATING_MIC', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' }, // Force kill during startup
-        { from: 'INITIALIZING_ENGINE', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' }, // Force kill during startup
-        { from: 'READY', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
+        { from: 'RECORDING', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
+        { from: 'PAUSED', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
+        { from: 'STOPPING', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
+        { from: 'ACTIVATING_MIC', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
+        { from: 'INITIALIZING_ENGINE', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
+        { from: 'READY', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
+
+        // Finalize cleanup
+        { from: 'CLEANING_UP', to: 'IDLE', event: 'RESET_REQUESTED' },
+        { from: 'CLEANING_UP', to: 'ERROR', event: 'ERROR_OCCURRED' },
+        { from: 'CLEANING_UP', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
 
         // Reset from Terminal
         { from: 'TERMINATED', to: 'IDLE', event: 'RESET_REQUESTED' },

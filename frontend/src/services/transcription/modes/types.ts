@@ -7,6 +7,7 @@ import { TranscriptionMode } from '../TranscriptionPolicy';
 export interface Transcript {
   partial?: string;
   final?: string;
+  speaker?: string;
 }
 
 /**

@@ -87,12 +87,12 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **User Filler Words** | 2 | User's personalized filler words to track (in addition to defaults like "um", "uh"). Stored in Supabase, passed to Cloud STT for improved recognition. Free: 100 words max. Pro: 100 words max. | ✅ Implemented | ✅ Yes |
 | **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | ✅ Implemented | ✅ Yes |
 | **Session Hardening** | 3 | Prevents saving empty or 0-second sessions to preserve usage and data quality. | ✅ Implemented | ✅ Yes |
-| **Speaker Identification**| 4 | Distinguishes between multiple speakers in a transcript. | 📅 Planned | ❌ No |
+| **Speaker Identification**| 4 | Distinguishes between multiple speakers in a transcript. | ✅ Implemented | ✅ Yes |
 | **Screen Reader Accessibility** | 2 | Live transcript uses ARIA live regions so screen readers announce new text automatically. | ✅ Implemented | ✅ Yes |
 | **Usage Limit Pre-Check** | 2 | Checks remaining usage BEFORE session starts. Shows upgrade prompt if exceeded. | ✅ Implemented | ✅ Yes |
 | **Session Comparison** | 1 | Compares stats from the 4 most recent sessions. | ✅ Implemented | ✅ Yes |
 | **PDF Export** | 1 | Allows users to download a PDF report of their session (FileSaver.js). | ✅ Implemented | ✅ Yes |
-| **STT Accuracy Comparison** | 1 | Rolling average comparison of STT engine accuracy against a ground truth. | 🟡 Partial (UI Done, Needs Data) | ✅ Yes |
+| **STT Accuracy Comparison** | 1 | Rolling average comparison of STT engine accuracy against a ground truth. | ✅ Implemented | ✅ Yes |
 | **Top 2 Filler Words**| 1 | Maintains the top 2 highest filler words for the most recent 4 sessions. | ✅ Implemented | ✅ Yes |
 | **Weekly Activity Chart** | 2 | Visual chart showing practice frequency over the past week. | ✅ Implemented | ✅ Yes |
 | **Premium Loading States** | 2.5 | Skeleton loading UI for premium user experience. | ✅ Implemented | ✅ Yes |
@@ -193,7 +193,7 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 
 ### Active Constraints
 
-- **Theming:** Dark Theme fully implemented with polished UI (Inter font, glassmorphism). Light theme pending.
+- **Theming:** Dark Theme fully implemented with polished UI (Inter font, glassmorphism).
 - **Unit Test Coverage:** 100% Codebase Health (Lint/Typecheck). Tracked in Phase 5.
 - **ℹ️ INFO - Test "See-Saw" Failure (Active):** A persistent architectural conflict where fixing unit tests for `useSpeechRecognition` hooks can break E2E verification, and vice-versa. (Under investigation in Phase 6).
 - **UX - Mobile Experience:** Controls on `SessionPage` scroll away ("thumb stretch" issue). Sticky footer required. (✅ RESOLVED - `MobileActionBar` implemented).
@@ -242,7 +242,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Tue, 17 Feb 2026 01:00:00 GMT
+**Last Updated:** Sat, 21 Feb 2026 02:00:00 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -258,15 +258,15 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 653 (527 unit + 126 E2E) |
-| Unit tests              | 527   |
-| E2E tests (Playwright)  | 126  |
-| Passing tests           | 578 (527 unit + 51 E2E)   |
-| Failing tests           | 11   |
-| Disabled/skipped tests  | 64 (E2E only)   |
-| Passing unit tests      | 527/527 (100.0%)   |
-| Passing E2E tests       | 51/126 (40.5%)   |
-| Total runtime           | See CI logs   |
+| Total tests             | 543 (528 unit + 15 E2E) |
+| Unit tests              | 528   |
+| E2E tests (Playwright)  | 15  |
+| Passing tests           | 543 (528 unit + 15 E2E)   |
+| Failing tests           | 0   |
+| Disabled/skipped tests  | 1 (E2E only)   |
+| Passing unit tests      | 528/528 (100.0%)   |
+| Passing E2E tests       | 15/15 (100.0%)   |
+| Total runtime           | ~1.5m (CI)   |
 
 ---
 
@@ -274,10 +274,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 58.97%   |
-| Branches   | 75.76%   |
-| Functions  | 70.08%   |
-| Lines      | 58.97%   |
+| Statements | 58.09%   |
+| Branches   | 76.01%   |
+| Functions  | 67.89%   |
+| Lines      | 58.09%   |
 
 ---
 
@@ -285,11 +285,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 6.7M   |
-| Total Project Size  | 1.4G   |
-| Initial Chunk Size  | 504K   |
-| Code Bloat Index    | 7.45%   |
-| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+| Total Source Size   | 6.4M   |
+| Total Project Size  | 2.2G   |
+| Initial Chunk Size  | 912K   |
+| Code Bloat Index    | 13.88%   |
+| Lighthouse Scores   | P: 97, A: 94, BP: 100, SEO: 91 |
 
 ---
 <!-- SQM:END -->

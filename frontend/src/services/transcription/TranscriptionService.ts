@@ -128,7 +128,12 @@ export default class TranscriptionService {
   public async startTranscription(runtimePolicy?: TranscriptionPolicy): Promise<void> {
     if (runtimePolicy) this.updatePolicy(runtimePolicy);
 
-    // ✅ ROBUSTNESS: If already recording or initializing, clean up first (Mode Switch)
+    // ✅ ROBUSTNESS: Handle initialization/cleanup races
+    if (this.fsm.is('CLEANING_UP')) {
+      logger.warn('[TranscriptionService] startTranscription rejected - still cleaning up');
+      return;
+    }
+
     if (this.fsm.is('RECORDING') || this.fsm.is('INITIALIZING_ENGINE') || this.fsm.is('PAUSED')) {
       logger.info('[TranscriptionService] Interrupting active session for new request');
       await this.destroy();
@@ -312,35 +317,27 @@ export default class TranscriptionService {
   /**
    * Cleanup resources.
    */
-  private isDestroying = false;
-  private isDestroyed = false;
+  /* Cleanup status tracked via FSM state 'CLEANING_UP' */
 
   /**
    * Cleanup resources.
    * Idempotent and safe against concurrent calls.
    */
   public async destroy(): Promise<void> {
-    // ✅ GUARD 1: Already destroyed - immediate return
-    if (this.isDestroyed) {
+    const state = this.fsm.getState();
+
+    // ✅ GUARD 1: Already cleaning up or terminated
+    if (state === 'CLEANING_UP' || state === 'TERMINATED') {
+      logger.debug(`[TranscriptionService] destroy() ignored - already in ${state}`);
       return;
     }
 
-    // ✅ GUARD 2: Currently destroying - wait for it to complete
-    if (this.isDestroying) {
-      // Wait for the current destroy to complete
-      await new Promise(resolve => {
-        const checkInterval = setInterval(() => {
-          if (!this.isDestroying) {
-            clearInterval(checkInterval);
-            resolve(undefined);
-          }
-        }, 10);
-      });
+    // ✅ GUARD 2: IDLE means no work to do
+    if (state === 'IDLE') {
       return;
     }
 
-    // ✅ Set destroying flag (prevents concurrent destroys)
-    this.isDestroying = true;
+    logger.info('[TranscriptionService] 🧹 Starting cleanup sequence');
 
     try {
       this.fsm.transition({ type: 'TERMINATE_REQUESTED' });
@@ -350,37 +347,36 @@ export default class TranscriptionService {
         this.mic = null;
       }
 
-      if (this.engine) {
+      const currentEngine = this.engine;
+      this.engine = null; // Decouple immediately
+
+      if (currentEngine) {
         try {
           // Call terminate with timeout to prevent hangs
-          // Check if terminate exists (Interface compliance)
-          const terminator = typeof this.engine.terminate === 'function'
-            ? this.engine.terminate()
-            : this.engine.stopTranscription();
+          const terminator = typeof currentEngine.terminate === 'function'
+            ? currentEngine.terminate()
+            : currentEngine.stopTranscription();
 
           await Promise.race([
             terminator,
             new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Engine terminate timeout')), 5000)
+              setTimeout(() => reject(new Error('Engine terminate timeout')), 3000)
             )
           ]);
         } catch (error) {
           logger.error({ error }, '[TranscriptionService] Engine terminate failed or timed out');
         }
-        this.engine = null;
       }
 
-      this.fsm.transition({ type: 'RESET_REQUESTED' });
-
     } finally {
-      // ✅ Always set flags, even if cleanup fails
-      this.isDestroying = false;
-      this.isDestroyed = true;
+      // ✅ Transition to IDLE marks cleanup as complete
+      this.fsm.transition({ type: 'RESET_REQUESTED' });
+      logger.info('[TranscriptionService] ✅ Cleanup complete');
     }
   }
 
   public isServiceDestroyed(): boolean {
-    return this.isDestroyed;
+    return this.fsm.is('TERMINATED') || this.fsm.is('IDLE') && !this.mic && !this.engine;
   }
 
   /**

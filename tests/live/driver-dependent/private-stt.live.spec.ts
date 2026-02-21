@@ -9,7 +9,7 @@
  * │──────────────────────────────────│───────────────────│───────────────────────│
  * │ private-stt.e2e.spec.ts          │ MockEngine        │ UI flow, button states│
  * │ private-stt-integration.spec.ts  │ MockEngine (CI)   │ App lifecycle, toasts │
- * │ private-stt-resilience.spec.ts   │ Hang simulation   │ Timeout, fallback     │
+ * │ private-stt-resilience.e2e.spec.ts   │ Hang simulation   │ Timeout, fallback     │
  * │ private-stt-real.e2e.spec.ts     │ TransformersJS +  │ REAL audio → REAL     │
  * │ (THIS FILE)                      │ Real Audio        │ transcript verification│
  * │ private-stt-performance.spec.ts  │ Real Whisper      │ Memory/CPU profiling  │

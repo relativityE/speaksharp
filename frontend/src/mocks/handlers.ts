@@ -1,6 +1,7 @@
 import { http, HttpResponse, type RequestHandler } from 'msw';
 import logger from '@/lib/logger';
 import { createMockSession, createMockUserProfile, createMockUser } from './test-user-utils';
+import { MOCK_SESSION_HISTORY } from '@shared/test-fixtures';
 
 // Pre-populated custom vocabulary store with technical terms
 const mockVocabularyStore: Map<string, Array<{ id: string; user_id: string; word: string; created_at: string }>> = new Map([
@@ -108,99 +109,7 @@ export const handlers: RequestHandler[] = [
 
     // Rich mock session data for analytics testing
     // Shows improvement trend over 5 sessions for trend analysis
-    const mockSessionHistory = [
-      {
-        id: 'session-1',
-        user_id: 'test-user-123',
-        created_at: new Date(Date.now() - 7 * 86400000).toISOString(),
-        duration: 180,
-        transcript: 'Um, so today I wanted to talk about my presentation skills.',
-        title: 'First Practice Session',
-        total_words: 85,
-        engine: 'Native',
-        clarity_score: 72.5,
-        wpm: 28.3,
-        filler_words: {
-          um: { count: 8, timestamps: [1.2, 5.4, 12.1, 18.3, 25.6, 32.1, 45.2, 58.9] },
-          uh: { count: 6, timestamps: [3.1, 9.2, 22.4, 38.7, 52.1, 65.3] },
-          like: { count: 4, timestamps: [7.8, 28.9, 41.2, 72.1] },
-          'you know': { count: 2, timestamps: [15.4, 55.8] },
-          total: { count: 20 }
-        }
-      },
-      {
-        id: 'session-2',
-        user_id: 'test-user-123',
-        created_at: new Date(Date.now() - 5 * 86400000).toISOString(),
-        duration: 240,
-        transcript: 'Today I practiced discussing REST APIs and, um, database schemas.',
-        title: 'Technical Practice',
-        total_words: 120,
-        engine: 'Cloud AI',
-        clarity_score: 78.2,
-        wpm: 30.1,
-        filler_words: {
-          um: { count: 5, timestamps: [8.2, 22.4, 45.6, 78.2, 112.3] },
-          uh: { count: 4, timestamps: [15.1, 38.9, 62.4, 95.1] },
-          like: { count: 3, timestamps: [28.3, 55.7, 88.2] },
-          'you know': { count: 1, timestamps: [72.4] },
-          total: { count: 13 }
-        }
-      },
-      {
-        id: 'session-3',
-        user_id: 'test-user-123',
-        created_at: new Date(Date.now() - 3 * 86400000).toISOString(),
-        duration: 300,
-        transcript: 'In this session I focused on explaining Kubernetes orchestration and CI/CD pipelines.',
-        title: 'DevOps Vocabulary Practice',
-        total_words: 165,
-        engine: 'Private',
-        clarity_score: 85.0,
-        wpm: 33.0,
-        filler_words: {
-          um: { count: 3, timestamps: [18.4, 62.1, 145.8] },
-          uh: { count: 2, timestamps: [42.3, 98.7] },
-          like: { count: 2, timestamps: [75.2, 188.4] },
-          total: { count: 7 }
-        }
-      },
-      {
-        id: 'session-4',
-        user_id: 'test-user-123',
-        created_at: new Date(Date.now() - 1 * 86400000).toISOString(),
-        duration: 420,
-        transcript: 'Today I presented about machine learning algorithms including neural networks and gradient descent.',
-        title: 'ML Presentation Practice',
-        total_words: 245,
-        engine: 'Cloud AI',
-        clarity_score: 91.5,
-        wpm: 35.0,
-        filler_words: {
-          um: { count: 2, timestamps: [55.2, 185.4] },
-          uh: { count: 1, timestamps: [122.8] },
-          like: { count: 1, timestamps: [298.1] },
-          total: { count: 4 }
-        }
-      },
-      {
-        id: 'session-5',
-        user_id: 'test-user-123',
-        created_at: new Date().toISOString(),
-        duration: 480,
-        transcript: 'This was my most fluent session yet! I discussed cloud architecture, serverless computing, and how SpeakSharp has helped me become a more confident speaker.',
-        title: 'Cloud Architecture Deep Dive',
-        total_words: 320,
-        engine: 'Private',
-        clarity_score: 95.8,
-        wpm: 40.0,
-        filler_words: {
-          um: { count: 1, timestamps: [142.5] },
-          total: { count: 1 }
-        }
-      },
-    ];
-    return HttpResponse.json(mockSessionHistory);
+    return HttpResponse.json(MOCK_SESSION_HISTORY);
   }),
 
   // User Filler Words endpoints (STATEFUL with PostgREST parsing)

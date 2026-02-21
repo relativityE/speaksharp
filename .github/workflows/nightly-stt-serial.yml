@@ -1,0 +1,44 @@
+name: Nightly STT Serial Validation
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # 3 AM UTC daily (after dev-real-integration)
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  stt-serial-validation:
+    name: Private STT Serial High-Fidelity Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Run Private STT Real Audio & Fallback (Serial)
+        env:
+          REAL_WHISPER_TEST: "true"
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+          # Force sequential execution for Private STT stability
+          PLAYWRIGHT_WORKERS: 1 
+        run: |
+          echo "🚀 Starting Serial STT High-Fidelity Validation..."
+          # 1. Run Private STT Real Audio (Live)
+          pnpm exec playwright test tests/live/driver-dependent/private-stt.live.spec.ts --project=chromium
+          
+          # 2. Run Private STT Fallback & Resilience (Mock Orchestration)
+          pnpm exec playwright test tests/e2e/priv-stt-mock-fallback.e2e.spec.ts --project=chromium
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-stt-results
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14

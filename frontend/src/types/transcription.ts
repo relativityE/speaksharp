@@ -1,6 +1,6 @@
 import { TranscriptionMode } from '../services/transcription/TranscriptionPolicy';
 
-export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 'recording' | 'fallback' | 'error';
+export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 'recording' | 'fallback' | 'error' | 'info';
 
 export interface SttStatus {
     type: SttStatusType;
@@ -14,6 +14,7 @@ export interface TranscriptUpdate {
     transcript: {
         partial?: string;
         final?: string;
+        speaker?: string;
     };
     chunks?: { timestamp: [number, number]; text: string }[];
 }
