@@ -1,7 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "https://esm.sh/stripe@16.2.0?target=deno"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.2"
-import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
+import {
+  ErrorCodes,
+  createErrorResponse,
+  createSuccessResponse,
+} from "../_shared/errors.ts"
 
 // Define types for dependency injection
 type SupabaseClient = any; // Avoid importing full type for worker speed
@@ -14,7 +18,58 @@ export async function handler(
   webhookSecret: string
 ) {
   const signature = req.headers.get("Stripe-Signature")
-  const body = await req.text()
+
+  // Performance optimization: limit body size to prevent memory exhaustion
+  // Stripe webhooks are typically small (<10KB), 512KB is very generous.
+  const MAX_BODY_SIZE = 512 * 1024;
+  const contentLength = req.headers.get("content-length");
+
+  if (contentLength && parseInt(contentLength, 10) > MAX_BODY_SIZE) {
+    return createErrorResponse(
+      ErrorCodes.VALIDATION_PAYLOAD_TOO_LARGE,
+      "Payload too large",
+      {}
+    );
+  }
+
+  let body: string;
+  try {
+    const reader = req.body?.getReader();
+    if (!reader) {
+      body = "";
+    } else {
+      const chunks: Uint8Array[] = [];
+      let totalLength = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        totalLength += value.length;
+        if (totalLength > MAX_BODY_SIZE) {
+          await reader.cancel();
+          return createErrorResponse(
+            ErrorCodes.VALIDATION_PAYLOAD_TOO_LARGE,
+            "Payload too large",
+            {}
+          );
+        }
+        chunks.push(value);
+      }
+      const combined = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+      }
+      body = new TextDecoder().decode(combined);
+    }
+  } catch (err) {
+    console.error("[Stripe Webhook] Error reading body:", err);
+    return createErrorResponse(
+      ErrorCodes.STRIPE_WEBHOOK_INVALID,
+      "Could not read request body",
+      {}
+    );
+  }
 
   try {
     const event = await stripe.webhooks.constructEvent(
