@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { countFillerWords, FillerCounts, createInitialFillerData } from '../../utils/fillerWordUtils';
 import { Chunk } from './types';
 
@@ -70,10 +70,27 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
   }, [finalChunks, customWords]);
 
   // 2. Handle Interim Transcript (Transient)
+  // Debounce interim processing to avoid excessive NLP work during rapid speech recognition updates.
+  const [debouncedInterim, setDebouncedInterim] = useState(interimTranscript);
+
+  useEffect(() => {
+    // Immediate clear if transcript is empty to avoid double-counting during finalization
+    if (!interimTranscript.trim()) {
+      setDebouncedInterim('');
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setDebouncedInterim(interimTranscript);
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [interimTranscript]);
+
   const interimCounts = useMemo(() => {
-    if (!interimTranscript.trim()) return null;
-    return countFillerWords(interimTranscript, customWords);
-  }, [interimTranscript, customWords]);
+    if (!debouncedInterim.trim()) return null;
+    return countFillerWords(debouncedInterim, customWords);
+  }, [debouncedInterim, customWords]);
 
   // 3. Combine Accumulated and Interim Counts
   const combinedCounts = useMemo(() => {

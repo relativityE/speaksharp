@@ -1,5 +1,5 @@
-import { renderHook } from '../../../../tests/support/test-utils';
-import { describe, it, expect } from 'vitest';
+import { renderHook, act } from '../../../../tests/support/test-utils';
+import { describe, it, expect, vi } from 'vitest';
 import { useFillerWords } from '../useFillerWords';
 import { Chunk } from '../types';
 
@@ -24,7 +24,8 @@ describe('useFillerWords', () => {
     expect(result.current.totalCount).toBeGreaterThan(0);
   });
 
-  it('should handle interim transcript transiently', () => {
+  it('should handle interim transcript transiently with debounce', () => {
+    vi.useFakeTimers();
     const chunks: Chunk[] = [];
     const { result, rerender } = renderHook(
       ({ chunks, interim }: { chunks: Chunk[], interim: string }) => useFillerWords(chunks, interim, customWords),
@@ -33,16 +34,32 @@ describe('useFillerWords', () => {
 
     expect(result.current.totalCount).toBe(0);
 
+    // 1. Initial interim update
     rerender({ chunks, interim: 'um' });
+    // Should still be 0 due to debounce
+    expect(result.current.totalCount).toBe(0);
+
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
     expect(result.current.totalCount).toBe(1);
 
+    // 2. Rapid interim update
     rerender({ chunks, interim: 'um ah' });
+    expect(result.current.totalCount).toBe(1); // Still previous value
+
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
     expect(result.current.totalCount).toBe(2);
 
-    // When interim is cleared (became final)
+    // 3. Immediate clear when transcript becomes final
     const newChunks: Chunk[] = [{ text: 'um ah', id: 3, timestamp: Date.now() }];
     rerender({ chunks: newChunks, interim: '' });
+    // Should be immediate (no debounce for empty string)
     expect(result.current.totalCount).toBe(2);
+
+    vi.useRealTimers();
   });
 
   it('should reset when chunks are cleared', () => {
