@@ -13,42 +13,42 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
     idle: {
         icon: Info,
         bgClass: 'bg-yellow-400 border-yellow-600 shadow-md',
-        textClass: 'text-black font-black uppercase',
+        textClass: 'text-black font-bold uppercase',
     },
     initializing: {
         icon: Loader2,
-        bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
-        textClass: 'text-black font-black uppercase',
+        bgClass: 'bg-yellow-400 border-yellow-600 shadow-md',
+        textClass: 'text-black font-bold uppercase',
     },
     downloading: {
         icon: Loader2,
-        bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
-        textClass: 'text-black font-black uppercase',
+        bgClass: 'bg-yellow-400 border-yellow-600 shadow-md',
+        textClass: 'text-black font-bold uppercase',
     },
     ready: {
         icon: CheckCircle2,
-        bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
-        textClass: 'text-black font-black uppercase',
+        bgClass: 'bg-yellow-400 border-yellow-600 shadow-md',
+        textClass: 'text-black font-bold uppercase',
     },
     recording: {
-        icon: Info, // Using Info as generic icon, similar to idle but distinct state
-        bgClass: 'bg-red-500 border-red-700 shadow-xl',
-        textClass: 'text-white font-black uppercase',
+        icon: Info,
+        bgClass: 'bg-yellow-400 border-yellow-600 shadow-md',
+        textClass: 'text-black font-bold uppercase',
     },
     fallback: {
         icon: AlertTriangle,
-        bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
-        textClass: 'text-black font-black uppercase',
+        bgClass: 'bg-yellow-400 border-yellow-600 shadow-md',
+        textClass: 'text-black font-bold uppercase',
     },
     error: {
         icon: AlertCircle,
-        bgClass: 'bg-red-600 border-red-800 shadow-xl',
-        textClass: 'text-white font-black uppercase',
+        bgClass: 'bg-yellow-400 border-yellow-600 shadow-md',
+        textClass: 'text-black font-bold uppercase',
     },
     info: {
         icon: Info,
-        bgClass: 'bg-blue-400 border-blue-600 shadow-md',
-        textClass: 'text-white font-black uppercase',
+        bgClass: 'bg-yellow-400 border-yellow-600 shadow-md',
+        textClass: 'text-black font-bold uppercase',
     },
 };
 

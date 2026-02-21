@@ -3,6 +3,7 @@ import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { TranscriptionState } from '../../services/transcription/TranscriptionFSM';
 import { Chunk } from './types';
 import { combineChunksToText, createChunk } from './utils';
+import { useSessionStore } from '../../stores/useSessionStore';
 
 const MAX_CHUNKS = 1000;
 
@@ -26,6 +27,7 @@ export const useTranscriptionState = () => {
         const trimmedText = text.trim();
         if (!trimmedText) return;
 
+        // Sync with local state
         setFinalChunks(prev => {
             if (prev.length > 0 && prev[prev.length - 1].text === trimmedText) return prev;
             const chunk = createChunk(trimmedText, speaker);
@@ -36,12 +38,17 @@ export const useTranscriptionState = () => {
             }
             return [...prev, chunk];
         });
+
+        // Sync with Zustand store for global availability (including speaker labels)
+        useSessionStore.getState().addChunk(trimmedText, speaker);
     }, []);
 
     const reset = useCallback(() => {
         setFinalChunks([]);
         setInterimTranscript('');
         setError(null);
+
+        useSessionStore.getState().resetSession();
     }, []);
 
     // Subscribe to FSM changes if service is available

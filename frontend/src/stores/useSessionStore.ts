@@ -4,9 +4,16 @@ import logger from '@/lib/logger';
 import { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { SttStatus } from '@/types/transcription';
 
+export interface TranscriptChunk {
+    text: string;
+    speaker?: string;
+    timestamp: number;
+}
+
 interface TranscriptState {
     transcript: string;
     partial: string;
+    chunks: TranscriptChunk[];
 }
 
 // SttStatus imported from '@/types/transcription'
@@ -28,7 +35,8 @@ interface SessionActions {
     startSession: () => void;
     stopSession: () => void;
     setReady: (ready: boolean) => void;
-    updateTranscript: (transcript: string, partial?: string) => void;
+    updateTranscript: (transcript: string, partial?: string, chunks?: TranscriptChunk[]) => void;
+    addChunk: (text: string, speaker?: string) => void;
     updateFillerData: (data: FillerCounts) => void;
     updateElapsedTime: (time: number) => void;
     setSTTStatus: (status: SttStatus) => void;
@@ -48,6 +56,7 @@ const initialState: SessionState = {
     transcript: {
         transcript: '',
         partial: '',
+        chunks: [],
     },
     fillerData: {},
     elapsedTime: 0,
@@ -80,12 +89,33 @@ export const useSessionStore = create<SessionStore>((set) => ({
             isReady: ready,
         }),
 
-    updateTranscript: (transcript, partial = '') =>
-        set({
+    updateTranscript: (transcript, partial = '', chunks) =>
+        set((state) => ({
             transcript: {
                 transcript,
                 partial,
+                chunks: chunks || state.transcript.chunks,
             },
+        })),
+
+    addChunk: (text, speaker) =>
+        set((state) => {
+            const newChunk: TranscriptChunk = {
+                text,
+                speaker,
+                timestamp: Date.now(),
+            };
+            const newTranscript = state.transcript.transcript
+                ? `${state.transcript.transcript} ${text}`
+                : text;
+
+            return {
+                transcript: {
+                    ...state.transcript,
+                    transcript: newTranscript,
+                    chunks: [...state.transcript.chunks, newChunk],
+                }
+            };
         }),
 
     updateFillerData: (data) =>

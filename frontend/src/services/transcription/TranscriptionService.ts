@@ -442,6 +442,7 @@ export default class TranscriptionService {
       case 'READY': status = { type: 'idle', message: 'Mic ready' }; break;
       case 'INITIALIZING_ENGINE': status = { type: 'initializing', message: 'Initializing engine...' }; break;
       case 'RECORDING': status = { type: 'recording', message: 'Recording active' }; break;
+      case 'CLEANING_UP': status = { type: 'cleaning', message: 'Cleaning up...' }; break;
       case 'ERROR': status = { type: 'error', message: this.lastError?.message || 'Error occurred' }; break;
       default: status = { type: 'idle', message: 'Ready' };
     }

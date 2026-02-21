@@ -80,8 +80,11 @@ serve(async (req) => {
     // 3. User Authentication
     console.log('[Stripe Checkout] 👤 Authenticating user...');
 
-    // Body parsing (no longer used for origin override)
-    await req.json().catch(() => ({}));
+    // Body parsing (verified: returnUrlOrigin override removed for security)
+    const body = await req.json().catch(() => ({}));
+    if (body.returnUrlOrigin) {
+      console.warn('[Stripe Checkout] ⚠️ returnUrlOrigin override attempt blocked');
+    }
 
     const { data: { user }, error: userError } = await supabase.auth.getUser()
 
@@ -112,14 +115,19 @@ serve(async (req) => {
 
     // 5. Determine return URL base (Strictly from Secrets)
     const siteUrl = Deno.env.get("SITE_URL");
-    const isLocalDev = !siteUrl || siteUrl.includes('localhost');
 
-    if (!siteUrl && !isLocalDev) {
-      console.error('[Stripe Checkout] ❌ SITE_URL missing in production');
-      // ... fall back to localhost for dev, but this is caught by preflight usually
+    // Fallback to localhost ONLY if explicitly not in a production-like environment
+    const isLocalDev = !siteUrl || siteUrl.includes('localhost') || siteUrl.includes('127.0.0.1');
+    const effectiveSiteUrl = siteUrl || (isLocalDev ? `http://localhost:${DEV_PORT}` : null);
+
+    if (!effectiveSiteUrl) {
+      console.error('[Stripe Checkout] ❌ SITE_URL missing and not in local dev');
+      return createErrorResponse(
+        ErrorCodes.CONFIG_MISSING_ENV,
+        "Configuration Error: SITE_URL is missing",
+        corsHeaders
+      );
     }
-
-    const effectiveSiteUrl = siteUrl ?? `http://localhost:${DEV_PORT}`;
     console.log(`[Stripe Checkout] 🔐 Using SITE_URL: ${effectiveSiteUrl}`);
 
     // 5. Stripe Session Creation

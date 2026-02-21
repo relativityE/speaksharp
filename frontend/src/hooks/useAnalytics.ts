@@ -17,10 +17,12 @@ const MOCK_SESSIONS: PracticeSession[] = [
         id: 'mock-session-1',
         user_id: 'dev-bypass-user-id',
         title: 'Monday Practice Session',
-        transcript: 'This is a mock transcript for testing purposes.',
         duration: 720, // 12 minutes
         total_words: 1740, // ~145 WPM
-        accuracy: 0.87,
+        accuracy: 0.886,
+        ground_truth: 'This is the ground truth transcript for testing.',
+        transcript: 'This is a mock transcript for testing purposes.', // has some errors
+        engine: 'cloud',
         filler_words: { 'um': { count: 23 }, 'uh': { count: 18 }, 'like': { count: 15 }, 'you know': { count: 10 } } as { [key: string]: { count: number } },
         created_at: '2025-01-14T10:00:00.000Z', // Fixed date to prevent re-render
     },
@@ -28,7 +30,9 @@ const MOCK_SESSIONS: PracticeSession[] = [
         id: 'mock-session-2',
         user_id: 'dev-bypass-user-id',
         title: 'Tuesday Practice Session',
+        ground_truth: 'Another ground truth transcript.',
         transcript: 'Another mock transcript.',
+        engine: 'cloud',
         duration: 480,
         total_words: 1100,
         accuracy: 0.85,
@@ -132,6 +136,6 @@ export const useAnalytics = () => {
         ...analyticsData,
         // DEV BYPASS: Force loading to false when devBypass is active so UI renders with mock data
         loading: isDevBypass ? false : (isLoading || effectiveSessionLoading),
-        error
+        error: isDevBypass ? null : error
     };
 };

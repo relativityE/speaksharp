@@ -129,11 +129,14 @@ const AuthenticatedAnalyticsView: React.FC = () => {
             if (updateError) throw updateError;
 
             // Invalidate cache to trigger re-calculation
-            // We use the specific userId to avoid over-invalidation,
-            // though prefix matching would also work.
-            await queryClient.invalidateQueries({
-                queryKey: ["sessionHistory", profile?.id]
-            });
+            // expert fix: invalidate both the summary and individual session views
+            const { session: authSession } = (await (getSupabaseClient()).auth.getSession()).data;
+            if (authSession?.user?.id) {
+                await queryClient.invalidateQueries({ queryKey: ["sessionHistory", authSession.user.id] });
+            } else {
+                await queryClient.invalidateQueries({ queryKey: ["sessionHistory"] });
+            }
+            await queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
 
         } catch (err: unknown) {
             logger.error({ err }, 'Error updating ground truth:');
