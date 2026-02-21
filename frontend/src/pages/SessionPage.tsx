@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Settings } from 'lucide-react';
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
@@ -95,25 +96,42 @@ export const SessionPage: React.FC = () => {
         progress: modelLoadingProgress ?? undefined
     };
 
+    const fadeUp = {
+        hidden: { opacity: 0, y: 20 },
+        visible: (i: number) => ({
+            opacity: 1,
+            y: 0,
+            transition: {
+                delay: i * 0.1,
+                duration: 0.6,
+                ease: [0.25, 0.46, 0.45, 0.94]
+            }
+        })
+    };
+
     return (
-        <div className="min-h-screen bg-gradient-subtle pt-20">
+        <div className="min-h-screen bg-background pt-20">
             {/* Page Header */}
-            <div className="text-center py-4 px-6 max-w-7xl mx-auto">
+            <div className="text-center py-4 px-6 max-w-6xl mx-auto relative z-10">
                 <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>
                 <p className="text-xs text-muted-foreground">We'll analyze your speech patterns in real-time</p>
             </div>
 
             {/* Status Bar */}
-            <div className="max-w-7xl mx-auto px-6 mb-2">
+            <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="max-w-6xl mx-auto px-6 mb-4 relative z-10"
+            >
                 <StatusNotificationBar status={displayStatus} />
-            </div>
+            </motion.div>
 
             {/* Main Content Grid */}
-            <div className="max-w-7xl mx-auto px-6 pb-6">
-                <div className="space-y-6">
-                    {/* Row 1: Session Control & Pause Analysis */}
-                    <div className="grid lg:grid-cols-3 gap-6">
-                        <div className="lg:col-span-2">
+            <div className="max-w-6xl mx-auto px-6 py-8 relative z-10">
+                <div className="grid lg:grid-cols-3 gap-6">
+                    {/* Main Area (Left 2 columns) */}
+                    <div className="lg:col-span-2 space-y-6">
+                        <motion.div custom={0} initial="hidden" animate="visible" variants={fadeUp}>
                             <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                                 <LiveRecordingCard
                                     mode={mode}
@@ -129,30 +147,52 @@ export const SessionPage: React.FC = () => {
                                     onStartStop={handleStartStop}
                                 />
                             </LocalErrorBoundary>
+                        </motion.div>
+
+                        <motion.div custom={1} initial="hidden" animate="visible" variants={fadeUp}>
+                            <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
+                                <LiveTranscriptPanel
+                                    transcript={transcriptContent}
+                                    isListening={isListening}
+                                    containerRef={transcriptContainerRef}
+                                    className="min-h-48"
+                                />
+                            </LocalErrorBoundary>
+                        </motion.div>
+
+                        {/* Secondary Metrics Row */}
+                        <div className="grid sm:grid-cols-2 gap-6">
+                            <motion.div custom={2} initial="hidden" animate="visible" variants={fadeUp}>
+                                <LocalErrorBoundary isolationKey="clarity-score" componentName="ClarityScoreCard">
+                                    <ClarityScoreCard
+                                        clarityScore={metrics.clarityScore}
+                                        clarityLabel={metrics.clarityLabel}
+                                    />
+                                </LocalErrorBoundary>
+                            </motion.div>
+                            <motion.div custom={3} initial="hidden" animate="visible" variants={fadeUp}>
+                                <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
+                                    <SpeakingRateCard
+                                        wpm={metrics.wpm}
+                                        wpmLabel={metrics.wpmLabel}
+                                    />
+                                </LocalErrorBoundary>
+                            </motion.div>
                         </div>
-                        <div className="h-full">
+                    </div>
+
+                    {/* Sidebar Area (Right 1 column) */}
+                    <div className="space-y-6">
+                         <motion.div custom={4} initial="hidden" animate="visible" variants={fadeUp}>
                             <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
                                 <PauseMetricsDisplay
                                     metrics={pauseMetrics}
                                     className="h-full"
                                 />
                             </LocalErrorBoundary>
-                        </div>
-                    </div>
+                        </motion.div>
 
-                    {/* Row 2: Transcript & Filler Words */}
-                    <div className="grid lg:grid-cols-3 gap-6">
-                        <div className="lg:col-span-2">
-                            <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
-                                <LiveTranscriptPanel
-                                    transcript={transcriptContent}
-                                    isListening={isListening}
-                                    containerRef={transcriptContainerRef}
-                                    className="h-full"
-                                />
-                            </LocalErrorBoundary>
-                        </div>
-                        <div className="h-full">
+                        <motion.div custom={5} initial="hidden" animate="visible" variants={fadeUp}>
                             <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
                                 <FillerWordsCard
                                     fillerCount={metrics.fillerCount}
@@ -177,26 +217,13 @@ export const SessionPage: React.FC = () => {
                                     }
                                 />
                             </LocalErrorBoundary>
-                        </div>
-                    </div>
+                        </motion.div>
 
-                    {/* Row 3: Secondary Metrics & Tips */}
-                    <div className="grid lg:grid-cols-3 gap-6">
-                        <LocalErrorBoundary isolationKey="clarity-score" componentName="ClarityScoreCard">
-                            <ClarityScoreCard
-                                clarityScore={metrics.clarityScore}
-                                clarityLabel={metrics.clarityLabel}
-                            />
-                        </LocalErrorBoundary>
-                        <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
-                            <SpeakingRateCard
-                                wpm={metrics.wpm}
-                                wpmLabel={metrics.wpmLabel}
-                            />
-                        </LocalErrorBoundary>
-                        <LocalErrorBoundary isolationKey="speaking-tips" componentName="SpeakingTipsCard">
-                            <SpeakingTipsCard />
-                        </LocalErrorBoundary>
+                        <motion.div custom={6} initial="hidden" animate="visible" variants={fadeUp}>
+                            <LocalErrorBoundary isolationKey="speaking-tips" componentName="SpeakingTipsCard">
+                                <SpeakingTipsCard />
+                            </LocalErrorBoundary>
+                        </motion.div>
                     </div>
                 </div>
             </div>

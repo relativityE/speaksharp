@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { Navigate } from 'react-router-dom';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { HeroSection } from "@/components/landing/HeroSection";
@@ -49,15 +50,30 @@ const Index = () => {
     return <Navigate to="/session" replace />;
   }
 
+  const fadeUp = {
+    hidden: { opacity: 0, y: 30 },
+    visible: (i: number) => ({
+      opacity: 1, y: 0,
+      transition: { delay: i * 0.1, duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] },
+    }),
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-subtle flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col relative z-10">
       {/* LandingHeader removed to avoid overlap with App Navigation */}
       <main className="flex-1">
-        <HeroSection />
-        <FeaturesSection />
-        <BenefitsSection />
-        {/* <TestimonialsSection /> */}
-        <CTASection />
+        <motion.div custom={0} initial="hidden" animate="visible" variants={fadeUp}>
+          <HeroSection />
+        </motion.div>
+        <motion.div custom={1} initial="hidden" animate="visible" variants={fadeUp}>
+          <FeaturesSection />
+        </motion.div>
+        <motion.div custom={2} initial="hidden" animate="visible" variants={fadeUp}>
+          <BenefitsSection />
+        </motion.div>
+        <motion.div custom={3} initial="hidden" animate="visible" variants={fadeUp}>
+          <CTASection />
+        </motion.div>
       </main>
       <LandingFooter />
     </div>

@@ -1,5 +1,3 @@
-import { getWordColor } from '@/utils/highlightUtils';
-
 interface FillerWordData {
     count: number;
     lastOccurrence?: number;
@@ -16,42 +14,38 @@ interface FillerWordsCardProps {
  * Extracted from SessionPage for better reusability and testability.
  */
 export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
-    fillerCount,
     fillerData,
     headerAction,
 }) => {
     return (
-        <div className="bg-card border border-border rounded-xl p-4 shadow-sm h-full">
-            <div className="flex items-center justify-between mb-2">
+        <div className="glass rounded-2xl p-6 h-full">
+            <div className="flex items-center justify-between mb-6">
                 <h2 className="text-lg font-semibold text-foreground">
-                    Filler Words <span data-testid="filler-count-value" className="text-secondary ml-1">{fillerCount > 0 ? `(${fillerCount})` : ''}</span>
+                    Filler Tracking
                 </h2>
                 {headerAction}
             </div>
 
-            <div className="space-y-2" data-testid="filler-words-list">
+            <div className="space-y-4" data-testid="filler-words-list">
                 {Object.entries(fillerData)
                     .filter(([key]) => key !== 'total')
                     .sort(([, a], [, b]) => b.count - a.count)
                     .map(([word, data]) => {
                         const isZero = data.count === 0;
-                        const wordColor = getWordColor(word.toLowerCase());
                         return (
                             <div key={word} className="flex items-center justify-between" data-testid="filler-badge">
                                 <span
-                                    className="text-sm font-bold px-2 py-0.5 rounded border"
-                                    style={{
-                                        color: isZero ? 'inherit' : wordColor,
-                                        borderColor: isZero ? 'transparent' : `${wordColor}40`,
-                                        backgroundColor: isZero ? 'transparent' : `${wordColor}10`
-                                    }}
+                                    className={`text-sm font-medium px-3 py-1 rounded-full border transition-colors ${
+                                        isZero ? "border-white/5 text-muted-foreground/60" : "border-secondary/30 bg-secondary/10 text-secondary"
+                                    }`}
                                 >
-                                    "{word}"
+                                    {word}
                                 </span>
                                 <span
                                     data-testid="filler-badge-count"
-                                    className={`font-bold ${!isZero ? "" : "text-muted-foreground"}`}
-                                    style={{ color: !isZero ? wordColor : undefined }}
+                                    className={`font-bold text-lg ${
+                                        isZero ? "text-muted-foreground/40" : "text-secondary"
+                                    }`}
                                 >
                                     {data.count}
                                 </span>
@@ -60,7 +54,7 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
                     })
                 }
                 {Object.keys(fillerData).length <= 1 && ( // Account for 'total' key
-                    <p className="text-sm text-muted-foreground italic text-center py-2">No words defined</p>
+                    <p className="text-sm text-muted-foreground italic text-center py-4">No words defined</p>
                 )}
             </div>
         </div>

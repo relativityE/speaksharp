@@ -1,6 +1,4 @@
 import * as React from 'react';
-import { Badge } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
 import { Mic, BarChart3, Target } from 'lucide-react';
 
 interface FeatureCardProps {
@@ -11,14 +9,14 @@ interface FeatureCardProps {
   iconTextColor: string;
 }
 
-const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description, iconBgColor, iconTextColor }) => (
-  <Card className="p-6 hover:shadow-lg transition-shadow">
-    <div className={`w-16 h-16 rounded-xl flex items-center justify-center ${iconBgColor} ${iconTextColor}`}>
+const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description }) => (
+  <div className="glass rounded-2xl p-7 group hover:bg-white/10 transition-all duration-300">
+    <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-primary/15 text-primary mb-6 transition-transform group-hover:scale-110">
       {icon}
     </div>
-    <h3 className="text-xl font-semibold text-foreground mt-4">{title}</h3>
-    <p className="text-sm text-muted-foreground mt-2">{description}</p>
-  </Card>
+    <h3 className="text-xl font-bold text-foreground mb-3">{title}</h3>
+    <p className="text-muted-foreground text-sm leading-relaxed">{description}</p>
+  </div>
 );
 
 const features = [
@@ -47,27 +45,26 @@ const features = [
 
 export const FeaturesSection = () => {
   return (
-    <section className="w-full py-12 md:py-24 lg:py-32 bg-muted/30">
-      <div className="container px-4 md:px-6">
-        <div className="flex flex-col items-center justify-center space-y-4 text-center">
-          <div className="space-y-3">
-            <Badge variant="primary" className="text-lg text-white">
-              Key Features
-            </Badge>
-            <h2 className="text-3xl sm:text-4xl font-bold text-foreground leading-tight">
-              Everything you need to practice
+    <section className="w-full py-24 md:py-32 relative z-10">
+      <div className="container px-4 md:px-6 max-w-7xl mx-auto">
+        <div className="flex flex-col items-center justify-center space-y-4 text-center mb-16">
+          <div className="space-y-4">
+             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full glass text-primary text-xs font-semibold uppercase tracking-wider mx-auto">
+              Features
+            </div>
+            <h2 className="text-4xl md:text-5xl font-bold text-foreground leading-tight">
+              Everything you need to <span className="text-gradient-cyan">practice</span>
             </h2>
-            <p className="text-xl text-muted-foreground leading-relaxed max-w-[900px]">
+            <p className="text-lg text-muted-foreground leading-relaxed max-w-[800px] mx-auto">
               SpeakSharp provides a suite of tools designed to make you a more confident and articulate public speaker.
             </p>
           </div>
         </div>
-        <div className="mx-auto grid max-w-5xl items-start gap-12 sm:grid-cols-2 md:grid-cols-3 lg:gap-16 mt-12">
+        <div className="mx-auto grid items-start gap-8 sm:grid-cols-2 md:grid-cols-3">
           {features.map((feature, index) => (
             <FeatureCard key={index} {...feature} />
           ))}
         </div>
-
       </div>
     </section>
   );

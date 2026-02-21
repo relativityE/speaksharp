@@ -93,15 +93,17 @@ const Navigation = () => {
 
   return (
     <>
-      <nav className="fixed top-0 left-0 right-0 bg-card/95 backdrop-blur-sm border-b border-border shadow-card z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
+      <nav className="fixed top-0 left-0 right-0 glass backdrop-blur-xl border-b border-white/5 z-50 transition-all duration-300">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex justify-between items-center h-20">
             {/* Logo */}
-            <Link to="/" className="flex items-center space-x-2" aria-label="SpeakSharp Home">
-              <div className="w-8 h-8 bg-gradient-hero rounded-lg flex items-center justify-center">
-                <Mic className="h-5 w-5 text-white" aria-hidden="true" />
+            <Link to="/" className="flex items-center gap-2 group" aria-label="SpeakSharp Home">
+              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center transition-transform group-hover:scale-110">
+                <Mic className="h-5 w-5 text-primary-foreground" aria-hidden="true" />
               </div>
-              <span className="text-xl font-bold text-foreground">SpeakSharp</span>
+              <span className="text-xl font-bold tracking-tight text-foreground">
+                SpeakSharp
+              </span>
             </Link>
 
             {/* Navigation Items */}

@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { NavLink, useParams } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useAnalytics } from '../hooks/useAnalytics';
@@ -33,40 +34,48 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
 
     // Different heading and description based on whether viewing a specific session
     const isSessionView = !!sessionId;
-    const heading = isSessionView ? 'Session Analysis' : 'Your Analytics';
+    const heading = isSessionView ? 'Session Analysis' : 'Your Progress';
     const description = isSessionView
         ? 'A detailed breakdown of your recent practice session.'
-        : 'Track your speaking progress and improvements';
+        : 'Track your speaking improvement over time.';
 
     return (
-        <div className="mb-8">
-            <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="dashboard-heading">{heading}</h1>
-            <p className="text-muted-foreground mb-4">{description}</p>
+        <div className="mb-10">
+            <h1 className="text-4xl font-extrabold text-foreground mb-3 tracking-tight" data-testid="dashboard-heading">
+                {heading.split(' ').map((word, i) => i === 1 ? <span key={i} className="text-gradient-cyan">{word} </span> : word + ' ')}
+            </h1>
+            <p className="text-muted-foreground text-lg mb-8">{description}</p>
 
             {/* Plan Banner - Only show on dashboard view, not session view */}
             {!isSessionView && !isPro && (
-                <button
-                    onClick={onUpgrade}
-                    className="w-full flex items-center justify-between bg-secondary hover:bg-secondary/90 text-white px-6 py-3 rounded-xl shadow-md transform transition-all hover:-translate-y-0.5"
-                    data-testid="analytics-page-upgrade-button"
+                <div
+                    className="w-full glass-strong rounded-2xl p-6 glow-secondary border-secondary/20 flex flex-col sm:flex-row items-center justify-between gap-6"
+                    data-testid="analytics-page-upgrade-banner"
                 >
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-white/20 rounded-lg">
-                            <Mic className="w-5 h-5 text-white" />
+                    <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-secondary/20 rounded-2xl flex items-center justify-center text-secondary">
+                            <Mic className="w-6 h-6" />
                         </div>
                         <div className="text-left">
-                            <span className="font-bold block text-base">Free Plan</span>
-                            <span className="text-xs text-white/90 hidden sm:inline">Upgrade for unlimited practice & advanced metrics</span>
+                            <h3 className="font-bold text-xl text-foreground">Unlock Full Insights</h3>
+                            <p className="text-sm text-muted-foreground">Upgrade to Pro for unlimited sessions and advanced pattern analysis.</p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2 font-bold bg-white text-secondary px-4 py-2 rounded-lg text-sm">
-                        Upgrade
-                    </div>
-                </button>
+                    <Button
+                        onClick={onUpgrade}
+                        className="bg-secondary hover:bg-secondary/90 text-secondary-foreground font-bold h-12 px-8 rounded-full transition-all hover:scale-105"
+                        data-testid="analytics-page-upgrade-button"
+                    >
+                        Upgrade Now
+                    </Button>
+                </div>
             )}
             {!isSessionView && isPro && (
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 text-primary font-medium border border-primary/20">
-                    <span>✨ Pro Plan Active</span>
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass text-primary text-sm font-semibold">
+                    <span className="relative flex h-2 w-2">
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                    </span>
+                    Pro Member Analysis
                 </div>
             )}
         </div>
@@ -195,10 +204,15 @@ const AuthenticatedAnalyticsView: React.FC = () => {
 
 export const AnalyticsPage: React.FC = () => {
     return (
-        <div className="min-h-screen bg-background pt-20">
-            <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="min-h-screen bg-background pt-20 relative z-10">
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
+                className="max-w-6xl mx-auto px-6 py-12"
+            >
                 <AuthenticatedAnalyticsView />
-            </div>
+            </motion.div>
         </div>
     );
 };

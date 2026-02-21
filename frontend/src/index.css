@@ -4,32 +4,28 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here.
-All colors MUST be HSL.
-*/
-
 @layer base {
   :root {
     --background: 220 20% 14%;
     --foreground: 210 40% 98%;
 
-    --card: 220 20% 17%;
+    --card: 220 20% 14%;
     --card-foreground: 210 40% 98%;
 
-    --popover: 220 20% 17%;
+    --popover: 220 20% 14%;
     --popover-foreground: 210 40% 98%;
 
     --primary: 199 89% 48%;
-    --primary-foreground: 0 0% 100%;
+    --primary-foreground: 210 40% 98%;
 
     --secondary: 45 85% 50%;
-    --secondary-foreground: 0 0% 10%;
+    --secondary-foreground: 210 40% 98%;
 
     --muted: 220 15% 22%;
     --muted-foreground: 220 15% 58%;
 
-    --accent: 199 89% 48%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 220 15% 22%;
+    --accent-foreground: 210 40% 98%;
 
     --destructive: 0 63% 31%;
     --destructive-foreground: 210 40% 98%;
@@ -40,16 +36,15 @@ All colors MUST be HSL.
 
     --radius: 0.75rem;
 
-    --sidebar-background: 220 20% 11%;
-    --sidebar-foreground: 210 40% 95%;
+    --sidebar-background: 220 20% 12%;
+    --sidebar-foreground: 210 40% 98%;
     --sidebar-primary: 199 89% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 45 85% 50%;
-    --sidebar-accent-foreground: 0 0% 10%;
-    --sidebar-border: 220 15% 20%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 220 15% 22%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 220 15% 22%;
     --sidebar-ring: 199 89% 48%;
 
-    /* Standardized Toast Offset */
     --toast-offset-top: 96px;
   }
 
@@ -57,23 +52,23 @@ All colors MUST be HSL.
     --background: 220 20% 14%;
     --foreground: 210 40% 98%;
 
-    --card: 220 20% 17%;
+    --card: 220 20% 14%;
     --card-foreground: 210 40% 98%;
 
-    --popover: 220 20% 17%;
+    --popover: 220 20% 14%;
     --popover-foreground: 210 40% 98%;
 
     --primary: 199 89% 48%;
-    --primary-foreground: 0 0% 100%;
+    --primary-foreground: 210 40% 98%;
 
     --secondary: 45 85% 50%;
-    --secondary-foreground: 0 0% 10%;
+    --secondary-foreground: 210 40% 98%;
 
     --muted: 220 15% 22%;
     --muted-foreground: 220 15% 58%;
 
-    --accent: 199 89% 48%;
-    --accent-foreground: 0 0% 100%;
+    --accent: 220 15% 22%;
+    --accent-foreground: 210 40% 98%;
 
     --destructive: 0 63% 31%;
     --destructive-foreground: 210 40% 98%;
@@ -84,18 +79,17 @@ All colors MUST be HSL.
 
     --radius: 0.75rem;
 
-    --sidebar-background: 220 20% 11%;
-    --sidebar-foreground: 210 40% 95%;
+    --sidebar-background: 220 20% 12%;
+    --sidebar-foreground: 210 40% 98%;
     --sidebar-primary: 199 89% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 45 85% 50%;
-    --sidebar-accent-foreground: 0 0% 10%;
-    --sidebar-border: 220 15% 20%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 220 15% 22%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 220 15% 22%;
     --sidebar-ring: 199 89% 48%;
   }
 }
 
-/* Utility classes for specific visual effects */
 .glass {
   @apply bg-white/5 backdrop-blur-xl border border-white/10;
 }
@@ -114,12 +108,12 @@ All colors MUST be HSL.
 
 .text-gradient-hero {
   @apply bg-clip-text text-transparent;
-  background-image: linear-gradient(135deg, hsl(0 0% 100%), hsl(199 89% 58%), hsl(45 85% 55%));
+  background-image: linear-gradient(135deg, #FFFFFF 0%, #0DA2E7 50%, #ECB613 100%);
 }
 
 .text-gradient-cyan {
   @apply bg-clip-text text-transparent;
-  background-image: linear-gradient(135deg, hsl(199 89% 48%), hsl(199 60% 70%));
+  background-image: linear-gradient(135deg, #0DA2E7 0%, #71D1FF 100%);
 }
 
 .bg-gradient-radial {
@@ -129,8 +123,8 @@ All colors MUST be HSL.
 }
 
 .bg-grid {
-  background-image: linear-gradient(hsl(220 15% 18% / 0.5) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(220 15% 18% / 0.5) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
   background-size: 60px 60px;
 }
 
@@ -145,17 +139,7 @@ All colors MUST be HSL.
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
-  /* 
-   * Anti-Jarring Toast Positioning 
-   * Ensures the container is positioned statically BEFORE the first toast enters.
-   */
   [data-sonner-toaster][data-position="top-right"] {
     top: var(--toast-offset-top) !important;
   }
-}
-/* Industry Standard: Compact Density (2/3 Height) */
-.compact-density {
-  padding-top: 0.5rem !important;
-  padding-bottom: 0.5rem !important;
-  min-height: auto !important;
 }

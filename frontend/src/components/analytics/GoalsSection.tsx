@@ -1,6 +1,5 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import { Target, Trophy, Calendar } from 'lucide-react';
 
 import { useAnalytics } from '@/hooks/useAnalytics';
@@ -70,50 +69,62 @@ export const GoalsSection: React.FC = () => {
         return "Start your first session to begin tracking your progress!";
     };
 
+    const isGoalMet = weeklySessions >= weeklyGoal && avgClarityScore >= clarityGoal;
+
     return (
-        <Card
+        <div
             data-testid="goals-section"
-            className="bg-card border-border p-6 rounded-xl shadow-sm"
+            className={`glass rounded-2xl p-6 ${isGoalMet ? 'glass-strong glow-secondary border-secondary/20' : ''}`}
         >
-            <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-2">
-                    <div className="p-2 bg-primary/10 rounded-lg">
-                        <Target className="h-5 w-5 text-primary" />
+            <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-primary/15 rounded-xl flex items-center justify-center text-primary">
+                        <Target className="h-5 w-5" />
                     </div>
-                    <CardTitle className="text-lg font-semibold text-foreground">Current Goals</CardTitle>
+                    <h3 className="text-lg font-bold text-foreground">Practice Goals</h3>
                 </div>
                 <EditGoalsDialog goals={goals} onSave={setGoals} />
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-8">
                 <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                        <span className="font-medium flex items-center gap-2 text-foreground">
-                            <Calendar className="h-4 w-4 text-muted-foreground" />
+                    <div className="flex justify-between items-center text-sm">
+                        <span className="font-semibold flex items-center gap-2 text-foreground uppercase tracking-wider text-[10px]">
+                            <Calendar className="h-3 w-3 text-muted-foreground" />
                             Weekly Sessions
                         </span>
-                        <span className="font-bold text-foreground" data-testid="weekly-sessions-value">{weeklySessions} <span className="text-muted-foreground font-normal">/ {weeklyGoal}</span></span>
+                        <span className="font-bold text-foreground" data-testid="weekly-sessions-value">{weeklySessions} <span className="text-muted-foreground font-medium">/ {weeklyGoal}</span></span>
                     </div>
-                    <Progress value={weeklyProgress} className="h-2 bg-muted/50" />
+                    <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                        <div
+                            className="h-full bg-primary rounded-full transition-all duration-500"
+                            style={{ width: `${weeklyProgress}%` }}
+                        />
+                    </div>
                 </div>
 
                 <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                        <span className="font-medium flex items-center gap-2 text-foreground">
-                            <Trophy className="h-4 w-4 text-muted-foreground" />
-                            Clarity Score Avg
+                    <div className="flex justify-between items-center text-sm">
+                        <span className="font-semibold flex items-center gap-2 text-foreground uppercase tracking-wider text-[10px]">
+                            <Trophy className="h-3 w-3 text-muted-foreground" />
+                            Clarity Avg
                         </span>
-                        <span className="font-bold text-foreground" data-testid="clarity-avg-value">{avgClarityScore.toFixed(0)}% <span className="text-muted-foreground font-normal">/ {clarityGoal}%</span></span>
+                        <span className="font-bold text-foreground" data-testid="clarity-avg-value">{avgClarityScore.toFixed(0)}% <span className="text-muted-foreground font-medium">/ {clarityGoal}%</span></span>
                     </div>
-                    <Progress value={clarityProgress} className="h-2 bg-muted/50" />
+                    <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                        <div
+                            className="h-full bg-secondary rounded-full transition-all duration-500"
+                            style={{ width: `${clarityProgress}%` }}
+                        />
+                    </div>
                 </div>
 
-                <div className="pt-4 mt-2 border-t border-border/50">
-                    <p className={`text-sm text-center font-medium ${weeklySessions >= weeklyGoal ? 'text-emerald-500' : 'text-muted-foreground'}`}>
+                <div className="pt-6 mt-4 border-t border-white/5">
+                    <p className={`text-sm text-center font-medium ${weeklySessions >= weeklyGoal ? 'text-secondary' : 'text-muted-foreground'}`}>
                         {getEncouragementMessage()}
                     </p>
                 </div>
             </div>
-        </Card>
+        </div>
     );
 };

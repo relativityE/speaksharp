@@ -208,17 +208,15 @@ const ANALYSIS_STORAGE_KEY = 'speaksharp_selected_analysis_slides_v3';
 // --- Sub-components ---
 
 const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className, testId }) => (
-    <Card className={`bg-card border-border p-6 rounded-xl shadow-sm ${className}`} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
-        <div className="flex items-center justify-between mb-4">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${label.includes('Filler') ? 'bg-secondary/10 text-secondary' : 'bg-primary/10 text-primary'}`}>
-                {/* Clone icon to enforce size and styling if needed, but usually props are fine. Wrapper handles color. */}
-                {React.cloneElement(icon as React.ReactElement, { size: 24, className: "stroke-current" })}
+    <div className={`glass rounded-2xl p-6 ${className}`} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+        <div className="flex items-center justify-between mb-6">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${label.includes('Filler') ? 'bg-secondary/15 text-secondary' : 'bg-primary/15 text-primary'}`}>
+                {React.cloneElement(icon as React.ReactElement, { size: 20, className: "stroke-current" })}
             </div>
-            {/* Trend placeholder - could be passed as prop later */}
             {label.includes('Pace') && (
-                <span className="flex items-center gap-1 text-sm text-emerald-500 font-medium">
-                    <TrendingUp className="w-4 h-4" />
-                    Target: 130-150
+                <span className="flex items-center gap-1 text-[10px] text-emerald-500 font-bold uppercase tracking-wider bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                    <TrendingUp className="w-3 h-3" />
+                    Optimal
                 </span>
             )}
         </div>
@@ -229,9 +227,9 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className
                 </span>
                 {unit && <span className="text-sm font-medium text-muted-foreground ml-1">{unit}</span>}
             </div>
-            <p className="text-sm text-muted-foreground mt-1 font-medium">{label}</p>
+            <p className="text-xs text-muted-foreground mt-1 font-semibold uppercase tracking-wider">{label}</p>
         </div>
-    </Card>
+    </div>
 );
 
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro, isSelected, onToggleSelect, profileName }) => {
@@ -246,46 +244,50 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro,
     return (
         <NavLink
             to={`/analytics/${session.id}`}
-            className="group flex flex-col md:flex-row items-center justify-between p-4 bg-muted/30 rounded-xl hover:bg-muted/50 transition-all border border-transparent hover:border-border mb-3 last:mb-0"
+            className="group flex flex-col md:flex-row items-center justify-between p-4 glass rounded-xl hover:bg-white/10 transition-all mb-3 last:mb-0 cursor-pointer"
             data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}
         >
             <div className="flex items-center gap-4 w-full md:w-auto mb-4 md:mb-0">
                 <div className="flex items-center h-full">
                     <Checkbox
                         checked={isSelected}
-                        onCheckedChange={() => onToggleSelect(session.id)}
-                        className="mr-4"
+                        onCheckedChange={(e) => {
+                             e.stopPropagation();
+                             onToggleSelect(session.id);
+                        }}
+                        className="mr-4 border-white/20"
                         aria-label={`Select session for comparison`}
+                        onClick={(e) => e.stopPropagation()}
                     />
                 </div>
-                <div className="w-12 h-12 bg-secondary/20 rounded-xl flex items-center justify-center shrink-0">
-                    <Mic className="w-6 h-6 text-secondary" />
+                <div className="w-10 h-10 bg-secondary/15 rounded-xl flex items-center justify-center shrink-0">
+                    <Mic className="w-5 h-5 text-secondary" />
                 </div>
                 <div>
-                    <p className="font-semibold text-foreground text-base truncate max-w-[200px]">{session.title || 'Practice Session'}</p>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <p className="font-bold text-foreground text-base truncate max-w-[200px]">{session.title || 'Practice Session'}</p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Clock className="w-3 h-3" />
-                        <span>{durationStr} duration</span>
-                        <span className="text-muted-foreground/50">•</span>
+                        <span>{durationStr}</span>
+                        <span className="text-muted-foreground/30">•</span>
                         <span>{formatDateTime(session.created_at)}</span>
                     </div>
                 </div>
             </div>
 
-            <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end px-4 md:px-0">
+            <div className="flex items-center gap-10 w-full md:w-auto justify-between md:justify-end px-4 md:px-0">
                 <div className="text-center">
                     <p className="font-bold text-foreground text-lg">{wpm}</p>
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">WPM</p>
+                    <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">WPM</p>
                 </div>
                 <div className="text-center">
                     <p className={`font-bold text-lg ${totalFillers <= 3 ? "text-emerald-500" : "text-secondary"}`}>
                         {totalFillers}
                     </p>
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Fillers</p>
+                    <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Fillers</p>
                 </div>
                 <div className="text-center">
                     <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? clarity.toFixed(0) : '0'}%</p>
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Clarity</p>
+                    <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Clarity</p>
                 </div>
 
                 {isPro && (
