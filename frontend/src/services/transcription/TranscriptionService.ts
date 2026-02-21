@@ -63,6 +63,8 @@ export default class TranscriptionService {
 
   private startTimestamp: number = 0;
   private startTime: number | null = null;
+  private accumulatedTranscript: string = '';
+  private accumulatedDuration: number = 0;
   private mode: TranscriptionMode | null = null;
   private lastError: Error | null = null;
   private readonly MIN_RECORDING_DURATION_MS = 100;
@@ -168,6 +170,8 @@ export default class TranscriptionService {
 
     this.mode = mode;
     this.startTimestamp = Date.now();
+    this.accumulatedTranscript = '';
+    this.accumulatedDuration = 0;
     useSessionStore.getState().setSTTMode(mode);
 
     try {
@@ -192,7 +196,8 @@ export default class TranscriptionService {
 
       logger.info(`[TranscriptionService] Creating engine for mode: ${mode}`);
 
-      this.engine = await EngineFactory.create(mode, engineConfig, this.policy);
+      const privateEngineCandidate = await EngineFactory.create(mode, engineConfig, this.policy);
+      this.engine = privateEngineCandidate;
 
       if (mode === 'private') {
         const timeout = this.getLoadTimeout();
@@ -203,17 +208,32 @@ export default class TranscriptionService {
           timeoutId = setTimeout(() => reject(new CacheMissEvent()), timeout);
         });
 
-        const initPromise = this.engine.init();
+        const initPromise = privateEngineCandidate.init();
 
         // ✅ INDUSTRY STANDARD: Handle background completion for Optimistic Entry
-        initPromise.then(() => {
-          // If we are recording in fallback mode (e.g. native), notify the user that private is now ready
+        initPromise.then(async () => {
+          // If we are recording in fallback mode (e.g. native), initiate handoff
           const activeEngine = useSessionStore.getState().activeEngine;
           if (this.fsm.is('RECORDING') && activeEngine === 'native') {
-            logger.info('[TranscriptionService] Background private engine init complete');
+            logger.info('[TranscriptionService] Background private engine init complete - initiating handoff');
+
+            // 1. Capture partial transcript and duration from current (native) engine
+            const partial = await this.engine?.stopTranscription() || '';
+            const partialDuration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
+            this.accumulatedTranscript = (this.accumulatedTranscript + ' ' + partial).trim();
+            this.accumulatedDuration += partialDuration;
+
+            // 2. Switch to the now-ready private engine
+            this.engine = privateEngineCandidate;
+            await this.engine.startTranscription(this.mic!);
+            this.startTime = Date.now();
+
+            // 3. Update UI state
+            this.options.onModeChange?.('private');
+            useSessionStore.getState().setActiveEngine('private');
             this.options.onStatusChange?.({
               type: 'info',
-              message: 'Private model ready'
+              message: 'Switched to Private STT'
             });
           }
           // Clear progress indicator upon successful load
@@ -297,8 +317,10 @@ export default class TranscriptionService {
     this.fsm.transition({ type: 'STOP_REQUESTED' });
 
     try {
-      const transcript = this.engine ? await this.engine.stopTranscription() : '';
-      const duration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
+      const currentTranscript = this.engine ? await this.engine.stopTranscription() : '';
+      const transcript = (this.accumulatedTranscript + ' ' + currentTranscript).trim();
+      const currentDuration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
+      const duration = this.accumulatedDuration + currentDuration;
       const stats = calculateTranscriptStats([{ text: transcript }], [], '', duration);
 
       this.fsm.transition({ type: 'STOP_COMPLETED' });

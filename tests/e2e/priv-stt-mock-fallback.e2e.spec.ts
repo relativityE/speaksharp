@@ -143,9 +143,15 @@ test.describe('Private STT Resilience', () => {
             'recording'
         );
 
-        // 7. VERIFY SUCCESS STATE
-        // The "Private model ready" message is now delivered via Toast
-        await expect(page.getByText('Private model ready')).toBeVisible({ timeout: 10000 });
+        // 7. VERIFY SUCCESS STATE & HANDOFF
+        // The "Switched to Private STT" message is now delivered via Toast
+        await expect(page.getByText('Switched to Private STT')).toBeVisible({ timeout: 10000 });
+
+        // Verify active engine is now private
+        await waitForStoreState(page,
+            (state: unknown) => (state as { activeEngine: string }).activeEngine,
+            'private'
+        );
 
         // The background indicator should be removed
         await expect(backgroundIndicator).not.toBeVisible();

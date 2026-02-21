@@ -73,6 +73,8 @@ test.use({
 test.describe.configure({ timeout: 90000 });
 
 test.describe('Private STT Real Audio (High Fidelity)', () => {
+    // CRITICAL: Real audio injection requires serial execution to prevent browser instance interference
+    test.describe.configure({ mode: 'serial' });
 
     test.skip(({ browserName }) => browserName !== 'chromium', 'Private STT only tested on Chromium');
 
