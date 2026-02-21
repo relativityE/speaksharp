@@ -636,6 +636,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         <div className="h-full">
                             <AISuggestions
                                 transcript={targetSession.transcript || ""}
+                                sessionId={targetSession.id}
+                                initialSuggestions={targetSession.ai_suggestions}
                                 metrics={{
                                     wpm: targetSession.wpm,
                                     clarity_score: targetSession.clarity_score,

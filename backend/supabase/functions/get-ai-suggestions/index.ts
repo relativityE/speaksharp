@@ -52,7 +52,24 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       });
     }
 
-    const { transcript, metrics } = await req.json();
+    const { transcript, metrics, sessionId } = await req.json();
+
+    // 1. OPTIMIZATION: Check for existing suggestions if sessionId is provided
+    if (sessionId) {
+      const { data: session, error: sessionError } = await supabaseClient
+        .from('sessions')
+        .select('ai_suggestions')
+        .eq('id', sessionId)
+        .single();
+
+      if (!sessionError && session?.ai_suggestions) {
+        return new Response(JSON.stringify({ suggestions: session.ai_suggestions }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200,
+        });
+      }
+    }
+
     if (!transcript) {
       return new Response(JSON.stringify({ error: 'Transcript is required' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -117,6 +134,18 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     const rawText = responseData.candidates[0].content.parts[0].text;
     const jsonText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
     const suggestions = JSON.parse(jsonText);
+
+    // 2. PERSISTENCE: Save the new suggestions if sessionId is provided
+    if (sessionId) {
+      const { error: updateError } = await supabaseClient
+        .from('sessions')
+        .update({ ai_suggestions: suggestions })
+        .eq('id', sessionId);
+
+      if (updateError) {
+        console.error('Failed to save AI suggestions to cache:', updateError);
+      }
+    }
 
     return new Response(JSON.stringify({ suggestions }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
