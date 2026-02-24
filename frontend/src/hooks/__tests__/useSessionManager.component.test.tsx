@@ -81,7 +81,7 @@ describe('useSessionManager', () => {
     const { session } = await result.current.saveSession({});
 
     expect(session).toEqual(mockSession);
-    expect(saveSession).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'test-user' }), mockProfile);
+    expect(saveSession).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'test-user' }), mockProfile, 'native');
   });
 
   it('should handle delete session', async () => {

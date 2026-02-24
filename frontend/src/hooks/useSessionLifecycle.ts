@@ -109,14 +109,18 @@ export const useSessionLifecycle = () => {
 
                 const streakResult = updateStreak();
 
+                // Derive engine type for usage tracking
+                const engineType = (activeEngine === 'cloud') ? 'cloud' : 'native';
+
                 const result = await saveSession({
                     transcript: finalStats.transcript,
                     duration: elapsedTime,
                     filler_words: finalStats.filler_words as FillerCounts,
                     wpm: finalWpm,
                     clarity_score: finalStats.accuracy,
-                    title: `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`
-                });
+                    title: `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
+                    engine: (activeEngine || 'unknown') as string // Fix: Handle null/none and cast to string for session record
+                }, engineType);
 
 
                 if (result.session) {

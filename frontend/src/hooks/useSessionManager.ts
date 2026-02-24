@@ -6,7 +6,10 @@ import type { PracticeSession } from '../types/session';
 import { useUserProfile } from './useUserProfile';
 
 interface UseSessionManager {
-  saveSession: (sessionData: Partial<PracticeSession>) => Promise<{ session: PracticeSession | null; usageExceeded: boolean }>;
+  saveSession: (
+    sessionData: Partial<PracticeSession>,
+    engineType: 'native' | 'cloud'
+  ) => Promise<{ session: PracticeSession | null; usageExceeded: boolean }>;
   deleteSession: (sessionId: string) => Promise<boolean>;
   exportSessions: () => Promise<void>;
 }
@@ -18,7 +21,10 @@ export const useSessionManager = (): UseSessionManager => {
   const { data: profile } = useUserProfile();
   const queryClient = useQueryClient();
 
-  const saveSession = async (sessionData: Partial<PracticeSession>): Promise<{ session: PracticeSession | null; usageExceeded: boolean }> => {
+  const saveSession = async (
+    sessionData: Partial<PracticeSession>,
+    engineType: 'native' | 'cloud' = 'native'
+  ): Promise<{ session: PracticeSession | null; usageExceeded: boolean }> => {
     try {
       // Handle anonymous users: save to sessionStorage instead of DB.
       if (!user || user.is_anonymous) {
@@ -40,8 +46,12 @@ export const useSessionManager = (): UseSessionManager => {
       }
 
       // Handle real users
-      logger.info({ userId: user.id }, '[useSessionManager] 💾 Saving session');
-      const { session: newSession, usageExceeded } = await saveSessionToDb({ ...sessionData, user_id: user.id }, profile);
+      logger.info({ userId: user.id, engineType }, '[useSessionManager] 💾 Saving session');
+      const { session: newSession, usageExceeded } = await saveSessionToDb(
+        { ...sessionData, user_id: user.id },
+        profile,
+        engineType
+      );
 
       if (newSession) {
         logger.info({ sessionId: newSession.id }, '[useSessionManager] ✅ Session saved successfully');

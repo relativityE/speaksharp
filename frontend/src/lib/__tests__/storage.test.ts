@@ -103,8 +103,19 @@ describe('storage.ts', () => {
             expect(mockSupabase.rpc).toHaveBeenCalledWith('create_session_and_update_usage', {
                 p_session_data: mockSessionData,
                 p_is_free_user: true,
+                p_engine_type: 'native',
             });
             expect(result).toEqual({ session: mockNewSession, usageExceeded: false });
+        });
+
+        it('should pass correct engine_type to RPC', async () => {
+            mockSupabase.rpc.mockResolvedValue({ data: { new_session: {}, usage_exceeded: false }, error: null });
+
+            await saveSession(mockSessionData, mockProfile, 'cloud');
+
+            expect(mockSupabase.rpc).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+                p_engine_type: 'cloud'
+            }));
         });
 
         it('should handle rpc error', async () => {

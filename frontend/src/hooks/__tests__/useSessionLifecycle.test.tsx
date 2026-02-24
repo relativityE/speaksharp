@@ -42,8 +42,11 @@ vi.mock('@/stores/useSessionStore', () => ({
 // Global mock for useUsageLimit
 const baseUsageLimit: UsageLimitCheck = {
     can_start: true,
+    daily_remaining: 30,
+    daily_limit: 3600,
+    monthly_remaining: 90000,
+    monthly_limit: 90000,
     remaining_seconds: 30,
-    limit_seconds: 3600,
     subscription_status: 'free',
     is_pro: false,
 };
@@ -181,9 +184,12 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
     it('should trigger handleStartStop when elapsed time exceeds limit', async () => {
         const mockElapsedTime = 31;
         const mockLimit: UsageLimitCheck = {
+            daily_remaining: 30,
+            daily_limit: 3600,
+            monthly_remaining: 90000,
+            monthly_limit: 90000,
             remaining_seconds: 30,
             can_start: true,
-            limit_seconds: 3600,
             subscription_status: 'free',
             is_pro: false
         };
@@ -257,9 +263,12 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         vi.mocked(useUsageLimit).mockReturnValue({
             data: {
+                daily_remaining: 30,
+                daily_limit: 3600,
+                monthly_remaining: 90000,
+                monthly_limit: 90000,
                 remaining_seconds: 30,
                 can_start: true,
-                limit_seconds: 3600,
                 subscription_status: 'free',
                 is_pro: false
             },

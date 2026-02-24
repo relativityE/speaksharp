@@ -28,55 +28,72 @@ Deno.test('check-usage-limit edge function', async (t) => {
     await t.step('should return can_start=true for free user with usage remaining', async () => {
         const userId = 'free-user';
         const mockCreateSupabaseFreeUser = () => ({
+            rpc: (name: string) => {
+                if (name === 'check_usage_limit') {
+                    return Promise.resolve({
+                        data: {
+                            can_start: true,
+                            daily_remaining: 3000,
+                            daily_limit: 3600,
+                            monthly_remaining: 80000,
+                            monthly_limit: 90000,
+                            remaining_seconds: 3000,
+                            subscription_status: 'free',
+                            is_pro: false
+                        },
+                        error: null
+                    });
+                }
+                return Promise.resolve({ data: null, error: null });
+            },
             from: () => ({
                 select: () => ({
                     eq: () => ({
-                        single: () => Promise.resolve({
-                            data: {
-                                usage_seconds: 600, // 10 minutes used
-                                usage_reset_date: new Date().toISOString(),
-                                subscription_status: 'free'
-                            },
-                            error: null
-                        }),
-                    }),
-                }),
-            }),
+                        single: () => Promise.resolve({ data: { promo_expires_at: null }, error: null })
+                    })
+                })
+            })
         }) as any;
 
-        // Test case-insensitive Bearer prefix
         const req = new Request('http://localhost/check-usage-limit', {
             method: 'GET',
-            headers: { 'Authorization': `bearer ${createFakeJWT(userId)}` }
+            headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` }
         });
         const res = await handler(req, mockCreateSupabaseFreeUser);
         const json = await res.json();
 
         assertEquals(res.status, 200);
         assertEquals(json.can_start, true);
-        assertEquals(json.is_pro, false);
-        assertEquals(json.remaining_seconds, 3000); // 1hr (3600) - 10 min (600) = 50 min = 3000s
-        assertEquals(json.limit_seconds, 3600);
-        assertEquals(json.used_seconds, 600);
+        assertEquals(json.daily_remaining, 3000);
+        assertEquals(json.monthly_remaining, 80000);
     });
 
-    await t.step('should return can_start=false for free user who exceeded limit', async () => {
+    await t.step('should return can_start=false for exceeded user', async () => {
         const userId = 'exceeded-user';
         const mockCreateSupabaseExceededUser = () => ({
+            rpc: (name: string) => {
+                if (name === 'check_usage_limit') {
+                    return Promise.resolve({
+                        data: {
+                            can_start: false,
+                            daily_remaining: 0,
+                            daily_limit: 3600,
+                            remaining_seconds: 0,
+                            subscription_status: 'free',
+                            is_pro: false
+                        },
+                        error: null
+                    });
+                }
+                return Promise.resolve({ data: null, error: null });
+            },
             from: () => ({
                 select: () => ({
                     eq: () => ({
-                        single: () => Promise.resolve({
-                            data: {
-                                usage_seconds: 1800, // 30 minutes used (at limit)
-                                usage_reset_date: new Date().toISOString(),
-                                subscription_status: 'free'
-                            },
-                            error: null
-                        }),
-                    }),
-                }),
-            }),
+                        single: () => Promise.resolve({ data: { promo_expires_at: null }, error: null })
+                    })
+                })
+            })
         }) as any;
 
         const req = new Request('http://localhost/check-usage-limit', {
@@ -88,67 +105,32 @@ Deno.test('check-usage-limit edge function', async (t) => {
 
         assertEquals(res.status, 200);
         assertEquals(json.can_start, false);
-        assertEquals(json.is_pro, false);
-        assertEquals(json.remaining_seconds, 0);
+        assertEquals(json.daily_remaining, 0);
     });
 
-    await t.step('should return unlimited for pro user', async () => {
-        const userId = 'pro-user';
-        const mockCreateSupabaseProUser = () => ({
+    await t.step('should handle RPC errors by failing open', async () => {
+        const userId = 'error-user';
+        const mockCreateSupabaseError = () => ({
+            rpc: () => Promise.resolve({ data: null, error: { message: 'Database error' } }),
             from: () => ({
                 select: () => ({
                     eq: () => ({
-                        single: () => Promise.resolve({
-                            data: {
-                                usage_seconds: 5000, // Pro users can use as much as they want
-                                usage_reset_date: new Date().toISOString(),
-                                subscription_status: 'pro'
-                            },
-                            error: null
-                        }),
-                    }),
-                }),
-            }),
+                        single: () => Promise.resolve({ data: null, error: null })
+                    })
+                })
+            })
         }) as any;
 
         const req = new Request('http://localhost/check-usage-limit', {
             method: 'GET',
             headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` }
         });
-        const res = await handler(req, mockCreateSupabaseProUser);
+        const res = await handler(req, mockCreateSupabaseError);
         const json = await res.json();
 
         assertEquals(res.status, 200);
         assertEquals(json.can_start, true);
-        assertEquals(json.is_pro, true);
-        assertEquals(json.remaining_seconds, -1); // -1 means unlimited
-    });
-
-    await t.step('should allow start if profile not found (graceful degradation)', async () => {
-        const userId = 'new-user';
-        const mockCreateSupabaseNoProfile = () => ({
-            from: () => ({
-                select: () => ({
-                    eq: () => ({
-                        single: () => Promise.resolve({
-                            data: null,
-                            error: { message: 'Profile not found' }
-                        }),
-                    }),
-                }),
-            }),
-        }) as any;
-
-        const req = new Request('http://localhost/check-usage-limit', {
-            method: 'GET',
-            headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` }
-        });
-        const res = await handler(req, mockCreateSupabaseNoProfile);
-        const json = await res.json();
-
-        assertEquals(res.status, 200);
-        assertEquals(json.can_start, true); // Graceful degradation - allow
-        assertEquals(json.error, 'Profile not found - allowing session');
+        assertEquals(json.error, 'RPC failure - failing open');
     });
 
     await t.step('should handle OPTIONS request (CORS preflight)', async () => {

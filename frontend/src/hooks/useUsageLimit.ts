@@ -8,12 +8,14 @@ import logger from '@/lib/logger';
  */
 export interface UsageLimitCheck {
     can_start: boolean;
-    remaining_seconds: number; // -1 for unlimited (Pro)
-    limit_seconds: number;
-    used_seconds?: number;
+    daily_remaining: number; // For the new "Sunsetting" UX
+    daily_limit: number;
+    monthly_remaining: number; // For COGS protection check
+    monthly_limit: number;
+    remaining_seconds: number; // Legacy, kept for compatibility with existing UI
     subscription_status: string;
     is_pro: boolean;
-    promo_just_expired?: boolean; // True if promo expired during this check
+    promo_just_expired?: boolean;
     error?: string;
 }
 
@@ -37,8 +39,11 @@ export function useUsageLimit() {
                 logger.error('[useUsageLimit] Supabase client not available');
                 return {
                     can_start: false,
+                    daily_remaining: 0,
+                    daily_limit: 3600,
+                    monthly_remaining: 0,
+                    monthly_limit: 90000,
                     remaining_seconds: 0,
-                    limit_seconds: 3600,
                     subscription_status: 'unknown',
                     is_pro: false,
                     error: 'Supabase client not available'
@@ -57,8 +62,11 @@ export function useUsageLimit() {
                 // Default to allowing start on error to not block users
                 return {
                     can_start: true,
+                    daily_remaining: 3600,
+                    daily_limit: 3600,
+                    monthly_remaining: 90000,
+                    monthly_limit: 90000,
                     remaining_seconds: 3600,
-                    limit_seconds: 3600,
                     subscription_status: 'unknown',
                     is_pro: false,
                     error: error.message

@@ -101,9 +101,14 @@ export const getSessionById = async (sessionId: string): Promise<PracticeSession
  * This function is now architected to be atomic by using a single RPC call.
  * @param {object} sessionData - The session data to save.
  * @param {object} profile - The user's profile.
+ * @param {string} engineType - The transcription engine type used ('native' | 'cloud').
  * @returns {Promise<{session: object|null, usageExceeded: boolean}>} A promise that resolves to an object containing the saved session and a flag for usage limit.
  */
-export const saveSession = async (sessionData: Partial<PracticeSession> & { user_id: string }, profile: UserProfile): Promise<{ session: PracticeSession | null, usageExceeded: boolean }> => {
+export const saveSession = async (
+  sessionData: Partial<PracticeSession> & { user_id: string },
+  profile: UserProfile,
+  engineType: 'native' | 'cloud' = 'native'
+): Promise<{ session: PracticeSession | null, usageExceeded: boolean }> => {
   const supabase = getSupabaseClient();
   if (!sessionData || !sessionData.user_id) {
     logger.error('Save Session: Session data and user ID are required.');
@@ -120,10 +125,11 @@ export const saveSession = async (sessionData: Partial<PracticeSession> & { user
   // sessions before the usage check was performed. This has been fixed by delegating
   // the entire operation to a single, atomic RPC function in the database.
   // This function is responsible for both creating the session and updating/checking usage.
-  logger.info({ userId: sessionData.user_id, duration: sessionData.duration }, '[Supabase DB] 💾 Saving session via RPC');
+  logger.info({ userId: sessionData.user_id, duration: sessionData.duration, engineType }, '[Supabase DB] 💾 Saving session via RPC');
   const { data, error } = await supabase.rpc('create_session_and_update_usage', {
     p_session_data: sessionData,
     p_is_free_user: isFree(profile.subscription_status),
+    p_engine_type: engineType
   });
 
   if (error) {

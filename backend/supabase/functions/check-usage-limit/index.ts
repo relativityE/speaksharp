@@ -80,15 +80,13 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
             );
         }
 
-        // Get user profile with usage data
-        const { data: profile, error: profileError } = await supabaseClient
-            .from('user_profiles')
-            .select('usage_seconds, usage_reset_date, subscription_status, promo_expires_at')
-            .eq('id', userId)
-            .single();
+        // Delegate all logic to the Atomic RPC
+        const { data: usageLimit, error: rpcError } = await supabaseClient
+            .rpc('check_usage_limit');
 
-        if (profileError) {
-            console.error('Profile fetch error:', profileError);
+        if (rpcError) {
+            console.error('RPC check_usage_limit error:', rpcError);
+            // Fail open - allow session
             const response: UsageLimitResponse = {
                 can_start: true,
                 remaining_seconds: FREE_TIER_LIMIT_SECONDS,
@@ -96,94 +94,32 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
                 used_seconds: 0,
                 subscription_status: 'unknown',
                 is_pro: false,
-                error: 'Profile not found - allowing session',
+                error: 'RPC failure - failing open',
             };
             return createSuccessResponse(response, corsHeaders);
         }
 
-        const isPro = profile.subscription_status === 'pro';
-        let usedSeconds = profile.usage_seconds || 0;
+        // Handle Promo Expiry (Legacy check, keep for now until we move it to a dedicated cron/trigger)
+        const { data: profile } = await supabaseClient
+            .from('user_profiles')
+            .select('promo_expires_at')
+            .eq('id', userId)
+            .single();
 
-        // DAILY RESET LOGIC: Reset usage if more than 24 hours have passed since last reset
-        const resetDate = profile.usage_reset_date ? new Date(profile.usage_reset_date) : null;
-        const now = new Date();
-        const DayInMs = 24 * 60 * 60 * 1000;
+        if (profile?.promo_expires_at) {
+            const now = new Date();
+            const expiry = new Date(profile.promo_expires_at);
+            if (expiry < now) {
+                console.log(`[check-usage-limit] Promo expired for user ${userId}`);
+                await supabaseClient.from('user_profiles').update({ subscription_status: 'free' }).eq('id', userId);
 
-        if (!resetDate || (now.getTime() - resetDate.getTime()) >= DayInMs) {
-            usedSeconds = 0;
-            const newResetDate = now.toISOString();
-            const { error: resetError } = await supabaseClient
-                .from('user_profiles')
-                .update({
-                    usage_seconds: 0,
-                    usage_reset_date: newResetDate,
-                })
-                .eq('id', userId);
-
-            if (resetError) {
-                console.error('Failed to reset daily usage:', resetError);
-            } else {
-                console.log(`✅ Daily usage reset for user ${userId}, new reset date: ${newResetDate}`);
+                // Re-run RPC after status change
+                const { data: updatedLimit } = await supabaseClient.rpc('check_usage_limit');
+                return createSuccessResponse({ ...updatedLimit, promo_just_expired: true }, corsHeaders);
             }
         }
 
-        // Pro users have unlimited usage
-        if (isPro) {
-            if (profile.promo_expires_at) {
-                const expiry = new Date(profile.promo_expires_at);
-                if (expiry < now) {
-                    console.log(`[check-usage-limit] Promo expired for user ${userId}`);
-                    await supabaseClient.from('user_profiles').update({ subscription_status: 'free' }).eq('id', userId);
-
-                    const response: UsageLimitResponse = {
-                        can_start: true,
-                        remaining_seconds: Math.max(0, FREE_TIER_LIMIT_SECONDS - usedSeconds),
-                        limit_seconds: FREE_TIER_LIMIT_SECONDS,
-                        used_seconds: usedSeconds,
-                        subscription_status: 'free',
-                        is_pro: false,
-                        promo_just_expired: true,
-                    };
-                    return createSuccessResponse(response, corsHeaders);
-                } else {
-                    const response: UsageLimitResponse = {
-                        can_start: true,
-                        remaining_seconds: -1,
-                        limit_seconds: -1,
-                        used_seconds: usedSeconds,
-                        subscription_status: 'pro',
-                        is_pro: true,
-                    };
-                    return createSuccessResponse(response, corsHeaders);
-                }
-            } else {
-                const response: UsageLimitResponse = {
-                    can_start: true,
-                    remaining_seconds: -1,
-                    limit_seconds: -1,
-                    used_seconds: usedSeconds,
-                    subscription_status: profile.subscription_status,
-                    is_pro: true,
-                };
-                return createSuccessResponse(response, corsHeaders);
-            }
-        }
-
-        // Calculate daily remaining for free users
-        const remainingSeconds = Math.max(0, FREE_TIER_LIMIT_SECONDS - usedSeconds);
-        const canStart = remainingSeconds > 0;
-
-        const response: UsageLimitResponse = {
-            can_start: canStart,
-            remaining_seconds: remainingSeconds,
-            limit_seconds: FREE_TIER_LIMIT_SECONDS,
-            used_seconds: usedSeconds,
-            subscription_status: profile.subscription_status,
-            is_pro: false,
-        };
-
-        console.log(`✅ Daily usage check (1hr limit) for user ${userId}: ${remainingSeconds}s remaining`);
-        return createSuccessResponse(response, corsHeaders);
+        return createSuccessResponse(usageLimit as UsageLimitResponse, corsHeaders);
 
     } catch (error) {
         console.error('Error checking usage limit:', error);
