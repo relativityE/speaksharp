@@ -39,105 +39,18 @@ const mockError = (...args: unknown[]) => {
 // MOCK DATA (mirrored from frontend/src/mocks/handlers.ts)
 // ============================================================================
 
-export const MOCK_USER = {
-    id: 'test-user-123',
-    email: 'test@example.com',
-    app_metadata: { provider: 'email' },
-    user_metadata: { name: 'Test User' },
-    aud: 'authenticated',
-    role: 'authenticated',
-    created_at: new Date().toISOString(),
-};
+import {
+    MOCK_USER,
+    MOCK_USER_PROFILE,
+    MOCK_SESSION,
+    MOCK_SESSION_HISTORY,
+    MOCK_GOALS,
+    SUBSCRIPTION_STATUS
+} from '@shared/test-fixtures';
 
-export const MOCK_USER_PROFILE = {
-    id: 'test-user-123',
-    subscription_status: 'free',
-    usage_seconds: 1250,
-    usage_reset_date: new Date(Date.now() + 15 * 86400000).toISOString(),
-    created_at: new Date().toISOString(),
-};
+export { MOCK_SESSION_HISTORY };
 
-export const MOCK_SESSION = {
-    access_token: 'mock-access-token-for-e2e-testing',
-    refresh_token: 'mock-refresh-token-for-e2e-testing',
-    token_type: 'bearer',
-    expires_in: 3600,
-    expires_at: Math.floor(Date.now() / 1000) + 3600,
-    user: MOCK_USER,
-};
-
-// Rich mock session history for analytics testing
-export const MOCK_SESSION_HISTORY = [
-    {
-        id: 'session-1',
-        user_id: 'test-user-123',
-        created_at: new Date(Date.now() - 6 * 86400000).toISOString(),
-        duration: 180,
-        transcript: 'Um, so today I wanted to talk about my presentation skills.',
-        title: 'First Practice Session',
-        total_words: 85,
-        engine: 'Native',
-        clarity_score: 72.5,
-        wpm: 28.3,
-        filler_words: { um: { count: 8 }, uh: { count: 6 }, total: { count: 14 } },
-    },
-    {
-        id: 'session-2',
-        user_id: 'test-user-123',
-        created_at: new Date(Date.now() - 5 * 86400000).toISOString(),
-        duration: 240,
-        title: 'Technical Practice',
-        total_words: 120,
-        engine: 'Cloud AI',
-        clarity_score: 78.2,
-        wpm: 30.1,
-        filler_words: { um: { count: 5 }, uh: { count: 4 }, total: { count: 9 } },
-    },
-    {
-        id: 'session-3',
-        user_id: 'test-user-123',
-        created_at: new Date(Date.now() - 3 * 86400000).toISOString(),
-        duration: 300,
-        title: 'DevOps Vocabulary Practice',
-        total_words: 165,
-        engine: 'Private',
-        clarity_score: 85.0,
-        wpm: 33.0,
-        filler_words: { um: { count: 3 }, uh: { count: 2 }, total: { count: 5 } },
-    },
-    {
-        id: 'session-4',
-        user_id: 'test-user-123',
-        created_at: new Date(Date.now() - 1 * 86400000).toISOString(),
-        duration: 420,
-        title: 'ML Presentation Practice',
-        total_words: 245,
-        engine: 'Cloud AI',
-        clarity_score: 91.5,
-        wpm: 35.0,
-        filler_words: { um: { count: 2 }, uh: { count: 1 }, total: { count: 3 } },
-    },
-    {
-        id: 'session-5',
-        user_id: 'test-user-123',
-        created_at: new Date().toISOString(),
-        duration: 540,
-        title: 'System Design Presentation',
-        total_words: 320,
-        engine: 'Private',
-        clarity_score: 94.0,
-        wpm: 35.5,
-        filler_words: { um: { count: 1 }, total: { count: 1 } },
-    },
-];
-
-export const MOCK_GOALS = {
-    user_id: 'test-user-123',
-    weekly_goal: 5,
-    clarity_goal: 90,
-};
-
-// Per-test state for custom vocabulary (resets on each setupE2EMocks call)
+// Per-test state for user words (resets on each setupE2EMocks call)
 // Stateful mocks to allow dynamic changes during a test (e.g. promo code)
 let statefulProfile = { ...MOCK_USER_PROFILE };
 let userWordStore: Map<string, Array<{ id: string; user_id: string; word: string; created_at: string }>> = new Map();
@@ -420,7 +333,7 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
         // Accept our standard E2E mock code
         if (body?.promoCode === 'MOCK-PROMO-123') {
             // Update stateful profile to Pro
-            statefulProfile.subscription_status = 'pro';
+            statefulProfile.subscription_status = SUBSCRIPTION_STATUS.PRO;
             mockLog('[E2E MOCK] Promo code applied: statefulProfile updated to PRO');
 
             return route.fulfill({

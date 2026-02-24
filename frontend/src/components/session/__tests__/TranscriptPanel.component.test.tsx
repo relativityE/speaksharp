@@ -47,8 +47,8 @@ describe('TranscriptPanel Integration', () => {
 
     describe('Transcript Display', () => {
         const mockChunks = [
-            { id: 1, text: 'Hello world', speaker: undefined },
-            { id: 2, text: 'This is a test', speaker: undefined },
+            { id: 1, transcript: 'Hello world', speaker: undefined },
+            { id: 2, transcript: 'This is a test', speaker: undefined },
         ];
 
         it('renders transcript chunks', () => {
@@ -60,7 +60,7 @@ describe('TranscriptPanel Integration', () => {
 
         it('highlights filler words in transcript', () => {
             const chunksWithFillers = [
-                { id: 1, text: 'Hello um world', speaker: undefined },
+                { id: 1, transcript: 'Hello um world', speaker: undefined },
             ];
             const fillerData = {
                 um: { count: 1, color: '#ff6b6b' },
@@ -116,7 +116,7 @@ describe('TranscriptPanel Integration', () => {
     describe('Multiple Filler Words', () => {
         it('highlights multiple different filler words', () => {
             const chunks = [
-                { id: 1, text: 'like um you know basically', speaker: undefined },
+                { id: 1, transcript: 'like um you know basically', speaker: undefined },
             ];
             const fillerData = {
                 like: { count: 1, color: '#ff6b6b' },

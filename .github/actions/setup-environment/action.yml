@@ -55,3 +55,8 @@ runs:
       if: inputs.install-playwright == 'true'
       shell: bash
       run: pnpm exec playwright install --with-deps chromium
+
+    - name: Setup Supabase CLI
+      uses: supabase/setup-cli@v1
+      with:
+        version: latest

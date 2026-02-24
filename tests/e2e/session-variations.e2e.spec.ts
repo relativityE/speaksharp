@@ -36,27 +36,26 @@ test.describe('Session Variations', () => {
         await expect(modeButton).toContainText(/Native/);
     });
 
-    test('Journey 6: Custom Vocabulary Management', async ({ page }) => {
-        // Custom Vocabulary is now in a popover opened by the badge list action
+    test('Journey 6: User Word Management', async ({ page }) => {
+        // User Word management is now in a popover opened by the badge list action
         const addWordBtn = page.getByTestId('add-custom-word-button');
         await expect(addWordBtn).toBeVisible({ timeout: 10000 });
         await addWordBtn.click();
 
-        // Wait for popover content
-        await expect(page.getByText('User Filler Words')).toBeVisible({ timeout: 5000 });
+        // Assert popover opened: word input visible is the behavioral signal (not title text)
+        const wordInput = page.getByPlaceholder(/literally|basically/i);
+        await expect(wordInput).toBeVisible({ timeout: 5000 });
 
         // Fill input and add word (note: mutation lowercases all words)
         const word = 'testword';
-        const wordInput = page.getByPlaceholder(/literally|basically/i);
-        await expect(wordInput).toBeVisible({ timeout: 5000 });
         await wordInput.fill(word);
 
         const addButton = page.getByRole('button', { name: /Add/i }).last();
         await expect(addButton).toBeEnabled();
         await addButton.click();
 
-        // Wait for popover to close
-        await expect(page.getByText('User Filler Words')).not.toBeVisible({ timeout: 10000 });
+        // Assert popover closed: word input no longer visible
+        await expect(wordInput).not.toBeVisible({ timeout: 10000 });
 
         // Verify word is in metrics list
         const wordBadge = page.getByTestId('filler-badge').filter({ hasText: new RegExp(word, 'i') });

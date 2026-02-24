@@ -13,7 +13,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 describe('FillerWordAnalysis Integration', () => {
-    const mockAddCustomWord = vi.fn();
+    const mockAddUserWord = vi.fn();
     const defaultFillerWords = ['um', 'uh', 'like', 'you know'];
 
     beforeEach(() => {
@@ -38,8 +38,8 @@ describe('FillerWordAnalysis Integration', () => {
             render(
                 <FillerWordAnalysis
                     fillerData={fillerData}
-                    customWords={[]}
-                    addCustomWord={mockAddCustomWord}
+                    userWords={[]}
+                    addUserWord={mockAddUserWord}
                     defaultFillerWords={defaultFillerWords}
                 />
             );
@@ -62,8 +62,8 @@ describe('FillerWordAnalysis Integration', () => {
             render(
                 <FillerWordAnalysis
                     fillerData={fillerData}
-                    customWords={[]}
-                    addCustomWord={mockAddCustomWord}
+                    userWords={[]}
+                    addUserWord={mockAddUserWord}
                     defaultFillerWords={defaultFillerWords}
                 />
             );
@@ -93,8 +93,8 @@ describe('FillerWordAnalysis Integration', () => {
             render(
                 <FillerWordAnalysis
                     fillerData={fillerData}
-                    customWords={[]}
-                    addCustomWord={mockAddCustomWord}
+                    userWords={[]}
+                    addUserWord={mockAddUserWord}
                     defaultFillerWords={[...defaultFillerWords, 'basically']}
                 />
             );
@@ -119,8 +119,8 @@ describe('FillerWordAnalysis Integration', () => {
             render(
                 <FillerWordAnalysis
                     fillerData={fillerData}
-                    customWords={[]}
-                    addCustomWord={mockAddCustomWord}
+                    userWords={[]}
+                    addUserWord={mockAddUserWord}
                     defaultFillerWords={defaultFillerWords}
                 />
             );
@@ -135,66 +135,66 @@ describe('FillerWordAnalysis Integration', () => {
         });
     });
 
-    describe('Custom Word Addition', () => {
-        it('allows adding a custom filler word', async () => {
+    describe('User Word Addition', () => {
+        it('allows adding a user filler word', async () => {
             const user = userEvent.setup();
 
             render(
                 <FillerWordAnalysis
                     fillerData={{}}
-                    customWords={[]}
-                    addCustomWord={mockAddCustomWord}
+                    userWords={[]}
+                    addUserWord={mockAddUserWord}
                     defaultFillerWords={defaultFillerWords}
                 />
             );
 
             const input = screen.getByPlaceholderText(/basically/i);
-            const addButton = screen.getByRole('button', { name: /add custom filler word/i });
+            const addButton = screen.getByRole('button', { name: /add user word/i });
 
             await user.type(input, 'basically');
             await user.click(addButton);
 
-            expect(mockAddCustomWord).toHaveBeenCalledWith('basically');
+            expect(mockAddUserWord).toHaveBeenCalledWith('basically');
         });
 
-        it('normalizes custom words to lowercase', async () => {
+        it('normalizes user words to lowercase', async () => {
             const user = userEvent.setup();
 
             render(
                 <FillerWordAnalysis
                     fillerData={{}}
-                    customWords={[]}
-                    addCustomWord={mockAddCustomWord}
+                    userWords={[]}
+                    addUserWord={mockAddUserWord}
                     defaultFillerWords={defaultFillerWords}
                 />
             );
 
             const input = screen.getByPlaceholderText(/basically/i);
             await user.type(input, 'Actually');
-            await user.click(screen.getByRole('button', { name: /add custom filler word/i }));
+            await user.click(screen.getByRole('button', { name: /add user word/i }));
 
             // Should be called with lowercase version
-            expect(mockAddCustomWord).toHaveBeenCalledWith('actually');
+            expect(mockAddUserWord).toHaveBeenCalledWith('actually');
         });
 
-        it('prevents adding duplicate custom words', async () => {
+        it('prevents adding duplicate user words', async () => {
             const user = userEvent.setup();
 
             render(
                 <FillerWordAnalysis
                     fillerData={{}}
-                    customWords={['basically']}
-                    addCustomWord={mockAddCustomWord}
+                    userWords={['basically']}
+                    addUserWord={mockAddUserWord}
                     defaultFillerWords={defaultFillerWords}
                 />
             );
 
             const input = screen.getByPlaceholderText(/basically/i);
             await user.type(input, 'basically');
-            await user.click(screen.getByRole('button', { name: /add custom filler word/i }));
+            await user.click(screen.getByRole('button', { name: /add user word/i }));
 
             // Should NOT be called since word already exists
-            expect(mockAddCustomWord).not.toHaveBeenCalled();
+            expect(mockAddUserWord).not.toHaveBeenCalled();
         });
 
         it('prevents adding words that are already in default list', async () => {
@@ -203,18 +203,18 @@ describe('FillerWordAnalysis Integration', () => {
             render(
                 <FillerWordAnalysis
                     fillerData={{}}
-                    customWords={[]}
-                    addCustomWord={mockAddCustomWord}
+                    userWords={[]}
+                    addUserWord={mockAddUserWord}
                     defaultFillerWords={defaultFillerWords}
                 />
             );
 
             const input = screen.getByPlaceholderText(/basically/i);
             await user.type(input, 'um'); // 'um' is in default list
-            await user.click(screen.getByRole('button', { name: /add custom filler word/i }));
+            await user.click(screen.getByRole('button', { name: /add user word/i }));
 
             // Should NOT be called since 'um' is already a default
-            expect(mockAddCustomWord).not.toHaveBeenCalled();
+            expect(mockAddUserWord).not.toHaveBeenCalled();
         });
 
         it('clears input field after successful addition', async () => {
@@ -223,24 +223,24 @@ describe('FillerWordAnalysis Integration', () => {
             render(
                 <FillerWordAnalysis
                     fillerData={{}}
-                    customWords={[]}
-                    addCustomWord={mockAddCustomWord}
+                    userWords={[]}
+                    addUserWord={mockAddUserWord}
                     defaultFillerWords={defaultFillerWords}
                 />
             );
 
             const input = screen.getByPlaceholderText(/basically/i) as HTMLInputElement;
             await user.type(input, 'actually');
-            await user.click(screen.getByRole('button', { name: /add custom filler word/i }));
+            await user.click(screen.getByRole('button', { name: /add user word/i }));
 
             // Input should be cleared
             expect(input.value).toBe('');
         });
     });
 
-    describe('Custom Words Integration', () => {
-        it('displays custom words alongside default words', () => {
-            const customWords = ['basically', 'actually'];
+    describe('User Words Integration', () => {
+        it('displays user words alongside default words', () => {
+            const userWords = ['basically', 'actually'];
             const fillerData = {
                 basically: { count: 4, color: '#ff6b6b' },
                 um: { count: 2, color: '#ffd93d' },
@@ -249,39 +249,39 @@ describe('FillerWordAnalysis Integration', () => {
             render(
                 <FillerWordAnalysis
                     fillerData={fillerData}
-                    customWords={customWords}
-                    addCustomWord={mockAddCustomWord}
+                    userWords={userWords}
+                    addUserWord={mockAddUserWord}
                     defaultFillerWords={defaultFillerWords}
                 />
             );
 
-            // Both custom and default words should be visible
+            // Both user and default words should be visible
             expect(screen.getByText('basically')).toBeInTheDocument();
             expect(screen.getByText('um')).toBeInTheDocument();
 
-            // Total card count should be defaults + custom
+            // Total card count should be defaults + user
             const cards = screen.getAllByTestId('filler-word-card');
-            expect(cards.length).toBe(defaultFillerWords.length + customWords.length);
+            expect(cards.length).toBe(defaultFillerWords.length + userWords.length);
         });
 
-        it('sorts custom and default words together by count', () => {
-            const customWords = ['basically'];
+        it('sorts user and default words together by count', () => {
+            const userWords = ['basically'];
             const fillerData = {
-                basically: { count: 10, color: '#ff6b6b' }, // Custom word with high count
+                basically: { count: 10, color: '#ff6b6b' }, // User word with high count
                 um: { count: 3, color: '#ffd93d' }, // Default word with lower count
             };
 
             render(
                 <FillerWordAnalysis
                     fillerData={fillerData}
-                    customWords={customWords}
-                    addCustomWord={mockAddCustomWord}
+                    userWords={userWords}
+                    addUserWord={mockAddUserWord}
                     defaultFillerWords={defaultFillerWords}
                 />
             );
 
             const cards = screen.getAllByTestId('filler-word-card');
-            // 'basically' (10) should be first, even though it's custom
+            // 'basically' (10) should be first, even though it's a user word
             expect(cards[0]).toHaveTextContent('basically');
             expect(cards[0]).toHaveTextContent('10');
         });
@@ -292,8 +292,8 @@ describe('FillerWordAnalysis Integration', () => {
             render(
                 <FillerWordAnalysis
                     fillerData={{}}
-                    customWords={[]}
-                    addCustomWord={mockAddCustomWord}
+                    userWords={[]}
+                    addUserWord={mockAddUserWord}
                     defaultFillerWords={defaultFillerWords}
                 />
             );

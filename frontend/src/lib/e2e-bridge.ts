@@ -50,7 +50,7 @@ interface E2EWindow extends Window {
     SpeechRecognition?: typeof MockSpeechRecognition;
     webkitSpeechRecognition?: typeof MockSpeechRecognition;
     MockPrivateWhisper?: typeof MockPrivateWhisper;
-    dispatchMockTranscript?: (text: string, isFinal?: boolean) => void;
+    dispatchMockTranscript?: (transcript: string, isFinal?: boolean) => void;
     mswReady?: boolean;
     __e2eBridgeReady__?: boolean;
     __e2eProfileLoaded__?: boolean;
@@ -185,10 +185,10 @@ export class MockSpeechRecognition {
 
         // Emit progressive results (realistic timing)
         const mockResults = [
-            { text: 'Testing', delay: 500, isFinal: false },
-            { text: 'Testing one', delay: 1000, isFinal: false },
-            { text: 'Testing one two', delay: 1500, isFinal: false },
-            { text: 'Testing one two three', delay: 2000, isFinal: true }
+            { transcript: 'Testing', delay: 500, isFinal: false },
+            { transcript: 'Testing one', delay: 1000, isFinal: false },
+            { transcript: 'Testing one two', delay: 1500, isFinal: false },
+            { transcript: 'Testing one two three', delay: 2000, isFinal: true }
         ];
 
         let cumulativeDelay = 0;
@@ -199,11 +199,11 @@ export class MockSpeechRecognition {
             this.resultTimer = setTimeout(() => {
                 if (!this.isListening) return;
 
-                logger.info({ text: result.text }, '[MockSpeechRecognition] 📝 Emitting result');
+                logger.info({ transcript: result.transcript }, '[MockSpeechRecognition] 📝 Emitting result');
 
                 this.emit('result', {
                     results: [[{
-                        transcript: result.text,
+                        transcript: result.transcript,
                         confidence: 0.95,
                         isFinal: result.isFinal
                     }]],
@@ -404,13 +404,13 @@ export const setupSpeechRecognitionMock = () => {
         e2eWindow.MockPrivateWhisper = MockPrivateWhisper;
 
         // Helper to dispatch events from Playwright
-        e2eWindow.dispatchMockTranscript = (text: string, isFinal: boolean = false) => {
+        e2eWindow.dispatchMockTranscript = (transcript: string, isFinal: boolean = false) => {
             const instance = e2eWindow.__activeSpeechRecognition;
             if (instance && instance.onresult) {
-                logger.info({ text, isFinal }, '[E2E Bridge] Dispatching mock transcript');
+                logger.info({ transcript, isFinal }, '[E2E Bridge] Dispatching mock transcript');
 
                 // Construct event matching SpeechRecognitionEvent structure
-                const alternative = { transcript: text, confidence: 1 };
+                const alternative = { transcript: transcript, confidence: 1 };
                 const result: MockSpeechResult = [alternative];
                 result.isFinal = isFinal;
 

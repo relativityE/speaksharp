@@ -24,6 +24,7 @@ interface LiveRecordingCardProps {
     elapsedSeconds: number; // Added for minimum session duration check
     isButtonDisabled: boolean;
     activeEngine: RecordingMode | 'none' | null;
+    className?: string;
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
     onStartStop: () => void;
@@ -46,6 +47,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     elapsedSeconds,
     isButtonDisabled,
     activeEngine,
+    className = "",
     onModeChange,
     onStartStop,
 }) => {
@@ -60,7 +62,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     };
 
     return (
-        <div className="bg-card border border-border rounded-xl p-5 shadow-sm relative overflow-hidden h-[160px] flex flex-col justify-center" data-testid="live-recording-card">
+        <div className={`bg-card border border-border rounded-xl p-5 shadow-sm relative overflow-hidden h-full flex flex-col justify-center ${className}`} data-testid="live-recording-card">
             {/* Horizontal Layout for efficiency */}
             <div className="flex items-center justify-between gap-8">
                 {/* Timer & Mode */}
@@ -78,6 +80,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     className="h-8 px-2.5 gap-1.5 text-sm text-muted-foreground hover:text-foreground disabled:opacity-80 font-semibold"
                                     title={isListening ? "Cannot change mode during recording" : "Select transcription mode"}
                                     data-testid={TEST_IDS.STT_MODE_SELECT}
+                                    data-state={mode}
                                 >
                                     {getModeLabel(mode)}
                                     {!isListening && <ChevronDown className="h-4 w-4" />}
@@ -92,12 +95,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2" data-state={isListening ? (activeEngine && activeEngine !== 'none' ? 'recording' : 'connecting') : 'idle'}>
                         <h1 className="text-base font-semibold text-foreground" data-testid="live-session-header">
                             {isListening ? (activeEngine && activeEngine !== 'none' ? "Recording active" : (statusMessage || "Connecting...")) : "Ready to record"}
                         </h1>
                         {isListening && mode === 'private' && (
-                            <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/20 uppercase tracking-tighter">
+                            <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/20 uppercase tracking-tighter" data-state="secure">
                                 <Shield className="h-3 w-3" />
                                 Secure
                             </div>
@@ -131,11 +134,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             onClick={onStartStop}
                             disabled={isButtonDisabled}
                             data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
+                            data-action="start"
                             data-ready={!isButtonDisabled}
                             data-recording="false"
                             size="icon"
                             aria-label="Start Recording"
-                            className="w-14 h-14 rounded-full bg-secondary hover:bg-secondary/90 text-secondary-foreground shadow-lg hover:scale-105 transition-all duration-200"
+                            className="w-14 h-14 rounded-full bg-secondary hover:bg-secondary/90 text-secondary-foreground shadow-elegant hover:scale-105 hover:shadow-yellow-glow transition-all duration-300"
                         >
                             <Mic className="w-6 h-6" />
                         </Button>
@@ -144,11 +148,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             onClick={onStartStop}
                             disabled={isButtonDisabled}
                             data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
+                            data-action="stop"
                             data-ready="true" // Stop button is always "ready" once session is active
                             data-recording="true"
                             size="icon"
                             aria-label="Stop Recording"
-                            className="w-14 h-14 rounded-full bg-secondary hover:bg-secondary/80 text-secondary-foreground shadow-lg active:scale-95 transition-all duration-200"
+                            className="w-14 h-14 rounded-full bg-secondary hover:bg-secondary/80 text-secondary-foreground shadow-yellow-glow active:scale-95 transition-all duration-300 animate-pulse"
                         >
                             <Square className="w-6 h-6 fill-current" />
                         </Button>

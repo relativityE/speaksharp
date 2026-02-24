@@ -22,12 +22,12 @@ export const useTranscriptionState = () => {
     // Derived transcript from chunks
     const transcriptText = useMemo(() => combineChunksToText(finalChunks), [finalChunks]);
 
-    const addChunk = useCallback((text: string, speaker?: string) => {
-        const trimmedText = text.trim();
+    const addChunk = useCallback((transcript: string, speaker?: string) => {
+        const trimmedText = transcript.trim();
         if (!trimmedText) return;
 
         setFinalChunks(prev => {
-            if (prev.length > 0 && prev[prev.length - 1].text === trimmedText) return prev;
+            if (prev.length > 0 && prev[prev.length - 1].transcript === trimmedText) return prev;
             const chunk = createChunk(trimmedText, speaker);
             if (prev.length >= MAX_CHUNKS) {
                 const next = prev.slice(prev.length - MAX_CHUNKS + 1);

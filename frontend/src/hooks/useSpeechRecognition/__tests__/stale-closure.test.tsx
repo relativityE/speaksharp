@@ -29,6 +29,10 @@ vi.mock('../../useProfile', () => ({
     useProfile: vi.fn(() => ({ subscription_status: 'free' })),
 }));
 
+vi.mock('../../useProfile', () => ({
+    useProfile: vi.fn(() => ({ subscription_status: 'free' })),
+}));
+
 vi.mock('../../../lib/logger', () => ({
     default: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));

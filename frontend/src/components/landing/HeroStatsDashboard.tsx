@@ -70,23 +70,25 @@ const StatCard = ({
     value,
     label,
     suffix = "",
-    delay = 0
+    delay = 0,
+    colorClass = "text-[#0EA5E9]"
 }: {
     value: string | number;
     label: string;
     suffix?: string;
     delay?: number;
+    colorClass?: string;
 }) => (
     <motion.div
-        className="bg-background/50 rounded-xl p-4 border border-border/50 backdrop-blur-sm"
+        className="bg-[#1E293B]/50 rounded-xl p-4 border border-white/5 backdrop-blur-sm"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay, duration: 0.4, ease: "easeOut" }}
     >
-        <div className="text-3xl font-bold text-foreground">
+        <div className={`text-3xl font-bold ${colorClass}`}>
             {value}{suffix}
         </div>
-        <div className="text-sm text-muted-foreground">{label}</div>
+        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mt-1">{label}</div>
     </motion.div>
 );
 
@@ -99,32 +101,38 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
         <div className={`relative ${className}`}>
             {/* Main Dashboard Card */}
             <motion.div
-                className="bg-card/95 backdrop-blur-md rounded-2xl border border-border/50 shadow-2xl p-6 md:p-8"
+                className="bg-white/[0.06] backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl p-6 md:p-8"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.5, ease: "easeOut" }}
             >
                 {/* Header */}
-                <div className="flex items-center gap-3 mb-6 pb-4 border-b border-border/50">
-                    <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
-                        <Mic className="w-5 h-5 text-primary" />
+                <div className="flex items-center justify-between mb-8 pb-4 border-b border-white/5">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-[#0EA5E9]/10 flex items-center justify-center">
+                            <Mic className="w-5 h-5 text-[#0EA5E9]" />
+                        </div>
+                        <div>
+                            <div className="font-bold text-white">Live Demo Session</div>
+                            <div className="text-xs font-medium text-[#0EA5E9]">Real-time analysis</div>
+                        </div>
                     </div>
-                    <div>
-                        <div className="font-semibold text-foreground">Live Demo Session</div>
-                        <div className="text-sm text-muted-foreground">Real-time analysis</div>
+                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-[#10B981]/10 border border-[#10B981]/20">
+                        <div className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse" />
+                        <span className="text-[10px] font-bold text-[#10B981] uppercase tracking-wider">Live</span>
                     </div>
                 </div>
 
                 {/* Stats Grid */}
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                    <StatCard value={clarityCount} suffix="%" label="Clarity" delay={0.1} />
-                    <StatCard value={fillersCount} label="Fillers" delay={0.2} />
-                    <StatCard value={wpmCount} label="WPM" delay={0.3} />
-                    <StatCard value={demoStats.duration} label="Duration" delay={0.4} />
+                <div className="grid grid-cols-2 gap-4 mb-8">
+                    <StatCard value={clarityCount} suffix="%" label="Clarity" delay={0.1} colorClass="text-[#0EA5E9]" />
+                    <StatCard value={fillersCount} label="Fillers" delay={0.2} colorClass="text-[#EEBD2B]" />
+                    <StatCard value={wpmCount} label="WPM" delay={0.3} colorClass="text-[#0EA5E9]" />
+                    <StatCard value={demoStats.duration} label="Duration" delay={0.4} colorClass="text-[#EEBD2B]" />
                 </div>
 
                 {/* Mini Bars Visualization */}
-                <div className="mb-6 py-2">
+                <div className="mb-8 py-2">
                     <MiniBars />
                 </div>
 
@@ -135,12 +143,12 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
                     transition={{ delay: 0.8, duration: 0.3 }}
                 >
                     <Button
-                        variant="default"
+                        variant="secondary"
                         size="lg"
-                        className="w-full text-base font-semibold"
+                        className="w-full bg-[#EEBD2B] text-slate-950 font-bold h-14 rounded-xl shadow-[0_4px_20px_-1px_rgba(238,189,43,0.3)] hover:bg-[#EEBD2B]/90 transition-all flex items-center justify-center gap-3"
                         asChild
                     >
-                        <Link to="/auth/signup" className="flex items-center gap-2 justify-center">
+                        <Link to="/auth/signup">
                             <Mic className="w-5 h-5" />
                             Start Speaking
                         </Link>
@@ -150,13 +158,15 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
 
             {/* Floating Real-time Badge */}
             <motion.div
-                className="absolute -bottom-3 -right-3 md:bottom-4 md:-right-6 bg-accent/90 backdrop-blur-sm rounded-xl px-4 py-2 flex items-center gap-2 border border-accent/50 shadow-lg"
+                className="absolute -bottom-3 -right-3 md:-bottom-2 md:-right-4 bg-white/[0.06] backdrop-blur-xl rounded-xl px-4 py-2.5 flex items-center gap-2.5 border border-white/10 shadow-2xl"
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 1, duration: 0.4, ease: "easeOut" }}
             >
-                <Zap className="w-4 h-4 text-accent-foreground" />
-                <span className="text-sm font-medium text-accent-foreground">Real-time</span>
+                <div className="w-8 h-8 rounded-lg bg-[#EEBD2B]/10 flex items-center justify-center">
+                    <Zap className="w-4 h-4 text-[#EEBD2B] fill-current" />
+                </div>
+                <span className="text-sm font-bold text-[#0EA5E9] tracking-tight">Real-time AI</span>
             </motion.div>
         </div>
     );

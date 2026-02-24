@@ -45,7 +45,7 @@ export interface IPrivateSTTEngine {
     /**
      * Transcribe audio data
      * @param audio - Raw audio samples (Float32Array)
-     * @returns Transcribed text
+     * @returns Transcribed transcript
      */
     transcribe(audio: Float32Array): Promise<Result<string, Error>>;
 

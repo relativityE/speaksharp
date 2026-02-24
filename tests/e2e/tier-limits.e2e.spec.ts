@@ -143,7 +143,7 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
 
         // 8. DETERMINISTIC JUMP
         await setE2ETime(page, 2);
-        await waitForStoreState(page, (state) => state.elapsedTime, 2);
+        await waitForStoreState(page, (state: unknown) => (state as { elapsedTime: number }).elapsedTime, 2);
 
         // 9. Wait for auto-stop
         // The button should revert from 'Stop Recording' to 'Start Recording'

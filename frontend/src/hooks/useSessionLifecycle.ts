@@ -37,8 +37,8 @@ export const useSessionLifecycle = () => {
     const isProUser = isPro(profile?.subscription_status);
 
     const speechConfig = useMemo(() => ({
-        customWords: userFillerWords,
-        customVocabulary: userFillerWords,
+        userWords: userFillerWords,
+        userVocabulary: userFillerWords,
         session,
         profile,
         profileLoading: false // Guaranteed by ProfileGuard

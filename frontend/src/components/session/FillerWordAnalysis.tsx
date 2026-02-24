@@ -18,8 +18,8 @@ interface FillerWordCardProps {
 
 interface FillerWordAnalysisProps {
   fillerData?: FillerCounts;
-  customWords: string[];
-  addCustomWord: (word: string) => void;
+  userWords: string[];
+  addUserWord: (word: string) => void;
   defaultFillerWords: string[];
   className?: string;
 }
@@ -49,8 +49,8 @@ const FillerWordCard: React.FC<FillerWordCardProps> = ({ word, count, colorClass
 
 const FillerWordAnalysis: React.FC<FillerWordAnalysisProps> = ({
   fillerData = {},
-  customWords,
-  addCustomWord,
+  userWords,
+  addUserWord,
   defaultFillerWords,
   className
 }) => {
@@ -58,13 +58,13 @@ const FillerWordAnalysis: React.FC<FillerWordAnalysisProps> = ({
 
   const handleAddWord = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (newWord && !customWords.includes(newWord.toLowerCase()) && !defaultFillerWords.includes(newWord.toLowerCase())) {
-      addCustomWord(newWord.toLowerCase());
+    if (newWord && !userWords.includes(newWord.toLowerCase()) && !defaultFillerWords.includes(newWord.toLowerCase())) {
+      addUserWord(newWord.toLowerCase());
       setNewWord('');
     }
   };
 
-  const allWords = [...defaultFillerWords, ...customWords];
+  const allWords = [...defaultFillerWords, ...userWords];
 
   const sortedWords = allWords
     .map(word => ({ word, count: fillerData[word] ? fillerData[word].count : 0 }))
@@ -102,18 +102,18 @@ const FillerWordAnalysis: React.FC<FillerWordAnalysisProps> = ({
         </div>
 
         <form onSubmit={handleAddWord} className="flex items-center gap-1 mt-4">
-          <label htmlFor="custom-word" className="text-xs font-medium">
-            Custom Filler Word:
+          <label htmlFor="user-word" className="text-xs font-medium">
+            User Word:
           </label>
           <Input
-            id="custom-word"
+            id="user-word"
             type="text"
             value={newWord}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewWord(e.target.value)}
             placeholder="e.g., basically"
             className="flex-grow h-8"
           />
-          <Button type="submit" size="icon" aria-label="Add custom filler word">
+          <Button type="submit" size="icon" aria-label="Add user word">
             <Plus className="h-4 w-4" />
           </Button>
         </form>

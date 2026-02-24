@@ -16,6 +16,10 @@ export interface PracticeSession {
   engine?: string;
   clarity_score?: number;
   wpm?: number;
+  ai_suggestions?: {
+    summary: string;
+    suggestions: Array<{ title: string; description: string }>;
+  };
   pause_metrics?: {
     silencePercentage: number;
     transitionPauses: number;

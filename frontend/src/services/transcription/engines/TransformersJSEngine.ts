@@ -121,7 +121,7 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
             // transformers.js expects audio samples at 16kHz
             // The pipeline's call signature is complex; use a typed result interface
             interface TranscriptionResult {
-                text?: string;
+                transcript?: string;
             }
             const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, {
                 chunk_length_s: 30,
@@ -129,12 +129,12 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
                 return_timestamps: false,
             });
 
-            // Extract text from result
-            const text = typeof result === 'string'
+            // Extract transcript from result
+            const transcript = typeof result === 'string'
                 ? result
-                : (result as TranscriptionResult).text ?? '';
+                : (result as TranscriptionResult).transcript ?? '';
 
-            return Result.ok(text);
+            return Result.ok(transcript);
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
             logger.error({ err: e }, '[TransformersJS] Transcription failed.');

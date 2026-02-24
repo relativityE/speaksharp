@@ -1,0 +1,31 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "Node",
+        "baseUrl": ".",
+        "paths": {
+            "@/*": [
+                "frontend/src/*"
+            ],
+            "@shared/*": [
+                "backend/supabase/functions/_shared/*"
+            ],
+            "@config/*": [
+                "scripts/*"
+            ],
+            "@test-mocks/*": [
+                "frontend/tests/mocks/*"
+            ]
+        },
+        "allowJs": true,
+        "skipLibCheck": true,
+        "esModuleInterop": true
+    },
+    "include": [
+        "frontend/src",
+        "tests",
+        "playwright.config.ts",
+        "backend/supabase/functions/_shared"
+    ]
+}

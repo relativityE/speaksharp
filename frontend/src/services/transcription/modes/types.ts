@@ -7,6 +7,7 @@ import { TranscriptionMode } from '../TranscriptionPolicy';
 export interface Transcript {
   partial?: string;
   final?: string;
+  speaker?: string;
 }
 
 /**
@@ -60,7 +61,7 @@ export interface TranscriptionModeOptions {
   session?: Session | null;
   navigate?: NavigateFunction;
   getAssemblyAIToken?: () => Promise<string | null>;
-  customVocabulary?: string[];
+  userWords?: string[];
   onConnectionStateChange?: (state: 'connected' | 'reconnecting' | 'disconnected' | 'error') => void;
   /** Callback for raw audio data (for visualization/analysis) */
   onAudioData?: (data: Float32Array) => void;

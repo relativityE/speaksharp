@@ -54,8 +54,8 @@ const mockStats = {
     totalPracticeTime: 300,
     avgAccuracy: 85,
     chartData: [
-        { date: '2023-01-01', 'FW/min': 5 },
-        { date: '2023-01-02', 'FW/min': 4 },
+        { date: '2023-01-01', 'FW/min': 5, clarity: 80 },
+        { date: '2023-01-02', 'FW/min': 4, clarity: 85 },
     ],
 };
 

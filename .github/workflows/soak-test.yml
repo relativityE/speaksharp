@@ -2,22 +2,13 @@ name: Soak Test
 
 on:
   workflow_dispatch:
-    inputs:
-      num_free_users:
-        description: 'Free Users'
-        required: false
-        default: '10'
-        type: string
-      num_pro_users:
-        description: 'Pro Users'
-        required: false
-        default: '0'
-        type: string
+  schedule:
+    - cron: '0 4 * * *' # Every day at 4 AM UTC
 
 jobs:
   run-soak-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -26,15 +17,25 @@ jobs:
         uses: ./.github/actions/setup-environment
         with:
           install-playwright: 'true'
+
+      - name: Setup test users
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
+          MODE: "soak"
+        run: node scripts/setup-test-users.mjs
       
       - name: Run soak test
         env:
           VITE_TEST_MODE: "true"
           VITE_USE_LIVE_DB: "true"
           SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
-          # Map inputs to the env vars expected by setup-test-users.mjs
-          NUM_FREE_USERS: ${{ inputs.num_free_users }}
-          NUM_PRO_USERS: ${{ inputs.num_pro_users }}
+          SOAK_TEST_DURATION_MS: "300000" # 5 minutes (configurable here or via UI inputs if added)
+          API_LOAD_CONCURRENCY: "15"
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          ASSEMBLYAI_API_KEY: ${{ secrets.ASSEMBLYAI_API_KEY }}
         run: |
           pnpm test:soak
 

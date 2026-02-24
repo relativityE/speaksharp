@@ -71,12 +71,12 @@ export class MockTranscriptionService {
     /**
      * Simulate a transcript update from the service.
      */
-    simulateTranscript(text: string, isFinal: boolean = false): void {
+    simulateTranscript(transcript: string, isFinal: boolean = false): void {
         if (this.options.onTranscriptUpdate) {
             this.options.onTranscriptUpdate({
                 transcript: isFinal
-                    ? { final: text, partial: '' }
-                    : { final: '', partial: text }
+                    ? { final: transcript, partial: '' }
+                    : { final: '', partial: transcript }
             });
         }
     }

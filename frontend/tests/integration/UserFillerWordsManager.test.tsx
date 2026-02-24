@@ -117,8 +117,8 @@ describe('UserFillerWordsManager Integration', () => {
                 </MockAuthProvider>
             );
 
-            // Should show renamed title: 'User Filler Words'
-            expect(screen.getByText(/^User Filler Words$/i)).toBeInTheDocument();
+            // Should show title: 'User Words'
+            expect(screen.getByText(/^User Words$/i)).toBeInTheDocument();
             expect(screen.queryByText(/upgrade to pro/i)).not.toBeInTheDocument();
         });
 

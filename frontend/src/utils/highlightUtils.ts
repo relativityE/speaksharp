@@ -1,7 +1,7 @@
 import { FILLER_WORD_KEYS } from '../config';
 
 export interface HighlightToken {
-    text: string;
+    transcript: string;
     type: 'text' | 'filler' | 'error';
     id: string;
     color?: string;
@@ -49,11 +49,11 @@ const MAX_CACHE_SIZE = 50;
 /**
  * Parses a transcript into tokens for highlighting.
  */
-export const parseTranscriptForHighlighting = (text: string, customWords: string[] = []): HighlightToken[] => {
+export const parseTranscriptForHighlighting = (text: string, userWords: string[] = []): HighlightToken[] => {
     if (!text) return [];
 
-    // Use a cache key based on custom words (sorted for stability)
-    const cacheKey = [...customWords].sort().join('|');
+    // Use a cache key based on user words (sorted for stability)
+    const cacheKey = [...userWords].sort().join('|');
     const cached = REGEX_CACHE.get(cacheKey);
 
     let tokenRegex: RegExp;
@@ -63,10 +63,10 @@ export const parseTranscriptForHighlighting = (text: string, customWords: string
         tokenRegex = cached.regex;
         allFillers = cached.fillers;
     } else {
-        // Combine standard filler keys and custom words
+        // Combine standard filler keys and user words
         const standardFillers = Object.values(FILLER_WORD_KEYS);
         // Sort by length descending to match longest phrases first (e.g. "you know" before "you")
-        allFillers = [...standardFillers, ...customWords]
+        allFillers = [...standardFillers, ...userWords]
             .filter(w => w && w.trim().length > 0)
             .sort((a, b) => b.length - a.length);
 
@@ -99,7 +99,7 @@ export const parseTranscriptForHighlighting = (text: string, customWords: string
         const matchedFiller = allFillers.find(f => f.toLowerCase() === cleanPart);
         if (matchedFiller) {
             return {
-                text: part,
+                transcript: part,
                 type: 'filler' as const,
                 color: getWordColor(matchedFiller.toLowerCase()),
                 id: String(index)
@@ -108,14 +108,14 @@ export const parseTranscriptForHighlighting = (text: string, customWords: string
 
         if (ERROR_TAG_REGEX.test(cleanPart)) {
             return {
-                text: part,
+                transcript: part,
                 type: 'error' as const,
                 id: String(index)
             };
         }
 
         return {
-            text: part,
+            transcript: part,
             type: 'text' as const,
             id: String(index)
         };
@@ -124,9 +124,9 @@ export const parseTranscriptForHighlighting = (text: string, customWords: string
     return initialTokens.flatMap((token): HighlightToken | HighlightToken[] => {
         if (token.type === 'text') {
             // Split text block into words (preserving spaces)
-            const subWords = token.text.split(/(\s+)/).filter(s => s.length > 0);
+            const subWords = token.transcript.split(/(\s+)/).filter(s => s.length > 0);
             return subWords.map((w, i): HighlightToken => ({
-                text: w,
+                transcript: w,
                 type: 'text',
                 id: `${token.id}-${i}`
             }));

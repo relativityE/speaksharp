@@ -4,8 +4,8 @@ import type { Chunk } from '../types';
 
 describe('useSpeechRecognition utils', () => {
   const mockChunks: Chunk[] = [
-    { text: 'Hello', id: 1, timestamp: 1000 },
-    { text: 'world', id: 2, timestamp: 2000 }
+    { transcript: 'Hello', id: 1, timestamp: 1000 },
+    { transcript: 'world', id: 2, timestamp: 2000 }
   ];
 
   describe('combineChunksToText', () => {
@@ -29,9 +29,9 @@ describe('useSpeechRecognition utils', () => {
   });
 
   describe('createChunk', () => {
-    it('should create chunk with text and unique id', () => {
+    it('should create chunk with transcript and unique id', () => {
       const chunk = createChunk('test');
-      expect(chunk.text).toBe('test');
+      expect(chunk.transcript).toBe('test');
       expect(typeof chunk.id).toBe('number');
     });
   });

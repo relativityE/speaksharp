@@ -61,7 +61,7 @@ export const UserFillerWordsManager: React.FC<UserFillerWordsManagerProps> = ({ 
         <div className="w-full">
             <div className="mb-4">
                 <h4 className="font-semibold flex items-center gap-2">
-                    User Filler Words
+                    User Words
                     <span className={`text-xs font-normal ${isAtLimit ? 'text-destructive' : 'text-muted-foreground'}`}>
                         ({vocabulary.length}/{maxWords})
                     </span>
@@ -132,7 +132,7 @@ export const UserFillerWordsManager: React.FC<UserFillerWordsManagerProps> = ({ 
                     </div>
                 ) : (
                     <p className="text-xs text-muted-foreground text-center py-2">
-                        No custom words yet.
+                        No user words yet.
                     </p>
                 )}
             </div>

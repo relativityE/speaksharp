@@ -1,0 +1,20 @@
+{
+    "name": "speech-002-casual-fillers",
+    "words": 31,
+    "fillerWords": [
+        "like",
+        "um",
+        "you know",
+        "uh"
+    ],
+    "fillerCounts": {
+        "like": 3,
+        "um": 2,
+        "you know": 1,
+        "so": 1,
+        "uh": 1
+    },
+    "speakers": 1,
+    "duration": 15,
+    "type": "casual"
+}

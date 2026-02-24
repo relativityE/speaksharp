@@ -9,6 +9,7 @@ interface FillerWordsCardProps {
     fillerCount: number;
     fillerData: Record<string, FillerWordData>;
     headerAction?: React.ReactNode;
+    className?: string;
 }
 
 /**
@@ -19,9 +20,10 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
     fillerCount,
     fillerData,
     headerAction,
+    className = "",
 }) => {
     return (
-        <div className="bg-card border border-border rounded-xl p-4 shadow-sm h-full">
+        <div className={`bg-card border border-border rounded-xl p-4 shadow-sm h-full ${className}`}>
             <div className="flex items-center justify-between mb-2">
                 <h2 className="text-lg font-semibold text-foreground">
                     Filler Words <span data-testid="filler-count-value" className="text-secondary ml-1">{fillerCount > 0 ? `(${fillerCount})` : ''}</span>

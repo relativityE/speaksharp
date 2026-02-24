@@ -78,8 +78,8 @@ describe('fillerWordUtils', () => {
     describe('calculateTranscriptStats', () => {
         it('calculates basic stats correctly', () => {
             const chunks = [
-                { text: 'Hello world.' },
-                { text: 'This is a test.' }
+                { transcript: 'Hello world.' },
+                { transcript: 'This is a test.' }
             ];
             const wordConfidences = [
                 { word: 'dummy', confidence: 0.9 },
@@ -106,7 +106,7 @@ describe('fillerWordUtils', () => {
         });
 
         it('includes interim transcript', () => {
-            const chunks = [{ text: 'Hello' }];
+            const chunks = [{ transcript: 'Hello' }];
             const result = calculateTranscriptStats(chunks, [], 'world');
             expect(result.transcript).toBe('Hello world');
             expect(result.total_words).toBe(2);

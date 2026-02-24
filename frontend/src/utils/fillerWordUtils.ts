@@ -21,7 +21,7 @@ interface WordConfidence {
 }
 
 interface FinalChunk {
-    text: string;
+    transcript: string;
 }
 
 export interface TranscriptStats {
@@ -46,8 +46,8 @@ const STATIC_FILLER_PATTERNS: FillerPatterns = {
     [FILLER_WORD_KEYS.LITERALLY]: /\b(literally)\b/gi,
 };
 
-// Cache for compiled custom word regex patterns
-const customWordRegexCache = new Map<string, RegExp>();
+// Cache for compiled user word regex patterns
+const userWordRegexCache = new Map<string, RegExp>();
 
 // Single-item cache for the NLP document to avoid redundant parsing of the same text
 let lastTextForNlp: string | null = null;
@@ -67,13 +67,13 @@ const getParsedDoc = (text: string): ReturnType<typeof nlp> => {
 
 const FILLER_WORD_COLORS: string[] = ['#BFDBFE', '#FCA5A5', '#FDE68A', '#86EFAC', '#FDBA74', '#C4B5FD', '#6EE7B7'];
 let cachedPatterns: FillerPatterns | null = null;
-let cachedCustomWordsKey: string = '';
+let cachedUserWordsKey: string = '';
 
-export const createInitialFillerData = (customWords: string[] = []): FillerCounts => {
+export const createInitialFillerData = (userWords: string[] = []): FillerCounts => {
     const initial: FillerCounts = {
         total: { count: 0, color: '' }
     };
-    const allFillerKeys: string[] = [...Object.values(FILLER_WORD_KEYS), ...customWords];
+    const allFillerKeys: string[] = [...Object.values(FILLER_WORD_KEYS), ...userWords];
     allFillerKeys.forEach((key, index) => {
         initial[key] = {
             count: 0,
@@ -83,26 +83,26 @@ export const createInitialFillerData = (customWords: string[] = []): FillerCount
     return initial;
 };
 
-export const createFillerPatterns = (customWords: string[] = []): FillerPatterns => {
-    const currentKey = customWords.join('|');
+export const createFillerPatterns = (userWords: string[] = []): FillerPatterns => {
+    const currentKey = userWords.join('|');
 
-    // Memoization: Return cached patterns if custom words haven't changed
-    if (cachedPatterns && currentKey === cachedCustomWordsKey) {
+    // Memoization: Return cached patterns if user words haven't changed
+    if (cachedPatterns && currentKey === cachedUserWordsKey) {
         return cachedPatterns;
     }
 
     const patterns: FillerPatterns = { ...STATIC_FILLER_PATTERNS };
-    customWords.forEach((word) => {
-        let regex = customWordRegexCache.get(word);
+    userWords.forEach((word) => {
+        let regex = userWordRegexCache.get(word);
         if (!regex) {
             regex = new RegExp(`\\b(${word})\\b`, 'gi');
-            customWordRegexCache.set(word, regex);
+            userWordRegexCache.set(word, regex);
         }
         patterns[word] = regex;
     });
 
     cachedPatterns = patterns;
-    cachedCustomWordsKey = currentKey;
+    cachedUserWordsKey = currentKey;
 
     return patterns;
 };
@@ -111,13 +111,13 @@ export const createFillerPatterns = (customWords: string[] = []): FillerPatterns
  * Counts filler words using a combination of Regex (for unambiguous tokens)
  * and NLP (for context-dependent words like "like").
  */
-export const countFillerWords = (text: string, customWords: string[] = []): FillerCounts => {
-    const counts: FillerCounts = createInitialFillerData(customWords);
-    const patterns: FillerPatterns = createFillerPatterns(customWords);
+export const countFillerWords = (text: string, userWords: string[] = []): FillerCounts => {
+    const counts: FillerCounts = createInitialFillerData(userWords);
+    const patterns: FillerPatterns = createFillerPatterns(userWords);
     const doc = getParsedDoc(text);
     let totalCount = 0;
 
-    // 1. Process unambiguous fillers and custom words via Regex
+    // 1. Process unambiguous fillers and user words via Regex
     for (const key in patterns) {
         const pattern: RegExp = patterns[key];
         const matches: RegExpMatchArray | null = text.match(pattern);
@@ -184,7 +184,7 @@ export const calculateTranscriptStats = (
     interimTranscript: string = '',
     duration: number = 0
 ): TranscriptStats => {
-    const finalTranscriptText: string = [...finalChunks.map(c => c.text), interimTranscript].join(' ').trim();
+    const finalTranscriptText: string = [...finalChunks.map(c => c.transcript), interimTranscript].join(' ').trim();
     const total_words = finalTranscriptText.split(/\s+/).filter(Boolean).length;
 
     const averageConfidence: number = wordConfidences.length > 0

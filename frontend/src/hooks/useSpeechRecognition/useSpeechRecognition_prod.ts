@@ -28,8 +28,8 @@ import { useSessionStore } from '../../stores/useSessionStore';
  * Responsibility: Coordinating lifecycle, state, and specialized services (VocalAnalysis, SessionTimer).
  */
 export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {}) => {
-    const customWords = useMemo(() => props.customWords || [], [props.customWords]);
-    const customVocabulary = useMemo(() => props.customVocabulary || [], [props.customVocabulary]);
+    const userWords = useMemo(() => props.userWords || [], [props.userWords]);
+    const userVocabulary = useMemo(() => props.userVocabulary || [], [props.userVocabulary]);
     const { session } = props;
     const profile = useProfile();
     const { session: authSession } = useAuthProvider();
@@ -41,7 +41,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     // 1. Core Service Hooks
     const stt = useTranscriptionState();
     const control = useTranscriptionControl();
-    const filler = useFillerWords(stt.finalChunks, stt.interimTranscript, customWords);
+    const filler = useFillerWords(stt.finalChunks, stt.interimTranscript, userWords);
     const vocal = useVocalAnalysis();
     const timer = useSessionTimer(stt.isRecording);
 
@@ -75,7 +75,8 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
                 stt.setInterimTranscript(data.transcript.partial);
             }
             if (data.transcript?.final) {
-                stt.addChunk(data.transcript.final);
+                // Pass speaker if available (Speaker ID support)
+                stt.addChunk(data.transcript.final, data.transcript.speaker);
                 stt.setInterimTranscript('');
             }
         },
@@ -83,7 +84,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         getAssemblyAIToken,
         session: session ?? null,
         navigate,
-        customVocabulary,
+        userWords: userVocabulary,
         policy: buildPolicyForUser(profile?.subscription_status === 'pro', null),
         onReady: () => {
             logger.info('[useSpeechRecognition] Service ready');

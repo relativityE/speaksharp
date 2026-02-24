@@ -34,7 +34,7 @@ export interface TranscriptionServiceOptions {
   session: Session | null;
   navigate: NavigateFunction;
   getAssemblyAIToken: () => Promise<string | null>;
-  customVocabulary?: string[];
+  userWords?: string[];
   policy?: TranscriptionPolicy;
   mockMic?: MicStream;
   onModeChange?: (mode: TranscriptionMode | null) => void;
@@ -80,7 +80,7 @@ export default class TranscriptionService {
       session: options.session || null,
       navigate: options.navigate || ((() => { }) as unknown as NavigateFunction),
       getAssemblyAIToken: options.getAssemblyAIToken || (async () => null),
-      customVocabulary: options.customVocabulary || [],
+      userWords: options.userWords || [],
       policy: this.policy,
       mockMic: options.mockMic,
       onModeChange: options.onModeChange,
@@ -99,7 +99,13 @@ export default class TranscriptionService {
    * Primary Entry Point: Pre-warms the microphone stream.
    */
   public async init(): Promise<{ success: boolean }> {
-    if (!this.fsm.is('IDLE') && !this.fsm.is('ERROR')) return { success: true };
+    if (this.fsm.is('READY') || this.fsm.is('RECORDING') || this.fsm.is('INITIALIZING_ENGINE')) {
+      return { success: true };
+    }
+
+    if (!this.fsm.is('IDLE') && !this.fsm.is('ERROR')) {
+      logger.debug({ state: this.fsm.getState() }, '[TranscriptionService] init() called in unexpected state');
+    }
 
     this.fsm.transition({ type: 'START_REQUESTED' });
 
@@ -128,7 +134,12 @@ export default class TranscriptionService {
   public async startTranscription(runtimePolicy?: TranscriptionPolicy): Promise<void> {
     if (runtimePolicy) this.updatePolicy(runtimePolicy);
 
-    // ✅ ROBUSTNESS: If already recording or initializing, clean up first (Mode Switch)
+    // ✅ ROBUSTNESS: Handle initialization/cleanup races
+    if (this.fsm.is('CLEANING_UP')) {
+      logger.warn('[TranscriptionService] startTranscription rejected - still cleaning up');
+      return;
+    }
+
     if (this.fsm.is('RECORDING') || this.fsm.is('INITIALIZING_ENGINE') || this.fsm.is('PAUSED')) {
       logger.info('[TranscriptionService] Interrupting active session for new request');
       await this.destroy();
@@ -137,7 +148,7 @@ export default class TranscriptionService {
     // Auto-init if needed
     if (this.fsm.is('IDLE') || this.fsm.is('ERROR')) {
       const ok = await this.init();
-      if (!ok) return;
+      if (!ok.success) return;
     }
 
     if (!this.fsm.is('READY')) return;
@@ -175,9 +186,17 @@ export default class TranscriptionService {
         // Explicitly override the progress callback to ensure store updates happen
         onModelLoadProgress: (progress) => {
           logger.debug({ progress }, '[TranscriptionService] modelLoadProgress callback triggered');
-          // We must manually replicate the proxy's behavior here since we are bypassing it
           this.options.onModelLoadProgress?.(progress);
-          useSessionStore.getState().setModelLoadingProgress(progress !== null ? Math.round(progress * 100) : null);
+          const percent = progress !== null ? Math.round(progress * 100) : null;
+          useSessionStore.getState().setModelLoadingProgress(percent);
+
+          if (percent === 100) {
+            setTimeout(() => {
+              if (useSessionStore.getState().modelLoadingProgress === 100) {
+                useSessionStore.getState().setModelLoadingProgress(null);
+              }
+            }, 1500);
+          }
         },
         onError: (err) => {
           // Forward to the main handler
@@ -188,6 +207,8 @@ export default class TranscriptionService {
       logger.info(`[TranscriptionService] Creating engine for mode: ${mode}`);
 
       this.engine = await EngineFactory.create(mode, engineConfig, this.policy);
+
+      let skipInitInExecute = false;
 
       if (mode === 'private') {
         const timeout = this.getLoadTimeout();
@@ -224,15 +245,14 @@ export default class TranscriptionService {
             initPromise,
             timeoutPromise
           ]);
+          skipInitInExecute = true; // Successfully initialized within timeout
         } finally {
           // @ts-expect-error - timeoutId is assigned in Promise executor
           if (timeoutId) clearTimeout(timeoutId);
         }
-      } else {
-        await this.engine.init();
       }
 
-      await this.executeEngine(mode);
+      await this.executeEngine(mode, skipInitInExecute);
     } catch (error) {
       // ✅ EXPECTED EVENT: Cache miss - start background download
       if (isCacheMiss(error)) {
@@ -251,18 +271,20 @@ export default class TranscriptionService {
         return;
       }
 
-      this.handleFailure(mode, error as Error);
+      await this.handleFailure(mode, error as Error);
     }
   }
 
   /**
    * Internal engine lifecycle execution.
    */
-  private async executeEngine(mode: TranscriptionMode): Promise<void> {
+  private async executeEngine(mode: TranscriptionMode, skipInit: boolean = false): Promise<void> {
     if (!this.engine) return;
 
     try {
-      await this.engine.init();
+      if (!skipInit) {
+        await this.engine.init();
+      }
       await this.engine.startTranscription(this.mic!);
 
       this.startTime = Date.now();
@@ -294,7 +316,7 @@ export default class TranscriptionService {
     try {
       const transcript = this.engine ? await this.engine.stopTranscription() : '';
       const duration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
-      const stats = calculateTranscriptStats([{ text: transcript }], [], '', duration);
+      const stats = calculateTranscriptStats([{ transcript }], [], '', duration);
 
       this.fsm.transition({ type: 'STOP_COMPLETED' });
       useSessionStore.getState().setActiveEngine(null);
@@ -312,35 +334,27 @@ export default class TranscriptionService {
   /**
    * Cleanup resources.
    */
-  private isDestroying = false;
-  private isDestroyed = false;
+  /* Cleanup status tracked via FSM state 'CLEANING_UP' */
 
   /**
    * Cleanup resources.
    * Idempotent and safe against concurrent calls.
    */
   public async destroy(): Promise<void> {
-    // ✅ GUARD 1: Already destroyed - immediate return
-    if (this.isDestroyed) {
+    const state = this.fsm.getState();
+
+    // ✅ GUARD 1: Already cleaning up or terminated
+    if (state === 'CLEANING_UP' || state === 'TERMINATED') {
+      logger.debug(`[TranscriptionService] destroy() ignored - already in ${state}`);
       return;
     }
 
-    // ✅ GUARD 2: Currently destroying - wait for it to complete
-    if (this.isDestroying) {
-      // Wait for the current destroy to complete
-      await new Promise(resolve => {
-        const checkInterval = setInterval(() => {
-          if (!this.isDestroying) {
-            clearInterval(checkInterval);
-            resolve(undefined);
-          }
-        }, 10);
-      });
+    // ✅ GUARD 2: IDLE means no work to do
+    if (state === 'IDLE') {
       return;
     }
 
-    // ✅ Set destroying flag (prevents concurrent destroys)
-    this.isDestroying = true;
+    logger.info('[TranscriptionService] 🧹 Starting cleanup sequence');
 
     try {
       this.fsm.transition({ type: 'TERMINATE_REQUESTED' });
@@ -350,37 +364,36 @@ export default class TranscriptionService {
         this.mic = null;
       }
 
-      if (this.engine) {
+      const currentEngine = this.engine;
+      this.engine = null; // Decouple immediately
+
+      if (currentEngine) {
         try {
           // Call terminate with timeout to prevent hangs
-          // Check if terminate exists (Interface compliance)
-          const terminator = typeof this.engine.terminate === 'function'
-            ? this.engine.terminate()
-            : this.engine.stopTranscription();
+          const terminator = typeof currentEngine.terminate === 'function'
+            ? currentEngine.terminate()
+            : currentEngine.stopTranscription();
 
           await Promise.race([
             terminator,
             new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Engine terminate timeout')), 5000)
+              setTimeout(() => reject(new Error('Engine terminate timeout')), 3000)
             )
           ]);
         } catch (error) {
           logger.error({ error }, '[TranscriptionService] Engine terminate failed or timed out');
         }
-        this.engine = null;
       }
 
-      this.fsm.transition({ type: 'RESET_REQUESTED' });
-
     } finally {
-      // ✅ Always set flags, even if cleanup fails
-      this.isDestroying = false;
-      this.isDestroyed = true;
+      // ✅ Transition to IDLE marks cleanup as complete
+      this.fsm.transition({ type: 'RESET_REQUESTED' });
+      logger.info('[TranscriptionService] ✅ Cleanup complete');
     }
   }
 
   public isServiceDestroyed(): boolean {
-    return this.isDestroyed;
+    return this.fsm.is('TERMINATED') || this.fsm.is('IDLE') && !this.mic && !this.engine;
   }
 
   /**
@@ -420,13 +433,24 @@ export default class TranscriptionService {
       onTranscriptUpdate: this.options.onTranscriptUpdate,
       onModelLoadProgress: (progress) => {
         this.options.onModelLoadProgress(progress);
-        useSessionStore.getState().setModelLoadingProgress(progress !== null ? Math.round(progress * 100) : null);
+        const percent = progress !== null ? Math.round(progress * 100) : null;
+        useSessionStore.getState().setModelLoadingProgress(percent);
+
+        // ✅ AUTO-CLEANUP: Clear indicator once it hits 100%
+        if (percent === 100) {
+          setTimeout(() => {
+            // Only clear if still 100 (haven't started a new download)
+            if (useSessionStore.getState().modelLoadingProgress === 100) {
+              useSessionStore.getState().setModelLoadingProgress(null);
+            }
+          }, 1500); // Give user a moment to see "100%"
+        }
       },
       onReady: this.options.onReady,
       session: this.options.session,
       navigate: this.options.navigate,
       getAssemblyAIToken: this.options.getAssemblyAIToken,
-      customVocabulary: this.options.customVocabulary || [],
+      userWords: this.options.userWords || [],
       onAudioData: this.options.onAudioData,
       onError: (err) => {
         this.fsm.transition({ type: 'ERROR_OCCURRED', error: err });
@@ -460,7 +484,7 @@ export default class TranscriptionService {
     useSessionStore.getState().setSTTStatus(status);
   }
 
-  private handleFailure(mode: TranscriptionMode, error: Error): void {
+  private async handleFailure(mode: TranscriptionMode, error: Error): Promise<void> {
     // Safety check: Should never receive a CACHE_MISS here
     if (isCacheMiss(error)) {
       logger.error('[TranscriptionService] BUG: CACHE_MISS reached handleFailure!');
@@ -475,7 +499,9 @@ export default class TranscriptionService {
     if (this.policy.allowFallback && mode !== 'native') {
       logger.info('[TranscriptionService] Attempting Native Fallback...');
       this.options.onStatusChange?.({ type: 'fallback', message: 'Falling back to Native browser mode', newMode: 'native' });
-      this.startTranscription({ ...this.policy, preferredMode: 'native' });
+
+      // ✅ FIX: Await the fallback to ensure deterministic state transitions
+      await this.startTranscription({ ...this.policy, preferredMode: 'native' });
     } else {
       this.lastError = error;
       this.fsm.transition({ type: 'ERROR_OCCURRED', error });
@@ -496,8 +522,7 @@ export default class TranscriptionService {
     // FIX: Must create a new Native engine instance, otherwise we reuse the failing Private engine!
     const engineConfig: TranscriptionModeOptions = { ...this.options }; // Use base options for native
     this.engine = await EngineFactory.create('native', engineConfig, this.policy);
-    await this.engine.init(); // Init native engine
 
-    await this.executeEngine('native');
+    await this.executeEngine('native', false); // executeEngine will handle init()
   }
 }

@@ -23,6 +23,7 @@ const defaultTips: SpeakingTip[] = [
 
 interface SpeakingTipsCardProps {
     tips?: SpeakingTip[];
+    className?: string;
 }
 
 // Unused TipCard component removed as content is inlined below
@@ -33,12 +34,13 @@ interface SpeakingTipsCardProps {
  */
 export const SpeakingTipsCard: React.FC<SpeakingTipsCardProps> = ({
     tips = defaultTips,
+    className = "",
 }) => {
     // Select a random tip on mount (stable for session)
     const [tip] = React.useState(() => tips[Math.floor(Math.random() * tips.length)]);
 
     return (
-        <div className="bg-secondary/10 border border-secondary/30 rounded-xl p-6 shadow-sm">
+        <div className={`bg-secondary/10 border border-secondary/30 rounded-xl p-6 shadow-sm ${className}`}>
             <h2 className="text-lg font-semibold text-secondary mb-2 flex items-center gap-2">
                 <Lightbulb className="h-5 w-5" />
                 Quick Tip

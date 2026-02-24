@@ -41,10 +41,12 @@ This section contains ASCII art diagrams illustrating the journey for each user 
   v                                                 v
 +--------------------------+                      +--------------------------+
 | [Free User]              |                      | [Pro User]               |
-| - 1 Hour / Day           |                      | - Unlimited Time         |
-| - Unlimited Sessions     |                      | - Cloud AI (AssemblyAI)  |
-| - Native Browser STT     |                      | - Private STT (Local)    |
-| - View Session History   |                      |                          |
+| - 1 Hr/Day (Max 25h/mo)  |                      | - 2 Hr/Day (Max 50h/mo)  |
+| - 60-Min Max Session     |                      | - 60-Min Max Session     |
+| - Native Browser STT     |                      | - Cloud/Private STT      |
+| - View Session History   |                      | - AI Coach Feedback      |
+| - Watermarked PDF Export |                      | - Clean PDF Exports      |
+| - Vocab & Vocal Variety  |                      | - Custom Vocab Tracking  |
 +--------------------------+                      +--------------------------+
            |
            v
@@ -87,13 +89,13 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **User Filler Words** | 2 | User's personalized filler words to track (in addition to defaults like "um", "uh"). Stored in Supabase, passed to Cloud STT for improved recognition. Free: 100 words max. Pro: 100 words max. | ✅ Implemented | ✅ Yes |
 | **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | ✅ Implemented | ✅ Yes |
 | **Session Hardening** | 3 | Prevents saving empty or 0-second sessions to preserve usage and data quality. | ✅ Implemented | ✅ Yes |
-| **Speaker Identification**| 4 | Distinguishes between multiple speakers in a transcript. | 📅 Planned | ❌ No |
+| **Speaker Identification**| 4 | Distinguishes between multiple speakers in a transcript. | ✅ Implemented | ✅ Yes |
 | **Screen Reader Accessibility** | 2 | Live transcript uses ARIA live regions so screen readers announce new text automatically. | ✅ Implemented | ✅ Yes |
 | **Usage Limit Pre-Check** | 2 | Checks remaining usage BEFORE session starts. Shows upgrade prompt if exceeded. | ✅ Implemented | ✅ Yes |
-| **Session Comparison** | 1 | Compares stats from the 4 most recent sessions. | ✅ Implemented | ✅ Yes |
 | **PDF Export** | 1 | Allows users to download a PDF report of their session (FileSaver.js). | ✅ Implemented | ✅ Yes |
-| **STT Accuracy Comparison** | 1 | Rolling average comparison of STT engine accuracy against a ground truth. | 🟡 Partial (UI Done, Needs Data) | ✅ Yes |
-| **Top 2 Filler Words**| 1 | Maintains the top 2 highest filler words for the most recent 4 sessions. | ✅ Implemented | ✅ Yes |
+| **STT Accuracy Comparison** | 1 | Rolling average comparison of STT engine accuracy against **Isomorphic Golden Transcripts**. Validates WER thresholds (<10% Private, <8% Cloud). | ✅ Implemented | ✅ Yes |
+| **Top Filler Words**| 1 | Aggregates and ranks all detected filler words across sessions. | ✅ Implemented | ✅ Yes |
+| **Top Filler Words**| 1 | Aggregates and ranks all detected filler words across sessions. | ✅ Implemented | ✅ Yes |
 | **Weekly Activity Chart** | 2 | Visual chart showing practice frequency over the past week. | ✅ Implemented | ✅ Yes |
 | **Premium Loading States** | 2.5 | Skeleton loading UI for premium user experience. | ✅ Implemented | ✅ Yes |
 | **Private Model Caching** | 3 | Service Worker caches Whisper model for faster subsequent loads (<5s). | ✅ Implemented | ✅ Yes |
@@ -161,9 +163,13 @@ To eliminate non-deterministic failures and "flakiness," the system adheres to a
 2.  **canStart Checks**: Logic-level guards in `useSessionLifecycle` preventing actions during engine initialization.
 3.  **Error Boundaries**: Per-widget isolation using `LocalErrorBoundary` for all critical session components.
 4.  **Simplified Hooks**: Re-engineered `useProfile` to return guaranteed non-nullable data, eliminating "null-check fatigue."
-5.  **Data-Ready Attributes**: Explicit use of `data-ready` and `data-recording` tags for deterministic E2E synchronization.
+5.  **Behavioral Contracts**: Explicit use of `[data-state]` and `[data-action]` attributes for stable, design-agnostic E2E synchronization.
 
-*   **Unit & Integration Tests (Vitest):** These form the foundation of our testing pyramid. They are fast, focused, and verify the correctness of individual components and hooks in isolation. **Target: ≥75% line coverage with integrity-preserving validation (avoiding implementation coupling).**
+*   **Behavioral Testing Integrity (Vitest/Playwright):** We have pivoted from structural verification to **Black-Box Behavioral Testing**. We test user-facing requirements (Accuracy, Privacy, Speed) rather than internal implementation details.
+    *   **Isomorphic Golden Transcripts**: A shared registry of speech assets ensuring frontend mocks match backend results.
+    *   **WER Regression**: Automated build-failure floors for STT accuracy (Private <10%, Cloud <8%).
+    *   **FSM Adversarial Safety**: Explicit stress testing to prevent "Mic Lock-ups" during rapid concurrent interactions.
+*   **Unit & Integration Tests (Vitest):** These form the foundation of our testing pyramid. **Target: ≥55% lean line coverage with high design-intent integrity.**
 *   **End-to-End Tests (Playwright):** E2E tests validate complete user flows from start to finish. To combat the flakiness often associated with UI-driven tests, we have adopted a critical strategic decision:
     *   **Programmatic Login Only:** All E2E tests that require an authenticated state **must** use the `programmaticLogin` helper. This method directly injects a session into `localStorage`, bypassing the UI for sign-up and login. This approach is significantly faster and more reliable than attempting to simulate user input in the auth form.
     *   **Secure User Provisioning:** We use a dedicated Supabase Edge Function (`create-user`) authorized by CI secrets (`SUPABASE_SERVICE_ROLE_KEY`) to provision test data. This avoids the fragility of UI registration automation and guarantees a clean slate for every test.
@@ -193,19 +199,29 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 
 ### Active Constraints
 
-- **Theming:** Dark Theme fully implemented with polished UI (Inter font, glassmorphism). Light theme pending.
+- **Theming:** Dark Theme fully implemented with polished UI (Inter font, glassmorphism).
 - **Unit Test Coverage:** 100% Codebase Health (Lint/Typecheck). Tracked in Phase 5.
 - **ℹ️ INFO - Test "See-Saw" Failure (Active):** A persistent architectural conflict where fixing unit tests for `useSpeechRecognition` hooks can break E2E verification, and vice-versa. (Under investigation in Phase 6).
 - **UX - Mobile Experience:** Controls on `SessionPage` scroll away ("thumb stretch" issue). Sticky footer required. (✅ RESOLVED - `MobileActionBar` implemented).
 - **🟡 Testimonials:** `TestimonialsSection` has placeholder content ("TBD"). Needs real user testimonials.
 - **✅ REFACTORED - God File Decomposition (2026-02-16):** Successfully split monolithic `useSpeechRecognition_prod.ts` and `TranscriptionProvider.tsx` into atomic, testable hooks. Resolved Fast Refresh compliance issues.
 - **ℹ️ Mock Timeout Bypass:** The `TranscriptionService` now explicitly bypasses the 2s Optimistic Entry timeout when a mock is detected. This ensures deterministic behavior in CI but introduces a tight coupling between the service and test infrastructure. (Tracked as tech debt).
+- **🚨 Known Bug - Global Usage Limit Constraint:** The PRD specifies separate limits: Free gets 1h/day (Max 25h/mo) and Pro gets 2h/day (Max 50h/mo). However, the current database implementation (`update_user_usage` RPC) brutally enforces a strict **1 Hour / Month limit across ALL engines**, completely blocking the intended experience. This is the highest priority financial tech debt.
+
+### Tech Debt (Database & Tier Tracking)
+
+- **🔴 Database Tier Enforcement Refactor (Inch-stones):** The `update_user_usage` RPC and `useSessionLifecycle.ts` hooks must be completely refactored to align with the new financial model:
+  1. **Split Usage Tracking:** Introduce `cloud_usage_seconds` and `native_usage_seconds` into the profile schema.
+  2. **Update RPC Logic:** The `create_session_and_update_usage` transaction must inspect the `engine` parameter to decide which counter to augment.
+  3. **Revise Edge Function Limits:** The `check-usage-limit` barrier function must parse daily vs monthly logic. Allow 1h/day (25h/mo cap) for Free, and 2h/day (50h/mo cap) for Pro.
+  4. **Frontend UI Sync:** The frontend must request and display decoupled daily and monthly usage bars.
+- **🔴 Prioritize Local STT (Code Update):** Refactor the frontend STT selector to **default to Private STT** instead of Cloud STT for Pro users. Cloud STT should require a deliberate opt-in in the UI.
 
 ### Tech Debt (Testing)
 
 - **✅ Native STT Headless Test:** Resolved via `MockNativeBrowser` injection (see `tier-limits.e2e.spec.ts`).
 - **✅ Tier Limit Logic:** `tier-limits.e2e.spec.ts` now dynamically verifies "Daily" (Edge Function) or "Monthly" (RPC) limits based on backend response. Mock duration remains 6s to satisfy `MIN_SESSION_DURATION_SECONDS` (5s).
-- **🟡 PDF Content Extraction:** `pdf-parse` requires `DOMMatrix`. PDF structure validated only. (By design)
+- **🟡 PDF Content Extraction & Generation:** `pdf-parse` requires `DOMMatrix`. PDF structure validated only. (By design). **New Requirement:** PDF Generation for Free tier users must explicitly inject a prominent "Generated by SpeakSharp" watermark as part of the Phase 2 Funnel strategy. Pro tier exports remain clean.
 - ✅ **Cloud STT (Production) (2026-01-28):** Resolved CORS (`ALLOWED_ORIGIN` mismatch) blocking production usage.
 - ✅ **Cloud STT E2E (2026-01-28):** Resolved mode selector and button dropdown unresponsiveness.
 - ✅ **Initialization Crash (2026-01-28):** Resolved `__BUILD_ID__` ReferenceError causing 15s E2E timeouts.
@@ -215,6 +231,14 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 - ✅ **Model Loading Indicator (2026-02-09):** Normalized progress reporting to a standard 0-100% scale and fixed UI display multipliers.
 - ✅ **User Filler Words Native STT:** Native STT doesn't support user filler words (browser-controlled). Only Cloud STT (`word_boost`) supports this.
 - ✅ **100% Type Safety (2026-02-16):** Eliminated all `any` usage in transcription types and resolved literal widening issues. Permanent "Zero-Debt" pass.
+
+### Official Vendor API Limits (Free Tier)
+To ensure test stability and prevent accidental overages, SpeakSharp strictly adheres to the following vendor free-tier constraints:
+- **AssemblyAI WebSockets (Cloud STT):** Maximum of **5 concurrent streaming sessions** per minute. Exceeding this causes `1008 Unauthorized Connection` errors. (Note: Paid accounts scale to 100+ concurrent).
+- **Supabase Edge Functions:** 
+  - Maximum **500,000 invocations** per month.
+  - Maximum **150 seconds** execution duration (wall clock limit).
+  - Maximum **256MB** memory allocation per invocation.
 
 ### Gap Analysis: Alpha Launch Blockers
 
@@ -242,7 +266,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Tue, 17 Feb 2026 01:00:00 GMT
+**Last Updated:** Mon, 23 Feb 2026 00:57:19 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -258,14 +282,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 653 (527 unit + 126 E2E) |
-| Unit tests              | 527   |
-| E2E tests (Playwright)  | 126  |
-| Passing tests           | 578 (527 unit + 51 E2E)   |
-| Failing tests           | 11   |
-| Disabled/skipped tests  | 64 (E2E only)   |
-| Passing unit tests      | 527/527 (100.0%)   |
-| Passing E2E tests       | 51/126 (40.5%)   |
+| Total tests             | 679 (541 unit + 138 E2E) |
+| Unit tests              | 541   |
+| E2E tests (Playwright)  | 138  |
+| Passing tests           | 609 (541 unit + 68 E2E)   |
+| Failing tests           | 0   |
+| Disabled/skipped tests  | 70 (E2E only)   |
+| Passing unit tests      | 541/541 (100.0%)   |
+| Passing E2E tests       | 68/138 (49.3%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -274,10 +298,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 58.97%   |
-| Branches   | 75.76%   |
-| Functions  | 70.08%   |
-| Lines      | 58.97%   |
+| Statements | 58.34%   |
+| Branches   | 76.15%   |
+| Functions  | 67.88%   |
+| Lines      | 58.34%   |
 
 ---
 
@@ -285,10 +309,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 6.7M   |
+| Total Source Size   | 6.9M   |
 | Total Project Size  | 1.4G   |
-| Initial Chunk Size  | 504K   |
-| Code Bloat Index    | 7.45%   |
+| Initial Chunk Size  | 916K   |
+| Code Bloat Index    | 13.04%   |
 | Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
 
 ---
@@ -320,10 +344,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ## 9. Future Enhancements / Opportunities
 
-### Feature Proposal: Rolling Accuracy Comparison of STT Engines (Native, Cloud, Private)
+### [COMPLETED] Feature: Rolling Accuracy Comparison of STT Engines (Native, Cloud, Private)
 **Goal:** Improve transparency and user trust.
 
-We can strengthen user confidence by adding a feature that compares accuracy across Native Browser, Cloud AI, and Private modes. Instead of one-off tests, the system would track results from actual usage over time and compute a rolling accuracy percentage. This avoids storing large datasets while still giving users a clear view of performance differences.
+Successfully implemented via **Isomorphic Fixtures**. The system now computes real-time accuracy and Word Error Rate (WER) against ground-truth transcripts, enforcing quality floors for every engine.
 
 ### [COMPLETED] Feature: Dynamic Software Quality Metrics Reporting
 
@@ -342,60 +366,46 @@ This section provides high-level insights into the SpeakSharp project from multi
 ### 💰 CFO Perspective (Financials & Business Model)
 
 **Pricing:**
-*   The Pro tier is priced at **$7.99/month**. This price point is set to be competitive and justifiable with the current feature set. More advanced analytics features could justify a higher price in the future.
+*   The Pro tier is priced at **$14.99/month**. This price point is strictly required to buffer against the $0.47/hr streaming costs of AssemblyAI while capping maximum usage to 50 hours per month.
 
 **Conversion Rate:**
-*   The previous 5% conversion assumption was optimistic. Financial models will now use a specific conversion rate of **2%**.
+*   Financial models use a conservative base conversion rate of **2%**.
 *   To improve conversion, the product strategy will focus on:
     *   **Optimizing the "Aha!" Moment:** The Free tier must quickly demonstrate the product's value.
-    *   **Creating a Compelling Upgrade Path:** The Pro tier must offer a significant upgrade.
-    *   **Effective Upgrade Prompts:** The `UpgradePromptDialog` should be triggered at moments of high user engagement.
+    *   **Creating a Compelling Upgrade Path:** The Pro tier offers vastly superior cloud transcription and absolute privacy via local WebGPU.
+    *   **Effective Upgrade Prompts:** The `UpgradePromptDialog` should execute when usage limits are hit.
 
-**Operating Costs:**
-*   The serverless architecture (Supabase, Deno Edge Functions) is expected to keep monthly operating costs low.
-*   The primary variable cost is the AssemblyAI API usage for Pro users. The SLO of `<$0.05/min STT cost at MVP scale` is a key target to monitor.
+**Operating Costs (2024 Reality):**
+*   The serverless architecture minimizes DevOps overhead, but API inference is expensive.
+*   The primary variable cost is the **AssemblyAI Universal-Streaming API** ($0.47/hour). It is a strategic imperative to incentivize users to utilize the **Private Local Engine** ($0.00/hour) to maximize gross margins.
 
-**Estimated Monthly Operating Costs:**
-*   This section outlines the estimated monthly costs for running SpeakSharp, based on the current tech stack. These costs are broken down into fixed and variable components.
+**Estimated Monthly Operating Costs (Full Stack):**
 
-*   **Fixed Costs:**
-    *   **Supabase Pro Plan:** **$25/month**. This provides the core backend infrastructure, including the database, authentication, and serverless functions.
+*   **Fixed Infrastructure Costs:**
+    *   **Supabase Pro Plan:** **$25.00/month**. (Core backend, auth, database, edge functions).
+    *   **Vercel Pro:** **$20.00/month**. (Frontend hosting and serverless SSR).
+    *   **Sentry Team:** **$29.00/month**. (Error tracking, 50k events).
+    *   **Resend Pro:** **$20.00/month**. (Transactional emails, 50k emails).
+    *   **PostHog:** **$0.00/month**. (Product analytics, free under 1M events).
+    *   **Total Fixed Base:** **$94.00/month**.
 
 *   **Variable Costs (per Pro user per month):**
-    *   **Stripe:** **~ (2.9% + $0.30) + 0.7% per transaction**. For a $7.99/month subscription, this is approximately **$0.59 per user**. This covers payment processing and subscription management.
-    *   **AssemblyAI:** **$0.15/hour** of streaming speech-to-text. This cost is directly tied to the usage of the Pro features.
-
-**Financial Projections:**
-*   Breakeven and profitability projections will be modeled using a 2% conversion rate. This provides a realistic view for making decisions on spending and investment.
-*   An advertising budget will be determined based on these projections and the results of organic marketing. It is crucial to establish a clear Customer Acquisition Cost (CAC) before scaling paid ads.
+    *   **Stripe:** **3.4% + $0.30 per charge**. For a $14.99 subscription, this is **$0.81 per user**.
+    *   **AssemblyAI:** **$0.47/hour** of streaming speech-to-text. (Assumed average use: 10 hrs/mo = $4.70/user).
 
 **Key Financial Metrics (CAC & LTV):**
-*   **Customer Acquisition Cost (CAC):** This will be closely monitored once paid advertising begins. The goal is to keep CAC significantly lower than LTV.
+*   **Customer Acquisition Cost (CAC):** Since the estimated LTV is ~$85, CAC via paid channels (Reddit Ads, Meta) must be strictly capped at **< $28.00** to maintain a healthy 3:1 LTV/CAC ratio.
 *   **Lifetime Value (LTV):**
-    *   **Assumption:** The LTV calculation is based on an assumed average user retention of **6 months**.
-    *   **Estimated LTV:** Based on the Pro price of $7.99/month and Stripe fees, the estimated LTV is approximately **$44**. (`(7.99 - 0.59) * 6`). This is a simplified calculation and will be refined as more data becomes available.
+    *   **Assumption:** Average user retention of **6 months**.
+    *   **Estimated LTV:** Based on the new $14.99/mo Pro price and average fees, LTV is approximately **$85**.
 
 **Breakeven Analysis & Profitability Timeline:**
-*   This analysis is based on the following conservative assumptions:
-    *   **User Acquisition:** 10 new Pro users per month.
-    *   **AssemblyAI Usage:** 2 hours per Pro user per month.
-
 *   **Breakeven Calculation:**
-    *   **Revenue per Pro user:** $7.99/month.
-    *   **Variable Costs per Pro user:**
-        *   Stripe: ~$0.59/month
-        *   AssemblyAI: 2 hours * $0.15/hour = $0.30/month
-        *   **Total Variable Cost:** $0.89/month
-    *   **Net Revenue per Pro user:** $7.99 - $0.89 = $7.10/month.
-    *   **Fixed Costs:** $25/month (Supabase).
-    *   **Breakeven Point:** $25 / $7.10 = **~4 Pro users**.
-
-*   **Profitability Timeline:**
-    *   With an acquisition rate of 10 new Pro users per month, the company is projected to be profitable in the **first month**.
-    *   **Month 1:** (10 users * $7.10) - $25 = **$46.00 profit**.
-    *   **Month 2:** (20 users * $7.10) - $25 = **$117.00 profit**.
-    *   **Month 3:** (30 users * $7.10) - $25 = **$188.00 profit**.
-    *   *Note: This timeline assumes no user churn for the initial months, which aligns with the 6-month LTV assumption.*
+    *   **Revenue per Pro user:** $14.99/month.
+    *   **Average Variable Costs per Pro user:** $0.81 (Stripe) + $4.70 (10 hrs AssemblyAI) = **$5.51/month**.
+    *   **Net Margin per Pro user:** $14.99 - $5.51 = **$9.48/month gross profit**.
+    *   **Fixed Costs:** $94.00/month.
+    *   **Breakeven Point:** $94.00 / $9.48 = **~10 Pro users**. (At a 2% conversion rate, this requires ~500 total active users).
 
 ### 🚀 CEO Perspective (Marketing & User Acquisition)
 
@@ -406,8 +416,8 @@ This section provides high-level insights into the SpeakSharp project from multi
 *   The advertising strategy will follow the phased GTM approach.
 *   **Phase 1 (Organic):** Focus on organic channels as described below.
 *   **Phase 2 (Paid):** Once a stable conversion rate of at least 2% is achieved, a limited and targeted paid advertising campaign will be launched.
-    *   **Initial Platform:** Reddit ads, targeting the subreddッツ listed below.
-    *   **Expansion Platforms:** Based on the success of the Reddit ads, expansion to Facebook or Google Ads will be considered. The focus will remain on targeted and limited campaigns to control CAC.
+    *   **Initial Platform:** Reddit ads, targeting the subreddits listed below.
+    *   **Expansion Platforms:** Based on the success of the Reddit ads, expansion to Facebook or Google Ads will be considered. Target CAC is strict (< $28).
 
 **User Acquisition Channels:**
 *   **Reddit:** This is a key channel for reaching niche communities.
@@ -427,23 +437,36 @@ This section provides high-level insights into the SpeakSharp project from multi
 
 **Gaps / Market Risks:**
 
+*   **Financial Limit Risk:** If power users maximize their 50-hour Cloud STT limit (`50 hrs * $0.47 = $23.50`), we lose money on their $14.99 subscription. This requires aggressive UX nudges toward the local WebGPU engine.
 *   Limited feature set at MVP (filler words only). Competitors offer richer analytics.
 *   No social proof (testimonials, coach endorsements, beta case studies).
 
 **Recommendations:**
 
 *   **[COMPLETED]** Prioritize “speaking pace” analysis in Phase 2 ([ROADMAP.md](./ROADMAP.md#phase-2-user-validation--polish)).
-*   **[IN PROGRESS]** Build trust: beta testimonials, Toastmasters/speech coach partnerships.
-*   Produce a “How it Works” demo video for the landing page.
-*   Actively engage with online communities (Reddit, forums) to build brand awareness.
+*   **[IN PROGRESS]** Refactor database `update_user_usage` logic to separate Native STT hours from Cloud STT hours.
+*   Produce a “How it Works” demo video for the landing page highlighting the Private Engine.
 
 ### 💰 Updated Pricing Tiers & Recommendations
 
+> **🚨 50% Margin of Safety Governance:** The session limits listed below (60m Free / 120m Pro) are currently *hypothetical target bounds*. Their final values will be strictly governed by the results of the "Extreme Duration Soak Test." Whatever absolute maximum duration the Browser RAM, Gemini Context Window, and PDF Generator can technically survive, we will apply a **50% Margin of Safety** to determine our actual marketed limits to ensure 100% reliability for paying users.
+
+<<<<<<<
 *   **Free User (Authenticated):**
-    *   **Recommendation:** The 1 hour/day limit is generous but encourages upgrades for serious practitioners. Ensure the `UpgradePromptDialog` is well-designed, clearly communicates the benefits of upgrading, and appears at the moment of highest user engagement.
+    *   **Limit:** **1 Hour / Day** (Capped at Max 25 Hours / Month). *Max 60-Minute soft limit per session, plus a 5-minute graceful wrap-up warning.*
+    *   **Engine:** Restricted strictly to **Native Browser STT** ($0.00 cost to SpeakSharp).
+    *   **Funnel Features:** Access to Custom Vocab tracking, Vocal Variety metrics, and **Watermarked** PDF Practice Export (Strictly limited to **1 teaser export per month**).
+    *   **Recommendation:** Giving them 1 free, watermarked PDF is the ultimate "freemium teaser" funnel to up-sell the Pro tier. Daily/Monthly limit cutoffs must utilize "Gracious Sunsetting" UX (e.g., "You crushed your goals today! Upgrade for more, or see you tomorrow!").
+
 *   **Pro User (Authenticated):**
-    *   **Price: $7.99/month.**
-    *   **Recommendation:** This remains the core paid offering. The value proposition should be clear: "unlimited practice," "Cloud AI transcription," and the key differentiator of "private transcription" for enhanced privacy. The fallback to Native Browser is a a good technical resilience feature.
+    *   **Price:** **$9.99 / month.** (Or $99/year).
+    *   **Limit:** **2 Hours / Day** (Capped at Max 50 Hours / Month). *Max 120-Minute soft limit per session, plus a 5-minute graceful wrap-up warning.*
+    *   **Engine:** Full access to **Private STT (WebGPU)** and the premium **Cloud AI (AssemblyAI)**.
+    *   **Exclusive Premium Features:** To justify the $14.99 point, Pro users receive access to features that provide massive value but cost pennies in compute:
+        *   **AI Speech Coach Feedback:** Post-session comprehensive analysis powered by advanced LLMs (e.g., Gemini Flash) providing structured feedback on tone, delivery, and structure.
+        *   **Clean PDF Exports:** Professional, un-watermarked PDF report generation.
+        *   **Speaker Diarization:** Multi-speaker awareness for real-world meeting analysis (Cloud STT only).
+    *   **Recommendation:** As AssemblyAI costs $0.47/hr, we must default users to the Private STT engine in the code. Cloud STT should be positioned as an auxiliary fallback for users on weak hardware or when ultimate accuracy is required. We must visually incentivize the Local Engine in the UI to push variable costs toward $0.
 
 ---
 

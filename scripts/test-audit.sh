@@ -268,6 +268,7 @@ run_sqm_report_local() {
 
 run_ci_simulation() {
     echo "🤖 Running Full CI Simulation..."
+    CI_SIM_START=$(date +%s)
     export CI=true
     
     # Clean up previous runs
@@ -402,8 +403,14 @@ case $STAGE in
         ;;
     ci-simulate)
         run_ci_simulation
+        CI_SIM_END=$(date +%s)
+        CI_SIM_ELAPSED=$((CI_SIM_END - CI_SIM_START))
+        CI_SIM_MINS=$((CI_SIM_ELAPSED / 60))
+        CI_SIM_SECS=$((CI_SIM_ELAPSED % 60))
         echo "🎉🎉🎉"
         echo "✅ SpeakSharp CI Simulation SUCCEEDED!"
+        echo "⏱️  Total Elapsed: ${CI_SIM_MINS}m ${CI_SIM_SECS}s"
+        echo "⏭️  Expected skips: 1 (stripe-checkout — requires live E2E_FREE_EMAIL/PASSWORD secrets, runs only in 'Stripe Test' workflow)"
         echo "🎉🎉🎉"
         ;;
     *)

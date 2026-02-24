@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import { FillerCounts } from '@/utils/fillerWordUtils';
-import logger from '@/lib/logger';
-import { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
-import { SttStatus } from '@/types/transcription';
+import { FillerCounts } from '../utils/fillerWordUtils';
+import logger from '../lib/logger';
+import { TranscriptionMode } from '../services/transcription/TranscriptionPolicy';
+import { SttStatus } from '../types/transcription';
 
 interface TranscriptState {
     transcript: string;
@@ -80,10 +80,10 @@ export const useSessionStore = create<SessionStore>((set) => ({
             isReady: ready,
         }),
 
-    updateTranscript: (transcript, partial = '') =>
+    updateTranscript: (transcriptText, partial = '') =>
         set({
             transcript: {
-                transcript,
+                transcript: transcriptText,
                 partial,
             },
         }),
@@ -141,15 +141,10 @@ export const useSessionStore = create<SessionStore>((set) => ({
         set(initialState),
 }));
 
-// Expose store to window for E2E tests
-declare global {
-    interface Window {
-        useSessionStore?: typeof useSessionStore;
-        __SESSION_STORE_API__?: typeof useSessionStore;
+// Expose store to window only in test/dev for E2E diagnostics
+if (process.env.NODE_ENV !== 'production' || (typeof window !== 'undefined' && (window as { TEST_MODE?: boolean }).TEST_MODE)) {
+    if (typeof window !== 'undefined') {
+        (window as unknown as { useSessionStore: unknown }).useSessionStore = useSessionStore;
+        (window as unknown as { __SESSION_STORE_API__: unknown }).__SESSION_STORE_API__ = useSessionStore;
     }
-}
-
-if (typeof window !== 'undefined') {
-    window.useSessionStore = useSessionStore;
-    window.__SESSION_STORE_API__ = useSessionStore;
 }

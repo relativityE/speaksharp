@@ -1,0 +1,22 @@
+{
+    "name": "speech-003-multi-speaker",
+    "words": 46,
+    "fillerWords": [],
+    "speakers": 2,
+    "expectedSpeakerSegments": [
+        {
+            "speaker": "1",
+            "text": "Hello and welcome to our technical synchronization meeting. Today we are discussing the integration of the new transcription service."
+        },
+        {
+            "speaker": "2",
+            "text": "Thanks. I've been looking at the latency metrics for the Private STT model. It seems like the WASM overhead is minimal."
+        },
+        {
+            "speaker": "1",
+            "text": "That's good to hear. Have we tested the fallback mechanism yet?"
+        }
+    ],
+    "duration": 25,
+    "type": "formal-pro"
+}

@@ -10,14 +10,14 @@ export class MockEngine implements IPrivateSTTEngine {
     public readonly type: EngineType = 'mock';
     private transcriptTimer: NodeJS.Timeout | null = null;
     private isTranscribing = false;
-    private onTranscriptCallback: ((text: string, isFinal: boolean) => void) | null = null;
+    private onTranscriptCallback: ((transcript: string, isFinal: boolean) => void) | null = null;
 
     // Configurable mock responses
     private readonly MOCK_TRANSCRIPT_SEQUENCE = [
-        { text: 'Hello', delay: 500, isFinal: false },
-        { text: 'Hello world', delay: 1000, isFinal: false },
-        { text: 'Hello world this is a test', delay: 1500, isFinal: false },
-        { text: 'Hello world this is a test transcript', delay: 2000, isFinal: true }
+        { transcript: 'Hello', delay: 500, isFinal: false },
+        { transcript: 'Hello world', delay: 1000, isFinal: false },
+        { transcript: 'Hello world this is a test', delay: 1500, isFinal: false },
+        { transcript: 'Hello world this is a test transcript', delay: 2000, isFinal: true }
     ];
 
     async init(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
@@ -39,7 +39,7 @@ export class MockEngine implements IPrivateSTTEngine {
     }
 
     async startTranscription(
-        onTranscript: (text: string, isFinal: boolean) => void
+        onTranscript: (transcript: string, isFinal: boolean) => void
     ): Promise<void> {
         logger.info('[MockEngine] ▶️ Starting mock transcription');
 
@@ -54,8 +54,8 @@ export class MockEngine implements IPrivateSTTEngine {
 
             this.transcriptTimer = setTimeout(() => {
                 if (this.isTranscribing && this.onTranscriptCallback) {
-                    logger.info({ text: segment.text, final: segment.isFinal }, '[MockEngine] 📝 Emitting');
-                    this.onTranscriptCallback(segment.text, segment.isFinal);
+                    logger.info({ transcript: segment.transcript, final: segment.isFinal }, '[MockEngine] 📝 Emitting');
+                    this.onTranscriptCallback(segment.transcript, segment.isFinal);
                 }
             }, cumulativeDelay);
         }
@@ -73,7 +73,7 @@ export class MockEngine implements IPrivateSTTEngine {
 
         const finalTranscript = this.MOCK_TRANSCRIPT_SEQUENCE[
             this.MOCK_TRANSCRIPT_SEQUENCE.length - 1
-        ].text;
+        ].transcript;
 
         return finalTranscript;
     }

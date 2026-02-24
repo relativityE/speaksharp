@@ -6,33 +6,33 @@ import { Chunk } from './types';
  * Hook: useFillerWords (Optimized)
  * Tracks filler word counts incrementally.
  */
-export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, customWords: string[] = []) => {
+export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, userWords: string[] = []) => {
   // Accumulated counts for all completed chunks
-  const [accumulatedCounts, setAccumulatedCounts] = useState<FillerCounts>(() => createInitialFillerData(customWords));
+  const [accumulatedCounts, setAccumulatedCounts] = useState<FillerCounts>(() => createInitialFillerData(userWords));
   // Keep track of which chunks have been processed
   const lastProcessedIndexRef = useRef<number>(-1);
-  // Keep track of customWords to detect changes
-  const lastCustomWordsRef = useRef<string[]>(customWords);
+  // Keep track of userWords to detect changes
+  const lastUserWordsRef = useRef<string[]>(userWords);
 
   // 1. Handle Final Chunks (Incremental)
   useEffect(() => {
-    const customWordsChanged = JSON.stringify(lastCustomWordsRef.current) !== JSON.stringify(customWords);
+    const userWordsChanged = JSON.stringify(lastUserWordsRef.current) !== JSON.stringify(userWords);
 
-    if (customWordsChanged) {
-      // Re-process everything if custom words change
-      const allText = finalChunks.map(c => c.text).join(' ');
-      const newCounts = countFillerWords(allText, customWords);
+    if (userWordsChanged) {
+      // Re-process everything if user words change
+      const allText = finalChunks.map(c => c.transcript).join(' ');
+      const newCounts = countFillerWords(allText, userWords);
       setAccumulatedCounts(newCounts);
       lastProcessedIndexRef.current = finalChunks.length - 1;
-      lastCustomWordsRef.current = customWords;
+      lastUserWordsRef.current = userWords;
       return;
     }
 
     if (finalChunks.length > lastProcessedIndexRef.current + 1) {
       // Process only new chunks
       const newChunks = finalChunks.slice(lastProcessedIndexRef.current + 1);
-      const newText = newChunks.map(c => c.text).join(' ');
-      const additionalCounts = countFillerWords(newText, customWords);
+      const newText = newChunks.map(c => c.transcript).join(' ');
+      const additionalCounts = countFillerWords(newText, userWords);
 
       if (additionalCounts.total.count > 0) {
         setAccumulatedCounts(prev => {
@@ -64,16 +64,33 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
       lastProcessedIndexRef.current = finalChunks.length - 1;
     } else if (finalChunks.length === 0 && lastProcessedIndexRef.current !== -1) {
       // Reset if chunks are cleared
-      setAccumulatedCounts(createInitialFillerData(customWords));
+      setAccumulatedCounts(createInitialFillerData(userWords));
       lastProcessedIndexRef.current = -1;
     }
-  }, [finalChunks, customWords]);
+  }, [finalChunks, userWords]);
 
   // 2. Handle Interim Transcript (Transient)
+  // Debounce interim processing to avoid excessive NLP work during rapid speech recognition updates.
+  const [debouncedInterim, setDebouncedInterim] = useState(interimTranscript);
+
+  useEffect(() => {
+    // Immediate clear if transcript is empty to avoid double-counting during finalization
+    if (!interimTranscript.trim()) {
+      setDebouncedInterim('');
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setDebouncedInterim(interimTranscript);
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [interimTranscript]);
+
   const interimCounts = useMemo(() => {
-    if (!interimTranscript.trim()) return null;
-    return countFillerWords(interimTranscript, customWords);
-  }, [interimTranscript, customWords]);
+    if (!debouncedInterim.trim()) return null;
+    return countFillerWords(debouncedInterim, userWords);
+  }, [debouncedInterim, userWords]);
 
   // 3. Combine Accumulated and Interim Counts
   const combinedCounts = useMemo(() => {

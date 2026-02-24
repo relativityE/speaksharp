@@ -12,38 +12,43 @@ interface StatusNotificationBarProps {
 const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string }> = {
     idle: {
         icon: Info,
-        bgClass: 'bg-yellow-400 border-yellow-600 shadow-md',
-        textClass: 'text-black font-black uppercase',
+        bgClass: 'glass border-white/5 shadow-sm',
+        textClass: 'text-muted-foreground font-semibold',
     },
     initializing: {
         icon: Loader2,
-        bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
-        textClass: 'text-black font-black uppercase',
+        bgClass: 'bg-primary/10 border-primary/20 shadow-glow backdrop-blur-xl',
+        textClass: 'text-primary font-bold',
     },
     downloading: {
         icon: Loader2,
-        bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
-        textClass: 'text-black font-black uppercase',
+        bgClass: 'bg-primary/20 border-primary/30 shadow-cyan-glow backdrop-blur-2xl',
+        textClass: 'text-primary font-bold',
     },
     ready: {
         icon: CheckCircle2,
-        bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
-        textClass: 'text-black font-black uppercase',
+        bgClass: 'bg-emerald-500/10 border-emerald-500/20 shadow-sm backdrop-blur-xl',
+        textClass: 'text-emerald-500 font-bold',
     },
     recording: {
-        icon: Info, // Using Info as generic icon, similar to idle but distinct state
-        bgClass: 'bg-red-500 border-red-700 shadow-xl',
-        textClass: 'text-white font-black uppercase',
+        icon: Info,
+        bgClass: 'bg-secondary/10 border-secondary/20 shadow-yellow-glow backdrop-blur-xl animate-pulse',
+        textClass: 'text-secondary font-bold',
     },
     fallback: {
         icon: AlertTriangle,
-        bgClass: 'bg-yellow-400 border-yellow-600 shadow-xl',
-        textClass: 'text-black font-black uppercase',
+        bgClass: 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-xl',
+        textClass: 'text-orange-500 font-bold',
     },
     error: {
         icon: AlertCircle,
-        bgClass: 'bg-red-600 border-red-800 shadow-xl',
-        textClass: 'text-white font-black uppercase',
+        bgClass: 'bg-destructive/10 border-destructive/20 shadow-sm backdrop-blur-xl',
+        textClass: 'text-destructive font-bold',
+    },
+    info: {
+        icon: Info,
+        bgClass: 'glass border-primary/20 shadow-sm backdrop-blur-xl',
+        textClass: 'text-primary font-bold',
     },
 };
 
@@ -59,6 +64,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     const isAnimated = status.type === 'initializing' || status.type === 'downloading';
 
     // Secondary Status (Background Download) - Read directly from store to persist across mode changes
+    const activeEngine = useSessionStore((s) => s.activeEngine);
     const modelLoadingProgress = useSessionStore((s) => s.modelLoadingProgress);
     const hasSecondary = modelLoadingProgress !== null;
 
@@ -70,9 +76,13 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             case 'idle':
                 displayMessage = 'Ready';
                 break;
-            case 'recording':
-                displayMessage = 'Recording active';
+            case 'recording': {
+                const engineName = activeEngine && activeEngine !== 'none'
+                    ? activeEngine.charAt(0).toUpperCase() + activeEngine.slice(1)
+                    : '';
+                displayMessage = `${engineName} Recording active`.trim();
                 break;
+            }
             case 'ready':
                 displayMessage = 'Ready to record';
                 break;
@@ -81,6 +91,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 break;
             case 'downloading':
                 displayMessage = 'Downloading...';
+                break;
+            case 'info':
+                displayMessage = 'Information';
                 break;
             default:
                 displayMessage = 'Ready';
@@ -91,50 +104,59 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
     return (
         <div
-            className={`flex items-center gap-3 w-full px-6 py-2 rounded-none border-y-2 ${config.bgClass} ${className} transition-all duration-300`}
+            className={`flex items-center gap-4 w-full px-5 py-2 rounded-t-xl border-b border-white/5 ${config.bgClass} ${className} transition-all duration-300`}
             role="status"
             aria-live="polite"
             data-testid="stt-status-bar"
+            data-state={status.type}
+            data-engine={activeEngine || 'none'}
         >
             {/* Primary Status Indicator */}
-            <div className="flex items-center gap-3 flex-1" data-testid="session-status-indicator">
+            <div className="flex items-center gap-3" data-testid="session-status-indicator">
                 {emoji ? (
-                    <span className="text-lg leading-none" role="img" aria-label="status-icon">{emoji}</span>
+                    <span className="text-xl leading-none" role="img" aria-label="status-icon">{emoji}</span>
                 ) : (
                     <Icon className={`h-5 w-5 ${config.textClass} ${isAnimated ? 'animate-spin' : ''}`} />
                 )}
                 <div className="flex flex-col">
-                    <span className={`text-sm font-black uppercase tracking-tight ${config.textClass}`} data-testid="status-message-text">
+                    <span className={`text-xs font-black uppercase tracking-widest ${config.textClass}`} data-testid="status-message-text">
                         {displayMessage}
                     </span>
                     {status.detail && (
-                        <span className={`text-[10px] font-medium opacity-80 ${config.textClass}`}>
+                        <span className={`text-[10px] font-medium opacity-70 ${config.textClass}`}>
                             {status.detail}
                         </span>
                     )}
                 </div>
             </div>
 
-            {/* Secondary Status Indicator (Background Task) */}
+            <div className="flex-1" />
+
+            {/* Secondary Status Indicator (Background Task) - Far Right */}
             {hasSecondary && (
                 <div
-                    className="flex items-center gap-3 pl-3 ml-auto border-l border-current/20"
+                    className="flex items-center gap-4 pl-4 border-l border-white/10"
                     data-testid="background-task-indicator"
                 >
-                    <span className={`text-[10px] font-medium ${config.textClass}`}>
-                        Downloading private model
-                    </span>
-                    <div className="flex items-center gap-2 w-24">
-                        <div className="flex-1 h-1 bg-current/10 rounded-full overflow-hidden">
+                    <div className="flex flex-col items-end">
+                        <span className={`text-[10px] font-bold uppercase tracking-wider ${config.textClass}`}>
+                            Private Model
+                        </span>
+                        <span className={`text-[9px] font-medium opacity-60 ${config.textClass}`}>
+                            {modelLoadingProgress === 100 ? 'Cached' : 'Downloading...'}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-3 w-32">
+                        <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden shadow-inner">
                             <div
-                                className="h-full bg-current transition-all duration-300 opacity-60"
+                                className="h-full bg-current transition-all duration-500 ease-out shadow-[0_0_10px_rgba(255,255,255,0.3)]"
                                 style={{
                                     width: `${modelLoadingProgress}%`,
                                     backgroundColor: 'currentColor'
                                 }}
                             />
                         </div>
-                        <span className={`text-[9px] font-bold ${config.textClass} min-w-[20px] text-right`}>
+                        <span className={`text-[10px] font-black ${config.textClass} min-w-[30px] text-right tabular-nums`}>
                             {Math.round(modelLoadingProgress)}%
                         </span>
                     </div>

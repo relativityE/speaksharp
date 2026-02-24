@@ -87,7 +87,7 @@ describe('useSpeechRecognition Integration', () => {
             service!.simulateTranscript('Hello world', true);
         });
 
-        expect(result.current.chunks[0].text).toBe('Hello world');
+        expect(result.current.chunks[0].transcript).toBe('Hello world');
 
         // Simulate last-second update (race condition scenario)
         // We start the stop process...
@@ -109,7 +109,7 @@ describe('useSpeechRecognition Integration', () => {
         // CRITICAL: Verify final words are captured in the hook state
         // Note: The hook's 'chunks' might be updated via state updates which happen async
         await waitFor(() => {
-            expect(result.current.chunks.some(c => c.text === 'final words')).toBe(true);
+            expect(result.current.chunks.some(c => c.transcript === 'final words')).toBe(true);
         });
     });
 

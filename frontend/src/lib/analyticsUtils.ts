@@ -121,21 +121,19 @@ export const calculateFillerWordTrends = (sessionHistory: PracticeSession[]) => 
 };
 
 export const calculateTopFillerWords = (sessionHistory: PracticeSession[]) => {
-    return sessionHistory
-        .flatMap(s => Object.entries(s.filler_words || {}).map(([word, data]) => ({ word, count: data.count })))
-        .reduce((acc, { word, count }) => {
+    const counts = sessionHistory.reduce((acc, s) => {
+        const fillers = s.filler_words || {};
+        for (const [word, data] of Object.entries(fillers)) {
             if (word !== 'total') {
-                const existingWord = acc.find(item => item.word === word);
-                if (existingWord) {
-                    existingWord.count += count;
-                } else {
-                    acc.push({ word, count });
-                }
+                acc[word] = (acc[word] || 0) + data.count;
             }
-            return acc;
-        }, [] as { word: string; count: number }[])
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 2);
+        }
+        return acc;
+    }, {} as Record<string, number>);
+
+    return Object.entries(counts)
+        .map(([word, count]) => ({ word, count }))
+        .sort((a, b) => b.count - a.count);
 };
 
 export const calculateAccuracyData = (sessionHistory: PracticeSession[]) => {
@@ -145,7 +143,7 @@ export const calculateAccuracyData = (sessionHistory: PracticeSession[]) => {
             const wer = calculateWordErrorRate(s.ground_truth!, s.transcript!);
             return {
                 date: new Date(s.created_at).toLocaleDateString(),
-                accuracy: Math.max(0, (1 - wer) * 100),
+                accuracy: Math.max(0, Math.round((1 - wer) * 100)),
                 engine: s.engine!,
             };
         })

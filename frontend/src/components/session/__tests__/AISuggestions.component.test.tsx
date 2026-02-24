@@ -90,7 +90,7 @@ describe('AISuggestions Integration', () => {
 
             await waitFor(() => {
                 expect(mockSupabaseClient.functions.invoke).toHaveBeenCalledWith('get-ai-suggestions', {
-                    body: { transcript: mockTranscript },
+                    body: { transcript: mockTranscript, metrics: null, sessionId: null },
                 });
             });
         });
@@ -199,6 +199,21 @@ describe('AISuggestions Integration', () => {
             await waitFor(() => {
                 expect(screen.getByText(/supabase client not available/i)).toBeInTheDocument();
             });
+        });
+    });
+
+    describe('Initial Suggestions', () => {
+        it('renders with initial suggestions if provided', () => {
+            const initialSuggestions = {
+                summary: "Initial summary",
+                suggestions: [{ title: "Initial title", description: "Initial description" }],
+            };
+            render(<AISuggestions transcript="Hello world" initialSuggestions={initialSuggestions} />);
+
+            expect(screen.getByText(/"Initial summary"/i)).toBeInTheDocument();
+            expect(screen.getByText("Initial title")).toBeInTheDocument();
+            expect(screen.getByText("Initial description")).toBeInTheDocument();
+            expect(screen.queryByText(/click the button to get ai-powered feedback/i)).not.toBeInTheDocument();
         });
     });
 

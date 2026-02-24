@@ -7,7 +7,7 @@ interface LiveTranscriptPanelProps {
     transcript: string;
     isListening: boolean;
     containerRef?: React.RefObject<HTMLDivElement>;
-    customWords?: string[];
+    userWords?: string[];
     className?: string;
 }
 
@@ -19,10 +19,10 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     transcript,
     isListening,
     containerRef,
-    customWords = [],
+    userWords = [],
     className = "",
 }) => {
-    const tokens = parseTranscriptForHighlighting(transcript, customWords);
+    const tokens = parseTranscriptForHighlighting(transcript, userWords);
 
     return (
         <div
@@ -49,7 +49,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             if (token.type === 'error') {
                                 return (
                                     <span key={i} className="text-destructive font-bold mx-0.5 opacity-80 text-sm tracking-wide">
-                                        {token.text}
+                                        {token.transcript}
                                     </span>
                                 );
                             }
@@ -60,11 +60,11 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                                         style={{ color: token.color, backgroundColor: `${token.color}15` }}
                                         className="px-1.5 py-0.5 rounded mx-0.5 font-bold transition-all border border-current"
                                     >
-                                        {token.text}
+                                        {token.transcript}
                                     </span>
                                 );
                             }
-                            return <span key={i} className="mx-0.5">{token.text}</span>;
+                            return <span key={i} className="mx-0.5">{token.transcript}</span>;
                         })}
                     </div>
                 ) : (

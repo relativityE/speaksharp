@@ -39,6 +39,7 @@
     "test:canary": "playwright test tests/canary --config=playwright.canary.config.ts",
     "test:canary:prod": "cross-env BASE_URL=https://speaksharp-public.vercel.app pnpm test:canary",
     "// Soak (Performance)": "",
+    "pretest:soak": "npx kill-port 5173 || true",
     "test:soak": "playwright test --config=playwright.soak.config.ts --project=chromium",
     "test:soak:api": "dotenv -e .env.development -- tsx tests/soak/api-load-test.ts",
     "test:soak:verify": "dotenv -e .env.development -- tsx tests/soak/verify-users.ts",

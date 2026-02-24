@@ -35,41 +35,11 @@ export const CANARY_USER = {
   password: process.env.CANARY_PASSWORD || '',
 };
 
-// Array of soak test users for concurrent testing
-// Emails follow pattern: soak-test{N}@test.com (0-indexed)
-// Password is shared via SOAK_TEST_PASSWORD env var
-// Can be overridden via NUM_FREE_USERS and NUM_PRO_USERS env vars in CI
-const getEnvNum = (key: string, def: number) => {
-  if (typeof process !== 'undefined' && process.env && process.env[key]) {
-    const val = parseInt(process.env[key] as string, 10);
-    return isNaN(val) || val < 0 ? def : val;
-  }
-  return def;
-};
-
-// Allow explicit CONCURRENT_USERS override, defaulting to sum of types if not present
-// If CONCURRENT_USERS is set, we scale the types proportionally or default to mostly free
-const PREFERRED_TOTAL = getEnvNum('CONCURRENT_USERS', 0);
-export const FREE_USER_COUNT = getEnvNum('NUM_FREE_USERS', PREFERRED_TOTAL > 0 ? PREFERRED_TOTAL : 7);
-export const PRO_USER_COUNT = getEnvNum('NUM_PRO_USERS', PREFERRED_TOTAL > 0 ? 0 : 3);
-export const CONCURRENT_USER_COUNT = FREE_USER_COUNT + PRO_USER_COUNT;
-export const MAX_TOTAL_TEST_USERS = 100; // Safety cap to prevent provisioning overload
-
-// Auto-generate tiers: first FREE_USER_COUNT are free, next PRO_USER_COUNT are pro
-// Example: 2 free + 1 pro = ['free', 'free', 'pro']
-export const SOAK_USER_TIERS: ('free' | 'pro')[] = [
-  ...Array(FREE_USER_COUNT).fill('free' as const),
-  ...Array(PRO_USER_COUNT).fill('pro' as const),
+// The two specific credentials we use for the frontend isolated sandboxes
+export const SOAK_TEST_USERS = [
+  { email: 'soak-test0@test.com', password: process.env.SOAK_TEST_PASSWORD || 'password123' },
+  { email: 'soak-test1@test.com', password: process.env.SOAK_TEST_PASSWORD || 'password123' }
 ];
-
-export const SOAK_TEST_USERS = Array.from(
-  { length: CONCURRENT_USER_COUNT },
-  (_, i) => ({
-    email: `soak-test${i}@test.com`,
-    password: process.env.SOAK_TEST_PASSWORD || 'password123',
-    tier: SOAK_USER_TIERS[i],
-  })
-);
 
 // ============================================
 // ROUTES
@@ -156,6 +126,16 @@ export const TEST_IDS = {
   PROTECTED_ROUTE_LOADING: 'protected-route-loading',
 } as const;
 
+// ============================================
+// TEST USER REGISTRY CONFIGURATION
+// ============================================
+
+// These define how many real accounts setup-test-users.mjs will provision in the DB.
+// We need exactly 15 to satisfy the cloud API_LOAD_CONCURRENCY of 15, plus 2 for UI Memcheck.
+export const FREE_USER_COUNT = 5;
+export const PRO_USER_COUNT = 10;
+export const MAX_TOTAL_TEST_USERS = 50;
+
 // ... (Timeouts and Soak Config remain unchanged)
 
 // ============================================
@@ -174,10 +154,10 @@ export const TIMEOUTS = {
 // SOAK TEST CONFIG
 // ============================================
 
-const SESSION_MS = getEnvNum('SOAK_TEST_DURATION_MS', 120 * 1000); // Default to 2 minutes
+const SESSION_MS = parseInt(process.env.SOAK_TEST_DURATION_MS || '120000', 10); // Default to 2 minutes
 
 export const SOAK_CONFIG = {
-  CONCURRENT_USERS: CONCURRENT_USER_COUNT,
+  CONCURRENT_USERS: 2,
   SESSION_DURATION_MS: SESSION_MS,
   // Mathematical Relationship: 2.5x Safety Multiplier
   // This accounts for (Setup + Staggered Auth + Active Session + Metrics Collection)

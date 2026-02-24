@@ -170,7 +170,7 @@ describe('SessionPage Rendering', () => {
         expect(screen.getByTestId('pause-metrics-display')).toBeInTheDocument();
     });
 
-    it('should render Add Custom Word settings button', () => {
+    it('should render Add User Word settings button', () => {
         render(<SessionPage />);
         // The settings button is passed as headerAction to FillerWordsCard
         expect(screen.getByTestId('add-custom-word-button')).toBeInTheDocument();

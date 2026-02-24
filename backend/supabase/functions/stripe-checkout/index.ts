@@ -80,15 +80,6 @@ serve(async (req) => {
     // 3. User Authentication
     console.log('[Stripe Checkout] 👤 Authenticating user...');
 
-    // Parse body for client origin override (safe for localhost)
-    let returnUrlOrigin: string | undefined;
-    try {
-      const body = await req.json();
-      returnUrlOrigin = body.returnUrlOrigin;
-    } catch {
-      // Body might be empty or invalid json, ignore
-    }
-
     const { data: { user }, error: userError } = await supabase.auth.getUser()
 
     if (userError) {
@@ -116,12 +107,17 @@ serve(async (req) => {
       console.warn("[Stripe Checkout] ⚠️ Using mock price ID - set STRIPE_PRO_PRICE_ID for real checkout");
     }
 
-    // Determine return URL base (allow localhost override for dev experience)
-    let siteUrl = Deno.env.get("SITE_URL") ?? `http://localhost:${DEV_PORT}`;
-    if (returnUrlOrigin && (returnUrlOrigin.includes('localhost') || returnUrlOrigin.includes('127.0.0.1'))) {
-      console.log(`[Stripe Checkout] 🔧 Overriding SITE_URL with client origin: ${returnUrlOrigin}`);
-      siteUrl = returnUrlOrigin;
+    // 5. Determine return URL base (Strictly from Secrets)
+    const siteUrl = Deno.env.get("SITE_URL");
+    const isLocalDev = !siteUrl || siteUrl.includes('localhost');
+
+    if (!siteUrl && !isLocalDev) {
+      console.error('[Stripe Checkout] ❌ SITE_URL missing in production');
+      // ... fall back to localhost for dev, but this is caught by preflight usually
     }
+
+    const effectiveSiteUrl = siteUrl ?? `http://localhost:${DEV_PORT}`;
+    console.log(`[Stripe Checkout] 🔐 Using SITE_URL: ${effectiveSiteUrl}`);
 
     // 5. Stripe Session Creation
     console.log(`[Stripe Checkout] 💳 Creating Stripe Session with Price ID: ${priceId}`);
@@ -135,8 +131,8 @@ serve(async (req) => {
           },
         ],
         mode: "subscription",
-        success_url: `${siteUrl}/session?checkout=success`,
-        cancel_url: `${siteUrl}/pricing?checkout=cancelled`,
+        success_url: `${effectiveSiteUrl}/session?checkout=success`,
+        cancel_url: `${effectiveSiteUrl}/pricing?checkout=cancelled`,
         customer_email: user.email,
         metadata: {
           userId: user.id,

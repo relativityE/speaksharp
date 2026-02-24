@@ -18,6 +18,8 @@ interface AISuggestionsData {
 
 interface AISuggestionsProps {
   transcript: string;
+  sessionId?: string;
+  initialSuggestions?: AISuggestionsData;
   metrics?: {
     wpm?: number;
     clarity_score?: number;
@@ -33,8 +35,8 @@ interface AISuggestionsProps {
   };
 }
 
-const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, metrics }) => {
-  const [suggestions, setSuggestions] = useState<AISuggestionsData | null>(null);
+const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, initialSuggestions, metrics }) => {
+  const [suggestions, setSuggestions] = useState<AISuggestionsData | null>(initialSuggestions || null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,7 +49,11 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, metrics }) =>
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase client not available");
       const { data, error: invokeError } = await supabase.functions.invoke('get-ai-suggestions', {
-        body: { transcript, metrics },
+        body: {
+          transcript,
+          metrics: metrics || null,
+          sessionId: sessionId || null
+        },
       });
 
       if (invokeError) {

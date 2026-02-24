@@ -1,0 +1,23 @@
+* main
+  main_backup
+  main_backup_v2
+  main_backup_v3
+  remotes/origin/HEAD -> origin/main
+  remotes/origin/analytics-rpc-optimization-8968773271824890634
+  remotes/origin/audit-remediation-v3.5.0-9535177639909586363
+  remotes/origin/audit-remediation-v3.5.0-9667526882572099403
+  remotes/origin/audit-remediation-v3.5.1-6887098308238859507
+  remotes/origin/broken_private_stt
+  remotes/origin/feat-lovable-theme-update-4304957832729169240
+  remotes/origin/fix-ci-pipeline-restoration-2568402248620985314
+  remotes/origin/fix-ci-pipeline-stabilization-11923112891765580587
+  remotes/origin/fix-nlp-cache-thrashing-2762431532328393602
+  remotes/origin/fix-stripe-webhook-client-caching-16159673218175211336
+  remotes/origin/fix-test-timeouts-and-ci-pipeline-14197628404516221411
+  remotes/origin/fix/ci-pipeline-stabilization-11923112891765580587
+  remotes/origin/main
+  remotes/origin/perf-incremental-filler-words-15401037555925018871
+  remotes/origin/perf-optimize-create-user-upsert-1343850282898283113
+  remotes/origin/perf-optimize-usage-limit-auth-12604454255729717345
+  remotes/origin/prod-readiness-audit-fixes-15910645565085101201
+  remotes/origin/theme-update-lovable-89364589631437925

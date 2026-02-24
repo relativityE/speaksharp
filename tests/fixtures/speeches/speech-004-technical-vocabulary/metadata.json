@@ -1,0 +1,13 @@
+{
+    "name": "speech-004-technical-vocabulary",
+    "words": 48,
+    "fillerWords": [],
+    "labels": [
+        "technical",
+        "vocabulary",
+        "security"
+    ],
+    "speakers": 1,
+    "duration": 30,
+    "type": "technical"
+}

@@ -1,5 +1,14 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-16
+**Last Reviewed:** 2026-02-21
+
+- **Pattern 19: Isomorphic Test Fixtures (`@shared/test-fixtures`)**: Mandatory SSOT for all mock data. Prevents drift between MSW and Playwright.
+- **Pattern 20: Atomic State Lock (FSM `CLEANING_UP`)**: Prevents race conditions during engine destruction and re-init.
+-   **Pattern 21: Secure Redirect Enforcement**: Always use server-side `SITE_URL` for Stripe redirects; never trust client-provided origins.
+-   **Pattern 22: O(1) Filler Word Observer**: Mandatory for infinite-duration recording stability.
+-   **Pattern 23: NLP LRU Cache**: Optimization for multi-speaker/alternating dialog analysis.
+-   **Pattern 24: Debounced Interim NLP**: Prevents main-thread stuttering during rapid speech.
+-   **Pattern 25: Atomic Row-locking**: Restored `FOR UPDATE` in Supabase RPC to prevent concurrent usage bypass.
+-   **Pattern 26: AI Suggestion Persistence**: Durable feedback across reloads via JSONB persistence in `sessions`.
 
 # Agent Instructions for SpeakSharp Repository
 
@@ -27,7 +36,7 @@ Do not proceed until this script completes successfully. If it fails, follow the
 
 ### 🧪 Testing & Quality
 - **📖 Testing Strategy (MANDATORY)**: All agents MUST read **[tests/TESTING.md](tests/TESTING.md)** and **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#3-testing-strategy--governance)** before writing any tests.
-- **Integrity over Implementation**: Tests must validate requirements and design intent, not just structural implementation.
+- **Integrity over Implementation**: Tests must validate requirements and design intent, not structural implementation. Every test must answer one question: *"Does the product do what the user paid for?"*
 - **Fail Fast, Fail Hard**: Avoid hanging tests; use aggressive 30s timeouts and explicit assertions to surface failures immediately.
 - **Strict Linting (ADR-001)**: `eslint-disable` is banned. Fix root causes (types, dependency arrays) for long-term stability. Permanent "Zero-Debt" mandate.
 - **Decomposition over Monoliths**: Never create or expand "God Files" (e.g., `TranscriptionProvider.tsx`). Always decompose logic into atomic hooks (`useTranscriptionState`, `useTranscriptionControl`).
@@ -40,6 +49,8 @@ Do not proceed until this script completes successfully. If it fails, follow the
 - **Privacy-First**: Core differentiator. All audio stays on-device in "Private" mode.
 - **Event-Based Synchronization**: Never use arbitrary `sleep()` or timeouts for waiting. Use selectors or events.
 - **Dual-Engine Facade**: Multi-stage fallback (WhisperTurbo -> TransformersJS -> Native) for 99.9% reliability.
+- **Deterministic Timing**: Use **`setE2ETime`** helper for E2E store sync. **NEVER** use `page.clock` (prevents calculation drift).
+- **Auto-Mocking**: Always use the **`mockedPage`** fixture in Playwright E2E tests for zero-config MSW parity.
 - **Lean Schema**: Exclude optional fields to minimize data footprint and PII.
 - **Zero-Wait UX (Optimistic Entry)**: Fallback immediately if heavy models aren't cached, but continue loading in background.
 
@@ -177,7 +188,7 @@ ___
     **Terminology Clarification:**
     - `test:health-check`: Runs a fast validation suite (Preflight + Unit Tests + Mock E2E).
     - **"Healthcheck passed!"**: This log message comes from the Lighthouse CLI and refers to its internal environment check, NOT the project's health check script.
-    - **Mock Smoke Test**: Refers specifically to `tests/e2e/mock.smoke.e2e.spec.ts`.
+    - **Health Check Test**: Refers specifically to `tests/e2e/health-check.e2e.spec.ts`.
     
     **CRITICAL:** `ci:local` is NOT a simulation - it runs the exact same commands as GitHub CI (frozen lockfile, same build, same shards). If it passes locally, CI will pass.
     

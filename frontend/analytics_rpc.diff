@@ -1,0 +1,1321 @@
+diff --git a/backend/supabase/migrations/20260213000000_analytics_rpc.sql b/backend/supabase/migrations/20260213000000_analytics_rpc.sql
+new file mode 100644
+index 0000000..d896473
+--- /dev/null
++++ b/backend/supabase/migrations/20260213000000_analytics_rpc.sql
+@@ -0,0 +1,173 @@
++-- Migration: get_analytics_summary RPC (v3)
++-- Move analytics aggregation from client-side to Supabase RPC to handle large datasets.
++-- Added weekly activity and weekly sessions count.
++-- SECURE: Verifies p_user_id matches auth.uid().
++
++CREATE OR REPLACE FUNCTION get_analytics_summary(p_user_id UUID)
++RETURNS JSONB
++LANGUAGE plpgsql
++SECURITY DEFINER
++SET search_path = public
++AS $$
++DECLARE
++    v_overall_stats JSONB;
++    v_top_filler_words JSONB;
++    v_chart_data JSONB;
++    v_filler_word_trends JSONB;
++    v_accuracy_data JSONB;
++    v_weekly_activity JSONB;
++    v_weekly_sessions_count INT;
++    v_total_sessions INT;
++    v_total_duration_seconds INT;
++    v_total_words INT;
++    v_sum_wpm FLOAT8;
++    v_sum_clarity FLOAT8;
++    v_total_filler_words INT;
++BEGIN
++    -- SECURITY CHECK
++    IF p_user_id != auth.uid() THEN
++        RAISE EXCEPTION 'Unauthorized: You can only access your own analytics.';
++    END IF;
++
++    -- Overall stats across ALL sessions
++    SELECT
++        count(*),
++        coalesce(sum(duration), 0),
++        coalesce(sum(total_words), 0),
++        coalesce(sum(coalesce(wpm, CASE WHEN duration > 0 THEN (total_words::float / (duration / 60.0)) ELSE 0 END)), 0),
++        coalesce(sum(coalesce(clarity_score, accuracy * 100, 0)), 0)
++    INTO
++        v_total_sessions,
++        v_total_duration_seconds,
++        v_total_words,
++        v_sum_wpm,
++        v_sum_clarity
++    FROM sessions
++    WHERE user_id = p_user_id;
++
++    -- Total filler words
++    SELECT coalesce(sum((v.value->>'count')::int), 0)
++    INTO v_total_filler_words
++    FROM sessions s,
++         jsonb_each(s.filler_words) AS v(key, value)
++    WHERE s.user_id = p_user_id
++      AND v.key != 'total';
++
++    v_overall_stats := jsonb_build_object(
++        'totalSessions', v_total_sessions,
++        'totalPracticeTime', round(v_total_duration_seconds / 60.0),
++        'avgWpm', CASE WHEN v_total_sessions > 0 THEN round(v_sum_wpm / v_total_sessions) ELSE 0 END,
++        'avgFillerWordsPerMin', CASE WHEN v_total_duration_seconds > 0 THEN (v_total_filler_words / (v_total_duration_seconds / 60.0))::numeric(10,1)::text ELSE '0.0' END,
++        'avgAccuracy', CASE WHEN v_total_sessions > 0 THEN (v_sum_clarity / v_total_sessions)::numeric(10,1)::text ELSE '0.0' END
++    );
++
++    -- Top 2 Filler Words
++    SELECT coalesce(jsonb_agg(d), '[]'::jsonb) INTO v_top_filler_words
++    FROM (
++        SELECT v.key as word, sum((v.value->>'count')::int) as count
++        FROM sessions s,
++             jsonb_each(s.filler_words) AS v(key, value)
++        WHERE s.user_id = p_user_id
++          AND v.key != 'total'
++        GROUP BY v.key
++        ORDER BY count DESC
++        LIMIT 2
++    ) d;
++
++    -- Chart Data (last 10 sessions)
++    SELECT coalesce(jsonb_agg(d), '[]'::jsonb) INTO v_chart_data
++    FROM (
++        SELECT
++            to_char(created_at, 'MM/DD/YYYY') as date,
++            CASE WHEN duration > 0 THEN (fw_count / (duration / 60.0))::numeric(10,2)::text ELSE '0.00' END as "FW/min",
++            coalesce(clarity_score, CASE WHEN duration > 0 THEN 100 - ((fw_count / (duration / 60.0)) * 2) ELSE 100 END) as clarity
++        FROM (
++            SELECT
++                s.created_at,
++                s.duration,
++                s.clarity_score,
++                coalesce((SELECT sum((v.value->>'count')::int) FROM jsonb_each(s.filler_words) AS v(key, value) WHERE v.key != 'total'), 0) as fw_count
++            FROM sessions s
++            WHERE s.user_id = p_user_id
++            ORDER BY s.created_at DESC
++            LIMIT 10
++        ) sub
++        ORDER BY created_at ASC
++    ) d;
++
++    -- Accuracy Data (last 10 sessions with engine)
++    SELECT coalesce(jsonb_agg(d), '[]'::jsonb) INTO v_accuracy_data
++    FROM (
++        SELECT
++            to_char(created_at, 'MM/DD/YYYY') as date,
++            coalesce(clarity_score, accuracy * 100) as accuracy,
++            engine
++        FROM sessions
++        WHERE user_id = p_user_id
++          AND engine IS NOT NULL
++          AND (clarity_score IS NOT NULL OR accuracy IS NOT NULL)
++        ORDER BY created_at DESC
++        LIMIT 10
++    ) d;
++
++    -- Weekly Sessions Count (last 7 days)
++    SELECT count(*) INTO v_weekly_sessions_count
++    FROM sessions
++    WHERE user_id = p_user_id AND created_at >= now() - interval '7 days';
++
++    -- Weekly Activity (Current Week starting Sunday in JS terms)
++    SELECT jsonb_agg(d) INTO v_weekly_activity
++    FROM (
++        SELECT
++            to_char(d, 'Dy') as day,
++            (SELECT count(*) FROM sessions WHERE user_id = p_user_id AND created_at::date = d::date) as sessions
++        FROM generate_series(
++            date_trunc('day', now() - (extract(dow from now()) * interval '1 day')),
++            date_trunc('day', now() - (extract(dow from now()) * interval '1 day')) + interval '6 days',
++            interval '1 day'
++        ) d
++    ) d;
++
++    -- Filler Word Trends (Last 10 sessions, compare 0-5 and 5-10)
++    WITH last_10_sessions AS (
++        SELECT id, created_at, row_number() OVER (ORDER BY created_at DESC) as rn
++        FROM sessions
++        WHERE user_id = p_user_id
++        LIMIT 10
++    ),
++    filler_counts AS (
++        SELECT
++            l.rn,
++            v.key as word,
++            (v.value->>'count')::int as count
++        FROM last_10_sessions l
++        JOIN sessions s ON s.id = l.id
++        CROSS JOIN LATERAL jsonb_each(s.filler_words) AS v(key, value)
++        WHERE v.key != 'total'
++    ),
++    averages AS (
++        SELECT
++            word,
++            avg(count) FILTER (WHERE rn <= 5) as current_avg,
++            avg(count) FILTER (WHERE rn > 5) as previous_avg
++        FROM filler_counts
++        GROUP BY word
++    )
++    SELECT coalesce(jsonb_object_agg(word, jsonb_build_object('current', coalesce(current_avg, 0), 'previous', coalesce(previous_avg, 0))), '{}'::jsonb)
++    INTO v_filler_word_trends
++    FROM averages;
++
++    RETURN jsonb_build_object(
++        'overallStats', v_overall_stats || jsonb_build_object('chartData', v_chart_data),
++        'topFillerWords', v_top_filler_words,
++        'fillerWordTrends', v_filler_word_trends,
++        'accuracyData', v_accuracy_data,
++        'weeklySessionsCount', v_weekly_sessions_count,
++        'weeklyActivity', v_weekly_activity
++    );
++END;
++$$;
++
++-- Grant permissions
++GRANT EXECUTE ON FUNCTION get_analytics_summary(UUID) TO authenticated;
++GRANT EXECUTE ON FUNCTION get_analytics_summary(UUID) TO service_role;
+diff --git a/frontend/src/components/analytics/GoalsSection.tsx b/frontend/src/components/analytics/GoalsSection.tsx
+index 01eac2c..be4c896 100644
+--- a/frontend/src/components/analytics/GoalsSection.tsx
++++ b/frontend/src/components/analytics/GoalsSection.tsx
+@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
+ import { EditGoalsDialog } from './EditGoalsDialog';
+ 
+ export const GoalsSection: React.FC = () => {
+-    const { sessionHistory, overallStats, loading, error } = useAnalytics();
++    const { weeklySessionsCount, overallStats, loading, error } = useAnalytics();
+     const { goals, setGoals } = useGoals();
+ 
+     if (loading) {
+@@ -35,14 +35,8 @@ export const GoalsSection: React.FC = () => {
+         );
+     }
+ 
+-    // Calculate weekly sessions (last 7 days)
+-    const now = new Date();
+-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+-
+-    const weeklySessions = sessionHistory?.filter(session => {
+-        const sessionDate = new Date(session.created_at);
+-        return sessionDate >= sevenDaysAgo;
+-    }).length || 0;
++    // Use pre-computed weekly session count from useAnalytics
++    const weeklySessions = weeklySessionsCount || 0;
+ 
+     // Use customizable goals from localStorage
+     const { weeklyGoal, clarityGoal } = goals;
+diff --git a/frontend/src/components/analytics/WeeklyActivityChart.tsx b/frontend/src/components/analytics/WeeklyActivityChart.tsx
+index 0e0df08..e6d3b5f 100644
+--- a/frontend/src/components/analytics/WeeklyActivityChart.tsx
++++ b/frontend/src/components/analytics/WeeklyActivityChart.tsx
+@@ -8,37 +8,23 @@ import { Skeleton } from '@/components/ui/skeleton';
+ const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+ 
+ export const WeeklyActivityChart: React.FC = () => {
+-    const { sessionHistory, loading, error } = useAnalytics();
++    const { weeklyActivity, loading, error } = useAnalytics();
+ 
+-    // Calculate weekly activity from real session data
++    // Use pre-computed chart data from useAnalytics (which handles RPC or fallback)
+     const chartData = useMemo(() => {
+-        // Initialize all days with 0 sessions
+-        const dayCounts: Record<string, number> = {};
+-        DAYS_OF_WEEK.forEach(day => { dayCounts[day] = 0; });
+-
+-        // Get the start of the current week (Sunday)
+-        const now = new Date();
+-        const startOfWeek = new Date(now);
+-        startOfWeek.setDate(now.getDate() - now.getDay());
+-        startOfWeek.setHours(0, 0, 0, 0);
+-
+-        // Count sessions per day for the current week
+-        sessionHistory?.forEach(session => {
+-            const sessionDate = new Date(session.created_at);
+-            // Only count sessions from the current week
+-            if (sessionDate >= startOfWeek) {
+-                const dayName = DAYS_OF_WEEK[sessionDate.getDay()];
+-                dayCounts[dayName]++;
+-            }
+-        });
++        if (!weeklyActivity || weeklyActivity.length === 0) return [];
+ 
+         // Convert to array format for recharts, starting with Mon for display
++        // weeklyActivity from RPC/hook uses standard ['Sun', ..., 'Sat'] order
+         const orderedDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+-        return orderedDays.map(day => ({
+-            day,
+-            sessions: dayCounts[day]
+-        }));
+-    }, [sessionHistory]);
++        return orderedDays.map(day => {
++            const dayData = weeklyActivity.find(d => d.day === day);
++            return {
++                day,
++                sessions: dayData ? dayData.sessions : 0
++            };
++        });
++    }, [weeklyActivity]);
+ 
+     if (loading) {
+         return (
+diff --git a/frontend/src/hooks/__tests__/useAnalytics.test.ts b/frontend/src/hooks/__tests__/useAnalytics.test.tsx
+similarity index 67%
+rename from frontend/src/hooks/__tests__/useAnalytics.test.ts
+rename to frontend/src/hooks/__tests__/useAnalytics.test.tsx
+index d938b21..6b5ccff 100644
+--- a/frontend/src/hooks/__tests__/useAnalytics.test.ts
++++ b/frontend/src/hooks/__tests__/useAnalytics.test.tsx
+@@ -4,26 +4,54 @@ import { useAnalytics } from '../useAnalytics';
+ import { usePracticeHistory } from '../usePracticeHistory';
+ import { useSession } from '../useSession';
+ import { useParams } from 'react-router-dom';
++import { useAuthProvider } from '../../contexts/AuthProvider';
++import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
++import { getSessionCount } from '../../lib/storage';
+ 
+ // Mock dependencies
+ vi.mock('../usePracticeHistory');
+ vi.mock('../useSession');
++vi.mock('../../lib/storage', () => ({
++    getAnalyticsSummary: vi.fn(),
++    getSessionCount: vi.fn(),
++}));
++vi.mock('../../contexts/AuthProvider', () => ({
++    useAuthProvider: vi.fn(),
++}));
+ vi.mock('react-router-dom', () => ({
+     useParams: vi.fn(),
+ }));
+ 
++const queryClient = new QueryClient({
++    defaultOptions: {
++        queries: {
++            retry: false,
++        },
++    },
++});
++
++const wrapper = ({ children }: { children: React.ReactNode }) => (
++    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
++);
++
+ describe('useAnalytics', () => {
+     beforeEach(() => {
+         vi.clearAllMocks();
++        queryClient.clear();
+         (useParams as Mock).mockReturnValue({});
+         (useSession as Mock).mockReturnValue({ data: null, isLoading: false });
++        (useAuthProvider as unknown as Mock).mockReturnValue({ user: { id: 'test-user' } });
+     });
+ 
+     it('should process analytics data correctly from usePracticeHistory', async () => {
++        const now = new Date();
++        const yesterday = new Date(now);
++        yesterday.setDate(now.getDate() - 1);
++
+         const mockSessions = [
+             {
+                 id: 's1',
+-                created_at: '2023-10-27T10:00:00.000Z',
++                created_at: now.toISOString(),
+                 duration: 60,
+                 total_words: 100,
+                 accuracy: 0.9,
+@@ -34,7 +62,7 @@ describe('useAnalytics', () => {
+             },
+             {
+                 id: 's2',
+-                created_at: '2023-10-26T10:00:00.000Z',
++                created_at: yesterday.toISOString(),
+                 duration: 120,
+                 total_words: 200,
+                 accuracy: 0.8,
+@@ -50,8 +78,9 @@ describe('useAnalytics', () => {
+             isLoading: false,
+             error: null
+         });
++        (getSessionCount as Mock).mockResolvedValue(mockSessions.length);
+ 
+-        const { result } = renderHook(() => useAnalytics());
++        const { result } = renderHook(() => useAnalytics(), { wrapper });
+ 
+         expect(result.current.loading).toBe(false);
+         expect(result.current.error).toBe(null);
+@@ -65,6 +94,8 @@ describe('useAnalytics', () => {
+ 
+         expect(result.current.overallStats.totalSessions).toBe(2);
+         expect(result.current.overallStats.totalPracticeTime).toBe(3); // 180s / 60 = 3m
++        expect(result.current.weeklySessionsCount).toBe(2);
++        expect(result.current.weeklyActivity).toHaveLength(7);
+     });
+ 
+     it('should filter sessions when sessionId is present in URL', async () => {
+@@ -78,10 +109,11 @@ describe('useAnalytics', () => {
+             isLoading: false,
+             error: null
+         });
++        (getSessionCount as Mock).mockResolvedValue(mockSessions.length);
+ 
+         (useParams as Mock).mockReturnValue({ sessionId: 's1' });
+ 
+-        const { result } = renderHook(() => useAnalytics());
++        const { result } = renderHook(() => useAnalytics(), { wrapper });
+ 
+         expect(result.current.sessionHistory).toHaveLength(1);
+         expect(result.current.sessionHistory[0].id).toBe('s1');
+diff --git a/frontend/src/hooks/useAnalytics.ts b/frontend/src/hooks/useAnalytics.ts
+index 934a4f9..a552838 100644
+--- a/frontend/src/hooks/useAnalytics.ts
++++ b/frontend/src/hooks/useAnalytics.ts
+@@ -1,8 +1,11 @@
+ import { useMemo } from 'react';
+ import logger from '../lib/logger';
+ import { useParams } from 'react-router-dom';
++import { useQuery } from '@tanstack/react-query';
++import { useAuthProvider } from '../contexts/AuthProvider';
+ import { usePracticeHistory } from './usePracticeHistory';
+ import { useSession } from './useSession';
++import { getAnalyticsSummary, getSessionCount } from '../lib/storage';
+ import {
+     calculateOverallStats,
+     calculateFillerWordTrends,
+@@ -53,6 +56,7 @@ const EMPTY_SESSIONS: PracticeSession[] = [];
+ 
+ export const useAnalytics = () => {
+     const { sessionId } = useParams<{ sessionId: string }>();
++    const { user } = useAuthProvider();
+ 
+     // 3.2 SCALABILITY FIX: Limit fetch to 20 sessions for dashboard/trends.
+     // This prevents performance bottlenecks for users with many sessions.
+@@ -60,10 +64,25 @@ export const useAnalytics = () => {
+         limit: 20
+     }), []);
+ 
+-    const { data, isLoading, error } = usePracticeHistory(paginationOptions);
++    const { data: allSessions = EMPTY_SESSIONS, isLoading, error } = usePracticeHistory(paginationOptions);
+     const { data: specificSession, isLoading: isSessionLoading } = useSession(sessionId);
+ 
+-    const allSessions = data ?? EMPTY_SESSIONS;
++    const { data: totalSessionsCount = 0 } = useQuery({
++        queryKey: ["sessionCount", user?.id],
++        queryFn: () => getSessionCount(user!.id),
++        enabled: !!user && !sessionId,
++    });
++
++    // Use RPC for aggregation when dataset is large (> 20 sessions)
++    // and we are not in a specific session view.
++    const shouldUseRPC = totalSessionsCount > 20 && !sessionId;
++
++    const { data: summaryData, isLoading: isSummaryLoading } = useQuery({
++        queryKey: ["analyticsSummary", user?.id],
++        queryFn: () => getAnalyticsSummary(user!.id),
++        enabled: !!user && shouldUseRPC,
++        staleTime: 5 * 60 * 1000,
++    });
+ 
+     // DEV BYPASS: Add mock session data for UI testing
+     const isDevBypass = import.meta.env.DEV && window.location.search.includes('devBypass=true');
+@@ -88,6 +107,12 @@ export const useAnalytics = () => {
+     }, [sessionId, sessionsToUse, specificSession]);
+ 
+     const analyticsData = useMemo(() => {
++        // Use pre-computed summary from RPC if available and appropriate
++        if (shouldUseRPC && summaryData) {
++            logger.debug('[useAnalytics] Using summary data from RPC');
++            return summaryData;
++        }
++
+         logger.debug({ count: sessionHistory?.length }, '[useAnalytics] Computing analytics data');
+         if (!sessionHistory || sessionHistory.length === 0) {
+             logger.debug('[useAnalytics] No sessions - returning empty analytics data');
+@@ -102,18 +127,45 @@ export const useAnalytics = () => {
+                 },
+                 fillerWordTrends: {},
+                 topFillerWords: [],
+-                accuracyData: []
++                accuracyData: [],
++                weeklySessionsCount: 0,
++                weeklyActivity: []
+             };
+         }
+ 
+         logger.debug({ count: sessionHistory.length }, '[useAnalytics] Computing stats');
++        const overallStats = calculateOverallStats(sessionHistory);
++        const fillerWordTrends = calculateFillerWordTrends(sessionHistory);
++        const topFillerWords = calculateTopFillerWords(sessionHistory);
++        const accuracyData = calculateAccuracyData(sessionHistory);
++
++        // Client-side fallback for weekly metrics
++        const now = new Date();
++        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
++        const weeklySessionsCount = sessionHistory.filter(s => new Date(s.created_at) >= sevenDaysAgo).length;
++
++        const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
++        const startOfWeek = new Date(now);
++        startOfWeek.setDate(now.getDate() - now.getDay());
++        startOfWeek.setHours(0, 0, 0, 0);
++
++        const dayCounts: Record<string, number> = {};
++        DAYS.forEach(d => { dayCounts[d] = 0; });
++        sessionHistory.forEach(s => {
++            const d = new Date(s.created_at);
++            if (d >= startOfWeek) dayCounts[DAYS[d.getDay()]]++;
++        });
++        const weeklyActivity = DAYS.map(day => ({ day, sessions: dayCounts[day] }));
++
+         return {
+-            overallStats: calculateOverallStats(sessionHistory),
+-            fillerWordTrends: calculateFillerWordTrends(sessionHistory.slice(0, 5)),
+-            topFillerWords: calculateTopFillerWords(sessionHistory),
+-            accuracyData: calculateAccuracyData(sessionHistory)
++            overallStats,
++            fillerWordTrends,
++            topFillerWords,
++            accuracyData,
++            weeklySessionsCount,
++            weeklyActivity
+         };
+-    }, [sessionHistory]);
++    }, [shouldUseRPC, summaryData, sessionHistory]);
+ 
+     // CRITICAL: Don't wait for individual session query if the session list
+     // has already loaded and the session isn't in it. This prevents the
+@@ -131,7 +183,7 @@ export const useAnalytics = () => {
+         sessionHistory,
+         ...analyticsData,
+         // DEV BYPASS: Force loading to false when devBypass is active so UI renders with mock data
+-        loading: isDevBypass ? false : (isLoading || effectiveSessionLoading),
++        loading: isDevBypass ? false : (isLoading || effectiveSessionLoading || (shouldUseRPC && isSummaryLoading)),
+         error
+     };
+ };
+\ No newline at end of file
+diff --git a/frontend/src/lib/storage.ts b/frontend/src/lib/storage.ts
+index e264cdc..c86cb0f 100644
+--- a/frontend/src/lib/storage.ts
++++ b/frontend/src/lib/storage.ts
+@@ -3,6 +3,7 @@ import logger from './logger';
+ import type { PracticeSession } from '../types/session';
+ import type { UserProfile } from '../types/user';
+ import type { PostgrestError } from '@supabase/supabase-js';
++import type { AnalyticsSummary } from '../types/analytics';
+ import { isFree } from '@/constants/subscriptionTiers';
+ 
+ /**
+@@ -162,6 +163,57 @@ export const deleteSession = async (sessionId: string): Promise<boolean> => {
+   return true;
+ };
+ 
++/**
++ * Fetches an aggregated analytics summary for a user via Supabase RPC.
++ * @param {string} userId - The ID of the user.
++ * @returns {Promise<AnalyticsSummary | null>}
++ */
++export const getAnalyticsSummary = async (userId: string): Promise<AnalyticsSummary | null> => {
++  const supabase = getSupabaseClient();
++  if (!userId) return null;
++
++  try {
++    logger.info({ userId: userId.slice(0, 8) + '...' }, '[Supabase DB] 📊 Fetching analytics summary via RPC');
++    const { data, error } = await supabase.rpc('get_analytics_summary', { p_user_id: userId });
++
++    if (error) {
++      logger.error({ error }, 'Error calling get_analytics_summary:');
++      throw error;
++    }
++
++    return data as AnalyticsSummary;
++  } catch (err) {
++    logger.error({ err }, '[getAnalyticsSummary] Failed');
++    return null;
++  }
++};
++
++/**
++ * Fetches the total count of sessions for a user.
++ * @param {string} userId - The ID of the user.
++ * @returns {Promise<number>}
++ */
++export const getSessionCount = async (userId: string): Promise<number> => {
++  const supabase = getSupabaseClient();
++  if (!userId) return 0;
++
++  try {
++    const { count, error } = await supabase
++      .from('sessions')
++      .select('*', { count: 'exact', head: true })
++      .eq('user_id', userId);
++
++    if (error) {
++      logger.error({ error }, 'Error fetching session count:');
++      return 0;
++    }
++    return count || 0;
++  } catch (err) {
++    logger.error({ err }, '[getSessionCount] Failed');
++    return 0;
++  }
++};
++
+ /**
+  * Exports all data for a specific user.
+  * @param {string} userId - The ID of the user.
+diff --git a/frontend/src/types/analytics.ts b/frontend/src/types/analytics.ts
+index e85ae4b..5745acc 100644
+--- a/frontend/src/types/analytics.ts
++++ b/frontend/src/types/analytics.ts
+@@ -4,3 +4,27 @@ export interface FillerWordTrends {
+     previous: number;
+   };
+ }
++
++export interface ChartDataPoint {
++  date: string;
++  'FW/min': string | number;
++  clarity: number;
++}
++
++export interface OverallStats {
++  totalSessions: number;
++  totalPracticeTime: number;
++  avgWpm: number;
++  avgFillerWordsPerMin: string | number;
++  avgAccuracy: string | number;
++  chartData: ChartDataPoint[];
++}
++
++export interface AnalyticsSummary {
++  overallStats: OverallStats;
++  fillerWordTrends: FillerWordTrends;
++  topFillerWords: { word: string; count: number }[];
++  accuracyData: { date: string; accuracy: number; engine: string }[];
++  weeklySessionsCount: number;
++  weeklyActivity: { day: string; sessions: number }[];
++}
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 5fdc35e..a9066ca 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -285,7 +285,7 @@ importers:
+         version: 3.2.0(vite@7.2.2(@types/node@24.10.1)(jiti@1.21.7)(lightningcss@1.30.2)(tsx@4.20.6)(yaml@2.8.1))
+       vitest:
+         specifier: ^3.2.4
+-        version: 3.2.4(@types/node@24.10.1)(@vitest/ui@3.2.4)(happy-dom@20.0.10)(jiti@1.21.7)(lightningcss@1.30.2)(msw@2.12.2(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1)
++        version: 3.2.4(@types/node@24.10.1)(@vitest/ui@3.2.4)(happy-dom@20.0.10)(jiti@1.21.7)(jsdom@28.1.0(canvas@3.2.0))(lightningcss@1.30.2)(msw@2.12.2(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1)
+       wait-on:
+         specifier: ^9.0.3
+         version: 9.0.3
+@@ -296,6 +296,9 @@ importers:
+ 
+ packages:
+ 
++  '@acemir/cssom@0.9.31':
++    resolution: {integrity: sha512-ZnR3GSaH+/vJ0YlHau21FjfLYjMpYVIzTD8M8vIEQvIGxeOXyXdzCI140rrCY862p/C/BbzWsjc1dgnM9mkoTA==}
++
+   '@adobe/css-tools@4.4.4':
+     resolution: {integrity: sha512-Elp+iwUx5rN5+Y8xLt5/GRoG20WGoDCQ/1Fb+1LiGtvwbDavuSk0jhD/eZdckHAuzcDzccnkv+rEjyWfRx18gg==}
+ 
+@@ -307,6 +310,15 @@ packages:
+     resolution: {integrity: sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw==}
+     engines: {node: '>=6.0.0'}
+ 
++  '@asamuzakjp/css-color@4.1.2':
++    resolution: {integrity: sha512-NfBUvBaYgKIuq6E/RBLY1m0IohzNHAYyaJGuTK79Z23uNwmz2jl1mPsC5ZxCCxylinKhT1Amn5oNTlx1wN8cQg==}
++
++  '@asamuzakjp/dom-selector@6.8.1':
++    resolution: {integrity: sha512-MvRz1nCqW0fsy8Qz4dnLIvhOlMzqDVBabZx6lH+YywFDdjXhMY37SmpV1XFX3JzG5GWHn63j6HX6QPr3lZXHvQ==}
++
++  '@asamuzakjp/nwsapi@2.3.9':
++    resolution: {integrity: sha512-n8GuYSrI9bF7FFZ/SjhwevlHc8xaVlb/7HmHelnc/PZXBD2ZR49NnN9sMMuDdEGPeeRQ5d0hqlSlEpgCX3Wl0Q==}
++
+   '@babel/code-frame@7.27.1':
+     resolution: {integrity: sha512-cjQ7ZlQ0Mv3b47hABuTevyTuYN4i+loJKGeV9flcCgIK37cCXRh+L1bd3iBHlynerhQ7BhCkn2BPbQUL+rGqFg==}
+     engines: {node: '>=6.9.0'}
+@@ -398,10 +410,45 @@ packages:
+     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
+     engines: {node: '>=18'}
+ 
++  '@bramus/specificity@2.4.2':
++    resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
++    hasBin: true
++
+   '@cspotcode/source-map-support@0.8.1':
+     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
+     engines: {node: '>=12'}
+ 
++  '@csstools/color-helpers@6.0.1':
++    resolution: {integrity: sha512-NmXRccUJMk2AWA5A7e5a//3bCIMyOu2hAtdRYrhPPHjDxINuCwX1w6rnIZ4xjLcp0ayv6h8Pc3X0eJUGiAAXHQ==}
++    engines: {node: '>=20.19.0'}
++
++  '@csstools/css-calc@3.1.1':
++    resolution: {integrity: sha512-HJ26Z/vmsZQqs/o3a6bgKslXGFAungXGbinULZO3eMsOyNJHeBBZfup5FiZInOghgoM4Hwnmw+OgbJCNg1wwUQ==}
++    engines: {node: '>=20.19.0'}
++    peerDependencies:
++      '@csstools/css-parser-algorithms': ^4.0.0
++      '@csstools/css-tokenizer': ^4.0.0
++
++  '@csstools/css-color-parser@4.0.1':
++    resolution: {integrity: sha512-vYwO15eRBEkeF6xjAno/KQ61HacNhfQuuU/eGwH67DplL0zD5ZixUa563phQvUelA07yDczIXdtmYojCphKJcw==}
++    engines: {node: '>=20.19.0'}
++    peerDependencies:
++      '@csstools/css-parser-algorithms': ^4.0.0
++      '@csstools/css-tokenizer': ^4.0.0
++
++  '@csstools/css-parser-algorithms@4.0.0':
++    resolution: {integrity: sha512-+B87qS7fIG3L5h3qwJ/IFbjoVoOe/bpOdh9hAjXbvx0o8ImEmUsGXN0inFOnk2ChCFgqkkGFQ+TpM5rbhkKe4w==}
++    engines: {node: '>=20.19.0'}
++    peerDependencies:
++      '@csstools/css-tokenizer': ^4.0.0
++
++  '@csstools/css-syntax-patches-for-csstree@1.0.27':
++    resolution: {integrity: sha512-sxP33Jwg1bviSUXAV43cVYdmjt2TLnLXNqCWl9xmxHawWVjGz/kEbdkr7F9pxJNBN2Mh+dq0crgItbW6tQvyow==}
++
++  '@csstools/css-tokenizer@4.0.0':
++    resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
++    engines: {node: '>=20.19.0'}
++
+   '@emnapi/runtime@0.44.0':
+     resolution: {integrity: sha512-ZX/etZEZw8DR7zAB1eVQT40lNo0jeqpb6dCgOvctB6FIQ5PoXfMuNY8+ayQfu8tNQbAB8gQWSSJupR8NxeiZXw==}
+ 
+@@ -602,6 +649,15 @@ packages:
+     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
+     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+ 
++  '@exodus/bytes@1.14.1':
++    resolution: {integrity: sha512-OhkBFWI6GcRMUroChZiopRiSp2iAMvEBK47NhJooDqz1RERO4QuZIZnjP63TXX8GAiLABkYmX+fuQsdJ1dd2QQ==}
++    engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
++    peerDependencies:
++      '@noble/hashes': ^1.8.0 || ^2.0.0
++    peerDependenciesMeta:
++      '@noble/hashes':
++        optional: true
++
+   '@floating-ui/core@1.7.3':
+     resolution: {integrity: sha512-sGnvb5dmrJaKEZ+LDIpguvdX3bDlEllmv4/ClQ9awcmCZrlx5jQyyMWFM5kBI+EyNOCDDiKk8il0zeuX3Zlg/w==}
+ 
+@@ -2261,6 +2317,9 @@ packages:
+     resolution: {integrity: sha512-4Bcg1P8xhUuqcii/S0Z9wiHIrQVPMermM1any+MX5GeGD7faD3/msQUDGLol9wOcz4/jbg/WJnGqoJF6LiBdtg==}
+     engines: {node: '>=10.0.0'}
+ 
++  bidi-js@1.0.3:
++    resolution: {integrity: sha512-RKshQI1R3YQ+n9YJz2QQ147P66ELpa1FQEg20Dk8oW9t2KgLbpDLLp9aGZ7y8WHSshDknG0bknqGw5/tyCs5tw==}
++
+   binary-extensions@2.3.0:
+     resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
+     engines: {node: '>=8'}
+@@ -2524,6 +2583,10 @@ packages:
+   css-line-break@2.1.0:
+     resolution: {integrity: sha512-FHcKFCZcAha3LwfVBhCQbW2nCNbkZXn7KVUJcsT5/P8YmfsVja0FMPJr0B903j/E69HUphKiV9iQArX8SDYA4w==}
+ 
++  css-tree@3.1.0:
++    resolution: {integrity: sha512-0eW44TGN5SQXU1mWSkKwFstI/22X2bG1nYzZTYMAWjylYURhse752YgbE4Cx46AC+bAvI+/dYTPRk1LqSUnu6w==}
++    engines: {node: ^10 || ^12.20.0 || ^14.13.0 || >=15.0.0}
++
+   css.escape@1.5.1:
+     resolution: {integrity: sha512-YUifsXXuknHlUsmlgyY0PKzgPOr7/FjCePfHNt0jxm83wHZi44VDMQ7/fGNkjY3/jV1MC+1CmZbaHzugyeRtpg==}
+ 
+@@ -2532,6 +2595,10 @@ packages:
+     engines: {node: '>=4'}
+     hasBin: true
+ 
++  cssstyle@6.0.1:
++    resolution: {integrity: sha512-IoJs7La+oFp/AB033wBStxNOJt4+9hHMxsXUPANcoXL2b3W4DZKghlJ2cI/eyeRZIQ9ysvYEorVhjrcYctWbog==}
++    engines: {node: '>=20'}
++
+   csstype@3.2.0:
+     resolution: {integrity: sha512-si++xzRAY9iPp60roQiFta7OFbhrgvcthrhlNAGeQptSY25uJjkfUV8OArC3KLocB8JT8ohz+qgxWCmz8RhjIg==}
+ 
+@@ -2587,6 +2654,10 @@ packages:
+     resolution: {integrity: sha512-7hvf7/GW8e86rW0ptuwS3OcBGDjIi6SZva7hCyWC0yYry2cOPmLIjXAUHI6DK2HsnwJd9ifmt57i8eV2n4YNpw==}
+     engines: {node: '>= 14'}
+ 
++  data-urls@7.0.0:
++    resolution: {integrity: sha512-23XHcCF+coGYevirZceTVD7NdJOqVn+49IHyxgszm+JIiHLoB2TkmPtsYkNWT1pvRSGkc35L6NHs0yHkN2SumA==}
++    engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
++
+   data-view-buffer@1.0.2:
+     resolution: {integrity: sha512-EmKO5V3OLXh1rtK2wgXRansaK1/mtVdTUEiEI0W8RkvgT05kfxaH29PliLnpLP73yYO6142Q72QNa8Wx/A5CqQ==}
+     engines: {node: '>= 0.4'}
+@@ -2784,6 +2855,10 @@ packages:
+     resolution: {integrity: sha512-rRqJg/6gd538VHvR3PSrdRBb/1Vy2YfzHqzvbhGIQpDRKIa4FgV/54b5Q1xYSxOOwKvjXweS26E0Q+nAMwp2pQ==}
+     engines: {node: '>=8.6'}
+ 
++  entities@6.0.1:
++    resolution: {integrity: sha512-aN97NXWF6AWBTahfVOIrB/NShkzi5H7F9r1s9mD3cDj4Ko5f2qhhVoYMibXF7GlLveb/D2ioWay8lxI97Ven3g==}
++    engines: {node: '>=0.12'}
++
+   environment@1.1.0:
+     resolution: {integrity: sha512-xUtoPkMggbz0MPyPiIWr1Kp4aeWJjDZ6SMvURhimjdZgsRuDplF5/s9hcgGhyXMhs+6vpnuoiZ2kFiu3FMnS8Q==}
+     engines: {node: '>=18'}
+@@ -3250,6 +3325,10 @@ packages:
+   hoist-non-react-statics@3.3.2:
+     resolution: {integrity: sha512-/gGivxi8JPKWNm/W0jSmzcMPpfpPLc3dY/6GxhX2hQ9iGj3aDfklV4ET7NjKpSinLpJ5vafa9iiGIEZg10SfBw==}
+ 
++  html-encoding-sniffer@6.0.0:
++    resolution: {integrity: sha512-CV9TW3Y3f8/wT0BRFc1/KAVQ3TUHiXmaAb6VW9vtiMFf7SLoMd1PdAc4W3KFOFETBJUb90KatHqlsZMWV+R9Gg==}
++    engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
++
+   html-escaper@2.0.2:
+     resolution: {integrity: sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg==}
+ 
+@@ -3463,6 +3542,9 @@ packages:
+     resolution: {integrity: sha512-drqDG3cbczxxEJRoOXcOjtdp1J/lyp1mNn0xaznRs8+muBhgQcrnbspox5X5fOw0HnMnbfDzvnEMEtqDEJEo8w==}
+     engines: {node: '>=8'}
+ 
++  is-potential-custom-element-name@1.0.1:
++    resolution: {integrity: sha512-bCYeRA2rVibKZd+s2625gGnGF/t7DSqDs4dP7CrLA1m7jKWz6pps0LpYLJN8Q64HtmPKJ1hrN3nzPNKFEKOUiQ==}
++
+   is-regex@1.2.1:
+     resolution: {integrity: sha512-MjYsKHO5O7mCsmRGxWcLWheFqN9DJ/2TmngvjKXihe6efViPqc274+Fx/4fYj/r03+ESvBdTXK0V6tA3rgez1g==}
+     engines: {node: '>= 0.4'}
+@@ -3575,6 +3657,15 @@ packages:
+     resolution: {integrity: sha512-qQKT4zQxXl8lLwBtHMWwaTcGfFOZviOJet3Oy/xmGk2gZH677CJM9EvtfdSkgWcATZhj/55JZ0rmy3myCT5lsA==}
+     hasBin: true
+ 
++  jsdom@28.1.0:
++    resolution: {integrity: sha512-0+MoQNYyr2rBHqO1xilltfDjV9G7ymYGlAUazgcDLQaUf8JDHbuGwsxN6U9qWaElZ4w1B2r7yEGIL3GdeW3Rug==}
++    engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
++    peerDependencies:
++      canvas: ^3.0.0
++    peerDependenciesMeta:
++      canvas:
++        optional: true
++
+   jsesc@3.1.0:
+     resolution: {integrity: sha512-/sM3dO2FOzXjKQhJuo0Q173wf2KOo8t4I8vHy6lF9poUp7bKT0/NHE8fPX23PwfhnykfqnC2xRxOnVw5XuGIaA==}
+     engines: {node: '>=6'}
+@@ -3768,6 +3859,10 @@ packages:
+     resolution: {integrity: sha512-F9ODfyqML2coTIsQpSkRHnLSZMtkU8Q+mSfcaIyKwy58u+8k5nvAYeiNhsyMARvzNcXJ9QfWVrcPsC9e9rAxtg==}
+     engines: {node: 20 || >=22}
+ 
++  lru-cache@11.2.6:
++    resolution: {integrity: sha512-ESL2CrkS/2wTPfuend7Zhkzo2u0daGJ/A2VucJOgQ/C48S/zB8MMeMHSGKYpXhIjbPxfuezITkaBH1wqv00DDQ==}
++    engines: {node: 20 || >=22}
++
+   lru-cache@5.1.1:
+     resolution: {integrity: sha512-KpNARQA3Iwv+jTA0utUVVbrh+Jlrr1Fv0e56GGzAFOXN7dk/FviaDW8LHmK52DlcH4WP2n6gI8vN1aesBFgo9w==}
+ 
+@@ -3808,6 +3903,9 @@ packages:
+     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
+     engines: {node: '>= 0.4'}
+ 
++  mdn-data@2.12.2:
++    resolution: {integrity: sha512-IEn+pegP1aManZuckezWCO+XZQDplx1366JoVhTpMpBB1sPey/SbveZQUosKiKiGYjg1wH4pMlNgXbCiYgihQA==}
++
+   media-typer@0.3.0:
+     resolution: {integrity: sha512-dq+qelQ9akHpcOl/gUVRTxVIOkAJ1wR3QAvb4RsVjS8oVoFjDGTc679wJYmUmknUF5HwMLOgb5O+a3KxfWapPQ==}
+     engines: {node: '>= 0.6'}
+@@ -4154,6 +4252,9 @@ packages:
+   parse-cache-control@1.0.1:
+     resolution: {integrity: sha512-60zvsJReQPX5/QP0Kzfd/VrpjScIQ7SHBW6bFCYfEP+fp0Eppr1SHhIO5nd1PjZtvclzSzES9D/p5nFJurwfWg==}
+ 
++  parse5@8.0.0:
++    resolution: {integrity: sha512-9m4m5GSgXjL4AjumKzq1Fgfp3Z8rsvjRNbnkVwfu2ImRqE5D0LnY2QfDen18FSY9C573YU5XxSapdHZTZ2WolA==}
++
+   parseurl@1.3.3:
+     resolution: {integrity: sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==}
+     engines: {node: '>= 0.8'}
+@@ -4510,6 +4611,10 @@ packages:
+     resolution: {integrity: sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q==}
+     engines: {node: '>=0.10.0'}
+ 
++  require-from-string@2.0.2:
++    resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
++    engines: {node: '>=0.10.0'}
++
+   require-main-filename@2.0.0:
+     resolution: {integrity: sha512-NKN5kMDylKuldxYLSUfrbo5Tuzh4hd+2E8NPPX02mZtn1VuREQToYe/ZdlJy+J3uCpfaiGF05e7B8W0iXbQHmg==}
+ 
+@@ -4607,6 +4712,10 @@ packages:
+   safer-buffer@2.1.2:
+     resolution: {integrity: sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==}
+ 
++  saxes@6.0.0:
++    resolution: {integrity: sha512-xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA==}
++    engines: {node: '>=v12.22.7'}
++
+   scheduler@0.23.2:
+     resolution: {integrity: sha512-UOShsPwz7NrMUqhR6t0hWjFduvOzbtv7toDH1/hIrfRNIDBnnBWd0CwJTGvTpngVlmwGCdP9/Zl/tVrDqcuYzQ==}
+ 
+@@ -4888,6 +4997,9 @@ packages:
+     resolution: {integrity: sha512-qsjeeq5YjBZ5eMdFuUa4ZosMLxgr5RZ+F+Y1OrDhuOCEInRMA3x74XdBtggJcj9kOeInz0WE+LgCPDkZFlBYJw==}
+     engines: {node: '>=12.0.0'}
+ 
++  symbol-tree@3.2.4:
++    resolution: {integrity: sha512-9QNk5KwDF+Bvz+PyObkmSYjI5ksVUYtjW7AU22r2NKcfLJcXp96hkDWU3+XndOsUb+AQ9QhfzfCT2O+CNWT5Tw==}
++
+   tailwind-merge@3.4.0:
+     resolution: {integrity: sha512-uSaO4gnW+b3Y2aWoWfFpX62vn2sR3skfhbjsEnaBI81WD1wBLlHZe5sWf0AqjksNdYTbGBEd0UasQMT3SNV15g==}
+ 
+@@ -5015,6 +5127,10 @@ packages:
+   tr46@0.0.3:
+     resolution: {integrity: sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==}
+ 
++  tr46@6.0.0:
++    resolution: {integrity: sha512-bLVMLPtstlZ4iMQHpFHTR7GAGj2jxi8Dg0s2h2MafAE4uSWF98FC/3MomU51iQAMf8/qDUbKWf5GxuvvVcXEhw==}
++    engines: {node: '>=20'}
++
+   tree-kill@1.2.2:
+     resolution: {integrity: sha512-L0Orpi8qGpRG//Nd+H90vFB+3iHnue1zSSGmNOOCh1GLJ7rUKVwV2HvijphGQS2UmhUZewS9VgvxYIdgr+fG1A==}
+     hasBin: true
+@@ -5116,6 +5232,10 @@ packages:
+   undici-types@7.16.0:
+     resolution: {integrity: sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==}
+ 
++  undici@7.22.0:
++    resolution: {integrity: sha512-RqslV2Us5BrllB+JeiZnK4peryVTndy9Dnqq62S3yYRRTj0tFQCwEniUy2167skdGOy3vqRzEvl1Dm4sV2ReDg==}
++    engines: {node: '>=20.18.1'}
++
+   unique-string@2.0.0:
+     resolution: {integrity: sha512-uNaeirEPvpZWSgzwsPGtU2zVSTrn/8L5q/IexZmH0eH6SA73CmAA5U4GwORTxQAZs95TAXLNqeLoPPNO5gZfWg==}
+     engines: {node: '>=8'}
+@@ -5274,6 +5394,10 @@ packages:
+       jsdom:
+         optional: true
+ 
++  w3c-xmlserializer@5.0.0:
++    resolution: {integrity: sha512-o8qghlI8NZHU1lLPrpi2+Uq7abh4GGPpYANlalzWxyWteJOCsr/P+oPBA49TOLu5FTZO4d3F9MnWJfiMo4BkmA==}
++    engines: {node: '>=18'}
++
+   wait-on@9.0.3:
+     resolution: {integrity: sha512-13zBnyYvFDW1rBvWiJ6Av3ymAaq8EDQuvxZnPIw3g04UqGi4TyoIJABmfJ6zrvKo9yeFQExNkOk7idQbDJcuKA==}
+     engines: {node: '>=20.0.0'}
+@@ -5292,6 +5416,10 @@ packages:
+   webidl-conversions@3.0.1:
+     resolution: {integrity: sha512-2JAn3z8AR6rjK8Sm8orRC0h/bcl/DqL7tRPdGZ4I1CjdF+EaMLmYxBHyXuKL849eucPFhvBoxMsflfOb8kxaeQ==}
+ 
++  webidl-conversions@8.0.1:
++    resolution: {integrity: sha512-BMhLD/Sw+GbJC21C/UgyaZX41nPt8bUTg+jWyDeg7e7YN4xOM05YPSIXceACnXVtqyEw/LMClUQMtMZ+PGGpqQ==}
++    engines: {node: '>=20'}
++
+   whatwg-fetch@3.6.20:
+     resolution: {integrity: sha512-EqhiFU6daOA8kpjOWTL0olhVOF3i7OrFzSYiGsEMB8GcXS+RrzauAERX65xMeNWVqxA6HXH2m69Z9LaKKdisfg==}
+ 
+@@ -5299,6 +5427,14 @@ packages:
+     resolution: {integrity: sha512-nt+N2dzIutVRxARx1nghPKGv1xHikU7HKdfafKkLNLindmPU/ch3U31NOCGGA/dmPcmb1VlofO0vnKAcsm0o/Q==}
+     engines: {node: '>=12'}
+ 
++  whatwg-mimetype@5.0.0:
++    resolution: {integrity: sha512-sXcNcHOC51uPGF0P/D4NVtrkjSU2fNsm9iog4ZvZJsL3rjoDAzXZhkm2MWt1y+PUdggKAYVoMAIYcs78wJ51Cw==}
++    engines: {node: '>=20'}
++
++  whatwg-url@16.0.1:
++    resolution: {integrity: sha512-1to4zXBxmXHV3IiSSEInrreIlu02vUOvrhxJJH5vcxYTBDAx51cqZiKdyTxlecdKNSjj8EcxGBxNf6Vg+945gw==}
++    engines: {node: ^20.19.0 || ^22.12.0 || >=24.0.0}
++
+   whatwg-url@5.0.0:
+     resolution: {integrity: sha512-saE57nupxk6v3HY35+jzBwYa0rKSy0XR8JSxZPwgLr7ys0IBzhGviA1/TUGJLmSVqs8pb9AnvICXEuOHLprYTw==}
+ 
+@@ -5387,6 +5523,13 @@ packages:
+     resolution: {integrity: sha512-PSNhEJDejZYV7h50BohL09Er9VaIefr2LMAf3OEmpCkjOi34eYyQYAXUTjEQtZJTKcF0E2UKTh+osDLsgNim9Q==}
+     engines: {node: '>=8'}
+ 
++  xml-name-validator@5.0.0:
++    resolution: {integrity: sha512-EvGK8EJ3DhaHfbRlETOWAS5pO9MZITeauHKJyb8wyajUfQUenkIg2MvLDTZ4T/TgIcm3HU0TFBgWWboAZ30UHg==}
++    engines: {node: '>=18'}
++
++  xmlchars@2.2.0:
++    resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
++
+   y18n@4.0.3:
+     resolution: {integrity: sha512-JKhqTOwSrqNA1NY5lSztJ1GrBiUodLMmIZuLiDaMRJ+itFd+ABVE8XBjOvIWL+rSqNDC74LCSFmlb/U4UZ4hJQ==}
+ 
+@@ -5459,6 +5602,9 @@ packages:
+ 
+ snapshots:
+ 
++  '@acemir/cssom@0.9.31':
++    optional: true
++
+   '@adobe/css-tools@4.4.4': {}
+ 
+   '@alloc/quick-lru@5.2.0': {}
+@@ -5468,6 +5614,27 @@ snapshots:
+       '@jridgewell/gen-mapping': 0.3.13
+       '@jridgewell/trace-mapping': 0.3.31
+ 
++  '@asamuzakjp/css-color@4.1.2':
++    dependencies:
++      '@csstools/css-calc': 3.1.1(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
++      '@csstools/css-color-parser': 4.0.1(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
++      '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.0)
++      '@csstools/css-tokenizer': 4.0.0
++      lru-cache: 11.2.6
++    optional: true
++
++  '@asamuzakjp/dom-selector@6.8.1':
++    dependencies:
++      '@asamuzakjp/nwsapi': 2.3.9
++      bidi-js: 1.0.3
++      css-tree: 3.1.0
++      is-potential-custom-element-name: 1.0.1
++      lru-cache: 11.2.6
++    optional: true
++
++  '@asamuzakjp/nwsapi@2.3.9':
++    optional: true
++
+   '@babel/code-frame@7.27.1':
+     dependencies:
+       '@babel/helper-validator-identifier': 7.28.5
+@@ -5584,10 +5751,43 @@ snapshots:
+ 
+   '@bcoe/v8-coverage@1.0.2': {}
+ 
++  '@bramus/specificity@2.4.2':
++    dependencies:
++      css-tree: 3.1.0
++    optional: true
++
+   '@cspotcode/source-map-support@0.8.1':
+     dependencies:
+       '@jridgewell/trace-mapping': 0.3.9
+ 
++  '@csstools/color-helpers@6.0.1':
++    optional: true
++
++  '@csstools/css-calc@3.1.1(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
++    dependencies:
++      '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.0)
++      '@csstools/css-tokenizer': 4.0.0
++    optional: true
++
++  '@csstools/css-color-parser@4.0.1(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
++    dependencies:
++      '@csstools/color-helpers': 6.0.1
++      '@csstools/css-calc': 3.1.1(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
++      '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.0)
++      '@csstools/css-tokenizer': 4.0.0
++    optional: true
++
++  '@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0)':
++    dependencies:
++      '@csstools/css-tokenizer': 4.0.0
++    optional: true
++
++  '@csstools/css-syntax-patches-for-csstree@1.0.27':
++    optional: true
++
++  '@csstools/css-tokenizer@4.0.0':
++    optional: true
++
+   '@emnapi/runtime@0.44.0':
+     dependencies:
+       tslib: 2.8.1
+@@ -5718,6 +5918,9 @@ snapshots:
+       '@eslint/core': 0.17.0
+       levn: 0.4.1
+ 
++  '@exodus/bytes@1.14.1':
++    optional: true
++
+   '@floating-ui/core@1.7.3':
+     dependencies:
+       '@floating-ui/utils': 0.2.10
+@@ -7030,7 +7233,7 @@ snapshots:
+       std-env: 3.10.0
+       test-exclude: 7.0.1
+       tinyrainbow: 2.0.0
+-      vitest: 3.2.4(@types/node@24.10.1)(@vitest/ui@3.2.4)(happy-dom@20.0.10)(jiti@1.21.7)(lightningcss@1.30.2)(msw@2.12.2(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1)
++      vitest: 3.2.4(@types/node@24.10.1)(@vitest/ui@3.2.4)(happy-dom@20.0.10)(jiti@1.21.7)(jsdom@28.1.0(canvas@3.2.0))(lightningcss@1.30.2)(msw@2.12.2(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1)
+     transitivePeerDependencies:
+       - supports-color
+ 
+@@ -7041,7 +7244,7 @@ snapshots:
+       eslint: 9.39.1(jiti@1.21.7)
+     optionalDependencies:
+       typescript: 5.9.3
+-      vitest: 3.2.4(@types/node@24.10.1)(@vitest/ui@3.2.4)(happy-dom@20.0.10)(jiti@1.21.7)(lightningcss@1.30.2)(msw@2.12.2(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1)
++      vitest: 3.2.4(@types/node@24.10.1)(@vitest/ui@3.2.4)(happy-dom@20.0.10)(jiti@1.21.7)(jsdom@28.1.0(canvas@3.2.0))(lightningcss@1.30.2)(msw@2.12.2(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1)
+     transitivePeerDependencies:
+       - supports-color
+ 
+@@ -7091,7 +7294,7 @@ snapshots:
+       sirv: 3.0.2
+       tinyglobby: 0.2.15
+       tinyrainbow: 2.0.0
+-      vitest: 3.2.4(@types/node@24.10.1)(@vitest/ui@3.2.4)(happy-dom@20.0.10)(jiti@1.21.7)(lightningcss@1.30.2)(msw@2.12.2(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1)
++      vitest: 3.2.4(@types/node@24.10.1)(@vitest/ui@3.2.4)(happy-dom@20.0.10)(jiti@1.21.7)(jsdom@28.1.0(canvas@3.2.0))(lightningcss@1.30.2)(msw@2.12.2(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1)
+ 
+   '@vitest/utils@3.2.4':
+     dependencies:
+@@ -7348,6 +7551,11 @@ snapshots:
+ 
+   basic-ftp@5.0.5: {}
+ 
++  bidi-js@1.0.3:
++    dependencies:
++      require-from-string: 2.0.2
++    optional: true
++
+   binary-extensions@2.3.0: {}
+ 
+   bl@4.1.0:
+@@ -7664,10 +7872,24 @@ snapshots:
+       utrie: 1.0.2
+     optional: true
+ 
++  css-tree@3.1.0:
++    dependencies:
++      mdn-data: 2.12.2
++      source-map-js: 1.2.1
++    optional: true
++
+   css.escape@1.5.1: {}
+ 
+   cssesc@3.0.0: {}
+ 
++  cssstyle@6.0.1:
++    dependencies:
++      '@asamuzakjp/css-color': 4.1.2
++      '@csstools/css-syntax-patches-for-csstree': 1.0.27
++      css-tree: 3.1.0
++      lru-cache: 11.2.6
++    optional: true
++
+   csstype@3.2.0: {}
+ 
+   d3-array@3.2.4:
+@@ -7712,6 +7934,14 @@ snapshots:
+ 
+   data-uri-to-buffer@6.0.2: {}
+ 
++  data-urls@7.0.0:
++    dependencies:
++      whatwg-mimetype: 5.0.0
++      whatwg-url: 16.0.1
++    transitivePeerDependencies:
++      - '@noble/hashes'
++    optional: true
++
+   data-view-buffer@1.0.2:
+     dependencies:
+       call-bound: 1.0.4
+@@ -7895,6 +8125,9 @@ snapshots:
+       ansi-colors: 4.1.3
+       strip-ansi: 6.0.1
+ 
++  entities@6.0.1:
++    optional: true
++
+   environment@1.1.0: {}
+ 
+   es-abstract@1.24.0:
+@@ -8514,6 +8747,13 @@ snapshots:
+     dependencies:
+       react-is: 16.13.1
+ 
++  html-encoding-sniffer@6.0.0:
++    dependencies:
++      '@exodus/bytes': 1.14.1
++    transitivePeerDependencies:
++      - '@noble/hashes'
++    optional: true
++
+   html-escaper@2.0.2: {}
+ 
+   html2canvas@1.4.1:
+@@ -8718,6 +8958,9 @@ snapshots:
+ 
+   is-obj@2.0.0: {}
+ 
++  is-potential-custom-element-name@1.0.1:
++    optional: true
++
+   is-regex@1.2.1:
+     dependencies:
+       call-bound: 1.0.4
+@@ -8839,6 +9082,36 @@ snapshots:
+     dependencies:
+       argparse: 2.0.1
+ 
++  jsdom@28.1.0(canvas@3.2.0):
++    dependencies:
++      '@acemir/cssom': 0.9.31
++      '@asamuzakjp/dom-selector': 6.8.1
++      '@bramus/specificity': 2.4.2
++      '@exodus/bytes': 1.14.1
++      cssstyle: 6.0.1
++      data-urls: 7.0.0
++      decimal.js: 10.6.0
++      html-encoding-sniffer: 6.0.0
++      http-proxy-agent: 7.0.2
++      https-proxy-agent: 7.0.6
++      is-potential-custom-element-name: 1.0.1
++      parse5: 8.0.0
++      saxes: 6.0.0
++      symbol-tree: 3.2.4
++      tough-cookie: 6.0.0
++      undici: 7.22.0
++      w3c-xmlserializer: 5.0.0
++      webidl-conversions: 8.0.1
++      whatwg-mimetype: 5.0.0
++      whatwg-url: 16.0.1
++      xml-name-validator: 5.0.0
++    optionalDependencies:
++      canvas: 3.2.0
++    transitivePeerDependencies:
++      - '@noble/hashes'
++      - supports-color
++    optional: true
++
+   jsesc@3.1.0: {}
+ 
+   json-buffer@3.0.1: {}
+@@ -9059,6 +9332,9 @@ snapshots:
+ 
+   lru-cache@11.2.2: {}
+ 
++  lru-cache@11.2.6:
++    optional: true
++
+   lru-cache@5.1.1:
+     dependencies:
+       yallist: 3.1.1
+@@ -9095,6 +9371,9 @@ snapshots:
+ 
+   math-intrinsics@1.1.0: {}
+ 
++  mdn-data@2.12.2:
++    optional: true
++
+   media-typer@0.3.0: {}
+ 
+   merge-descriptors@1.0.3: {}
+@@ -9420,6 +9699,11 @@ snapshots:
+ 
+   parse-cache-control@1.0.1: {}
+ 
++  parse5@8.0.0:
++    dependencies:
++      entities: 6.0.1
++    optional: true
++
+   parseurl@1.3.3: {}
+ 
+   path-exists@4.0.0: {}
+@@ -9817,6 +10101,9 @@ snapshots:
+ 
+   require-directory@2.1.1: {}
+ 
++  require-from-string@2.0.2:
++    optional: true
++
+   require-main-filename@2.0.0: {}
+ 
+   reselect@5.1.1: {}
+@@ -9931,6 +10218,11 @@ snapshots:
+ 
+   safer-buffer@2.1.2: {}
+ 
++  saxes@6.0.0:
++    dependencies:
++      xmlchars: 2.2.0
++    optional: true
++
+   scheduler@0.23.2:
+     dependencies:
+       loose-envify: 1.4.0
+@@ -10300,6 +10592,9 @@ snapshots:
+   svg-pathdata@6.0.3:
+     optional: true
+ 
++  symbol-tree@3.2.4:
++    optional: true
++
+   tailwind-merge@3.4.0: {}
+ 
+   tailwindcss-animate@1.0.7(tailwindcss@3.4.18(tsx@4.20.6)(yaml@2.8.1)):
+@@ -10460,6 +10755,11 @@ snapshots:
+ 
+   tr46@0.0.3: {}
+ 
++  tr46@6.0.0:
++    dependencies:
++      punycode: 2.3.1
++    optional: true
++
+   tree-kill@1.2.2: {}
+ 
+   true-myth@6.2.0: {}
+@@ -10577,6 +10877,9 @@ snapshots:
+ 
+   undici-types@7.16.0: {}
+ 
++  undici@7.22.0:
++    optional: true
++
+   unique-string@2.0.0:
+     dependencies:
+       crypto-random-string: 2.0.0
+@@ -10702,7 +11005,7 @@ snapshots:
+       tsx: 4.20.6
+       yaml: 2.8.1
+ 
+-  vitest@3.2.4(@types/node@24.10.1)(@vitest/ui@3.2.4)(happy-dom@20.0.10)(jiti@1.21.7)(lightningcss@1.30.2)(msw@2.12.2(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1):
++  vitest@3.2.4(@types/node@24.10.1)(@vitest/ui@3.2.4)(happy-dom@20.0.10)(jiti@1.21.7)(jsdom@28.1.0(canvas@3.2.0))(lightningcss@1.30.2)(msw@2.12.2(@types/node@24.10.1)(typescript@5.9.3))(tsx@4.20.6)(yaml@2.8.1):
+     dependencies:
+       '@types/chai': 5.2.3
+       '@vitest/expect': 3.2.4
+@@ -10731,6 +11034,7 @@ snapshots:
+       '@types/node': 24.10.1
+       '@vitest/ui': 3.2.4(vitest@3.2.4)
+       happy-dom: 20.0.10
++      jsdom: 28.1.0(canvas@3.2.0)
+     transitivePeerDependencies:
+       - jiti
+       - less
+@@ -10745,6 +11049,11 @@ snapshots:
+       - tsx
+       - yaml
+ 
++  w3c-xmlserializer@5.0.0:
++    dependencies:
++      xml-name-validator: 5.0.0
++    optional: true
++
+   wait-on@9.0.3:
+     dependencies:
+       axios: 1.13.2
+@@ -10763,10 +11072,25 @@ snapshots:
+ 
+   webidl-conversions@3.0.1: {}
+ 
++  webidl-conversions@8.0.1:
++    optional: true
++
+   whatwg-fetch@3.6.20: {}
+ 
+   whatwg-mimetype@3.0.0: {}
+ 
++  whatwg-mimetype@5.0.0:
++    optional: true
++
++  whatwg-url@16.0.1:
++    dependencies:
++      '@exodus/bytes': 1.14.1
++      tr46: 6.0.0
++      webidl-conversions: 8.0.1
++    transitivePeerDependencies:
++      - '@noble/hashes'
++    optional: true
++
+   whatwg-url@5.0.0:
+     dependencies:
+       tr46: 0.0.3
+@@ -10871,6 +11195,12 @@ snapshots:
+ 
+   xdg-basedir@4.0.0: {}
+ 
++  xml-name-validator@5.0.0:
++    optional: true
++
++  xmlchars@2.2.0:
++    optional: true
++
+   y18n@4.0.3: {}
+ 
+   y18n@5.0.8: {}

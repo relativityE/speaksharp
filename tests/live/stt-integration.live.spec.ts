@@ -248,8 +248,14 @@ test.describe('Private STT (Production Capability Smoke)', () => {
             debugLog('[TEST] ✅ Layer 1 (CacheStorage) Persistence Verified');
 
             // 13. Transcription Accuracy Verification (High-Fidelity)
+            // Verified with tests/fixtures/test-audio.wav which contains:
+            // "The weather is nice today"
             debugLog('[TEST] Starting Transcription Accuracy Verification with speech fixture...');
-            await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_DISPLAY)).toContainText(/weather/i, { timeout: 30000 });
+            const transcriptDisplay = page.getByTestId(TEST_IDS.TRANSCRIPT_DISPLAY);
+            await expect(transcriptDisplay).toContainText(/weather/i, { timeout: 30000 });
+            await expect(transcriptDisplay).toContainText(/nice/i, { timeout: 30000 });
+            await expect(transcriptDisplay).toContainText(/today/i, { timeout: 30000 });
+
             await startButton.click();
             await expect(page.getByText(/session saved/i)).toBeVisible({ timeout: 15000 });
         }

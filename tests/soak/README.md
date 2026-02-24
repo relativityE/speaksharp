@@ -41,28 +41,45 @@ We split the testing into two distinct layers:
 
 ---
 
-## 🚀 Usage Guide
+## 🚀 Usage Guide & Security Mapping (Crucial Design)
 
-### 1. Prerequisites
-- **Test Users**: Ensure users `soak-test0@test.com` through `soak-test9@test.com` exist in Supabase.
-- **Environment**:
-    - **CI**: Secrets `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected via GitHub Actions into `.env.development`.
-    - **Local**: You must have a local `.env.development` file containing:
-      ```bash
-      VITE_SUPABASE_URL=...
-      # Required for provisioning (Service Role)
-      SUPABASE_SERVICE_ROLE_KEY=... 
-      # Optional (defaults to password123)
-      SOAK_TEST_PASSWORD=...
-      ```
+Both phases of the Soak Test are strictly using **Frontend Credentials** (the `SUPABASE_ANON_KEY`), and that is a deliberate and crucial security design!
 
-### 2. User Provisioning
-If users don't exist or passwords are out of sync:
+Here is exactly how the credentials map:
 
-**Step A: Verify Current State**
-```bash
-pnpm test:soak:verify
-```
+### 1. The Headless API Stress Test (Node.js)
+Even though it's a backend Node script hammering the database, it initializes its Supabase client using `SUPABASE_ANON_KEY`.
+
+*   **Why?** If we used the `SUPABASE_SERVICE_ROLE_KEY` (the true backend admin key), Supabase would entirely bypass our Row Level Security (RLS) policies and rate limits. The test would succeed, but it would be a "fake" success because it wouldn't be subject to the real throttling that regular users face.
+*   By using the `ANON_KEY`, the 30 headless simulated users look exactly like 30 real web browsers to Supabase's Edge network, ensuring we actually test the rate limits protecting your Free Tier.
+
+### 2. The UI Memory Check (Playwright)
+This phase boots up actual Chromium browsers. In `soak-test.yml`, we inject `SOAK_TEST_PASSWORD`.
+
+*   **Why?** Playwright automatically navigates to `speaksharp.app`, types in `soak-test0@test.com` and your `SOAK_TEST_PASSWORD` into the standard login form, and clicks "Sign In". It runs exactly as a real human user would, purely through the frontend React interface.
+
+**In Summary:** The entire soak test suite operates from the perspective of an external, untrusted web client. We never use admin privileges to bypass the tests!
+
+---
+
+### Database Provisioning & Accounts
+
+There are exactly 36 existing soak test accounts in the remote Supabase database (`soak-test0@test.com` through `soak-test34@test.com`, plus one `soak-test-0@example.com`).
+
+To avoid unnecessary account creation and churn during testing, we explicitly map the users as follows in `tests/constants.ts` and `scripts/setup-test-users.mjs`:
+- **Free Users (5 total):** `soak-test0` through `soak-test4`
+- **Pro Users (10 total):** `soak-test25` through `soak-test34`
+
+If you change the counts in `constants.ts`, ensure you update `scripts/setup-test-users.mjs` to map to sequential, existing indices to avoid hitting Supabase anti-bot rate limits during account creation.
+
+---
+
+### Execution Constraints & CI
+
+To protect developer machines and live databases from accidental load spikes, **the Soak Test can only run from the GitHub Cloud Server**.
+
+- A hard environmental guard (`test.skip(!process.env.CI)`) is implemented in `soak-test.spec.ts`. If executed locally, the test suite will instantly abort.
+- It relies entirely on GitHub Actions injecting `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SOAK_TEST_PASSWORD` secrets at runtime to conduct the tests.
 
 **Step B: Provision Users**
 If verification fails, run the setup script. Ensure your `.env.development` has the Service Role Key.

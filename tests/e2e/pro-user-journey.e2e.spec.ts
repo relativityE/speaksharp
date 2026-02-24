@@ -4,7 +4,7 @@
  * Complete lifecycle test for PRO tier users:
  * 1. Login as Pro user
  * 2. Test all 3 STT modes: Native, Cloud (AssemblyAI), Private (Whisper)
- * 3. Custom vocabulary
+ * 3. User words
  * 4. All 15 analytics verification
  * 5. Logout/relogin persistence
  * 6. Multiple sessions with cumulative scores
@@ -131,10 +131,10 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         debugLog('[PRO] ✅ Private STT session completed');
     });
 
-    test('should add and persist custom vocabulary', async ({ page }) => {
+    test('should add and persist user words', async ({ page }) => {
         await navigateToRoute(page, '/session');
 
-        // 1. Click "Add Custom Word" button to open the popover
+        // 1. Click "Add User Word" button to open the popover
         const addWordBtn = page.getByTestId('add-custom-word-button');
         await expect(addWordBtn).toBeVisible();
         await addWordBtn.click();

@@ -5,7 +5,7 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *' # Every 6 hours
+    - cron: '0 5 * * *' # Every day at 5 AM UTC
 
 jobs:
   canary-check:

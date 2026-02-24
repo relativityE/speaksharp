@@ -96,16 +96,16 @@ describe('PrivateSTT (Routing Logic)', () => {
         // Use fake timers to advance time if needed, OR just mock a resolved promise with delay
         vi.useFakeTimers();
 
-        // Mock a slow successfully initializing engine (30 seconds)
+        // Mock a slow successfully initializing engine (2 seconds)
         mockTJInit.mockImplementationOnce(() => new Promise((resolve) => {
-            setTimeout(() => resolve(Result.ok(undefined)), 30000);
+            setTimeout(() => resolve(Result.ok(undefined)), 2000);
         }));
 
         const pstt = createPrivateSTT();
         const initPromise = pstt.init({ forceEngine: 'transformers-js' });
 
-        // Fast forward 31 seconds
-        await vi.advanceTimersByTimeAsync(31000);
+        // Fast forward 3 seconds
+        await vi.advanceTimersByTimeAsync(3000);
 
         const result = await initPromise;
         expect(result.isOk).toBe(true);

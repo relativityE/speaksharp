@@ -46,6 +46,10 @@ vi.mock('../../useProfile', () => ({
   useProfile: vi.fn(() => ({ subscription_status: 'free' }))
 }));
 
+vi.mock('../../useProfile', () => ({
+  useProfile: vi.fn(() => ({ subscription_status: 'free' }))
+}));
+
 vi.mock('../../../utils/fillerWordUtils', () => ({
   calculateTranscriptStats: vi.fn(() => ({
     transcript: 'test transcript',

@@ -49,7 +49,7 @@ export const useSessionMetrics = ({
         const now = Date.now();
         const rollingWindowMs = 15000;
         const recentChunks = chunks.filter(c => now - c.timestamp <= rollingWindowMs);
-        const recentWordCount = recentChunks.reduce((acc, c) => acc + c.text.split(/\s+/).filter(w => w.length > 0).length, 0);
+        const recentWordCount = recentChunks.reduce((acc, c) => acc + c.transcript.split(/\s+/).filter(w => w.length > 0).length, 0);
 
         // Effective time is the smaller of the window or elapsed time
         const effectiveWindowSec = Math.min(elapsedTime, rollingWindowMs / 1000);

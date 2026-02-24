@@ -35,7 +35,7 @@ export interface UseTranscriptionServiceOptions {
   session: TranscriptionServiceOptions['session'];
   navigate: TranscriptionServiceOptions['navigate'];
   getAssemblyAIToken: TranscriptionServiceOptions['getAssemblyAIToken'];
-  customVocabulary?: string[];
+  userWords?: string[];
   onAudioData?: TranscriptionServiceOptions['onAudioData'];
   policy?: TranscriptionPolicy;
   profileLoading?: boolean;
@@ -99,7 +99,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     getAssemblyAIToken: () => optionsRef.current.getAssemblyAIToken(),
     session: options.session,
     navigate: options.navigate,
-    customVocabulary: options.customVocabulary,
+    userWords: options.userWords,
   };
 
   useTranscriptionCallbacks(callbacks);

@@ -7,7 +7,7 @@ import type { FillerCounts } from '@/utils/fillerWordUtils';
 
 interface Chunk {
     id: number;
-    text: string;
+    transcript: string;
     speaker?: string;
 }
 
@@ -80,7 +80,7 @@ const HighlightedTranscript: React.FC<HighlightedTranscriptProps> = ({ chunks, i
             {chunks.map((chunk, index) => (
                 <React.Fragment key={chunk.id}>
                     {chunk.speaker && <strong className="mr-2 text-primary">{`Speaker ${chunk.speaker}:`}</strong>}
-                    <MemoizedChunk chunk={chunk.text} fillerData={fillerData} />
+                    <MemoizedChunk chunk={chunk.transcript} fillerData={fillerData} />
                     {index < chunks.length - 1 && ' '}
                 </React.Fragment>
             ))}
@@ -139,7 +139,14 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
     };
 
     return (
-        <div data-testid="transcript-panel">
+        <div data-testid="transcript-panel" data-state={
+            error ? 'error' :
+                isLoading ? 'loading' :
+                    showEmptyState ? 'empty' :
+                        (!isListening && !hasEverListened.current && chunks.length === 0 && !interimTranscript) ? 'initial' :
+                            showWaitingMessage ? 'listening' :
+                                'recording'
+        }>
             <div className="mb-4">
                 <h2 className="text-2xl font-bold text-foreground">Live Transcript</h2>
                 <p className="text-base text-muted-foreground">

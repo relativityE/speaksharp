@@ -1,8 +1,11 @@
 import { useMemo } from 'react';
 import logger from '../lib/logger';
 import { useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { useAuthProvider } from '../contexts/AuthProvider';
 import { usePracticeHistory } from './usePracticeHistory';
 import { useSession } from './useSession';
+import { getAnalyticsSummary, getSessionCount } from '../lib/storage';
 import {
     calculateOverallStats,
     calculateFillerWordTrends,
@@ -53,6 +56,7 @@ const EMPTY_SESSIONS: PracticeSession[] = [];
 
 export const useAnalytics = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
+    const { user } = useAuthProvider();
 
     // 3.2 SCALABILITY FIX: Limit fetch to 20 sessions for dashboard/trends.
     // This prevents performance bottlenecks for users with many sessions.
@@ -60,10 +64,25 @@ export const useAnalytics = () => {
         limit: 20
     }), []);
 
-    const { data, isLoading, error } = usePracticeHistory(paginationOptions);
+    const { data: allSessions = EMPTY_SESSIONS, isLoading, error } = usePracticeHistory(paginationOptions);
     const { data: specificSession, isLoading: isSessionLoading } = useSession(sessionId);
 
-    const allSessions = data ?? EMPTY_SESSIONS;
+    const { data: totalSessionsCount = 0 } = useQuery({
+        queryKey: ["sessionCount", user?.id],
+        queryFn: () => getSessionCount(user!.id),
+        enabled: !!user && !sessionId,
+    });
+
+    // Use RPC for aggregation when dataset is large (> 20 sessions)
+    // and we are not in a specific session view.
+    const shouldUseRPC = totalSessionsCount > 20 && !sessionId;
+
+    const { data: summaryData, isLoading: isSummaryLoading } = useQuery({
+        queryKey: ["analyticsSummary", user?.id],
+        queryFn: () => getAnalyticsSummary(user!.id),
+        enabled: !!user && shouldUseRPC,
+        staleTime: 5 * 60 * 1000,
+    });
 
     // DEV BYPASS: Add mock session data for UI testing
     const isDevBypass = import.meta.env.DEV && window.location.search.includes('devBypass=true');
@@ -88,6 +107,12 @@ export const useAnalytics = () => {
     }, [sessionId, sessionsToUse, specificSession]);
 
     const analyticsData = useMemo(() => {
+        // Use pre-computed summary from RPC if available and appropriate
+        if (shouldUseRPC && summaryData) {
+            logger.debug('[useAnalytics] Using summary data from RPC');
+            return summaryData;
+        }
+
         logger.debug({ count: sessionHistory?.length }, '[useAnalytics] Computing analytics data');
         if (!sessionHistory || sessionHistory.length === 0) {
             logger.debug('[useAnalytics] No sessions - returning empty analytics data');
@@ -102,18 +127,45 @@ export const useAnalytics = () => {
                 },
                 fillerWordTrends: {},
                 topFillerWords: [],
-                accuracyData: []
+                accuracyData: [],
+                weeklySessionsCount: 0,
+                weeklyActivity: []
             };
         }
 
         logger.debug({ count: sessionHistory.length }, '[useAnalytics] Computing stats');
+        const overallStats = calculateOverallStats(sessionHistory);
+        const fillerWordTrends = calculateFillerWordTrends(sessionHistory);
+        const topFillerWords = calculateTopFillerWords(sessionHistory);
+        const accuracyData = calculateAccuracyData(sessionHistory);
+
+        // Client-side fallback for weekly metrics
+        const now = new Date();
+        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        const weeklySessionsCount = sessionHistory.filter(s => new Date(s.created_at) >= sevenDaysAgo).length;
+
+        const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - now.getDay());
+        startOfWeek.setHours(0, 0, 0, 0);
+
+        const dayCounts: Record<string, number> = {};
+        DAYS.forEach(d => { dayCounts[d] = 0; });
+        sessionHistory.forEach(s => {
+            const d = new Date(s.created_at);
+            if (d >= startOfWeek) dayCounts[DAYS[d.getDay()]]++;
+        });
+        const weeklyActivity = DAYS.map(day => ({ day, sessions: dayCounts[day] }));
+
         return {
-            overallStats: calculateOverallStats(sessionHistory),
-            fillerWordTrends: calculateFillerWordTrends(sessionHistory.slice(0, 5)),
-            topFillerWords: calculateTopFillerWords(sessionHistory),
-            accuracyData: calculateAccuracyData(sessionHistory)
+            overallStats,
+            fillerWordTrends,
+            topFillerWords,
+            accuracyData,
+            weeklySessionsCount,
+            weeklyActivity
         };
-    }, [sessionHistory]);
+    }, [shouldUseRPC, summaryData, sessionHistory]);
 
     // CRITICAL: Don't wait for individual session query if the session list
     // has already loaded and the session isn't in it. This prevents the
@@ -131,7 +183,7 @@ export const useAnalytics = () => {
         sessionHistory,
         ...analyticsData,
         // DEV BYPASS: Force loading to false when devBypass is active so UI renders with mock data
-        loading: isDevBypass ? false : (isLoading || effectiveSessionLoading),
+        loading: isDevBypass ? false : (isLoading || effectiveSessionLoading || (shouldUseRPC && isSummaryLoading)),
         error
     };
 };

@@ -18,11 +18,11 @@ test.describe('User Filler Words Canary @canary', () => {
     // This file focuses on High Fidelity integration with real Cloud STT.
 
     /**
-     * HIGH-FIDELITY TEST: Verify custom words are passed to Cloud STT.
+     * HIGH-FIDELITY TEST: Verify user words are passed to Cloud STT.
      * 
-     * Tests that custom vocabulary is correctly sent to AssemblyAI via word_boost param.
+     * Tests that user words are correctly sent to AssemblyAI via word_boost param.
      */
-    test('should pass custom words to Cloud STT engine (High Fidelity)', async ({ page }) => {
+    test('should pass user words to Cloud STT engine (High Fidelity)', async ({ page }) => {
         // Use console.warn to ensure logs appear in CI stdout (debugLog is suppressed without E2E_DEBUG)
         const logStep = (step: string) => console.warn(`[${new Date().toISOString()}] [CANARY-STEP] ${step}`);
 

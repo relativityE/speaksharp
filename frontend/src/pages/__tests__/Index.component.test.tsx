@@ -83,7 +83,7 @@ describe('Index', () => {
             // Check main container has min-h-screen
             const mainDiv = container.firstChild as HTMLElement;
             expect(mainDiv).toHaveClass('min-h-screen');
-            expect(mainDiv).toHaveClass('bg-gradient-subtle');
+            expect(mainDiv).toHaveClass('bg-background');
             expect(mainDiv).toHaveClass('flex');
             expect(mainDiv).toHaveClass('flex-col');
         });

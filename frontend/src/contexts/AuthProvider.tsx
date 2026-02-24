@@ -3,6 +3,7 @@ import { getSupabaseClient } from '../lib/supabaseClient';
 import { Session, User } from '@supabase/supabase-js';
 import { useQueryClient } from '@tanstack/react-query';
 import logger from '../lib/logger';
+import { useSessionStore } from '../stores/useSessionStore';
 
 /**
  * AUTHENTICATION PROVIDER
@@ -175,10 +176,20 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
 
   const signOut = useCallback(async () => {
     try {
-      // 🔒 SECURITY: Clear all sensitive data from cache on logout (Fixes Domain 1)
+      // 1. Wipe Network Cache (Fixes Domain 1)
       queryClient.clear();
       logger.info('[AuthProvider] QueryClient cache cleared');
 
+      // 2. 🔒 SECURITY PURGE: Wipe all Local Memory constraints to prevent cross-account bleed
+      useSessionStore.getState().resetSession();
+      logger.info('[AuthProvider] Zustand session memory purged');
+
+      // 3. Clear LocalStorage / SessionStorage
+      window.localStorage.clear();
+      window.sessionStorage.clear();
+      logger.info('[AuthProvider] Window storage cleared');
+
+      // 4. Kill backend session
       await supabase.auth.signOut();
     } catch (err) {
       logger.error({ err }, '[AuthProvider] Error during signOut');

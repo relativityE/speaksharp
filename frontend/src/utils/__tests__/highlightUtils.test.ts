@@ -22,7 +22,7 @@ describe('highlightUtils', () => {
             const text = 'Um, I think so.';
             const tokens = parseTranscriptForHighlighting(text);
 
-            const umToken = tokens.find(t => t.text.toLowerCase() === 'um');
+            const umToken = tokens.find(t => t.transcript.toLowerCase() === 'um');
             expect(umToken).toBeDefined();
             expect(umToken?.type).toBe('filler');
         });
@@ -33,12 +33,12 @@ describe('highlightUtils', () => {
             const text = 'I am, you know, practicing.';
             const tokens = parseTranscriptForHighlighting(text, ['you know']);
 
-            const phraseToken = tokens.find(t => t.text.toLowerCase() === 'you know');
+            const phraseToken = tokens.find(t => t.transcript.toLowerCase() === 'you know');
             expect(phraseToken).toBeDefined();
             expect(phraseToken?.type).toBe('filler');
 
             // Should not have separate "you" and "know" tokens tagged as filler if phrase matched
-            const youToken = tokens.find(t => t.text.toLowerCase() === 'you');
+            const youToken = tokens.find(t => t.transcript.toLowerCase() === 'you');
             expect(youToken?.type).not.toBe('filler');
         });
 
@@ -48,16 +48,16 @@ describe('highlightUtils', () => {
 
             const errorToken = tokens.find(t => t.type === 'error');
             expect(errorToken).toBeDefined();
-            expect(errorToken?.text).toBe('[BLANK_AUDIO]');
+            expect(errorToken?.transcript).toBe('[BLANK_AUDIO]');
         });
 
-        it('should detect custom words', () => {
+        it('should detect user words', () => {
             const text = 'Welcome to SpeakSharp.';
             const tokens = parseTranscriptForHighlighting(text, ['SpeakSharp']);
 
-            const customToken = tokens.find(t => t.text === 'SpeakSharp');
-            expect(customToken).toBeDefined();
-            expect(customToken?.type).toBe('filler'); // Custom words are tagged as filler for highlighting
+            const userToken = tokens.find(t => t.transcript === 'SpeakSharp');
+            expect(userToken).toBeDefined();
+            expect(userToken?.type).toBe('filler'); // User words are tagged as filler for highlighting
         });
     });
 });

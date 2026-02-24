@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-16
+**Last Reviewed:** 2026-02-22
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -38,13 +38,15 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Rem
 | **S2** | **Gemini 3.0 Flash Upgrade** | **HIGH** | ✅ Complete | Upgraded AI Coach for faster, smarter feedback. |
 | **S3** | **Tier Limit Dynamic Labels** | **HIGH** | ✅ Complete | Unified ensuring "Daily" and "Monthly" limits are correctly handled in UI/Tests. |
 | **S3.1**| **Tier Limit Logic** | **HIGH** | ✅ Complete | `tier-limits.e2e.spec.ts` now dynamically verifies "Daily" (Edge Function) or "Monthly" (RPC) limits based on backend response. Mock duration remains 6s to satisfy `MIN_SESSION_DURATION_SECONDS` (5s). |
-| **S3.2**| **PDF Content Extraction** | **MEDIUM** | 🟡 In Progress | `pdf-parse` requires `DOMMatrix`. PDF structure validated only. (By design) |
-| **S3.3**| **STT Accuracy Comparison** | **MEDIUM** | 🟡 In Progress | Component implemented (`STTAccuracyComparison.tsx`) but `@deferred` waiting for ground truth data ingestion feature. |
+| **S3.2**| **PDF Content Extraction** | **MEDIUM** | ✅ Complete | Migrated to `pdfjs-dist` for browser-native extraction. (2026-02-21) |
+| **S3.3**| **STT Accuracy Comparison** | **MEDIUM** | ✅ Complete | Integrated WER scoring and Ground Truth ingestion. (2026-02-21) |
 | **S4** | **Canary User Persistence** | **MEDIUM** | ✅ Complete | Migrated from automated cleanup to unique email persistence for easier debugging. |
 | **S5** | **Design Parity Audit** | **MEDIUM** | ✅ Complete | Fixed "interpolation mud" in radial gradients and de-bloated upgrade banners. |
 | **S6** | **Phase 2 Hardening Remediation**| **CRITICAL**| ✅ Complete | **Zero Tolerance CI:** Resolved all lint/type errors. Implemented stability guards (Stale closures, DI pattern, Global Error Handlers) and security hardening (Atomic updates, Rate limiting). |
 | **S7** | **Architectural Lifecycle Stability**| **CRITICAL**| ✅ Complete | **Stability Audit:** Resolved state machine synchronization defects, decoupled store updates via microtasks, and stabilized unit test suite for high-concurrency lifecycle race conditions. |
-| **S8** | **Expert CI Hardening (1A, 2A, 3A)**| **CRITICAL**| ✅ Complete | **Professional CI Hardening:** Mitigated Mock Poisoning (1A) via dynamic imports/hoisting, prevented Over-Mocking (2A) with targeted unmocking, and resolved Mock Divergence (3A) via the Store Factory pattern. |
+| **S8** | **Expert CI Hardening (1A, 2A, 3A)**| **CRITICAL**| ✅ Complete | Professional CI Hardening: Mitigated Mock Poisoning (1A), prevented Over-Mocking (2A), and resolved Mock Divergence (3A). |
+| **S9** | **Merge Wave 1: Baseline** | **CRITICAL**| ✅ Complete | Consolidated Master Security Fix, RPC Analytics, and O(1) NLP Counting. |
+| **S10** | **Merge Wave 2: Hardening** | **CRITICAL**| ✅ Complete | Consolidated Atomic Row-locking, AI Persistence, and Debounced NLP. |
 
 
 ## 📽️ Marketing & Growth
@@ -75,7 +77,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ **Independent Documentation Review (2026-01-28):** Conducted full audit of all project documents against `docs/OUTLINE.md` requirements. Verified sync across PRD, Architecture, and Roadmap.
 - ✅ **Gap Analysis [HIGH PRIORITY]:** Conducted full audit of Zero-Debt status, tech debt, and architectural drift. (2026-02-16)
 - ✅ **Side-by-Side Session Comparison:** Implemented `SessionComparisonDialog.tsx` supporting 2-session diffs (WPM, Clarity, Fillers).
-- 🔴 **Speaker Identification:** Not started. `CloudAssemblyAI.ts` implementation does not currently request `speaker_labels`.
+- ✅ **Speaker Identification (2026-02-21):** Implemented diarization support in `CloudAssemblyAI.ts` and propagated via `Transcript` interface.
 - ✅ **Canary Tests:** Real-API `@canary` tests for staging environment implemented in `tests/canary/`.
 - ✅ **COMPLETED (2025-12-15) - E2E Test Infrastructure: MSW-to-Playwright Routes Migration:**
   - **Problem:** MSW service workers are browser-global per-origin. Parallel shards race for registration, causing intermittent `ui-state-capture` flakiness.
@@ -241,11 +243,6 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Diagnostics:** Added "Diagnostic Logging" and "Negative Verification" (expect 400 with specific error body) to prove configuration in CI without exposing secrets.
   - **Testing:** Added `stripe-checkout-test.yml` workflow and `setup-test-users.yml` for E2E testing with real credentials.
 
-- ✅ **Stripe Test Response Handling (2025-12-15):** Fixed test to handle response body read after Stripe redirect.
-  - **Problem:** Browser navigates to Stripe Checkout URL before `response.json()` can be called, causing "Protocol error".
-  - **Fix:** Validate status (200) first, gracefully handle parse error, fall back to verifying browser navigated to `checkout.stripe.com`.
-  - **Files:** `tests/stripe/stripe-checkout.spec.ts`
-
 - ✅ **Independent Review Remediation (2025-12-17):** Addressed findings from external codebase audit.
   - **P0 - Secret Sanitization:** Removed real Stripe Price ID from `.env.development`, added code fallback.
   - **P1 - Test Hardening:** Added URL validation in catch block for fail-fast behavior.
@@ -257,13 +254,13 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 #### P2 - Known Limitations (Alpha Acceptable)
 
-- 🟡 **Code Bloat Index Above Industry Standard:** Current bloat index is 26.48% (industry std: <20%).
-  - **Metric:** Initial Chunk (876KB) / Total Source (3.2MB) = 26.48%
+- 🟡 **Code Bloat Index Above Industry Standard (Updated 2026-02-20):** Current bloat index is 26.3% (industry std: <20%).
+  - **Metric:** Initial Chunk (933.63KB) / Estimated Total Source (3.5MB) = 26.3%
   - **Optimizations:** Lazy-load Recharts, lazy-load Whisper model loader, aggressive route-based code splitting
-  - **Status:** Acceptable for Alpha, optimize in Beta for performance SLO compliance
+  - **Status:** Acceptable for Alpha, optimize in Beta for performance SLO compliance. *Note: AnalyticsPage chunk optimized from 877KB to 500.64KB via RPC migration.*
 
-- 🟡 **Bundle Chunk Size Warning (2025-12-22):** Vite build emits warning about chunks >500KB.
-  - **Affected Chunks:** `AnalyticsPage-*.js` (877KB), `index-*.js` (902KB)
+- 🟡 **Bundle Chunk Size Warning (2026-02-20):** Vite build emits warning about chunks >500KB.
+  - **Affected Chunks:** `index-*.js` (933.63KB), `vendor-transformers-*.js` (823.85KB)
   - **Warning Text:** `(!) Some chunks are larger than 500 kB after minification`
   - **Recommended Fixes:**
     - Use `dynamic import()` for code-splitting heavy components (Recharts, html2canvas)
@@ -335,7 +332,7 @@ This phase is about confirming the core feature set works as expected and polish
 
 ### 🎯 Must-Have
 - ✅ **Implement Speaking Pace Analysis:** Add real-time feedback on words per minute to the core analytics.
-- ✅ **Implement User Filler Words:** Allow Pro users to add custom words (jargon, names) to improve transcription accuracy.
+- ✅ **Implement User Words:** Allow Pro users to add user words (jargon, names) to improve transcription accuracy.
 - ✅ **Implement Vocal Variety / Pause Detection:** Add a new Pro-tier feature to analyze vocal variety or pause duration.
   - ✅ **Pause Detection UI**: Integrate `PauseMetricsDisplay` into SessionPage (Completed 2025-11-30)
 - ✅ **CI Stability**: Fix Lighthouse CI timeouts and ensure local/remote parity (Completed 2025-11-30)
@@ -347,6 +344,8 @@ This phase is about confirming the core feature set works as expected and polish
   - ✅ `EditGoalsDialog` modal (1-20 sessions, 50-100% clarity)
   - ✅ `user_goals` table with RLS
   - ✅ Migrations deployed to production
+- 🔴 **1-Click Practice Session Summaries (Funnel Feature):** Allow users to generate PDF practice summaries. Free users must receive prominently **Watermarked** PDFs ("Generated by SpeakSharp") to drive viral acquisition and up-sells. Pro users get clean branding.
+- 🔴 **AI Speech Coach (Pro Tier Value Add):** Implement a post-session summarization and coaching agent using Gemini Flash to provide structured feedback on tone, structure, and delivery.
 -  **ℹ️ CAVEAT - User Filler Words Native STT (2026-01-02):** Native STT (Web Speech API) does **NOT** support user filler words - it's entirely browser-controlled. Only Cloud STT (`word_boost` param via AssemblyAI) supports this feature. **Testing Impact:** User filler words E2E verification can only be done with Cloud STT, which requires API keys.
 - [ ] **Alpha Deployment Checklist**
     - ✅ **Set `PROMO_GEN_ADMIN_SECRET` secret in Supabase Dashboard (2026-02-08):** Finalized secure, server-side validated promo generation. Legacy ALPHA_BYPASS_CODE purged.
@@ -382,6 +381,18 @@ This phase is about confirming the core feature set works as expected and polish
 
 ### 🚧 Should-Have (Tech Debt)
 
+- 🔴 **Refactor Usage Tier Logic (Database):** The `update_user_usage` RPC currently enforces a rigid global cap (1 hour/month) across all engines. This must be rebuilt to enforce **Daily Caps** (1h/day Free, 2h/day Pro) alongside Monthly Caps (25h/mo Free, 50h/mo Pro).
+  - **Task 1: Schema Update:** Add `native_usage_seconds`, `cloud_usage_seconds`, and a trackable `pdf_exports_count` counter to the `user_profiles` table.
+  - **Task 2: Limit Enforcement:** Update edge functions (`check-usage-limit`) to pass/fail based on the new separated daily/monthly caps, and block Free users from generating >1 PDF/month.
+  - **Task 3: Cross-Tab Mutex Lock (Low Hanging Fruit):** Use `localStorage` event listeners to enforce that only one recording tab can be active globally per user, solving the multi-tab limit bypass vulnerability.
+  - **Task 4: Voice Activity Auto-Pause (Low Hanging Fruit):** Implement Voice Activity Detection (VAD) to automatically pause recording after 5 continuous minutes of dead silence.
+  - **Task 5: Extreme Duration RAM & Context Soak Test:** Before finalizing the exact bounds, perform an isolated 1-hour Native STT and 2-hour WebGPU STT live recording test. Monitor the frontend browser heap/RAM for crashes. **Crucially**, attempt to run the 2-hour transcript through the Gemini AI Coach formatting Edge Function to verify we do not hit LLM token context limits or Vercel 10s serverless timeout caps. This establishes our true margin of safety.
+  - **Task 6: Graceful Session Wrap-up & Limit Modals:** Add frontend logic for the tested soft limits (e.g., 60/120m) with a 5m warning. Build the "Gracious Sunset" positive-psychology UI Modals for when users hit their Daily Limit, Monthly Limit, or Free Export Limit.
+- 🔴 **Prioritize WebGPU Local Engine (Code & UX):** At $0.47/hr for Cloud STT, maximizing Pro user adoption of the Local Engine is critical to prevent losses on heavy users.
+  - **Task 1: Default Selection:** Refactor `useSpeechRecognition` and `TranscriptionService` to default to `private` mode for Pro users, instead of `cloud`.
+  - **Task 2: "Zero-Network Vault Mode" UI:** Add a visual "Vault Active" lock icon when WebGPU is selected to prove NO network requests are being made, alleviating #1 privacy fears.
+  - **Task 3: Delightful Loading States:** Add polished skeleton loaders and progress bars during the chunked WebGPU model download process.
+  - **Task 4: Secure Model Hosting (Anti-Hack):** Move the raw WebGPU model files from a public Vercel CDN into a secure Supabase Storage Bucket. The frontend must hit an Edge Function to acquire a signed, short-lived URL, which enforces RLS (`subscription_status = 'pro'`), rendering client-side React tampering useless.
 - ✅ **Private STT CI Stability (2026-01-01):** Resolved WASM deadlocks and flaky integration tests using Triple-Engine Architecture and MockEngine strategy.
 
 - ⚠️ **Stripe Webhook E2E Verification (2025-12-21):** End-to-end test of Pro signup flow completed via CLI simulation. Confirmed: Auth → Select Pro → Stripe Redirect → Webhook Upgrade → Success Toast. Ad-hoc fix implemented for double toasts (see Tech Debt section below).
@@ -389,7 +400,7 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **STT Status Notification Bar (2026-01-15):** Added persistent StatusNotificationBar component above LiveRecordingCard showing STT state transitions (initializing, ready, fallback, error).
 - ✅ **Filler Word Individual Counts (2026-01-15):** FillerWordsCard now shows individual count next to each word badge, sorted by frequency.
 - ✅ **Promo Code Auto-Select Pro (2026-01-15):** AuthPage automatically selects Pro plan when user enters a promo code.
-- ✅ **Filler Words UX Polish (2026-01-16):** Unified orange styling, cleaner "Total Detected" layout, and Popover-based "Add Custom Word" flow.
+- ✅ **Filler Words UX Polish (2026-01-16):** Unified orange styling, cleaner "Total Detected" layout, and Popover-based "Add User Word" flow.
 - ✅ **Private STT Timeout Tuning (2026-01-16):** Increased WebGPU init timeout to 20s for better stability on older hardware.
 - 🟡 **Profile Loading Root Cause Investigation:** Move beyond retries to identify why Supabase fetches intermittently fail on load. (See Tech Debt section below)
 - ✅ **COMPLETED - CVA-Based Design System Refinement:**
@@ -665,12 +676,27 @@ This phase focuses on hardening the interface between frontend and backend and e
 | **Z5** | **React Refresh Compliance** | **MEDIUM** | ✅ Complete | Resolved Fast Refresh export warnings by isolating provider components. |
 
 
- ## ⚖️ Phase 6: Test Consistency & "See-Saw" Investigation (Active)
+ ## ⚖️ Phase 6: Test Consistency & Behavioral Pivot ✅ COMPLETE
  
- > **Goal:** Resolve the "See-Saw" failure where fixing Unit tests breaks E2E tests, and vice-versa.
+ > **Goal:** Resolve "See-Saw" failures and implement high-precision Behavioral Testing Integrity.
  
  | ID | Title | Priority | Status | Notes |
  |----|-------|----------|--------|-------|
- | **T1** | **Unit vs E2E Context Divergence** | **CRITICAL** | 🟡 In Progress | Investigating `TestRegistry` isolation between Vitest and Playwright. |
- | **T2** | **Component Hook Mocking Parity** | **HIGH** | 🔴 Not Started | Ensuring `TranscriptionProvider` mocks behave identically in both test environments. |
- | **T3** | **Global State Reset Hardening** | **HIGH** | 🔴 Not Started | Preventing state leakage in `useSessionStore` during rapid test cycles. |
+ | **T1** | **Behavioral Integrity Pivot** | **CRITICAL** | ✅ Complete | Refactored tests to focus on requirements (Accuracy, FSM safety) via Playwright data-attributes. |
+ | **T2** | **Isomorphic Fixtures** | **HIGH** | ✅ Complete | Established `STT_FIXTURES` as the single source of truth for Golden Transcripts. |
+ | **T3** | **Drift Guardian** | **HIGH** | ✅ Complete | Implemented E2E contract verification to prevent mock-to-service logic drift. |
+ | **T4** | **Hardware Safety Audit** | **CRITICAL** | ✅ Complete | Hardened FSM against mic lock-ups during rapid concurrent recording cycles. |
+
+## 🌎 Nightly CI Harmonization & Live Validation ✅ COMPLETE
+
+> **Goal:** Consolidate fragmented CI workflows into a single tiered quality gate and run verified high-integrity suites.
+
+| ID | Title | Priority | Status | Notes |
+|----|-------|----------|--------|-------|
+| **L1** | **Tiered Quality Gate** | **CRITICAL** | ✅ Complete | Consolidated `nightly-stt-serial`, `dev-real-integration`, and ad-hoc scripts into a unified `test-audit.sh` pipeline: Preflight → Lint → Typecheck → Unit → Build → E2E (4 shards). |
+| **L2** | **Test Category Consolidation** | **HIGH** | ✅ Complete | Superseded legacy per-phase test trackers. New execution routine: `pnpm ci:local` (simulate) and `pnpm test:local` (quick). Unit: 541 tests passing. E2E: 18 tests across 4 shards. |
+| **L3** | **Drift Guardian** | **HIGH** | ✅ Complete | `drift-detector.spec.ts` verifies STT engine contract signatures and store observability via E2E bridge. Fixed `SecurityError` on `about:blank` by adding `programmaticLoginWithRoutes` to `beforeEach`. |
+| **L4** | **CI Test Stabilization** | **HIGH** | ✅ Complete | Resolved all pre-existing test failures: 4 unit (testId/title/class/mock mismatches), 3 e2e (drift-detector, diag-private-stt, private-stt download text). Added elapsed time reporting to `ci-simulate` stage. |
+| **L5** | **Nightly WER Suite** | **HIGH** | 🟡 In Progress | Scheduling `wer-baseline.spec.ts` against real Cloud/Private engines. Requires live API keys in CI secrets. |
+| **L6** | **Live Drift Monitoring** | **MEDIUM** | 🟡 In Progress | `drift-detector.spec.ts` now runs in sharded CI. Alerting on API contract changes deferred to nightly cron trigger. |
+

@@ -30,7 +30,7 @@ export const PAUSE_DETECTION = {
   MIN_PAUSE_DURATION_MS: 500,   // Minimum pause duration in milliseconds
 } as const;
 
-// Custom vocabulary limits (dynamic baseline)
+// User words limits (dynamic baseline)
 export const VOCABULARY_LIMITS = {
   MAX_WORD_LENGTH: 50,          // Maximum characters per word
   BASE_CAPACITY: 100,           // Initial capacity (expands in 100-word increments)
@@ -53,7 +53,7 @@ export const SUBSCRIPTION_LIMITS = {
 export const STT_CONFIG = {
   MAX_PRIVATE_ATTEMPTS: 2,
   LOAD_CACHE_TIMEOUT_MS: {
-    CI: 30000,
+    CI: 12000,
     PROD: 2000
   },
   // AssemblyAI requires audio packets between 50-1000ms

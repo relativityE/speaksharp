@@ -1,8 +1,8 @@
 import { ITranscriptionMode, TranscriptionModeOptions, Transcript, TranscriptionError } from './types';
 import { getSupabaseClient } from '../../../lib/supabaseClient';
 import { Session } from '@supabase/supabase-js';
-import { floatToInt16Async } from '@/services/transcription/utils/AudioProcessor';
-import logger from '@/lib/logger';
+import { floatToInt16Async } from '../utils/AudioProcessor';
+import logger from '../../../lib/logger';
 
 // Message types for AssemblyAI WebSocket
 interface AssemblyAIMessage {
@@ -14,7 +14,9 @@ interface AssemblyAIMessage {
     start: number;
     end: number;
     confidence: number;
+    speaker?: string;
   }>;
+  speaker?: string;
   confidence?: number;
   error?: string;
 }
@@ -31,6 +33,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
   private isListening: boolean = false;
   private audioQueue: Float32Array[] = [];
   private connectionState: ConnectionState = 'disconnected';
+  private transcript: string = '';
 
   // Connection State Machine
   private connectionId: number = 0;
@@ -126,6 +129,7 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
     if (this.isListening) return;
 
     this.isListening = true;
+    this.transcript = '';
     this.reconnectionAttempts = 0;
     this.isReconnect = false;
     await this.connect();
@@ -147,13 +151,13 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
         return;
       }
 
-      // 🚀 PERFORMANCE: Add STT Word Boosting for custom vocabulary (Fixes Domain 4)
-      const vocabulary = this.options.customVocabulary || [];
+      // 🚀 PERFORMANCE: Add STT Word Boosting for user words (Fixes Domain 4)
+      const vocabulary = this.options.userWords || [];
       const keytermsParam = vocabulary.length > 0
         ? `&keyterms_prompt=${encodeURIComponent(vocabulary.join(','))}`
         : '';
 
-      const wsUrl = `wss://streaming.assemblyai.com/v3/realtime/ws?sample_rate=16000&token=${token}${keytermsParam}`;
+      const wsUrl = `wss://streaming.assemblyai.com/v3/realtime/ws?sample_rate=16000&token=${token}${keytermsParam}&speaker_labels=true`;
 
       this.socket = new WebSocket(wsUrl);
 
@@ -232,8 +236,16 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
       case 'FinalTranscript':
         if (data.text) {
+          // Accumulate transcript
+          this.transcript = this.transcript ? `${this.transcript} ${data.text}` : data.text;
           // Strict Turn Assembly: Final overwrites partial
-          this.onTranscriptUpdate({ transcript: { final: data.text } });
+          // Map AssemblyAI 'speaker' (e.g. 'A', 'B') to transcript update
+          this.onTranscriptUpdate({
+            transcript: {
+              final: data.text,
+              speaker: data.speaker
+            }
+          });
         }
         break;
 
@@ -295,11 +307,11 @@ export default class CloudAssemblyAI implements ITranscriptionMode {
 
     this.audioQueue = []; // Clear queue
     this.updateConnectionState('disconnected');
-    return ''; // Recent transcript is already handled via callbacks
+    return this.transcript;
   }
 
   public async getTranscript(): Promise<string> {
-    return "";
+    return this.transcript;
   }
 
   public getEngineType(): string {

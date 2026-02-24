@@ -24,7 +24,7 @@ import { TrendChart } from './analytics/TrendChart';
 
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
-import type { FillerWordTrends } from '@/types/analytics';
+import type { FillerWordTrends, OverallStats } from '@/types/analytics';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TEST_IDS } from '@/constants/testIds';
 import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
@@ -50,6 +50,7 @@ interface AnalyticsDashboardProps {
     loading: boolean;
     error: Error | null;
     onUpgrade: () => void;
+    onUpdateGroundTruth?: (sessionId: string, groundTruth: string) => Promise<void>;
     sessionId?: string;
 }
 
@@ -74,20 +75,6 @@ interface SessionHistoryItemProps {
 // Exhaustive list of all available stat cards for user customization
 // Add new stat cards here for future analytics features
 
-type ChartDataPoint = {
-    date: string;
-    'FW/min': string | number;
-    [key: string]: string | number;
-};
-
-type OverallStats = {
-    totalSessions: number;
-    totalPracticeTime: number;
-    avgWpm: number;
-    avgFillerWordsPerMin: string | number;
-    avgAccuracy: string | number;
-    chartData: ChartDataPoint[];
-};
 
 type StatCardConfig = {
     id: string;
@@ -201,7 +188,7 @@ const ANALYSIS_SLIDE_OPTIONS: AnalysisSlideConfig[] = [
 
 ];
 
-const DEFAULT_ANALYSIS_SLIDES = ['pace_trend', 'clarity_trend', 'goals_progress', 'weekly_activity'];
+const DEFAULT_ANALYSIS_SLIDES = ['pace_trend', 'clarity_trend', 'stt_comparison', 'goals_progress'];
 const ANALYSIS_STORAGE_KEY = 'speaksharp_selected_analysis_slides_v3';
 
 // --- Sub-components ---
@@ -233,7 +220,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className
     </Card>
 );
 
-const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro, isSelected, onToggleSelect, profileName }) => {
+const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro: _isPro, isSelected, onToggleSelect, profileName }) => {
     const totalFillers = Object.values(session.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0);
     const durationMins = Math.floor(session.duration / 60);
     const durationSecs = session.duration % 60;
@@ -287,29 +274,39 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro,
                     <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Clarity</p>
                 </div>
 
-                {isPro && (
-                    <div className="pl-4 border-l border-border hidden md:block">
-                        <Button
-                            variant="secondary"
-                            size="sm"
-                            className="gap-2 hover:bg-primary hover:text-primary-foreground transition-all shadow-sm"
-                            onClick={() => generateSessionPdf(session, profileName)}
-                            title="Download Session PDF"
-                            data-testid={`download-pdf-btn-${session.id}`}
-                        >
-                            <Download className="h-4 w-4" />
-                            PDF
-                        </Button>
-                    </div>
-                )}
-            </div>
-            {isPro && (
-                <div className="w-full flex justify-end md:hidden pt-4 border-t border-border mt-4">
-                    <Button variant="secondary" size="sm" className="w-full gap-2 text-muted-foreground" onClick={() => generateSessionPdf(session, profileName)} data-testid={`download-pdf-btn-mobile-${session.id}`}>
-                        <Download className="h-4 w-4" /> Download Session PDF
+                <div className="pl-4 border-l border-border hidden md:block" data-testid={`download-pdf-container-${session.id}`}>
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        className="gap-2 hover:bg-primary hover:text-primary-foreground transition-all shadow-sm"
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            generateSessionPdf(session, profileName);
+                        }}
+                        title="Download Session PDF"
+                        data-testid={`download-pdf-btn-${session.id}`}
+                    >
+                        <Download className="h-4 w-4" />
+                        PDF
                     </Button>
                 </div>
-            )}
+            </div>
+            <div className="w-full flex justify-end md:hidden pt-4 border-t border-border mt-4" data-testid={`download-pdf-container-mobile-${session.id}`}>
+                <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-full gap-2 text-muted-foreground"
+                    onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        generateSessionPdf(session, profileName);
+                    }}
+                    data-testid={`download-pdf-btn-mobile-${session.id}`}
+                >
+                    <Download className="h-4 w-4" /> Download Session PDF
+                </Button>
+            </div>
         </NavLink>
     );
 };
@@ -339,8 +336,30 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     loading,
     error,
     onUpgrade,
+    onUpdateGroundTruth,
     sessionId
 }) => {
+    const [isUploading, setIsUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !sessionId || !onUpdateGroundTruth) return;
+
+        try {
+            setIsUploading(true);
+            const { extractTextFromPdf } = await import('@/lib/pdfParser');
+            const text = await extractTextFromPdf(file);
+            await onUpdateGroundTruth(sessionId, text);
+            toast.success('Reference script uploaded and metrics updated!');
+        } catch (err) {
+            logger.error({ err }, 'Failed to parse or upload PDF');
+            toast.error('Failed to process PDF. Please try again.');
+        } finally {
+            setIsUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
     const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
     const [showComparison, setShowComparison] = useState(false);
 
@@ -556,22 +575,56 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                     <Mic className="h-5 w-5 text-primary" />
                                     Transcript
                                 </CardTitle>
-                                {isProUser && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => generateSessionPdf(targetSession, profile?.email || 'User')}
-                                        className="gap-2"
-                                    >
-                                        <Download className="h-4 w-4" />
-                                        Export PDF
-                                    </Button>
-                                )}
+                                <div className="flex items-center gap-2">
+                                    {isProUser && (
+                                        <>
+                                            <input
+                                                type="file"
+                                                ref={fileInputRef}
+                                                accept=".pdf"
+                                                onChange={handleFileUpload}
+                                                className="hidden"
+                                            />
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => fileInputRef.current?.click()}
+                                                disabled={isUploading}
+                                                className="gap-2 border-primary/30 hover:bg-primary/5"
+                                                data-testid="upload-ground-truth-btn"
+                                            >
+                                                <Target className={`h-4 w-4 ${isUploading ? 'animate-spin' : ''}`} />
+                                                {targetSession.ground_truth ? 'Update Script' : 'Upload Script'}
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => generateSessionPdf(targetSession, profile?.email || 'User')}
+                                                className="gap-2"
+                                            >
+                                                <Download className="h-4 w-4" />
+                                                Export PDF
+                                            </Button>
+                                        </>
+                                    )}
+                                </div>
                             </CardHeader>
-                            <CardContent>
-                                <div className="p-4 bg-muted/30 rounded-lg min-h-[200px] max-h-[400px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
+                            <CardContent className="space-y-4">
+                                <div className="p-4 bg-muted/30 rounded-lg min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
                                     {targetSession.transcript || "No transcript available for this session."}
                                 </div>
+
+                                {targetSession.ground_truth && (
+                                    <div className="space-y-2">
+                                        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                            <Target className="h-3 w-3" />
+                                            Reference Script (Ground Truth)
+                                        </div>
+                                        <div className="p-4 bg-primary/5 border border-primary/10 rounded-lg max-h-[150px] overflow-y-auto whitespace-pre-wrap text-sm italic text-muted-foreground">
+                                            {targetSession.ground_truth}
+                                        </div>
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
 
@@ -579,6 +632,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         <div className="h-full">
                             <AISuggestions
                                 transcript={targetSession.transcript || ""}
+                                sessionId={targetSession.id}
+                                initialSuggestions={targetSession.ai_suggestions}
                                 metrics={{
                                     wpm: targetSession.wpm,
                                     clarity_score: targetSession.clarity_score,

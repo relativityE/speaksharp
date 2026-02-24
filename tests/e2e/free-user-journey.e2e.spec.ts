@@ -4,7 +4,7 @@
  * Complete lifecycle test for FREE tier users:
  * 1. Signup via UI
  * 2. Session with Browser STT (only option)
- * 3. Custom vocabulary
+ * 3. User filler words
  * 4. Analytics verification
  * 5. Logout/relogin persistence
  * 6. Multiple sessions with cumulative scores
@@ -69,7 +69,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         await expect(startButton).toHaveAttribute('aria-label', /start/i, { timeout: 5000 });
     });
 
-    test('should add custom vocabulary word', async ({ page }) => {
+    test('should add user filler word', async ({ page }) => {
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
 
         // Ensure fresh state and synchronize MSW
@@ -81,7 +81,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
         // Wait for page to load
         await expect(page.getByText('Practice Session')).toBeVisible();
 
-        // 1. Click "Add Custom Word" button to open the popover
+        // 1. Click "Add User Word" button to open the popover
         const addWordBtn = page.getByTestId('add-custom-word-button');
         await expect(addWordBtn).toBeVisible();
         await addWordBtn.click();

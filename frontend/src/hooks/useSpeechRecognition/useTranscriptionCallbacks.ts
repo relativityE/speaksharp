@@ -34,7 +34,7 @@ export function useTranscriptionCallbacks(callbacks: Partial<TranscriptionServic
             session: callbacksRef.current.session,
             navigate: callbacksRef.current.navigate,
             getAssemblyAIToken: callbacksRef.current.getAssemblyAIToken,
-            customVocabulary: callbacksRef.current.customVocabulary,
+            userWords: callbacksRef.current.userWords,
         });
 
     }, [service, isReady]);

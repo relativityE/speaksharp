@@ -13,7 +13,7 @@ export const calculateWordErrorRate = (reference: string, hypothesis: string): n
   const refWords = reference.toLowerCase().trim().split(/\s+/).filter(Boolean);
   const hypWords = hypothesis.toLowerCase().trim().split(/\s+/).filter(Boolean);
 
-  if (refWords.length === 0) return hypWords.length;
+  if (refWords.length === 0) return hypothesis.trim() === '' ? 0 : 1.0;
   if (hypWords.length === 0) return 1.0;
 
   // Cache lookup

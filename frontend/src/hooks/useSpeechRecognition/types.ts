@@ -1,7 +1,7 @@
 import type { Session as SupabaseSession } from '@supabase/supabase-js';
 
 export interface Chunk {
-  text: string;
+  transcript: string;
   id: number;
   timestamp: number;
   speaker?: string;
@@ -14,8 +14,8 @@ export interface WordConfidence {
 }
 
 export interface UseSpeechRecognitionProps {
-  customWords?: string[];
-  customVocabulary?: string[];
+  userWords?: string[];
+  userVocabulary?: string[];
   session?: SupabaseSession | null;
 }
 

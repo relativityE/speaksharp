@@ -122,6 +122,6 @@ test.describe('Goal Setting', () => {
 
         // Verify updated goals display
         await expect(page.getByTestId('weekly-sessions-value')).toHaveText(/5 \/ 10/);
-        await expect(page.getByTestId('clarity-avg-value')).toHaveText(/84% \/ 95%/);
+        await expect(page.getByTestId('clarity-avg-value')).toHaveText(/85% \/ 95%/);
     });
 });

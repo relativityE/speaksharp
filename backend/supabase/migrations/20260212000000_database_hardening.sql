@@ -6,16 +6,41 @@ RETURNS boolean
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
+DECLARE
+  v_limit_seconds INT := 3600; -- 1 hour (Alpha Launch Refactor)
+  v_current_usage INT;
+  v_last_reset TIMESTAMPTZ;
+  v_status TEXT;
 BEGIN
-  -- Perform atomic update
+  -- 1. Get current state and handle daily reset
+  SELECT usage_seconds, usage_reset_date, subscription_status
+  INTO v_current_usage, v_last_reset, v_status
+  FROM public.user_profiles
+  WHERE id = auth.uid()
+  FOR UPDATE; -- Lock row for consistency
+
+  IF NOT FOUND THEN RETURN FALSE; END IF;
+
+  -- Daily reset (matching Edge Function logic)
+  IF v_last_reset IS NULL OR v_last_reset <= now() - INTERVAL '24 hours' THEN
+    v_current_usage := 0;
+    v_last_reset := now();
+  END IF;
+
+  -- 2. Enforce limit for free users
+  IF v_status = 'free' AND v_current_usage >= v_limit_seconds THEN
+    RETURN FALSE;
+  END IF;
+
+  -- 3. Atomic update
   UPDATE public.user_profiles
   SET 
-    usage_seconds = usage_seconds + session_duration_seconds,
+    usage_seconds = v_current_usage + session_duration_seconds,
+    usage_reset_date = v_last_reset,
     updated_at = now()
   WHERE id = auth.uid();
 
-  -- Return true if the user was found and updated
-  RETURN FOUND;
+  RETURN TRUE;
 END;
 $$;
 

@@ -45,12 +45,12 @@ describe('TransformersJSEngine (Unit)', () => {
         mockPipeline.mockReset();
         mockEnv.allowLocalModels = false;
 
-        // Default mock implementation
+        // Default mock implementation - returns { transcript } matching TranscriptionResult interface
         mockPipeline.mockImplementation(async () => {
             // Return a mock transcriber function
             return async (audio: Float32Array) => {
                 if (!(audio instanceof Float32Array)) throw new Error('Invalid input');
-                return { text: 'Mocked transcription result' };
+                return { transcript: 'Mocked transcription result' };
             };
         });
     });
@@ -83,15 +83,7 @@ describe('TransformersJSEngine (Unit)', () => {
     });
 
     it('should process PCM audio buffer correctly', async () => {
-        await engine.init({});
-
-        // Override mock for specific result
-        mockPipeline.mockImplementation(async () => {
-            return async () => ({ text: 'Specific Result' });
-        });
-
-        // Re-init to pick up logic (simulated)
-        // Note: Real engine caches pipeline, but we are testing logic flow
+        // Init uses the default mockPipeline which returns 'Mocked transcription result'
         await engine.init({});
 
         const pcmBuffer = new Float32Array(16000);
@@ -99,7 +91,7 @@ describe('TransformersJSEngine (Unit)', () => {
 
         expect(result.isOk).toBe(true);
         // Cast to success type to access .value strictly
-        const successResult = result as unknown as { isOk: true; value: { text: string } };
+        const successResult = result as unknown as { isOk: true; value: string };
         expect(successResult.value).toBeTruthy();
     });
 
@@ -167,7 +159,7 @@ describe('TransformersJSEngine (Unit)', () => {
             if (options.progress_callback) {
                 options.progress_callback({ progress: 50 });
             }
-            return async () => ({ text: 'ok' });
+            return async () => ({ transcript: 'ok' });
         });
 
         await engine.init(callbacks);

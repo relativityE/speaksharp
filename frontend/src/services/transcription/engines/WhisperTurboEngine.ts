@@ -71,7 +71,8 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
                 return Result.err(result.error);
             }
 
-            return Result.ok(result.value.text || '');
+            const transcript = result.value.text || '';
+            return Result.ok(transcript);
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
             logger.error({ err: e }, '[WhisperTurbo] Transcription failed.');

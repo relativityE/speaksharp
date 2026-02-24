@@ -4,10 +4,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useUsageLimit } from './useUsageLimit';
+import { useSessionStore } from '../stores/useSessionStore';
 import { toast } from '@/lib/toast';
 import { getMaxFillerWords } from '../constants/subscriptionTiers';
 
-interface CustomWord {
+interface UserWord {
     id: string;
     word: string;
     created_at: string;
@@ -20,6 +21,7 @@ export const useUserFillerWords = () => {
     const { data: usageData } = useUsageLimit(); // Use the usage limit hook
     const isPro = usageData?.is_pro ?? false;
     const supabase = getSupabaseClient();
+    const setSTTStatus = useSessionStore(s => s.setSTTStatus);
 
     // Use usage limits from hook or fallback to centralized config
     const MAX_WORDS = getMaxFillerWords(usageData?.subscription_status);
@@ -37,7 +39,7 @@ export const useUserFillerWords = () => {
                 logger.error({ err: error }, '[useUserFillerWords] Error fetching');
                 throw error;
             }
-            return data as CustomWord[];
+            return data as UserWord[];
         },
         enabled: !!session?.user?.id,
         // Cache invalidation strategy
@@ -79,7 +81,7 @@ export const useUserFillerWords = () => {
         },
         onSuccess: (newItem) => {
             // Expert Fix: Manually update cache with authoritative data from DB
-            queryClient.setQueryData(['user-filler-words', session?.user?.id], (old: CustomWord[] = []) => {
+            queryClient.setQueryData(['user-filler-words', session?.user?.id], (old: UserWord[] = []) => {
                 return [...old, newItem];
             });
             toast.success('Word added to detection list');
@@ -99,9 +101,22 @@ export const useUserFillerWords = () => {
 
             if (error) throw error;
         },
-        onSuccess: () => {
+        onSuccess: (_, id) => {
+            const removedWord = userFillerWords.find(w => w.id === id)?.word;
             queryClient.invalidateQueries({ queryKey: ['user-filler-words', session?.user?.id] });
             toast.success('Word removed');
+
+            if (removedWord) {
+                setSTTStatus({
+                    type: 'info',
+                    message: `User word "${removedWord}" no longer tracked`
+                });
+
+                // Revert to ready after 3 seconds
+                setTimeout(() => {
+                    setSTTStatus({ type: 'ready', message: 'Ready to record' });
+                }, 3000);
+            }
         },
         onError: (err) => {
             toast.error('Failed to remove word');

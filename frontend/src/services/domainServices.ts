@@ -185,7 +185,7 @@ export const profileService = {
 };
 
 // ============================================================================
-// Custom Vocabulary Service
+// User Words Service
 // ============================================================================
 
 export interface CustomWord {
@@ -197,7 +197,7 @@ export interface CustomWord {
 
 export const vocabularyService = {
     /**
-     * Get user's custom vocabulary
+     * Get user's filler words
      */
     async getWords(userId: string): Promise<CustomWord[]> {
         const supabase = getClient();

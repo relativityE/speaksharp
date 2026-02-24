@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 
 export const LandingFooter = () => {
   return (
-    <footer className="flex flex-col gap-2 sm:flex-row py-6 w-full shrink-0 items-center px-4 md:px-6 border-t bg-secondary-fg text-muted-foreground">
+    <footer className="flex flex-col gap-2 sm:flex-row py-6 w-full shrink-0 items-center px-4 md:px-6 border-t border-white/10 text-muted-foreground">
       <p className="text-xs">
         © {new Date().getFullYear()} SpeakSharp. All rights reserved.
       </p>

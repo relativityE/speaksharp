@@ -1,0 +1,1 @@
+The architecture utilizes a sharded PostgreSQL database with automated vertical scaling. We are implementing JWT authentication with short-lived access tokens and refresh tokens stored in HTTP-only cookies to mitigate XSS and CSRF vulnerabilities. The frontend is built on a modular React framework with optimized tree-shaking for minimal bundle size.

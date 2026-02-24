@@ -35,6 +35,10 @@ export default defineConfig(({ mode }) => {
           {
             src: '../node_modules/whisper-webgpu/whisper-wasm_bg.wasm',
             dest: 'whisper-turbo'
+          },
+          {
+            src: '../node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
+            dest: 'pdfjs'
           }
         ]
       })
@@ -88,7 +92,8 @@ export default defineConfig(({ mode }) => {
             'vendor-supabase': ['@supabase/supabase-js'],
             'vendor-utils': ['lodash', 'date-fns', 'clsx', 'tailwind-merge'],
             'vendor-transformers': ['@xenova/transformers'],
-            'vendor-charts': ['recharts', 'lucide-react']
+            'vendor-charts': ['recharts', 'lucide-react'],
+            'vendor-pdf': ['pdfjs-dist']
           }
         }
       },
@@ -99,6 +104,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
+        "@shared": path.resolve(__dirname, "../backend/supabase/functions/_shared"),
       },
     },
     define: {
