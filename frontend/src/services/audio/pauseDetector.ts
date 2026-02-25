@@ -1,7 +1,7 @@
 // Pause detection via audio amplitude analysis
 // Detects silence gaps > 500ms as pauses
 
-import { PAUSE_DETECTION } from '@/config';
+import { PAUSE_DETECTION } from '../../config';
 
 export interface PauseMetrics {
     totalPauses: number;
@@ -136,6 +136,24 @@ export class PauseDetector {
             transitionPauses,
             extendedPauses,
         };
+    }
+
+    /**
+     * Get the duration of the current silence gap (if active) in seconds.
+     */
+    public getCurrentSilenceDurationSeconds(): number {
+        if (!this.isSilent || this.currentPauseStart === null) return 0;
+        return (Date.now() - this.currentPauseStart) / 1000;
+    }
+
+    /**
+     * PARETO FIX: Determine if the current silence is long enough to be a real gap.
+     * This avoids chopping speech mid-sentence due to micro-pauses.
+     */
+    public isMeaningfullySilent(): boolean {
+        if (!this.isSilent || this.currentPauseStart === null) return false;
+        const silenceDurationMs = Date.now() - this.currentPauseStart;
+        return silenceDurationMs >= this.minPauseDuration;
     }
 
     /**

@@ -39,7 +39,8 @@ const defaultLifecycle = {
     fillerData: {},
     isProUser: true,
     isButtonDisabled: false,
-    showPromoExpiredDialog: false
+    showPromoExpiredDialog: false,
+    sunsetModal: { type: 'daily', open: false }
 };
 
 

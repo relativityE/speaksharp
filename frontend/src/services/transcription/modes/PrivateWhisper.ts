@@ -41,6 +41,7 @@ import { MicStream } from '../utils/types';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
 import { TranscriptUpdate } from '@/types/transcription';
 import { IS_TEST_ENVIRONMENT } from '../../../config/env';
+import { PauseDetector } from '../../audio/pauseDetector';
 
 // Extend Window interface for E2E test flags
 declare global {
@@ -103,6 +104,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
   private audioChunks: Float32Array[] = [];
   private isProcessing: boolean = false;
   private processingInterval: NodeJS.Timeout | null = null;
+  private pauseDetector: PauseDetector;
 
   constructor(options: TranscriptionModeOptions, privateSTT?: IPrivateSTT) {
     this.onTranscriptUpdate = options.onTranscriptUpdate;
@@ -112,6 +114,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
     this.status = 'idle';
     this.transcript = '';
     this.privateSTT = privateSTT || createPrivateSTT();
+    this.pauseDetector = new PauseDetector();
 
     // Check for test environment and expose instance for E2E verification
     if (IS_TEST_ENVIRONMENT) {
@@ -237,32 +240,29 @@ export default class PrivateWhisper implements ITranscriptionMode {
 
     this.isProcessing = true;
     const tStart = performance.now();
-    const chunkCount = this.audioChunks.length;
 
     try {
       // Concatenate all chunks using shared utility
       const concatenated = concatenateFloat32Arrays(this.audioChunks);
-      logger.debug({ chunkCount, totalSamples: concatenated.length }, '[PrivateWhisper] 🛠️ Concatenated buffer');
 
-      // RMS VAD: Prevent silence from reaching the model to avoid hallucinations
-      let sum = 0;
-      for (let i = 0; i < concatenated.length; i++) {
-        sum += concatenated[i] * concatenated[i];
-      }
-      const rms = Math.sqrt(sum / concatenated.length);
+      // Feed frame to PauseDetector for metrics and state
+      this.pauseDetector.processAudioFrame(concatenated);
 
-      // Threshold 0.001 (0.1%) to capture quieter speech/whispers
-      if (rms < 0.001) {
+      // SNR-aware VAD: Only transcribe if NOT meaningfully silent (respects micro-pauses)
+      const isSilent = this.pauseDetector.isMeaningfullySilent();
+
+      if (isSilent) {
         if (concatenated.length > 500 && Math.random() > 0.9) {
-          logger.info({ rms, samples: concatenated.length }, '[PrivateWhisper] 🤫 Silent chunk skipped (sampling)');
+          logger.debug({
+            silenceDuration: this.pauseDetector.getCurrentSilenceDurationSeconds(),
+            samples: concatenated.length
+          }, '[PrivateWhisper] 🤫 Meaningful silence detected - skipping chunk');
         }
-        // Even if silent, we still need to clear the processed chunks 
-        // to prevent them from staying in the buffer forever.
-        this.audioChunks = [];
+        this.audioChunks = []; // Clear buffer to prevent backlog
         return;
       }
 
-      logger.info({ rms, samples: concatenated.length }, '[PrivateWhisper] 🔊 Audio detected');
+      logger.info({ samples: concatenated.length }, '[PrivateWhisper] 🔊 Speech detected');
 
       // CRITICAL FIX: The MicStream ALREADY downsamples to 16kHz (confirmed in audioUtils.impl.ts).
       // Double downsampling (16k -> 16k) is harmless, but if we guessed 44k -> 16k on 16k input, we'd decimate it.
@@ -286,8 +286,9 @@ export default class PrivateWhisper implements ITranscriptionMode {
       const processedAudio = concatenated; // Assuming MicStream gives 16k as promised
 
 
-      // CRITICAL FIX: Capture count BEFORE await to avoid wiping audio that arrives during AI inference.
-      const processedCount = this.audioChunks.length;
+      // 🔴 CRITICAL FIX: Atomically capture and clear in same synchronous tick (Bug #7)
+      // This prevents the race where new audio arrives between count capture and transcribe() start.
+      this.audioChunks.length = 0;
 
       // Perform transcription using the PrivateSTT facade
       const result = await this.privateSTT.transcribe(processedAudio);
@@ -306,8 +307,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
         this.onTranscriptUpdate({ transcript: { final: newText } });
       }
 
-      // CRITICAL FIX: Slice only what we processed to preserve incoming audio
-      this.audioChunks = this.audioChunks.slice(processedCount);
+      // Buffer already cleared via splice(0) - no additional slice needed
 
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));

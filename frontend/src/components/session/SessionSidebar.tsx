@@ -5,7 +5,7 @@ import { useUserProfile } from '@/hooks/useUserProfile';
 import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
 import { buildPolicyForUser, TranscriptionPolicy, TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import logger from '@/lib/logger';
-import { Mic, Square, Loader2, Zap, Cloud, Computer } from 'lucide-react';
+import { Mic, Square, Loader2, Zap, Cloud, Computer, Lock } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -100,7 +100,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const canAccessAdvancedModes = isProUser || isDevUser;
 
     type Mode = 'cloud' | 'private' | 'native';
-    const [selectedMode, setSelectedMode] = useState<Mode>(canAccessAdvancedModes ? 'cloud' : 'native');
+    const [selectedMode, setSelectedMode] = useState<Mode>(isProUser ? 'private' : (isDevUser ? 'cloud' : 'native'));
 
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
     const [completedSessions, setCompletedSessions] = useState<PracticeSession[]>([]);
@@ -196,12 +196,13 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
 
     const ModeIndicator = () => {
         if (!actualMode) return null;
+        const isPrivate = actualMode === 'private';
         const modeText = actualMode === 'cloud' ? 'Cloud' : (actualMode === 'native' ? 'Native Browser' : 'Private');
-        const Icon = actualMode === 'cloud' ? Cloud : Computer;
+        const Icon = actualMode === 'cloud' ? Cloud : (isPrivate ? Lock : Computer);
         return (
-            <Badge variant="outline" className="flex items-center gap-2 py-1 px-3">
+            <Badge variant="outline" className={`flex items-center gap-2 py-1 px-3 ${isPrivate ? 'border-primary/50 bg-primary/5 text-primary' : ''}`}>
                 <Icon className="w-4 h-4" />
-                <span className="font-semibold">{modeText}</span>
+                <span className="font-semibold">{isPrivate ? 'Vault (Private)' : modeText}</span>
             </Badge>
         );
     };

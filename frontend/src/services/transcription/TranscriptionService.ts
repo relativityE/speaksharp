@@ -198,6 +198,18 @@ export default class TranscriptionService {
             }, 1500);
           }
         },
+        onTranscriptUpdate: (update) => {
+          if (update.transcript.final) {
+            update.transcript.final = this.sanitizeTranscript(update.transcript.final);
+          }
+          if (update.transcript.partial) {
+            update.transcript.partial = this.sanitizeTranscript(update.transcript.partial);
+          }
+          // Only forward if there's actually something left after sanitization
+          if (update.transcript.final || update.transcript.partial) {
+            this.options.onTranscriptUpdate(update);
+          }
+        },
         onError: (err) => {
           // Forward to the main handler
           this.handleFailure(mode, err); // Pass mode to handleFailure
@@ -430,7 +442,6 @@ export default class TranscriptionService {
 
   private getProxyOptions(): TranscriptionModeOptions {
     return {
-      onTranscriptUpdate: this.options.onTranscriptUpdate,
       onModelLoadProgress: (progress) => {
         this.options.onModelLoadProgress(progress);
         const percent = progress !== null ? Math.round(progress * 100) : null;
@@ -447,6 +458,18 @@ export default class TranscriptionService {
         }
       },
       onReady: this.options.onReady,
+      onTranscriptUpdate: (update) => {
+        if (update.transcript.final) {
+          update.transcript.final = this.sanitizeTranscript(update.transcript.final);
+        }
+        if (update.transcript.partial) {
+          update.transcript.partial = this.sanitizeTranscript(update.transcript.partial);
+        }
+        // Only forward if there's actually something left after sanitization
+        if (update.transcript.final || update.transcript.partial) {
+          this.options.onTranscriptUpdate(update);
+        }
+      },
       session: this.options.session,
       navigate: this.options.navigate,
       getAssemblyAIToken: this.options.getAssemblyAIToken,
@@ -461,6 +484,22 @@ export default class TranscriptionService {
     };
   }
 
+  /**
+   * Whisper Garbage Filter (Pareto Fix #1)
+   * Strips raw tokens like [BLANK_AUDIO] and collapses redundant spaces.
+   */
+  private sanitizeTranscript(raw: string): string {
+    // 🔴 PARETO FIX: Robust Sanitization (Bug #3)
+    // Instead of a hardcoded list, we use generic regex to remove bracketed/parenthetical metadata tags.
+    const clean = raw
+      .replace(/\[[A-Z_\s]+\]/gi, '') // Matches [MUSIC], [BLANK_AUDIO], [SILENCE], etc.
+      .replace(/\([a-z\s]+\)/gi, '')  // Matches (applause), (laughter), etc.
+      .replace(/\s{2,}/g, ' ')       // Normalize spaces
+      .trim();
+
+    return clean;
+  }
+
   private handleStateChange(state: TranscriptionState): void {
     let status: SttStatus;
     switch (state) {
@@ -469,7 +508,13 @@ export default class TranscriptionService {
       case 'ACTIVATING_MIC': status = { type: 'initializing', message: 'Mic requested...' }; break;
       case 'READY': status = { type: 'idle', message: 'Mic ready' }; break;
       case 'INITIALIZING_ENGINE': status = { type: 'initializing', message: 'Initializing engine...' }; break;
-      case 'RECORDING': status = { type: 'recording', message: 'Recording active' }; break;
+      case 'RECORDING': {
+        const engineType = (this.engine as unknown as { getEngineType: () => string })?.getEngineType() || '';
+        const isFast = engineType === 'whisper-turbo';
+        const label = isFast ? '🔒 Private (Fast)' : (engineType === 'transformers-js' ? '🔒 Private (Safe)' : 'Recording active');
+        status = { type: 'recording', message: label };
+        break;
+      }
       case 'ERROR': status = { type: 'error', message: this.lastError?.message || 'Error occurred' }; break;
       default: status = { type: 'idle', message: 'Ready' };
     }
@@ -510,19 +555,21 @@ export default class TranscriptionService {
   }
 
   private async handleCacheMiss(): Promise<void> {
-    logger.info('[TranscriptionService] Handling cache miss');
+    logger.info('[TranscriptionService] Handling cache miss - switching to native fallback');
 
-    this.options.onStatusChange?.({ type: 'downloading', message: 'Private model not cached, downloading...', progress: 0 });
+    this.options.onStatusChange?.({
+      type: 'fallback',
+      message: 'Private model not ready. using Browser STT (Native)...',
+      progress: 0
+    });
 
-    // Explicitly set store state so UI components can find it separately from engine status
+    // We still keep the loading progress at 0 for the background download indicator
     useSessionStore.getState().setModelLoadingProgress(0);
 
-    // Start fallback engine immediately so user can record while downloading
-    // This matches the "Optimistic Entry" pattern
-    // FIX: Must create a new Native engine instance, otherwise we reuse the failing Private engine!
-    const engineConfig: TranscriptionModeOptions = { ...this.options }; // Use base options for native
+    // FIX: Must create a new Native engine instance
+    const engineConfig: TranscriptionModeOptions = { ...this.options };
     this.engine = await EngineFactory.create('native', engineConfig, this.policy);
 
-    await this.executeEngine('native', false); // executeEngine will handle init()
+    await this.executeEngine('native', false);
   }
 }

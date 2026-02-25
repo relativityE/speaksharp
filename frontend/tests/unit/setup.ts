@@ -62,13 +62,36 @@ vi.mock('@/services/transcription/modes/PrivateWhisper', () => ({
 }));
 
 // Mock useProfile (Safe infrastructure mock)
-vi.mock('@/hooks/useProfile', () => ({
-    useProfile: vi.fn().mockReturnValue({
-        id: 'mock-user-id',
-        subscription_status: 'pro',
-        email: 'test@example.com'
-    })
-}));
+vi.mock('@/hooks/useProfile', async () => {
+    const testPath = expect.getState().testPath;
+    // Bypass global mock if it's the specific unit test for this hook
+    if (testPath?.match(/useProfile\.(test|component\.test)\.[tj]sx?$/)) {
+        return await vi.importActual('@/hooks/useProfile');
+    }
+    return {
+        useProfile: vi.fn().mockReturnValue({
+            id: 'mock-user-id',
+            subscription_status: 'pro',
+            email: 'test@example.com'
+        })
+    };
+});
+
+vi.mock('@/hooks/useUserProfile', async () => {
+    const testPath = expect.getState().testPath;
+    // Bypass global mock if it's the specific unit test for this hook
+    if (testPath?.match(/useUserProfile\.(test|component\.test)\.[tj]sx?$/)) {
+        return await vi.importActual('@/hooks/useUserProfile');
+    }
+    return {
+        useUserProfile: vi.fn().mockReturnValue({
+            data: {
+                id: 'mock-user-id',
+                subscription_status: 'pro'
+            }
+        })
+    };
+});
 
 // Mock Toaster globally to prevent sonner mock collisions in tests and Happy-DOM stability issues
 vi.mock('@/components/ui/sonner', () => ({

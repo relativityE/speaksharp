@@ -148,7 +148,7 @@ describe('SessionSidebar', () => {
       }));
     });
 
-    it('renders with all modes enabled and "Cloud" as default', async () => {
+    it('renders with all modes enabled and "Private" as default', async () => {
       const user = userEvent.setup();
       render(
         <MockAuthProvider value={mockAuthContextValue}>
@@ -156,13 +156,13 @@ describe('SessionSidebar', () => {
         </MockAuthProvider>
       );
 
-      await user.click(screen.getByRole('button', { name: 'Cloud' }));
+      await user.click(screen.getByRole('button', { name: 'Private' }));
       expect(await screen.findByRole('menuitemradio', { name: 'Cloud' })).toBeEnabled();
       expect(await screen.findByRole('menuitemradio', { name: 'Private' })).toBeEnabled();
       expect(await screen.findByRole('menuitemradio', { name: 'Native' })).toBeEnabled();
     });
 
-    it('calls startListening with cloud mode by default', async () => {
+    it('calls startListening with private mode by default', async () => {
       const user = userEvent.setup();
       render(
         <MockAuthProvider value={mockAuthContextValue}>
@@ -170,27 +170,6 @@ describe('SessionSidebar', () => {
         </MockAuthProvider>
       );
 
-      await user.click(screen.getByText('Start Speaking'));
-      expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
-        allowNative: true,
-        allowCloud: true,
-        allowPrivate: true,
-        preferredMode: 'cloud',
-        allowFallback: true,
-        executionIntent: 'prod-pro-cloud',
-      });
-    });
-
-    it('can switch to and start in on-device mode', async () => {
-      const user = userEvent.setup();
-      render(
-        <MockAuthProvider value={mockAuthContextValue}>
-          <SessionSidebar {...defaultProps} />
-        </MockAuthProvider>
-      );
-
-      await user.click(screen.getByRole('button', { name: 'Cloud' }));
-      await user.click(await screen.findByRole('menuitemradio', { name: 'Private' }));
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
         allowNative: true,
@@ -199,6 +178,27 @@ describe('SessionSidebar', () => {
         preferredMode: 'private',
         allowFallback: true,
         executionIntent: 'prod-pro-private',
+      });
+    });
+
+    it('can switch to and start in cloud mode', async () => {
+      const user = userEvent.setup();
+      render(
+        <MockAuthProvider value={mockAuthContextValue}>
+          <SessionSidebar {...defaultProps} />
+        </MockAuthProvider>
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Private' }));
+      await user.click(await screen.findByRole('menuitemradio', { name: 'Cloud' }));
+      await user.click(screen.getByText('Start Speaking'));
+      expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
+        allowNative: true,
+        allowCloud: true,
+        allowPrivate: true,
+        preferredMode: 'cloud',
+        allowFallback: true,
+        executionIntent: 'prod-pro-cloud',
       });
     });
   });

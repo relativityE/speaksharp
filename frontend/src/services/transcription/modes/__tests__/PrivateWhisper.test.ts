@@ -26,7 +26,17 @@ const mocks = vi.hoisted(() => ({
     init: vi.fn(),
     transcribe: vi.fn(),
     reset: vi.fn(),
-    stop: vi.fn()
+    stop: vi.fn(),
+    isMeaningfullySilent: vi.fn().mockReturnValue(false),
+    processAudioFrame: vi.fn()
+}));
+
+vi.mock('../../audio/pauseDetector', () => ({
+    default: vi.fn().mockImplementation(() => ({
+        isMeaningfullySilent: mocks.isMeaningfullySilent,
+        processAudioFrame: mocks.processAudioFrame,
+        getCurrentSilenceDurationSeconds: vi.fn().mockReturnValue(0)
+    }))
 }));
 
 vi.mock('../../engines/PrivateSTT', () => {
@@ -110,11 +120,10 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         vi.useFakeTimers();
         await privateWhisper.init();
 
-        let frameCallback: ((frame: Float32Array) => void) | undefined;
         const mockMic: MicStream = {
             state: 'ready',
             sampleRate: 16000,
-            onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
+            onFrame: vi.fn((_cb: (frame: Float32Array) => void) => { return () => { }; }),
             offFrame: vi.fn(),
             stop: vi.fn(),
             close: vi.fn(),
@@ -123,15 +132,13 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         await privateWhisper.startTranscription(mockMic);
 
-        // Simulate silent frame (all zeros)
-        if (frameCallback) {
-            frameCallback(new Float32Array(16000).fill(0));
-        }
+        // Simulate silence in PauseDetector mock
+        mocks.isMeaningfullySilent.mockReturnValue(true);
 
         // Advance timer to trigger processAudio
         await vi.advanceTimersByTimeAsync(1100);
 
-        // Verify: transcribe should NOT be called because RMS is 0
+        // Verify: transcribe should NOT be called because RMS is 0 (mocked)
         expect(mocks.transcribe).not.toHaveBeenCalled();
 
         await privateWhisper.stopTranscription();

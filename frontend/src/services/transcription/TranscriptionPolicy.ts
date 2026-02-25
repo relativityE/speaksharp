@@ -56,7 +56,7 @@ export const PROD_PRO_POLICY: TranscriptionPolicy = {
     allowNative: true,
     allowCloud: true,
     allowPrivate: true,
-    preferredMode: null, // Will be set by UI selection
+    preferredMode: 'private', // Optimized for zero variable cost
     allowFallback: true,
     executionIntent: 'prod-pro',
 };

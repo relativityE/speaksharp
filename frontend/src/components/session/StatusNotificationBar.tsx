@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, CheckCircle2, Loader2, Info, AlertTriangle } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, Info, AlertTriangle, Lock } from 'lucide-react';
 
 import { SttStatus, SttStatusType } from '../../types/transcription';
 import { useSessionStore } from '../../stores/useSessionStore';
@@ -77,10 +77,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 displayMessage = 'Ready';
                 break;
             case 'recording': {
-                const engineName = activeEngine && activeEngine !== 'none'
-                    ? activeEngine.charAt(0).toUpperCase() + activeEngine.slice(1)
-                    : '';
-                displayMessage = `${engineName} Recording active`.trim();
+                displayMessage = status.message || 'Recording active';
                 break;
             }
             case 'ready':
@@ -113,11 +110,20 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
         >
             {/* Primary Status Indicator */}
             <div className="flex items-center gap-3" data-testid="session-status-indicator">
-                {emoji ? (
-                    <span className="text-xl leading-none" role="img" aria-label="status-icon">{emoji}</span>
-                ) : (
-                    <Icon className={`h-5 w-5 ${config.textClass} ${isAnimated ? 'animate-spin' : ''}`} />
-                )}
+                <div className="relative">
+                    {emoji ? (
+                        <span className="text-xl leading-none" role="img" aria-label="status-icon">{emoji}</span>
+                    ) : (
+                        <Icon className={`h-5 w-5 ${config.textClass} ${isAnimated ? 'animate-spin' : ''}`} />
+                    )}
+
+                    {/* Vault Mode Indicator (Padlock) */}
+                    {activeEngine === 'private' && (
+                        <div className="absolute -top-1 -right-1 bg-background rounded-full p-0.5 shadow-sm border border-white/10" title="Vault Mode: On-Device Processing">
+                            <Lock className="h-2 w-2 text-emerald-500 fill-emerald-500/20" />
+                        </div>
+                    )}
+                </div>
                 <div className="flex flex-col">
                     <span className={`text-xs font-black uppercase tracking-widest ${config.textClass}`} data-testid="status-message-text">
                         {displayMessage}

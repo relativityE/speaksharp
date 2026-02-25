@@ -74,7 +74,7 @@ describe('TransformersJSEngine (Unit)', () => {
         expect(result.isOk).toBe(true);
         expect(mockPipeline).toHaveBeenCalledWith(
             'automatic-speech-recognition',
-            'Xenova/whisper-tiny.en',
+            'Xenova/whisper-base.en',
             expect.objectContaining({ quantized: true })
         );
         expect(callbacks.onModelLoadProgress).toHaveBeenCalledWith(0);

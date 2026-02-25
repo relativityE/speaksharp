@@ -17,7 +17,7 @@ export default defineConfig({
     setupFiles: './tests/unit/setup.ts',
     testTimeout: 30000,
     hookTimeout: 10000,
-    teardownTimeout: 10000,
+    teardownTimeout: 30000,
     // CLEAN CI OUTPUT: Use 'basic' for minimal noise, 'verbose' only when debugging
     // Set CI_DEBUG=true for verbose output
     reporters: process.env.CI_DEBUG
@@ -53,19 +53,16 @@ export default defineConfig({
     poolOptions: {
       forks: {
         isolate: true, // Ensure tests do not share state
-        singleFork: false // Use multiple forks (processes)
+        singleFork: process.env.CI === 'true', // Use single fork on CI to prevent OOM
+        execArgv: ['--max-old-space-size=2048'] // Give each worker more memory
       }
     },
 
     // Memory management
-    maxConcurrency: 1,
-    fileParallelism: false,
-
     watch: false,
     env: {
       VITE_TEST_MODE: 'true',
-      NODE_ENV: 'test',
-      NODE_OPTIONS: '--max-old-space-size=2048'
+      NODE_ENV: 'test'
     },
     // Fix deprecation: "deps.inline" -> "server.deps.inline"
     server: {

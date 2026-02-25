@@ -125,7 +125,8 @@ const defaultLifecycle = {
     fillerData: {},
     isProUser: false,
     isButtonDisabled: false,
-    showPromoExpiredDialog: false
+    showPromoExpiredDialog: false,
+    sunsetModal: { type: 'daily' as const, open: false }
 };
 
 describe('SessionPage Rendering', () => {

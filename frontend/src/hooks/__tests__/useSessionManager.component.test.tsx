@@ -58,7 +58,7 @@ describe('useSessionManager', () => {
     const { result } = renderHook(() => useSessionManager(), { wrapper: createWrapper() });
 
     const sessionData = { duration: 60 };
-    const { session, usageExceeded } = await result.current.saveSession(sessionData);
+    const { session, usageExceeded } = await result.current.saveSession(sessionData, 'native');
 
     expect(session).not.toBeNull();
     expect(session?.id).toContain('anonymous-session');
@@ -78,7 +78,7 @@ describe('useSessionManager', () => {
 
     const { result } = renderHook(() => useSessionManager(), { wrapper: createWrapper() });
 
-    const { session } = await result.current.saveSession({});
+    const { session } = await result.current.saveSession({}, 'native');
 
     expect(session).toEqual(mockSession);
     expect(saveSession).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'test-user' }), mockProfile, 'native');

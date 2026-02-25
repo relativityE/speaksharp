@@ -18,6 +18,7 @@ import { StatusNotificationBar } from '@/components/session/StatusNotificationBa
 import { SttStatus } from '@/types/transcription';
 import { PromoExpiredDialog } from '@/components/PromoExpiredDialog';
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
+import { SunsetModals } from '@/components/session/SunsetModals';
 
 /**
  * ARCHITECTURE (Senior Architect):
@@ -41,6 +42,8 @@ export const SessionPage: React.FC = () => {
         handleStartStop,
         showAnalyticsPrompt,
         sessionFeedbackMessage,
+        sunsetModal,
+        setSunsetModal,
         pauseMetrics,
         transcriptContent,
         fillerData,
@@ -210,6 +213,14 @@ export const SessionPage: React.FC = () => {
                 isButtonDisabled={isButtonDisabled}
                 modelLoadingProgress={modelLoadingProgress}
                 onStartStop={handleStartStop}
+            />
+
+            {/* Sunset Modals */}
+            <SunsetModals
+                open={sunsetModal.open}
+                onOpenChange={(open) => setSunsetModal(prev => ({ ...prev, open }))}
+                type={sunsetModal.type}
+                isPro={isProUser}
             />
 
             {/* Promo Expired Dialog */}

@@ -82,7 +82,8 @@ describe('SessionPage - STT Mode Selection UI', () => {
             isButtonDisabled: false,
             showPromoExpiredDialog: false,
             showAnalyticsPrompt: false,
-            sessionFeedbackMessage: null
+            sessionFeedbackMessage: null,
+            sunsetModal: { type: 'daily', open: false }
         } as unknown as ReturnType<typeof useSessionLifecycle>);
 
         (mockUseSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
@@ -104,7 +105,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
     });
 
     it('should disable Pro options (Private, Cloud) for Free users', async () => {
-        const user = userEvent.setup();
+        const user = userEvent.setup({ pointerEventsCheck: 0 });
 
         // Mock Free User via Lifecycle Hook
         mockUseSessionLifecycle.mockReturnValue({
@@ -129,7 +130,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
     });
 
     it('should enable options for Pro users', async () => {
-        const user = userEvent.setup();
+        const user = userEvent.setup({ pointerEventsCheck: 0 });
 
         // Mock Pro User via Lifecycle Hook
         mockUseSessionLifecycle.mockReturnValue({

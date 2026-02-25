@@ -26,7 +26,7 @@ describe('fetchWithRetry', () => {
         const promise = fetchWithRetry(mockFn, 3, 100);
 
         // Wait for first failure
-        await vi.runAllTimersAsync();
+        await vi.advanceTimersByTimeAsync(5000);
 
         const result = await promise;
         expect(result).toBe('success');
@@ -86,7 +86,7 @@ describe('fetchWithRetry', () => {
         const promise = fetchWithRetry(mockFn, 1, 100);
         promise.catch(() => { }); // Prevent unhandled rejection
 
-        await vi.runAllTimersAsync();
+        await vi.advanceTimersByTimeAsync(8000);
 
         await expect(promise).rejects.toThrow('always fails');
         // With retries=1, it should call once + 1 retry = 2 total
@@ -123,7 +123,7 @@ describe('fetchWithRetry', () => {
         const promise = fetchWithRetry(mockFn, 1, 100);
         promise.catch(() => { });
 
-        await vi.runAllTimersAsync();
+        await vi.advanceTimersByTimeAsync(20000);
 
         await expect(promise).rejects.toThrow('Specific API error: 503 Service Unavailable');
     });

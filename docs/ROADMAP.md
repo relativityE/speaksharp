@@ -378,6 +378,12 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Port Centralization (2025-12-21):** Eliminated hardcoded port numbers. Created `scripts/build.config.ts` with `PORTS.DEV` (5173) and `PORTS.PREVIEW` (4173). Updated 10+ files.
 - ✅ **PERPETUAL - Documentation Audit (2026-02-09):** Verified PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Resolved CI path resolution and MSW identity issues. **Frequency:** Before each release and after major feature work.
 - ✅ **Side-by-Side Session Comparison (2025-12-06):** Implemented `SessionComparisonDialog.tsx` with `ProgressIndicator` and integrated into `AnalyticsDashboard.tsx`. Verified via `session-comparison.e2e.spec.ts`.
+- [ ] **🛡️ Private STT Hardening (Post-Alpha Tech Debt):**
+  - **Multi-Tab State Corruption**: Implement `SharedWorker` or Cross-Tab Broadcast Channel to strictly enforce a single WebGPU instance across tabs.
+  - **WebGPU Context Loss**: Add `device-lost` event handlers to the `WhisperEngineRegistry` to trigger graceful WASM fallback mid-session.
+  - **Mobile RAM Optimization**: Implement dynamic model unloading or Tiny-model preference for iOS Safari (300MB RAM limit).
+  - **Ad-Blocker Resilience**: Detect asset load failures and fallback to a "Lite" model probe with exponential backoff on retry.
+  - **Asset MITM Protection**: Move model weights to authenticated Supabase buckets with short-lived signed URLs.
 
 ### 🚧 Should-Have (Tech Debt)
 

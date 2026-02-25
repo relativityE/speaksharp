@@ -15,6 +15,7 @@ export class WhisperEngineRegistry {
     private static refCount = 0;
     private static isLocked = false;
     private static initPromise: Promise<unknown> | null = null;
+    public static WARMUP_TIMEOUT = 30000; // 30 seconds default
     private static progressListeners = new Set<(progress: number) => void>();
 
     /**
@@ -47,7 +48,8 @@ export class WhisperEngineRegistry {
             }
         }
 
-        this.initPromise = this.warmupWithTimeout(30000);
+        // Use polyfill with proper cleanup to prevent IPC leaks
+        this.initPromise = this.acquireWithPolyfill(onProgress);
 
         try {
             this.session = await this.initPromise;
@@ -62,6 +64,57 @@ export class WhisperEngineRegistry {
             throw error;
         } finally {
             if (onProgress) this.progressListeners.delete(onProgress);
+        }
+    }
+
+    private static async acquireWithPolyfill(_onProgress?: (progress: number) => void): Promise<unknown> {
+        const channel = new BroadcastChannel('whisper-coordination');
+        let pingListener: ((event: MessageEvent) => void) | null = null;
+
+        try {
+            // coordination contract: 
+            // 1. send ping
+            // 2. if we get a pong within 100ms, another tab has the engine.
+            const hasExistingSession = await new Promise<boolean>((resolve) => {
+                const coordinationListener = (event: MessageEvent) => {
+                    if (event.data.type === 'acquire-pong') {
+                        channel.removeEventListener('message', coordinationListener);
+                        resolve(true); // Another tab responded within 100ms
+                    }
+                };
+                channel.addEventListener('message', coordinationListener);
+                channel.postMessage({ type: 'acquire-ping' });
+
+                // If no one pongs in 100ms, assume we are the primary holder
+                setTimeout(() => {
+                    channel.removeEventListener('message', coordinationListener);
+                    resolve(false);
+                }, 100);
+            });
+
+            if (hasExistingSession) {
+                throw new Error('WebGPU in use by another tab');
+            }
+
+            // Successfully coordination: Listen for future pings to protect our acquisition
+            pingListener = (event: MessageEvent) => {
+                if (event.data.type === 'acquire-ping') {
+                    channel.postMessage({ type: 'acquire-pong' });
+                }
+            };
+            channel.addEventListener('message', pingListener);
+
+            // Acquire the engine
+            return await this.warmupWithTimeout(this.WARMUP_TIMEOUT);
+
+        } finally {
+            // CRITICAL FIX: Always clean up handles to fix the CI IPC leak.
+            // If the process is exiting or during teardown, this handle MUST be closed.
+            if (pingListener) {
+                channel.removeEventListener('message', pingListener);
+            }
+            channel.close();
+            logger.debug('[WhisperEngineRegistry] BroadcastChannel closed');
         }
     }
 

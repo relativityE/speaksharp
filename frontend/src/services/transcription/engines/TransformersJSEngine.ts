@@ -70,10 +70,10 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
                 callbacks.onModelLoadProgress(0);
             }
 
-            // Initialize the ASR pipeline with Whisper tiny model
+            // Initialize the ASR pipeline with Whisper base model
             this.transcriber = await pipeline(
                 'automatic-speech-recognition',
-                'Xenova/whisper-tiny.en',
+                'Xenova/whisper-base.en', // Upgraded from tiny
                 {
                     // Use quantized model for faster loading
                     quantized: true,

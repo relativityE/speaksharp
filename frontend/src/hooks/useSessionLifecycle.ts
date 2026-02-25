@@ -13,6 +13,7 @@ import { useStreak } from './useStreak';
 import { useUserFillerWords } from './useUserFillerWords';
 import { isPro } from '@/constants/subscriptionTiers';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
+import { useActiveSessionLock } from './useActiveSessionLock';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import type { Chunk } from './useSpeechRecognition/types';
@@ -28,13 +29,15 @@ export const useSessionLifecycle = () => {
     const { saveSession } = useSessionManager();
     const { userFillerWords } = useUserFillerWords();
     const activeEngine = useSessionStore(state => state.activeEngine);
-
-    const [mode, setMode] = useState<'cloud' | 'native' | 'private'>('native');
-    const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
-    const [sessionFeedbackMessage, setSessionFeedbackMessage] = useState<string | null>(null);
-    const isProcessingRef = useRef(false);
+    const { acquireLock, releaseLock } = useActiveSessionLock();
 
     const isProUser = isPro(profile?.subscription_status);
+
+    const [mode, setMode] = useState<'cloud' | 'native' | 'private'>(isProUser ? 'private' : 'native');
+    const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
+    const [sessionFeedbackMessage, setSessionFeedbackMessage] = useState<string | null>(null);
+    const [sunsetModal, setSunsetModal] = useState<{ type: 'daily' | 'monthly'; open: boolean }>({ type: 'daily', open: false });
+    const isProcessingRef = useRef(false);
 
     const speechConfig = useMemo(() => ({
         userWords: userFillerWords,
@@ -153,6 +156,14 @@ export const useSessionLifecycle = () => {
 
             try {
                 setSessionFeedbackMessage(null);
+
+                // Mutex Check: Prevent multi-tab session bypass for Free users
+                // Direct call to acquireLock gives us an atomic check/acquisition
+                if (!isProUser && !acquireLock()) {
+                    setSessionFeedbackMessage('⛔ Active session in another tab. Switch to that tab to continue.');
+                    return;
+                }
+
                 const policy = buildPolicyForUser(isProUser, mode);
                 await startListening(policy);
                 posthog.capture('session_started', { mode });
@@ -160,7 +171,7 @@ export const useSessionLifecycle = () => {
                 isProcessingRef.current = false;
             }
         }
-    }, [isListening, elapsedTime, stopListening, updateStreak, saveSession, queryClient, isProUser, usageLimit, mode, startListening]);
+    }, [isListening, elapsedTime, stopListening, updateStreak, saveSession, queryClient, isProUser, usageLimit, mode, activeEngine, startListening, acquireLock]);
 
     // Timer logic: Heartbeat for the store's tick
     useEffect(() => {
@@ -172,31 +183,77 @@ export const useSessionLifecycle = () => {
         }
     }, [isListening, tick]);
 
-    const hasMountedRef = useRef(false);
 
-    // Initial clean state check
-    useEffect(() => {
-        if (!hasMountedRef.current) {
-            hasMountedRef.current = true;
-        }
-    }, []);
 
-    // Tier enforcement: Auto-stop when daily limit reached
+    // Tier enforcement: Auto-stop and 5-minute Warning
     useEffect(() => {
-        if (!isProUser && isListening && usageLimit && typeof usageLimit.remaining_seconds === 'number') {
-            if (elapsedTime >= usageLimit.remaining_seconds && usageLimit.remaining_seconds >= 0) {
-                logger.warn({ elapsedTime, remaining: usageLimit.remaining_seconds }, '[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
-                const errorMsg = usageLimit.error || 'Daily usage limit reached.';
-                const prefix = errorMsg.startsWith('⚠️') || errorMsg.startsWith('⛔') ? '' : '⛔ ';
+        if (isListening && usageLimit && typeof usageLimit.remaining_seconds === 'number') {
+            const remaining = usageLimit.remaining_seconds - elapsedTime;
+
+            // 5-minute warning (300 seconds)
+            if (remaining > 0 && remaining <= 300) {
+                const minutes = Math.ceil(remaining / 60);
+                const warningMsg = `⚠️ Great session! ${minutes} minute${minutes > 1 ? 's' : ''} remaining for today's practice limit.`;
+                if (sessionFeedbackMessage !== warningMsg) {
+                    setSessionFeedbackMessage(warningMsg);
+                    posthog.capture('session_limit_warning', { remaining_seconds: remaining });
+                }
+            } else if (remaining <= 0) {
+                logger.warn({ elapsedTime, remaining }, '[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
+
+                // Determine modal type
+                const isMonthly = usageLimit.monthly_remaining <= 0;
+                setSunsetModal({ type: isMonthly ? 'monthly' : 'daily', open: true });
+
                 handleStartStop({
-                    skipRedirect: true,
-                    stopReason: `${prefix}${errorMsg}`
+                    stopReason: "🚀 You've crushed your practice goals for today! Auto-saving now."
                 });
             }
         }
-    }, [elapsedTime, isListening, usageLimit, isProUser, handleStartStop]);
+    }, [elapsedTime, isListening, usageLimit, handleStartStop, sessionFeedbackMessage]);
 
-    // Mode sync
+    // VAD Auto-Pause Logic: 5 minutes of silence detected via transcript inactivity
+    const lastTranscriptRef = useRef(transcript.transcript);
+    const lastActivityTimeRef = useRef(Date.now());
+
+    useEffect(() => {
+        if (!isListening) {
+            lastActivityTimeRef.current = Date.now();
+            return;
+        }
+
+        if (transcript.transcript !== lastTranscriptRef.current) {
+            lastTranscriptRef.current = transcript.transcript;
+            lastActivityTimeRef.current = Date.now();
+        }
+
+        const inactivityLimit = 300 * 1000; // 5 minutes
+        const checkInactivity = setInterval(() => {
+            const now = Date.now();
+            if (now - lastActivityTimeRef.current > inactivityLimit) {
+                logger.warn({
+                    now,
+                    lastActivity: lastActivityTimeRef.current,
+                    diff: now - lastActivityTimeRef.current
+                }, '[useSessionLifecycle] 🔇 VAD AUTO-STOP: 5 minutes of silence detected');
+
+                handleStartStop({
+                    stopReason: '🔇 Auto-paused due to 5 minutes of inactivity.'
+                });
+            }
+        }, 1000); // Check more frequently in dev/test
+
+        return () => clearInterval(checkInactivity);
+    }, [isListening, transcript.transcript, handleStartStop]);
+
+    // Ensure lock is released on unmount or when listening stops
+    useEffect(() => {
+        return () => {
+            if (isListening) releaseLock();
+        };
+    }, [isListening, releaseLock]);
+
+    // Mode sync: Ensure UI and Engine mode stay aligned
     useEffect(() => {
         if (isListening && activeEngine && activeEngine !== 'none' && activeEngine !== mode) {
             setMode(activeEngine as 'cloud' | 'native' | 'private');
@@ -218,6 +275,8 @@ export const useSessionLifecycle = () => {
         setShowAnalyticsPrompt,
         sessionFeedbackMessage,
         setSessionFeedbackMessage,
+        sunsetModal,
+        setSunsetModal,
         pauseMetrics,
         transcriptContent: transcript.transcript,
         fillerData,

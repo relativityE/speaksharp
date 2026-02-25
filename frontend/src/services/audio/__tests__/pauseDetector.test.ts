@@ -122,4 +122,22 @@ describe('PauseDetector', () => {
         const metrics = pauseDetector.getMetrics();
         expect(metrics.totalPauses).toBe(1);
     });
+
+    it('should correctly report meaningfully silent', () => {
+        const pd = new PauseDetector(0.1, 500);
+        const silentFrame = new Float32Array(1024).fill(0);
+
+        pd.processAudioFrame(silentFrame);
+
+        // At T=0, it is silent but not meaningfully so (duration 0)
+        expect(pd.isMeaningfullySilent()).toBe(false);
+
+        // At T=100ms, still not meaningfully silent
+        vi.advanceTimersByTime(100);
+        expect(pd.isMeaningfullySilent()).toBe(false);
+
+        // At T=500ms, it is now meaningfully silent
+        vi.advanceTimersByTime(400);
+        expect(pd.isMeaningfullySilent()).toBe(true);
+    });
 });
