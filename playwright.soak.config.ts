@@ -12,7 +12,7 @@ import { SOAK_CONFIG } from './tests/constants';
  * Assumes dev server is already running: pnpm dev
  */
 
-// Load development environment for real Supabase
+// Load development environment for real Supabase (dynamically managed in Cloud)
 loadEnv('development');
 
 export default defineConfig({

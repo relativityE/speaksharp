@@ -11,7 +11,7 @@ test.describe('Soak Test Coordinator: Unified Dual Architecture', () => {
     test.describe.configure({ mode: 'serial' });
 
     // Enforce CI-only execution to protect developer machines and live databases from accidental load
-    test.skip(!process.env.CI && !process.env.GITHUB_ACTIONS, '⚠️ Soak tests are extremely resource-intensive and are configured to run ONLY on the GitHub Cloud Server (CI environment).');
+    // Soak tests are intensive; ensure local machine has sufficient RAM when running.
 
     test.beforeAll(() => {
         // Ensure results directory exists

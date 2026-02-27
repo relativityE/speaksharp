@@ -154,14 +154,22 @@ export const TIMEOUTS = {
 // SOAK TEST CONFIG
 // ============================================
 
-const SESSION_MS = parseInt(process.env.SOAK_TEST_DURATION_MS || '120000', 10); // Default to 2 minutes
+/**
+ * SOAK_MEMORY_DURATION_MS: The module-level "Source of Truth".
+ * Update this single value to change the duration for all memory-related soak tests.
+ */
+const SOAK_MEMORY_DURATION_MS = 600000; // Default: 10 mins
 
 export const SOAK_CONFIG = {
   CONCURRENT_USERS: 2,
-  SESSION_DURATION_MS: SESSION_MS,
+  /**
+   * SESSION_DURATION_MS: The configuration key used by the test runner.
+   * It consumes the value from SOAK_MEMORY_DURATION_MS.
+   */
+  SESSION_DURATION_MS: SOAK_MEMORY_DURATION_MS,
   // Mathematical Relationship: 2.5x Safety Multiplier
   // This accounts for (Setup + Staggered Auth + Active Session + Metrics Collection)
-  PLAYWRIGHT_TIMEOUT_MS: Math.max(SESSION_MS * 2.5, 300 * 1000),
+  PLAYWRIGHT_TIMEOUT_MS: Math.max(SOAK_MEMORY_DURATION_MS * 2.5, 300 * 1000),
   P95_THRESHOLD_MS: 10000,
   MAX_MEMORY_MB: 200,
   USE_NATIVE_MODE: false,

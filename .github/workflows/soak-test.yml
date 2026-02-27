@@ -26,18 +26,25 @@ jobs:
           MODE: "soak"
         run: node scripts/setup-test-users.mjs
       
+      - name: Extract Soak Duration
+        id: duration
+        run: |
+          DURATION=$(grep "const SOAK_MEMORY_DURATION_MS =" tests/constants.ts | grep -oE "[0-9]+")
+          echo "SOAK_DURATION=$DURATION" >> $GITHUB_ENV
+          echo "Extracted Soak Duration: $DURATION ms"
+
       - name: Run soak test
         env:
           VITE_TEST_MODE: "true"
           VITE_USE_LIVE_DB: "true"
           SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
-          SOAK_TEST_DURATION_MS: "300000" # 5 minutes (configurable here or via UI inputs if added)
           API_LOAD_CONCURRENCY: "15"
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           ASSEMBLYAI_API_KEY: ${{ secrets.ASSEMBLYAI_API_KEY }}
+          SOAK_MEMORY_DURATION_MS: ${{ env.SOAK_DURATION }}
         run: |
-          pnpm test:soak
+          pnpm test:soak:memory
 
       - name: Upload test results
         if: always()

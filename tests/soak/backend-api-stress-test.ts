@@ -1,9 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
+import * as path from 'path';
+import * as fs from 'fs';
 import WebSocket from 'ws';
 
-// Load environment variables (assuming running via Vitest or TS-Node)
-dotenv.config();
+// Load environment variables. In Playwright/Soak context, we target .env.development (Dynamic in Cloud).
+const envPath = path.resolve(process.cwd(), '.env.development');
+dotenv.config({ path: fs.existsSync(envPath) ? envPath : undefined });
 
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
