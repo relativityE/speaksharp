@@ -28,16 +28,24 @@ export const useSessionLifecycle = () => {
     const { updateStreak } = useStreak();
     const { saveSession } = useSessionManager();
     const { userFillerWords } = useUserFillerWords();
+    const stopSession = useSessionStore(state => state.stopSession);
     const activeEngine = useSessionStore(state => state.activeEngine);
     const { acquireLock, releaseLock } = useActiveSessionLock();
 
     const isProUser = isPro(profile?.subscription_status);
 
-    const [mode, setMode] = useState<'cloud' | 'native' | 'private'>(isProUser ? 'private' : 'native');
+    const [mode, setMode] = useState<'cloud' | 'native' | 'private'>('native');
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const [sessionFeedbackMessage, setSessionFeedbackMessage] = useState<string | null>(null);
     const [sunsetModal, setSunsetModal] = useState<{ type: 'daily' | 'monthly'; open: boolean }>({ type: 'daily', open: false });
     const isProcessingRef = useRef(false);
+
+    // ✅ NEW: Stable ref for handleStartStop to prevent dependency loops
+    const handleStartStopRef = useRef<((options?: { skipRedirect?: boolean; stopReason?: string }) => Promise<void>) | null>(null);
+
+    // ✅ NEW: Guards to prevent double stops in the same session
+    const hasAutoStoppedRef = useRef(false);
+    const hasVADStoppedRef = useRef(false);
 
     const speechConfig = useMemo(() => ({
         userWords: userFillerWords,
@@ -74,18 +82,25 @@ export const useSessionLifecycle = () => {
         isProcessingRef.current = true;
 
         if (isListening) {
+            // ✅ EXPERT FIX: Immediate UI flip and lock release
+            // This prevents ANY hang or service promise from delaying the button reversion.
+            stopSession();
+            releaseLock();
+            if (window.__E2E_CONTEXT__) {
+                (window as unknown as { __lockAcquired__?: boolean }).__lockAcquired__ = false;
+            }
+
             // Bypass minimum duration check if there is an external stop reason (e.g. tier limits)
             if (elapsedTime < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
                 await stopListening();
                 setShowAnalyticsPrompt(false);
                 setSessionFeedbackMessage(`⚠️ Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`);
+                isProcessingRef.current = false;
                 return;
             }
 
             try {
-                // Use the result from stopListening() to avoid stale closures
-                // The closure captures React state at invocation time, but stopListening() 
-                // returns the absolute final transcript and metrics after all processing completes.
+                // stopListening() performs async engine cleanup but store state is already flipped
                 const finalStats = await stopListening();
 
                 if (!finalStats) {
@@ -93,14 +108,15 @@ export const useSessionLifecycle = () => {
                     return;
                 }
 
-                // Calculate wpm from final stats (total_words / duration_in_minutes)
+                // ... (stats calculation and save logic)
+
+                // ... (rest of stats calculation and save logic)
                 const finalWpm = finalStats.duration > 0
                     ? Math.round((finalStats.total_words / finalStats.duration) * 60)
                     : 0;
 
-                // Sum filler counts from FillerCounts object (each value is a FillerData with .count)
                 const finalFillerCount = Object.entries(finalStats.filler_words)
-                    .filter(([key]) => key !== 'total') // Exclude the 'total' key, we'll sum ourselves
+                    .filter(([key]) => key !== 'total')
                     .reduce((sum, [, data]) => sum + (data?.count ?? 0), 0);
 
                 posthog.capture('session_ended', {
@@ -111,8 +127,6 @@ export const useSessionLifecycle = () => {
                 });
 
                 const streakResult = updateStreak();
-
-                // Derive engine type for usage tracking
                 const engineType = (activeEngine === 'cloud') ? 'cloud' : 'native';
 
                 const result = await saveSession({
@@ -122,16 +136,14 @@ export const useSessionLifecycle = () => {
                     wpm: finalWpm,
                     clarity_score: finalStats.accuracy,
                     title: `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`,
-                    engine: (activeEngine || 'unknown') as string // Fix: Handle null/none and cast to string for session record
+                    engine: (activeEngine || 'unknown') as string
                 }, engineType);
-
 
                 if (result.session) {
                     let finalMsg = streakResult.isNewDay
                         ? ` 🔥 ${streakResult.currentStreak} Day Streak! Session saved.`
                         : '✓ Great practice! Session saved.';
 
-                    // Override with specific stop reason if provided (e.g. usage limit)
                     if (options?.stopReason) {
                         finalMsg = options.stopReason;
                     }
@@ -144,24 +156,53 @@ export const useSessionLifecycle = () => {
             } catch (error) {
                 logger.error({ err: error }, '[useSessionLifecycle] Error stopping recording');
             } finally {
+                hasAutoStoppedRef.current = false;
+                hasVADStoppedRef.current = false;
                 isProcessingRef.current = false;
             }
         } else {
+            // ✅ Starting: Reset guards FIRST (Robust synchronous reset)
+            hasAutoStoppedRef.current = false;
+            hasVADStoppedRef.current = false;
+
             if (!isProUser && usageLimit && !usageLimit.can_start) {
                 const errorMsg = usageLimit.error || 'Daily usage limit reached.';
                 const prefix = errorMsg.startsWith('⚠️') || errorMsg.startsWith('⛔') ? '' : '⛔ ';
                 setSessionFeedbackMessage(`${prefix}${errorMsg}`);
+                isProcessingRef.current = false;
                 return;
             }
 
             try {
                 setSessionFeedbackMessage(null);
 
-                // Mutex Check: Prevent multi-tab session bypass for Free users
-                // Direct call to acquireLock gives us an atomic check/acquisition
-                if (!isProUser && !acquireLock()) {
+                // Mutex Check: Prevent multi-tab session bypass for ALL users
+                const lockAcquired = acquireLock();
+
+                // ✅ Expert Diagnostic: Structured logging for state machine observability
+                if (window.__E2E_CONTEXT__) {
+                    logger.info({
+                        isListening,
+                        isProUser,
+                        lockAcquired,
+                        remaining_seconds: usageLimit?.remaining_seconds,
+                        hasAutoStopped: hasAutoStoppedRef.current,
+                        hasVADStopped: hasVADStoppedRef.current
+                    }, '[SESSION_DIAG]');
+                }
+
+                // Mutex is enforced for all users to prevent parallel session state corruption
+                if (!lockAcquired) {
                     setSessionFeedbackMessage('⛔ Active session in another tab. Switch to that tab to continue.');
+                    if (window.__E2E_CONTEXT__) {
+                        (window as { __lockAcquired__?: boolean }).__lockAcquired__ = false;
+                    }
                     return;
+                }
+
+                // ✅ Lock acquired – signal to E2E
+                if (window.__E2E_CONTEXT__) {
+                    (window as { __lockAcquired__?: boolean }).__lockAcquired__ = true;
                 }
 
                 const policy = buildPolicyForUser(isProUser, mode);
@@ -171,7 +212,18 @@ export const useSessionLifecycle = () => {
                 isProcessingRef.current = false;
             }
         }
-    }, [isListening, elapsedTime, stopListening, updateStreak, saveSession, queryClient, isProUser, usageLimit, mode, activeEngine, startListening, acquireLock]);
+    }, [isListening, elapsedTime, stopListening, updateStreak, saveSession, queryClient, isProUser, usageLimit, mode, activeEngine, startListening, acquireLock, stopSession, releaseLock]);
+
+    // ✅ Keep the stable ref up to date with the latest callback (Synchronous to avoid effect race)
+    handleStartStopRef.current = handleStartStop;
+
+    // ✅ Reset guards when starting a new session
+    useEffect(() => {
+        if (isListening) {
+            hasAutoStoppedRef.current = false;
+            hasVADStoppedRef.current = false;
+        }
+    }, [isListening]);
 
     // Timer logic: Heartbeat for the store's tick
     useEffect(() => {
@@ -187,7 +239,7 @@ export const useSessionLifecycle = () => {
 
     // Tier enforcement: Auto-stop and 5-minute Warning
     useEffect(() => {
-        if (isListening && usageLimit && typeof usageLimit.remaining_seconds === 'number') {
+        if (isListening && usageLimit && typeof usageLimit.remaining_seconds === 'number' && usageLimit.remaining_seconds > 0) {
             const remaining = usageLimit.remaining_seconds - elapsedTime;
 
             // 5-minute warning (300 seconds)
@@ -199,18 +251,23 @@ export const useSessionLifecycle = () => {
                     posthog.capture('session_limit_warning', { remaining_seconds: remaining });
                 }
             } else if (remaining <= 0) {
+                // ✅ GUARD: Only auto-stop once per session
+                if (hasAutoStoppedRef.current) return;
+                hasAutoStoppedRef.current = true;
+
                 logger.warn({ elapsedTime, remaining }, '[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
 
                 // Determine modal type
                 const isMonthly = usageLimit.monthly_remaining <= 0;
                 setSunsetModal({ type: isMonthly ? 'monthly' : 'daily', open: true });
 
-                handleStartStop({
-                    stopReason: "🚀 You've crushed your practice goals for today! Auto-saving now."
+                // ✅ Use stable ref to prevent re-triggering the effect
+                handleStartStopRef.current?.({
+                    stopReason: "⛔ Daily usage limit reached."
                 });
             }
         }
-    }, [elapsedTime, isListening, usageLimit, handleStartStop, sessionFeedbackMessage]);
+    }, [elapsedTime, isListening, usageLimit, sessionFeedbackMessage]); // Removed handleStartStop dependency
 
     // VAD Auto-Pause Logic: 5 minutes of silence detected via transcript inactivity
     const lastTranscriptRef = useRef(transcript.transcript);
@@ -231,20 +288,25 @@ export const useSessionLifecycle = () => {
         const checkInactivity = setInterval(() => {
             const now = Date.now();
             if (now - lastActivityTimeRef.current > inactivityLimit) {
+                // ✅ GUARD: Only auto-stop once
+                if (hasVADStoppedRef.current) return;
+                hasVADStoppedRef.current = true;
+
                 logger.warn({
                     now,
                     lastActivity: lastActivityTimeRef.current,
                     diff: now - lastActivityTimeRef.current
                 }, '[useSessionLifecycle] 🔇 VAD AUTO-STOP: 5 minutes of silence detected');
 
-                handleStartStop({
+                // ✅ Use stable ref
+                handleStartStopRef.current?.({
                     stopReason: '🔇 Auto-paused due to 5 minutes of inactivity.'
                 });
             }
         }, 1000); // Check more frequently in dev/test
 
         return () => clearInterval(checkInactivity);
-    }, [isListening, transcript.transcript, handleStartStop]);
+    }, [isListening, transcript.transcript]); // Removed handleStartStop dependency
 
     // Ensure lock is released on unmount or when listening stops
     useEffect(() => {

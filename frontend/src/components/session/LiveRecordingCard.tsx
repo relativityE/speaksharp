@@ -109,22 +109,26 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                 </div>
 
                 {/* Waveform (Comfortable size) */}
-                <div
-                    className="flex-1 flex items-center justify-center gap-1 h-10 bg-muted/20 rounded-xl px-3"
-                    data-testid="recording-indicator"
-                >
-                    {[...Array(24)].map((_, i) => (
+                <div className="flex-1 flex items-center justify-center gap-1 h-10 bg-muted/20 rounded-xl px-3 overflow-hidden">
+                    {isListening && (
                         <div
-                            key={i}
-                            className={`w-0.5 rounded-full transition-all duration-150 ${isListening && isReady ? "bg-secondary" : "bg-muted-foreground/10"
-                                }`}
-                            style={{
-                                height: isListening && isReady
-                                    ? `${Math.max(4, Math.random() * 25 + 4)}px`
-                                    : "4px"
-                            }}
-                        />
-                    ))}
+                            className="flex-1 flex items-center justify-center gap-1"
+                            data-testid="recording-indicator"
+                        >
+                            {[...Array(24)].map((_, i) => (
+                                <div
+                                    key={i}
+                                    className={`w-0.5 rounded-full transition-all duration-150 ${isReady ? "bg-secondary" : "bg-muted-foreground/10"
+                                        }`}
+                                    style={{
+                                        height: isReady
+                                            ? `${Math.max(4, Math.random() * 25 + 4)}px`
+                                            : "4px"
+                                    }}
+                                />
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* Main Action Button (Stable UX) */}

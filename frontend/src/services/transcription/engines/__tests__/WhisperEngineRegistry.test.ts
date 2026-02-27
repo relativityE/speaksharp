@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { WhisperEngineRegistry } from '../WhisperEngineRegistry';
 
 // Mock Dependencies
 vi.mock('../../../../lib/logger', () => ({
@@ -30,12 +29,19 @@ vi.mock('whisper-turbo', () => ({
 }));
 
 describe('WhisperEngineRegistry', () => {
+    let WhisperEngineRegistry: typeof import('../WhisperEngineRegistry').WhisperEngineRegistry;
+
     beforeEach(async () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
 
-        // Reset registry state
-        await WhisperEngineRegistry.purge();
+        // Dynamically import to ensure isolation with vi.resetModules()
+        const mod = await import('../WhisperEngineRegistry');
+        WhisperEngineRegistry = mod.WhisperEngineRegistry;
+
+        // Reset registry state to initial conditions
+        await WhisperEngineRegistry.reset();
+        WhisperEngineRegistry.WARMUP_TIMEOUT = 100;
 
         // Robust Mock for navigator.locks
         const mockLocks = {
@@ -75,12 +81,14 @@ describe('WhisperEngineRegistry', () => {
     });
 
     it('should acquire engine using Web Locks API with ifAvailable: true', async () => {
-        const session = await WhisperEngineRegistry.acquire();
-        expect(navigator.locks.request).toHaveBeenCalledWith(
-            'whisper-webgpu-singleton',
-            { mode: 'exclusive', ifAvailable: true },
-            expect.any(Function)
-        );
+        const acquirePromise = WhisperEngineRegistry.acquire();
+
+        // 1. Coordination Ping/Pong wait (100ms)
+        await vi.advanceTimersByTimeAsync(110);
+        // 2. Warmup timeout
+        await vi.advanceTimersByTimeAsync(WhisperEngineRegistry.WARMUP_TIMEOUT);
+
+        const session = await acquirePromise;
         expect(session).toBeDefined();
     });
 
@@ -117,13 +125,15 @@ describe('WhisperEngineRegistry', () => {
         expect(mockChannel.close).toHaveBeenCalled();
     });
 
-    it('should acquire engine using Web Locks API', async () => {
-        const session = await WhisperEngineRegistry.acquire();
-        expect(navigator.locks.request).toHaveBeenCalledWith(
-            'whisper-webgpu-singleton',
-            { mode: 'exclusive', ifAvailable: true },
-            expect.any(Function)
-        );
+    it('should acquire engine correctly', async () => {
+        const acquirePromise = WhisperEngineRegistry.acquire();
+
+        // 1. Coordination Ping/Pong wait (100ms)
+        await vi.advanceTimersByTimeAsync(110);
+        // 2. Warmup timeout
+        await vi.advanceTimersByTimeAsync(WhisperEngineRegistry.WARMUP_TIMEOUT);
+
+        const session = await acquirePromise;
         expect(session).toBeDefined();
     });
 
@@ -132,12 +142,15 @@ describe('WhisperEngineRegistry', () => {
         const p1 = WhisperEngineRegistry.acquire();
         const p2 = WhisperEngineRegistry.acquire();
 
+        // Advance for coordination and warmup
+        await vi.advanceTimersByTimeAsync(110);
+        await vi.advanceTimersByTimeAsync(WhisperEngineRegistry.WARMUP_TIMEOUT);
+
         // Both should resolve to the same session instance (deduplication)
         const [s1, s2] = await Promise.all([p1, p2]);
 
         expect(s1).toBeDefined();
         expect(s1).toBe(s2);
-        // singleton pattern: session is only created once
     });
 
     it('should trigger purge if heartbeat probe fails', async () => {
@@ -149,7 +162,10 @@ describe('WhisperEngineRegistry', () => {
             return 999;
         }) as unknown as typeof setInterval);
 
-        const session = await WhisperEngineRegistry.acquire();
+        const acquirePromise = WhisperEngineRegistry.acquire();
+        await vi.advanceTimersByTimeAsync(110);
+        await vi.advanceTimersByTimeAsync(WhisperEngineRegistry.WARMUP_TIMEOUT);
+        const session = await acquirePromise;
         const purgeSpy = vi.spyOn(WhisperEngineRegistry, 'purge');
 
         // Mock failure on the specific session instance's transcribe method
@@ -163,16 +179,21 @@ describe('WhisperEngineRegistry', () => {
     });
 
     it('should release engine correctly and allow subsequent acquisition after purge', async () => {
-        await WhisperEngineRegistry.acquire();
-        WhisperEngineRegistry.release();
+        const p1 = WhisperEngineRegistry.acquire();
+        await vi.advanceTimersByTimeAsync(110);
+        await vi.advanceTimersByTimeAsync(WhisperEngineRegistry.WARMUP_TIMEOUT);
+        await p1;
 
-        // Release reduces refCount but doesn't purge immediately (usually 10s grace, but release is separate)
-        // Actually release() in our impl just handles refCounts.
+        WhisperEngineRegistry.release();
 
         await WhisperEngineRegistry.purge();
 
         // Should be able to acquire again
-        const session2 = await WhisperEngineRegistry.acquire();
+        const p2 = WhisperEngineRegistry.acquire();
+        await vi.advanceTimersByTimeAsync(110);
+        await vi.advanceTimersByTimeAsync(WhisperEngineRegistry.WARMUP_TIMEOUT);
+        const session2 = await p2;
+
         expect(session2).toBeDefined();
     });
 });

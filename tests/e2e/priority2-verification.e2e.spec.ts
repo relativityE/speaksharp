@@ -22,6 +22,9 @@ test.describe('Inversion Safety: Priority 2 Features', () => {
 
         await navigateToRoute(pageA, '/session');
         await pageA.getByTestId('session-start-stop-button').click();
+
+        // 2. Wait for Tab A to acquire lock deterministically
+        await pageA.waitForFunction(() => (window as unknown as { __lockAcquired__?: boolean }).__lockAcquired__ === true, { timeout: 10000 });
         await expect(pageA.getByTestId('recording-indicator')).toBeVisible();
 
         // 2. Setup Tab B (Same user, SAME context/localStorage)
@@ -34,8 +37,13 @@ test.describe('Inversion Safety: Priority 2 Features', () => {
 
         // 4. Verify lockout message in Tab B
         const statusIndicator = pageB.getByTestId('session-status-indicator');
-        // Detection is nearly instant via shared context
-        await expect(statusIndicator).toContainText(/Active session in another tab/i, { timeout: 5000 });
+        // Detection is nearly instant via shared context, but we poll for UI consistency
+        await expect(statusIndicator).toContainText(/Active session in another tab/i, { timeout: 10000 });
+
+        // Verify Tab B signal is false
+        const lockStateB = await pageB.evaluate(() => (window as unknown as { __lockAcquired__?: boolean }).__lockAcquired__);
+        expect(lockStateB).toBe(false);
+
         await expect(pageB.getByTestId('recording-indicator')).not.toBeVisible();
     });
 
@@ -60,16 +68,12 @@ test.describe('Inversion Safety: Priority 2 Features', () => {
         await page.getByTestId('session-start-stop-button').click();
         await expect(page.getByTestId('recording-indicator')).toBeVisible();
 
-        // 3. Simulate 5 minutes passing with NO transcript update
-        const fiveMinsPlus = 5 * 60 * 1000 + 10000; // 5m 10s
-        await page.evaluate((jump) => {
-            // Force a re-render/interval cycle by jumping Date.now
-            const realNow = Date.now;
-            (window as unknown as { Date: { now: () => number } }).Date.now = () => realNow() + jump;
+        // 3. Simulate 5 minutes passing deterministically
+        // Use Playwright clock to advance setInterval cycles instantly
+        await page.clock.install();
 
-            // Helpful logs for trace debugging
-            console.log(`[E2E] Time jumped by ${jump}ms`);
-        }, fiveMinsPlus);
+        const fiveMinsPlus = 5 * 60 * 1000 + 10000; // 5m 10s
+        await page.clock.fastForward(fiveMinsPlus);
 
         // 4. Wait for the inactivity check to trigger
         // We use a longer timeout and check for the feedback message

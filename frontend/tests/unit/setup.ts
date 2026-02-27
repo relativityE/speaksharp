@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, vi, expect } from 'vitest';
 import { cleanup } from '@testing-library/react';
+import { WhisperEngineRegistry } from '@/services/transcription/engines/WhisperEngineRegistry';
 
 // ============================================
 // CRITICAL: Hoist ALL mocks BEFORE any imports
@@ -19,13 +20,8 @@ if (typeof window !== 'undefined') {
     };
 }
 
-// Mock AudioProcessor (prevents Worker import chain)
-vi.mock('@/services/transcription/utils/AudioProcessor', async () => {
-    const testPath = expect.getState().testPath;
-    if (testPath?.includes('AudioProcessor.test.ts')) {
-        const actual = await vi.importActual('@/services/transcription/utils/AudioProcessor');
-        return actual;
-    }
+// Mock AudioProcessor (infrastructure polyfill)
+vi.mock('@/services/transcription/utils/AudioProcessor', () => {
     return {
         floatToInt16: vi.fn().mockReturnValue(new Int16Array([100, 200])),
         floatToWav: vi.fn().mockReturnValue(new Uint8Array([0, 1, 2])),
@@ -62,36 +58,23 @@ vi.mock('@/services/transcription/modes/PrivateWhisper', () => ({
 }));
 
 // Mock useProfile (Safe infrastructure mock)
-vi.mock('@/hooks/useProfile', async () => {
-    const testPath = expect.getState().testPath;
-    // Bypass global mock if it's the specific unit test for this hook
-    if (testPath?.match(/useProfile\.(test|component\.test)\.[tj]sx?$/)) {
-        return await vi.importActual('@/hooks/useProfile');
-    }
-    return {
-        useProfile: vi.fn().mockReturnValue({
-            id: 'mock-user-id',
-            subscription_status: 'pro',
-            email: 'test@example.com'
-        })
-    };
-});
+// Mock useProfile (Safe infrastructure mock)
+vi.mock('@/hooks/useProfile', () => ({
+    useProfile: vi.fn().mockReturnValue({
+        id: 'mock-user-id',
+        subscription_status: 'pro',
+        email: 'test@example.com'
+    })
+}));
 
-vi.mock('@/hooks/useUserProfile', async () => {
-    const testPath = expect.getState().testPath;
-    // Bypass global mock if it's the specific unit test for this hook
-    if (testPath?.match(/useUserProfile\.(test|component\.test)\.[tj]sx?$/)) {
-        return await vi.importActual('@/hooks/useUserProfile');
-    }
-    return {
-        useUserProfile: vi.fn().mockReturnValue({
-            data: {
-                id: 'mock-user-id',
-                subscription_status: 'pro'
-            }
-        })
-    };
-});
+vi.mock('@/hooks/useUserProfile', () => ({
+    useUserProfile: vi.fn().mockReturnValue({
+        data: {
+            id: 'mock-user-id',
+            subscription_status: 'pro'
+        }
+    })
+}));
 
 // Mock Toaster globally to prevent sonner mock collisions in tests and Happy-DOM stability issues
 vi.mock('@/components/ui/sonner', () => ({
@@ -177,6 +160,15 @@ beforeEach(async () => {
     }
 });
 
-afterEach(() => {
+afterEach(async () => {
+    // 1. Clean up React DOM
     cleanup();
+
+    // 2. Clear all mock calls/state
+    vi.clearAllMocks();
+    vi.clearAllTimers();
+
+    // ✅ NOTE: WhisperEngineRegistry.reset() and vi.resetModules() are removed.
+    // Each test file runs in its own process (maxForks: 1), ensuring 100% isolation
+    // without the overhead of manual cache purging which can destabilize React 18.
 });

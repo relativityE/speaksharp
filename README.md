@@ -196,7 +196,7 @@ For all local testing and validation, use the following `pnpm` scripts. They are
 
 *   **Run only the unit tests:**
     ```bash
-    pnpm test
+    pnpm test:unit
     ```
     **Why?** The fastest possible feedback loop, useful when practicing Test-Driven Development (TDD) on a specific component.
 

@@ -126,8 +126,10 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     const stopListening = useCallback(async (): Promise<(TranscriptStats & { filler_words: FillerCounts }) | null> => {
         if (toastIdRef.current) toast.dismiss(toastIdRef.current);
 
-        const result = await control.stopListening();
+        // ✅ UI STATE FIRST: Transition store state immediately so indicator/buttons update
         stopSession();
+
+        const result = await control.stopListening();
 
         if (result && result.success) {
             const stats = calculateTranscriptStats(

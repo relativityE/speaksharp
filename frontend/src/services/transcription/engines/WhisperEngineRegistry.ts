@@ -1,6 +1,14 @@
 import { SessionManager, AvailableModels } from 'whisper-turbo';
 import logger from '../../../lib/logger';
 
+export enum RegistryState {
+    Idle = 'idle',
+    Initializing = 'initializing',
+    Available = 'available',
+    Busy = 'busy',
+    Destroyed = 'destroyed'
+}
+
 /**
  * [EXPAT] WhisperEngineRegistry
  * 
@@ -13,10 +21,18 @@ export class WhisperEngineRegistry {
     private static manager: SessionManager | null = null;
     private static session: unknown | null = null;
     private static refCount = 0;
-    private static isLocked = false;
+    private static state: RegistryState = RegistryState.Idle;
+    private static abortController: AbortController | null = null;
     private static initPromise: Promise<unknown> | null = null;
     public static WARMUP_TIMEOUT = 30000; // 30 seconds default
     private static progressListeners = new Set<(progress: number) => void>();
+    private static heartbeatInterval: NodeJS.Timeout | null = null;
+
+    private static getChannelName(): string {
+        // Use unique names in test to prevent cross-process coordination collisions
+        const suffix = process.env.NODE_ENV === 'test' ? `-${process.pid}` : '';
+        return `whisper-coordination${suffix}`;
+    }
 
     /**
      * Acquires the singleton Whisper session.
@@ -27,65 +43,81 @@ export class WhisperEngineRegistry {
             this.progressListeners.add(onProgress);
         }
 
-        if (this.isLocked) {
-            logger.warn('[WhisperRegistry] Attempted to acquire engine while locked');
+        if (this.state === RegistryState.Busy) {
+            logger.warn('[WhisperRegistry] Attempted to acquire engine while busy');
             throw new Error('Engine already in use by another session');
         }
 
-        if (this.session) {
+        if (this.state === RegistryState.Available && this.session) {
             logger.info('[WhisperRegistry] Reusing warmed engine');
             this.refCount++;
-            this.isLocked = true;
+            this.state = RegistryState.Busy;
             return this.session;
         }
 
-        if (this.initPromise) {
+        if (this.state === RegistryState.Initializing && this.initPromise) {
             logger.info('[WhisperRegistry] Waiting for existing initialization...');
             try {
-                return await this.initPromise;
+                // Hardened acquisition: Deadlocks must fail fast, not hang CI.
+                return await Promise.race([
+                    this.initPromise,
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Registry deadlock detected during wait')), 5000))
+                ]);
             } finally {
                 if (onProgress) this.progressListeners.delete(onProgress);
             }
         }
 
-        // Use polyfill with proper cleanup to prevent IPC leaks
-        this.initPromise = this.acquireWithPolyfill(onProgress);
+        // Trigger initialization
+        this.initPromise = this.acquireWithCoordination(onProgress);
 
         try {
             this.session = await this.initPromise;
             this.refCount++;
-            this.isLocked = true;
+            this.state = RegistryState.Busy;
             this.initPromise = null;
+            this.startHeartbeat();
             return this.session;
         } catch (error) {
             logger.error({ error }, '[WhisperRegistry] Failed to warmup engine');
             this.initPromise = null;
-            this.isLocked = false;
+            this.state = RegistryState.Idle;
             throw error;
         } finally {
             if (onProgress) this.progressListeners.delete(onProgress);
         }
     }
 
-    private static async acquireWithPolyfill(_onProgress?: (progress: number) => void): Promise<unknown> {
-        const channel = new BroadcastChannel('whisper-coordination');
+    /**
+     * Coordination pattern to prevent multiple tabs from initializing the engine simultaneously.
+     */
+    private static async acquireWithCoordination(_onProgress?: (progress: number) => void): Promise<unknown> {
+        // Use Web Locks if available (modern, stable)
+        if (typeof navigator !== 'undefined' && navigator.locks) {
+            return navigator.locks.request(this.getChannelName(), { ifAvailable: true }, async (lock) => {
+                if (!lock) {
+                    throw new Error('WebGPU in use by another tab');
+                }
+                this.state = RegistryState.Initializing;
+                return await this.warmupWithTimeout(this.WARMUP_TIMEOUT);
+            });
+        }
+
+        // Fallback to BroadcastChannel coordination (legacy/older browsers)
+        const channel = new BroadcastChannel(this.getChannelName());
         let pingListener: ((event: MessageEvent) => void) | null = null;
 
         try {
-            // coordination contract: 
-            // 1. send ping
-            // 2. if we get a pong within 100ms, another tab has the engine.
             const hasExistingSession = await new Promise<boolean>((resolve) => {
                 const coordinationListener = (event: MessageEvent) => {
                     if (event.data.type === 'acquire-pong') {
                         channel.removeEventListener('message', coordinationListener);
-                        resolve(true); // Another tab responded within 100ms
+                        resolve(true);
                     }
                 };
                 channel.addEventListener('message', coordinationListener);
                 channel.postMessage({ type: 'acquire-ping' });
 
-                // If no one pongs in 100ms, assume we are the primary holder
                 setTimeout(() => {
                     channel.removeEventListener('message', coordinationListener);
                     resolve(false);
@@ -96,7 +128,6 @@ export class WhisperEngineRegistry {
                 throw new Error('WebGPU in use by another tab');
             }
 
-            // Successfully coordination: Listen for future pings to protect our acquisition
             pingListener = (event: MessageEvent) => {
                 if (event.data.type === 'acquire-ping') {
                     channel.postMessage({ type: 'acquire-pong' });
@@ -104,17 +135,12 @@ export class WhisperEngineRegistry {
             };
             channel.addEventListener('message', pingListener);
 
-            // Acquire the engine
+            this.state = RegistryState.Initializing;
             return await this.warmupWithTimeout(this.WARMUP_TIMEOUT);
 
         } finally {
-            // CRITICAL FIX: Always clean up handles to fix the CI IPC leak.
-            // If the process is exiting or during teardown, this handle MUST be closed.
-            if (pingListener) {
-                channel.removeEventListener('message', pingListener);
-            }
+            if (pingListener) channel.removeEventListener('message', pingListener);
             channel.close();
-            logger.debug('[WhisperEngineRegistry] BroadcastChannel closed');
         }
     }
 
@@ -123,10 +149,7 @@ export class WhisperEngineRegistry {
             this.warmupEngine(),
             new Promise<never>((_, reject) => {
                 setTimeout(() => {
-                    reject(new Error(
-                        `Whisper engine initialization timed out after ${ms}ms. ` +
-                        `Possible causes: 1) WASM assets missing from /whisper-turbo/, 2) Worker script failed to load, 3) Network blocking large downloads.`
-                    ));
+                    reject(new Error(`Whisper engine initialization timed out after ${ms}ms.`));
                 }, ms);
             })
         ]);
@@ -138,43 +161,9 @@ export class WhisperEngineRegistry {
 
         if (!this.manager) {
             this.manager = new SessionManager();
+            this.abortController = new AbortController();
         }
 
-        // 🛡️ [System Integrity] Pre-flight Asset Probe
-        // Verify all required assets are reachable before committing to the worker handshake.
-        const assetsToProbe = [
-            '/whisper-turbo/session.worker.js',
-            '/whisper-turbo/whisper-wasm_bg.wasm',
-            '/models/tokenizer.json',
-            '/models/tiny-q8g16.bin'
-        ];
-
-        logger.info({ assets: assetsToProbe }, '[WhisperRegistry] 🔍 Probing asset chain...');
-        await Promise.all(assetsToProbe.map(async (url) => {
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-                const resp = await fetch(new URL(url, window.location.origin).href, {
-                    method: 'HEAD',
-                    signal: controller.signal
-                });
-
-                clearTimeout(timeoutId);
-
-                if (!resp.ok) {
-                    throw new Error(`Asset not found: ${url} (Status: ${resp.status})`);
-                }
-                logger.debug(`[WhisperRegistry] Asset OK: ${url}`);
-            } catch (e) {
-                const isTimeout = e instanceof Error && e.name === 'AbortError';
-                const errorMsg = isTimeout ? `Asset probe TIMEOUT (5s): ${url}` : `Asset Probe Failed: ${url}`;
-                logger.error({ url, err: e, isTimeout }, `[WhisperRegistry] ❌ ${errorMsg}`);
-                throw new Error(errorMsg);
-            }
-        }));
-
-        // Use loadModel with mandatory callbacks
         const modelResult = await this.manager.loadModel(
             AvailableModels.WHISPER_TINY,
             () => logger.info('[WhisperRegistry] Model loaded.'),
@@ -184,69 +173,111 @@ export class WhisperEngineRegistry {
             }
         );
 
-        if (modelResult.isErr) {
-            throw modelResult.error;
-        }
+        if (modelResult.isErr) throw modelResult.error;
 
         const duration = performance.now() - startTime;
         logger.info({ durationMs: duration.toFixed(2) }, '[WhisperRegistry] [PERF] Engine warmed up successfully');
 
+        this.state = RegistryState.Available;
+        this.startHeartbeat();
         return modelResult.value;
     }
 
-    private static purgeTimeout: NodeJS.Timeout | null = null;
-    private static GRACE_PERIOD_MS = 60000; // 1 minute
-
-    /**
-     * Releases the engine, making it available for other services.
-     * Starts a grace period timer to purge the engine if not re-acquired.
-     */
-    public static release() {
-        logger.info({ refCount: this.refCount }, '[WhisperRegistry] Releasing engine');
-        this.isLocked = false;
-        this.refCount = Math.max(0, this.refCount - 1);
-
-        if (this.refCount === 0) {
-            logger.info(`[WhisperRegistry] Engine idle. Starting ${this.GRACE_PERIOD_MS / 1000}s grace period before purge.`);
-            if (this.purgeTimeout) clearTimeout(this.purgeTimeout);
-            this.purgeTimeout = setTimeout(() => {
-                if (this.refCount === 0) {
-                    logger.info('[WhisperRegistry] Grace period expired. Purging now.');
+    private static startHeartbeat() {
+        if (this.heartbeatInterval) return;
+        this.heartbeatInterval = setInterval(async () => {
+            if (this.session) {
+                try {
+                    const s = this.session as { transcribe?: (data: Float32Array) => Promise<unknown> };
+                    await s.transcribe?.(new Float32Array(0));
+                } catch (e) {
+                    logger.error({ error: e }, '[WhisperRegistry] Heartbeat failure. Purging engine.');
                     this.purge();
                 }
-            }, this.GRACE_PERIOD_MS);
+            }
+        }, 30000);
+        // Ensure timer doesn't hang Node process in tests
+        if (typeof this.heartbeatInterval?.unref === 'function') {
+            this.heartbeatInterval.unref();
         }
     }
 
-    /**
-     * Forcibly destroys the engine and workers.
-     * Used for memory cleanup or hard resets.
-     */
+    private static stopHeartbeat() {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+        }
+    }
+
+    private static purgeTimeout: NodeJS.Timeout | null = null;
+    private static GRACE_PERIOD_MS = 60000;
+
+    public static release() {
+        logger.info({ refCount: this.refCount, state: this.state }, '[WhisperRegistry] Releasing engine');
+
+        if (this.state === RegistryState.Busy) {
+            this.state = RegistryState.Available;
+        }
+
+        this.refCount = Math.max(0, this.refCount - 1);
+
+        if (this.refCount === 0) {
+            if (this.purgeTimeout) clearTimeout(this.purgeTimeout);
+            this.purgeTimeout = setTimeout(() => {
+                if (this.refCount === 0) {
+                    this.purge();
+                }
+            }, this.GRACE_PERIOD_MS);
+
+            if (typeof this.purgeTimeout?.unref === 'function') {
+                this.purgeTimeout.unref();
+            }
+        }
+    }
+
     public static async purge(): Promise<void> {
         logger.info('[WhisperRegistry] Purging engine and workers');
 
-        if (this.session) {
+        const oldSession = this.session;
+        const oldManager = this.manager;
+
+        this.initPromise = null;
+        this.session = null;
+        this.manager = null;
+        this.state = RegistryState.Destroyed;
+        this.refCount = 0;
+        this.stopHeartbeat();
+
+        if (this.purgeTimeout) {
+            clearTimeout(this.purgeTimeout);
+            this.purgeTimeout = null;
+        }
+
+        if (oldSession) {
             try {
-                await (this.session as { destroy: () => Promise<void> }).destroy();
+                const s = oldSession as { destroy?: () => Promise<void> };
+                await s.destroy?.();
             } catch (e) {
                 logger.warn({ error: e }, '[WhisperRegistry] Error during session destruction');
             }
         }
 
-        if (this.manager) {
+        if (oldManager) {
             try {
-                // EXPAT: manager.terminate() is critical to kill zombie workers
-                const m = this.manager as unknown as { terminate?: () => Promise<void> };
-                await m.terminate?.();
+                await (oldManager as unknown as { terminate?: () => Promise<void> }).terminate?.();
             } catch (e) {
                 logger.warn({ error: e }, '[WhisperRegistry] Error terminating manager');
             }
         }
+    }
 
-        this.session = null;
-        this.manager = null;
-        this.refCount = 0;
-        this.isLocked = false;
-        this.initPromise = null;
+    public static async reset(): Promise<void> {
+        if (this.abortController) {
+            this.abortController.abort();
+            this.abortController = null;
+        }
+        await this.purge();
+        this.state = RegistryState.Idle;
+        this.progressListeners.clear();
     }
 }

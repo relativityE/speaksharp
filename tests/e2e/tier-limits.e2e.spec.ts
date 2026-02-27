@@ -2,11 +2,6 @@ import { test, expect } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 import { registerEdgeFunctionMock } from './mock-routes';
 import { enableTestRegistry, registerMockInE2E } from '../helpers/testRegistry.helpers';
-import { waitForStoreState, setE2ETime, clearQueryCache } from './helpers/e2e-state.helpers';
-
-interface TierLimitsWindow extends Window {
-    __E2E_CONFIG__?: unknown;
-}
 
 test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
 
@@ -19,7 +14,7 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
 
         // Register mock limits via E2E Config (still needed for limits, but managed cleaner)
         await page.addInitScript(() => {
-            (window as unknown as TierLimitsWindow).__E2E_CONFIG__ = {
+            (window as unknown as { __E2E_CONFIG__?: { limits: unknown } }).__E2E_CONFIG__ = {
                 limits: {
                     mode: 'mock',
                     mockLimit: {
@@ -119,20 +114,15 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         // 4. Go to session page
         await navigateToRoute(page, '/session');
 
-        // 5. Force React Query to fetch the new mock and wait for it
-        await clearQueryCache(page);
-        await expect(async () => {
-            const data = await page.evaluate(() => {
-                const win = window as unknown as { queryClient?: { getQueryCache: () => { findAll: (o: unknown) => { state: { data: unknown } }[] } } };
-                if (!win.queryClient) return null;
-                const queries = win.queryClient.getQueryCache().findAll({ queryKey: ['usageLimit'] });
-                return queries.length > 0 ? queries[0].state.data : null;
-            }) as { remaining_seconds: number } | null;
-            if (!data || data.remaining_seconds !== 2) {
-                throw new Error(`Usage limit not yet 2: ${JSON.stringify(data)}`);
-            }
-            return true;
-        }).toPass({ timeout: 15000 });
+        // 5. Wait for React Query cache to be populated with our mock data
+        await page.waitForFunction(() => {
+            const win = window as unknown as { queryClient?: { getQueryCache: () => { findAll: (args: unknown) => Array<{ state: { data: unknown } }> } } };
+            if (!win.queryClient) return false;
+            const queries = win.queryClient.getQueryCache().findAll({ queryKey: ['usageLimit'] });
+            if (queries.length === 0) return false;
+            const data = queries[0].state.data as { remaining_seconds?: number } | null;
+            return data && data.remaining_seconds === 2;
+        }, { timeout: 15000 });
 
         // 6. Start session
         const startButton = page.getByTestId('session-start-stop-button');
@@ -142,17 +132,23 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         await expect(page.getByTestId('recording-indicator')).toBeVisible();
 
         // 8. DETERMINISTIC JUMP
-        await setE2ETime(page, 2);
-        await waitForStoreState(page, (state: unknown) => (state as { elapsedTime: number }).elapsedTime, 2);
+        // Use Playwright clock to advance both Date and Intervals instantly
+        await page.clock.install({ time: Date.now() }); // Keep current time but enable control
+        await page.clock.fastForward(2000); // 2 seconds
 
-        // 9. Wait for auto-stop
-        // The button should revert from 'Stop Recording' to 'Start Recording'
-        await expect(page.getByRole('button', { name: /Start Recording/i })).toBeVisible({ timeout: 15000 });
+        // 9. Wait for auto-stop modal
+        await expect(page.getByText(/Daily Target Crushed/i)).toBeVisible({ timeout: 15000 });
 
-        // 10. Check for usage limit reached status message
-        await expect(page.getByTestId('session-status-indicator')).toContainText(/(Daily|Monthly) usage limit reached/i);
+        // 10. Check for usage limit reached status message (behavioral truth)
+        await expect(page.getByTestId('session-status-indicator')).toContainText(/Daily usage limit reached/i);
 
-        // 11. Verify session stopped (Header reverted)
+        // 11. Close modal to verify button state
+        await page.getByRole('button', { name: /Close/i }).click();
+
+        // 12. Verify button reverted from 'Stop Recording' to 'Start Recording'
+        await expect(page.getByRole('button', { name: /Start Recording/i })).toBeVisible();
+
+        // 13. Verify session stopped (Header reverted)
         await expect(page.getByTestId('live-session-header')).toContainText(/Ready to record/i, { timeout: 5000 });
     });
 

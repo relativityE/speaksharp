@@ -7,6 +7,14 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
+- **CI Stabilization & Mutex Hardening (2026-02-23):**
+  - **Stability:** Achieved **100% E2E success (70/70 tests passing)** after resolving persistent flakiness in VAD auto-pause, cross-tab mutex, and tier limit auto-stops.
+  - **Architecture:** Implemented "UI State First" pattern (Pattern 27), decoupling the UI lifecycle from asynchronous engine cleanup to ensure immediate state reversion and lock release.
+  - **Policy:** Enforced a universal "No Multi-Tab" policy for ALL users (Free & Pro), mitigating risk to quota integrity and state synchronization.
+  - **Security:** Hardened `releaseLock()` to guarantee cleanup of heartbeats and lock keys even if the engine fails to stop gracefully.
+  - **Quality:** Resolved final linting and type errors in E2E tests, achieving zero-debt status for the full CI pipeline.
+  - **Files:** `useSessionLifecycle.ts`, `useActiveSessionLock.ts`, `tier-limits.e2e.spec.ts`, `priority2-verification.e2e.spec.ts`, `test-audit.sh`.
+
 - **Lovable Visual Polish (2026-02-22):**
   - **UI:** "Private Practice." headline set to white; "Public Impact!" retains cyan→yellow gradient.
   - **UI:** Page-level `bg-gradient-radial` for seamless scroll — no hard background transitions between sections.

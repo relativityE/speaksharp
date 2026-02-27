@@ -83,6 +83,10 @@ export const useActiveSessionLock = () => {
             heartbeatTimer.current = null;
         }
         setIsLockHeldByOther(false);
+        // Signal cleanup for E2E
+        if (window.__E2E_CONTEXT__) {
+            (window as unknown as { __lockAcquired__?: boolean }).__lockAcquired__ = false;
+        }
     }, [getLock, tabId]);
 
     useEffect(() => {

@@ -10,6 +10,8 @@ vi.mock('../../contexts/AuthProvider', () => ({
     useAuthProvider: vi.fn(),
 }));
 
+vi.unmock('../useUserProfile');
+
 vi.mock('../../services/domainServices', () => ({
     profileService: {
         getById: vi.fn(),

@@ -326,7 +326,14 @@ export default class TranscriptionService {
     this.fsm.transition({ type: 'STOP_REQUESTED' });
 
     try {
-      const transcript = this.engine ? await this.engine.stopTranscription() : '';
+      // ✅ RESILIENCE: Race the engine stop against a timeout to prevent UI hangs
+      const transcript = this.engine ? await Promise.race([
+        this.engine.stopTranscription(),
+        new Promise<string>((_, reject) =>
+          setTimeout(() => reject(new Error('Engine stop timeout')), 3000)
+        )
+      ]) : '';
+
       const duration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
       const stats = calculateTranscriptStats([{ transcript }], [], '', duration);
 

@@ -34,6 +34,7 @@ Do not proceed until this script completes successfully. If it fails, follow the
 
 ## 🛡️ Project Manifesto: Core Principles
 
+- **🧠 First Principles Mandatory**: Solve every task from first principles by stripping away assumptions and rebuilding from the project's most basic, undeniable truths. We operate on what we **know** is true, not what we **think** is true.
 ### 🧪 Testing & Quality
 - **📖 Testing Strategy (MANDATORY)**: All agents MUST read **[tests/TESTING.md](tests/TESTING.md)** and **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#3-testing-strategy--governance)** before writing any tests.
 - **Integrity over Implementation**: Tests must validate requirements and design intent, not structural implementation. Every test must answer one question: *"Does the product do what the user paid for?"*
@@ -177,9 +178,9 @@ ___
      "test:all": "./scripts/test-audit.sh local",
      "ci:local": "./scripts/test-audit.sh ci-simulate",
      "test:health-check": "./scripts/test-audit.sh health-check",
-     "test": "echo 'NOTE: Running Unit and Component Integration tests...' && cd frontend && vitest run --coverage",
+     "test": "pnpm test:unit",
      "dev": "cd frontend && vite",
-     "build": "cd frontend && vite build",
+     "build": "cd frontend && vite build --mode production",
      "pw:install": "playwright install chromium --with-deps",
      "pw:install:all": "playwright install --with-deps"
     ```

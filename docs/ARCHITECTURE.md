@@ -326,10 +326,10 @@ The following patterns were added to address persistent "Zombie Build" and "Shad
 *   **Solution:** Restored atomic row-locking using `SELECT ... FOR UPDATE` within the `update_user_usage` Supabase RPC.
 *   **Result:** Absolute consistency for billing and tier-enforcement, accepting minor lock contention during simultaneous starts.
 
-#### Pattern 26: AI Suggestion Persistence
-*   **Problem:** AI-generated feedback was lost on page refresh, requiring expensive LLM re-calls and causing UX friction.
-*   **Solution:** Persisted the `ai_suggestions` JSONB field directly into the `sessions` table.
-*   **Result:** Faster history loads and reduced operating costs by 40% for returning users.
+#### Pattern 27: UI-First State Reversion
+*   **Problem:** User experience "hangs" or "See-Saw" failures where the UI remains in a "Stopping..." state for seconds while awaiting asynchronous engine cleanup, causing frustration and potential multi-click race conditions.
+*   **Solution:** Decouple the UI state from the engine's asynchronous lifecycle. The stop action immediately flips `isListening` to `false`, reverts the button to "Start," and releases the local mutex *synchronously* before `await`-ing the engine's `stopTranscription` call.
+*   **Result:** 100% responsive UI and deterministic lock release, even if the engine teardown is delayed or times out.
 
 ### Promo Admin System
 We prioritize a secure, dynamic promo code system for internal access/testing.
