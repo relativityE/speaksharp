@@ -29,7 +29,7 @@ jobs:
       - name: Extract Soak Duration
         id: duration
         run: |
-          DURATION=$(grep "const SOAK_MEMORY_DURATION_MS =" tests/constants.ts | grep -oE "[0-9]+")
+          DURATION=$(grep "const SOAK_MEMORY_DURATION_MS =" tests/constants.ts | sed -n 's/.*SOAK_MEMORY_DURATION_MS = \([0-9]\+\);.*/\1/p')
           echo "SOAK_DURATION=$DURATION" >> $GITHUB_ENV
           echo "Extracted Soak Duration: $DURATION ms"
 
