@@ -101,7 +101,11 @@ run_quality_checks() {
     # Run tests and capture exit code to allow artifact movement even on failure
     # Use 'script -q' to preserve TTY (ANSI colors) while logging to file
     set +e
-    script -q "$ARTIFACTS_DIR/unit-test.log" pnpm test:unit
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        script -q "$ARTIFACTS_DIR/unit-test.log" pnpm test:unit
+    else
+        script -q -c "pnpm test:unit" "$ARTIFACTS_DIR/unit-test.log"
+    fi
     UNIT_EXIT=$?
     set -e
 
@@ -213,7 +217,11 @@ run_e2e_tests_shard() {
 run_e2e_tests_all() {
     echo "✅ [4/6] Running ALL E2E Tests (local mode)..."
     set +e
-    FORCE_COLOR=1 script -q "$ARTIFACTS_DIR/e2e-test.log" pnpm exec playwright test $E2E_TEST_DIR --reporter=list
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        FORCE_COLOR=1 script -q "$ARTIFACTS_DIR/e2e-test.log" pnpm exec playwright test $E2E_TEST_DIR --reporter=list
+    else
+        FORCE_COLOR=1 script -q -c "pnpm exec playwright test $E2E_TEST_DIR --reporter=list" "$ARTIFACTS_DIR/e2e-test.log"
+    fi
     local EXIT_CODE=$?
     set -e
 
