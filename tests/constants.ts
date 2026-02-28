@@ -158,7 +158,7 @@ export const TIMEOUTS = {
  * SOAK_MEMORY_DURATION_MS: The module-level "Source of Truth".
  * Update this single value to change the duration for all memory-related soak tests.
  */
-const SOAK_MEMORY_DURATION_MS = 600000; // Default: 10 mins
+const SOAK_MEMORY_DURATION_MS = Number(process.env.SOAK_MEMORY_DURATION_MS) || 600000; // Default: 10 mins
 
 export const SOAK_CONFIG = {
   CONCURRENT_USERS: 2,
