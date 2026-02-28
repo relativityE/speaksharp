@@ -99,14 +99,12 @@ run_quality_checks() {
 
     echo "   🧪 Unit Tests..."
     # Run tests and capture exit code to allow artifact movement even on failure
-    # Use 'script -q' to preserve TTY (ANSI colors) while logging to file
+    # We use 'tee' instead of 'script' to preserve TTY colors via FORCE_COLOR=1 
+    # without interfering with JSON reporters on Linux CI.
+    # We explicitly request the JSON reporter to ensure unit-metrics.json is generated.
     set +e
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        script -q "$ARTIFACTS_DIR/unit-test.log" pnpm test:unit
-    else
-        script -q -c "pnpm test:unit" "$ARTIFACTS_DIR/unit-test.log"
-    fi
-    UNIT_EXIT=$?
+    FORCE_COLOR=1 pnpm test:unit -- --reporter=default --reporter=json --outputFile=unit-metrics.json 2>&1 | tee "$ARTIFACTS_DIR/unit-test.log"
+    UNIT_EXIT=${PIPESTATUS[0]}
     set -e
 
     # [STABILIZATION] ERR_IPC_CHANNEL_CLOSED Resilience
@@ -140,11 +138,13 @@ run_quality_checks() {
          fi
     fi
 
-    # Artifact management for CI artifacts
-    if [ -f "frontend/unit-metrics.json" ]; then
-        mv frontend/unit-metrics.json .
-        echo "   ✅ Moved unit-metrics.json to root"
+    # Assert the metrics file was actually generated — hard fail if not
+    if [ ! -f "frontend/unit-metrics.json" ]; then
+        echo "   ❌ unit-metrics.json was not generated. Check Vitest reporter config." >&2
+        exit 1
     fi
+    mv frontend/unit-metrics.json .
+    echo "   ✅ Moved unit-metrics.json to root"
     
     if [ $UNIT_EXIT -ne 0 ]; then
         echo "   ❌ Unit Tests FAILED." >&2
