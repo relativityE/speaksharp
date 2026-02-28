@@ -118,7 +118,6 @@ jobs:
 
 
       - name: Run Lighthouse CI
-        continue-on-error: true
         run: |
           # Debug: Verify build artifacts exist
           echo "=== Build artifacts check ==="

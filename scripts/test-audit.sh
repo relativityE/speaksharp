@@ -101,9 +101,10 @@ run_quality_checks() {
     # Run tests and capture exit code to allow artifact movement even on failure
     # We use 'tee' instead of 'script' to preserve TTY colors via FORCE_COLOR=1 
     # without interfering with JSON reporters on Linux CI.
-    # We explicitly request the JSON reporter to ensure unit-metrics.json is generated.
+    # We use an absolute path and direct Vitest invocation to bypass pnpm script argument erasure.
+    METRICS_OUTPUT="$(pwd)/unit-metrics.json"
     set +e
-    FORCE_COLOR=1 pnpm test:unit -- --reporter=default --reporter=json --outputFile=unit-metrics.json 2>&1 | tee "$ARTIFACTS_DIR/unit-test.log"
+    FORCE_COLOR=1 CI=true pnpm exec vitest run --config frontend/vitest.config.mjs --pool=forks --reporter=default --reporter=json --outputFile="$METRICS_OUTPUT" 2>&1 | tee "$ARTIFACTS_DIR/unit-test.log"
     UNIT_EXIT=${PIPESTATUS[0]}
     set -e
 
@@ -139,11 +140,11 @@ run_quality_checks() {
     fi
 
     # Assert the metrics file was actually generated — hard fail if not
-    if [ ! -f "frontend/unit-metrics.json" ]; then
+    if [ ! -f "$METRICS_OUTPUT" ]; then
         echo "   ❌ unit-metrics.json was not generated. Check Vitest reporter config." >&2
         exit 1
     fi
-    mv frontend/unit-metrics.json .
+    mv "$METRICS_OUTPUT" . 2>/dev/null || echo "   ℹ️ metrics already at root"
     echo "   ✅ Moved unit-metrics.json to root"
     
     if [ $UNIT_EXIT -ne 0 ]; then
@@ -216,13 +217,15 @@ run_e2e_tests_shard() {
 
 run_e2e_tests_all() {
     echo "✅ [4/6] Running ALL E2E Tests (local mode)..."
+    
+    # Ensure artifacts dir exists
+    mkdir -p "$ARTIFACTS_DIR"
+    
+    # Run all tests and capture log
     set +e
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        FORCE_COLOR=1 script -q "$ARTIFACTS_DIR/e2e-test.log" pnpm exec playwright test $E2E_TEST_DIR --reporter=list
-    else
-        FORCE_COLOR=1 script -q -c "pnpm exec playwright test $E2E_TEST_DIR --reporter=list" "$ARTIFACTS_DIR/e2e-test.log"
-    fi
-    local EXIT_CODE=$?
+    # Use 'tee' instead of 'script' for cross-platform stability
+    FORCE_COLOR=1 pnpm exec playwright test $E2E_TEST_DIR --reporter=list 2>&1 | tee "$ARTIFACTS_DIR/e2e-test.log"
+    local EXIT_CODE=${PIPESTATUS[0]}
     set -e
 
     # Clean the log and extract summary
