@@ -781,8 +781,8 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 | Environment | Engine Used | Why |
 |-------------|-------------|-----|
 | **E2E Tests (Playwright)** | MockEngine | `window.__E2E_PLAYWRIGHT__` detected |
-- **Unit Tests (Vitest):** 526 tests across 86 files (verified 2026-02-15)
-- **E2E Tests (Playwright):** 61 tests
+- **Unit Tests (Vitest):** 556 tests (verified 2026-03-01)
+- **E2E Tests (Playwright):** 17 tests (mocked CI suite, verified 2026-03-01)
 - **Soak/Performance Tests:** 1 concurrent multi-user scenario
 - **Canary Tests:** 1 production smoke test
 | **Production (WebGPU)** | WhisperTurbo → TransformersJS | Real fallback chain |

@@ -7,6 +7,13 @@ All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
 
+- **Tier-Limits E2E Fix & Expert Rescue Guard (2026-03-01):**
+  - **Fix:** Resolved `useUserProfile.ts` "Expert Rescue" unconditionally forcing `subscription_status='pro'` for `test@example.com` in E2E mode, causing tier-limit tests to always bypass usage guards.
+  - **Guard:** Added explicit check to skip Pro rescue when profile already has `subscription_status === 'free'`, respecting the free tier set by `setupE2EMocks`.
+  - **Test:** Implemented deterministic React Query cache injection pattern: `await cancelQueries` → `setQueryDefaults({ staleTime: Infinity, enabled: false })` → `setQueryData(can_start: false)` with re-injection polling in `waitForFunction`.
+  - **Verification:** All 4 tier-limits E2E tests pass cleanly (0 flaky, 0 failed, 9.3s). `ci:local` green: 556 unit ✅, 17 E2E ✅, Lighthouse 97/94/100/91 ✅.
+  - **Files:** `useUserProfile.ts`, `tier-limits.e2e.spec.ts`
+
 - **Private STT Test Reliability & Documentation (2026-03-01):**
   - **Fix:** Resolved silent mock override in live tests — `TestFlags.USE_REAL_TRANSCRIPTION` now checks `window.REAL_WHISPER_TEST` at runtime (not just Vite build time), ensuring live tests use real Whisper engines instead of MockEngine.
   - **Fix:** Updated `shouldUseMockTranscription()` to respect `USE_REAL_TRANSCRIPTION` override.
