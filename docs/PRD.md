@@ -273,7 +273,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Sun, 01 Mar 2026 00:17:36 GMT
+**Last Updated:** Sun, 01 Mar 2026 01:11:44 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -289,15 +289,15 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 698 (556 unit + 142 E2E) |
-| Unit tests              | 556   |
-| E2E tests (Playwright)  | 142  |
-| Passing tests           | 626 (556 unit + 70 E2E)   |
-| Failing tests           | 0   |
-| Disabled/skipped tests  | 72 (E2E only)   |
-| Passing unit tests      | 556/556 (100.0%)   |
-| Passing E2E tests       | 70/142 (49.3%)   |
-| Total runtime           | See CI logs   |
+| Total tests             | 110 (100 unit + 10 E2E) |
+| Unit tests              | 100   |
+| E2E tests (Playwright)  | 10  |
+| Passing tests           | 105 (95 unit + 10 E2E)   |
+| Failing tests           | 5   |
+| Disabled/skipped tests  | 0 (E2E only)   |
+| Passing unit tests      | 95/100 (95.0%)   |
+| Passing E2E tests       | 10/10 (100.0%)   |
+| Total runtime           | 2m 0s   |
 
 ---
 
@@ -305,10 +305,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 0%   |
-| Branches   | 0%   |
-| Functions  | 0%   |
-| Lines      | 0%   |
+| Statements | N/A   |
+| Branches   | N/A   |
+| Functions  | N/A   |
+| Lines      | N/A   |
 
 ---
 
@@ -316,11 +316,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 7.0M   |
-| Total Project Size  | 1.3G   |
-| Initial Chunk Size  | 916K   |
-| Code Bloat Index    | 12.91%   |
-| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+| Total Source Size   | 1MB   |
+| Total Project Size  | 10MB   |
+| Initial Chunk Size  | 100kB   |
+| Code Bloat Index    | 10%   |
+| Lighthouse Scores   | P: N/A, A: N/A, BP: N/A, SEO: N/A |
 
 ---
 <!-- SQM:END -->
