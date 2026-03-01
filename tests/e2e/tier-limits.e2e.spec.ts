@@ -6,13 +6,13 @@ import { enableTestRegistry, registerMockInE2E } from '../helpers/testRegistry.h
 test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
 
     test('Free user is blocked when daily limit is exhausted', async ({ page }) => {
-        // 1. Login with free tier
+        // 1. Login with free tier (this sets up default mocks including can_start: true)
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
 
         // 2. Initialize E2E Config with mock limits
         await enableTestRegistry(page);
 
-        // Register mock limits via E2E Config (still needed for limits, but managed cleaner)
+        // Register mock limits via E2E Config
         await page.addInitScript(() => {
             (window as unknown as { __E2E_CONFIG__?: { limits: unknown } }).__E2E_CONFIG__ = {
                 limits: {
@@ -34,29 +34,77 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
              getEngineType: () => 'mock-native'
         })`);
 
-        await registerEdgeFunctionMock(page, 'check-usage-limit', {
-            can_start: false,
-            remaining_seconds: 0,
-            limit_seconds: 3600,
-            used_seconds: 3600,
-            subscription_status: 'free'
+        // 3. INJECT usage limit directly into React Query cache.
+        //    Route-based mocking doesn't work because supabase.functions.invoke to mock.supabase.co
+        //    fails at the network level, and useUsageLimit defaults to can_start:true on error.
+        await navigateToRoute(page, '/session');
+
+        // Cancel in-flight fetches, disable auto-refetch, and inject data
+        await page.evaluate(async () => {
+            const win = window as unknown as {
+                queryClient?: {
+                    cancelQueries: (opts: unknown) => Promise<void>;
+                    setQueryDefaults: (key: unknown[], opts: unknown) => void;
+                    setQueryData: (key: unknown[], data: unknown) => void;
+                }
+            };
+            if (win.queryClient) {
+                await win.queryClient.cancelQueries({ queryKey: ['usageLimit'] });
+                win.queryClient.setQueryDefaults(['usageLimit'], {
+                    enabled: false,
+                    refetchOnWindowFocus: false,
+                    refetchOnMount: false,
+                    refetchOnReconnect: false,
+                    staleTime: Infinity
+                });
+                win.queryClient.setQueryData(['usageLimit', 'test-user-123'], {
+                    can_start: false,
+                    daily_remaining: 0,
+                    daily_limit: 3600,
+                    monthly_remaining: 0,
+                    monthly_limit: 90000,
+                    remaining_seconds: 0,
+                    limit_seconds: 3600,
+                    used_seconds: 3600,
+                    subscription_status: 'free',
+                    is_pro: false
+                });
+            }
         });
 
-        // 3. Go to session page and reload to ensure mock is seen
-        await navigateToRoute(page, '/session');
-        await page.reload();
+        // 4. Wait for cache to confirm can_start: false (re-inject if background fetch overwrote)
+        await page.waitForFunction(() => {
+            const win = window as unknown as {
+                queryClient?: {
+                    getQueryCache: () => { findAll: (args: unknown) => Array<{ state: { data: unknown } }> };
+                    setQueryData: (key: unknown[], data: unknown) => void;
+                }
+            };
+            if (!win.queryClient) return false;
+            const queries = win.queryClient.getQueryCache().findAll({ queryKey: ['usageLimit'] });
+            if (queries.length === 0) return false;
+            const data = queries[0].state.data as { can_start?: boolean } | null;
+            if (data && data.can_start === false) return true;
+            // Re-inject if overwritten
+            win.queryClient.setQueryData(['usageLimit', 'test-user-123'], {
+                can_start: false, daily_remaining: 0, daily_limit: 3600,
+                monthly_remaining: 0, monthly_limit: 90000, remaining_seconds: 0,
+                subscription_status: 'free', is_pro: false
+            });
+            return false;
+        }, { timeout: 5000 });
 
-        // 4. Verify Start button IS present (UI doesn't hide it)
+        // 6. Verify Start button IS present (UI doesn't hide it)
         const startButton = page.getByTestId('session-start-stop-button');
         await expect(startButton).toBeVisible();
 
-        // 5. Click Start -> Should trigger error message
+        // 7. Click Start -> Should trigger error message
         await startButton.click();
 
-        // 6. Check for usage limit reached status message (supports both Daily and Monthly as per requirements)
+        // 8. Check for usage limit reached status message (supports both Daily and Monthly as per requirements)
         await expect(page.getByTestId('session-status-indicator')).toContainText(/(Daily|Monthly) usage limit reached/i);
 
-        // 7. Verify we are NOT recording (Button is still 'Start', not 'Stop')
+        // 9. Verify we are NOT recording (Button is still 'Start', not 'Stop')
         await expect(startButton.getByText('Stop')).not.toBeVisible();
     });
 
@@ -64,25 +112,70 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         // 1. Login with free tier
         await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
 
-        // 2. Override usage limit mock to return can_start: false with Monthly message
-        await registerEdgeFunctionMock(page, 'check-usage-limit', {
-            can_start: false,
-            remaining_seconds: 0,
-            limit_seconds: 1800,
-            used_seconds: 1800,
-            subscription_status: 'free',
-            error: 'Monthly usage limit reached'
+        // 2. INJECT usage limit directly into React Query cache
+        await navigateToRoute(page, '/session');
+
+        // Cancel in-flight fetches, disable auto-refetch, and inject data
+        await page.evaluate(async () => {
+            const win = window as unknown as {
+                queryClient?: {
+                    cancelQueries: (opts: unknown) => Promise<void>;
+                    setQueryDefaults: (key: unknown[], opts: unknown) => void;
+                    setQueryData: (key: unknown[], data: unknown) => void;
+                }
+            };
+            if (win.queryClient) {
+                await win.queryClient.cancelQueries({ queryKey: ['usageLimit'] });
+                win.queryClient.setQueryDefaults(['usageLimit'], {
+                    enabled: false,
+                    refetchOnWindowFocus: false,
+                    refetchOnMount: false,
+                    refetchOnReconnect: false,
+                    staleTime: Infinity
+                });
+                win.queryClient.setQueryData(['usageLimit', 'test-user-123'], {
+                    can_start: false,
+                    daily_remaining: 0,
+                    daily_limit: 1800,
+                    monthly_remaining: 0,
+                    monthly_limit: 90000,
+                    remaining_seconds: 0,
+                    limit_seconds: 1800,
+                    used_seconds: 1800,
+                    subscription_status: 'free',
+                    is_pro: false,
+                    error: 'Monthly usage limit reached'
+                });
+            }
         });
 
-        // 3. Go to session page and reload
-        await navigateToRoute(page, '/session');
-        await page.reload();
+        // 3. Wait for cache to confirm can_start: false (re-inject if background fetch overwrote)
+        await page.waitForFunction(() => {
+            const win = window as unknown as {
+                queryClient?: {
+                    getQueryCache: () => { findAll: (args: unknown) => Array<{ state: { data: unknown } }> };
+                    setQueryData: (key: unknown[], data: unknown) => void;
+                }
+            };
+            if (!win.queryClient) return false;
+            const queries = win.queryClient.getQueryCache().findAll({ queryKey: ['usageLimit'] });
+            if (queries.length === 0) return false;
+            const data = queries[0].state.data as { can_start?: boolean } | null;
+            if (data && data.can_start === false) return true;
+            // Re-inject if overwritten
+            win.queryClient.setQueryData(['usageLimit', 'test-user-123'], {
+                can_start: false, daily_remaining: 0, daily_limit: 1800,
+                monthly_remaining: 0, monthly_limit: 90000, remaining_seconds: 0,
+                subscription_status: 'free', is_pro: false, error: 'Monthly usage limit reached'
+            });
+            return false;
+        }, { timeout: 5000 });
 
-        // 4. Click Start -> Should trigger error message
+        // 5. Click Start -> Should trigger error message
         const startButton = page.getByTestId('session-start-stop-button');
         await startButton.click();
 
-        // 5. Check for "Monthly usage limit reached" status message
+        // 6. Check for "Monthly usage limit reached" status message
         await expect(page.getByTestId('session-status-indicator')).toContainText(/Monthly usage limit reached/i);
     });
 
