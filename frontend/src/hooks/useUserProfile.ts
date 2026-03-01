@@ -55,10 +55,13 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
         const isTestMode = import.meta.env.MODE === 'test' || (typeof window !== 'undefined' && (window.__E2E_CONTEXT__ || window.TEST_MODE));
 
         if ((import.meta.env.DEV || isTestMode) && isProEmail) {
-          if (profile) {
+          // GUARD: Don't override if E2E test explicitly set subscription_status to 'free'
+          // This allows tier-limits tests to work correctly with free user scenarios
+          const isExplicitlyFree = profile?.subscription_status === 'free';
+          if (profile && !isExplicitlyFree) {
             profile.subscription_status = 'pro';
             logger.debug({ userId: session.user.id }, '[useUserProfile] Pro rescue applied to existing profile');
-          } else {
+          } else if (!profile) {
             logger.info({ userId: session.user.id }, '[useUserProfile] Generating synthetic Pro profile for rescue');
             const syntheticProfile: UserProfile = {
               id: session.user.id,
