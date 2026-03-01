@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-21
+**Last Reviewed:** 2026-03-01
 
 - **Pattern 19: Isomorphic Test Fixtures (`@shared/test-fixtures`)**: Mandatory SSOT for all mock data. Prevents drift between MSW and Playwright.
 - **Pattern 20: Atomic State Lock (FSM `CLEANING_UP`)**: Prevents race conditions during engine destruction and re-init.
@@ -9,6 +9,9 @@
 -   **Pattern 24: Debounced Interim NLP**: Prevents main-thread stuttering during rapid speech.
 -   **Pattern 25: Atomic Row-locking**: Restored `FOR UPDATE` in Supabase RPC to prevent concurrent usage bypass.
 -   **Pattern 26: AI Suggestion Persistence**: Durable feedback across reloads via JSONB persistence in `sessions`.
+-   **Pattern 27: UI-First State Reversion**: Decouple UI state from async engine cleanup for 100% responsiveness.
+-   **Pattern 28: Engine-Aware Usage Tracking**: Distinguish between Native/Cloud/Private flows for accurate tier enforcement.
+-   **Pattern 29: CI Diagnostic Logging (tee)**: Use `tee` instead of `script` to preserve TTY colors without breaking JSON reporters in CI.
 
 # Agent Instructions for SpeakSharp Repository
 
@@ -44,6 +47,7 @@ Do not proceed until this script completes successfully. If it fails, follow the
 - **TestRegistry for DI**: Centralized engine injection via `TestRegistry` is the only way to register STT engines. This ensures deterministic mocking.
 - **Log, Don't Suppress**: Never swallow exceptions with empty `catch` blocks. Always log the error via `logger` before falling back or re-throwing.
 - **Single Source of Truth**: Perfect alignment between local (`test-audit.sh`) and CI environments.
+- **CI Restoration Standard**: All CI-produced logs MUST use the `tee` restoration pattern to ensure full diagnostic visibility without polluting machine-readable artifacts.
 
 ### 🏛️ Architecture & Design
 - **System Integrity over Developer Velocity**: Prioritize explicit contracts (interfaces) and robust error handling even if they trigger lint warnings or require more code. Never sacrifice the "Gold Standard" for quick check-ins.

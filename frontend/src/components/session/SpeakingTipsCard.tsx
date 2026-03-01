@@ -39,13 +39,15 @@ export const SpeakingTipsCard: React.FC<SpeakingTipsCardProps> = ({
     // Select a random tip on mount (stable for session)
     const [tip] = React.useState(() => tips[Math.floor(Math.random() * tips.length)]);
 
+    const isCompact = className.includes('compact');
+
     return (
-        <div className={`bg-secondary/10 border border-secondary/30 rounded-xl p-6 shadow-sm ${className}`}>
-            <h2 className="text-lg font-semibold text-secondary mb-2 flex items-center gap-2">
-                <Lightbulb className="h-5 w-5" />
+        <div className={`bg-secondary/10 border border-secondary/30 rounded-xl ${isCompact ? 'p-3' : 'p-6'} shadow-sm ${className}`}>
+            <h2 className={`${isCompact ? 'text-base' : 'text-lg'} font-semibold text-secondary ${isCompact ? 'mb-1' : 'mb-2'} flex items-center gap-2`}>
+                <Lightbulb className={`${isCompact ? 'h-4 w-4' : 'h-5 w-5'}`} />
                 Quick Tip
             </h2>
-            <div className="space-y-1">
+            <div className="space-y-0.5">
                 <h4 className="font-medium text-foreground text-sm">{tip.title}</h4>
                 <p className="text-muted-foreground text-sm leading-relaxed">
                     {tip.description}

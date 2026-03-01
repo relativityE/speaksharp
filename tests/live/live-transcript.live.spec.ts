@@ -24,13 +24,15 @@ test.describe('Live Transcript (Real Audio)', () => {
     test.skip(({ browserName }) => browserName !== 'chromium', 'Native STT only supported on Chromium');
 
     /**
-     * KNOWN LIMITATION: Native STT (Web Speech API) does not work in headless Chrome.
-     * This test is designed for headed mode or manual verification.
-     * In CI, this test is expected to timeout/fail - marked as skipped via fixme.
-     * 
-     * The HIGH-FIDELITY value: When run manually, this test verifies real audio → real transcription.
+     * Native STT (Web Speech API) requires:
+     * - Headed browser (already guaranteed by playwright.live.config.ts: headless: false)
+     * - Chrome's online speech recognition service (network dependent)
+     * - Fake audio device (configured via launchOptions above)
+     *
+     * This test only runs via `pnpm test:live` or `pnpm ci:local:full`.
+     * It is NOT part of GitHub CI (ci.yml only runs tests/e2e).
      */
-    test.fixme('should transcribe real audio using Native STT', async ({ page }) => {
+    test('should transcribe real audio using Native STT', async ({ page }) => {
         const transcriptContainer = page.getByTestId('transcript-container');
 
         // Increase timeout because real STT takes time

@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-09
+**Last Reviewed:** 2026-03-01
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -330,6 +330,16 @@ The following patterns were added to address persistent "Zombie Build" and "Shad
 *   **Problem:** User experience "hangs" or "See-Saw" failures where the UI remains in a "Stopping..." state for seconds while awaiting asynchronous engine cleanup, causing frustration and potential multi-click race conditions.
 *   **Solution:** Decouple the UI state from the engine's asynchronous lifecycle. The stop action immediately flips `isListening` to `false`, reverts the button to "Start," and releases the local mutex *synchronously* before `await`-ing the engine's `stopTranscription` call.
 *   **Result:** 100% responsive UI and deterministic lock release, even if the engine teardown is delayed or times out.
+
+#### Pattern 28: Engine-Aware Usage Enforcement
+*   **Problem:** Users could bypass cloud usage limits by toggling engines (e.g., switching from Cloud to Native) mid-session, leading to billing inaccuracies.
+*   **Solution:** Implemented a unified usage enforcement layer that distinguishes between Native (local/unlimited), Cloud (metered/A-AI), and Private (local/hardened) flows. Usage is tracked based on the *active* engine's tier requirements, and the backend RPC `update_user_usage` now requires an `engine_type` parameter to apply the correct decrement logic.
+*   **Result:** Precise billing and tier enforcement across all STT modes.
+
+#### Pattern 29: CI Diagnostic Logging (tee)
+*   **Problem:** Using the `script` command in Linux CI environments to capture TTY output frequently breaks JSON reporters (e.g., Vitest's `unit-metrics.json`) and introduces race conditions in character encoding.
+*   **Solution:** Standardized on the `FORCE_COLOR=1 ... | tee log.txt` pattern. This preserves ANSI color codes for human-readable artifacts while allowing the stdout stream to remain clean for machine-readable JSON outputs.
+*   **Result:** 100% stable CI reports with full diagnostic visibility on failure.
 
 ### Promo Admin System
 We prioritize a secure, dynamic promo code system for internal access/testing.

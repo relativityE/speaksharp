@@ -432,8 +432,12 @@ export default class TranscriptionService {
   public getMode(): TranscriptionMode | null { return this.mode; }
   public getPolicy(): TranscriptionPolicy { return this.policy; }
 
+  /**
+   * Returns the configuration timeout for STT initialization.
+   * ✅ E2E HOOK: Uses window.__STT_LOAD_TIMEOUT__ to allow tests to simulate 
+   * long-tail hangs or force immediate transitions without modifying code.
+   */
   private getLoadTimeout(): number {
-    // ✅ EXPERT FIX: Allow E2E tests to override timeout for resilience testing
     const win = typeof window !== 'undefined' ? window as unknown as { __STT_LOAD_TIMEOUT__?: number } : null;
     if (win && win.__STT_LOAD_TIMEOUT__) {
       return win.__STT_LOAD_TIMEOUT__;

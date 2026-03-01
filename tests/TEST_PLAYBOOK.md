@@ -1,4 +1,5 @@
 # SpeakSharp Test Playbook
+**Version 3.5.3** | **Last Reviewed: 2026-03-01**
 
 This document provides the definitive, step-by-step instructions for executing the SpeakSharp test suite. Follow these steps to ensure repeatability and consistency across different environments.
 
@@ -109,7 +110,36 @@ This uses the repository's GitHub Cloud infrastructure and secrets.
 **Description**: Validates that the application logic correctly handles real third-party integrations (Supabase DB, AssemblyAI, Stripe).
 **Cloud Context**: This test is part of the `ci.yml` workflow. In the cloud, it uses the dynamically generated `.env.development`. If running locally, ensure your environment variables match the names in `env.required`.
 
-### 5. Canary Smoke Tests (`test:canary`)
+### 5. STT Test Architecture & Skip Justifications
+
+> **For AI agents**: This section documents every STT test, where it runs, and why some are conditionally skipped.
+
+#### E2E Tests (CI — All Passing ✅)
+
+7 tests using **MockEngine** via TestRegistry. Fast, deterministic, headless.
+
+| File | Tests | What It Verifies |
+|---|---|---|
+| `e2e/private-stt.e2e.spec.ts` | 5 | Download progress, cache hit, Pro visibility, auto-load, Start/Stop regression |
+| `e2e/diag-private-stt.e2e.spec.ts` | 1 | Mock profile injection pipeline |
+| `e2e/priv-stt-mock-fallback.e2e.spec.ts` | 1 | Optimistic Entry Pattern (fallback while downloading) |
+
+#### Live Tests (Manual — Conditional Skips)
+
+Excluded from GitHub CI (`ci.yml` only runs `tests/e2e`). Run via `pnpm test:live` (headed Chrome).
+
+| File | Skip Condition | Justification |
+|---|---|---|
+| `live/stt-integration.live.spec.ts` | `!process.env.REAL_WHISPER_TEST` | Loads real Whisper WASM (~100MB), needs COOP/COEP + SharedArrayBuffer. Cannot run headless. |
+| `live/driver-dependent/private-stt.live.spec.ts` | `browserName !== 'chromium'` | TransformersJS ONNX needs Chromium WASM SIMD. Injects real audio file. 120s timeout. |
+| `live/live-transcript.live.spec.ts` | `browserName !== 'chromium'` | Native STT (Web Speech API) is Chrome-only. |
+
+#### Key Config Files
+- `playwright.config.ts` — E2E (headless, `tests/e2e`)
+- `playwright.live.config.ts` — Live (headed, `tests/live`, sets `REAL_WHISPER_TEST=true`)
+- `frontend/src/config/TestFlags.ts` — Runtime flags for mock vs real engine selection
+
+### 6. Canary Smoke Tests (`test:canary`)
 **Command**: `pnpm test:canary`
 **Description**: Acts as the "Final Gate" after deployment. It runs against the public URL to ensure that Environment Variables, SSL, and Vercel edge configs are correctly set up and the app is reachable by real users.
 
@@ -122,12 +152,12 @@ pnpm test:canary
 BASE_URL=https://my-staging-app.vercel.app pnpm test:canary
 ```
 
-### 6. Production Forced Check (`test:canary:prod`)
+### 7. Production Forced Check (`test:canary:prod`)
 **Command**: `pnpm test:canary:prod`
 **Description**: A hard check against the canonical production URL.
 **Audit Note**: This test executes on every `main` branch push via `canary.yml`. It handles the full lifecycle: **Attempt Create User -> Run Test -> Cleanup Env**.
 
-### 7. Remote Soak Dispatch (`test:soak:remote`)
+### 8. Remote Soak Dispatch (`test:soak:remote`)
 **Command**: `pnpm test:soak:remote:wait`
 **Description**: To execute high-load stress tests (Soak) using GitHub's cloud compute power rather than local resources. This allows for testing with 15+ concurrent users without crashing the local developer machine, while safely accessing production-grade secrets stored in GitHub.
 

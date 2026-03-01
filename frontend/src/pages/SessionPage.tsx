@@ -112,56 +112,76 @@ export const SessionPage: React.FC = () => {
                 <StatusNotificationBar status={displayStatus} className="shadow-lg" />
             </div>
 
-            {/* Main Content Grid */}
+            {/* Main Content Grid — Symmetrically Aligned */}
             <div className="max-w-7xl mx-auto px-6 pb-6 mt-0">
-                <div className="grid lg:grid-cols-3 gap-6">
-                    {/* Left Column: Recording & Transcript */}
-                    <div className="lg:col-span-2 space-y-6 pt-6">
-                        {/* Half-Height Tools Row (Recording + Pause Analysis) */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
-                                <LiveRecordingCard
-                                    mode={mode}
-                                    isListening={isListening}
-                                    isReady={isReady}
-                                    isProUser={isProUser}
-                                    activeEngine={activeEngine}
-                                    statusMessage={sttStatus.message}
-                                    formattedTime={metrics.formattedTime}
-                                    elapsedSeconds={elapsedTime}
-                                    isButtonDisabled={isButtonDisabled}
-                                    onModeChange={setMode}
-                                    onStartStop={handleStartStop}
-                                    className="min-h-half"
-                                />
-                            </LocalErrorBoundary>
+                <div className="grid lg:grid-cols-3 gap-6 pt-6">
 
-                            <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
-                                <PauseMetricsDisplay
-                                    metrics={pauseMetrics}
-                                    className="min-h-half glass"
-                                />
-                            </LocalErrorBoundary>
-                        </div>
+                    {/* === ROW 1: Half-Height (Recording + Pause | Live Stats) === */}
+                    {/* Left: Recording + Pause side-by-side */}
+                    <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
+                            <LiveRecordingCard
+                                mode={mode}
+                                isListening={isListening}
+                                isReady={isReady}
+                                isProUser={isProUser}
+                                activeEngine={activeEngine}
+                                statusMessage={sttStatus.message}
+                                formattedTime={metrics.formattedTime}
+                                elapsedSeconds={elapsedTime}
+                                isButtonDisabled={isButtonDisabled}
+                                onModeChange={setMode}
+                                onStartStop={handleStartStop}
+                                className="min-h-half"
+                            />
+                        </LocalErrorBoundary>
 
-                        {/* Double Height Transcript */}
+                        <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
+                            <PauseMetricsDisplay
+                                metrics={pauseMetrics}
+                                className="min-h-half glass"
+                            />
+                        </LocalErrorBoundary>
+                    </div>
+
+                    {/* Right: Live Stats (Clarity + Pace) — matches Row 1 height */}
+                    <div className="grid grid-cols-2 gap-4 min-h-half content-start">
+                        <LocalErrorBoundary isolationKey="clarity-score" componentName="ClarityScoreCard">
+                            <ClarityScoreCard
+                                clarityScore={metrics.clarityScore}
+                                clarityLabel={metrics.clarityLabel}
+                                className="glass h-full"
+                            />
+                        </LocalErrorBoundary>
+                        <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
+                            <SpeakingRateCard
+                                wpm={metrics.wpm}
+                                wpmLabel={metrics.wpmLabel}
+                                className="glass h-full"
+                            />
+                        </LocalErrorBoundary>
+                    </div>
+
+                    {/* === ROW 2: Double-Height (Transcript | Filler Words) === */}
+                    {/* Left: Transcript */}
+                    <div className="lg:col-span-2">
                         <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
                             <LiveTranscriptPanel
                                 transcript={transcriptContent}
                                 isListening={isListening}
                                 containerRef={transcriptContainerRef}
-                                className="min-h-double glass-strong"
+                                className="min-h-double glass-strong h-full"
                             />
                         </LocalErrorBoundary>
                     </div>
 
-                    {/* Right Column: All Metrics Cards */}
-                    <div className="space-y-6 pt-6">
+                    {/* Right: Filler Words — matches Row 2 height */}
+                    <div>
                         <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
                             <FillerWordsCard
                                 fillerCount={metrics.fillerCount}
                                 fillerData={fillerData}
-                                className="glass"
+                                className="glass min-h-double h-full"
                                 headerAction={
                                     <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
                                         <PopoverTrigger asChild>
@@ -182,28 +202,15 @@ export const SessionPage: React.FC = () => {
                                 }
                             />
                         </LocalErrorBoundary>
+                    </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <LocalErrorBoundary isolationKey="clarity-score" componentName="ClarityScoreCard">
-                                <ClarityScoreCard
-                                    clarityScore={metrics.clarityScore}
-                                    clarityLabel={metrics.clarityLabel}
-                                    className="glass"
-                                />
-                            </LocalErrorBoundary>
-                            <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
-                                <SpeakingRateCard
-                                    wpm={metrics.wpm}
-                                    wpmLabel={metrics.wpmLabel}
-                                    className="glass"
-                                />
-                            </LocalErrorBoundary>
-                        </div>
-
+                    {/* === ROW 3: Full-Width Quick Tips === */}
+                    <div className="lg:col-span-3">
                         <LocalErrorBoundary isolationKey="speaking-tips" componentName="SpeakingTipsCard">
-                            <SpeakingTipsCard className="glass" />
+                            <SpeakingTipsCard className="glass compact" />
                         </LocalErrorBoundary>
                     </div>
+
                 </div>
             </div>
 

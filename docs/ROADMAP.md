@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-22
+**Last Reviewed:** 2026-03-01
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -701,4 +701,16 @@ This phase focuses on hardening the interface between frontend and backend and e
 | **L5** | **Nightly WER Suite** | **HIGH** | 🟡 In Progress | Scheduling `wer-baseline.spec.ts` against real Cloud/Private engines. Requires live API keys in CI secrets. |
 | **L6** | **Live Drift Monitoring** | **MEDIUM** | 🟡 In Progress | `drift-detector.spec.ts` now runs in sharded CI. Alerting on API contract changes deferred to nightly cron trigger. |
 | **L7** | **E2E Stabilization (70/70)** | **CRITICAL** | ✅ Complete | Resolved all persistent flakiness in VAD, Mutex, and Tier Limit tests. Achieved 100% pass rate on full 70-test suite. |
+
+## 🚀 v3.5.3 Release Hardening (Mar 2026) ✅ COMPLETE
+
+> **Goal:** Finalize the v3.5.3 production release with absolute technical synchronization and CI stabilization.
+
+| ID | Title | Priority | Status | Notes |
+|----|-------|----------|--------|-------|
+| **R1** | **CI Restoration Standard** | **CRITICAL** | ✅ Complete | Migrated from `script` to `tee` for reliable TTY logging without JSON corruption. |
+| **R2** | **Engine-Aware Tracking** | **CRITICAL** | ✅ Complete | Implemented Pattern 28 for accurate tier enforcement across all STT engines. |
+| **R3** | **UI-First State Reversion** | **HIGH** | ✅ Complete | Pattern 27 implemented for sub-second UI responsiveness during engine teardown. |
+| **R4** | **Documentation Audit** | **HIGH** | ✅ Complete | Synchronized all 7 core markdown files to v3.5.3 SSOT standard. |
+| **R5** | **70/70 E2E Success** | **CRITICAL** | ✅ Complete | Achieved 100% reliability across the full sharded Playwright suite. |
 
