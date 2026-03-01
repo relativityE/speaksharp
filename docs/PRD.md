@@ -324,6 +324,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ---
 <!-- SQM:END -->
+<!-- do not remove - used by sqm script -->
 
 ### 6.3 Known Defects & Limitations
 *   **Resolved: Multi-Tab Race Conditions**: Fixed by enforcing a "No Multi-Tab" universal policy for all users and ensuring synchronous `releaseLock` on the stop path.
