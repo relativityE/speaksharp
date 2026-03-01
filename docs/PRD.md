@@ -271,14 +271,58 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 ---
 
 <!-- SQM:START -->
-### 6.2 Software Quality Metrics (Simulated Production Build)
-| Metric | Threshold | Current (Feb 23) | Status |
-| :--- | :--- | :--- | :--- |
-| **P0: CI Pipeline** | 100% Green | **100% (70/70 E2E)** | 🟢 PASS |
-| **P0: Linting** | 0 Errors | **0 Errors** | 🟢 PASS |
-| **P1: Unit Tests** | > 540 | **541 Tests** | 🟢 PASS |
-| **P1: E2E Tests** | > 60 | **70 Tests** | 🟢 PASS |
-| **P2: Performance** | < 2s Load | **1.1s (Local)** | 🟢 PASS |
+## 6. Software Quality Metrics
+
+**Last Updated:** Sun, 01 Mar 2026 00:17:36 GMT
+
+**Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
+
+**Metric Definitions:**
+- **Total Source Size:** Sum of all code in src, backend, tests, docs, and scripts.
+- **Total Project Size:** Total disk footprint including node_modules and assets.
+- **Initial Chunk Size:** The size of the largest initial JavaScript bundle.
+- **Code Bloat Index:** Ratio of Initial Chunk Size to Total Source Size (lower is better).
+
+---
+
+### Test Suite State
+
+| Metric                  | Value |
+| ----------------------- | ----- |
+| Total tests             | 698 (556 unit + 142 E2E) |
+| Unit tests              | 556   |
+| E2E tests (Playwright)  | 142  |
+| Passing tests           | 626 (556 unit + 70 E2E)   |
+| Failing tests           | 0   |
+| Disabled/skipped tests  | 72 (E2E only)   |
+| Passing unit tests      | 556/556 (100.0%)   |
+| Passing E2E tests       | 70/142 (49.3%)   |
+| Total runtime           | See CI logs   |
+
+---
+
+### Coverage Summary
+
+| Metric     | Value |
+| ---------- | ----- |
+| Statements | 0%   |
+| Branches   | 0%   |
+| Functions  | 0%   |
+| Lines      | 0%   |
+
+---
+
+### Code Bloat & Performance
+
+| Metric              | Value |
+| ------------------- | ----- |
+| Total Source Size   | 7.0M   |
+| Total Project Size  | 1.3G   |
+| Initial Chunk Size  | 916K   |
+| Code Bloat Index    | 12.91%   |
+| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+
+---
 <!-- SQM:END -->
 
 ### 6.3 Known Defects & Limitations
