@@ -28,6 +28,7 @@ declare global {
         TEST_MODE?: boolean;
         __FORCE_TRANSFORMERS_JS__?: boolean;
         __STT_LOAD_TIMEOUT__?: number;
+        REAL_WHISPER_TEST?: boolean;
     }
 }
 
@@ -47,8 +48,11 @@ export const TestFlags = {
 
     /**
      * Transcription Override: When true, use real AI models even in test mode.
+     * Checks both Vite build-time env var AND runtime window flag (set by live test addInitScript).
      */
-    USE_REAL_TRANSCRIPTION: getEnvVar('VITE_TEST_USE_REAL_TRANSCRIPTION') === 'true',
+    USE_REAL_TRANSCRIPTION:
+        getEnvVar('VITE_TEST_USE_REAL_TRANSCRIPTION') === 'true' ||
+        (typeof window !== 'undefined' && window.REAL_WHISPER_TEST === true),
 
     /**
      * Force CPU Override: Force model execution on CPU (TransformersJS) even if WebGPU is available.
@@ -67,7 +71,7 @@ export const TestFlags = {
  * Logic helper to determine if we should use the MockEngine for STT.
  */
 export function shouldUseMockTranscription(): boolean {
-    return TestFlags.IS_TEST_MODE;
+    return TestFlags.IS_TEST_MODE && !TestFlags.USE_REAL_TRANSCRIPTION;
 }
 
 /**

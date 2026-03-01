@@ -51,6 +51,8 @@ export default defineConfig({
             // Ensure we use the live DB flags
             VITE_USE_LIVE_DB: 'true',
             REAL_WHISPER_TEST: 'true',
+            // CRITICAL: Propagate to Vite so TestFlags.USE_REAL_TRANSCRIPTION is true at build time
+            VITE_TEST_USE_REAL_TRANSCRIPTION: 'true',
             // Credentials & Secrets for Live Tests
             EDGE_FN_URL: 'https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-user',
             AGENT_SECRET: process.env.AGENT_SECRET || 'mock_agent_secret',

@@ -1,4 +1,5 @@
 // src/config/env.ts
+import type { UserGoals } from '../types/goal';
 export const getEnvVar = (key: string): string | undefined => {
   if (typeof import.meta !== 'undefined' && import.meta.env) {
     return (import.meta.env as Record<string, string>)[key];
@@ -33,3 +34,13 @@ export const LANDING_PAGE_REDIRECT_MS = 2000;
 // Minimum session duration required for saving (in seconds)
 // Sessions shorter than this don't generate meaningful metrics
 export const MIN_SESSION_DURATION_SECONDS = 5;
+
+// SCALABILITY: Limit fetch to 20 sessions for dashboard/trends.
+export const DASHBOARD_PAGINATION_LIMIT = 20;
+
+// USER GOALS: Default values and storage keys
+export const GOALS_STORAGE_KEY = 'speaksharp:user-goals';
+export const DEFAULT_GOALS: UserGoals = {
+  weeklyGoal: 5,
+  clarityGoal: 90,
+};

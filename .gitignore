@@ -16,12 +16,15 @@ coverage/
 blob-report/
 /unit-metrics.json
 /e2e-metrics.json
+/test-metrics.json
 /playwright/.cache/
 
 # Test logs and output files
 *-logs.txt
 test_output.txt
 smoke-*.txt
+*_LOG.txt
+*_FAILURE_LOG.txt
 
 *.bak
 *.tmp

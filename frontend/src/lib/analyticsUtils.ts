@@ -71,11 +71,21 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     const avgAccuracy = totalSessions > 0 ? (totalClarity / totalSessions).toFixed(1) : "0.0";
 
     // Chart data - limit to last 10 sessions
-    const chartData = sessionHistory.slice(0, 10).map(s => ({
-        date: new Date(s.created_at).toLocaleDateString(),
-        'FW/min': s.duration > 0 ? ((Object.entries(s.filler_words || {}).reduce((sum, [word, d]) => word === 'total' ? sum : sum + (d.count || 0), 0)) / (s.duration / 60)).toFixed(2) : "0.0",
-        clarity: s.clarity_score ?? (s.duration > 0 ? 100 - (((Object.entries(s.filler_words || {}).reduce((sum, [word, d]) => word === 'total' ? sum : sum + (d.count || 0), 0)) / (s.duration / 60)) * 2) : 100)
-    })).reverse();
+    const chartData = sessionHistory.slice(0, 10).map(s => {
+        // PERFORMANCE: Single-pass reduce for all filler word metrics
+        const totalFillerCount = Object.entries(s.filler_words || {}).reduce(
+            (sum, [word, d]) => word === 'total' ? sum : sum + (d.count || 0),
+            0
+        );
+
+        const durationInMinutes = s.duration / 60;
+
+        return {
+            date: new Date(s.created_at).toLocaleDateString(),
+            'FW/min': s.duration > 0 ? (totalFillerCount / durationInMinutes).toFixed(2) : "0.0",
+            clarity: s.clarity_score ?? (s.duration > 0 ? 100 - ((totalFillerCount / durationInMinutes) * 2) : 100)
+        };
+    }).reverse();
 
     return { totalSessions, totalPracticeTime, avgWpm, avgFillerWordsPerMin, avgAccuracy, chartData };
 };

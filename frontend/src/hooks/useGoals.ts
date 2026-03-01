@@ -2,17 +2,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { goalsService } from '@/services/domainServices';
 import logger from '@/lib/logger';
-
-export interface UserGoals {
-    weeklyGoal: number;
-    clarityGoal: number;
-}
-
-const STORAGE_KEY = 'speaksharp:user-goals';
-const DEFAULT_GOALS: UserGoals = {
-    weeklyGoal: 5,
-    clarityGoal: 90,
-};
+import { GOALS_STORAGE_KEY, DEFAULT_GOALS } from '@/config/env';
+import type { UserGoals } from '@/types/goal';
 
 /**
  * Custom hook for managing user goals with Supabase sync and localStorage fallback.
@@ -30,7 +21,7 @@ export function useGoals() {
             return DEFAULT_GOALS;
         }
         try {
-            const stored = localStorage.getItem(STORAGE_KEY);
+            const stored = localStorage.getItem(GOALS_STORAGE_KEY);
             if (stored) {
                 const parsed = JSON.parse(stored);
                 return {
@@ -50,7 +41,6 @@ export function useGoals() {
 
         const fetchGoals = async () => {
             try {
-                // P2-6 FIX: Use domain service
                 const data = await goalsService.get(user.id);
 
                 if (data) {
@@ -60,7 +50,7 @@ export function useGoals() {
                     };
                     setGoalsState(supabaseGoals);
                     // Sync to localStorage
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(supabaseGoals));
+                    localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(supabaseGoals));
                 }
             } catch (err) {
                 logger.error({ err }, '[useGoals] Failed to fetch goals');
@@ -76,7 +66,7 @@ export function useGoals() {
 
         // Always save to localStorage immediately
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(newGoals));
+            localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(newGoals));
         } catch {
             // localStorage not available or full
         }
@@ -98,7 +88,7 @@ export function useGoals() {
     const resetGoals = useCallback(() => {
         setGoalsState(DEFAULT_GOALS);
         try {
-            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(GOALS_STORAGE_KEY);
         } catch {
             // Ignore errors
         }

@@ -1,11 +1,20 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-02-22
+**Last Reviewed:** 2026-03-01
 
 # Changelog
 
 All notable changes to this project will be documented in this file.
 
 ### [Unreleased]
+
+- **Private STT Test Reliability & Documentation (2026-03-01):**
+  - **Fix:** Resolved silent mock override in live tests — `TestFlags.USE_REAL_TRANSCRIPTION` now checks `window.REAL_WHISPER_TEST` at runtime (not just Vite build time), ensuring live tests use real Whisper engines instead of MockEngine.
+  - **Fix:** Updated `shouldUseMockTranscription()` to respect `USE_REAL_TRANSCRIPTION` override.
+  - **Config:** Added `VITE_TEST_USE_REAL_TRANSCRIPTION: 'true'` to `playwright.live.config.ts` webServer env for correct build-time flag propagation.
+  - **Fix:** Removed stale `test.fixme` from `live-transcript.live.spec.ts`.
+  - **Docs:** Added STT Test Architecture & Skip Justifications section (§5) to `TEST_PLAYBOOK.md` documenting all 10 STT tests, conditional skip reasons, and run commands.
+  - **Verification:** All 7 E2E Private STT tests pass (19.6s). 3 live tests have justified conditional skips (WASM SIMD, COOP/COEP, Chromium-only).
+  - **Files:** `TestFlags.ts`, `playwright.live.config.ts`, `live-transcript.live.spec.ts`, `TEST_PLAYBOOK.md`
 
 - **CI Stabilization & Mutex Hardening (2026-02-23):**
   - **Stability:** Achieved **100% E2E success (70/70 tests passing)** after resolving persistent flakiness in VAD auto-pause, cross-tab mutex, and tier limit auto-stops.
@@ -47,7 +56,7 @@ All notable changes to this project will be documented in this file.
   - **Performance:** Implemented LRU cache (10 items) for NLP documents, achieving ~500x speedup for alternating speakers.
   - **Quality:** Stabilized CI pipeline with 100% pass rate on 539 tests across 86 files.
 
-### [3.5.0] - 2026-02-19
+## [3.5.0] - 2026-02-19
 
 - **CI Fixes Consolidation (Best-of-Breed):**
   - **Consolidation:** Successfully merged PR #2 (Infrastructure foundation) and cherry-picked PR #1 (Observability) into a final unified solution.
