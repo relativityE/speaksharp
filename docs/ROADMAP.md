@@ -129,8 +129,8 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 | **Metric** | **Target** | **Current** | **Status** |
 | :--- | :--- | :--- | :--- |
-| **Unit Test Coverage** | > 80% | **478 tests** (100% pass) | 🟢 ON TRACK |
-| **E2E Pass Rate** | 100% | 100% (61 tests) | 🟢 ON TRACK |
+| **Unit Test Coverage** | > 80% | **556 tests** (100% pass) | 🟢 ON TRACK |
+| **E2E Pass Rate** | 100% | 100% (17 mocked CI tests) | 🟢 ON TRACK |
 | **Code Bloat** | < 10% | **6.78%** | 🟢 HEALTHY |
 | **Largest Chunk** | < 500KB | **822KB** | 🔴 BLOCKED (Post-Alpha) |
 
@@ -446,7 +446,7 @@ This phase is about confirming the core feature set works as expected and polish
     - **Limitation:** GitHub Actions workflow_dispatch does not support conditional field visibility, greyed-out fields, or dynamic data.
     - **Future Option:** Build custom web UI that queries Supabase for current state and triggers workflow via GitHub API.
 - **✅ COMPLETED - Expand Unit Test Coverage (2025-12-08):**
-  - **Note:** Test suite expanded significantly. Current: **478 unit tests + 60 E2E tests** (verified 2026-02-09).
+  - **Note:** Test suite expanded significantly. Current: **556 unit tests + 17 mocked CI E2E tests** (verified 2026-03-01).
   - ✅ Authentication pages: SignInPage (14), SignUpPage (15)
   - ✅ Core pages: AnalyticsPage (14), SessionPage (18)
   - ✅ Utilities: storage.ts (10), utils.ts (8), supabaseClient.ts (5)
@@ -695,7 +695,7 @@ This phase focuses on hardening the interface between frontend and backend and e
 | ID | Title | Priority | Status | Notes |
 |----|-------|----------|--------|-------|
 | **L1** | **Tiered Quality Gate** | **CRITICAL** | ✅ Complete | Consolidated `nightly-stt-serial`, `dev-real-integration`, and ad-hoc scripts into a unified `test-audit.sh` pipeline: Preflight → Lint → Typecheck → Unit → Build → E2E (4 shards). |
-| **L2** | **Test Category Consolidation** | **HIGH** | ✅ Complete | Superseded legacy per-phase test trackers. New execution routine: `pnpm ci:local` (simulate) and `pnpm test:local` (quick). Unit: 541 tests passing. E2E: 18 tests across 4 shards. |
+| **L2** | **Test Category Consolidation** | **HIGH** | ✅ Complete | Superseded legacy per-phase test trackers. New execution routine: `pnpm ci:local` (simulate) and `pnpm test:local` (quick). Unit: 556 tests passing. E2E: 17 tests across 4 shards. |
 | **L3** | **Drift Guardian** | **HIGH** | ✅ Complete | `drift-detector.spec.ts` verifies STT engine contract signatures and store observability via E2E bridge. Fixed `SecurityError` on `about:blank` by adding `programmaticLoginWithRoutes` to `beforeEach`. |
 | **L4** | **CI Test Stabilization** | **HIGH** | ✅ Complete | Resolved all pre-existing test failures: 4 unit (testId/title/class/mock mismatches), 3 e2e (drift-detector, diag-private-stt, private-stt download text). Added elapsed time reporting to `ci-simulate` stage. |
 | **L5** | **Nightly WER Suite** | **HIGH** | 🟡 In Progress | Scheduling `wer-baseline.spec.ts` against real Cloud/Private engines. Requires live API keys in CI secrets. |
