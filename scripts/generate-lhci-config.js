@@ -7,6 +7,7 @@ const config = {
         collect: {
             startServerCommand: `pnpm preview --port ${PORTS.PREVIEW}`,
             url: [`http://127.0.0.1:${PORTS.PREVIEW}/`],
+            staticDistDir: 'frontend/dist',
             numberOfRuns: 3,
             settings: {
                 preset: 'desktop',

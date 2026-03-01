@@ -270,6 +270,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ---
 
+<!-- SQM:START -->
 ### 6.2 Software Quality Metrics (Simulated Production Build)
 | Metric | Threshold | Current (Feb 23) | Status |
 | :--- | :--- | :--- | :--- |
@@ -278,6 +279,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 | **P1: Unit Tests** | > 540 | **541 Tests** | 🟢 PASS |
 | **P1: E2E Tests** | > 60 | **70 Tests** | 🟢 PASS |
 | **P2: Performance** | < 2s Load | **1.1s (Local)** | 🟢 PASS |
+<!-- SQM:END -->
 
 ### 6.3 Known Defects & Limitations
 *   **Resolved: Multi-Tab Race Conditions**: Fixed by enforcing a "No Multi-Tab" universal policy for all users and ensuring synchronous `releaseLock` on the stop path.
