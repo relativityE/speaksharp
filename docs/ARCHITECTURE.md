@@ -553,6 +553,48 @@ try {
 
 Strict adherence to these patterns is required to maintain CI stability.
 
+#### 3.0 Script Taxonomy (Level : Env : Mode)
+
+All test scripts follow `test:<level>:<env>[:<mode>]` and CI orchestration scripts follow `ci:<intent>:<target>`.
+
+**Axes:**
+
+| Axis | Values | Description |
+|------|--------|-------------|
+| **Level** | `unit`, `e2e`, `int`, `system`, `deploy`, `soak`, `health` | What layer is under test |
+| **Env** | `local`, `mock`, `prod`, `cloud` | Where the test runs or what it targets |
+| **Mode** | `headed`, `headless`, `debug`, `watch`, `wait` | How it runs (optional) |
+
+**Canonical Scripts:**
+
+| Script | Level | Env | Mode | Description |
+|--------|-------|-----|------|-------------|
+| `test:unit:local` | unit | local | — | Vitest with coverage |
+| `test:unit:local:watch` | unit | local | watch | Vitest in watch mode |
+| `test:e2e:mock:headless` | e2e | mock | headless | Full E2E (CI default) |
+| `test:e2e:mock:headed` | e2e | mock | headed | Playwright UI mode |
+| `test:e2e:mock:debug` | e2e | mock | debug | Headed with trace |
+| `test:int:local` | int | local | — | Auth/upgrade/analytics against real Supabase |
+| `test:system:local:headed` | system | local | headed | Full live suite + hardware |
+| `test:deploy` | deploy | prod | — | Post-deploy smoke |
+| `test:deploy:local` | deploy | local | — | Smoke against localhost |
+| `test:health:local` | health | local | — | Fast preflight + core journey |
+| `test:all:local` | all | local | — | Full quality gate |
+| `test:soak:api:cloud` | soak | cloud | — | API stress test |
+| `test:soak:ui:cloud` | soak | cloud | — | Memory/stability test |
+| `ci:full:local` | — | — | — | Full CI pipeline locally |
+| `ci:dispatch:deploy` | — | — | — | Dispatch deploy smoke to GH Actions |
+| `ci:dispatch:soak` | — | — | — | Dispatch soak test to GH Actions |
+
+**Secrets by Environment:**
+
+| Environment | Required Secrets |
+|-------------|-----------------|
+| `mock` / `local` (unit/e2e) | None |
+| `local` (int/system) | `.env.development` with real Supabase credentials |
+| `prod` (deploy) | `CANARY_EMAIL`, `CANARY_PASSWORD` (GitHub Secrets) |
+| `cloud` (soak) | `SOAK_TEST_PASSWORD`, Supabase keys (GitHub Secrets) |
+
 #### 3.1 Test Tier Registry
 
 SpeakSharp utilizes multiple layers of testing to ensure 100% reliability across all environments.
@@ -567,8 +609,8 @@ SpeakSharp utilizes multiple layers of testing to ensure 100% reliability across
 | **Soak / Perf** | Stability & Load | Playwright (Dual-Pronged) | `tests/soak/soak-test.spec.ts` | GitHub CI only |
 
 **Tier Definitions:**
-- **Integration Suite** (`pnpm test:integration`): Runs the non-driver-dependent live tests (auth, upgrade, analytics-journey) against real Supabase. Does not require audio hardware.
-- **Real:Headed Suite** (`pnpm test:real:headed`): Full live suite including driver-dependent STT tests. Requires headed Chrome with real audio/WASM hardware.
+- **Integration Suite** (`pnpm test:int:local`): Runs the non-driver-dependent live tests (auth, upgrade, analytics-journey) against real Supabase. Does not require audio hardware.
+- **System Suite** (`pnpm test:system:local:headed`): Full system suite including driver-dependent STT tests. Requires headed Chrome with real audio/WASM hardware.
 - **Deploy Suite** (`pnpm test:deploy`): Runs against `speaksharp-public.vercel.app`. Validates that production deployments are not critically broken. Options: `--prod` (default) or `--local` (`test:deploy:local`).
 - **Soak Suite (Dual-Pronged)**: Simulates sustained user activity via two serial phases to respect CI runner and Free Tier limits (50 req/sec):
   1. **Backend Thundering Herd (Headless)**: 30 concurrent Node.js clients hammer Supabase Auth and RPCs to verify infrastructure connection pools and Edge Function burst limits.
@@ -913,8 +955,8 @@ Standard CI environments (like GitHub Actions) are "headless" and lack access to
 
 #### 1. Directory Structure: `tests/live/driver-dependent/`
 - **Purpose**: Home for tests that require real hardware (Audio/GPU) or OS-level drivers.
-- **Isolation**: These tests are isolated from standard `pnpm test` and `pnpm test:real:headed` runs by default.
-- **Manual Execution**: Run via `pnpm test:real:headed tests/live/driver-dependent/`.
+- **Isolation**: These tests are isolated from standard `pnpm test` and `pnpm test:system:local:headed` runs by default.
+- **Manual Execution**: Run via `pnpm test:system:local:headed tests/live/driver-dependent/`.
 
 #### 2. Flag Centralization (`TestFlags.ts`)
 We centralize testing logic in `frontend/src/config/TestFlags.ts` to prevent "Flag Soup". This provides a single source of truth for:
@@ -995,8 +1037,8 @@ SpeakSharp enforces strict code quality standards to maintain long-term maintain
 |------|------------|---------------------------|
 | **Smoke** | Lightweight "sanity check" to ensure critical paths work. | `tests/canary/smoke.canary.spec.ts` (Login -> Record -> Save) |
 | **Deploy** | Smoke tests running against **Production** with restricted users. | `pnpm test:deploy` (Runs on deploy against production Vercel URL) |
-| **Soak** | Performance and endurance testing. | `pnpm test:soak:memory` (30-min stability check) |
-| **Driver-Dependent** | High-fidelity hardware tests (Audio/WebGPU). | `pnpm test:real:headed` (With `REAL_WHISPER_TEST=true` flag) |
+| **Soak** | Performance and endurance testing. | `pnpm test:soak:ui:cloud` (30-min stability check) |
+| **Driver-Dependent** | High-fidelity hardware tests (Audio/WebGPU). | `pnpm test:system:local:headed` (With `REAL_WHISPER_TEST=true` flag) |
 | **Staging** | A pre-production environment mirroring Prod configuration. | *Not currently active.* (We use "Canary Users" in Prod instead) |
 | **Soak** | Long-duration load tests to find memory leaks or timeouts. | `pnpm test:soak` (5 mins/user, 10 users concurrent) |
 
@@ -1130,7 +1172,7 @@ expect(text).toBe('5');
             *   `mockLiveTranscript()`: Tells the Bridge to simulate speech events.
             *   `navigateToRoute()`: Client-side navigation that preserves mock context.
 
-*   **Single Source of Truth (`pnpm test:all`):** A single command, `pnpm test:all`, is the user-facing entry point for all validation. It runs an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process both locally and in CI, guaranteeing consistency and speed.
+*   **Single Source of Truth (`pnpm test:all:local`):** A single command, `pnpm test:all:local`, is the user-facing entry point for all validation. It runs an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process both locally and in CI, guaranteeing consistency and speed.
     *   **Image Processing (Test):** node-canvas (replaces Jimp/Sharp for stability)
 
 ## Testing and CI/CD
@@ -1159,7 +1201,7 @@ expect(text).toBe('5');
 *   **Infrastructure:** Runs against production (or local dev with production-like constraints).
 *   **Purpose:** Long-running load tests to identify leaks and resource contention.
 *   **Strategy (Tiered):**
-    1.  **API Stress (Path B):** `pnpm test:soak:api`. Native Node.js script using `fetch` to simulate 10+ concurrent users hitting Supabase directly. Bypassess browser overhead.
+    1.  **API Stress (Path B):** `pnpm test:soak:api:cloud`. Native Node.js script using `fetch` to simulate 10+ concurrent users hitting Supabase directly. Bypassess browser overhead.
     2.  **UI Smoke:** `pnpm test:soak`. Lightweight Playwright test (3 users) to verify frontend integration.
 *   **User Provisioning:**
     *   **Script:** `scripts/setup-test-users.mjs`
@@ -1189,7 +1231,7 @@ To ensure security, soak tests are designed to run on GitHub Actions where `SOAK
    └─────────────────────┘
 ```
 
-*   **Command:** `pnpm test:soak:remote:wait`
+*   **Command:** `pnpm ci:dispatch:soak:wait`
 *   **Mechanism:** `scripts/trigger-soak.mjs` triggers `soak-test.yml` via GitHub API.
 *   **Benefit:** Zero-secret leakage to local environment.
 
@@ -1199,7 +1241,7 @@ SpeakSharp employs a unified and resilient testing strategy designed for speed a
 
 This script is the **single source of truth** for all code validation. It is accessed via simple `pnpm` commands (e.g., `pnpm audit`) and is optimized for a 7-minute CI timeout by using aggressive parallelization.
 *   **Stage-Based Execution:** The script is designed to be called with different stages (`prepare`, `test`, `report`) that map directly to the jobs in the CI pipeline. This allows for a sophisticated, multi-stage workflow.
-*   **Local-First Mode:** When run without arguments (as with `pnpm test:all`), it executes a `local` stage that runs all checks sequentially, providing a comprehensive local validation experience.
+*   **Local-First Mode:** When run without arguments (as with `pnpm test:all:local`), it executes a `local` stage that runs all checks sequentially, providing a comprehensive local validation experience.
 
 ### CI Dependency Boundary (Architectural Principle)
 
@@ -1303,7 +1345,7 @@ The CI pipeline, defined in `.github/workflows/ci.yml`, is a multi-stage, parall
 
 Both the local test runner and CI use the same `test-audit.sh` script, ensuring perfect alignment between local and remote environments. However, they differ in execution strategy:
 
-**Local Test Runner (`pnpm test:all`):**
+**Local Test Runner (`pnpm test:all:local`):**
 - Runs `./test-audit.sh local` as a single process
 - Executes all 60 E2E tests serially
 - Quality checks (lint/typecheck/test) run in parallel via `concurrently`
@@ -1361,9 +1403,9 @@ The project uses a tiered testing approach to balance speed, reliability, and re
 |----------|---------|-------------|---------|
 | **1. Unit Tests** | `pnpm test:unit` | `happy-dom` | Fast, isolated logic tests. Mocks all external deps. |
 | **2. Integration Tests** | `pnpm test:unit` | `happy-dom` | Component + Provider interaction. Mocks services. |
-| **3. CI Simulation (E2E)** | `pnpm ci:local` | Playwright + **MSW** | **The Default.** Full app flow with **Mocked Backend**. Fast, reliable, runs on PRs. No secrets needed. |
-| **4. Integration** | `pnpm test:integration` | Playwright + **Real APIs** | Validates integration with **Real Supabase/Stripe**. Non-driver-dependent subset. |
-| **4b. Real:Headed** | `pnpm test:real:headed` | Playwright + **Real HW** | Full live suite including driver-dependent STT tests. Headed Chrome required. |
+| **3. CI Simulation (E2E)** | `pnpm ci:full:local` | Playwright + **MSW** | **The Default.** Full app flow with **Mocked Backend**. Fast, reliable, runs on PRs. No secrets needed. |
+| **4. Integration** | `pnpm test:int:local` | Playwright + **Real APIs** | Validates integration with **Real Supabase/Stripe**. Non-driver-dependent subset. |
+| **4b. System** | `pnpm test:system:local:headed` | Playwright + **Real HW** | Full system suite including driver-dependent STT tests. Headed Chrome required. |
 | **5. Deploy Tests** | `pnpm test:deploy` | Real App | Production deployment validation. Runs post-deploy. |
 | **6. Soak Tests** | `pnpm test:soak` | Production | Long-running load tests on production infrastructure. |
 
@@ -1542,7 +1584,7 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 > **DO NOT waste time debugging local canary failures** - they are designed for CI/staging only.
 > 
 > For local testing:
-> - Mock E2E: `pnpm test:e2e` 
+> - Mock E2E: `pnpm test:e2e:mock` 
 > - Integration: `pnpm test`
 > - Unit: `pnpm test`
 
@@ -2275,7 +2317,7 @@ Our E2E testing strategy includes a **health check** (`tests/e2e/core-journey.e2
 5. **Session -> Analytics Flow:** Verifies the auto-redirect to the analytics dashboard upon stopping.
 6. **Data Persistence:** Confirms the new session appears in the history list with correct stats.
 
-**Purpose:** This test is triggered by `pnpm test:health-check`. It is optimized for speed by bypassing the full unit test suite and focusing purely on this high-level "Critical Path" verification. It provides a fast, reliable signal after every commit.
+**Purpose:** This test is triggered by `pnpm test:health:local`. It is optimized for speed by bypassing the full unit test suite and focusing purely on this high-level "Critical Path" verification. It provides a fast, reliable signal after every commit.
 
 **Visual Documentation:** A separate test (`tests/e2e/capture-states.e2e.spec.ts`) handles screenshot generation for visual documentation. This decoupled architecture ensures that purely visual changes (e.g., CSS refactors) do not break the critical functional health check.
 

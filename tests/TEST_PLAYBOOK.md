@@ -1,5 +1,5 @@
 # SpeakSharp Test Playbook
-**Version 3.5.3** | **Last Reviewed: 2026-03-01**
+**Version 3.5.4** | **Last Reviewed: 2026-03-02**
 
 This document provides the definitive, step-by-step instructions for executing the SpeakSharp test suite. Follow these steps to ensure repeatability and consistency across different environments.
 
@@ -22,15 +22,15 @@ Most tests (except for basic Unit and E2E Mock) require real backend credentials
 ## 🔐 Security & Secret Auditing
 
 1.  **Zero-Persistence Policy**: Never commit `.env` or `.env.development` files.
-2.  **Dispatcher Security**: Remote tasks (`test:soak:remote`) pass secrets directly to the GitHub runner memory, bypassing local file systems.
+2.  **Dispatcher Security**: Remote tasks (`ci:dispatch:soak`) pass secrets directly to the GitHub runner memory, bypassing local file systems.
 3.  **Auditor Verification**: The `gh run view --log` command allows you to verify that secrets were injected (look for masked `***` values) without ever exposing them to your terminal.
 
 ---
 
 ## 🚀 Execution Guide
 
-### 1. The Local CI Gate (`ci:local`)
-**Command**: `pnpm ci:local`
+### 1. The Local CI Gate (`ci:full:local`)
+**Command**: `pnpm ci:full:local`
 **Description**: The primary local quality gate. Simulates the full GitHub CI pipeline locally: Lint, Type, Unit Tests, sharded E2E, and Lighthouse audits.
 
 **Steps**:
@@ -41,21 +41,21 @@ Most tests (except for basic Unit and E2E Mock) require real backend credentials
 5.  **Lighthouse**: Runs Lighthouse CI audits.
 6.  **SQM**: Generates and prints metrics to console.
 
-### 1b. Cloud Dispatch (`ci:cloud`)
-**Command**: `pnpm ci:cloud`
-**Description**: Dispatches the cloud-only test suites (Deploy Smoke + Soak) to GitHub Actions via the `gh` CLI. Requires `gh auth login`.
+### 1b. Cloud Dispatch (`ci:dispatch:deploy` / `ci:dispatch:soak`)
+**Commands**: `pnpm ci:dispatch:deploy`, `pnpm ci:dispatch:soak`
+**Description**: Each dispatches a single GitHub Actions workflow (deploy smoke or soak test) via the `gh` CLI. Requires `gh auth login`.
 
-### 2. Backend Load Test (`test:soak:api`)
-**Command**: `pnpm test:soak:api`
+### 2. Backend Load Test (`test:soak:api:cloud`)
+**Command**: `pnpm test:soak:api:cloud`
 **Description**: To verify that the Supabase Edge network and RLS policies can handle concurrent traffic without connection pool exhaustion or significant latency spikes. Bypassing the browser allows for 10x higher concurrency at 1% of the resource cost.
 
 **Custom Load**:
 ```bash
-NUM_FREE_USERS=20 NUM_PRO_USERS=10 pnpm test:soak:api
+NUM_FREE_USERS=20 NUM_PRO_USERS=10 pnpm test:soak:api:cloud
 ```
 
-### 3. UI Soak Memory Test (`test:soak:memory`)
-**Command**: `pnpm test:soak:memory`
+### 3. UI Soak Memory Test (`test:soak:ui:cloud`)
+**Command**: `pnpm test:soak:ui:cloud`
 **Description**: Focuses on **Browser Stability (OOM/Memory Leaks)**. Orchestrates multiple tabs to ensure the application does not crash under extended use. Detects memory pressure and garbage collection patterns using `performance.memory` APIs.
 
 #### 🧩 Terminology & Configuration
@@ -77,13 +77,13 @@ The soak suite uses a tiered script structure in `package.json` to ensure a clea
 1.  **`pretest:soak`**: Runs automatically before any soak command.
     *   **Action**: `npx kill-port 5173 || true`.
     *   **Why**: Ensures port 5173 (Vite) is free so Playwright can spin up a fresh server or take ownership without "Port in use" conflicts.
-2.  **`test:soak:api`**: Standalone Backend Stress.
+2.  **`test:soak:api:cloud`**: Standalone Backend Stress.
     *   **Action**: `dotenv -e .env.development -- tsx tests/soak/backend-api-stress-test.ts`.
     *   **Why**: Executes the "Thundering Herd" auth and RPC stress test without browser overhead. Essential for backend latency benchmarks.
-3.  **`test:soak:verify`**: Post-Run Data Audit.
+3.  **`test:soak:verify:local`**: Post-Run Data Audit.
     *   **Action**: `dotenv -e .env.development -- tsx tests/soak/verify-users.ts`.
     *   **Why**: Verifies that the records created during the soak session (e.g., transcripts) are present and accurate in Supabase, acting as a data integrity gate.
-4.  **`test:soak:memory`**: Unified Coordinator.
+4.  **`test:soak:ui:cloud`**: Unified Coordinator.
     *   **Action**: The main coordinator (`soak-test.spec.ts`) that orchestrates both the API stress and the UI memory check in sequence.
 
 ##### A. Local Verification (RAM Intensive)
@@ -91,7 +91,7 @@ The soak suite uses a tiered script structure in `package.json` to ensure a clea
 2. **Setup Credentials**: Create a local `.env.development` with valid Supabase keys (if running against live DB).
 3. **Execute**:
    ```bash
-   pnpm test:soak:memory
+   pnpm test:soak:ui:cloud
    ```
 
 ##### B. Authoritative Cloud Execution (Recommended)
@@ -109,13 +109,13 @@ This uses the repository's GitHub Cloud infrastructure and secrets.
    gh run view --log
    ```
 
-### 4. Integration Suite (`test:integration`)
-**Command**: `pnpm test:integration`
+### 4. Integration Suite (`test:int:local`)
+**Command**: `pnpm test:int:local`
 **Description**: Runs the non-driver-dependent live tests (auth, upgrade, analytics-journey) against real Supabase. Does not require audio hardware. Requires `.env.development` with real Supabase credentials.
 
-### 4b. Real:Headed Suite (`test:real:headed`)
-**Command**: `pnpm test:real:headed`
-**Description**: Full live suite including driver-dependent STT tests (Private STT, Native STT, Whisper integration). Requires headed Chrome with real audio/WASM hardware and `REAL_WHISPER_TEST=true`.
+### 4b. System Suite (`test:system:local:headed`)
+**Command**: `pnpm test:system:local:headed`
+**Description**: Full system suite including driver-dependent STT tests (Private STT, Native STT, Whisper integration). Requires headed Chrome with real audio/WASM hardware and `REAL_WHISPER_TEST=true`.
 **Cloud Context**: These tests require real `.env.development` credentials. The authoritative execution path is GitHub Cloud where secrets are dynamically injected.
 
 ### 5. STT Test Architecture & Skip Justifications
@@ -134,7 +134,7 @@ This uses the repository's GitHub Cloud infrastructure and secrets.
 
 #### Live Tests (Manual — Conditional Skips)
 
-Excluded from GitHub CI (`ci.yml` only runs `tests/e2e`). Run via `pnpm test:live` (headed Chrome).
+Excluded from GitHub CI (`ci.yml` only runs `tests/e2e`). Run via `pnpm test:system:local:headed` (headed Chrome).
 
 | File | Skip Condition | Justification |
 |---|---|---|
@@ -168,8 +168,8 @@ pnpm test:deploy:prod
 **Description**: A hard check against the canonical production URL (`speaksharp-public.vercel.app`).
 **Audit Note**: This test executes on every `main` branch push via `canary.yml`. It handles the full lifecycle: **Attempt Create User -> Run Test -> Cleanup Env**.
 
-### 8. Remote Soak Dispatch (`test:soak:remote`)
-**Command**: `pnpm test:soak:remote:wait`
+### 8. Remote Soak Dispatch (`ci:dispatch:soak`)
+**Command**: `pnpm ci:dispatch:soak:wait`
 **Description**: To execute high-load stress tests (Soak) using GitHub's cloud compute power rather than local resources. This allows for testing with 15+ concurrent users without crashing the local developer machine, while safely accessing production-grade secrets stored in GitHub.
 
 - **Playbook Structure**: Deployed via YAML (`.github/workflows/soak-test.yml`).
@@ -179,7 +179,7 @@ Every remote execution can be monitored and audited entirely from the terminal:
 
 1.  **Dispatch the Task**:
     ```bash
-    pnpm test:soak:remote:wait
+    pnpm ci:dispatch:soak:wait
     ```
 2.  **Monitor Progress**:
     - **Interactive Watch**: `gh run watch` (Allows selecting and following the active run).

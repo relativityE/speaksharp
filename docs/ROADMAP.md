@@ -695,22 +695,22 @@ This phase focuses on hardening the interface between frontend and backend and e
 | ID | Title | Priority | Status | Notes |
 |----|-------|----------|--------|-------|
 | **L1** | **Tiered Quality Gate** | **CRITICAL** | ✅ Complete | Consolidated `nightly-stt-serial`, `dev-real-integration`, and ad-hoc scripts into a unified `test-audit.sh` pipeline: Preflight → Lint → Typecheck → Unit → Build → E2E (4 shards). |
-| **L2** | **Test Category Consolidation** | **HIGH** | ✅ Complete | Superseded legacy per-phase test trackers. New execution routine: `pnpm ci:local` (simulate) and `pnpm test:local` (quick). Unit: 556 tests passing. E2E: 17 tests across 4 shards. |
+| **L2** | **Test Category Consolidation** | **HIGH** | ✅ Complete | Superseded legacy per-phase test trackers. New execution routine: `pnpm ci:full:local` (simulate) and `pnpm test:all:local` (quick). Unit: 556 tests passing. E2E: 17 tests across 4 shards. |
 | **L3** | **Drift Guardian** | **HIGH** | ✅ Complete | `drift-detector.spec.ts` verifies STT engine contract signatures and store observability via E2E bridge. Fixed `SecurityError` on `about:blank` by adding `programmaticLoginWithRoutes` to `beforeEach`. |
 | **L4** | **CI Test Stabilization** | **HIGH** | ✅ Complete | Resolved all pre-existing test failures: 4 unit (testId/title/class/mock mismatches), 3 e2e (drift-detector, diag-private-stt, private-stt download text). Added elapsed time reporting to `ci-simulate` stage. |
 | **L5** | **Nightly WER Suite** | **HIGH** | 🟡 In Progress | Scheduling `wer-baseline.spec.ts` against real Cloud/Private engines. Requires live API keys in CI secrets. |
 | **L6** | **Live Drift Monitoring** | **MEDIUM** | 🟡 In Progress | `drift-detector.spec.ts` now runs in sharded CI. Alerting on API contract changes deferred to nightly cron trigger. |
 | **L7** | **E2E Stabilization (70/70)** | **CRITICAL** | ✅ Complete | Resolved all persistent flakiness in VAD, Mutex, and Tier Limit tests. Achieved 100% pass rate on full 70-test suite. |
 
-## 🚀 v3.5.3 Release Hardening (Mar 2026) ✅ COMPLETE
+## 🚀 v3.5.4 Release Hardening (Mar 2026) ✅ COMPLETE
 
-> **Goal:** Finalize the v3.5.3 production release with absolute technical synchronization and CI stabilization.
+> **Goal:** Finalize the v3.5.4 production release with absolute technical synchronization and CI stabilization.
 
 | ID | Title | Priority | Status | Notes |
 |----|-------|----------|--------|-------|
 | **R1** | **CI Restoration Standard** | **CRITICAL** | ✅ Complete | Migrated from `script` to `tee` for reliable TTY logging without JSON corruption. |
 | **R2** | **Engine-Aware Tracking** | **CRITICAL** | ✅ Complete | Implemented Pattern 28 for accurate tier enforcement across all STT engines. |
 | **R3** | **UI-First State Reversion** | **HIGH** | ✅ Complete | Pattern 27 implemented for sub-second UI responsiveness during engine teardown. |
-| **R4** | **Documentation Audit** | **HIGH** | ✅ Complete | Synchronized all 7 core markdown files to v3.5.3 SSOT standard. |
+| **R4** | **Documentation Audit** | **HIGH** | ✅ Complete | Synchronized all 7 core markdown files to v3.5.4 SSOT standard. |
 | **R5** | **70/70 E2E Success** | **CRITICAL** | ✅ Complete | Achieved 100% reliability across the full sharded Playwright suite. |
 

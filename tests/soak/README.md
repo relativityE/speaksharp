@@ -15,7 +15,7 @@ Traditional end-to-end (E2E) testing with Playwright involves spinning up a full
 We split the testing into two distinct layers:
 
 #### Tier 1: API Stress (The "Load" Test)
-- **Tool**: Native Node.js (`test:soak:api`) using `fetch`.
+- **Tool**: Native Node.js (`test:soak:api:cloud`) using `fetch`.
 - **Concurrency**: 10 - 100+ Users.
 - **Purpose**: Hits Supabase Auth, Database, and API endpoints directly.
 - **Resource Cost**: <5MB per user.

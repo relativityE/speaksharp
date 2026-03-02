@@ -176,27 +176,29 @@ ___
 2.  ✅ **Codebase Context** – Inspect `/frontend/src`, `/tests` (E2E), `/frontend/tests/integration` (Real DB), `/docs` before acting.
 3.  ❌ **No Code Reversals Without Consent** – Never undo user work.
 4.  ⏱️ **Timeout Constraint** – Every command must complete within 7 minutes.
-5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `ci:local` script runs the EXACT same pipeline as GitHub CI.
+5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `ci:full:local` script runs the EXACT same pipeline as GitHub CI.
 
     ```json
-     "test:all": "./scripts/test-audit.sh local",
-     "ci:local": "./scripts/test-audit.sh ci-simulate",
-     "test:health-check": "./scripts/test-audit.sh health-check",
-     "test": "pnpm test:unit",
+     "test:all:local": "./scripts/test-audit.sh local",
+     "ci:full:local": "./scripts/test-audit.sh ci-simulate",
+     "test:health:local": "./scripts/test-audit.sh health-check",
+     "test": "pnpm test:unit:local",
      "dev": "cd frontend && vite",
      "build": "cd frontend && vite build --mode production",
      "pw:install": "playwright install chromium --with-deps",
      "pw:install:all": "playwright install --with-deps"
     ```
     
+    **Script Taxonomy:** All test scripts follow `test:<level>:<env>[:<mode>]`. See `ARCHITECTURE.md` for the full reference.
+    
     **Playwright Browsers:** Browser installation is NOT automatic. After `pnpm install`, run `pnpm pw:install` to install Chromium for E2E testing.
     
     **Terminology Clarification:**
-    - `test:health-check`: Runs a fast validation suite (Preflight + Unit Tests + Mock E2E).
+    - `test:health:local`: Runs a fast validation suite (Preflight + Unit Tests + Mock E2E).
     - **"Healthcheck passed!"**: This log message comes from the Lighthouse CLI and refers to its internal environment check, NOT the project's health check script.
     - **Health Check Test**: Refers specifically to `tests/e2e/health-check.e2e.spec.ts`.
     
-    **CRITICAL:** `ci:local` is NOT a simulation - it runs the exact same commands as GitHub CI (frozen lockfile, same build, same shards). If it passes locally, CI will pass.
+    **CRITICAL:** `ci:full:local` is NOT a simulation - it runs the exact same commands as GitHub CI (frozen lockfile, same build, same shards). If it passes locally, CI will pass.
     
     **New Configuration Scripts (2025-11-28):**
     - `build.config.js` - Centralized port configuration (DEV: 5173, PREVIEW: 4173)
@@ -226,14 +228,14 @@ ___
 
 1.  **Run Local Audit Script**
     ```bash
-    pnpm test:all
+    pnpm test:all:local
     ```
     Must pass lint, typecheck, all unit tests, and the full E2E suite.
 
 2.  **Mandatory Pre-Push Validation**
     Before pushing to `main`, you MUST run:
     ```bash
-    pnpm run ci:local
+    pnpm run ci:full:local
     ```
     This runs the EXACT GitHub CI pipeline locally (frozen lockfile, sharded E2E, lighthouse). If it fails, DO NOT PUSH. Fix the issues first.
 
