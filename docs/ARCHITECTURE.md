@@ -557,17 +557,19 @@ Strict adherence to these patterns is required to maintain CI stability.
 
 SpeakSharp utilizes multiple layers of testing to ensure 100% reliability across all environments.
 
-| Tier | Scope | Target Environment | Key Files |
-| :--- | :--- | :--- | :--- |
-| **Unit / Component** | Logic & Hooks | JSDOM / Vitest | `frontend/src/**/*.test.tsx` |
-| **E2E (Mocked)** | User Journeys | Playwright (Mocked APIs) | `tests/e2e/*.spec.ts` |
-| **Live (Integration)**| Real Data Flow | Playwright (Live Supabase/DB) | `tests/live/*.live.spec.ts` |
-| **Canary (Smoke)** | Prod Health | Production (Vercel) | `tests/canary/*.canary.spec.ts` |
-| **Soak / Perf** | Stability & Load | Playwright (Dual-Pronged) | `tests/soak/soak-test.spec.ts` |
+| Tier | Scope | Target Environment | Key Files | Runs In |
+| :--- | :--- | :--- | :--- | :--- |
+| **Unit / Component** | Logic & Hooks | JSDOM / Vitest | `frontend/src/**/*.test.tsx` | Local + CI |
+| **E2E (Mocked)** | User Journeys | Playwright (Mocked APIs) | `tests/e2e/*.spec.ts` | Local + CI |
+| **Integration** | Real Data (no hardware) | Playwright (Live Supabase/DB) | `tests/live/{auth,upgrade,analytics-journey}.live.spec.ts` | Local (opt-in) |
+| **Real:Headed** | Real Data + Hardware | Playwright (Live STT, headed) | `tests/live/*.live.spec.ts` | Local (headed Chrome) |
+| **Deploy (Smoke)** | Prod Health | Production (Vercel) | `tests/canary/*.canary.spec.ts` | GitHub CI only |
+| **Soak / Perf** | Stability & Load | Playwright (Dual-Pronged) | `tests/soak/soak-test.spec.ts` | GitHub CI only |
 
 **Tier Definitions:**
-- **Live Suite**: Validates Supabase Auth, Webhooks, and Real STT (AssemblyAI). Requires explicit opt-in via `REAL_WHISPER_TEST=true`.
-- **Canary Suite**: Runs against `speaksharp-public.vercel.app`. Validates that production deployments are not critically broken.
+- **Integration Suite** (`pnpm test:integration`): Runs the non-driver-dependent live tests (auth, upgrade, analytics-journey) against real Supabase. Does not require audio hardware.
+- **Real:Headed Suite** (`pnpm test:real:headed`): Full live suite including driver-dependent STT tests. Requires headed Chrome with real audio/WASM hardware.
+- **Deploy Suite** (`pnpm test:deploy`): Runs against `speaksharp-public.vercel.app`. Validates that production deployments are not critically broken. Options: `--prod` (default) or `--local` (`test:deploy:local`).
 - **Soak Suite (Dual-Pronged)**: Simulates sustained user activity via two serial phases to respect CI runner and Free Tier limits (50 req/sec):
   1. **Backend Thundering Herd (Headless)**: 30 concurrent Node.js clients hammer Supabase Auth and RPCs to verify infrastructure connection pools and Edge Function burst limits.
   2. **Frontend UI Memory Check (Real Browser)**: 2 isolated Playwright Chromium instances record continuously for 5 minutes to verify React/Zustand stability against memory bloat and fallback chain functionality.
@@ -911,8 +913,8 @@ Standard CI environments (like GitHub Actions) are "headless" and lack access to
 
 #### 1. Directory Structure: `tests/live/driver-dependent/`
 - **Purpose**: Home for tests that require real hardware (Audio/GPU) or OS-level drivers.
-- **Isolation**: These tests are isolated from standard `pnpm test` and `pnpm test:live` runs by default.
-- **Manual Execution**: Run via `pnpm test:live tests/live/driver-dependent/`.
+- **Isolation**: These tests are isolated from standard `pnpm test` and `pnpm test:real:headed` runs by default.
+- **Manual Execution**: Run via `pnpm test:real:headed tests/live/driver-dependent/`.
 
 #### 2. Flag Centralization (`TestFlags.ts`)
 We centralize testing logic in `frontend/src/config/TestFlags.ts` to prevent "Flag Soup". This provides a single source of truth for:
@@ -992,9 +994,9 @@ SpeakSharp enforces strict code quality standards to maintain long-term maintain
 | Term | Definition | SpeakSharp Implementation |
 |------|------------|---------------------------|
 | **Smoke** | Lightweight "sanity check" to ensure critical paths work. | `tests/canary/smoke.canary.spec.ts` (Login -> Record -> Save) |
-| **Canary** | Smoke tests running against **Production** with restricted users. | `pnpm test:canary` (Runs on deploy against `VISUAL_TEST_BASE_URL=https://speaksharp-public.vercel.app`) |
-| **Soak** | Long-running concurrency tests to identify memory leaks/deadlocks. | `pnpm test:soak` (Simulates 10 concurrent users for 5min) |
-| **Driver-Dependent** | High-fidelity hardware tests (Audio/WebGPU). | `pnpm test:live` (With `REAL_WHISPER_TEST=true` flag) |
+| **Deploy** | Smoke tests running against **Production** with restricted users. | `pnpm test:deploy` (Runs on deploy against production Vercel URL) |
+| **Soak** | Performance and endurance testing. | `pnpm test:soak:memory` (30-min stability check) |
+| **Driver-Dependent** | High-fidelity hardware tests (Audio/WebGPU). | `pnpm test:real:headed` (With `REAL_WHISPER_TEST=true` flag) |
 | **Staging** | A pre-production environment mirroring Prod configuration. | *Not currently active.* (We use "Canary Users" in Prod instead) |
 | **Soak** | Long-duration load tests to find memory leaks or timeouts. | `pnpm test:soak` (5 mins/user, 10 users concurrent) |
 
@@ -1133,7 +1135,7 @@ expect(text).toBe('5');
 
 ## Testing and CI/CD
 
-##### 5. Canary Tests (`pnpm test:canary`)
+##### 5. Deploy Tests (`pnpm test:deploy`)
 
 *   **Infrastructure:** Runs against the real staging environment (or local dev with real secrets).
 *   **Purpose:** Smoke tests critical user journeys (Login -> STT -> Analytics) on production-like infrastructure to detect integration failures before full rollout.
@@ -1360,8 +1362,9 @@ The project uses a tiered testing approach to balance speed, reliability, and re
 | **1. Unit Tests** | `pnpm test:unit` | `happy-dom` | Fast, isolated logic tests. Mocks all external deps. |
 | **2. Integration Tests** | `pnpm test:unit` | `happy-dom` | Component + Provider interaction. Mocks services. |
 | **3. CI Simulation (E2E)** | `pnpm ci:local` | Playwright + **MSW** | **The Default.** Full app flow with **Mocked Backend**. Fast, reliable, runs on PRs. No secrets needed. |
-| **4. Live Integrations** | `pnpm test:live` | Playwright + **Real APIs** | Validates integration with **Real Supabase/Stripe**. Requires `.env` secrets. |
-| **5. Canary Tests** | `pnpm test:canary` | Real App | Staging/Production validation. Runs post-deploy. |
+| **4. Integration** | `pnpm test:integration` | Playwright + **Real APIs** | Validates integration with **Real Supabase/Stripe**. Non-driver-dependent subset. |
+| **4b. Real:Headed** | `pnpm test:real:headed` | Playwright + **Real HW** | Full live suite including driver-dependent STT tests. Headed Chrome required. |
+| **5. Deploy Tests** | `pnpm test:deploy` | Real App | Production deployment validation. Runs post-deploy. |
 | **6. Soak Tests** | `pnpm test:soak` | Production | Long-running load tests on production infrastructure. |
 
 ##### Canary Test Architecture (Live Smoke Tests)
@@ -1369,7 +1372,7 @@ The project uses a tiered testing approach to balance speed, reliability, and re
 Canary tests (`tests/canary/*.spec.ts`) are specialized smoke tests that run against the real production/staging infrastructure. Unlike standard E2E tests, they do NOT use MSW or Playwright route interception for the core app logic.
 
 **How it works:**
-1. **Trigger**: The process is triggered manually via `workflow_dispatch` in `canary.yml` or locally via `pnpm test:canary`.
+1. **Trigger**: The process is triggered manually via `workflow_dispatch` in `canary.yml` or locally via `pnpm test:deploy:local`.
 2. **Environment Preparation**: 
    - In CI, the workflow dynamically generates a `.env.development` file using GitHub Secrets (`SUPABASE_URL`, `SUPABASE_ANON_KEY`).
    - The `CANARY_PASSWORD` secret is mapped to a `CANARY_PASSWORD` environment variable.
@@ -1378,7 +1381,7 @@ Canary tests (`tests/canary/*.spec.ts`) are specialized smoke tests that run aga
    - It polls the health endpoint until the server is ready.
 4. **Credential Propagation** (Critical CI Fix 2026-02-09):
    - `tests/constants.ts` resolves `CANARY_USER.email` and `CANARY_USER.password` from `process.env.CANARY_EMAIL` and `process.env.CANARY_PASSWORD`.
-   - **CI Caveat:** `start-server-and-test` spawns a subprocess for the test command. The `env:` block in GitHub Actions only affects the outer shell, not the inner subprocess. Therefore, we use `cross-env` to explicitly propagate these variables: `cross-env CANARY_EMAIL=... CANARY_PASSWORD=... pnpm test:canary`.
+   - **CI Caveat:** `start-server-and-test` spawns a subprocess for the test command. The `env:` block in GitHub Actions only affects the outer shell, not the inner subprocess. Therefore, we use `cross-env` to explicitly propagate these variables: `cross-env CANARY_EMAIL=... CANARY_PASSWORD=... pnpm test:deploy:prod`.
    - The `canaryLogin` helper in `tests/canary/smoke.canary.spec.ts` uses these credentials to perform a real login against the live Supabase project.
 5. **Execution**: Playwright runs the tests using the `playwright.canary.config.ts`, which targets the local Vite server but communicates with the live backend.
 6. **Safety Mechanism**: If `CANARY_PASSWORD` is not detected in the environment, the tests will automatically skip using `test.skip()` to prevent false failures in local development environments where secrets aren't present.
@@ -1392,7 +1395,7 @@ graph TD
     C --> D[start-server-and-test]
     D --> E[pnpm dev]
     E --> F[Vite Server @ 5173]
-    F --> G[Playwright test:canary]
+    F --> G[Playwright test:deploy]
     G --> H[canaryLogin]
     H --> I[Real Supabase Auth]
     I --> J[Critical Path Validation]
@@ -1404,7 +1407,7 @@ This section documents common CI failures and their root causes to prevent futur
 
 | Issue | Root Cause | Solution | Date Fixed |
 |-------|------------|----------|------------|
-| **Canary: `undefined` email** | `start-server-and-test` spawns subprocess; `CANARY_EMAIL` not inherited (`CANARY_PASSWORD` worked via GitHub secret injection) | Use `cross-env CANARY_EMAIL=... CANARY_PASSWORD=... pnpm test:canary` | 2026-02-09 |
+| **Deploy: `undefined` email** | `start-server-and-test` spawns subprocess; `CANARY_EMAIL` not inherited (`CANARY_PASSWORD` worked via GitHub secret injection) | Use `cross-env CANARY_EMAIL=... CANARY_PASSWORD=... pnpm test:deploy:prod` | 2026-02-09 |
 | **LHCI: "No files found"** | Lighthouse crashes before writing reports; artifact upload step fails | Add `continue-on-error: true` and diagnostic `ls -la .lighthouseci/` | 2026-02-09 |
 | **LHCI: Server timeout** | Preview server doesn't print "ready/listen" pattern that LHCI expects | Increase timeout or use custom health check; warning is often benign | - |
 | **LHCI: Crash in CI only** | Build artifacts not restored properly before LHCI runs | Verify `frontend/dist/` exists via `ls -R artifacts/` step | 2026-02-09 |
@@ -3078,7 +3081,7 @@ gh run watch $RUN_ID --exit-status
 gh run view $RUN_ID --log-failed
 ```
 
-**❌ Incorrect: Local `pnpm test:canary`**
+**❌ Incorrect: Local `pnpm test:deploy:local`**
 - Will fail with "Missing CANARY_PASSWORD"
 - Even with credentials, `.env.test` has mock Supabase URLs
 - Use `gh` commands instead for canary validation

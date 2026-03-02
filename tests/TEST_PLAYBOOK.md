@@ -29,17 +29,21 @@ Most tests (except for basic Unit and E2E Mock) require real backend credentials
 
 ## 🚀 Execution Guide
 
-### 1. The Full Sweep (`ci:local:full`)
-**Command**: `pnpm ci:local:full`
-**Description**: This is the authoritative "Pre-Flight" check. It verifies that the current local code satisfies all CI gates (Lint, Type, Unit) and integrates correctly with sharded E2E tests, Live DB, and Canary smoke checks. It ensures that any "local logic" doesn't break the "remote reality."
+### 1. The Local CI Gate (`ci:local`)
+**Command**: `pnpm ci:local`
+**Description**: The primary local quality gate. Simulates the full GitHub CI pipeline locally: Lint, Type, Unit Tests, sharded E2E, and Lighthouse audits.
 
 **Steps**:
 1.  **Installs**: Syncs dependencies using the frozen lockfile.
 2.  **Builds**: Creates a fresh `build:test` bundle.
 3.  **Audits**: Runs `lint`, `typecheck`, and `vitest`.
 4.  **E2E (Mocked)**: Runs all 4 Playwright shards.
-5.  **Integration**: Executes `test:live` (Real DB).
-6.  **Smoke**: Executes `test:canary` (Prod Health).
+5.  **Lighthouse**: Runs Lighthouse CI audits.
+6.  **SQM**: Generates and prints metrics to console.
+
+### 1b. Cloud Dispatch (`ci:cloud`)
+**Command**: `pnpm ci:cloud`
+**Description**: Dispatches the cloud-only test suites (Deploy Smoke + Soak) to GitHub Actions via the `gh` CLI. Requires `gh auth login`.
 
 ### 2. Backend Load Test (`test:soak:api`)
 **Command**: `pnpm test:soak:api`
@@ -105,10 +109,14 @@ This uses the repository's GitHub Cloud infrastructure and secrets.
    gh run view --log
    ```
 
-### 4. Integration Suite (`test:live`)
-**Command**: `pnpm test:live`
-**Description**: Validates that the application logic correctly handles real third-party integrations (Supabase DB, AssemblyAI, Stripe).
-**Cloud Context**: This test is part of the `ci.yml` workflow. In the cloud, it uses the dynamically generated `.env.development`. If running locally, ensure your environment variables match the names in `env.required`.
+### 4. Integration Suite (`test:integration`)
+**Command**: `pnpm test:integration`
+**Description**: Runs the non-driver-dependent live tests (auth, upgrade, analytics-journey) against real Supabase. Does not require audio hardware. Requires `.env.development` with real Supabase credentials.
+
+### 4b. Real:Headed Suite (`test:real:headed`)
+**Command**: `pnpm test:real:headed`
+**Description**: Full live suite including driver-dependent STT tests (Private STT, Native STT, Whisper integration). Requires headed Chrome with real audio/WASM hardware and `REAL_WHISPER_TEST=true`.
+**Cloud Context**: These tests require real `.env.development` credentials. The authoritative execution path is GitHub Cloud where secrets are dynamically injected.
 
 ### 5. STT Test Architecture & Skip Justifications
 
@@ -139,22 +147,25 @@ Excluded from GitHub CI (`ci.yml` only runs `tests/e2e`). Run via `pnpm test:liv
 - `playwright.live.config.ts` — Live (headed, `tests/live`, sets `REAL_WHISPER_TEST=true`)
 - `frontend/src/config/TestFlags.ts` — Runtime flags for mock vs real engine selection
 
-### 6. Canary Smoke Tests (`test:canary`)
-**Command**: `pnpm test:canary`
+### 6. Deploy Smoke Tests (`test:deploy`)
+**Command**: `pnpm test:deploy`
 **Description**: Acts as the "Final Gate" after deployment. It runs against the public URL to ensure that Environment Variables, SSL, and Vercel edge configs are correctly set up and the app is reachable by real users.
 
 **Targeting**:
 ```bash
-# Against production (Vercel)
-pnpm test:canary
+# Against production (default)
+pnpm test:deploy
 
-# Against specific URL (Staging)
-BASE_URL=https://my-staging-app.vercel.app pnpm test:canary
+# Against local dev server
+pnpm test:deploy:local
+
+# Explicit production
+pnpm test:deploy:prod
 ```
 
-### 7. Production Forced Check (`test:canary:prod`)
-**Command**: `pnpm test:canary:prod`
-**Description**: A hard check against the canonical production URL.
+### 7. Production Forced Check (`test:deploy:prod`)
+**Command**: `pnpm test:deploy:prod`
+**Description**: A hard check against the canonical production URL (`speaksharp-public.vercel.app`).
 **Audit Note**: This test executes on every `main` branch push via `canary.yml`. It handles the full lifecycle: **Attempt Create User -> Run Test -> Cleanup Env**.
 
 ### 8. Remote Soak Dispatch (`test:soak:remote`)

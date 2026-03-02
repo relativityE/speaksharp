@@ -14,6 +14,14 @@ All notable changes to this project will be documented in this file.
   - **Verification:** All 4 tier-limits E2E tests pass cleanly (0 flaky, 0 failed, 9.3s). `ci:local` green: 556 unit ✅, 17 E2E ✅, Lighthouse 97/94/100/91 ✅.
   - **Files:** `useUserProfile.ts`, `tier-limits.e2e.spec.ts`
 
+- **Test Configuration Optimization (2026-03-01):**
+  - **Rename:** `test:live` → `test:real:headed` (clarifies headed Chrome + real hardware requirement).
+  - **Rename:** `test:canary` / `test:canary:prod` → `test:deploy` / `test:deploy:prod` / `test:deploy:local` (clarifies deployment verification purpose).
+  - **Rename:** `ci:local:full` → `ci:cloud` (dispatches canary + soak suites to GitHub Actions via `gh` CLI).
+  - **Fix:** `test:integration` now targets non-driver-dependent live specs (auth, upgrade, analytics-journey) instead of a dead glob.
+  - **Docs:** Updated ARCHITECTURE.md (6-tier registry with Environment column), TEST_PLAYBOOK.md, README.md, `canary.yml`.
+  - **Files:** `package.json`, `canary.yml`, `ARCHITECTURE.md`, `TEST_PLAYBOOK.md`, `README.md`
+
 - **Private STT Test Reliability & Documentation (2026-03-01):**
   - **Fix:** Resolved silent mock override in live tests — `TestFlags.USE_REAL_TRANSCRIPTION` now checks `window.REAL_WHISPER_TEST` at runtime (not just Vite build time), ensuring live tests use real Whisper engines instead of MockEngine.
   - **Fix:** Updated `shouldUseMockTranscription()` to respect `USE_REAL_TRANSCRIPTION` override.
