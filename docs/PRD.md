@@ -1,6 +1,6 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-03-01
-**Version:** v3.5.3
+**Version:** v3.5.4
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -179,15 +179,15 @@ To eliminate non-deterministic failures and "flakiness," the system adheres to a
 *   **End-to-End Tests (Playwright):** E2E tests validate complete user flows from start to finish. To combat the flakiness often associated with UI-driven tests, we have adopted a critical strategic decision:
     *   **Programmatic Login Only:** All E2E tests that require an authenticated state **must** use the `programmaticLogin` helper. This method directly injects a session into `localStorage`, bypassing the UI for sign-up and login. This approach is significantly faster and more reliable than attempting to simulate user input in the auth form.
     *   **Secure User Provisioning:** We use a dedicated Supabase Edge Function (`create-user`) authorized by CI secrets (`SUPABASE_SERVICE_ROLE_KEY`) to provision test data. This avoids the fragility of UI registration automation and guarantees a clean slate for every test.
-    *   **Canonical Health Check:** The `pnpm test:health-check` command is the primary quality gate for daily development. It focuses exclusively on the canonical `core-journey.e2e.spec.ts`, verifying the full data flow (Home -> Session -> Analytics) without the overhead of the full unit test suite.
+    *   **Canonical Health Check:** The `pnpm test:health:local` command is the primary quality gate for daily development. It focuses exclusively on the canonical `core-journey.e2e.spec.ts`, verifying the full data flow (Home -> Session -> Analytics) without the overhead of the full unit test suite.
     *   **No UI-Driven Auth Tests:** Tests that attempt to validate the sign-up or login forms via UI interaction have been removed. The stability and speed gained by using programmatic login are considered a higher priority than testing the auth form itself in the E2E suite.
     *   **Canary Deployment Tests:** A subset of E2E tests (marked `@canary`) are designed to hit real staging endpoints periodically to detect API contract drift and production-specific failures that mocks might hide.
 *   **API Mocking (MSW & Playwright Routes):** External services and backend APIs are mocked for deterministic testing. However, mocks are audited against real production response shapes to prevent "Green Illusion" (tests passing while production is broken).
 *   **Adversarial Audit Mandate:** All new tests must pass an adversarial review—ensuring they validate design intent (e.g., tier gating, SLOs, resilience) and would fail if production code deviates from intended behavior, even if the structural implementation remains similar.
 *   **Private STT Integration Strategy:** To ensure high-fidelity verification of the triple-engine architecture, `PrivateSTT.integration.test.ts` validates engine selection, WebGPU detection, and fallback logic. For headless CI environments, the engine automatically switches to a reliable `MockEngine` when `window.__E2E_PLAYWRIGHT__` is detected.
-*   **Single Source of Truth (`pnpm test:all` & `pnpm ci:local`):**
-    *   `pnpm test:all`: User-facing entry point for quick validation.
-    *   `pnpm ci:local`: Full simulation of the CI pipeline (including build and lighthouse), ensuring that "it works on my machine" means it works in CI.
+*   **Single Source of Truth (`pnpm test:all:local` & `pnpm ci:full:local`):**
+    *   `pnpm test:all:local`: User-facing entry point for quick validation.
+    *   `pnpm ci:full:local`: Full simulation of the CI pipeline (including build and lighthouse), ensuring that "it works on my machine" means it works in CI.
     *   Both run an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process.
 
 ### Testing Principles
@@ -332,7 +332,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 ### 6.3 Known Defects & Limitations
 *   **Resolved: Multi-Tab Race Conditions**: Fixed by enforcing a "No Multi-Tab" universal policy for all users and ensuring synchronous `releaseLock` on the stop path.
 *   **Known Bug 001: Global Usage Limit Bypass [FIXED]
-- **Status:** ✅ RESOLVED (v3.5.3)
+- **Status:** ✅ RESOLVED (v3.5.4)
 - **Resolution:** Implemented Pattern 28 (Engine-Aware Usage Tracking) which distinguishes between Native (Unlimited), Cloud (Metered), and Private flows. Billing is now correctly enforced at the edge regardless of engine selection.
 
 ## 8. Metrics and Success Criteria
@@ -498,7 +498,7 @@ Before deploying, verify:
 | Item | Command | Expected Result |
 |------|---------|-----------------|
 | Whisper model files | `ls -lh frontend/public/models/` | `tiny-q8g16.bin` (~30MB), `tokenizer.json` (~2MB) |
-| Full test suite | `pnpm test:all` | All 539 tests passing |
+| Full test suite | `pnpm test:all:local` | All 539 tests passing |
 | Production build | `pnpm build` | Builds successfully |
 | Database migrations | Check Supabase Dashboard → SQL Editor | 14 migrations applied |
 

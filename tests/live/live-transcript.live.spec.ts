@@ -29,7 +29,7 @@ test.describe('Live Transcript (Real Audio)', () => {
      * - Chrome's online speech recognition service (network dependent)
      * - Fake audio device (configured via launchOptions above)
      *
-     * This test only runs via `pnpm test:real:headed` or `pnpm ci:cloud`.
+     * This test only runs via `pnpm test:system:local:headed` or `pnpm ci:dispatch:deploy`.
      * It is NOT part of GitHub CI (ci.yml only runs tests/e2e).
      */
     test('should transcribe real audio using Native STT', async ({ page }) => {

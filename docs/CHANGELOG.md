@@ -5,13 +5,19 @@
 
 All notable changes to this project will be documented in this file.
 
-### [Unreleased]
+### [3.5.4] - 2026-03-02
+
+- **Testing Taxonomy Overhaul (2026-03-02):**
+  - **Architecture:** Migrated all test scripts to strict `Level:Env:Mode` taxonomy (`test:<level>:<env>[:<mode>]`). Eliminates ambiguous terms ("real", "live", "canary") in favor of structural axes.
+  - **Renames:** `test:unit` → `test:unit:local`, `test:e2e` → `test:e2e:mock`, `test:integration` → `test:int:local`, `test:real:headed` → `test:system:local:headed`, `test:soak:memory` → `test:soak:ui:cloud`, `ci:local` → `ci:full:local`, `ci:cloud` → `ci:dispatch:deploy` + `ci:dispatch:soak`.
+  - **Docs:** Updated all 9 documentation files: `AGENTS.md`, `ARCHITECTURE.md`, `README.md`, `TEST_PLAYBOOK.md`, `PRD.md`, `ROADMAP.md`, `CHANGELOG.md`, `tests/soak/README.md`, `live-transcript.live.spec.ts`.
+  - **Files:** `package.json`, `AGENTS.md`, `docs/ARCHITECTURE.md`, `README.md`, `tests/TEST_PLAYBOOK.md`, `docs/PRD.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`, `tests/soak/README.md`, `tests/live/live-transcript.live.spec.ts`
 
 - **Tier-Limits E2E Fix & Expert Rescue Guard (2026-03-01):**
   - **Fix:** Resolved `useUserProfile.ts` "Expert Rescue" unconditionally forcing `subscription_status='pro'` for `test@example.com` in E2E mode, causing tier-limit tests to always bypass usage guards.
   - **Guard:** Added explicit check to skip Pro rescue when profile already has `subscription_status === 'free'`, respecting the free tier set by `setupE2EMocks`.
   - **Test:** Implemented deterministic React Query cache injection pattern: `await cancelQueries` → `setQueryDefaults({ staleTime: Infinity, enabled: false })` → `setQueryData(can_start: false)` with re-injection polling in `waitForFunction`.
-  - **Verification:** All 4 tier-limits E2E tests pass cleanly (0 flaky, 0 failed, 9.3s). `ci:local` green: 556 unit ✅, 17 E2E ✅, Lighthouse 97/94/100/91 ✅.
+  - **Verification:** All 4 tier-limits E2E tests pass cleanly (0 flaky, 0 failed, 9.3s). `ci:full:local` green: 556 unit ✅, 17 E2E ✅, Lighthouse 97/94/100/91 ✅.
   - **Files:** `useUserProfile.ts`, `tier-limits.e2e.spec.ts`
 
 - **Test Configuration Optimization (2026-03-01):**
@@ -139,7 +145,7 @@ All notable changes to this project will be documented in this file.
 
 - **Soak Test & CI Infrastructure (2026-02-08):**
   - **Feature:** Implemented `tests/soak/api-load-test.ts` for lightweight, high-concurrency Node.js load testing (bypassing UI overhead).
-  - **Tooling:** Introduced `pnpm ci:local` to simulate the full GitHub Actions pipeline locally (Lint + Typecheck + Unit + Build + E2E + Lighthouse).
+  - **Tooling:** Introduced `pnpm ci:full:local` to simulate the full GitHub Actions pipeline locally (Lint + Typecheck + Unit + Build + E2E + Lighthouse).
   - **Configuration:** Standardized environment variables: `NUM_FREE_USERS` / `NUM_PRO_USERS` (formerly `NEW_*_COUNT`) for consistent user provisioning.
   - **Fix:** Resolved `verify-users.ts` syntax errors and `TransformersJSEngine.test.ts` assertion gaps.
   - **Documentation:** Updated `ARCHITECTURE.md` with new user provisioning standards.
@@ -216,7 +222,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Logging:** Unified frontend logging by replacing `console.log/error` with structured `logger` in 50+ files.
   - **Tests:** Added unit tests for `TransformersJSEngine` (architectural gap filled).
   - **Pipeline:** Implemented self-cleaning Canary workflow (`canary.yml`) to prevent data residue.
-  - **Pre-Push:** Updated `.husky/pre-push` to use `pnpm ci:local` for strict quality gates.
+  - **Pre-Push:** Updated `.husky/pre-push` to use `pnpm ci:full:local` for strict quality gates.
 
 ### [1.1.0] - 2026-02-05
 
@@ -240,7 +246,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Fix:** Resolved persistent flakiness in `goal-setting.e2e.spec.ts` and `tier-limits.e2e.spec.ts` via state-driven synchronization.
   - **Stability:** Standardized loading UI in `AnalyticsPage.tsx` and `GoalsSection.tsx` to ensure `data-testid` visibility during data fetching, preventing E2E timeouts.
   - **Quality:** Remediated all remaining `eslint-disable` and `as any` directives in unit tests for strict type safety.
-  - **Verification:** Implemented `pnpm ci:local` for unified local/CI quality gates.
+  - **Verification:** Implemented `pnpm ci:full:local` for unified local/CI quality gates.
 
 - **Session Page UI Refactor (2026-01-28):**
   - **Layout:** Implemented a balanced grid layout pairing "Live Session" with "Pause Analysis" and "Live Transcript" with "Filler Words" (matched heights).
@@ -1276,8 +1282,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known Issues
 - **CI Sharded E2E Metrics (2025-12-08):**
-  - `ci:local` reports last shard's test count only due to Playwright blob directory clearing
-  - Workaround: Use `pnpm test:all` for accurate local metrics
+  - `ci:full:local` reports last shard's test count only due to Playwright blob directory clearing
+  - Workaround: Use `pnpm test:all:local` for accurate local metrics
   - Impact: Cosmetic only - all tests run correctly
 
 ### Added
@@ -1913,7 +1919,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Refactored
 - **`useSpeechRecognition` Hook:** The hook has been successfully refactored into smaller, more focused hooks (`useTranscriptionService`, `useFillerWords`, `useTranscriptState`). The underlying `useTranscriptionService` was further refactored to resolve a critical memory leak caused by improper instance management. The entire test suite is now passing, confirming the stability of the new implementation.
 
-## [Unreleased]
+## [3.5.4] - 2026-03-02
 
 ### Added
 - **Secure E2E User Provisioning**: Implemented `create-user` Edge Function to securely provision test users with specific roles ('free'/'pro') in CI.
