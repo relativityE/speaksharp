@@ -36,7 +36,7 @@ jobs:
           CANARY_PASSWORD: ${{ secrets.CANARY_PASSWORD }}
           CANARY_EMAIL: canary-${{ github.run_id }}@speaksharp.app
           BASE_URL: https://speaksharp-public.vercel.app/
-        run: pnpm test:canary
+        run: pnpm test:deploy:prod
 
       - name: Upload Test Results
         if: always()

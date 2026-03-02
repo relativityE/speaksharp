@@ -254,20 +254,28 @@ pnpm test:all
 - Runs quality checks + full E2E suite (all test files)
 - **Use for:** Final validation before merge
 
-**🔥 Want to run tests against REAL live services?**
+**🔥 Want to run tests against REAL live services (headed Chrome)?**
 ```bash
-pnpm test:live
+pnpm test:real:headed
 ```
-- Runs specific E2E tests (`tests/live/*.spec.ts`) against a real database and real Whisper engine (simulating production environment locally)
-- Requires proper `.env` setup with live credentials (DB, Stripe, etc.)
+- Runs specific E2E tests (`tests/live/*.spec.ts`) in headed Chrome against a real database and real Whisper engine
+- Requires proper `.env.development` with live credentials (DB, STT, Stripe)
 - **Use for:** Verifying integrations that cannot be mocked (e.g., precise audio decoding, real database transactions)
 
-**🐦 Want to verify Staging/Production?**
+**🐦 Want to verify Staging/Production deployment?**
 ```bash
-pnpm test:canary
+pnpm test:deploy          # Production (default)
+pnpm test:deploy:local    # Against localhost:5173
 ```
-- Runs smoke tests against the deployed URL (or local via config config).
+- Runs smoke tests against the deployed URL (production by default).
 - **Use for:** Post-deployment verification.
+
+**☁️ Want to dispatch cloud-only test suites?**
+```bash
+pnpm ci:cloud
+```
+- Dispatches Deploy Smoke + Soak tests to GitHub Actions via `gh` CLI.
+- **Use for:** Triggering canary + soak tests that require GitHub secrets.
 
 ### E2E Debugging
 
