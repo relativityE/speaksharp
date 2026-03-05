@@ -26,7 +26,7 @@ jobs:
         run: node scripts/validate-env.mjs
 
       - name: Run Prepare Stage
-        run: ./scripts/test-audit.sh prepare
+        run: pnpm ci:prepare
 
       - name: Upload Prepare Artifacts
         uses: actions/upload-artifact@v4
@@ -64,7 +64,7 @@ jobs:
         env:
           EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
-        run: ./scripts/test-audit.sh test ${{ matrix.shard }}
+        run: pnpm ci:test ${{ matrix.shard }}
 
       - name: Upload Shard Report
         if: always()
@@ -225,7 +225,7 @@ jobs:
           fi
 
       - name: Generate Final Report
-        run: ./scripts/test-audit.sh report
+        run: pnpm ci:report
 
       - name: Upload HTML Report
         if: always()
