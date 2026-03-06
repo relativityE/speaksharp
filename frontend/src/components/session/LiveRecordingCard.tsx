@@ -62,7 +62,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     };
 
     return (
-        <div className={`bg-card border border-border rounded-xl p-5 shadow-sm relative overflow-hidden h-full flex flex-col justify-center ${className}`} data-testid="live-recording-card">
+        <div className={`bg-primary/5 border border-primary/20 rounded-xl p-5 shadow-[0_0_30px_-5px_rgba(251,191,36,0.15)] relative z-10 h-full flex flex-col justify-center ${className}`} data-testid="live-recording-card">
             {/* Horizontal Layout for efficiency */}
             <div className="flex items-center justify-between gap-8">
                 {/* Timer & Mode */}
@@ -132,7 +132,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                 </div>
 
                 {/* Main Action Button (Stable UX) */}
-                <div>
+                <div className="flex-shrink-0">
                     {!isListening ? (
                         <Button
                             onClick={onStartStop}

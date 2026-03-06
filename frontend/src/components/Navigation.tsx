@@ -93,15 +93,13 @@ const Navigation = () => {
 
   return (
     <>
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-transparent">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
-            <Link to="/" className="flex items-center space-x-3" aria-label="SpeakSharp Home">
-              <div className="w-10 h-10 bg-[#1E293B] rounded-xl flex items-center justify-center shadow-sm border border-white/5">
-                <Mic className="h-5 w-5 text-[#0EA5E9]" aria-hidden="true" />
-              </div>
-              <span className="text-xl font-bold text-white tracking-tight">SpeakSharp</span>
+            <Link to="/" className="flex items-center space-x-2" aria-label="SpeakSharp Home">
+              <Mic className="h-5 w-5 text-primary" aria-hidden="true" />
+              <span className="text-lg font-bold text-primary tracking-tight">SpeakSharp</span>
             </Link>
 
             {/* Navigation Items */}
@@ -135,7 +133,7 @@ const Navigation = () => {
                       onClick={handleUpgrade}
                       disabled={isUpgrading}
                       size="sm"
-                      className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20 animate-pulse-subtle"
+                      className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20"
                     >
                       {isUpgrading ? (
                         <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -150,7 +148,7 @@ const Navigation = () => {
                   {session && profile?.subscription_status === 'pro' && (
                     <Badge
                       variant="secondary"
-                      className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white border-none shadow-sm animate-in fade-in zoom-in duration-300 px-3 py-1"
+                      className="bg-gradient-primary text-primary-foreground border-none shadow-sm animate-in fade-in zoom-in duration-300 px-3 py-1"
                       data-testid={TEST_IDS.PRO_BADGE}
                     >
                       <Zap className="w-3 h-3 mr-1 fill-current" />
@@ -167,10 +165,10 @@ const Navigation = () => {
                 </>
               ) : (
                 <>
-                  <Button variant="ghost" size="sm" asChild className="text-slate-400 hover:text-white transition-colors">
+                  <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground transition-colors">
                     <Link to="/auth">Sign In</Link>
                   </Button>
-                  <Button size="sm" className="bg-[#0EA5E9] hover:bg-[#0EA5E9]/90 text-white font-bold px-5 h-9 rounded-xl shadow-[0_0_20px_-5px_rgba(14,165,233,0.3)]" asChild>
+                  <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold px-5 h-9 rounded-xl glow-primary" asChild>
                     <Link to="/auth/signup">Get Started</Link>
                   </Button>
                 </>

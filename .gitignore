@@ -52,6 +52,7 @@ resources/
 # Local Environment
 .env
 .env*.local
+.env.development
 .vite.pid
 merged-reports/
 .lighthouseci/

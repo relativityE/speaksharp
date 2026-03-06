@@ -100,7 +100,7 @@ export const SessionPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-subtle pt-20">
+        <main aria-label="Practice Session" className="min-h-screen bg-gradient-subtle pt-20">
             {/* Page Header */}
             <div className="text-center py-4 px-6 max-w-7xl mx-auto">
                 <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>
@@ -139,7 +139,7 @@ export const SessionPage: React.FC = () => {
                         <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
                             <PauseMetricsDisplay
                                 metrics={pauseMetrics}
-                                className="min-h-half glass"
+                                className="min-h-half bg-background/40 border border-white/5 rounded-xl"
                             />
                         </LocalErrorBoundary>
                     </div>
@@ -150,14 +150,14 @@ export const SessionPage: React.FC = () => {
                             <ClarityScoreCard
                                 clarityScore={metrics.clarityScore}
                                 clarityLabel={metrics.clarityLabel}
-                                className="glass h-full"
+                                className="bg-background/40 border border-white/5 rounded-xl h-full"
                             />
                         </LocalErrorBoundary>
                         <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
                             <SpeakingRateCard
                                 wpm={metrics.wpm}
                                 wpmLabel={metrics.wpmLabel}
-                                className="glass h-full"
+                                className="bg-background/40 border border-white/5 rounded-xl h-full"
                             />
                         </LocalErrorBoundary>
                     </div>
@@ -170,7 +170,7 @@ export const SessionPage: React.FC = () => {
                                 transcript={transcriptContent}
                                 isListening={isListening}
                                 containerRef={transcriptContainerRef}
-                                className="min-h-double glass-strong h-full"
+                                className="min-h-double bg-background/40 border border-white/5 rounded-xl h-full"
                             />
                         </LocalErrorBoundary>
                     </div>
@@ -181,7 +181,7 @@ export const SessionPage: React.FC = () => {
                             <FillerWordsCard
                                 fillerCount={metrics.fillerCount}
                                 fillerData={fillerData}
-                                className="glass min-h-double h-full"
+                                className="min-h-double bg-background/40 border border-white/5 rounded-xl h-full"
                                 headerAction={
                                     <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
                                         <PopoverTrigger asChild>
@@ -207,7 +207,7 @@ export const SessionPage: React.FC = () => {
                     {/* === ROW 3: Full-Width Quick Tips === */}
                     <div className="lg:col-span-3">
                         <LocalErrorBoundary isolationKey="speaking-tips" componentName="SpeakingTipsCard">
-                            <SpeakingTipsCard className="glass compact" />
+                            <SpeakingTipsCard className="bg-background/40 border border-white/5 rounded-xl compact" />
                         </LocalErrorBoundary>
                     </div>
 
@@ -235,7 +235,7 @@ export const SessionPage: React.FC = () => {
                 open={showPromoExpiredDialog}
                 onOpenChange={() => { }} // Controlled by hook data
             />
-        </div>
+        </main>
     );
 };
 

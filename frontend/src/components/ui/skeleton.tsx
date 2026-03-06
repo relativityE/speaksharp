@@ -7,7 +7,7 @@ function Skeleton({
   return (
     <div
       data-testid="loading-skeleton"
-      className={cn("animate-pulse rounded-md bg-muted", className)}
+      className={cn("animate-pulse rounded-md bg-primary/20", className)}
       {...props}
     />
   )

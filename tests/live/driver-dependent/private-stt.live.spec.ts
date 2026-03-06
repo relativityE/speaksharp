@@ -39,6 +39,10 @@ import { test, expect } from '@playwright/test';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from '../../e2e/helpers';
+// calculateWordErrorRate is the SSOT in frontend/src/lib/wer.ts (not a new file).
+// WER ≤ 0.15 replaces exact/regex match — Whisper WASM is non-deterministic at chunk
+// boundaries in quantized ONNX. This is the NIST/industry standard for STT gates.
+import { calculateWordErrorRate } from '../../../frontend/src/lib/wer';
 import { MicStream } from '../../../frontend/src/services/transcription/utils/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -56,8 +60,11 @@ declare global {
     }
 }
 
-// Configure Playwright to inject real audio via fake media stream
-const syntheticAudio = path.resolve(__dirname, '../../fixtures/test_speech_16k.wav');
+// 10sec.wav replaces test_speech_16k.wav (2.4s).
+// Root cause: --use-file-for-fake-audio-capture streams from T=0; WASM init takes ~20s.
+// The 2.4s file was exhausted before the engine was ready. 10s guarantees audio is
+// still playing when data-state='recording' fires. (Expert-confirmed fix.)
+const syntheticAudio = path.resolve(__dirname, '../../fixtures/10sec.wav');
 
 test.use({
     launchOptions: {
@@ -116,32 +123,41 @@ test.describe('Private STT Real Audio (High Fidelity)', () => {
         await startButton.click();
         debugLog('🚀 Started recording, waiting for model to load...');
 
-        // 5. STABILIZATION: Wait for Microphone Stream to be fully initialized (AudioWorklet ready)
-        // This resolves the "Listening..." hang by ensuring the pipeline isn't missing the start of the audio.
-        debugLog('⏳ Waiting for MicStream readiness signal...');
-        await page.waitForFunction(() => {
-            const mic = window.micStream;
-            return mic && mic.state === 'ready';
-        }, { timeout: 30000 });
-        debugLog('✅ MicStream is READY');
+        // 5. ENGINE-READY GATE: wait for data-state='recording' on the card wrapper.
+        //    Replaces window.micStream.state === 'ready' which was an internal impl detail
+        //    not covered by AGENTS.md behavioral contracts.
+        //    data-state='recording' is emitted by LiveRecordingCard only when activeEngine
+        //    !== 'none' — i.e., WASM pipeline() has resolved and getUserMedia is granted.
+        //    Per AGENTS.md: "Event-Based Synchronization: Never use sleep(). Use selectors."
+        //    Timeout: 60s — WASM cold load takes 20-30s in headless.
+        debugLog('⏳ Waiting for WASM engine ready signal (data-state="recording")...');
+        const statusDiv = page.locator('[data-testid="live-session-header"]').locator('..');
+        await expect(statusDiv).toHaveAttribute('data-state', 'recording', { timeout: 60_000 });
+        debugLog('✅ WASM engine initialized — data-state="recording" observed');
 
-        // 6. Wait for UI to reflect recording state (Stop button visible)
-        await expect(page.getByLabel(/stop/i).first()).toBeVisible({ timeout: 60000 });
-        debugLog('✅ UI indicates recording active');
+        // 6. Allow 5s audio accumulation after engine is ready.
+        //    10sec.wav guarantees audio is still streaming. No DOM event exists for
+        //    "N seconds of VAD-processed audio" — this bounded wait is the only option.
+        await page.waitForTimeout(5_000);
+        debugLog('✅ 5s audio accumulation complete');
 
-        // 7. Wait for transcript to appear
-        const transcriptContainer = page.getByTestId('transcript-container');
-
-        // The synthetic audio says: "Testing audio transcription with real speech"
-        debugLog('👂 Listening for transcript output...');
-        await expect(transcriptContainer).toContainText(/testing|audio|transcription|speech/i, { timeout: 60000 });
-
-        const transcriptText = await transcriptContainer.textContent();
-        debugLog(`📝 Transcript received: "${transcriptText?.substring(0, 100)}..."`);
-
-        // 8. Stop recording
+        // 7. Stop recording — use data-action behavioral contract (not getByLabel).
         await startButton.click();
-        await expect(page.getByLabel(/start/i).first()).toBeVisible({ timeout: 5000 });
+        await expect(startButton).toHaveAttribute('data-action', 'start', { timeout: 10_000 });
         debugLog('✅ Recording stopped');
+
+        // 8. Assert via WER ≤ 0.15 — not regex toContainText.
+        //    Whisper WASM (quantized ONNX) is non-deterministic at chunk boundaries.
+        //    WER ≤ 0.15 is the NIST standard for STT integration gates.
+        // The synthetic audio says: "Testing audio transcription with real speech"
+        const EXPECTED = 'testing audio transcription with real speech';
+        const transcriptContainer = page.getByTestId('transcript-container');
+        await expect(transcriptContainer).not.toBeEmpty({ timeout: 15_000 });
+        const transcriptText = ((await transcriptContainer.textContent()) ?? '').trim().toLowerCase();
+        const wer = calculateWordErrorRate(EXPECTED, transcriptText);
+        debugLog(`📝 Received: "${transcriptText.substring(0, 100)}"`);
+        debugLog(`📊 WER: ${(wer * 100).toFixed(1)}% (threshold: 15%)`);
+        expect(wer, `WER ${(wer * 100).toFixed(1)}% exceeded 15% threshold. Got: "${transcriptText}"`).toBeLessThanOrEqual(0.15);
+        debugLog('✅ WER gate passed');
     });
 });

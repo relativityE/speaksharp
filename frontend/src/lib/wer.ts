@@ -16,8 +16,10 @@ export const calculateWordErrorRate = (reference: string, hypothesis: string): n
   if (refWords.length === 0) return hypothesis.trim() === '' ? 0 : 1.0;
   if (hypWords.length === 0) return 1.0;
 
-  // Cache lookup
-  const cacheKey = `${reference}|${hypothesis}`;
+  // Cache lookup: key is built from the NORMALIZED word arrays (post-lowercase/trim).
+  // Using raw input strings as the key meant semantically identical pairs like
+  // "Hello World" vs "hello world" produced two DP computations instead of one.
+  const cacheKey = `${refWords.join(' ')}|${hypWords.join(' ')}`;
   if (werCache.has(cacheKey)) {
     return werCache.get(cacheKey)!;
   }

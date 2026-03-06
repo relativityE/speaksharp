@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { Square, Play } from 'lucide-react';
+import { Play } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 
 interface MobileActionBarProps {
@@ -21,7 +21,7 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
     onStartStop,
 }) => {
     return (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/90 backdrop-blur-lg border-t border-white/10 md:hidden z-50 flex justify-center shadow-lg safe-area-bottom">
+        <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/90 backdrop-blur-lg md:hidden z-50 flex justify-center shadow-[0_-10px_30px_rgba(0,0,0,0.5)] safe-area-bottom before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-primary/50 before:to-transparent">
             <Button
                 onClick={onStartStop}
                 size="lg"
@@ -37,7 +37,11 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
                     </>
                 ) : isListening ? (
                     <>
-                        <Square className="w-5 h-5 mr-2" /> Stop Recording
+                        <span className="relative flex h-3 w-3 mr-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                        </span>
+                        Stop Recording
                     </>
                 ) : (
                     <>

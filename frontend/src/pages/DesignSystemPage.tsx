@@ -18,7 +18,7 @@ export function DesignSystemPage() {
             <hr className="my-8 opacity-20" />
 
             {/* Typography Section */}
-            <section className="space-y-6">
+            <section aria-label="Brand Colors" className="space-y-6">
                 <h2 className="text-2xl font-semibold">Typography</h2>
                 <Card>
                     <CardContent className="space-y-4 pt-6">
@@ -53,7 +53,7 @@ export function DesignSystemPage() {
             </section>
 
             {/* Buttons Section */}
-            <section className="space-y-6">
+            <section aria-label="Typography" className="space-y-6">
                 <h2 className="text-2xl font-semibold">Buttons</h2>
                 <Card>
                     <CardHeader>
@@ -83,7 +83,7 @@ export function DesignSystemPage() {
             </section>
 
             {/* Inputs Section */}
-            <section className="space-y-6">
+            <section aria-label="Interactive Components" className="space-y-6">
                 <h2 className="text-2xl font-semibold">Inputs</h2>
                 <div className="grid md:grid-cols-2 gap-6">
                     <Card>
@@ -106,7 +106,7 @@ export function DesignSystemPage() {
             </section>
 
             {/* Badges Section */}
-            <section className="space-y-6">
+            <section aria-label="Card Components" className="space-y-6">
                 <h2 className="text-2xl font-semibold">Badges</h2>
                 <Card>
                     <CardContent className="pt-6 flex gap-4">
@@ -119,7 +119,7 @@ export function DesignSystemPage() {
             </section>
 
             {/* Cards Section */}
-            <section className="space-y-6">
+            <section aria-label="Feedback and States" className="space-y-6">
                 <h2 className="text-2xl font-semibold">Cards</h2>
                 <div className="grid md:grid-cols-3 gap-6">
                     <Card>
@@ -142,7 +142,7 @@ export function DesignSystemPage() {
             </section>
 
             {/* Skeleton Section */}
-            <section className="space-y-6">
+            <section aria-label="Layout Grid" className="space-y-6">
                 <h2 className="text-2xl font-semibold">Loading States</h2>
                 <Card>
                     <CardContent className="pt-6 space-y-4">

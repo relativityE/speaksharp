@@ -1,94 +1,96 @@
-import { defineConfig, devices } from '@playwright/test';
-import { loadEnv, baseConfig, urls } from './playwright.base.config';
-
 /**
- * Live E2E Test Configuration
- * 
- * Purpose: Run E2E tests against REAL services (Supabase, Stripe, AssemblyAI)
- * Usage: pnpm test:e2e:live
+ * @file playwright.live.config.ts
+ * @description Playwright configuration for LIVE integration tests.
+ *
+ * PURPOSE:
+ *   Separate from playwright.config.ts (mock E2E) to avoid test isolation leakage.
+ *   Live tests require real WASM model loading and hardware-level audio injection.
+ *   These are expensive and gated — run on schedule or via PR label in CI.
+ *
+ * AUDIO INJECTION:
+ *   Chromium is launched with:
+ *     --use-fake-device-for-media-stream   → bypasses real mic; uses fake capture device
+ *     --use-file-for-fake-audio-capture    → feeds a real .wav file into that fake device
+ *
+ * CROSS-ORIGIN ISOLATION:
+ *   WASM with SharedArrayBuffer requires COOP/COEP headers.
+ *   The dev server must serve these headers, or tests will self-skip via:
+ *     if (!window.crossOriginIsolated) test.skip()
+ *
+ * USAGE:
+ *   pnpm exec playwright test --config=playwright.live.config.ts
+ *   or via CI: gh workflow run with label 'test:live'
  */
+import { defineConfig } from '@playwright/test';
+import { loadEnv, getChromeWithMic, baseConfig } from './playwright.base.config';
 
-// Load development environment for real Supabase keys
-loadEnv('development');
+loadEnv('test');
 
-const BASE_URL = urls.dev;
-
-// CRITICAL: Set env vars for the TEST RUNNER process (not just the webServer)
-process.env.EDGE_FN_URL = 'https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-user';
-process.env.AGENT_SECRET = process.env.AGENT_SECRET || 'mock_agent_secret';
-process.env.E2E_FREE_EMAIL = process.env.E2E_FREE_EMAIL || 'test-user@example.com';
-process.env.E2E_FREE_PASSWORD = process.env.E2E_FREE_PASSWORD || 'password123';
-process.env.E2E_PRO_EMAIL = process.env.E2E_PRO_EMAIL || 'test-user@example.com';
-process.env.E2E_PRO_PASSWORD = process.env.E2E_PRO_PASSWORD || 'password123';
-process.env.REAL_WHISPER_TEST = 'true';
-process.env.VITE_USE_LIVE_DB = 'true';
-// Sync VISUAL_TEST vars with E2E_PRO to use consistent, pre-provisioned users
-process.env.VISUAL_TEST_EMAIL = process.env.E2E_PRO_EMAIL;
-process.env.VISUAL_TEST_PASSWORD = process.env.E2E_PRO_PASSWORD;
+// 10sec.wav: long enough to outlast WASM engine init (~20s) when combined with the
+// data-state='recording' engine-ready gate in private-stt.live.spec.ts.
+const LIVE_AUDIO_FIXTURE = 'tests/fixtures/10sec.wav';
 
 export default defineConfig({
     ...baseConfig,
-    testDir: './tests/live',
-    testMatch: '**/*.live.spec.ts',
-    // Clear the ignore list so these aren't skipped
-    testIgnore: [],
-    outputDir: './test-results/playwright-live',
-    timeout: 60_000, // Longer timeout for live services
-    reporter: [['list'], ['html', { outputFolder: 'test-results/live-report' }]],
+
+    // Only pick up .live.spec.ts files — no crossover with mock E2E suite
+    testDir: './tests',
+    testMatch: /.*\.live\.spec\.ts/,
+
+    outputDir: './test-results/live',
+
+    // Live tests involve real WASM model loading (can be slow on first cold run)
+    timeout: 90_000,
+    expect: { timeout: 20_000 },
+
+    // No retries — flaky live tests should be investigated, not re-run silently
+    retries: 0,
+
+    reporter: process.env.CI
+        ? [['blob', { outputDir: 'blob-report/live' }], ['github']]
+        : [['html', { outputFile: 'test-results/live/report.html' }], ['list']],
+
     use: {
         ...baseConfig.use,
-        baseURL: BASE_URL,
-        headless: false,
-        video: 'on-first-retry',
+        baseURL: 'http://localhost:5173',
+
+        // Trace always on for live tests — failures are hard to reproduce
+        trace: 'on',
+        screenshot: 'on',
+        video: 'on',
     },
-    webServer: {
-        command: 'pnpm dev --force',
-        url: BASE_URL,
-        reuseExistingServer: true,
-        timeout: 120 * 1000,
-        env: {
-            DOTENV_CONFIG_PATH: '.env.development',
-            // Ensure we use the live DB flags
-            VITE_USE_LIVE_DB: 'true',
-            REAL_WHISPER_TEST: 'true',
-            // CRITICAL: Propagate to Vite so TestFlags.USE_REAL_TRANSCRIPTION is true at build time
-            VITE_TEST_USE_REAL_TRANSCRIPTION: 'true',
-            // Credentials & Secrets for Live Tests
-            EDGE_FN_URL: 'https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-user',
-            AGENT_SECRET: process.env.AGENT_SECRET || 'mock_agent_secret',
-            E2E_FREE_EMAIL: process.env.E2E_FREE_EMAIL || 'test-user@example.com',
-            E2E_FREE_PASSWORD: process.env.E2E_FREE_PASSWORD || 'password123',
-            E2E_PRO_EMAIL: process.env.E2E_PRO_EMAIL || 'test-user@example.com',
-            E2E_PRO_PASSWORD: process.env.E2E_PRO_PASSWORD || 'password123',
-            // Sync with E2E_PRO for consistency
-            VISUAL_TEST_EMAIL: process.env.E2E_PRO_EMAIL || 'test-user@example.com',
-            VISUAL_TEST_PASSWORD: process.env.E2E_PRO_PASSWORD || 'password123',
-            VISUAL_TEST_USER_TYPE: 'pro',
-            VISUAL_TEST_BASE_URL: BASE_URL,
-        },
-    },
+
     projects: [
         {
-            name: 'chromium',
-            use: { ...devices['Desktop Chrome'] },
-        },
-        {
-            name: 'live-performance',
+            name: 'live-stt-chromium',
             use: {
-                ...devices['Desktop Chrome'],
-                headless: false,
+                ...getChromeWithMic(),
                 launchOptions: {
                     args: [
+                        // Audio injection: feed .wav file into the fake capture device
                         '--use-fake-device-for-media-stream',
-                        '--use-fake-ui-for-media-stream',
-                        '--no-sandbox',
-                        '--enable-unsafe-webgpu',
-                        '--ignore-gpu-blocklist',
-                        '--use-angle=metal',
+                        `--use-file-for-fake-audio-capture=${LIVE_AUDIO_FIXTURE}`,
+
+                        // Disable automation detection (can block getUserMedia)
+                        '--disable-blink-features=AutomationControlled',
+
+                        // Cache isolation — prevent stale WASM model cache from prior runs
+                        '--disable-cache',
+                        '--disable-application-cache',
+                        '--disk-cache-size=0',
+                        '--media-cache-size=0',
                     ],
                 },
-                permissions: ['microphone'],
             },
         },
     ],
+
+    webServer: {
+        command: 'pnpm run dev --port 5173',
+        port: 5173,
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+        stdout: 'pipe',
+        stderr: 'pipe',
+    },
 });

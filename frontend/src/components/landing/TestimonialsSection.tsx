@@ -17,7 +17,7 @@ const TestimonialCard: React.FC = () => (
 
 export const TestimonialsSection = () => {
   return (
-    <section className="w-full py-12 md:py-16">
+    <section aria-label="User Testimonials" className="w-full py-12 md:py-16">
       <div className="container px-4 md:px-6 max-w-6xl mx-auto">
         <div className="grid sm:grid-cols-2 gap-6">
           <TestimonialCard />

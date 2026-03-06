@@ -26,7 +26,7 @@ const itemVariants = {
 
 export const BenefitsSection = () => {
     return (
-        <section className="w-full py-24 md:py-32">
+        <section aria-label="Platform Benefits" className="w-full py-24 md:py-32">
             <div className="container px-4 md:px-6 max-w-5xl mx-auto text-center">
                 {/* Heading */}
                 <motion.div
@@ -36,13 +36,13 @@ export const BenefitsSection = () => {
                     viewport={{ once: true }}
                     transition={{ duration: 0.6 }}
                 >
-                    <h2 className="text-3xl sm:text-5xl font-bold text-white leading-tight tracking-tight">
+                    <h2 className="text-3xl sm:text-5xl font-bold text-foreground leading-tight tracking-tight">
                         Transform Your{' '}
-                        <span className="bg-gradient-to-r from-[#10B981] via-[#0EA5E9] to-[#EEBD2B] bg-clip-text text-transparent">
+                        <span className="text-gradient-brand">
                             Communication
                         </span>
                     </h2>
-                    <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+                    <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
                         Join thousands of professionals who have improved their speaking confidence.
                     </p>
                 </motion.div>
@@ -63,10 +63,10 @@ export const BenefitsSection = () => {
                         <motion.div
                             key={i}
                             variants={itemVariants}
-                            className="flex items-center gap-3 px-6 py-4 rounded-xl bg-[#1E293B]/60 border border-white/5 text-left"
+                            className="flex items-center gap-3 px-6 py-4 rounded-xl bg-card/60 border border-white/5 text-left"
                         >
-                            <CheckCircle2 className="size-5 text-[#10B981] flex-shrink-0" />
-                            <span className="text-sm font-medium text-slate-300">{benefit}</span>
+                            <CheckCircle2 className="size-5 text-success flex-shrink-0" />
+                            <span className="text-sm font-medium text-foreground/80">{benefit}</span>
                         </motion.div>
                     ))}
                 </motion.div>
@@ -80,7 +80,7 @@ export const BenefitsSection = () => {
                 >
                     <Button
                         size="lg"
-                        className="bg-[#EEBD2B] text-slate-950 font-bold px-8 h-12 rounded-full hover:bg-[#EEBD2B]/90 transition-all text-base"
+                        className="bg-secondary text-secondary-foreground font-bold px-8 h-12 rounded-full hover:bg-secondary/90 transition-all text-base"
                         asChild
                     >
                         <Link to="/auth/signup">Get Started Free</Link>

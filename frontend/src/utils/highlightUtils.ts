@@ -43,7 +43,7 @@ export const ERROR_TAG_REGEX = /\[(inaudible|blank_audio|music|applause|laughter
 
 
 // Cache for compiled regexes to avoid repeated compilation in render loops
-const REGEX_CACHE = new Map<string, { regex: RegExp, fillers: string[] }>();
+const REGEX_CACHE = new Map<string, { regex: RegExp, fillers: string[], fillerMap: Map<string, string> }>();
 const MAX_CACHE_SIZE = 50;
 
 /**
@@ -58,10 +58,12 @@ export const parseTranscriptForHighlighting = (text: string, userWords: string[]
 
     let tokenRegex: RegExp;
     let allFillers: string[];
+    let fillerMap: Map<string, string>;
 
     if (cached) {
         tokenRegex = cached.regex;
         allFillers = cached.fillers;
+        fillerMap = cached.fillerMap;
     } else {
         // Combine standard filler keys and user words
         const standardFillers = Object.values(FILLER_WORD_KEYS);
@@ -80,12 +82,16 @@ export const parseTranscriptForHighlighting = (text: string, userWords: string[]
         // Regex: (ErrorTags)|(Fillers) - case insensitive
         tokenRegex = new RegExp(`(${errorPattern})|\\b(${fillerPattern})\\b`, 'gi');
 
+        // Build a Map<lowercase, original> once so per-token classification is O(1)
+        // instead of O(N) allFillers.find() which scans every filler on every token.
+        fillerMap = new Map(allFillers.map(f => [f.toLowerCase(), f]));
+
         // Maintain cache size
         if (REGEX_CACHE.size >= MAX_CACHE_SIZE) {
             const firstKey = REGEX_CACHE.keys().next().value;
             if (firstKey !== undefined) REGEX_CACHE.delete(firstKey);
         }
-        REGEX_CACHE.set(cacheKey, { regex: tokenRegex, fillers: allFillers });
+        REGEX_CACHE.set(cacheKey, { regex: tokenRegex, fillers: allFillers, fillerMap });
     }
 
     // Split the text. Capturing groups will be included in the array.
@@ -95,8 +101,8 @@ export const parseTranscriptForHighlighting = (text: string, userWords: string[]
     const initialTokens: HighlightToken[] = parts.map((part, index) => {
         const cleanPart = part.toLowerCase().trim();
 
-        // Check exact match with fillers
-        const matchedFiller = allFillers.find(f => f.toLowerCase() === cleanPart);
+        // O(1) lookup via pre-built Map instead of O(N) allFillers.find() per token.
+        const matchedFiller = fillerMap.get(cleanPart);
         if (matchedFiller) {
             return {
                 transcript: part,

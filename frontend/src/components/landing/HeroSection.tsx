@@ -29,7 +29,7 @@ const itemVariants = {
 
 export const HeroSection = () => {
   return (
-    <section className="relative w-full pt-24 md:pt-32 pb-16 md:pb-24 overflow-hidden">
+    <section aria-label="Hero" className="relative w-full pt-24 md:pt-32 pb-16 md:pb-24 overflow-hidden">
       {/* Background gradient now handled by page wrapper in Index.tsx */}
       <div className="container relative z-10 px-4 md:px-6 max-w-7xl mx-auto">
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-start">
@@ -66,28 +66,28 @@ export const HeroSection = () => {
             {/* Buttons + Trust badges share the same max-width so edges align */}
             <div className="max-w-md w-full pt-6 space-y-4">
               <motion.div variants={itemVariants} className="flex gap-4">
-                <Button variant="secondary" size="lg" className="flex-1 bg-secondary text-secondary-foreground font-bold h-14 rounded-xl glow-secondary hover:bg-secondary/90 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 text-base" asChild>
+                <Button variant="secondary" size="lg" className="flex-1 bg-primary text-primary-foreground font-bold h-14 rounded-xl shadow-[0_4px_14px_0_rgba(251,191,36,0.39)] hover:shadow-[0_6px_20px_rgba(251,191,36,0.23)] hover:bg-primary/90 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 text-base border border-primary/50" asChild>
                   <Link to="/auth/signup" data-testid="start-free-session-button" className="flex items-center justify-center gap-2">
                     Start Speaking
                     <ArrowRight className="size-5" />
                   </Link>
                 </Button>
-                <Button size="lg" className="flex-1 glass border-white/10 text-foreground font-bold h-14 rounded-xl hover:bg-white/10 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 text-base" asChild>
+                <Button size="lg" className="flex-1 bg-white/5 border border-white/20 text-foreground font-bold h-14 rounded-xl shadow-[0_4px_14px_0_rgba(0,0,0,0.1)] hover:bg-white/10 hover:border-white/30 hover:shadow-[0_6px_20px_rgba(255,255,255,0.05)] hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 text-base backdrop-blur-md" asChild>
                   <Link to="/analytics">View Analytics</Link>
                 </Button>
               </motion.div>
 
-              <motion.div variants={itemVariants} className="flex items-center justify-between text-sm text-muted-foreground">
+              <motion.div variants={itemVariants} className="flex items-center justify-between text-sm text-foreground/80 font-medium">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-accent" />
+                  <CheckCircle2 className="size-4 text-primary" />
                   <span>Free to start</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-accent" />
+                  <CheckCircle2 className="size-4 text-primary" />
                   <span>No installation</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-accent" />
+                  <CheckCircle2 className="size-4 text-primary" />
                   <span>Instant feedback</span>
                 </div>
               </motion.div>

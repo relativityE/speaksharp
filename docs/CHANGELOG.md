@@ -5,6 +5,21 @@
 
 All notable changes to this project will be documented in this file.
 
+### [Unreleased] — STT & CI Stability Hardening (2026-03-05)
+
+- **STT Behavioral Contract Fix** — Refactored `tests/live/stt-integration.live.spec.ts` to use `data-action` + `aria-label` assertions (Pattern 10) instead of brittle text matching. Resolves "Green Illusion" where CI passed while live hardware tests failed after icon-only UI redesign.
+- **Isolated Test Governance** — Created `playwright.live.config.ts` to separate hardware-dependent live tests (WASM, fake audio injection) from mock E2E suite. Prevents WASM model downloads on every PR.
+- **Metrics Pipeline Hardening** — `scripts/run-metrics.sh` now uses file existence guards and typed JSON `null` fallbacks. Prevents silent CI crashes when shard reports are missing.
+- **Canonical CI Merge** — `scripts/test-audit.sh` replaced fragile JSONL blob parsing with standard `playwright merge-reports` after blob flattening. Local simulation now matches `ci.yml` exactly.
+- **Gated Live-STT CI Job** — `.github/workflows/ci.yml` updated with a nightly/label-gated `live-stt` job and correct shard artifact merging.
+- **Lovable Visual Polish & Accessibility (Phase 2 UI)**:
+  - Addressed missing section `aria-labels` across Landing and Design System pages.
+  - Added Framer Motion `<PageTransition>` component wrapping `react-router-dom` to provide seamless page entry/exit animations.
+  - Added Open Graph `<meta>` tags and a dedicated `og-image.webp` to `index.html` for rich social media sharing.
+  - Resolved generic visual hierarchy issues on feature cards, mobile nav, and pro badges by injecting brand-aligned gradients and interactive hover states.
+- **Open Issue** — Exact-match golden transcript verification (`toHaveText`) times out at 120s with `"Listening..."`. Suspected race: Playwright fake audio stream starts at `T=0`, WASM engine takes ~20s to initialize. See `expert_second_opinion.md` in brain for full analysis.
+- **Files:** `tests/live/stt-integration.live.spec.ts`, `playwright.live.config.ts`, `scripts/run-metrics.sh`, `scripts/test-audit.sh`, `.github/workflows/ci.yml`, `App.tsx`, `PageTransition.tsx`, `index.html`
+
 ### [3.5.4] - 2026-03-02
 
 - **Testing Taxonomy Overhaul (2026-03-02):**
@@ -770,7 +785,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Bundle Size Reduction:** Initial index bundle reduced from 469KB to 56KB (-88%) by extracting recharts, jspdf, html2canvas, Radix, Sentry, Stripe, TanStack Query, PostHog, and date-fns into separate chunks.
 - **Improved Caching:** Vendor chunks change less frequently than app code, enabling better browser caching for returning users.
 
-### Fixed (2025-12-19) - Phase 6: Reliability & Infrastructure Hardening
+### Fixed (2025-12-19) - Reliability & Infrastructure Hardening
 - **Secure Secret Rotation**: Implemented `GH_PAT` powered rotation for the `SOAK_TEST_PASSWORD` secret in `setup-test-users.yml`.
 - **Database Scalability**: Optimized `setup-test-users.mjs` to fetch profiles using the `.in('id', [...])` filter, eliminating full-table scans during registry synchronization.
 - **Strategic Soak Logging**: Implemented "first and last" logging patterns for session loops and consolidated authentication summaries to reduce CI log noise.

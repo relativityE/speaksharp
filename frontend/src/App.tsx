@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect } from 'react';
-import { Navigate, Routes, Route } from 'react-router-dom';
+import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import { useCheckoutNotifications } from '@/hooks/useCheckoutNotifications';
 import Navigation from './components/Navigation';
@@ -8,6 +8,8 @@ import { ProfileGuard } from './components/ProfileGuard';
 import { Loader2 } from 'lucide-react';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { TranscriptionProvider } from './providers/TranscriptionProvider';
+import { AnimatePresence } from 'framer-motion';
+import { PageTransition } from './components/ui/PageTransition';
 
 // Lazy load pages for better performance
 const Index = React.lazy(() => import('./pages/Index'));
@@ -24,6 +26,7 @@ const PageLoader = () => (
 );
 
 const App: React.FC = () => {
+  const location = useLocation();
 
 
   // Deterministically hide loading spinner once React component mounts
@@ -52,28 +55,30 @@ const App: React.FC = () => {
           <main data-testid="app-main" className="relative z-10">
             <ErrorBoundary>
               <Suspense fallback={<PageLoader />}>
-                <Routes>
-                  <Route path="/" element={<Index />} />
-                  <Route path="/design" element={<DesignSystemPage />} />
-                  <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
-                  <Route path="/auth/signin" element={<SignInPage />} />
-                  <Route path="/auth/signup" element={<AuthPage />} />
-                  <Route path="/session" element={
-                    <ProtectedRoute>
-                      <SessionPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="/analytics" element={
-                    <ProtectedRoute>
-                      <AnalyticsPage />
-                    </ProtectedRoute>
-                  } />
-                  <Route path="/analytics/:sessionId" element={
-                    <ProtectedRoute>
-                      <AnalyticsPage />
-                    </ProtectedRoute>
-                  } />
-                </Routes>
+                <AnimatePresence mode="wait">
+                  <Routes location={location} key={location.pathname}>
+                    <Route path="/" element={<PageTransition><Index /></PageTransition>} />
+                    <Route path="/design" element={<PageTransition><DesignSystemPage /></PageTransition>} />
+                    <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
+                    <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />
+                    <Route path="/auth/signup" element={<PageTransition><AuthPage /></PageTransition>} />
+                    <Route path="/session" element={
+                      <ProtectedRoute>
+                        <PageTransition><SessionPage /></PageTransition>
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/analytics" element={
+                      <ProtectedRoute>
+                        <PageTransition><AnalyticsPage /></PageTransition>
+                      </ProtectedRoute>
+                    } />
+                    <Route path="/analytics/:sessionId" element={
+                      <ProtectedRoute>
+                        <PageTransition><AnalyticsPage /></PageTransition>
+                      </ProtectedRoute>
+                    } />
+                  </Routes>
+                </AnimatePresence>
               </Suspense>
             </ErrorBoundary>
           </main>

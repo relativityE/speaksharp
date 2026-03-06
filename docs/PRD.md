@@ -276,7 +276,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Mon, 02 Mar 2026 15:43:14 GMT
+**Last Updated:** Thu, 05 Mar 2026 23:03:22 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -292,14 +292,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 697 (556 unit + 141 E2E) |
+| Total tests             | 573 (556 unit + 17 E2E) |
 | Unit tests              | 556   |
-| E2E tests (Playwright)  | 141  |
-| Passing tests           | 625 (556 unit + 69 E2E)   |
+| E2E tests (Playwright)  | 17  |
+| Passing tests           | 573 (556 unit + 17 E2E)   |
 | Failing tests           | 0   |
-| Disabled/skipped tests  | 72 (E2E only)   |
+| Disabled/skipped tests  | 0 (E2E only)   |
 | Passing unit tests      | 556/556 (100.0%)   |
-| Passing E2E tests       | 69/141 (48.9%)   |
+| Passing E2E tests       | 17/17 (100.0%)   |
 | Total runtime           | See CI logs   |
 
 ---
@@ -319,11 +319,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 7.0M   |
-| Total Project Size  | 1.4G   |
-| Initial Chunk Size  | 916K   |
-| Code Bloat Index    | 12.87%   |
-| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+| Total Source Size   | 6.6M   |
+| Total Project Size  | 2.3G   |
+| Initial Chunk Size  | 1.0M   |
+| Code Bloat Index    | 15.11%   |
+| Lighthouse Scores   | P: 96, A: 100, BP: 100, SEO: 91 |
 
 ---
 <!-- SQM:END -->
@@ -468,7 +468,6 @@ This section provides high-level insights into the SpeakSharp project from multi
 
 > **🚨 50% Margin of Safety Governance:** The session limits listed below (60m Free / 120m Pro) are currently *hypothetical target bounds*. Their final values will be strictly governed by the results of the "Extreme Duration Soak Test." Whatever absolute maximum duration the Browser RAM, Gemini Context Window, and PDF Generator can technically survive, we will apply a **50% Margin of Safety** to determine our actual marketed limits to ensure 100% reliability for paying users.
 
-<<<<<<<
 *   **Free User (Authenticated):**
     *   **Limit:** **1 Hour / Day** (Capped at Max 25 Hours / Month). *Max 60-Minute soft limit per session, plus a 5-minute graceful wrap-up warning.*
     *   **Engine:** Restricted strictly to **Native Browser STT** ($0.00 cost to SpeakSharp).

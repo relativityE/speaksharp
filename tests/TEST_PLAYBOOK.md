@@ -22,6 +22,16 @@ Most tests (except for basic Unit and E2E Mock) require real backend credentials
 ## 🔐 Security & Secret Auditing
 
 1.  **Zero-Persistence Policy**: Never commit `.env` or `.env.development` files.
+
+    **Environment File Contract** (expert-approved):
+
+    | File | Purpose | Committed? | Contains |
+    | :--- | :--- | :---: | :--- |
+    | `.env.test` | Local dev, agent runs, CI unit/E2E mock tests | ✅ Yes | Mock/test-project values only — never production data |
+    | `.env.local` | Real local dev credentials | ❌ No (gitignored) | Your real Supabase/Stripe creds |
+    | `.env.production` | Production deployment | ❌ No | Injected by Vercel/platform |
+    | `.env.development` | **DELETED — do not recreate** | ❌ Never | Was incorrectly used; removed |
+
 2.  **Dispatcher Security**: Remote tasks (`ci:dispatch:soak`) pass secrets directly to the GitHub runner memory, bypassing local file systems.
 3.  **Auditor Verification**: The `gh run view --log` command allows you to verify that secrets were injected (look for masked `***` values) without ever exposing them to your terminal.
 
