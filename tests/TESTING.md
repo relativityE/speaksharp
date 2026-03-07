@@ -17,4 +17,5 @@ Please refer to:
 ## Related Guides
 
 -   **[E2E Guide](./README.md)**: specific details on Playwright infrastructure.
+-   **[Test Playbook](./TEST_PLAYBOOK.md)**: Execution details for CI, Soak, and Agent-Safe (`test:agent`) pipelines.
 -   **[Troubleshooting](./TROUBLESHOOTING.md)**: common issues and resolutions.

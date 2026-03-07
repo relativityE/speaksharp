@@ -26,6 +26,7 @@ Do not proceed until this script completes successfully. If it fails, follow the
 ## 🛡️ Project Manifesto: Core Principles
 
 - **🧠 First Principles Mandatory**: Solve every task from first principles by stripping away assumptions and rebuilding from the project's most basic, undeniable truths. We operate on what we **know** is true, not what we **think** is true.
+- **🔪 Document With a Scalpel, Not an Axe**: Documentation updates must be minimal, targeted, and directly tied to the code change that triggered them. Agents must modify only the specific section affected by the change and must not rewrite or restructure unrelated documentation.
 ### 🧪 Testing & Quality
 - **📖 Testing Strategy (MANDATORY)**: All agents MUST read **[tests/TESTING.md](tests/TESTING.md)** and **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#3-testing-strategy--governance)** before writing any tests.
 - **Integrity over Implementation**: Tests must validate requirements and design intent, not structural implementation. Every test must answer one question: *"Does the product do what the user paid for?"*
@@ -46,6 +47,7 @@ When adding a test, choose the **highest fidelity** option possible:
 3. **TEST REGISTRY** (Edge Cases): Simulating specific failures (Network error, quota exceeded).
 4. **VI.MOCK** (Unit Tests Only | Lowest Fidelity): Isolated pure functions. **NEVER** use `vi.mock` for core domain logic (Stores, Providers, Hooks) in feature tests.
 - **Real Stores vs Mock Stores**: Use **Real Zustand Stores** + Reset. Anti-Pattern: `vi.mock('../../stores/useSessionStore')`.
+- **Test Impact Analysis**: SpeakSharp optimizes test execution via a dependency map (`test-impact-map.json`). When modifying existing or adding new logic, make sure the affected directory mapped to its test suite in `test-impact-map.json`, so agents only run tests impacted by their changes via `pnpm test:agent`.
 
 ### 🚨 Error Classification
 Distinguish between "Business Events" and "System Failures":
@@ -282,6 +284,16 @@ The following patterns were added to address persistent "Zombie Build" and "Shad
 *   **Solution:** Standardized on the `FORCE_COLOR=1 ... | tee log.txt` pattern. This preserves ANSI color codes for human-readable artifacts while allowing the stdout stream to remain clean for machine-readable JSON outputs.
 *   **Result:** 100% stable CI reports with full diagnostic visibility on failure.
 
+#### Pattern 30: Modular Hardware Benchmarking [Benchmarking]
+*   **Problem:** Monolithic benchmark scripts are slow, brittle, and difficult to run selectively on resource-constrained hardware.
+*   **Solution:** Decompose hardware-dependent benchmarks into tiered, engine-specific spec files (`benchmark-cpu`, `benchmark-webgpu`, `benchmark-cloud`). Use custom auth logic in `setup.ts` to support Pro-user credential injection via `E2E_PRO_EMAIL`.
+*   **Result:** Faster iteration cycles and cleaner failure isolation for tiered STT features.
+
+#### Pattern 31: Unified Root-Env Resolution [Infrastructure]
+*   **Problem:** Vite sub-packages or test runners failing to load root-level `.env` files because they resolve relative to the script location rather than the workspace root.
+*   **Solution:** Explicitly set `envDir: '../../'` (or equivalent workspace root) in `vite.config.mjs` to ensure uniform secret loading across all execution contexts.
+*   **Result:** Predictable environment configuration for benchmarks, scripts, and the frontend.
+
 
 ### 🚀 Development & Pipeline
 - **Cross-Env Persistence**: Explicitly propagate env vars to subprocesses in CI.
@@ -436,6 +448,8 @@ ___
 ## 🔍 Task Workflow
 
 1. **Contextual Review** – Read `/docs` and `README.md` before acting.
+    - **Handling Secrets**: Critical credentials (like `ASSEMBLYAI_API_KEY`) are managed via **GitHub Secrets**, not `.env` files. Run `gh secret list` to verify available secrets.
+    - **Cloud Execution**: Consult `tests/TEST_PLAYBOOK.md` to understand how tests are dispatched to the GitHub Cloud via YAML scripts (e.g., `ci:dispatch:soak`).
 2. **Stabilize Environment** – Run `./scripts/env-stabilizer.sh` only if instability signs appear.
 3. **Grounding** – Review current workflows, scripts, and audit runners.
 4. **Codebase Deep Dive** – Inspect actual code, not assumptions.

@@ -100,7 +100,7 @@ export const SessionPage: React.FC = () => {
     };
 
     return (
-        <main aria-label="Practice Session" className="min-h-screen bg-gradient-subtle pt-20">
+        <main aria-label="Practice Session" data-testid="session-page" className="min-h-screen bg-gradient-subtle pt-20">
             {/* Page Header */}
             <div className="text-center py-4 px-6 max-w-7xl mx-auto">
                 <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>

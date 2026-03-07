@@ -94,7 +94,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Screen Reader Accessibility** | 2 | Live transcript uses ARIA live regions so screen readers announce new text automatically. | ✅ Implemented | ✅ Yes |
 | **Usage Limit Pre-Check** | 2 | Checks remaining usage BEFORE session starts. Shows upgrade prompt if exceeded. | ✅ Implemented | ✅ Yes |
 | **PDF Export** | 1 | Allows users to download a PDF report of their session (FileSaver.js). | ✅ Implemented | ✅ Yes |
-| **STT Accuracy Comparison** | 1 | Rolling average comparison of STT engine accuracy against **Isomorphic Golden Transcripts**. Validates WER thresholds (<10% Private, <8% Cloud). | ✅ Implemented | ✅ Yes |
+| **STT Accuracy Vs Benchmark** | 1 | Real-time comparison of a user's transcription accuracy against the theoretical ceiling of their active STT engine (Native, Cloud, Private). Uses **Path A: Client-Side Dynamic Comparison** against static engine ceilings established by Harvard Sentences benchmark runs (`STT_BENCHMARKS.json`). | ✅ Implemented | ✅ Yes |
 | **Top Filler Words**| 1 | Aggregates and ranks all detected filler words across sessions. | ✅ Implemented | ✅ Yes |
 | **Top Filler Words**| 1 | Aggregates and ranks all detected filler words across sessions. | ✅ Implemented | ✅ Yes |
 | **Weekly Activity Chart** | 2 | Visual chart showing practice frequency over the past week. | ✅ Implemented | ✅ Yes |
@@ -176,6 +176,7 @@ To eliminate non-deterministic failures and "flakiness," the system adheres to a
     *   **WER Regression**: Automated build-failure floors for STT accuracy (Private <10%, Cloud <8%).
     *   **FSM Adversarial Safety**: Explicit stress testing to prevent "Mic Lock-ups" during rapid concurrent interactions.
 *   **Unit & Integration Tests (Vitest):** These form the foundation of our testing pyramid. **Target: ≥55% lean line coverage with high design-intent integrity.**
+*   **Agent-Safe Interface (`test:agent`):** A rigid, isolated local-only execution loop designed explicitly for AI coding agents to autonomously run and parse the unit and mock E2E suite output cleanly, without external dependencies breaking the loop.
 *   **End-to-End Tests (Playwright):** E2E tests validate complete user flows from start to finish. To combat the flakiness often associated with UI-driven tests, we have adopted a critical strategic decision:
     *   **Programmatic Login Only:** All E2E tests that require an authenticated state **must** use the `programmaticLogin` helper. This method directly injects a session into `localStorage`, bypassing the UI for sign-up and login. This approach is significantly faster and more reliable than attempting to simulate user input in the auth form.
     *   **Secure User Provisioning:** We use a dedicated Supabase Edge Function (`create-user`) authorized by CI secrets (`SUPABASE_SERVICE_ROLE_KEY`) to provision test data. This avoids the fragility of UI registration automation and guarantees a clean slate for every test.
@@ -213,6 +214,8 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 - **✅ REFACTORED - God File Decomposition (2026-02-16):** Successfully split monolithic `useSpeechRecognition_prod.ts` and `TranscriptionProvider.tsx` into atomic, testable hooks. Resolved Fast Refresh compliance issues.
 - **ℹ️ Mock Timeout Bypass:** The `TranscriptionService` now explicitly bypasses the 2s Optimistic Entry timeout when a mock is detected. This ensures deterministic behavior in CI but introduces a tight coupling between the service and test infrastructure. (Tracked as tech debt).
 - **🚨 Known Bug - Global Usage Limit Constraint:** The PRD specifies separate limits: Free gets 1h/day (Max 25h/mo) and Pro gets 2h/day (Max 50h/mo). However, the current database implementation (`update_user_usage` RPC) brutally enforces a strict **1 Hour / Month limit across ALL engines**, completely blocking the intended experience. This is the highest priority financial tech debt.
+- **🔴 UI Redesign Status (LiveRecordingCard):** The vertical centered layout (Mic above Timer) is implemented for standard viewports. Left-aligned stacking for SECURE badge and STT selector is conclude; however, mobile responsiveness for this specific alignment remains a future optimization.
+- **🔴 STT Integration Test Timeouts:** Playwright tests for Private (Transformers.js) and Native STT modes frequently exceed action timeouts in resource-constrained environments due to WASM compilation overhead. Foundational status is verified via WER traces, but full CI passes require timeout increases.
 
 ### Tech Debt (Database & Tier Tracking)
 
@@ -361,10 +364,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 ## 9. Future Enhancements / Opportunities
 
-### [COMPLETED] Feature: Rolling Accuracy Comparison of STT Engines (Native, Cloud, Private)
+### [COMPLETED] Feature: STT Accuracy Vs Benchmark (Path A)
 **Goal:** Improve transparency and user trust.
 
-Successfully implemented via **Isomorphic Fixtures**. The system now computes real-time accuracy and Word Error Rate (WER) against ground-truth transcripts, enforcing quality floors for every engine.
+Successfully implemented via **Client-Side Dynamic Comparison**. The frontend dynamically calculates the user's Word Error Rate (WER) and plots their accuracy against the static theoretical memory-ceiling of their active machine engine (stored in `docs/STT_BENCHMARKS.json`). These static benchmarks are pre-calculated using 16kHz audio fixtures of phonetically balanced Harvard Sentences running through `tsx` Node orchestrators.
 
 ### [COMPLETED] Feature: Dynamic Software Quality Metrics Reporting
 

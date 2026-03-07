@@ -40,7 +40,7 @@ export default defineConfig({
     outputDir: './test-results/live',
 
     // Live tests involve real WASM model loading (can be slow on first cold run)
-    timeout: 90_000,
+    timeout: 300_000,
     expect: { timeout: 20_000 },
 
     // No retries — flaky live tests should be investigated, not re-run silently

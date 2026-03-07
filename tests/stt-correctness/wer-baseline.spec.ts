@@ -1,59 +1,85 @@
 import { describe, it, expect } from 'vitest';
-import { getSpeechCorpus } from './corpus';
-import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { SPEECH_FIXTURES, SpeechFixture } from '../fixtures/stt-isomorphic/speech-metadata.isomorphic';
+import { HARVARD_SENTENCES } from '../fixtures/stt-isomorphic/harvard-sentences';
+import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 
 /**
  * SpeakSharp: STT Correctness Regression Suite (Phase 1)
- * 🔬 Objective: Validate that all engines meet the "Behavioral Contract" for accuracy.
+ * 🔬 Objective: Validate that the Word Error Rate (WER) algorithm and 
+ *                baseline fixtures operate correctly before running live ML benchmarks.
  */
 
-const WER_THRESHOLDS = {
-    private: 0.10, // 90%+ Accuracy (Paid Feature)
-    cloud: 0.08,   // 92%+ Accuracy (Third Party)
-    native: 0.20,  // 80%+ Accuracy (Browser Native)
-} as const;
+describe('STT Correctness Baseline Suite', () => {
 
-describe('STT Correctness Regression Suite', () => {
-    // 1. Dynamic Corpus Check (Bulk Sanity)
-    const corpus = getSpeechCorpus();
-    it('should have a non-empty speech corpus', () => {
-        expect(corpus.length).toBeGreaterThanOrEqual(1);
+    describe('Harvard Sentences (Ground Truth Stability)', () => {
+        it('should have exactly 10 phonetically balanced sentences', () => {
+            expect(HARVARD_SENTENCES).toHaveLength(10);
+        });
     });
 
-    // 2. Isomorphic Contract Validation (Specific Behavioral Expectations)
-    const fixtures = Object.values(SPEECH_FIXTURES);
+    describe('Word Error Rate (WER) Logic', () => {
+        it('should return 0.0 for an exact word-for-word match', () => {
+            const ref = 'This is a perfect transcript';
+            const hyp = 'This is a perfect transcript';
+            expect(calculateWordErrorRate(ref, hyp)).toBe(0.0);
+        });
 
-    fixtures.forEach((speech: SpeechFixture) => {
-        describe(`Speech: ${speech.id}`, () => {
+        it('should be case-insensitive', () => {
+            expect(calculateWordErrorRate('hello', 'HELLO')).toBe(0.0);
+        });
 
-            it('should return a transcript within WER threshold (Private Mirror)', async () => {
-                // Evaluation logic proof
-                const mockTranscript = speech.expectedTranscript;
-                const wer = calculateWordErrorRate(speech.expectedTranscript, mockTranscript);
+        it('should calculate 1/N for a single substitution', () => {
+            const ref = 'the quick brown fox';
+            const hyp = 'the slow brown fox'; // 'quick' -> 'slow'
+            expect(calculateWordErrorRate(ref, hyp)).toBe(0.25);
+        });
 
-                // For isomorphic fixtures, we use the specific threshold if defined, else fallback
-                const threshold = speech.werThreshold || WER_THRESHOLDS.private;
-                expect(wer).toBeLessThanOrEqual(threshold);
-            });
+        it('should calculate 1/N for a single deletion', () => {
+            const ref = 'the quick brown fox';
+            const hyp = 'the brown fox'; // 'quick' deleted
+            expect(calculateWordErrorRate(ref, hyp)).toBe(0.25);
+        });
 
-            it('should detect required filler words', () => {
-                const fillers = Object.keys(speech.expectedFillers);
-                if (fillers.length === 0) return;
+        it('should calculate 1/N for a single insertion', () => {
+            const ref = 'the brown fox';
+            const hyp = 'the quick brown fox'; // 'quick' inserted
+            // WER = (S+D+I)/N_ref = (0+0+1)/3 = 0.333...
+            expect(calculateWordErrorRate(ref, hyp)).toBeCloseTo(0.333, 3);
+        });
 
-                const transcript = speech.expectedTranscript.toLowerCase();
-                fillers.forEach(filler => {
-                    expect(transcript).toContain(filler.toLowerCase());
+        it('should return 1.0 if the hypothesis is completely different', () => {
+            const ref = 'apple banana';
+            const hyp = 'cherry date';
+            expect(calculateWordErrorRate(ref, hyp)).toBe(1.0);
+        });
+    });
+
+    describe('Isomorphic Speech Fixtures', () => {
+        const fixtures = Object.values(SPEECH_FIXTURES);
+
+        fixtures.forEach((speech: SpeechFixture) => {
+            describe(`Speech: ${speech.id}`, () => {
+                it('should detect required filler words accurately from ground truth', () => {
+                    const fillers = Object.entries(speech.expectedFillers)
+                        .filter(([_, count]) => count > 0)
+                        .map(([filler]) => filler);
+
+                    if (fillers.length === 0) return;
+
+                    const transcript = speech.expectedTranscript.toLowerCase();
+                    fillers.forEach(filler => {
+                        expect(transcript).toContain(filler.toLowerCase());
+                    });
                 });
-            });
 
-            it('should accurately match expected filler counts', () => {
-                const counts = speech.expectedFillers;
-                if (Object.keys(counts).length === 0) return;
+                it('should accurately match expected filler counts in ground truth', () => {
+                    const counts = speech.expectedFillers;
+                    if (Object.keys(counts).length === 0) return;
 
-                Object.entries(counts).forEach(([filler, expected]) => {
-                    const occurrences = (speech.expectedTranscript.toLowerCase().match(new RegExp(`\\b${filler}\\b`, 'g')) || []).length;
-                    expect(occurrences).toBe(expected);
+                    Object.entries(counts).forEach(([filler, expected]) => {
+                        const occurrences = (speech.expectedTranscript.toLowerCase().match(new RegExp(`\\b${filler}\\b`, 'g')) || []).length;
+                        expect(occurrences).toBe(expected);
+                    });
                 });
             });
         });

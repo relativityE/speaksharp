@@ -16,7 +16,7 @@ import { generateSessionPdf } from '../lib/pdfGenerator';
 import { formatDate, formatDateTime } from '../lib/dateUtils';
 import { FillerWordTable } from './analytics/FillerWordTable';
 import { TopFillerWords } from './analytics/TopFillerWords';
-import { STTAccuracyComparison } from './analytics/STTAccuracyComparison';
+import { STTAccuracyVsBenchmark } from './analytics/STTAccuracyVsBenchmark';
 import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
@@ -182,8 +182,8 @@ const ANALYSIS_SLIDE_OPTIONS: AnalysisSlideConfig[] = [
     },
     {
         id: 'stt_comparison',
-        label: 'STT Accuracy Comparison',
-        description: 'Compare transcription engine performance'
+        label: 'STT Accuracy vs Benchmark',
+        description: 'Compare transcription accuracy against theoretical ceilings'
     },
 
 ];
@@ -820,7 +820,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                                     </div>
                                                 )}
                                                 {option.id === 'stt_comparison' && (
-                                                    <STTAccuracyComparison />
+                                                    <STTAccuracyVsBenchmark />
                                                 )}
 
                                             </div>

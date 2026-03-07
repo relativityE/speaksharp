@@ -25,6 +25,19 @@ import {
 } from './errors';
 import { IS_TEST_ENVIRONMENT } from '../../config/env';
 
+// ✅ EXPERT FIX: Module-level singleton instance to survive React remounts.
+let _instance: TranscriptionService | null = null;
+
+export function getTranscriptionService(options: Partial<TranscriptionServiceOptions> = {}): TranscriptionService {
+  if (!_instance) {
+    _instance = new TranscriptionService(options);
+  } else if (Object.keys(options).length > 0) {
+    // If instance exists, update callbacks to handle React state changes (stale closures)
+    _instance.updateCallbacks(options);
+  }
+  return _instance;
+}
+
 // Types moved to src/types/transcription.ts
 
 export interface TranscriptionServiceOptions {
@@ -56,6 +69,7 @@ export default class TranscriptionService {
   protected engine: ITranscriptionMode | null = null;
   private mic: MicStream | null = null;
   private micError: Error | null = null;
+  private fallbackTimer: NodeJS.Timeout | null = null;
 
   private callbackProxy: ImmutableCallbackProxy<TranscriptionModeOptions>;
   private policy: TranscriptionPolicy;
@@ -93,6 +107,43 @@ export default class TranscriptionService {
 
     // Initialize Proxy for stable callback references in modes
     this.callbackProxy = new ImmutableCallbackProxy(this.getProxyOptions());
+  }
+
+  /**
+   * Cold Boot Accelerator: Pre-initializes the engine without starting the mic.
+   * Crucial for WASM/transformers.js where model loading takes significant time.
+   */
+  public async warmUp(mode: TranscriptionMode): Promise<void> {
+    if (mode !== 'private') return; // Only private needs heavy warm-up
+
+    logger.info(`[TranscriptionService] ⚡ Warming up engine for mode: ${mode}`);
+
+    try {
+      // 1. Create engine if not exists (or different)
+      if (!this.engine || (this.engine as any).type !== 'transformers-js') {
+        const engineConfig: TranscriptionModeOptions = {
+          ...this.options,
+          onModelLoadProgress: (progress) => {
+            const percent = progress !== null ? Math.round(progress * 100) : null;
+            useSessionStore.getState().setModelLoadingProgress(percent);
+            if (percent === 100) {
+              setTimeout(() => {
+                if (useSessionStore.getState().modelLoadingProgress === 100) {
+                  useSessionStore.getState().setModelLoadingProgress(null);
+                }
+              }, 1500);
+            }
+          }
+        };
+        this.engine = await EngineFactory.create(mode, engineConfig, this.policy);
+      }
+
+      // 2. Trigger init (this sets the data-stt-engine="ready" signal in PrivateWhisper)
+      await this.engine.init();
+      logger.info(`[TranscriptionService] ✅ Warm-up complete for ${mode}`);
+    } catch (error) {
+      logger.error({ error }, '[TranscriptionService] Warm-up failed');
+    }
   }
 
   /**
@@ -187,7 +238,9 @@ export default class TranscriptionService {
         onModelLoadProgress: (progress) => {
           logger.debug({ progress }, '[TranscriptionService] modelLoadProgress callback triggered');
           this.options.onModelLoadProgress?.(progress);
-          const percent = progress !== null ? Math.round(progress * 100) : null;
+          // Standardize: If already 0-100 (from engine), use it; if 0-1 (legacy), scale it.
+          // Engines like TransformersJSEngine and WhisperTurboEngine now emit 0-100.
+          const percent = (progress !== null && progress <= 1) ? Math.round(progress * 100) : (progress as number | null);
           useSessionStore.getState().setModelLoadingProgress(percent);
 
           if (percent === 100) {
@@ -216,24 +269,76 @@ export default class TranscriptionService {
         }
       };
 
-      logger.info(`[TranscriptionService] Creating engine for mode: ${mode}`);
+      logger.info(`[TranscriptionService] Preparing engine for mode: ${mode}`);
 
-      this.engine = await EngineFactory.create(mode, engineConfig, this.policy);
+      // ✅ EXPERT OPTIMIZATION: Preserve warm-up by reusing existing engine if mode matches
+      const existingType = this.engine ? (this.engine as any).getEngineType?.() || (this.engine as any).type : null;
+      const isPrivate = mode === 'private';
+      const isSameMode = (isPrivate && (existingType === 'transformers-js' || existingType === 'whisper-turbo')) ||
+        (mode === 'native' && existingType === 'native') ||
+        (mode === 'cloud' && existingType === 'cloud');
+
+      if (this.engine && isSameMode) {
+        logger.info(`[TranscriptionService] Reusing existing ${mode} engine instance`);
+        // Update callbacks of existing engine to handle potential stale closures
+        if (typeof (this.engine as any).updateOptions === 'function') {
+          (this.engine as any).updateOptions(this.getProxyOptions());
+        }
+      } else {
+        if (this.engine) {
+          logger.info('[TranscriptionService] Mode changed, destroying old engine');
+          await this.engine.terminate?.();
+        }
+        this.engine = await EngineFactory.create(mode, this.getProxyOptions(), this.policy);
+      }
 
       let skipInitInExecute = false;
 
       if (mode === 'private') {
         const timeout = this.getLoadTimeout();
-        logger.info({ timeout }, '[TranscriptionService] Starting Private STT with Optimistic Entry race');
 
-        let timeoutId: NodeJS.Timeout;
-        const timeoutPromise = new Promise((_, reject) => {
-          timeoutId = setTimeout(() => reject(new CacheMissEvent()), timeout);
-        });
+        // Trigger init (this starts the WASM loading)
+        let initPromise = this.engine.init();
 
-        const initPromise = this.engine.init();
+        // ✅ EXPERT FIX: Disabling fallback entirely in E2E context to allow full WASM init.
+        const win = typeof window !== 'undefined' ? window as any : {};
+        const isE2E = win.__E2E_CONTEXT__ || win.REAL_WHISPER_TEST || IS_TEST_ENVIRONMENT;
 
-        // ✅ INDUSTRY STANDARD: Handle background completion for Optimistic Entry
+        if (isE2E) {
+          console.log('[STT] E2E context detected: fallback timer DISABLED. Private engine must initialize or test will fail.');
+          logger.info('[TranscriptionService] 🧪 E2E Mode detected: DISABLING optimistic fallback. Waiting for full engine init.');
+          await initPromise;
+          skipInitInExecute = true;
+        } else {
+          // Normal mode: Start the optimistic timeout race
+          this.startOptimisticEntryTimer();
+
+          try {
+            // We still need to race the initPromise with the error from the timer
+            // I'll adapt to use a promise-wrapped version of the timer for the race.
+            const timeoutPromise = new Promise((_, reject) => {
+              // The startOptimisticEntryTimer sets this.fallbackTimer
+              // We just need to wait for it or for initPromise
+              const checkTimer = setInterval(() => {
+                if (!this.fallbackTimer && !isE2E) {
+                  clearInterval(checkTimer);
+                  reject(new CacheMissEvent());
+                }
+              }, 100);
+              initPromise.finally(() => clearInterval(checkTimer));
+            });
+
+            await Promise.race([initPromise, timeoutPromise]);
+            skipInitInExecute = true;
+          } finally {
+            if (this.fallbackTimer) {
+              clearTimeout(this.fallbackTimer);
+              this.fallbackTimer = null;
+            }
+          }
+        }
+
+        // ✅ INDUSTRY STANDARD: Handle background completion
         initPromise.then(() => {
           // If we are recording in fallback mode (e.g. native), notify the user that private is now ready
           const activeEngine = useSessionStore.getState().activeEngine;
@@ -252,16 +357,6 @@ export default class TranscriptionService {
           }
         });
 
-        try {
-          await Promise.race([
-            initPromise,
-            timeoutPromise
-          ]);
-          skipInitInExecute = true; // Successfully initialized within timeout
-        } finally {
-          // @ts-expect-error - timeoutId is assigned in Promise executor
-          if (timeoutId) clearTimeout(timeoutId);
-        }
       }
 
       await this.executeEngine(mode, skipInitInExecute);
@@ -437,6 +532,34 @@ export default class TranscriptionService {
    * ✅ E2E HOOK: Uses window.__STT_LOAD_TIMEOUT__ to allow tests to simulate 
    * long-tail hangs or force immediate transitions without modifying code.
    */
+  private startOptimisticEntryTimer(): void {
+    // Read lazily HERE, not in constructor — addInitScript flags
+    // are not present at module evaluation time.
+    const win = typeof window !== 'undefined' ? window as any : {};
+    const isE2E = win.__E2E_CONTEXT__ === true || win.REAL_WHISPER_TEST === true;
+
+    if (isE2E) {
+      console.log('[STT] E2E context detected: fallback timer DISABLED. Private engine must initialize or test will fail.');
+      return; // No timer. No fallback. Engine gets full Playwright timeout.
+    }
+
+    const timeout = (typeof window !== 'undefined' && (window as any).__STT_LOAD_TIMEOUT__)
+      ?? STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.CI;
+
+    console.log(`[STT] Starting fallback timer: ${timeout}ms`);
+    this.fallbackTimer = setTimeout(() => {
+      console.warn('[STT] Fallback timer fired — switching to Native STT');
+      this.fallbackToNative();
+    }, timeout);
+  }
+
+  private fallbackToNative(): void {
+    // Trigger the failure which will cause the FSM to fallback
+    if (this.mode) {
+      this.handleFailure(this.mode, new Error('Optimistic entry timeout'));
+    }
+  }
+
   private getLoadTimeout(): number {
     const win = typeof window !== 'undefined' ? window as unknown as { __STT_LOAD_TIMEOUT__?: number } : null;
     if (win && win.__STT_LOAD_TIMEOUT__) {

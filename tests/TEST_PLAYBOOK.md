@@ -12,7 +12,8 @@ Most tests (except for basic Unit and E2E Mock) require real backend credentials
 - **Cloud Environment Lifecycle**: In GitHub Actions, the `.env.development` file is **dynamically generated** from repository secrets by the deployment YAML scripts. It is ephemeral and is **automatically deleted** immediately after the test job completes (or on failure) to prevent secret leakage.
 - **Local Path**: Uses your local `.env.development`. If placeholders like `mock_anon_key` are used, integration tests will report connectivity failures. **Note**: Locally, you must provide your own credentials in this file if you wish to run against real APIs.
   - **Cloud Path**: Authoritative tests **MUST** execute on GitHub Cloud to access secure production secrets.
-- **Secret Tailing**: You can verify secret presence without reading them:
+- **Secret Management**: Keys like `ASSEMBLYAI_API_KEY` are managed via GitHub Secrets.
+- **Secret Auditing**: You can verify secret presence without reading them:
   ```bash
   gh secret list
   ```
@@ -31,6 +32,11 @@ Most tests (except for basic Unit and E2E Mock) require real backend credentials
     | `.env.local` | Real local dev credentials | ❌ No (gitignored) | Your real Supabase/Stripe creds |
     | `.env.production` | Production deployment | ❌ No | Injected by Vercel/platform |
     | `.env.development` | **DELETED — do not recreate** | ❌ Never | Was incorrectly used; removed |
+
+    **Key Remote Secrets (`gh secret list`):**
+    - `ASSEMBLYAI_API_KEY`: Required for Cloud STT benchmarking and tests.
+    - `SUPABASE_*`: Required for live DB and Auth tests.
+    - `STRIPE_*`: Required for billing flow tests.
 
 2.  **Dispatcher Security**: Remote tasks (`ci:dispatch:soak`) pass secrets directly to the GitHub runner memory, bypassing local file systems.
 3.  **Auditor Verification**: The `gh run view --log` command allows you to verify that secrets were injected (look for masked `***` values) without ever exposing them to your terminal.
@@ -54,6 +60,16 @@ Most tests (except for basic Unit and E2E Mock) require real backend credentials
 ### 1b. Cloud Dispatch (`ci:dispatch:deploy` / `ci:dispatch:soak`)
 **Commands**: `pnpm ci:dispatch:deploy`, `pnpm ci:dispatch:soak`
 **Description**: Each dispatches a single GitHub Actions workflow (deploy smoke or soak test) via the `gh` CLI. Requires `gh auth login`.
+
+### 1c. The Agent-Safe Pipeline (`test:agent`)
+**Command**: `pnpm test:agent`
+**Description**: Fully isolated suite designed for autonomous AI agents. Runs the local unit suite and mock E2E suite consecutively, bypassing live APIs and audio hardware, ensuring 100% stable execution environments for Agent debugging. Outputs to `.system_generated` or `summary.json`.
+
+**Agent Intelligence**:
+- The `test:agent` loop is highly optimized via **Test Impact Analysis (TIA)** using `.scripts/detect-impact.mjs`.
+- It analyzes Git diffs and compares changed files against the `test-impact-map.json` mapping.
+- Only tests mapped to changed files are executed, saving massive compute time for agents.
+- **Maintenance**: If you add new feature areas or test files, you **MUST** update `test-impact-map.json` to map the source directory to the E2E spec files, otherwise the automated pipeline will not run those tests optimally.
 
 ### 2. Backend Load Test (`test:soak:api:cloud`)
 **Command**: `pnpm test:soak:api:cloud`

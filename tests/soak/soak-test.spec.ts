@@ -18,6 +18,18 @@ test.describe('Soak Test Coordinator: Unified Dual Architecture', () => {
         if (!fs.existsSync(SOAK_CONFIG.RESULTS_DIR)) {
             fs.mkdirSync(SOAK_CONFIG.RESULTS_DIR, { recursive: true });
         }
+
+        // Synergy: Log last benchmark date to provide context for STT accuracy observations
+        try {
+            const benchmarks = JSON.parse(fs.readFileSync('docs/STT_BENCHMARKS.json', 'utf-8'));
+            const cloudHistory = benchmarks.engines.Cloud.history;
+            if (cloudHistory && cloudHistory.length > 0) {
+                const latest = cloudHistory[cloudHistory.length - 1];
+                logger.info(`\n[SYNERGY] Last STT Benchmark: ${latest.timestamp} (Accuracy: ${latest.ceiling_accuracy_pct}%)`);
+            }
+        } catch (e) {
+            logger.warn(`\n[SYNERGY] Could not read STT_BENCHMARKS.json for context.`);
+        }
     });
 
 

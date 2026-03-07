@@ -1,61 +1,71 @@
-# Node / Build Artifacts
+# --- Dependencies & Tools ---
 node_modules/
+patches/
+.pnpm-debug.log*
+.history/
+
+# --- Build & Distribution ---
 dist/
+build/
 *.tsbuildinfo
-*.log
+.vite/
+.next/
+.turbo/
 
-# Test & Build Artifacts
-playwright.config.js
-tailwind.config.js
-/test-support/
-coverage/
-/screenshots/
+# --- Testing & CI Artifacts ---
 /test-results/
-/lighthouse-results/
 /playwright-report/
-blob-report/
-/unit-metrics.json
-/e2e-metrics.json
-/test-metrics.json
-/playwright/.cache/
+/blob-report/
+/merged-reports/
+/test-support/
+/lighthouse-results/
+/.lighthouseci/
+/screenshots/
+/coverage/
+/html/
+# Legacy/Suspicious artifacts
+/blob-collection/
+/playwright-results.json/
 
-# Test logs and output files
+# --- Metrics & Results (Unified) ---
+*-metrics.json
+results.json
+lighthouse-baseline.json
+lighthouse-final.json
+lighthouse-optimized.json
+speaksharp-review.zip
+repomix-output.xml
+
+# --- Debug & Temp ---
+*.log
+*.tmp
+*.bak
+*.orig
+*.swp
+*.swo
 *-logs.txt
 test_output.txt
 smoke-*.txt
 *_LOG.txt
 *_FAILURE_LOG.txt
-
-*.bak
-*.tmp
-*.patch
-*.orig
-
-# Debug artifacts
-*.png
-*.html
+*_FAILURE_LOG.txt
 debug*
-html/assets/index-*
-*.gz
+.vite.pid
 
-# Playwright Trace Artifacts
-resources/
-*trace*
-
-# OS / Editor Files
+# --- OS & Editor ---
 .DS_Store
-*.swp
-*.swo
+Thumbs.db
 .vscode/
 .idea/
+*.sublime-project
+*.sublime-workspace
 
-# Local Environment
+# --- Local Environment ---
 .env
 .env*.local
 .env.development
-.vite.pid
-merged-reports/
-.lighthouseci/
-speaksharp-review.zip
-repomix-output.xml
-coverage_output.txt
+.env.test
+
+# --- Media & Production ---
+video-production/README.md
+!video-production/

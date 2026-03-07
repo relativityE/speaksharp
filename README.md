@@ -2,7 +2,7 @@
 **Last Reviewed:** 2026-03-01
 
 # SpeakSharp
-**v3.5.4** | **Last Updated: 2026-03-02**
+**v3.5.5-dev** | **Last Updated: 2026-03-07**
 
 SpeakSharp is an AI-powered speech coaching application that helps users improve their public speaking skills. It provides real-time feedback on filler words, speaking pace, and more.
 
@@ -26,12 +26,14 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
     -   **Race Condition Guards:** Ref-based finalization and stable callback proxies for React hooks.
     -   **Security Hardening:** Constant-time comparison for secrets and atomic SQL increments for usage tracking.
     -   **Failure Isolation:** Granular error boundaries and robust global rejection handlers.
--   **Phase 3 Hardening (Feb 2026):** **"Zero-Debt" Phase complete**. 100% codebase health achieved via strict linting and full type-safety.
--   **Phase 4 Hardening (Feb 2026):** **Scalability & Performance Baseline Established**.
+-   **Phase 3/4 Hardening (Feb 2026):** **"Zero-Debt" & Scalability Baseline**.
     -   **O(1) Live Analytics:** Infinite-duration sessions supported via incremental observer pattern.
     -   **NLP Caching:** 500x faster re-renders for multi-speaker dialog via LRU document cache.
     -   **Atomic Consistency:** Restored row-locking prevents usage limit bypass under high concurrency.
-    -   **AI Persistence:** Session feedback is now officially durable across reloads.
+-   **Mar 2026 Hardening:** **Live UI & STT Stabilization**.
+    -   **UI Redesign:** High-fidelity `LiveRecordingCard` overhaul (Vertical center-stack, Proportionality).
+    -   **Benchmarking:** Modular STT hardware benchmarks with Pro-user authentication support.
+    -   **Environment Reliability:** Unified Vite root-env resolution for project-wide `.env` loading.
 
 ---
 
@@ -41,6 +43,12 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
 -   **Backend:** Supabase (Auth, Postgres, Edge Functions).
 -   **Infrastructure:** GitHub Actions CI/CD with parallelized sharding and multi-stage audits.
 -   **Monitoring:** Sentry (Error Tracking), PostHog (Product Analytics).
+
+## 🗺️ Documentation Map
+
+Before diving deeper, **all new developers must read [docs/OUTLINE.md](./docs/OUTLINE.md)**. 
+
+SpeakSharp maintains an extensive, interconnected documentation architecture. `OUTLINE.md` acts as the definitive map ("Single Source of Truth") for where specific types of information (Architecture, Testing Strategy, Roadmaps, Changelogs) are stored, preventing documentation drift and duplication.
 
 ## Project Structure
 
@@ -86,7 +94,7 @@ speaksharp/
 - Double underscores = "this is special/internal" (convention borrowed from Python's `__init__.py`)
 - Bundlers (Vite/Webpack) exclude these directories from production builds
 
-## Getting Started
+## Getting Started (How to Run)
 
 To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or higher) and pnpm (v10.29.1 enforced) installed.
 
@@ -103,7 +111,14 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     pnpm setup
     ```
     > **Tip:** For a complete development setup (dependencies + Playwright browsers), you can run `./scripts/dev-init.sh`.
-4.  **Configure Environment Variables:**
+    
+4.  **Verify Environment Health (Required):**
+    ```bash
+    ./scripts/preflight.sh
+    ```
+    This script ensures your system meets the strict Node.js, pnpm, and dependency requirements before you start.
+
+5.  **Configure Environment Variables:**
     
     Create a `.env` file in the project root with these required variables:
     
@@ -142,6 +157,12 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     pnpm pw:install:all   # All browsers
     ```
 
+7.  **Validate Your Local Installation:**
+    If you're a new developer setting up the project, it's highly recommended to run the canonical health check to ensure your local environment is sound:
+    ```bash
+    pnpm test:health:local
+    ```
+
 ## Asset Organization
 
 This project uses a hybrid approach for managing image assets:
@@ -175,13 +196,18 @@ This project uses a strict `pnpm-lock.yaml` file to guarantee that every develop
 
 The `pnpm setup` command executes `pnpm install --frozen-lockfile`, which is the **only** correct way to install dependencies in this project. It forces pnpm to install the exact versions specified in the lockfile, ensuring a reproducible environment.
 
-## Running the Full Test & Audit Suite
+## How to Test (Full Audit Suite)
 
 This project uses a unified testing strategy centered around a single, robust script (`scripts/test-audit.sh`) that is accessed via simple `pnpm` commands. This ensures that local validation and the CI pipeline are perfectly aligned.
 
 All test scripts follow a strict **Level : Env : Mode** taxonomy: `test:<level>:<env>[:<mode>]`
 
 ### The Canonical Test Commands
+
+*   **Run the isolated Agent-Safe test loop (recommended for AI debugging):**
+    ```bash
+    pnpm test:agent
+    ```
 
 *   **Run the complete CI pipeline locally (recommended before any commit):**
     ```bash

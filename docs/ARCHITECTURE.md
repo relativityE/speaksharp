@@ -369,6 +369,7 @@ All test scripts follow `test:<level>:<env>[:<mode>]` and CI orchestration scrip
 
 | Script | Level | Env | Mode | Description |
 |--------|-------|-----|------|-------------|
+| `test:agent` | agent | local | — | Fast deterministic repair loop with TIA Map (`test-impact-map`) |
 | `test:unit:local` | unit | local | — | Vitest with coverage |
 | `test:unit:local:watch` | unit | local | watch | Vitest in watch mode |
 | `test:e2e:mock:headless` | e2e | mock | headless | Full E2E (CI default) |
@@ -409,6 +410,7 @@ SpeakSharp utilizes multiple layers of testing to ensure 100% reliability across
 | **Soak / Perf** | Stability & Load | Playwright (Dual-Pronged) | `tests/soak/soak-test.spec.ts` | GitHub CI only |
 
 **Tier Definitions:**
+- **Agent Suite** (`pnpm test:agent`): A headless iteration loop optimized via Test Impact Analysis (TIA). It uses `scripts/detect-impact.mjs` to compare git diffs against the `test-impact-map.json` dependency map, selectively running only tests impacted by source changes.
 - **Integration Suite** (`pnpm test:int:local`): Runs the non-driver-dependent live tests (auth, upgrade, analytics-journey) against real Supabase. Does not require audio hardware.
 - **System Suite** (`pnpm test:system:local:headed`): Full system suite including driver-dependent STT tests. Requires headed Chrome with real audio/WASM hardware.
 - **Deploy Suite** (`pnpm test:deploy`): Runs against `speaksharp-public.vercel.app`. Validates that production deployments are not critically broken. Options: `--prod` (default) or `--local` (`test:deploy:local`).
@@ -526,6 +528,17 @@ The transcription pipeline now supports **Speaker Diarization**. The `CloudAssem
 
 **Word Error Rate (WER) Analysis:**
 The analytics engine supports automated accuracy scoring. By ingesting **Ground Truth** (via PDF or text), the system calculates a Levenshtein-based WER and displays a relative accuracy percentage trend in the `STTAccuracyComparison` chart.
+
+#### Benchmarking Architecture (Static Ceilings)
+To provide users with a meaningful "Accuracy Signal", we utilize **Path A: Client-Side Dynamic Comparison**.
+- **Static Config**: Theoretical maximum accuracy ceilings for each engine are stored in `docs/STT_BENCHMARKS.json`.
+- **Node Orchestration**: Ceilings are established by running engine-specific live benchmarks:
+    - **Cloud**: `pnpm test:system:local:headed tests/live/benchmark-cloud.live.spec.ts`
+    - **CPU**: `pnpm test:system:local:headed tests/live/benchmark-cpu.live.spec.ts`
+    - **WebGPU**: `pnpm test:system:local:headed tests/live/benchmark-webgpu.live.spec.ts`
+- **Environment Gating**: While **AssemblyAI (Cloud)** and **Whisper (CPU)** are automated in CI via tiered execution, the **WhisperTurbo (WebGPU)** ceiling is human-maintained. It must be manually updated in `STT_BENCHMARKS.json` when running benchmarks on a GPU-enabled developer machine. 
+- **Pro Calibration**: Live benchmarks support authenticated Pro-user credentials via `E2E_PRO_EMAIL` and `E2E_PRO_PASSWORD` to verify restricted STT modes (Private/WebGPU) and tier-specific accuracy Signal.
+- **Dynamic Scoring**: The frontend `useAnalytics` hook dynamically calculates the user's live WER and charts it against this static ceiling benchmark to show relative performance over time.
 
 *   **Layer 1 (Internal):** `PrivateSTT` tries WhisperTurbo -> falls back to TransformersJS.
 *   **Layer 2 (External):** `TranscriptionService` catches `PrivateSTT` failure -> falls back to Native Mode.

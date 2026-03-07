@@ -33,7 +33,8 @@ test.describe('App Navigation', () => {
 
     // Click nav link to Home
     await page.getByRole('link', { name: /home/i }).first().click();
-    // Authenticated users are redirected to /session
-    await expect(page).toHaveURL('/session');
+    // Behavioral Design Fix: Authenticated users are redirected to /session.
+    // We verify the Session Service rendered (Integrity check) rather than just the URL string (Transit check).
+    await expect(page.getByTestId('session-page')).toBeVisible({ timeout: 15000 });
   });
 });

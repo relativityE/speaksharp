@@ -1,0 +1,96 @@
+name: STT Ceiling Benchmarks
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'   # Every Monday at 3am UTC — weekly is sufficient
+  workflow_dispatch:        # Manual trigger before any engine version bump
+    inputs:
+      write_results:
+        description: 'Write results to STT_BENCHMARKS.json and open a PR'
+        type: boolean
+        default: true
+
+jobs:
+  benchmark-cloud:
+    name: AssemblyAI Ceiling Benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22' # Up-to-date node version
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate audio fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y espeak-ng ffmpeg
+          bash scripts/generate-fixtures.sh
+
+      - name: Run AssemblyAI ceiling benchmark
+        env:
+          ASSEMBLYAI_API_KEY: ${{ secrets.ASSEMBLYAI_API_KEY }}
+          RUN_BENCHMARKS: 'true'
+        run: pnpm benchmark:cloud
+
+      - name: Open PR with updated benchmarks
+        if: success() && inputs.write_results != false
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: 'chore: update AssemblyAI STT ceiling benchmark'
+          title: '[benchmark] AssemblyAI ceiling measurement update'
+          body: |
+            Automated benchmark run. Review `docs/STT_BENCHMARKS.json` changes.
+            If the new ceiling is lower than the previous, investigate before merging.
+          branch: 'chore/benchmark-assemblyai'
+          add-paths: docs/STT_BENCHMARKS.json
+
+  benchmark-browser:
+    name: Browser Engine Benchmarks (Private + Native)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install chromium --with-deps
+
+      - name: Generate audio fixtures
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y espeak-ng ffmpeg
+          bash scripts/generate-fixtures.sh
+
+      - name: Run browser benchmark suite
+        env:
+          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
+          E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
+        run: pnpm exec playwright test tests/live/benchmark.live.spec.ts --project=chromium --reporter=list
+        timeout-minutes: 30  # 5 trials × 38s + WASM init headroom
+
+      - name: Open PR with results
+        if: success() && inputs.write_results != false
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: 'chore: update browser STT ceiling benchmarks'
+          title: '[benchmark] Browser STT ceiling measurement update'
+          body: |
+            Automated benchmark run (Chromium CPU runner).
+            Note: Whisper (WebGPU) is measured for history but the main ceiling is NOT updated in CI.
+          branch: 'chore/benchmark-browser'
+          add-paths: docs/STT_BENCHMARKS.json

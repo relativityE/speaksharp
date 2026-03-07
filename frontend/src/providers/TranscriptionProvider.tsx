@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import TranscriptionService from '../services/transcription/TranscriptionService';
+import { getTranscriptionService } from '../services/transcription/TranscriptionService';
 import { TranscriptionPolicy } from '../services/transcription/TranscriptionPolicy'; // Import the type
 import logger from '../lib/logger';
 
@@ -9,23 +9,18 @@ export const TranscriptionProvider: React.FC<{
     children: React.ReactNode;
     policy?: TranscriptionPolicy; // Optional policy
 }> = ({ children, policy }) => {
-    const [service, setService] = useState<TranscriptionService | null>(null);
-    const [isReady, setIsReady] = useState(false);
+    // 1. Singleton Acquisition (Survives Remounts)
+    const service = getTranscriptionService(policy ? { policy } : {});
+    const [isReady, setIsReady] = useState(true);
 
+    // 2. Lifecycle Audit: We no longer destroy the service on unmount 
+    // because it is a global singleton protecting the WASM state.
     useEffect(() => {
-        logger.info('[TranscriptionProvider] Initializing global service singleton');
-        // Instantiate with optional policy
-        const svc = new TranscriptionService(policy ? { policy } : {});
-        setService(svc);
-        setIsReady(true);
-
+        logger.info('[TranscriptionProvider] Component mounted/updated');
         return () => {
-            logger.info('[TranscriptionProvider] Unmounting, destroying service');
-            svc.destroy().catch(err => {
-                logger.error({ err }, '[TranscriptionProvider] Error destroying service');
-            });
+            logger.info('[TranscriptionProvider] Component unmounting (Service persists)');
         };
-    }, [policy]); // Re-create if policy prop changes strongly (usually it shouldn't)
+    }, []);
 
     return (
         <TranscriptionContext.Provider value={{ service, isReady }}>
@@ -33,3 +28,4 @@ export const TranscriptionProvider: React.FC<{
         </TranscriptionContext.Provider>
     );
 };
+

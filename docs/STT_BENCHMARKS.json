@@ -1,0 +1,44 @@
+{
+  "_comment": "Static WER ceilings established via Harvard Sentence baseline benchmarks.",
+  "engines": {
+    "Cloud": {
+      "expectedAccuracy": 95,
+      "provider": "AssemblyAI",
+      "history": []
+    },
+    "Private": {
+      "webgpu": {
+        "expectedAccuracy": 93,
+        "provider": "WhisperTurbo",
+        "history": []
+      },
+      "cpu": {
+        "expectedAccuracy": 90,
+        "provider": "TransformersJS",
+        "history": []
+      }
+    },
+    "Native": {
+      "expectedAccuracy": null,
+      "provider": "WebSpeechAPI",
+      "history": [
+        {
+          "timestamp": "2026-03-07T13:22:10.929Z",
+          "corpus": "harvard-list-1-first5",
+          "trials": 0,
+          "ceiling_wer": null,
+          "ceiling_accuracy_pct": null,
+          "environment": "chromium-playwright"
+        },
+        {
+          "timestamp": "2026-03-07T13:26:03.512Z",
+          "corpus": "harvard-list-1-first5",
+          "trials": 0,
+          "ceiling_wer": null,
+          "ceiling_accuracy_pct": null,
+          "environment": "chromium-playwright"
+        }
+      ]
+    }
+  }
+}

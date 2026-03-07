@@ -10,16 +10,13 @@ test.describe('Authentication', () => {
     await test.step('Verify user can access protected session page', async () => {
       // Ensure fresh state and synchronize MSW
       await page.reload();
-      await page.waitForLoadState('networkidle');
 
       // After login, the user is on the homepage. Navigate to a protected route using navigateToRoute.
       await navigateToRoute(page, '/analytics');
-      // ✅ Wait for analytics page to fully load (Senior Engineer Rec)
-      await page.waitForLoadState('networkidle');
 
-      // Verify that the analytics page loads correctly by checking for its heading.
-      // Verify that the analytics page loads correctly by checking for its heading.
-      await expect(page.getByTestId('dashboard-heading')).toContainText('Your Analytics', { timeout: 15000 });
+      // ✅ Expert Fix: Rely on behavioral synchronization, not networkidle.
+      // Playwright will auto-retry until the element is visible and has the correct text.
+      await expect(page.getByTestId('dashboard-heading')).toHaveText('Your Analytics', { timeout: 15000 });
     });
   });
 });

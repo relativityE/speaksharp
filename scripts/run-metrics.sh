@@ -68,17 +68,28 @@ if [ ! -f "$e2e_results_file" ]; then
     echo "⚠️ WARNING: E2E results file not found. Defaulting to 0 (local skip)." >&2
     e2e_passed=0
     e2e_failed=0
+    e2e_flaky=0
     e2e_skipped=0
+    e2e_total=0
     e2e_shards="{}"
 else
-    # .stats.expected / .unexpected / .skipped are the playwright JSON reporter field names.
-    # .shards is a custom field from local CI simulation; it won't exist in playwright
-    # merge-reports output. Use // {} to degrade gracefully instead of returning null.
-    e2e_passed=$(jq '.stats.expected // 0'   "$e2e_results_file")
-    e2e_failed=$(jq '.stats.unexpected // 0' "$e2e_results_file")
-    e2e_skipped=$(jq '.stats.skipped // 0'  "$e2e_results_file")
-    e2e_shards=$(jq  '.shards // {}'        "$e2e_results_file")
+    # Playwright JSON reporter field names (stable since v1.20):
+    #   .stats.expected   → tests that passed as expected
+    #   .stats.unexpected → tests that failed
+    #   .stats.flaky      → tests that passed on retry
+    #   .stats.skipped    → tests skipped via test.skip()
+    # e2e_total used for "141/141 passed" display in SQM output.
+    e2e_passed=$(jq '.stats.expected // 0'    "$e2e_results_file")
+    e2e_failed=$(jq '.stats.unexpected // 0'  "$e2e_results_file")
+    e2e_flaky=$(jq  '.stats.flaky // 0'       "$e2e_results_file")
+    e2e_skipped=$(jq '.stats.skipped // 0'   "$e2e_results_file")
+    e2e_shards=$(jq  '.shards // {}'          "$e2e_results_file")
+    e2e_total=$(jq '[.stats.expected, .stats.unexpected, .stats.flaky, .stats.skipped] | map(. // 0) | add' "$e2e_results_file")
 fi
+
+# Fallback totals for skipped/local E2E case
+if [ -z "${e2e_flaky:-}" ]; then e2e_flaky=0; fi
+if [ -z "${e2e_total:-}" ]; then e2e_total=0; fi
 
 # Hard-fail if E2E tests failed — metrics should not silently pass a broken suite
 if [ "${e2e_failed}" -gt 0 ] 2>/dev/null; then
@@ -144,7 +155,9 @@ jq -n \
   --argjson coverage_lines        "$coverage_lines" \
   --argjson e2e_passed            "$e2e_passed" \
   --argjson e2e_failed            "$e2e_failed" \
+  --argjson e2e_flaky             "$e2e_flaky" \
   --argjson e2e_skipped           "$e2e_skipped" \
+  --argjson e2e_total             "$e2e_total" \
   --argjson e2e_shards            "${e2e_shards}" \
   --arg     bundle_size           "$bundle_size" \
   --arg     source_size           "$source_size" \
@@ -171,7 +184,9 @@ jq -n \
     "e2e_tests": {
         "passed":  $e2e_passed,
         "failed":  $e2e_failed,
+        "flaky":   $e2e_flaky,
         "skipped": $e2e_skipped,
+        "total":   $e2e_total,
         "shards":  $e2e_shards
     },
     "performance": {

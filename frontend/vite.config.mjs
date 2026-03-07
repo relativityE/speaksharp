@@ -20,6 +20,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
+    envDir: path.resolve(__dirname, '..'),
     plugins: [
       react(),
       viteStaticCopy({

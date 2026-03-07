@@ -1,0 +1,38 @@
+{
+  "frontend/src/auth": [
+    "tests/e2e/auth.e2e.spec.ts"
+  ],
+  "frontend/src/components/session": [
+    "tests/e2e/core-journey.e2e.spec.ts",
+    "tests/e2e/session-variations.e2e.spec.ts"
+  ],
+  "frontend/src/providers": [
+    "tests/e2e/core-journey.e2e.spec.ts"
+  ],
+  "frontend/src/services/transcription": [
+    "tests/e2e/whisper-lifecycle.e2e.spec.ts",
+    "tests/e2e/diag-private-stt.e2e.spec.ts",
+    "tests/e2e/private-stt.e2e.spec.ts"
+  ],
+  "frontend/src/pages/Session": [
+    "tests/e2e/navigation.e2e.spec.ts",
+    "tests/e2e/core-journey.e2e.spec.ts"
+  ],
+  "frontend/src/pages/Analytics": [
+    "tests/e2e/analytics.e2e.spec.ts",
+    "tests/e2e/analytics-details.e2e.spec.ts"
+  ],
+  "frontend/src/pages/Auth": [
+    "tests/e2e/auth.e2e.spec.ts"
+  ],
+  "frontend/src/pages/Pricing": [
+    "tests/e2e/upgrade-journey.e2e.spec.ts",
+    "tests/e2e/plan-selection.e2e.spec.ts"
+  ],
+  "frontend/src/stores": [
+    "tests/e2e/core-journey.e2e.spec.ts"
+  ],
+  "frontend/src/utils": [
+    "tests/e2e/core-journey.e2e.spec.ts"
+  ]
+}

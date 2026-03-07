@@ -62,7 +62,7 @@ function printMetrics() {
     // E2E Tests
     const { e2e_tests } = metricsData;
     console.log("\n🌐 E2E Tests:");
-    console.log(`  Passed:  ${e2e_tests.passed}`);
+    console.log(`  Passed:  ${e2e_tests.passed} / ${e2e_tests.total}`);
     console.log(`  Failed:  ${e2e_tests.failed}`);
     console.log(`  Skipped: ${e2e_tests.skipped}`);
 

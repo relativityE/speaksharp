@@ -11,6 +11,19 @@ This document outlines the forward-looking development plan for SpeakSharp. Comp
 Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Remediation
 ---
 
+## 🚀 Live Recording UI & STT Stabilization (Mar 2026) ✅ COMPLETE
+
+> **Goal:** High-fidelity UI redesign for the core recording interface and stabilization of hardware-dependent STT benchmarks.
+
+| ID | Title | Priority | Status | Notes |
+|----|-------|----------|--------|-------|
+| **R1** | **LiveRecordingCard Redesign** | **HIGH** | ✅ Complete | Centered vertical stack (Mic/Timer) with proportional sizing and left-aligned SECURE/Selector column. |
+| **R2** | **Vite Env Directory Fix** | **CRITICAL** | ✅ Complete | Aligned `envDir` to workspace root to enable project-wide `.env` loading for benchmarks/scripts. |
+| **R3** | **Modular STT Benchmarks** | **HIGH** | ✅ Complete | Decomposed monolithic benchmarks into engine-specific specs with Pro-user auth support. |
+| **R4** | **Hydration Race Resolution** | **HIGH** | ✅ Complete | Hardened `useSessionLifecycle.ts` against premature session termination during initial hydration. |
+
+---
+
 ## 🧪 Frontend Verification & Defect Resolution (Jan 2026) ✅ COMPLETE
 
 > **Goal:** Resolve critical defects identified during the Jan 26 production verification to ensure a stable Alpha user experience.
@@ -720,3 +733,21 @@ This phase focuses on hardening the interface between frontend and backend and e
 | **R4** | **Documentation Audit** | **HIGH** | ✅ Complete | Synchronized all 7 core markdown files to v3.5.4 SSOT standard. |
 | **R5** | **70/70 E2E Success** | **CRITICAL** | ✅ Complete | Achieved 100% reliability across the full sharded Playwright suite. |
 
+## 🤖 System Integrity & Agent-Loop Formalization (Mar 2026) 🟡 In Progress
+
+> **Goal:** Solidify system reliability via strict test governance and formalize the infrastructure for autonomous AI agents to safely interact with the CI loop.
+
+| ID | Title | Priority | Status | Notes |
+|----|-------|----------|--------|-------|
+| **A1** | **System Integrity Audit** | **CRITICAL** | ✅ Complete | Fixed flaky `auth.e2e.spec.ts` (Behavioral logic) and `private-stt.live.spec.ts` (Explicit DOM signals). |
+| **A2** | **Agent-Safe Interface (`test:agent`)** | **HIGH** | ✅ Complete | Established strict, live-service-free suite (`test:agent`) outputting stable JSON for agent consumption. |
+| **A3** | **TIA Dependency Map** | **HIGH** | ✅ Complete | Implemented `test-impact-map.json` and `detect-impact.mjs` for surgical testing. |
+| **A4** | **Node Orchestrator (`run-ci.mjs`)**| **HIGH** | ✅ Complete | Built script to execute impacted tests and format output for AI parsing. |
+
+### B. Analytics & AI Insights (STT Accuracy vs Benchmark)
+| ID | Title | Priority | Status | Description |
+|----|-------|----------|--------|-------|
+| **B1** | **Accuracy Signal Strategy** | **HIGH** | ✅ Complete | Selected Path A: Client-Side Dynamic Comparison against static JSON config. |
+| **B2** | **Harvard Sentence Baselines** | **HIGH** | ✅ Complete | Created `harvard-sentences.ts`, generated 16kHz audio fixtures, and implemented `benchmark-*.mts` Node.js runners using `tsx`. |
+| **B3** | **STTAccuracyVsBenchmark**   | **HIGH** | 🔴 In Progress | Build Recharts component for plotting dynamic accuracy vs config ceiling. |
+| **B4** | **Hook Integration**         | **HIGH** | 🔴 Not Started | Update `useAnalytics` and DB to track active `engine` per session. |

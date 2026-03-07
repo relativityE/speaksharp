@@ -58,7 +58,7 @@ declare global {
 // Toast removed from here to centralized UI layer
 // import { toast } from '@/lib/toast';
 
-type Status = 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
+type Status = 'uninitialized' | 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
 
 /**
  * Utility to clear the Whisper model cache from IndexedDB.
@@ -111,7 +111,7 @@ export default class PrivateWhisper implements ITranscriptionMode {
     this.onModelLoadProgress = options.onModelLoadProgress;
     this.onReady = options.onReady;
     this.onAudioData = options.onAudioData;
-    this.status = 'idle';
+    this.status = 'uninitialized';
     this.transcript = '';
     this.privateSTT = privateSTT || createPrivateSTT();
     this.pauseDetector = new PauseDetector();
@@ -126,9 +126,14 @@ export default class PrivateWhisper implements ITranscriptionMode {
   }
 
   public async init(): Promise<void> {
+    if (this.status === 'idle' || this.status === 'transcribing') {
+      logger.info(`[PrivateWhisper] Already ${this.status}, skipping init.`);
+      return;
+    }
     logger.info('[PrivateWhisper] 🔄 init() START - Dual-Engine Mode');
     logger.info('[PrivateWhisper] Initializing PrivateSTT facade...');
     this.status = 'loading';
+    document.body.removeAttribute('data-stt-engine'); // Reset signal
 
     try {
       // Trigger initial progress
@@ -173,6 +178,9 @@ export default class PrivateWhisper implements ITranscriptionMode {
       // Show toast notification with engine type
       // REMOVED: Internal toast suppressed to prevent duplication with UI layer (Architectural Decision)
       logger.info(`[PrivateWhisper] Model ready! Using ${this.engineType === 'whisper-turbo' ? 'GPU acceleration' : 'CPU mode'}.`);
+
+      // ✅ EXPLICIT READINESS SIGNAL FOR TESTS
+      document.body.dataset.sttEngine = 'ready';
 
       // Notify that the service is ready
       if (this.onReady) {

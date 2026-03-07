@@ -28,10 +28,48 @@ export default defineConfig({
     reporters: ['default'],
     // Suppress console.log noise from tests in CI mode
     silent: !process.env.CI_DEBUG,
+    // ─── Coverage ────────────────────────────────────────────────────────────
+    // FIX: was `coverage: { enabled: false }` which suppressed coverage even
+    // when --coverage was passed on the CLI (enabled:false short-circuits the
+    // coverage provider init in Vitest 3.x before CLI flags are applied).
+    //
+    // reportsDirectory: './frontend/coverage'
+    //   root is set to path.resolve(__dirname, '..') = project root.
+    //   Vitest resolves reportsDirectory relative to root.
+    //   run-metrics.sh reads: frontend/coverage/coverage-summary.json
+    //   Therefore this path must be './frontend/coverage' (relative to project root).
+    //   DO NOT change this without also updating coverage_file in run-metrics.sh.
+    //
+    // reporter: 'json-summary' → produces coverage-summary.json (NOT 'json',
+    //   which produces coverage-final.json — a different file, different schema).
     coverage: {
-      enabled: false,
+      enabled: true,
+      provider: 'v8',
+      reportsDirectory: './frontend/coverage',
+      reporter: [
+        'text',         // console table — visible in CI logs
+        'json-summary', // → coverage-summary.json — consumed by run-metrics.sh
+        'html',         // → index.html — for local browsing, gitignored
+      ],
+      include: ['frontend/src/**/*.{ts,tsx}'],
+      exclude: [
+        'frontend/src/**/*.test.{ts,tsx}',
+        'frontend/src/**/*.spec.{ts,tsx}',
+        'frontend/src/**/*.d.ts',
+        'frontend/src/constants/**',
+        'frontend/src/types/**',
+        'frontend/src/**/index.ts',
+        '**/*.config.{ts,mjs,js}',
+      ],
+      // Conservative starting thresholds — tighten each sprint once
+      // actual numbers are visible. CI fails with exact shortfall message.
+      thresholds: {
+        statements: 60,
+        branches: 50,
+        functions: 60,
+        lines: 60,
+      },
     },
-
 
     // ✅ KEY CHANGE: Use maxForks, NOT singleFork
     // On CI: 1 fork (sequential, low memory)

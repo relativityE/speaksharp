@@ -5,8 +5,18 @@
 
 All notable changes to this project will be documented in this file.
 
+### [Unreleased] — STT & UI Stabilization (2026-03-07)
+
+- **Infrastructure: Vite Environment Root Alignment** — Corrected `envDir` in `vite.config.mjs` to resolve to the workspace root. This ensures frontend scripts and live benchmarks can load project-wide `.env` cards (e.g., `E2E_PRO_EMAIL`) reliably across different execution contexts.
+- **UI: LiveRecordingCard Overhaul** — Redesigned the recording interface for improved proportionality and focus. Implemented a vertical center-stack for the Microphone (`w-11 h-11`) and Timer (`text-4xl`), and a left-aligned column for the **SECURE** badge and STT selector.
+- **Logic: Session Lifecycle Hardening** — Resolved the "9s Quit" race condition in `useSessionLifecycle.ts` by hardening state guards against initialization delays and premature teardowns during hydration.
+- **Benchmarking: Modular STT Suite** — Decomposed the monolithic hardware benchmarks into tiered, engine-specific specs (`benchmark-cpu`, `benchmark-webgpu`, `benchmark-cloud`). Added support for authenticated Pro-user testing in restricted STT modes.
+- **Files:** `vite.config.mjs`, `LiveRecordingCard.tsx`, `useSessionLifecycle.ts`, `tests/live/benchmark-cpu.live.spec.ts`, `tests/live/benchmark-cloud.live.spec.ts`
+
 ### [Unreleased] — STT & CI Stability Hardening (2026-03-05)
 
+- **Agent-Loop Integration** — Established an isolated mock suite (`test:agent`), Test Impact Analysis (`test-impact-map.json`), and the `run-ci.mjs` Node Orchestrator for agentic CI loops.
+- **Flaky Test Resolution** — Replaced brittle `networkidle` heavily async routines with deterministic behavioral assertions in `auth.e2e.spec.ts`. Added explicit readiness DOM signals to `private-stt.live.spec.ts`.
 - **STT Behavioral Contract Fix** — Refactored `tests/live/stt-integration.live.spec.ts` to use `data-action` + `aria-label` assertions (Pattern 10) instead of brittle text matching. Resolves "Green Illusion" where CI passed while live hardware tests failed after icon-only UI redesign.
 - **Isolated Test Governance** — Created `playwright.live.config.ts` to separate hardware-dependent live tests (WASM, fake audio injection) from mock E2E suite. Prevents WASM model downloads on every PR.
 - **Metrics Pipeline Hardening** — `scripts/run-metrics.sh` now uses file existence guards and typed JSON `null` fallbacks. Prevents silent CI crashes when shard reports are missing.
@@ -18,7 +28,7 @@ All notable changes to this project will be documented in this file.
   - Added Open Graph `<meta>` tags and a dedicated `og-image.webp` to `index.html` for rich social media sharing.
   - Resolved generic visual hierarchy issues on feature cards, mobile nav, and pro badges by injecting brand-aligned gradients and interactive hover states.
 - **Open Issue** — Exact-match golden transcript verification (`toHaveText`) times out at 120s with `"Listening..."`. Suspected race: Playwright fake audio stream starts at `T=0`, WASM engine takes ~20s to initialize. See `expert_second_opinion.md` in brain for full analysis.
-- **Files:** `tests/live/stt-integration.live.spec.ts`, `playwright.live.config.ts`, `scripts/run-metrics.sh`, `scripts/test-audit.sh`, `.github/workflows/ci.yml`, `App.tsx`, `PageTransition.tsx`, `index.html`
+- **Files:** `package.json`, `tests/live/stt-integration.live.spec.ts`, `playwright.live.config.ts`, `scripts/run-metrics.sh`, `scripts/test-audit.sh`, `.github/workflows/ci.yml`, `App.tsx`, `PageTransition.tsx`, `index.html`
 
 ### [3.5.4] - 2026-03-02
 

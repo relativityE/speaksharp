@@ -35,7 +35,7 @@ describe('AnalyticsPage', () => {
 
         // Default mocks
         mockUseAnalytics.mockReturnValue({
-            sessionHistory: [{ id: 'session-1' }],
+            sessionHistory: [{ id: 'session-1', engine: 'Cloud', ground_truth: 'text', transcript: 'text', duration: 10 }],
             loading: false,
             error: null,
             refreshAnalytics: vi.fn(),
@@ -141,7 +141,7 @@ describe('AnalyticsPage', () => {
     describe('Session View (With Session ID)', () => {
         it('should render session analysis heading when session exists', () => {
             mockUseAnalytics.mockReturnValue({
-                sessionHistory: [{ id: 'session-1' }],
+                sessionHistory: [{ id: 'session-1', engine: 'Cloud', ground_truth: 'text', transcript: 'text', duration: 10 }],
                 loading: false,
                 error: null,
             } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);

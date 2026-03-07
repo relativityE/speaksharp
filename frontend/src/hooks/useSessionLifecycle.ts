@@ -13,6 +13,7 @@ import { useStreak } from './useStreak';
 import { useUserFillerWords } from './useUserFillerWords';
 import { isPro } from '@/constants/subscriptionTiers';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
+import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { useActiveSessionLock } from './useActiveSessionLock';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
@@ -30,6 +31,7 @@ export const useSessionLifecycle = () => {
     const { userFillerWords } = useUserFillerWords();
     const stopSession = useSessionStore(state => state.stopSession);
     const activeEngine = useSessionStore(state => state.activeEngine);
+    const { service } = useTranscriptionContext();
     const { acquireLock, releaseLock } = useActiveSessionLock();
 
     const isProUser = isPro(profile?.subscription_status);
@@ -239,6 +241,9 @@ export const useSessionLifecycle = () => {
 
     // Tier enforcement: Auto-stop and 5-minute Warning
     useEffect(() => {
+        // ✅ GUARANTEE: Never enforce limits for Pro users or if unlimited flag (-1) is present.
+        if (isProUser || (usageLimit && usageLimit.remaining_seconds === -1)) return;
+
         if (isListening && usageLimit && typeof usageLimit.remaining_seconds === 'number' && usageLimit.remaining_seconds > 0) {
             const remaining = usageLimit.remaining_seconds - elapsedTime;
 
@@ -321,6 +326,14 @@ export const useSessionLifecycle = () => {
             setMode(activeEngine as 'cloud' | 'native' | 'private');
         }
     }, [isListening, activeEngine, mode]);
+
+    // Engine Warm-up: Pre-initialize heavy engines (WASM) when mode is selected
+    useEffect(() => {
+        if (mode === 'private' && service && !isListening) {
+            logger.info('[useSessionLifecycle] Mode set to private - triggering warm-up');
+            service.warmUp('private');
+        }
+    }, [mode, service, isListening]);
 
     return {
         isListening,
