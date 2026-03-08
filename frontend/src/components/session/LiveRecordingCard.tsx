@@ -42,7 +42,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     isListening,
     isReady,
     isProUser,
-    statusMessage,
+    statusMessage: _statusMessage,
     formattedTime,
     elapsedSeconds,
     isButtonDisabled,

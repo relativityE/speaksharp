@@ -30,7 +30,8 @@ const mockService = {
 };
 
 vi.mock('../../../services/transcription/TranscriptionService', () => ({
-  default: vi.fn().mockImplementation(() => mockService)
+  default: vi.fn().mockImplementation(() => mockService),
+  getTranscriptionService: vi.fn().mockImplementation(() => mockService)
 }));
 
 vi.mock('../../../lib/logger', () => ({

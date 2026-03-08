@@ -11,26 +11,42 @@
  * @see useSessionLifecycle.ts for the hook under test
  */
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
-import { renderHook, act } from '../../../tests/support/test-utils';
-import { useSessionLifecycle } from '../../hooks/useSessionLifecycle';
-import * as SpeechRecognitionHook from '../../hooks/useSpeechRecognition';
-import * as SessionStore from '../../stores/useSessionStore';
-import * as VocalAnalysisHook from '../../hooks/useVocalAnalysis';
-import * as AuthProvider from '../../contexts/AuthProvider';
+import { renderHook, act } from '@testing-library/react';
+import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
+import * as SpeechRecognitionHook from '@/hooks/useSpeechRecognition';
+import * as SessionStore from '@/stores/useSessionStore';
+import * as VocalAnalysisHook from '@/hooks/useVocalAnalysis';
+import * as AuthProvider from '@/contexts/AuthProvider';
 import * as UserProfileHook from '@/hooks/useUserProfile';
 import * as UsageLimitHook from '@/hooks/useUsageLimit';
-import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
+import { createTestSessionStore } from 'tests/unit/factories/storeFactory';
+import { TranscriptionProvider } from '@/providers/TranscriptionProvider';
+import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 
 // Mock modules
-vi.mock('../../hooks/useSpeechRecognition');
-vi.mock('../../stores/useSessionStore');
-vi.mock('../../hooks/useVocalAnalysis');
-vi.mock('../../contexts/AuthProvider');
-vi.mock('../../hooks/useProfile', () => ({
+vi.mock('@/hooks/useSpeechRecognition');
+vi.mock('@/stores/useSessionStore');
+vi.mock('@/hooks/useVocalAnalysis');
+vi.mock('@/contexts/AuthProvider');
+vi.mock('@/hooks/useProfile', () => ({
     useProfile: vi.fn(() => ({ subscription_status: 'pro' }))
 }));
 vi.mock('@/hooks/useUserProfile');
 vi.mock('@/hooks/useUsageLimit');
+vi.mock('@/providers/useTranscriptionContext', () => ({
+    useTranscriptionContext: vi.fn(),
+}));
+
+vi.mock('@/providers/TranscriptionProvider', () => ({
+    TranscriptionProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock('@/lib/logger', () => ({
+    default: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
+}));
+vi.mock('@/providers/useTranscriptionContext', () => ({
+    useTranscriptionContext: vi.fn(() => ({ service: { warmUp: vi.fn() } })),
+}));
 vi.mock('@/hooks/useUserFillerWords', () => ({
     useUserFillerWords: () => ({
         userFillerWords: ['mock-word'],
@@ -99,7 +115,7 @@ describe('useSessionLifecycle Timer Logic', () => {
         });
 
         // Default mocks
-        mockUseSpeechRecognition.mockReturnValue({
+        const defaultSpeechMock = {
             transcript: { transcript: '', confidence: 0, isFinal: false },
             fillerData: {},
             startListening: mockStartListening,
@@ -112,7 +128,8 @@ describe('useSessionLifecycle Timer Logic', () => {
             sttStatus: { type: 'ready', message: 'Ready' },
             chunks: [],
             mode: 'native',
-        } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
+        };
+        mockUseSpeechRecognition.mockReturnValue(defaultSpeechMock as any);
 
         (mockUseSessionStore as unknown as Mock).mockImplementation((selector: unknown) => ((store as unknown as { getState: () => unknown }).getState() as (s: unknown) => unknown)(selector));
 
@@ -152,11 +169,33 @@ describe('useSessionLifecycle Timer Logic', () => {
         (mockUseSessionStore as unknown as Mock).mockImplementation((selector: unknown) => (selector as (s: unknown) => unknown)((store as unknown as { getState: () => unknown }).getState()));
 
         mockUseSpeechRecognition.mockReturnValue({
-            ...mockUseSpeechRecognition(),
+            transcript: { transcript: '', confidence: 0, isFinal: false },
+            fillerData: {},
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
             isListening: true,
-        } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
+            isReady: true,
+            modelLoadingProgress: null,
+            error: null,
+            resetTranscript: vi.fn(),
+            sttStatus: { type: 'ready', message: 'Ready' },
+            chunks: [],
+            mode: 'native',
+        } as any);
 
-        renderHook(() => useSessionLifecycle());
+        (useTranscriptionContext as Mock).mockReturnValue({
+            service: {
+                getTranscriptionService: vi.fn(),
+            },
+        });
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
 
         // Enable listening in store
         (store as unknown as { setState: (s: unknown) => void }).setState({ isListening: true, startTime: Date.now() });
@@ -175,11 +214,33 @@ describe('useSessionLifecycle Timer Logic', () => {
         (mockUseSessionStore as unknown as Mock).mockImplementation((selector: unknown) => (selector as (s: unknown) => unknown)((store as unknown as { getState: () => unknown }).getState()));
 
         mockUseSpeechRecognition.mockReturnValue({
-            ...mockUseSpeechRecognition(),
+            transcript: { transcript: '', confidence: 0, isFinal: false },
+            fillerData: {},
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
             isListening: false,
-        } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
+            isReady: true,
+            modelLoadingProgress: null,
+            error: null,
+            resetTranscript: vi.fn(),
+            sttStatus: { type: 'ready', message: 'Ready' },
+            chunks: [],
+            mode: 'native',
+        } as any);
 
-        renderHook(() => useSessionLifecycle());
+        (useTranscriptionContext as Mock).mockReturnValue({
+            service: {
+                getTranscriptionService: vi.fn(),
+            },
+        });
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
 
         // Check if updateElapsedTime was called with 0 (which happens in useSessionStore init or similar?)
         // Wait, useSessionLifecycle doesn't call updateElapsedTime(0) on mount anymore?

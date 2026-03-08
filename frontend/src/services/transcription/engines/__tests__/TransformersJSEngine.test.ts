@@ -116,6 +116,7 @@ describe('TransformersJSEngine (Unit)', () => {
 
     it('should handle transcription errors', async () => {
         await engine.init({});
+        await engine.destroy(); // Clear existing transcriber to pick up the new mock
         mockPipeline.mockImplementationOnce(async () => {
             return async () => { throw new Error('Transcription failure'); };
         });

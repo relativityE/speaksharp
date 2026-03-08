@@ -1,0 +1,787 @@
+
+> speaksharp-frontend@0.0.0 test /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend
+> vitest frontend/src/services/transcription/ frontend/src/hooks/useSpeechRecognition/
+
+
+ RUN  v3.2.4 /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+      Coverage enabled with v8
+
+ ✓ frontend/src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.ts (2 tests) 16ms
+ ✓ frontend/src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.component.test.tsx (5 tests) 73ms
+ ✓ frontend/src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts (6 tests) 733ms
+   ✓ CloudAssemblyAI (Native WebSocket) > Resilience & Backoff > should reconnect with exponential backoff on error  626ms
+{"level":30,"time":1772988966742,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Enabled"}
+{"level":30,"time":1772988966742,"pid":6433,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988966742,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966742,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966742,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988966742,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988966742,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Disabled and cleared"}
+{"level":30,"time":1772988966763,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966763,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966764,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Enabled"}
+{"level":30,"time":1772988966764,"pid":6433,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988966764,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966764,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966764,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988966764,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988966764,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Disabled and cleared"}
+{"level":30,"time":1772988966765,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966765,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966765,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Enabled"}
+{"level":30,"time":1772988966765,"pid":6433,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988966765,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966765,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966765,"pid":6433,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772988966765,"pid":6433,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Stopping transcription"}
+{"level":30,"time":1772988966765,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988966765,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988966765,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Disabled and cleared"}
+{"level":30,"time":1772988966771,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966771,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966771,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Enabled"}
+{"level":30,"time":1772988966771,"pid":6433,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988966771,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966771,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966771,"pid":6433,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772988967771,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988967771,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988967771,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Disabled and cleared"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Enabled"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Disabled and cleared"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Enabled"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988966776,"pid":6433,"hostname":"Mac.lan","msg":"[TestRegistry] Disabled and cleared"}
+{"level":30,"time":1772988966779,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966779,"pid":6433,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966791,"pid":6430,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+ ✓ frontend/src/hooks/useSpeechRecognition/__tests__/index.component.test.tsx (6 tests) 38ms
+{"level":30,"time":1772988966793,"pid":6430,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966824,"pid":6430,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966825,"pid":6430,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966825,"pid":6430,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966834,"pid":6430,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966836,"pid":6430,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966837,"pid":6430,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966856,"pid":6429,"hostname":"Mac.lan","project":"yxlapjuovrsvjswkwnrk","msg":"[Supabase] Real client connected"}
+{"level":30,"time":1772988966860,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966860,"pid":6429,"hostname":"Mac.lan","userId":"test-user-id","msg":"[AuthProvider] Using injected initialSession"}
+{"level":30,"time":1772988966862,"pid":6429,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772988966863,"pid":6429,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988966867,"pid":6429,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+ ✓ frontend/src/hooks/useSpeechRecognition/__tests__/useFillerWords.test.tsx (4 tests) 60ms
+{"level":30,"time":1772988966867,"pid":6429,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988966867,"pid":6429,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988966868,"pid":6429,"hostname":"Mac.lan","policyId":"e2e-deterministic-native","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988966868,"pid":6429,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988966868,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772988966868,"pid":6429,"hostname":"Mac.lan","msg":"[EngineFactory] 🌐 Starting Native Browser mode"}
+{"level":30,"time":1772988966868,"pid":6429,"hostname":"Mac.lan","msg":"[EngineFactory] 🧪 Injecting Native engine from Registry"}
+{"level":30,"time":1772988966868,"pid":6429,"hostname":"Mac.lan","msg":"[useSpeechRecognition] Service ready"}
+{"level":30,"time":1772988966868,"pid":6429,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988966892,"pid":6429,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Stopping transcription"}
+{"level":30,"time":1772988966896,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966896,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988966896,"pid":6429,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772988966896,"pid":6429,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772988966897,"pid":6429,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772988966897,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","event":"INITIAL_SESSION","timestamp":"2026-03-08T16:56:06.898Z","msg":"[Supabase Auth] 🔐 Auth event: INITIAL_SESSION"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","policyId":"e2e-deterministic-native","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","msg":"[EngineFactory] 🌐 Starting Native Browser mode"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","msg":"[EngineFactory] 🧪 Injecting Native engine from Registry"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","msg":"[useSpeechRecognition] Service ready"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","hasSession":false,"durationMs":0,"msg":"[AuthProvider] getSession complete"}
+{"level":30,"time":1772988966898,"pid":6429,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988966899,"pid":6429,"hostname":"Mac.lan","from":"RECORDING","to":"ERROR","event":"ERROR_OCCURRED","msg":"[FSM] State transition: RECORDING -> ERROR"}
+{"level":50,"time":1772988966899,"pid":6429,"hostname":"Mac.lan","err":{"type":"Error","message":"Microphone access denied","stack":"Error: Microphone access denied\n    at Object.onStatusChange (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/useSpeechRecognition_prod.ts:99:67)\n    at Object.onStatusChange (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/useTranscriptionCallbacks.ts:31:62)\n    at TranscriptionService.handleStateChange (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts:630:18)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts:110:38\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionFSM.ts:147:37\n    at Set.forEach (<anonymous>)\n    at TranscriptionFSM.notifyListeners (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionFSM.ts:147:24)\n    at TranscriptionFSM.transition (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionFSM.ts:118:14)\n    at Object.onError (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts:581:18)\n    at MockTranscriptionService.simulateError (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/mocks/MockTranscriptionService.ts:93:26)"},"msg":"Transcription Error"}
+{"level":30,"time":1772988966906,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966906,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988966906,"pid":6429,"hostname":"Mac.lan","from":"ERROR","to":"TERMINATED","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: ERROR -> TERMINATED"}
+{"level":30,"time":1772988966906,"pid":6429,"hostname":"Mac.lan","from":"TERMINATED","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: TERMINATED -> IDLE"}
+{"level":30,"time":1772988966906,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772988966907,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966907,"pid":6429,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772988966907,"pid":6429,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988966907,"pid":6429,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+{"level":30,"time":1772988966907,"pid":6429,"hostname":"Mac.lan","event":"INITIAL_SESSION","timestamp":"2026-03-08T16:56:06.907Z","msg":"[Supabase Auth] 🔐 Auth event: INITIAL_SESSION"}
+{"level":30,"time":1772988966907,"pid":6429,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988966907,"pid":6429,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988966908,"pid":6429,"hostname":"Mac.lan","policyId":"e2e-deterministic-native","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988966908,"pid":6429,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988966908,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772988966908,"pid":6429,"hostname":"Mac.lan","msg":"[EngineFactory] 🌐 Starting Native Browser mode"}
+{"level":30,"time":1772988966908,"pid":6429,"hostname":"Mac.lan","msg":"[EngineFactory] 🧪 Injecting Native engine from Registry"}
+{"level":30,"time":1772988966908,"pid":6429,"hostname":"Mac.lan","msg":"[useSpeechRecognition] Service ready"}
+{"level":30,"time":1772988966908,"pid":6429,"hostname":"Mac.lan","hasSession":false,"durationMs":1,"msg":"[AuthProvider] getSession complete"}
+{"level":30,"time":1772988966908,"pid":6429,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988966908,"pid":6429,"hostname":"Mac.lan","from":"RECORDING","to":"ERROR","event":"ERROR_OCCURRED","msg":"[FSM] State transition: RECORDING -> ERROR"}
+{"level":50,"time":1772988966908,"pid":6429,"hostname":"Mac.lan","err":{"type":"Error","message":"Daily usage limit reached","stack":"Error: Daily usage limit reached\n    at Object.onStatusChange (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/useSpeechRecognition_prod.ts:99:67)\n    at Object.onStatusChange (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/useTranscriptionCallbacks.ts:31:62)\n    at TranscriptionService.handleStateChange (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts:630:18)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts:110:38\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionFSM.ts:147:37\n    at Set.forEach (<anonymous>)\n    at TranscriptionFSM.notifyListeners (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionFSM.ts:147:24)\n    at TranscriptionFSM.transition (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionFSM.ts:118:14)\n    at Object.onError (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts:581:18)\n    at MockTranscriptionService.simulateStatusChange (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/mocks/MockTranscriptionService.ts:108:26)"},"msg":"Transcription Error"}
+{"level":30,"time":1772988966909,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966909,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988966909,"pid":6429,"hostname":"Mac.lan","from":"ERROR","to":"TERMINATED","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: ERROR -> TERMINATED"}
+{"level":30,"time":1772988966909,"pid":6429,"hostname":"Mac.lan","from":"TERMINATED","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: TERMINATED -> IDLE"}
+{"level":30,"time":1772988966909,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","event":"INITIAL_SESSION","timestamp":"2026-03-08T16:56:06.910Z","msg":"[Supabase Auth] 🔐 Auth event: INITIAL_SESSION"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","policyId":"e2e-deterministic-native","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","msg":"[EngineFactory] 🌐 Starting Native Browser mode"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","msg":"[EngineFactory] 🧪 Injecting Native engine from Registry"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","msg":"[useSpeechRecognition] Service ready"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","hasSession":false,"durationMs":0,"msg":"[AuthProvider] getSession complete"}
+{"level":30,"time":1772988966910,"pid":6429,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988966911,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting - Destroying service"}
+{"level":30,"time":1772988966911,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988966911,"pid":6429,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772988966911,"pid":6429,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772988966911,"pid":6429,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772988966911,"pid":6429,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+ ✓ frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx (4 tests) 75ms
+ ✓ frontend/src/services/transcription/utils/__tests__/ImmutableCallbackProxy.test.ts (4 tests) 30ms
+ ✓ frontend/src/services/transcription/engines/__tests__/WhisperEngineRegistry.test.ts (6 tests) 31ms
+{"level":30,"time":1772988967777,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":30,"time":1772988967777,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Engine initialized successfully."}
+{"level":30,"time":1772988967779,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":30,"time":1772988967779,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Engine initialized successfully."}
+{"level":30,"time":1772988967780,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":50,"time":1772988967780,"pid":6438,"hostname":"Mac.lan","err":{"type":"Error","message":"Network failure","stack":"Error: Network failure\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.test.ts:108:44\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runFiles (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1787:3)"},"msg":"[TransformersJS] Failed to initialize engine."}
+{"level":30,"time":1772988967782,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":30,"time":1772988967782,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Engine initialized successfully."}
+{"level":30,"time":1772988967782,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Destroying engine..."}
+{"level":30,"time":1772988967782,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":30,"time":1772988967782,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Engine initialized successfully."}
+{"level":50,"time":1772988967782,"pid":6438,"hostname":"Mac.lan","err":{"type":"Error","message":"Transcription failure","stack":"Error: Transcription failure\n    at TransformersJSEngine.transcriber (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.test.ts:121:40)\n    at TransformersJSEngine.transcribe (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/TransformersJSEngine.ts:131:40)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.test.ts:126:37\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[TransformersJS] Transcription failed."}
+{"level":30,"time":1772988967784,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Destroying engine..."}
+{"level":30,"time":1772988967784,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":30,"time":1772988967784,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Engine initialized successfully."}
+{"level":30,"time":1772988967785,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":50,"time":1772988967785,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] ❌ Model load failed with \"Unexpected token <\". This suggests a 404 error where the server returned index.html instead of the model file. Ensure env.allowLocalModels=false is set."}
+{"level":50,"time":1772988967785,"pid":6438,"hostname":"Mac.lan","err":{"type":"Error","message":"Unexpected token < at position 0","stack":"Error: Unexpected token < at position 0\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.test.ts:150:44\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runFiles (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1787:3)"},"msg":"[TransformersJS] Failed to initialize engine."}
+{"level":30,"time":1772988967787,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":30,"time":1772988967787,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Engine initialized successfully."}
+{"level":30,"time":1772988967787,"pid":6438,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":50,"time":1772988967787,"pid":6438,"hostname":"Mac.lan","err":{"type":"Error","message":"string error","stack":"Error: string error\n    at TransformersJSEngine.init (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/TransformersJSEngine.ts:108:56)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.test.ts:172:24\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[TransformersJS] Failed to initialize engine."}
+ ✓ frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.test.ts (11 tests) 16ms
+ ✓ frontend/src/hooks/useSpeechRecognition/__tests__/utils.test.ts (6 tests) 259ms
+ ✓ frontend/src/hooks/useSpeechRecognition/__tests__/stale-closure.test.tsx (1 test) 28ms
+ ✓ frontend/src/services/transcription/utils/__tests__/AudioProcessor.test.ts (14 tests) 16ms
+{"level":30,"time":1772988969273,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🧪 Exposing instance for E2E testing"}
+{"level":30,"time":1772988969274,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initialized (dual-engine facade)."}
+{"level":30,"time":1772988969274,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🔄 init() START - Dual-Engine Mode"}
+{"level":30,"time":1772988969274,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initializing PrivateSTT facade..."}
+{"level":30,"time":1772988969274,"pid":6449,"hostname":"Mac.lan","engineType":"whisper-turbo","msg":"[PrivateWhisper] ✅ Engine initialized"}
+{"level":30,"time":1772988969274,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Engine initialized: whisper-turbo"}
+{"level":30,"time":1772988969274,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Model ready! Using GPU acceleration."}
+{"level":30,"time":1772988969276,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🧪 Exposing instance for E2E testing"}
+{"level":30,"time":1772988969276,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initialized (dual-engine facade)."}
+{"level":30,"time":1772988969276,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🔄 init() START - Dual-Engine Mode"}
+{"level":30,"time":1772988969276,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initializing PrivateSTT facade..."}
+{"level":30,"time":1772988969276,"pid":6449,"hostname":"Mac.lan","engineType":"whisper-turbo","msg":"[PrivateWhisper] ✅ Engine initialized"}
+{"level":30,"time":1772988969276,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Engine initialized: whisper-turbo"}
+{"level":30,"time":1772988969276,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Model ready! Using GPU acceleration."}
+{"level":30,"time":1772988969276,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] startTranscription() called."}
+{"level":30,"time":1772988969276,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Streaming started."}
+{"level":30,"time":1772988969776,"pid":6449,"hostname":"Mac.lan","samples":16000,"msg":"[PrivateWhisper] 🔊 Speech detected"}
+{"level":30,"time":1772988969776,"pid":6449,"hostname":"Mac.lan","samples":16000,"expectedDurationSec":1,"msg":"[PrivateWhisper] 🎤 Processing chunk"}
+{"level":30,"time":1772988969776,"pid":6449,"hostname":"Mac.lan","newText":"Test transcript","latencyMs":"0.00","msg":"[PrivateWhisper] ✨ Transcription success"}
+{"level":30,"time":1772988970376,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] stopTranscription() called."}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🧪 Exposing instance for E2E testing"}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initialized (dual-engine facade)."}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🔄 init() START - Dual-Engine Mode"}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initializing PrivateSTT facade..."}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","engineType":"whisper-turbo","msg":"[PrivateWhisper] ✅ Engine initialized"}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Engine initialized: whisper-turbo"}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Model ready! Using GPU acceleration."}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] startTranscription() called."}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Streaming started."}
+{"level":30,"time":1772988970379,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] stopTranscription() called."}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🧪 Exposing instance for E2E testing"}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initialized (dual-engine facade)."}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🔄 init() START - Dual-Engine Mode"}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initializing PrivateSTT facade..."}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","engineType":"whisper-turbo","msg":"[PrivateWhisper] ✅ Engine initialized"}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Engine initialized: whisper-turbo"}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Model ready! Using GPU acceleration."}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] startTranscription() called."}
+{"level":30,"time":1772988969279,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Streaming started."}
+{"level":30,"time":1772988969779,"pid":6449,"hostname":"Mac.lan","samples":16000,"msg":"[PrivateWhisper] 🔊 Speech detected"}
+{"level":30,"time":1772988969779,"pid":6449,"hostname":"Mac.lan","samples":16000,"expectedDurationSec":1,"msg":"[PrivateWhisper] 🎤 Processing chunk"}
+{"level":30,"time":1772988969779,"pid":6449,"hostname":"Mac.lan","newText":"Test transcript","latencyMs":"0.00","msg":"[PrivateWhisper] ✨ Transcription success"}
+{"level":30,"time":1772988970379,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] stopTranscription() called."}
+{"level":30,"time":1772988969280,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🧪 Exposing instance for E2E testing"}
+{"level":30,"time":1772988969280,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initialized (dual-engine facade)."}
+{"level":30,"time":1772988969280,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🔄 init() START - Dual-Engine Mode"}
+{"level":30,"time":1772988969280,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initializing PrivateSTT facade..."}
+{"level":30,"time":1772988969280,"pid":6449,"hostname":"Mac.lan","engineType":"whisper-turbo","msg":"[PrivateWhisper] ✅ Engine initialized"}
+{"level":30,"time":1772988969280,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Engine initialized: whisper-turbo"}
+{"level":30,"time":1772988969280,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Model ready! Using GPU acceleration."}
+{"level":30,"time":1772988969280,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] startTranscription() called."}
+{"level":30,"time":1772988969280,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] Streaming started."}
+{"level":30,"time":1772988969780,"pid":6449,"hostname":"Mac.lan","samples":8000,"msg":"[PrivateWhisper] 🔊 Speech detected"}
+{"level":30,"time":1772988969780,"pid":6449,"hostname":"Mac.lan","samples":8000,"expectedDurationSec":0.5,"msg":"[PrivateWhisper] 🎤 Processing chunk"}
+{"level":30,"time":1772988969780,"pid":6449,"hostname":"Mac.lan","newText":"Test transcript","latencyMs":"0.00","msg":"[PrivateWhisper] ✨ Transcription success"}
+{"level":30,"time":1772988970280,"pid":6449,"hostname":"Mac.lan","samples":8000,"msg":"[PrivateWhisper] 🔊 Speech detected"}
+{"level":30,"time":1772988970280,"pid":6449,"hostname":"Mac.lan","newText":"Test transcript","latencyMs":"0.00","msg":"[PrivateWhisper] ✨ Transcription success"}
+{"level":30,"time":1772988970580,"pid":6449,"hostname":"Mac.lan","msg":"[PrivateWhisper] stopTranscription() called."}
+ ✓ frontend/src/services/transcription/__tests__/FailureManager.test.ts (6 tests) 16ms
+ ✓ frontend/src/services/transcription/modes/__tests__/PrivateWhisper.test.ts (5 tests) 16ms
+ ✓ frontend/src/services/transcription/utils/__tests__/audio-processor.worker.test.ts (5 tests) 16ms
+{"level":30,"time":1772988970198,"pid":6459,"hostname":"Mac.lan","userPref":"private","policyPref":"cloud","allowNative":true,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970198,"pid":6459,"hostname":"Mac.lan","resolved":"private","source":"user-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970199,"pid":6459,"hostname":"Mac.lan","userPref":"cloud","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970199,"pid":6459,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970199,"pid":6459,"hostname":"Mac.lan","userPref":null,"policyPref":"cloud","allowNative":true,"allowCloud":true,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970199,"pid":6459,"hostname":"Mac.lan","resolved":"cloud","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970199,"pid":6459,"hostname":"Mac.lan","policyPref":null,"allowNative":true,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970199,"pid":6459,"hostname":"Mac.lan","resolved":"native","source":"fallback","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970199,"pid":6459,"hostname":"Mac.lan","policyPref":null,"allowNative":false,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970199,"pid":6459,"hostname":"Mac.lan","resolved":"cloud","source":"fallback","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970199,"pid":6459,"hostname":"Mac.lan","policyPref":null,"allowNative":false,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970199,"pid":6459,"hostname":"Mac.lan","resolved":"private","source":"fallback","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970199,"pid":6459,"hostname":"Mac.lan","policyPref":null,"allowNative":false,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+ ✓ frontend/src/services/transcription/__tests__/TranscriptionPolicy.test.ts (14 tests) 10ms
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988970326,"pid":6456,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988970326,"pid":6456,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970326,"pid":6456,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988970326,"pid":6456,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+{"level":30,"time":1772988970326,"pid":6456,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988970326,"pid":6456,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988970326,"pid":6456,"hostname":"Mac.lan","policyId":"test","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970326,"pid":6456,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970326,"pid":6456,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772988970326,"pid":6456,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988970326,"pid":6456,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988970526,"pid":6456,"hostname":"Mac.lan","from":"RECORDING","to":"STOPPING","event":"STOP_REQUESTED","msg":"[FSM] State transition: RECORDING -> STOPPING"}
+{"level":40,"time":1772988970526,"pid":6456,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772988970526,"pid":6456,"hostname":"Mac.lan","from":"STOPPING","to":"READY","event":"STOP_COMPLETED","msg":"[FSM] State transition: STOPPING -> READY"}
+{"level":30,"time":1772988970526,"pid":6456,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988970331,"pid":6456,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988970331,"pid":6456,"hostname":"Mac.lan","key":"cloudSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970331,"pid":6456,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988970331,"pid":6456,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+{"level":30,"time":1772988970331,"pid":6456,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988970331,"pid":6456,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988970331,"pid":6456,"hostname":"Mac.lan","policyId":"test","policyPref":"cloud","allowNative":false,"allowCloud":true,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970331,"pid":6456,"hostname":"Mac.lan","resolved":"cloud","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970331,"pid":6456,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: cloud"}
+{"level":30,"time":1772988970331,"pid":6456,"hostname":"Mac.lan","key":"cloudSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988970331,"pid":6456,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988970531,"pid":6456,"hostname":"Mac.lan","from":"RECORDING","to":"STOPPING","event":"STOP_REQUESTED","msg":"[FSM] State transition: RECORDING -> STOPPING"}
+{"level":40,"time":1772988970531,"pid":6456,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772988970531,"pid":6456,"hostname":"Mac.lan","from":"STOPPING","to":"READY","event":"STOP_COMPLETED","msg":"[FSM] State transition: STOPPING -> READY"}
+{"level":30,"time":1772988970531,"pid":6456,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988970332,"pid":6456,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988970332,"pid":6456,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970332,"pid":6456,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988970332,"pid":6456,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+{"level":30,"time":1772988970332,"pid":6456,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988970332,"pid":6456,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988970332,"pid":6456,"hostname":"Mac.lan","policyId":"test","policyPref":"private","allowNative":false,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970332,"pid":6456,"hostname":"Mac.lan","resolved":"private","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970332,"pid":6456,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: private"}
+{"level":30,"time":1772988970332,"pid":6456,"hostname":"Mac.lan","key":"privateSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988970332,"pid":6456,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧪 E2E Mode detected: DISABLING optimistic fallback. Waiting for full engine init."}
+{"level":30,"time":1772988970332,"pid":6456,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988970532,"pid":6456,"hostname":"Mac.lan","from":"RECORDING","to":"STOPPING","event":"STOP_REQUESTED","msg":"[FSM] State transition: RECORDING -> STOPPING"}
+{"level":40,"time":1772988970532,"pid":6456,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772988970532,"pid":6456,"hostname":"Mac.lan","from":"STOPPING","to":"READY","event":"STOP_COMPLETED","msg":"[FSM] State transition: STOPPING -> READY"}
+{"level":30,"time":1772988970532,"pid":6456,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","policyId":"test","policyPref":"private","allowNative":true,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","resolved":"private","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: private"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","key":"privateSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧪 E2E Mode detected: DISABLING optimistic fallback. Waiting for full engine init."}
+{"level":50,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","mode":"private","error":{},"msg":"[TranscriptionService] Implementation failure"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] Attempting Native Fallback..."}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] Interrupting active session for new request"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> CLEANING_UP"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","policyId":"test","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988970325,"pid":6455,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","policyId":"test","policyPref":"private","allowNative":true,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","resolved":"private","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: private"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","key":"privateSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧪 E2E Mode detected: DISABLING optimistic fallback. Waiting for full engine init."}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] Cache miss - triggering download"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] Handling cache miss - switching to native fallback"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988970331,"pid":6455,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988970332,"pid":6455,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988970332,"pid":6455,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970332,"pid":6455,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970332,"pid":6455,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970332,"pid":6455,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988970332,"pid":6455,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988970332,"pid":6455,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988970332,"pid":6455,"hostname":"Mac.lan","policyId":"test","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970332,"pid":6455,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970332,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772988970332,"pid":6455,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988970332,"pid":6455,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988970332,"pid":6455,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","policyId":"test","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772988970333,"pid":6455,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+ ✓ frontend/src/services/transcription/__tests__/TranscriptionAccuracy.integration.test.ts (3 tests) 9ms
+ ✓ frontend/src/services/transcription/__tests__/TranscriptionService.test.ts (4 tests) 10ms
+{"level":30,"time":1772988971105,"pid":6461,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988971105,"pid":6461,"hostname":"Mac.lan","msg":"[EngineFactory] 🌐 Starting Native Browser mode"}
+{"level":30,"time":1772988971107,"pid":6461,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988971107,"pid":6461,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988971107,"pid":6461,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988971108,"pid":6461,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988971108,"pid":6461,"hostname":"Mac.lan","msg":"[EngineFactory] ☁️ Starting Cloud (AssemblyAI) mode"}
+{"level":30,"time":1772988971108,"pid":6461,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988971108,"pid":6461,"hostname":"Mac.lan","key":"cloudSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988971108,"pid":6461,"hostname":"Mac.lan","key":"cloudSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988971109,"pid":6461,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+ ✓ frontend/src/services/transcription/__tests__/EngineFactory.test.ts (5 tests) 12ms
+{"level":30,"time":1772988971200,"pid":6463,"hostname":"Mac.lan","msg":"[WhisperTurbo] [PERF] Initializing engine via Registry at 2026-03-08T16:56:11.200Z"}
+{"level":30,"time":1772988971201,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Init complete."}
+{"level":30,"time":1772988971200,"pid":6463,"hostname":"Mac.lan","msg":"[WhisperTurbo] [PERF] Engine acquisition took 0.00ms"}
+{"level":30,"time":1772988971203,"pid":6463,"hostname":"Mac.lan","msg":"[WhisperTurbo] [PERF] Initializing engine via Registry at 2026-03-08T16:56:11.203Z"}
+{"level":30,"time":1772988971203,"pid":6463,"hostname":"Mac.lan","msg":"[WhisperTurbo] [PERF] Engine acquisition took 0.00ms"}
+{"level":30,"time":1772988971201,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Calling onReady callback..."}
+{"level":30,"time":1772988971203,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Init complete."}
+{"level":30,"time":1772988971203,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Calling onReady callback..."}
+{"level":30,"time":1772988971203,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] startTranscription called"}
+{"level":30,"time":1772988971203,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Starting recognition.start()..."}
+{"level":30,"time":1772988971203,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] recognition.start() called successfully."}
+{"level":30,"time":1772988971203,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Init complete."}
+{"level":30,"time":1772988971204,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Calling onReady callback..."}
+{"level":30,"time":1772988971204,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] startTranscription called"}
+{"level":30,"time":1772988971204,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Starting recognition.start()..."}
+{"level":30,"time":1772988971204,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] recognition.start() called successfully."}
+{"level":30,"time":1772988971204,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] stopTranscription called"}
+{"level":30,"time":1772988971204,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Init complete."}
+{"level":30,"time":1772988971204,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Calling onReady callback..."}
+{"level":30,"time":1772988971204,"pid":6464,"hostname":"Mac.lan","resultIndex":0,"resultsLength":1,"msg":"[NativeBrowser] onresult called!"}
+{"level":30,"time":1772988971204,"pid":6464,"hostname":"Mac.lan","finalTranscript":"hello world","msg":"[NativeBrowser] Final transcript received"}
+{"level":30,"time":1772988971205,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Init complete."}
+{"level":30,"time":1772988971205,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Calling onReady callback..."}
+{"level":30,"time":1772988971206,"pid":6464,"hostname":"Mac.lan","resultIndex":0,"resultsLength":1,"msg":"[NativeBrowser] onresult called!"}
+{"level":30,"time":1772988971206,"pid":6464,"hostname":"Mac.lan","interimTranscript":"hello","msg":"[NativeBrowser] Interim transcript received"}
+{"level":30,"time":1772988971206,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Init complete."}
+{"level":30,"time":1772988971206,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Calling onReady callback..."}
+{"level":30,"time":1772988971206,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] startTranscription called"}
+{"level":30,"time":1772988971206,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] Starting recognition.start()..."}
+{"level":30,"time":1772988971206,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] recognition.start() called successfully."}
+{"level":30,"time":1772988971206,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] onend reached, attempting immediate restart..."}
+{"level":30,"time":1772988971266,"pid":6464,"hostname":"Mac.lan","msg":"[NativeBrowser] onend reached, attempting immediate restart..."}
+ ✓ frontend/src/services/transcription/engines/__tests__/WhisperTurboEngine.test.ts (2 tests) 9ms
+ ✓ frontend/src/services/transcription/modes/__tests__/NativeBrowser.test.ts (6 tests) 10ms
+{"level":30,"time":1772988972222,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772988972222,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] 🧪 Test environment detected. Using MockEngine."}
+{"level":30,"time":1772988972222,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] 🛠️ Loading MockEngine..."}
+{"level":30,"time":1772988972223,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] ✅ MockEngine ready."}
+{"level":30,"time":1772988972223,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] MockEngine initialized successfully."}
+{"level":30,"time":1772988972224,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772988972224,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] 🧪 Test environment detected. Using MockEngine."}
+{"level":30,"time":1772988972224,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] 🛠️ Loading MockEngine..."}
+{"level":30,"time":1772988972225,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] ✅ MockEngine ready."}
+{"level":30,"time":1772988972225,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] MockEngine initialized successfully."}
+{"level":30,"time":1772988972225,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772988972225,"pid":6469,"hostname":"Mac.lan","forceEngine":"whisper-turbo","msg":"[PrivateSTT] 🎯 Forcing engine"}
+{"level":30,"time":1772988972225,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] 📥 Importing WhisperTurbo engine..."}
+{"level":30,"time":1772988972225,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] ⏳ calling WhisperTurbo.init()..."}
+{"level":30,"time":1772988972225,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] WhisperTurbo engine initialized successfully."}
+{"level":30,"time":1772988972226,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772988972226,"pid":6469,"hostname":"Mac.lan","forceEngine":"transformers-js","msg":"[PrivateSTT] 🎯 Forcing engine"}
+{"level":30,"time":1772988972226,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] 📥 Importing TransformersJS engine..."}
+{"level":30,"time":1772988972226,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] ⏳ calling TransformersJS.init()..."}
+{"level":30,"time":1772988974226,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] ✅ TransformersJS engine initialized successfully."}
+{"level":30,"time":1772988974226,"pid":6469,"hostname":"Mac.lan","msg":"[PrivateSTT] TransformersJS engine initialized successfully."}
+ ✓ frontend/src/services/transcription/engines/__tests__/PrivateSTT.test.ts (4 tests) 28ms
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","key":"cloudSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","policyId":"prod-free","policyPref":"cloud","allowNative":true,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","resolved":"cloud","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: cloud"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","key":"cloudSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] Interrupting active session for new request"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","policyId":"prod-free","policyPref":"private","allowNative":true,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","resolved":"private","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: private"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","key":"privateSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧪 E2E Mode detected: DISABLING optimistic fallback. Waiting for full engine init."}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772988972632,"pid":6467,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988972641,"pid":6467,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988972641,"pid":6467,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988972641,"pid":6467,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988972641,"pid":6467,"hostname":"Mac.lan","key":"cloudSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988972641,"pid":6467,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988972641,"pid":6467,"hostname":"Mac.lan","policyId":"prod-free","policyPref":"cloud","allowNative":true,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988972641,"pid":6467,"hostname":"Mac.lan","resolved":"cloud","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988972641,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: cloud"}
+{"level":30,"time":1772988972641,"pid":6467,"hostname":"Mac.lan","key":"cloudSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988972641,"pid":6467,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988972641,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988972641,"pid":6467,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772988972641,"pid":6467,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772988972691,"pid":6467,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772988972691,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772988972741,"pid":6467,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","key":"cloudSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","policyId":"prod-free","policyPref":"cloud","allowNative":true,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","resolved":"cloud","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: cloud"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","key":"cloudSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772988972643,"pid":6467,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+ ✓ frontend/src/services/transcription/__tests__/TranscriptionService.zombie.test.ts (3 tests) 15ms
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","policyId":"test-max-attempts","policyPref":"private","allowNative":true,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","resolved":"private","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":40,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","failures":3,"max":2,"msg":"[TranscriptionService] Max Private attempts reached. Forcing Native Fallback."}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772988972895,"pid":6468,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+ ✓ frontend/src/services/transcription/__tests__/TranscriptionService.maxAttempts.test.ts (1 test) 6ms
+{"level":30,"time":1772988973607,"pid":6474,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988973607,"pid":6474,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988973607,"pid":6474,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988973607,"pid":6474,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988973607,"pid":6474,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772988973607,"pid":6474,"hostname":"Mac.lan","policyId":"test","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772988973607,"pid":6474,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772988973607,"pid":6474,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772988973607,"pid":6474,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772988973607,"pid":6474,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772988973607,"pid":6474,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988973607,"pid":6474,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772988973607,"pid":6474,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772988973657,"pid":6474,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772988973657,"pid":6474,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772988973707,"pid":6474,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988973613,"pid":6474,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772988973613,"pid":6474,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988973613,"pid":6474,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988973613,"pid":6474,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772988973613,"pid":6474,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772988973613,"pid":6474,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772988973613,"pid":6474,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988973613,"pid":6474,"hostname":"Mac.lan","from":"READY","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: READY -> CLEANING_UP"}
+{"level":30,"time":1772988973613,"pid":6474,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772988973613,"pid":6474,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772988973713,"pid":6474,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772988973713,"pid":6474,"hostname":"Mac.lan","from":"READY","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: READY -> CLEANING_UP"}
+{"level":30,"time":1772988973713,"pid":6474,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772988973713,"pid":6474,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772988973713,"pid":6474,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+ ✓ frontend/src/services/transcription/__tests__/TranscriptionService.race.test.ts (2 tests) 10ms
+
+ Test Files  25 passed (25)
+      Tests  129 passed (129)
+   Start at  12:56:03
+   Duration  10.47s (transform 624ms, setup 5.37s, collect 5.57s, tests 1.55s, environment 5.98s, prepare 2.03s)
+
+ % Coverage report from v8
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |   20.61 |    67.06 |   59.05 |   20.61 |                   
+ src               |   18.89 |       50 |      50 |   18.89 |                   
+  App.tsx          |       0 |        0 |       0 |       0 | 1-91              
+  config.ts        |     100 |      100 |     100 |     100 |                   
+  main.tsx         |       0 |      100 |     100 |       0 | 2-237             
+ src/components    |       0 |    66.66 |   66.66 |       0 |                   
+  ...Dashboard.tsx |       0 |        0 |       0 |       0 | 1-907             
+  ...erWarning.tsx |       0 |      100 |     100 |       0 | 2-28              
+  ...rBoundary.tsx |       0 |        0 |       0 |       0 | 1-59              
+  ErrorDisplay.tsx |       0 |      100 |     100 |       0 | 2-25              
+  ...rBoundary.tsx |       0 |      100 |     100 |       0 | 2-105             
+  Navigation.tsx   |       0 |        0 |       0 |       0 | 1-187             
+  ProfileGuard.tsx |       0 |      100 |     100 |       0 | 2-88              
+  ...redDialog.tsx |       0 |        0 |       0 |       0 | 1-132             
+  ...ctedRoute.tsx |       0 |      100 |     100 |       0 | 2-41              
+  ...ionStatus.tsx |       0 |      100 |     100 |       0 | 2-29              
+  SideNav.tsx      |       0 |      100 |     100 |       0 | 2-57              
+  ...mptDialog.tsx |       0 |      100 |     100 |       0 | 2-59              
+ ...ents/analytics |       0 |    77.77 |   77.77 |       0 |                   
+  ...alsDialog.tsx |       0 |        0 |       0 |       0 | 1-105             
+  ...WordTable.tsx |       0 |      100 |     100 |       0 | 2-64              
+  GoalsSection.tsx |       0 |      100 |     100 |       0 | 2-115             
+  ...Indicator.tsx |       0 |      100 |     100 |       0 | 2-49              
+  ...Benchmark.tsx |       0 |      100 |     100 |       0 | 2-140             
+  ...sonDialog.tsx |       0 |      100 |     100 |       0 | 2-143             
+  ...llerWords.tsx |       0 |      100 |     100 |       0 | 2-51              
+  TrendChart.tsx   |       0 |      100 |     100 |       0 | 2-84              
+  ...vityChart.tsx |       0 |        0 |       0 |       0 | 1-95              
+ ...onents/landing |       0 |    42.85 |   42.85 |       0 |                   
+  ...tsSection.tsx |       0 |        0 |       0 |       0 | 1-92              
+  CTASection.tsx   |       0 |        0 |       0 |       0 | 1-40              
+  ...esSection.tsx |       0 |      100 |     100 |       0 | 2-105             
+  HeroSection.tsx  |       0 |        0 |       0 |       0 | 1-110             
+  ...Dashboard.tsx |       0 |        0 |       0 |       0 | 1-175             
+  ...ingFooter.tsx |       0 |      100 |     100 |       0 | 2-26              
+  ...lsSection.tsx |       0 |      100 |     100 |       0 | 2-29              
+ ...onents/session |       0 |    57.89 |   57.89 |       0 |                   
+  ...ggestions.tsx |       0 |        0 |       0 |       0 | 1-143             
+  ...ScoreCard.tsx |       0 |      100 |     100 |       0 | 13-40             
+  ...dAnalysis.tsx |       0 |        0 |       0 |       0 | 1-125             
+  ...WordsCard.tsx |       0 |        0 |       0 |       0 | 1-72              
+  ...rdingCard.tsx |       0 |      100 |     100 |       0 | 2-189             
+  ...riptPanel.tsx |       0 |      100 |     100 |       0 | 2-78              
+  ...ActionBar.tsx |       0 |      100 |     100 |       0 | 2-56              
+  ...csDisplay.tsx |       0 |      100 |     100 |       0 | 2-50              
+  ...eSkeleton.tsx |       0 |      100 |     100 |       0 | 2-103             
+  ...onSidebar.tsx |       0 |        0 |       0 |       0 | 1-285             
+  ...gRateCard.tsx |       0 |      100 |     100 |       0 | 2-38              
+  SpeakingTips.tsx |       0 |        0 |       0 |       0 | 1-62              
+  ...gTipsCard.tsx |       0 |        0 |       0 |       0 | 1-60              
+  ...efulPanel.tsx |       0 |      100 |     100 |       0 | 2-35              
+  ...cationBar.tsx |       0 |      100 |     100 |       0 | 2-175             
+  SunsetModals.tsx |       0 |      100 |     100 |       0 | 2-96              
+  TimerDisplay.tsx |       0 |      100 |     100 |       0 | 2-45              
+  ...riptPanel.tsx |       0 |        0 |       0 |       0 | 1-161             
+  ...dsManager.tsx |       0 |        0 |       0 |       0 | 1-141             
+ src/components/ui |       0 |    58.33 |   58.33 |       0 |                   
+  EmptyState.tsx   |       0 |      100 |     100 |       0 | 2-94              
+  FadeIn.tsx       |       0 |      100 |     100 |       0 | 2-37              
+  ...ransition.tsx |       0 |        0 |       0 |       0 | 1-43              
+  alert-dialog.tsx |       0 |      100 |     100 |       0 | 3-108             
+  alert.tsx        |       0 |        0 |       0 |       0 | 1-44              
+  ...e-variants.ts |       0 |        0 |       0 |       0 | 1-28              
+  badge.tsx        |       0 |        0 |       0 |       0 | 1-15              
+  ...n-variants.ts |       0 |        0 |       0 |       0 | 1-28              
+  button.tsx       |       0 |        0 |       0 |       0 | 1-25              
+  card.tsx         |       0 |        0 |       0 |       0 | 1-91              
+  carousel.tsx     |       0 |        0 |       0 |       0 | 1-251             
+  checkbox.tsx     |       0 |      100 |     100 |       0 | 3-28              
+  dialog.tsx       |       0 |      100 |     100 |       0 | 3-109             
+  drawer.tsx       |       0 |      100 |     100 |       0 | 3-105             
+  ...down-menu.tsx |       0 |      100 |     100 |       0 | 3-182             
+  input.tsx        |       0 |        0 |       0 |       0 | 1-43              
+  label.tsx        |       0 |      100 |     100 |       0 | 3-24              
+  popover.tsx      |       0 |      100 |     100 |       0 | 3-29              
+  progress.tsx     |       0 |      100 |     100 |       0 | 3-26              
+  sheet.tsx        |       0 |      100 |     100 |       0 | 3-127             
+  skeleton.tsx     |       0 |        0 |       0 |       0 | 1-14              
+  sonner.tsx       |       0 |      100 |     100 |       0 | 3-41              
+  switch.tsx       |       0 |      100 |     100 |       0 | 3-27              
+  toast.tsx        |       0 |      100 |     100 |       0 | 2-43              
+ src/config        |   78.33 |       30 |      75 |   78.33 |                   
+  TestFlags.ts     |   71.87 |    28.57 |   66.66 |   71.87 | ...42,82-83,87-88 
+  env.ts           |   85.71 |    33.33 |     100 |   85.71 | 8-11              
+ src/contexts      |   54.65 |    55.17 |      50 |   54.65 |                   
+  AuthContext.tsx  |       0 |        0 |       0 |       0 | 1-13              
+  AuthProvider.tsx |   54.19 |    57.14 |   66.66 |   54.19 | ...78-197,216-217 
+  ...leContext.tsx |     100 |      100 |     100 |     100 |                   
+ src/hooks         |    3.42 |     42.3 |    5.55 |    3.42 |                   
+  ...essionLock.ts |       0 |        0 |       0 |       0 | 1-119             
+  useAnalytics.ts  |       0 |        0 |       0 |       0 | 1-153             
+  ...serSupport.ts |       0 |        0 |       0 |       0 | 1-32              
+  ...ifications.ts |       0 |        0 |       0 |       0 | 1-56              
+  useGoals.ts      |       0 |        0 |       0 |       0 | 1-96              
+  ...iceHistory.ts |       0 |        0 |       0 |       0 | 1-15              
+  useProfile.ts    |       0 |        0 |       0 |       0 | 1-15              
+  useSession.ts    |       0 |        0 |       0 |       0 | 1-19              
+  ...nLifecycle.ts |       0 |        0 |       0 |       0 | 1-366             
+  ...ionManager.ts |       0 |        0 |       0 |       0 | 1-120             
+  ...ionMetrics.ts |       0 |        0 |       0 |       0 | 1-87              
+  useStreak.ts     |       0 |        0 |       0 |       0 | 1-61              
+  useUsageLimit.ts |       0 |        0 |       0 |       0 | 1-101             
+  ...illerWords.ts |       0 |        0 |       0 |       0 | 1-144             
+  ...serProfile.ts |       0 |        0 |       0 |       0 | 1-133             
+  ...alAnalysis.ts |   69.64 |      100 |   33.33 |   69.64 | 35-37,44-46,49-59 
+ ...echRecognition |   86.91 |    81.53 |   69.44 |   86.91 |                   
+  types.ts         |     100 |      100 |     100 |     100 |                   
+  ...illerWords.ts |   90.21 |    91.42 |     100 |   90.21 | 23-29,45,105      
+  ...ssionTimer.ts |   86.66 |    88.88 |     100 |   86.66 | 14,32-34          
+  ...ition_prod.ts |   84.13 |       80 |   85.71 |   84.13 | ...-76,97,115-117 
+  ...nCallbacks.ts |     100 |     90.9 |      75 |     100 | 30                
+  ...ionControl.ts |    87.5 |       60 |     100 |    87.5 | 17-19             
+  ...ionService.ts |   82.46 |    69.23 |   33.33 |   82.46 | ...87-189,220-229 
+  ...ptionState.ts |    92.3 |    66.66 |     100 |    92.3 | 33-36             
+  utils.ts         |     100 |      100 |     100 |     100 |                   
+ src/lib           |    5.95 |    48.14 |    42.1 |    5.95 |                   
+  ...yticsUtils.ts |       0 |      100 |     100 |       0 | 2-163             
+  canvas.ts        |       0 |      100 |     100 |       0 | 5-23              
+  dateUtils.ts     |       0 |      100 |     100 |       0 | 7-54              
+  e2e-bridge.ts    |       0 |      100 |     100 |       0 | 37-435            
+  ...orHandlers.ts |       0 |        0 |       0 |       0 | 1-42              
+  logger.ts        |      50 |        0 |     100 |      50 | 13-22             
+  mockData.ts      |       0 |        0 |       0 |       0 | 1-104             
+  mockSupabase.ts  |    4.61 |      100 |       0 |    4.61 | 5-70              
+  pdfGenerator.ts  |       0 |        0 |       0 |       0 | 1-107             
+  pdfParser.ts     |       0 |        0 |       0 |       0 | 1-30              
+  processImage.ts  |       0 |        0 |       0 |       0 | 1-22              
+  rateLimiter.ts   |   26.19 |      100 |       0 |   26.19 | 34-73,79-80       
+  storage.ts       |       0 |        0 |       0 |       0 | 1-234             
+  ...baseClient.ts |   78.12 |     62.5 |     100 |   78.12 | 19-20,34-36,39-40 
+  theme.ts         |       0 |      100 |     100 |       0 | 3-359             
+  toast.ts         |   85.71 |       75 |     100 |   85.71 | 36-40             
+  utils.ts         |       0 |        0 |       0 |       0 | 1-45              
+  wer.ts           |       0 |        0 |       0 |       0 | 1-71              
+ src/mocks         |       0 |    66.66 |   66.66 |       0 |                   
+  browser.ts       |       0 |      100 |     100 |       0 | 2-6               
+  handlers.ts      |       0 |        0 |       0 |       0 | 1-274             
+  ...user-utils.ts |       0 |      100 |     100 |       0 | 3-60              
+ src/pages         |       0 |       20 |      20 |       0 |                   
+  ...yticsPage.tsx |       0 |        0 |       0 |       0 | 1-209             
+  AuthPage.tsx     |       0 |        0 |       0 |       0 | 1-442             
+  ...eededPage.tsx |       0 |        0 |       0 |       0 | 1-48              
+  ...ystemPage.tsx |       0 |      100 |     100 |       0 | 2-163             
+  Index.tsx        |       0 |        0 |       0 |       0 | 1-67              
+  MainPage.tsx     |       0 |      100 |     100 |       0 | 2-27              
+  PricingPage.tsx  |       0 |        0 |       0 |       0 | 1-137             
+  SessionPage.tsx  |       0 |        0 |       0 |       0 | 1-242             
+  SignInPage.tsx   |       0 |        0 |       0 |       0 | 1-167             
+  SignUpPage.tsx   |       0 |        0 |       0 |       0 | 1-168             
+ src/providers     |   93.54 |    66.66 |     100 |   93.54 |                   
+  ...ionContext.ts |     100 |      100 |     100 |     100 |                   
+  ...nProvider.tsx |     100 |       75 |     100 |     100 | 13                
+  ...ionContext.ts |   77.77 |       50 |     100 |   77.77 | 7-8               
+ src/services      |       0 |      100 |     100 |       0 |                   
+  ...inServices.ts |       0 |      100 |     100 |       0 | 26-326            
+ ...services/audio |   67.32 |     42.1 |      75 |   67.32 |                   
+  pauseDetector.ts |   67.32 |     42.1 |      75 |   67.32 | ...55-156,163-167 
+ .../transcription |    74.8 |    75.89 |   67.16 |    74.8 |                   
+  EngineFactory.ts |   77.58 |    81.81 |     100 |   77.58 | 57-59,66-78       
+  ...ureManager.ts |     100 |      100 |     100 |     100 |                   
+  TestRegistry.ts  |    69.3 |    56.25 |   77.77 |    69.3 | ...55-164,176,188 
+  ...riptionFSM.ts |   87.34 |     90.9 |   85.71 |   87.34 | 102-107,126-129   
+  ...tionPolicy.ts |     100 |      100 |     100 |     100 |                   
+  ...ionService.ts |   69.07 |    69.49 |   67.74 |   69.07 | ...37-639,653-656 
+  errors.ts        |   56.45 |       75 |   18.18 |   56.45 | ...62,67-69,86-90 
+ ...iption/engines |   68.58 |    64.15 |   63.63 |   68.58 |                   
+  IPrivateSTT.ts   |       0 |        0 |       0 |       0 |                   
+  ...eSTTEngine.ts |       0 |        0 |       0 |       0 |                   
+  MockEngine.ts    |   17.18 |      100 |       0 |   17.18 | ...79,82-86,89-90 
+  PrivateSTT.ts    |   52.94 |    44.44 |      60 |   52.94 | ...04-205,211-216 
+  ...rsJSEngine.ts |    92.7 |    74.07 |     100 |    92.7 | 31-34,51-52,139   
+  ...neRegistry.ts |   82.88 |    68.75 |      80 |   82.88 | ...61-262,269-270 
+  ...urboEngine.ts |   67.27 |    45.45 |      75 |   67.27 | ...72,77-80,84-87 
+ ...cription/modes |   67.17 |    55.66 |   57.69 |   67.17 |                   
+  ...AssemblyAI.ts |   75.86 |     54.9 |    62.5 |   75.86 | ...44-345,369-372 
+  NativeBrowser.ts |   57.96 |    47.61 |      60 |   57.96 | ...35-236,239-240 
+  ...ateWhisper.ts |   62.73 |    59.37 |   53.84 |   62.73 | ...54-367,377-378 
+  types.ts         |   72.72 |      100 |      40 |   72.72 | 38-39,45-46,52-53 
+ ...cription/utils |   50.62 |    81.35 |   62.16 |   50.62 |                   
+  ...oProcessor.ts |   58.22 |       92 |   64.28 |   58.22 | 190-279           
+  ...lbackProxy.ts |     100 |      100 |     100 |     100 |                   
+  ...sor.worker.ts |   63.09 |    85.71 |      80 |   63.09 | 23-58             
+  ...or.worklet.ts |       0 |      100 |     100 |       0 | 19-84             
+  ...Utils.impl.ts |    28.4 |    22.22 |      20 |    28.4 | ...66-124,128-133 
+  audioUtils.ts    |     100 |      100 |     100 |     100 |                   
+  types.ts         |       0 |        0 |       0 |       0 |                   
+ src/stores        |   79.77 |    92.85 |   61.53 |   79.77 |                   
+  ...ssionStore.ts |   79.77 |    92.85 |   61.53 |   79.77 | ...31-133,136-138 
+ src/tests         |       0 |        0 |       0 |       0 |                   
+  setup.ts         |       0 |        0 |       0 |       0 | 1-66              
+ src/tests/utils   |       0 |      100 |     100 |       0 |                   
+  testService.ts   |       0 |      100 |     100 |       0 | 7-47              
+ src/utils         |   37.54 |    67.85 |      70 |   37.54 |                   
+  ...hWithRetry.ts |       0 |      100 |     100 |       0 | 5-23              
+  ...rWordUtils.ts |    85.6 |    70.83 |   83.33 |    85.6 | ...72,191,203-204 
+  ...lightUtils.ts |       0 |        0 |       0 |       0 | 1-142             
+  safeCompare.ts   |       0 |      100 |     100 |       0 | 14-33             
+  ...eDetection.ts |       0 |        0 |       0 |       0 | 1-60              
+-------------------|---------|----------|---------|---------|-------------------
+ERROR: Coverage for lines (20.61%) does not meet global threshold (60%)
+ERROR: Coverage for functions (59.05%) does not meet global threshold (60%)
+ERROR: Coverage for statements (20.61%) does not meet global threshold (60%)
+ ELIFECYCLE  Test failed. See above for more details.

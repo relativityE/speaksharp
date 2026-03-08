@@ -49,7 +49,19 @@ vi.mock('react-router-dom', async () => {
 
 
 vi.mock('../../stores/useSessionStore', () => ({
-    useSessionStore: vi.fn(),
+    useSessionStore: Object.assign(vi.fn(), {
+        getState: vi.fn(),
+        setState: vi.fn(),
+        subscribe: vi.fn(),
+    }),
+}));
+
+vi.mock('../../lib/logger', () => ({
+    default: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
+}));
+
+vi.mock('@/providers/useTranscriptionContext', () => ({
+    useTranscriptionContext: vi.fn(() => ({ service: { warmUp: vi.fn() } })),
 }));
 
 vi.mock('../../hooks/useSpeechRecognition', () => ({
@@ -141,9 +153,11 @@ describe('SessionPage Feedback Logic', () => {
             chunks: [],
         });
 
-        (useSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
+        const store = createTestSessionStore({
             elapsedTime: 0,
-        }));
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(store);
+        Object.assign(useSessionStore, store);
     });
 
     it('should show "Session too short" warning in status bar when stopped < 5s', async () => {
@@ -162,9 +176,11 @@ describe('SessionPage Feedback Logic', () => {
         });
 
         // Mock elapsed time to 2s
-        (useSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
+        const shortStore = createTestSessionStore({
             elapsedTime: 2,
-        }));
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(shortStore);
+        Object.assign(useSessionStore, shortStore);
 
         render(<SessionPage />, { authMock: { session: { user: { id: 'test-user', email: 'test@example.com' } } as unknown as Session } });
 
@@ -197,9 +213,11 @@ describe('SessionPage Feedback Logic', () => {
             chunks: [],
         });
 
-        (useSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
+        const longStore = createTestSessionStore({
             elapsedTime: 10,
-        }));
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(longStore);
+        Object.assign(useSessionStore, longStore);
 
         mockSaveSession.mockResolvedValue({ session: { id: '123' } });
 

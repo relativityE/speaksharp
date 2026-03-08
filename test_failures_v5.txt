@@ -1,0 +1,1178 @@
+
+> speaksharp@3.5.4 test:unit:local /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> echo 'NOTE: Running Unit and Component Integration tests...' && cross-env CI=true FORCE_COLOR=1 vitest run --config frontend/vitest.config.mjs --coverage --pool=forks
+
+NOTE: Running Unit and Component Integration tests...
+
+[1m[46m RUN [49m[22m [36mv3.2.4 [39m[90m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp[39m
+      [2mCoverage enabled with [22m[33mv8[39m
+
+{"level":30,"time":1772987080129,"pid":5469,"hostname":"Mac.lan","project":"yxlapjuovrsvjswkwnrk","msg":"[Supabase] Real client connected"}
+{"level":30,"time":1772987080134,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987080134,"pid":5469,"hostname":"Mac.lan","userId":"test-user-id","msg":"[AuthProvider] Using injected initialSession"}
+{"level":30,"time":1772987080137,"pid":5469,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772987080137,"pid":5469,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987080149,"pid":5469,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+{"level":30,"time":1772987080149,"pid":5469,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987080149,"pid":5469,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987080149,"pid":5469,"hostname":"Mac.lan","policyId":"e2e-deterministic-native","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987080149,"pid":5469,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987080149,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772987080150,"pid":5469,"hostname":"Mac.lan","msg":"[EngineFactory] 🌐 Starting Native Browser mode"}
+{"level":30,"time":1772987080150,"pid":5469,"hostname":"Mac.lan","msg":"[EngineFactory] 🧪 Injecting Native engine from Registry"}
+{"level":30,"time":1772987080150,"pid":5469,"hostname":"Mac.lan","msg":"[useSpeechRecognition] Service ready"}
+{"level":30,"time":1772987080150,"pid":5469,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987080188,"pid":5469,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Stopping transcription"}
+{"level":30,"time":1772987080194,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987080196,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987080196,"pid":5469,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772987080196,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionService] Interrupting active session for new request"}
+{"level":30,"time":1772987080196,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772987080196,"pid":5469,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","event":"INITIAL_SESSION","timestamp":"2026-03-08T16:24:40.197Z","msg":"[Supabase Auth] 🔐 Auth event: INITIAL_SESSION"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","hasSession":false,"durationMs":1,"msg":"[AuthProvider] getSession complete"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","policyId":"e2e-deterministic-native","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","msg":"[EngineFactory] 🌐 Starting Native Browser mode"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","msg":"[EngineFactory] 🧪 Injecting Native engine from Registry"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","msg":"[useSpeechRecognition] Service ready"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987080197,"pid":5469,"hostname":"Mac.lan","from":"RECORDING","to":"ERROR","event":"ERROR_OCCURRED","msg":"[FSM] State transition: RECORDING -> ERROR"}
+{"level":50,"time":1772987080198,"pid":5469,"hostname":"Mac.lan","err":{"type":"Error","message":"Error occurred","stack":"Error: Error occurred\n    at Object.onStatusChange (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/useSpeechRecognition_prod.ts:99:67)\n    at Object.onStatusChange (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/useTranscriptionCallbacks.ts:31:62)\n    at TranscriptionService.handleStateChange (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts:627:18)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts:110:38\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionFSM.ts:147:37\n    at Set.forEach (<anonymous>)\n    at TranscriptionFSM.notifyListeners (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionFSM.ts:147:24)\n    at TranscriptionFSM.transition (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionFSM.ts:118:14)\n    at Object.onError (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts:578:18)\n    at MockTranscriptionService.simulateError (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/mocks/MockTranscriptionService.ts:93:26)"},"msg":"Transcription Error"}
+{"level":30,"time":1772987083225,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987083231,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987083232,"pid":5469,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772987083232,"pid":5469,"hostname":"Mac.lan","from":"ERROR","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: ERROR -> ACTIVATING_MIC"}
+{"level":30,"time":1772987083233,"pid":5469,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+{"level":30,"time":1772987083233,"pid":5469,"hostname":"Mac.lan","event":"INITIAL_SESSION","timestamp":"2026-03-08T16:24:43.233Z","msg":"[Supabase Auth] 🔐 Auth event: INITIAL_SESSION"}
+{"level":30,"time":1772987083233,"pid":5469,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987083233,"pid":5469,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987083233,"pid":5469,"hostname":"Mac.lan","policyId":"e2e-deterministic-native","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987083233,"pid":5469,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987083233,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772987083233,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionService] Reusing existing native engine instance"}
+{"level":30,"time":1772987083233,"pid":5469,"hostname":"Mac.lan","msg":"[useSpeechRecognition] Service ready"}
+{"level":30,"time":1772987083233,"pid":5469,"hostname":"Mac.lan","hasSession":false,"durationMs":2,"msg":"[AuthProvider] getSession complete"}
+{"level":30,"time":1772987083233,"pid":5469,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987086238,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987086241,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987086241,"pid":5469,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772987086241,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionService] Interrupting active session for new request"}
+{"level":30,"time":1772987086241,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772987086241,"pid":5469,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","event":"INITIAL_SESSION","timestamp":"2026-03-08T16:24:46.242Z","msg":"[Supabase Auth] 🔐 Auth event: INITIAL_SESSION"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","hasSession":false,"durationMs":1,"msg":"[AuthProvider] getSession complete"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","policyId":"e2e-deterministic-native","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","msg":"[EngineFactory] 🌐 Starting Native Browser mode"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","msg":"[EngineFactory] 🧪 Injecting Native engine from Registry"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","msg":"[useSpeechRecognition] Service ready"}
+{"level":30,"time":1772987086242,"pid":5469,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987086249,"pid":5469,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [31m❯[39m frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx [2m([22m[2m4 tests[22m[2m | [22m[31m3 failed[39m[2m)[22m[33m 7166[2mms[22m[39m
+   [32m✓[39m useSpeechRecognition Integration[2m > [22mshould prevent stale closure on stop by capturing latest transcript state[32m 76[2mms[22m[39m
+[31m   [31m×[31m useSpeechRecognition Integration[2m > [22mshould handle service errors gracefully[39m[33m 3031[2mms[22m[39m
+[31m     → expected 'Error occurred' to be 'Microphone access denied' // Object.is equality[39m
+[31m   [31m×[31m useSpeechRecognition Integration[2m > [22mshould capture usage limit exceeded state mid-session[39m[33m 3013[2mms[22m[39m
+[31m     → expected 'recording' to be 'error' // Object.is equality[39m
+[31m   [31m×[31m useSpeechRecognition Integration[2m > [22mshould cleanup on unmount[39m[33m 1042[2mms[22m[39m
+[31m     → expected "spy" to be called at least once[39m
+ [31m❯[39m frontend/src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.component.test.tsx [2m([22m[2m5 tests[22m[2m | [22m[31m2 failed[39m[2m)[22m[33m 1039[2mms[22m[39m
+   [32m✓[39m useTranscriptionService[2m > [22mshould initialize with correct default state[32m 13[2mms[22m[39m
+   [32m✓[39m useTranscriptionService[2m > [22mshould start listening successfully[32m 2[2mms[22m[39m
+[31m   [31m×[31m useTranscriptionService[2m > [22mshould stop listening successfully[39m[33m 1014[2mms[22m[39m
+[31m     → expected "spy" to be called at least once[39m
+   [32m✓[39m useTranscriptionService[2m > [22mshould handle start listening errors[32m 6[2mms[22m[39m
+[31m   [31m×[31m useTranscriptionService[2m > [22mshould cleanup on unmount[39m[32m 2[2mms[22m[39m
+[31m     → expected "spy" to be called at least once[39m
+{"level":40,"time":1772987091878,"pid":5481,"hostname":"Mac.lan","elapsedTime":31,"remaining":-1,"msg":"[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached"}
+{"level":40,"time":1772987091881,"pid":5481,"hostname":"Mac.lan","msg":"[useSessionLifecycle] stopListening returned null, skipping save"}
+ [32m✓[39m frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+{"level":30,"time":1772987092713,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":30,"time":1772987092713,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Engine initialized successfully."}
+{"level":30,"time":1772987092715,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":30,"time":1772987092715,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Engine initialized successfully."}
+{"level":30,"time":1772987092716,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":50,"time":1772987092716,"pid":5484,"hostname":"Mac.lan","err":{"type":"Error","message":"Network failure","stack":"Error: Network failure\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.test.ts:108:44\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runFiles (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1787:3)"},"msg":"[TransformersJS] Failed to initialize engine."}
+{"level":30,"time":1772987092718,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":30,"time":1772987092718,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Engine initialized successfully."}
+{"level":30,"time":1772987092718,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Engine already initialized, skipping."}
+{"level":30,"time":1772987092720,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Destroying engine..."}
+{"level":30,"time":1772987092720,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":30,"time":1772987092720,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Engine initialized successfully."}
+{"level":30,"time":1772987092721,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":50,"time":1772987092721,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] ❌ Model load failed with \"Unexpected token <\". This suggests a 404 error where the server returned index.html instead of the model file. Ensure env.allowLocalModels=false is set."}
+{"level":50,"time":1772987092721,"pid":5484,"hostname":"Mac.lan","err":{"type":"Error","message":"Unexpected token < at position 0","stack":"Error: Unexpected token < at position 0\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.test.ts:149:44\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runFiles (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1787:3)"},"msg":"[TransformersJS] Failed to initialize engine."}
+{"level":30,"time":1772987092721,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":30,"time":1772987092721,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Engine initialized successfully."}
+{"level":30,"time":1772987092721,"pid":5484,"hostname":"Mac.lan","msg":"[TransformersJS] Initializing engine..."}
+{"level":50,"time":1772987092721,"pid":5484,"hostname":"Mac.lan","err":{"type":"Error","message":"string error","stack":"Error: string error\n    at TransformersJSEngine.init (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/TransformersJSEngine.ts:108:56)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.test.ts:171:24\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[TransformersJS] Failed to initialize engine."}
+ [31m❯[39m frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.test.ts [2m([22m[2m11 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 15[2mms[22m[39m
+   [32m✓[39m TransformersJSEngine (Unit)[2m > [22mshould have correct engine type[32m 5[2mms[22m[39m
+   [32m✓[39m TransformersJSEngine (Unit)[2m > [22mshould initialize successfully[32m 2[2mms[22m[39m
+   [32m✓[39m TransformersJSEngine (Unit)[2m > [22mshould process PCM audio buffer correctly[32m 0[2mms[22m[39m
+   [32m✓[39m TransformersJSEngine (Unit)[2m > [22mshould fail if transcriber is not initialized[32m 0[2mms[22m[39m
+   [32m✓[39m TransformersJSEngine (Unit)[2m > [22mshould handle initialization errors[32m 2[2mms[22m[39m
+[31m   [31m×[31m TransformersJSEngine (Unit)[2m > [22mshould handle transcription errors[39m[32m 2[2mms[22m[39m
+[31m     → expected false to be true // Object.is equality[39m
+   [32m✓[39m TransformersJSEngine (Unit)[2m > [22mshould exercise destroy method[32m 0[2mms[22m[39m
+   [32m✓[39m TransformersJSEngine (Unit)[2m > [22mshould exercise environmental branches (IS_TEST_MODE false)[32m 0[2mms[22m[39m
+   [32m✓[39m TransformersJSEngine (Unit)[2m > [22mshould handle "Unexpected token <" error specifically[32m 0[2mms[22m[39m
+   [32m✓[39m TransformersJSEngine (Unit)[2m > [22mshould trigger progress callback from transformers.js[32m 0[2mms[22m[39m
+   [32m✓[39m TransformersJSEngine (Unit)[2m > [22mshould handle non-Error catch during init[32m 1[2mms[22m[39m
+{"level":30,"time":1772987093935,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987093943,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987093947,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987093948,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987093950,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987093951,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987093954,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987093964,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987093967,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987093968,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987093970,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987093970,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987093973,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987094041,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987094048,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987094101,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987094103,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987094191,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987094195,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987094278,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987094281,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987094370,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987094374,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":50,"time":1772987094463,"pid":5486,"hostname":"Mac.lan","err":{"type":"Error","message":"User already registered","stack":"Error: User already registered\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/__tests__/SignUpPage.component.test.tsx:205:33\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)"},"msg":"[AUTH] Error during sign up"}
+{"level":30,"time":1772987094486,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987094532,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987094741,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987094744,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":50,"time":1772987094821,"pid":5486,"hostname":"Mac.lan","err":{"type":"Error","message":"Supabase client not available","stack":"Error: Supabase client not available\n    at handleSubmit (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SignUpPage.tsx:33:34)\n    at HTMLUnknownElement.callCallback (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:4164:14)\n    at HTMLUnknownElement.#callDispatchEventListeners (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/happy-dom/src/event/EventTarget.ts:299:42)\n    at HTMLUnknownElement.dispatchEvent (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/happy-dom/src/event/EventTarget.ts:136:35)\n    at HTMLUnknownElement.#goThroughDispatchEventPhases (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/happy-dom/src/event/EventTarget.ts:208:33)\n    at HTMLUnknownElement.dispatchEvent (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/happy-dom/src/event/EventTarget.ts:129:38)\n    at Object.invokeGuardedCallbackDev (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:4213:16)\n    at invokeGuardedCallback (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:4277:31)\n    at invokeGuardedCallbackAndCatchFirstError (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:4291:25)\n    at executeDispatch (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:9041:3)"},"msg":"[AUTH] Error during sign up"}
+{"level":30,"time":1772987094838,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987094840,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":50,"time":1772987094919,"pid":5486,"hostname":"Mac.lan","err":{"type":"Error","message":"User already registered","stack":"Error: User already registered\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/__tests__/SignUpPage.component.test.tsx:258:33\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)"},"msg":"[AUTH] Error during sign up"}
+{"level":30,"time":1772987094981,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987094983,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":50,"time":1772987095058,"pid":5486,"hostname":"Mac.lan","err":{"type":"Error","message":"Network error","stack":"Error: Network error\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/__tests__/SignUpPage.component.test.tsx:296:42\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)"},"msg":"[AUTH] Error during sign up"}
+{"level":30,"time":1772987095062,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987095064,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":50,"time":1772987095135,"pid":5486,"hostname":"Mac.lan","err":"String error","msg":"[AUTH] Error during sign up"}
+{"level":30,"time":1772987095139,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987095142,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987095218,"pid":5486,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/pages/__tests__/SignUpPage.component.test.tsx [2m([22m[2m18 tests[22m[2m)[22m[33m 1304[2mms[22m[39m
+{"level":30,"time":1772987098629,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987098636,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987098638,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987098638,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987098640,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987098641,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987098653,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987098657,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987098662,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987098663,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987098666,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987098667,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987098671,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987098731,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987098734,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987098770,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987098773,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987098867,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987098871,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987098956,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987098959,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987099053,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987099056,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987099134,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987099137,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987099269,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987099271,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987099345,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987099348,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987099425,"pid":5488,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/pages/__tests__/SignInPage.component.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 825[2mms[22m[39m
+ [32m✓[39m frontend/src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 786[2mms[22m[39m
+   [33m[2m✓[22m[39m CloudAssemblyAI (Native WebSocket)[2m > [22mResilience & Backoff[2m > [22mshould reconnect with exponential backoff on error [33m 722[2mms[22m[39m
+ [32m✓[39m frontend/tests/integration/AuthPage.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 817[2mms[22m[39m
+ [32m✓[39m frontend/tests/integration/SessionSidebar.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 418[2mms[22m[39m
+ [32m✓[39m frontend/src/components/session/__tests__/FillerWordAnalysis.component.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 590[2mms[22m[39m
+{"level":30,"time":1772987106729,"pid":5499,"hostname":"Mac.lan","userId":"test-user-id","durationMs":2,"msg":"[useUserProfile] Profile fetched successfully"}
+{"level":50,"time":1772987106782,"pid":5499,"hostname":"Mac.lan","error":{},"userId":"test-user-id","durationMs":0,"msg":"[useUserProfile] Profile fetch failed (will retry)"}
+ [32m✓[39m frontend/src/hooks/__tests__/useUserProfile.component.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 126[2mms[22m[39m
+ [32m✓[39m frontend/src/components/session/__tests__/AISuggestions.component.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[32m 159[2mms[22m[39m
+ [32m✓[39m frontend/tests/integration/UserFillerWordsManager.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[32m 152[2mms[22m[39m
+{"level":30,"time":1772987110260,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987110266,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987110274,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987110276,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987110281,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987110284,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987110289,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987110291,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987110299,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987110301,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987110305,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987110312,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987110317,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987110318,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987110322,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987110324,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987110329,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987110353,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987110360,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":50,"time":1772987110365,"pid":5505,"hostname":"Mac.lan","err":{"type":"Error","message":"Supabase client not available","stack":"Error: Supabase client not available\n    at handleUpgrade (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/PricingPage.tsx:47:28)\n    at HTMLUnknownElement.callCallback (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:4164:14)\n    at HTMLUnknownElement.#callDispatchEventListeners (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/happy-dom/src/event/EventTarget.ts:299:42)\n    at HTMLUnknownElement.dispatchEvent (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/happy-dom/src/event/EventTarget.ts:136:35)\n    at HTMLUnknownElement.#goThroughDispatchEventPhases (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/happy-dom/src/event/EventTarget.ts:208:33)\n    at HTMLUnknownElement.dispatchEvent (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/happy-dom/src/event/EventTarget.ts:129:38)\n    at Object.invokeGuardedCallbackDev (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:4213:16)\n    at invokeGuardedCallback (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:4277:31)\n    at invokeGuardedCallbackAndCatchFirstError (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:4291:25)\n    at executeDispatch (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:9041:3)"},"tier":"Pro","msg":"Error creating Stripe checkout session:"}
+{"level":30,"time":1772987110378,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987110382,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":50,"time":1772987110388,"pid":5505,"hostname":"Mac.lan","err":{"type":"Error","message":"Checkout failed","stack":"Error: Checkout failed\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/__tests__/PricingPage.component.test.tsx:156:24\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:155:11\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:26\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1897:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1863:10)\n    at runTest (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1574:12)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)\n    at runSuite (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:1729:8)"},"tier":"Pro","msg":"Error creating Stripe checkout session:"}
+{"level":30,"time":1772987110394,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987110400,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987110402,"pid":5505,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/pages/__tests__/PricingPage.component.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[32m 164[2mms[22m[39m
+{"level":30,"time":1772987111512,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987111516,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987111519,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987111519,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987111525,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987111529,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987111536,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987111537,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987111541,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987111545,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987111553,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987111560,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987111565,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987111568,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987111572,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987111575,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987111581,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987111582,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987111587,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987111588,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987111592,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987111595,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987111603,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987111604,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987111608,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987111609,"pid":5507,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/components/__tests__/Navigation.component.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[32m 122[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/utils.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+{"level":30,"time":1772987113584,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987113590,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987113596,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987113600,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987113603,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987113605,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987113608,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987113609,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987113612,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987113614,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987113615,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987113615,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987113618,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987113622,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987113625,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987113626,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987113629,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987113630,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987113632,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987113633,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987113636,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987113641,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987113646,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987113647,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987113652,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987113653,"pid":5511,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/pages/__tests__/SessionPage.rendering.component.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[32m 94[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/usePracticeHistory.component.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 80[2mms[22m[39m
+ [32m✓[39m frontend/src/pages/__tests__/SessionPage.feedback.component.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 177[2mms[22m[39m
+{"level":30,"time":1772987119626,"pid":5517,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987119633,"pid":5517,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987119636,"pid":5517,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987119637,"pid":5517,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987119641,"pid":5517,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987119641,"pid":5517,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987119889,"pid":5517,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987119955,"pid":5517,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/components/__tests__/AnalyticsDashboard.component.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[33m 352[2mms[22m[39m
+   [33m[2m✓[22m[39m AnalyticsDashboard[2m > [22mshould render dashboard content when data exists [33m 316[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/UpgradePromptDialog.component.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 78[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useGoals.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 69[2mms[22m[39m
+{"level":30,"time":1772987123107,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123113,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987123115,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123116,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987123121,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123122,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987123123,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123123,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987123124,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123128,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987123130,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123131,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987123132,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123133,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987123134,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123135,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987123136,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123136,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987123144,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123144,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987123146,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123156,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987123158,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123158,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987123160,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123161,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987123162,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987123162,"pid":5526,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/pages/__tests__/AnalyticsPage.component.test.tsx [2m([22m[2m14 tests[22m[2m)[22m[32m 72[2mms[22m[39m
+{"level":30,"time":1772987124405,"pid":5528,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987124409,"pid":5528,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987124418,"pid":5528,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987124420,"pid":5528,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987124428,"pid":5528,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987124429,"pid":5528,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987124435,"pid":5528,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987124436,"pid":5528,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987124444,"pid":5528,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987124454,"pid":5528,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/pages/__tests__/Index.component.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 81[2mms[22m[39m
+{"level":30,"time":1772987125754,"pid":5530,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987125757,"pid":5530,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987125770,"pid":5530,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987125773,"pid":5530,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/components/analytics/__tests__/SessionComparisonDialog.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 41[2mms[22m[39m
+{"level":30,"time":1772987126875,"pid":5532,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987126887,"pid":5532,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987126895,"pid":5532,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987126898,"pid":5532,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987126902,"pid":5532,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987126919,"pid":5532,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/pages/__tests__/DesignSystemPage.component.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 70[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/LocalErrorBoundary.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[32m 55[2mms[22m[39m
+{"level":30,"time":1772987128666,"pid":5536,"hostname":"Mac.lan","hasSession":false,"durationMs":4,"msg":"[AuthProvider] getSession complete"}
+{"level":30,"time":1772987128671,"pid":5536,"hostname":"Mac.lan","hasSession":true,"userId":"user-123","durationMs":0,"msg":"[AuthProvider] getSession complete"}
+{"level":30,"time":1772987128677,"pid":5536,"hostname":"Mac.lan","hasSession":true,"userId":"user-123","durationMs":0,"msg":"[AuthProvider] getSession complete"}
+{"level":30,"time":1772987128682,"pid":5536,"hostname":"Mac.lan","msg":"[AuthProvider] QueryClient cache cleared"}
+{"level":30,"time":1772987128682,"pid":5536,"hostname":"Mac.lan","msg":"[AuthProvider] Zustand session memory purged"}
+{"level":30,"time":1772987128682,"pid":5536,"hostname":"Mac.lan","msg":"[AuthProvider] Window storage cleared"}
+{"level":50,"time":1772987128685,"pid":5536,"hostname":"Mac.lan","error":"Network error","code":500,"durationMs":1,"msg":"[AuthProvider] getSession failed"}
+{"level":30,"time":1772987128688,"pid":5536,"hostname":"Mac.lan","userId":"injected-user","msg":"[AuthProvider] Using injected initialSession"}
+{"level":30,"time":1772987128690,"pid":5536,"hostname":"Mac.lan","hasSession":false,"durationMs":0,"msg":"[AuthProvider] getSession complete"}
+{"level":30,"time":1772987128694,"pid":5536,"hostname":"Mac.lan","event":"TOKEN_REFRESHED","userId":"refreshed-user","timestamp":"2026-03-08T16:25:28.693Z","msg":"[Supabase Auth] 🔐 Auth event: TOKEN_REFRESHED"}
+{"level":30,"time":1772987128694,"pid":5536,"hostname":"Mac.lan","timestamp":"2026-03-08T16:25:28.693Z","msg":"[AuthProvider] Token successfully refreshed"}
+{"level":30,"time":1772987128697,"pid":5536,"hostname":"Mac.lan","hasSession":true,"userId":"user-123","durationMs":0,"msg":"[AuthProvider] getSession complete"}
+{"level":30,"time":1772987128700,"pid":5536,"hostname":"Mac.lan","event":"SIGNED_OUT","timestamp":"2026-03-08T16:25:28.700Z","msg":"[Supabase Auth] 🔐 Auth event: SIGNED_OUT"}
+{"level":30,"time":1772987128700,"pid":5536,"hostname":"Mac.lan","timestamp":"2026-03-08T16:25:28.700Z","msg":"[AuthProvider] User signed out or refresh failed, clearing state"}
+ [32m✓[39m frontend/src/contexts/__tests__/AuthProvider.component.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[32m 50[2mms[22m[39m
+{"level":30,"time":1772987129532,"pid":5538,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987129535,"pid":5538,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987129557,"pid":5538,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987129558,"pid":5538,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987129558,"pid":5538,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987129565,"pid":5538,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987129566,"pid":5538,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987129566,"pid":5538,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/hooks/useSpeechRecognition/__tests__/useFillerWords.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 45[2mms[22m[39m
+ [32m✓[39m frontend/tests/unit/fillerWordUtils.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 48[2mms[22m[39m
+{"level":30,"time":1772987131750,"pid":5543,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987131752,"pid":5543,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":50,"time":1772987131773,"pid":5543,"hostname":"Mac.lan","err":{"type":"TypeError","message":"Cannot read properties of undefined (reading 'toFixed')","stack":"TypeError: Cannot read properties of undefined (reading 'toFixed')\n    at PauseMetricsDisplay (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/components/session/PauseMetricsDisplay.tsx:33:97)\n    at renderWithHooks (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:15486:18)\n    at mountIndeterminateComponent (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:20103:13)\n    at beginWork (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:21626:16)\n    at HTMLUnknownElement.callCallback (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:4164:14)\n    at HTMLUnknownElement.#callDispatchEventListeners (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/happy-dom/src/event/EventTarget.ts:299:42)\n    at HTMLUnknownElement.dispatchEvent (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/happy-dom/src/event/EventTarget.ts:136:35)\n    at HTMLUnknownElement.#goThroughDispatchEventPhases (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/happy-dom/src/event/EventTarget.ts:208:33)\n    at HTMLUnknownElement.dispatchEvent (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/happy-dom/src/event/EventTarget.ts:129:38)\n    at Object.invokeGuardedCallbackDev (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-dom/cjs/react-dom.development.js:4213:16)"},"component":"PauseMetricsDisplay","isolationKey":"pause-metrics","info":{"componentStack":"\n    at PauseMetricsDisplay (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/components/session/PauseMetricsDisplay.tsx:8:32)\n    at LocalErrorBoundary (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/components/LocalErrorBoundary.tsx:17:5)\n    at div\n    at div\n    at div\n    at main\n    at SessionPage (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx:44:81)\n    at MockElements (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/support/test-utils/components.tsx:22:25)\n    at TranscriptionProvider (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/providers/TranscriptionProvider.tsx:12:34)\n    at MockAuthProvider (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/support/test-utils/components.tsx:27:29)\n    at QueryClientProvider (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:20:3)\n    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)\n    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)\n    at AllTheProviders (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/support/test-utils/components.tsx:32:28)\n    at Wrapper (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/support/test-utils/render.tsx:11:22)"},"msg":"[LocalErrorBoundary] Caught error"}
+{"level":30,"time":1772987131777,"pid":5543,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987131778,"pid":5543,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/pages/__tests__/SessionPage.logic.component.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 43[2mms[22m[39m
+{"level":50,"time":1772987134001,"pid":5545,"hostname":"Mac.lan","error":{},"errorInfo":{"componentStack":"\n    at ThrowError (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/components/__tests__/ErrorBoundary.component.test.tsx:9:23)\n    at ErrorBoundary (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/components/ErrorBoundary.tsx:16:5)\n    at MockElements (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/support/test-utils/components.tsx:22:25)\n    at TranscriptionProvider (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/providers/TranscriptionProvider.tsx:12:34)\n    at MockAuthProvider (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/support/test-utils/components.tsx:27:29)\n    at QueryClientProvider (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:20:3)\n    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)\n    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)\n    at AllTheProviders (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/support/test-utils/components.tsx:32:28)\n    at Wrapper (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/support/test-utils/render.tsx:11:22)"},"msg":"Uncaught error:"}
+{"level":30,"time":1772987134002,"pid":5545,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987134008,"pid":5545,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":50,"time":1772987134030,"pid":5545,"hostname":"Mac.lan","error":{},"errorInfo":{"componentStack":"\n    at ThrowError (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/components/__tests__/ErrorBoundary.component.test.tsx:9:23)\n    at ErrorBoundary (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/components/ErrorBoundary.tsx:16:5)\n    at MockElements (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/support/test-utils/components.tsx:22:25)\n    at TranscriptionProvider (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/providers/TranscriptionProvider.tsx:12:34)\n    at MockAuthProvider (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/support/test-utils/components.tsx:27:29)\n    at QueryClientProvider (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@tanstack/react-query/build/modern/QueryClientProvider.js:20:3)\n    at Router (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1207:17)\n    at MemoryRouter (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/react-router/dist/umd/react-router.development.js:1101:7)\n    at AllTheProviders (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/support/test-utils/components.tsx:32:28)\n    at Wrapper (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/support/test-utils/render.tsx:11:22)"},"msg":"Uncaught error:"}
+{"level":30,"time":1772987134031,"pid":5545,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987134051,"pid":5545,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987134052,"pid":5545,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987134053,"pid":5545,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/components/__tests__/ErrorBoundary.component.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 104[2mms[22m[39m
+{"level":30,"time":1772987136413,"pid":5550,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987136418,"pid":5550,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987136422,"pid":5550,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987136425,"pid":5550,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/components/session/__tests__/LiveRecordingCard.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 41[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useVocalAnalysis.component.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 24[2mms[22m[39m
+ [32m✓[39m frontend/src/components/session/__tests__/TranscriptPanel.component.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[32m 41[2mms[22m[39m
+{"level":30,"time":1772987139902,"pid":5560,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987139912,"pid":5560,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987139916,"pid":5560,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987139918,"pid":5560,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987139920,"pid":5560,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987139921,"pid":5560,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987139930,"pid":5560,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987139932,"pid":5560,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/pages/__tests__/ConfigurationNeededPage.component.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 49[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useAnalytics.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 33[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/wer.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 38[2mms[22m[39m
+{"level":30,"time":1772987143302,"pid":5567,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987143306,"pid":5567,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987143311,"pid":5567,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987143313,"pid":5567,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987143314,"pid":5567,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987143315,"pid":5567,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987143316,"pid":5567,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987143317,"pid":5567,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/components/analytics/__tests__/STTAccuracyVsBenchmark.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 43[2mms[22m[39m
+ [32m✓[39m tests/analytics/math-integrity.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 40[2mms[22m[39m
+{"level":30,"time":1772987145278,"pid":5571,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987145283,"pid":5571,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987145285,"pid":5571,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987145286,"pid":5571,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987145287,"pid":5571,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987145288,"pid":5571,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987145289,"pid":5571,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987145289,"pid":5571,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/components/analytics/__tests__/TopFillerWords.component.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 32[2mms[22m[39m
+ [32m✓[39m frontend/src/components/__tests__/ErrorBoundary.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 38[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/analyticsUtils.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 74[2mms[22m[39m
+{"level":30,"time":1772987148995,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Enabled"}
+{"level":30,"time":1772987148995,"pid":5577,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987148995,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987148995,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987148995,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987148995,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987148995,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Disabled and cleared"}
+{"level":30,"time":1772987149011,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987149011,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987149012,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Enabled"}
+{"level":30,"time":1772987149012,"pid":5577,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987149012,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987149012,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987149012,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987149012,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987149012,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Disabled and cleared"}
+{"level":30,"time":1772987149014,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987149014,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987149014,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Enabled"}
+{"level":30,"time":1772987149014,"pid":5577,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987149014,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987149014,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987149014,"pid":5577,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772987149014,"pid":5577,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Stopping transcription"}
+{"level":30,"time":1772987149014,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987149014,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987149014,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Disabled and cleared"}
+{"level":30,"time":1772987149018,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987149018,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987149018,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Enabled"}
+{"level":30,"time":1772987149018,"pid":5577,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987149018,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987149018,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987149018,"pid":5577,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772987150018,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987150018,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987150018,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Disabled and cleared"}
+{"level":30,"time":1772987149020,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987149020,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987149020,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Enabled"}
+{"level":30,"time":1772987149020,"pid":5577,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987149020,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987149020,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987149020,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Disabled and cleared"}
+{"level":30,"time":1772987149021,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Enabled"}
+{"level":30,"time":1772987149021,"pid":5577,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987149021,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987149021,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987149021,"pid":5577,"hostname":"Mac.lan","msg":"[useTranscriptionControl] Starting transcription"}
+{"level":30,"time":1772987149021,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987149021,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987149021,"pid":5577,"hostname":"Mac.lan","msg":"[TestRegistry] Disabled and cleared"}
+{"level":30,"time":1772987149023,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987149023,"pid":5577,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/hooks/useSpeechRecognition/__tests__/index.component.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+{"level":30,"time":1772987153842,"pid":5579,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987153851,"pid":5579,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987153854,"pid":5579,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987153855,"pid":5579,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987153861,"pid":5579,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987153863,"pid":5579,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/components/analytics/__tests__/WeeklyActivityChart.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 45[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/dateUtils.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 249[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useSessionMetrics.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 24[2mms[22m[39m
+ [32m✓[39m frontend/src/services/transcription/__tests__/FailureManager.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useVocalAnalysis.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+{"level":40,"time":1772987162451,"pid":5594,"hostname":"Mac.lan","msg":"[supabaseClient] Creating MOCK Supabase client for development"}
+{"level":30,"time":1772987162454,"pid":5594,"hostname":"Mac.lan","project":"real-project","msg":"[Supabase] Real client connected"}
+{"level":30,"time":1772987162458,"pid":5594,"hostname":"Mac.lan","project":"real-project","msg":"[Supabase] Real client connected"}
+ [32m✓[39m frontend/src/lib/__tests__/supabaseClient.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 30[2mms[22m[39m
+ [32m✓[39m frontend/tests/unit/main.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 31[2mms[22m[39m
+{"level":30,"time":1772987163703,"pid":5600,"hostname":"Mac.lan","msg":"[MSW DEBUG] Intercepted: GET /auth/v1/user"}
+{"level":30,"time":1772987163708,"pid":5600,"hostname":"Mac.lan","msg":"[MSW DEBUG] Intercepted: POST /auth/v1/signup"}
+{"level":30,"time":1772987163708,"pid":5600,"hostname":"Mac.lan","msg":"[MSW DEBUG] Intercepted: POST /auth/v1/token"}
+{"level":30,"time":1772987163710,"pid":5600,"hostname":"Mac.lan","msg":"[MSW DEBUG] Intercepted: GET /rest/v1/user_profiles"}
+{"level":30,"time":1772987163710,"pid":5600,"hostname":"Mac.lan","msg":"[MSW DEBUG] Returning single user_profile object"}
+{"level":30,"time":1772987163711,"pid":5600,"hostname":"Mac.lan","msg":"[MSW DEBUG] Intercepted: GET /rest/v1/user_profiles"}
+{"level":30,"time":1772987163711,"pid":5600,"hostname":"Mac.lan","msg":"[MSW DEBUG] Returning user_profiles array"}
+{"level":30,"time":1772987163711,"pid":5600,"hostname":"Mac.lan","msg":"[MSW DEBUG] Intercepted: GET /rest/v1/sessions"}
+{"level":30,"time":1772987163711,"pid":5600,"hostname":"Mac.lan","windowFlag":false,"msg":"[MSW DEBUG] window.__E2E_EMPTY_SESSIONS__"}
+{"level":30,"time":1772987163711,"pid":5600,"hostname":"Mac.lan","emptyFlag":false,"msg":"[MSW DEBUG] x-e2e-empty-sessions header"}
+{"level":30,"time":1772987163712,"pid":5600,"hostname":"Mac.lan","msg":"[MSW DEBUG] Intercepted: GET /rest/v1/sessions"}
+{"level":30,"time":1772987163712,"pid":5600,"hostname":"Mac.lan","windowFlag":false,"msg":"[MSW DEBUG] window.__E2E_EMPTY_SESSIONS__"}
+{"level":30,"time":1772987163712,"pid":5600,"hostname":"Mac.lan","emptyFlag":true,"msg":"[MSW DEBUG] x-e2e-empty-sessions header"}
+{"level":30,"time":1772987163712,"pid":5600,"hostname":"Mac.lan","msg":"[MSW DEBUG] Returning empty sessions array"}
+{"level":30,"time":1772987163713,"pid":5600,"hostname":"Mac.lan","msg":"[MSW DEBUG] Intercepted: GET /rest/v1/sessions"}
+{"level":30,"time":1772987163713,"pid":5600,"hostname":"Mac.lan","windowFlag":false,"msg":"[MSW DEBUG] window.__E2E_EMPTY_SESSIONS__"}
+{"level":30,"time":1772987163713,"pid":5600,"hostname":"Mac.lan","emptyFlag":false,"msg":"[MSW DEBUG] x-e2e-empty-sessions header"}
+{"level":30,"time":1772987163713,"pid":5600,"hostname":"Mac.lan","msg":"[MSW DEBUG] Intercepted: GET /rest/v1/sessions"}
+{"level":30,"time":1772987163713,"pid":5600,"hostname":"Mac.lan","windowFlag":false,"msg":"[MSW DEBUG] window.__E2E_EMPTY_SESSIONS__"}
+{"level":30,"time":1772987163713,"pid":5600,"hostname":"Mac.lan","emptyFlag":false,"msg":"[MSW DEBUG] x-e2e-empty-sessions header"}
+ [32m✓[39m frontend/src/mocks/__tests__/handlers.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+{"level":30,"time":1772987164553,"pid":5603,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987164557,"pid":5603,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+{"level":30,"time":1772987164559,"pid":5603,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component mounted/updated"}
+{"level":30,"time":1772987164561,"pid":5603,"hostname":"Mac.lan","msg":"[TranscriptionProvider] Component unmounting (Service persists)"}
+ [32m✓[39m frontend/src/pages/__tests__/MainPage.component.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/useSpeechRecognition/__tests__/stale-closure.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 23[2mms[22m[39m
+ [32m✓[39m frontend/src/services/transcription/utils/__tests__/AudioProcessor.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+ [32m✓[39m frontend/src/services/audio/__tests__/pauseDetector.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useSessionManager.component.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 29[2mms[22m[39m
+{"level":50,"time":1772987167571,"pid":5616,"hostname":"Mac.lan","error":{"code":"DB_ERROR","message":"Database connection failed"},"msg":"[sessionService.getHistory]"}
+{"level":50,"time":1772987167578,"pid":5616,"hostname":"Mac.lan","error":{"code":"OTHER","message":"DB error"},"userId":"user-1","msg":"[profileService.getById]"}
+ [32m✓[39m frontend/src/services/__tests__/domainServices.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+{"level":30,"time":1772987168190,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🧪 Exposing instance for E2E testing"}
+{"level":30,"time":1772987168190,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initialized (dual-engine facade)."}
+{"level":30,"time":1772987168190,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🔄 init() START - Dual-Engine Mode"}
+{"level":30,"time":1772987168190,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initializing PrivateSTT facade..."}
+{"level":30,"time":1772987168190,"pid":5618,"hostname":"Mac.lan","engineType":"whisper-turbo","msg":"[PrivateWhisper] ✅ Engine initialized"}
+{"level":30,"time":1772987168190,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Engine initialized: whisper-turbo"}
+{"level":30,"time":1772987168190,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Model ready! Using GPU acceleration."}
+{"level":30,"time":1772987168191,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🧪 Exposing instance for E2E testing"}
+{"level":30,"time":1772987168191,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initialized (dual-engine facade)."}
+{"level":30,"time":1772987168191,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🔄 init() START - Dual-Engine Mode"}
+{"level":30,"time":1772987168191,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initializing PrivateSTT facade..."}
+{"level":30,"time":1772987168191,"pid":5618,"hostname":"Mac.lan","engineType":"whisper-turbo","msg":"[PrivateWhisper] ✅ Engine initialized"}
+{"level":30,"time":1772987168191,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Engine initialized: whisper-turbo"}
+{"level":30,"time":1772987168191,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Model ready! Using GPU acceleration."}
+{"level":30,"time":1772987168191,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] startTranscription() called."}
+{"level":30,"time":1772987168191,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Streaming started."}
+{"level":30,"time":1772987168691,"pid":5618,"hostname":"Mac.lan","samples":16000,"msg":"[PrivateWhisper] 🔊 Speech detected"}
+{"level":30,"time":1772987168691,"pid":5618,"hostname":"Mac.lan","samples":16000,"expectedDurationSec":1,"msg":"[PrivateWhisper] 🎤 Processing chunk"}
+{"level":30,"time":1772987168691,"pid":5618,"hostname":"Mac.lan","newText":"Test transcript","latencyMs":"0.00","msg":"[PrivateWhisper] ✨ Transcription success"}
+{"level":30,"time":1772987169291,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] stopTranscription() called."}
+{"level":30,"time":1772987168195,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🧪 Exposing instance for E2E testing"}
+{"level":30,"time":1772987168195,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initialized (dual-engine facade)."}
+{"level":30,"time":1772987168195,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🔄 init() START - Dual-Engine Mode"}
+{"level":30,"time":1772987168195,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initializing PrivateSTT facade..."}
+{"level":30,"time":1772987168195,"pid":5618,"hostname":"Mac.lan","engineType":"whisper-turbo","msg":"[PrivateWhisper] ✅ Engine initialized"}
+{"level":30,"time":1772987168195,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Engine initialized: whisper-turbo"}
+{"level":30,"time":1772987168195,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Model ready! Using GPU acceleration."}
+{"level":30,"time":1772987168195,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] startTranscription() called."}
+{"level":30,"time":1772987168195,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Streaming started."}
+{"level":30,"time":1772987169295,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] stopTranscription() called."}
+{"level":30,"time":1772987168196,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🧪 Exposing instance for E2E testing"}
+{"level":30,"time":1772987168196,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initialized (dual-engine facade)."}
+{"level":30,"time":1772987168196,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🔄 init() START - Dual-Engine Mode"}
+{"level":30,"time":1772987168196,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initializing PrivateSTT facade..."}
+{"level":30,"time":1772987168196,"pid":5618,"hostname":"Mac.lan","engineType":"whisper-turbo","msg":"[PrivateWhisper] ✅ Engine initialized"}
+{"level":30,"time":1772987168196,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Engine initialized: whisper-turbo"}
+{"level":30,"time":1772987168196,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Model ready! Using GPU acceleration."}
+{"level":30,"time":1772987168196,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] startTranscription() called."}
+{"level":30,"time":1772987168196,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Streaming started."}
+{"level":30,"time":1772987168696,"pid":5618,"hostname":"Mac.lan","samples":16000,"msg":"[PrivateWhisper] 🔊 Speech detected"}
+{"level":30,"time":1772987168696,"pid":5618,"hostname":"Mac.lan","samples":16000,"expectedDurationSec":1,"msg":"[PrivateWhisper] 🎤 Processing chunk"}
+{"level":30,"time":1772987168696,"pid":5618,"hostname":"Mac.lan","newText":"Test transcript","latencyMs":"0.00","msg":"[PrivateWhisper] ✨ Transcription success"}
+{"level":30,"time":1772987169296,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] stopTranscription() called."}
+{"level":30,"time":1772987168201,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🧪 Exposing instance for E2E testing"}
+{"level":30,"time":1772987168201,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initialized (dual-engine facade)."}
+{"level":30,"time":1772987168201,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] 🔄 init() START - Dual-Engine Mode"}
+{"level":30,"time":1772987168201,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Initializing PrivateSTT facade..."}
+{"level":30,"time":1772987168201,"pid":5618,"hostname":"Mac.lan","engineType":"whisper-turbo","msg":"[PrivateWhisper] ✅ Engine initialized"}
+{"level":30,"time":1772987168201,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Engine initialized: whisper-turbo"}
+{"level":30,"time":1772987168201,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Model ready! Using GPU acceleration."}
+{"level":30,"time":1772987168201,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] startTranscription() called."}
+{"level":30,"time":1772987168201,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] Streaming started."}
+{"level":30,"time":1772987168701,"pid":5618,"hostname":"Mac.lan","samples":8000,"msg":"[PrivateWhisper] 🔊 Speech detected"}
+{"level":30,"time":1772987168701,"pid":5618,"hostname":"Mac.lan","samples":8000,"expectedDurationSec":0.5,"msg":"[PrivateWhisper] 🎤 Processing chunk"}
+{"level":30,"time":1772987168701,"pid":5618,"hostname":"Mac.lan","newText":"Test transcript","latencyMs":"0.00","msg":"[PrivateWhisper] ✨ Transcription success"}
+{"level":30,"time":1772987169201,"pid":5618,"hostname":"Mac.lan","samples":8000,"msg":"[PrivateWhisper] 🔊 Speech detected"}
+{"level":30,"time":1772987169201,"pid":5618,"hostname":"Mac.lan","newText":"Test transcript","latencyMs":"0.00","msg":"[PrivateWhisper] ✨ Transcription success"}
+{"level":30,"time":1772987169501,"pid":5618,"hostname":"Mac.lan","msg":"[PrivateWhisper] stopTranscription() called."}
+ [32m✓[39m frontend/src/services/transcription/modes/__tests__/PrivateWhisper.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m frontend/src/utils/__tests__/safeCompare.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/__tests__/useStreak.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 24[2mms[22m[39m
+ [32m✓[39m frontend/src/constants/__tests__/subscriptionTiers.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 23[2mms[22m[39m
+{"level":30,"time":1772987172653,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772987172653,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 🧪 Test environment detected. Using MockEngine."}
+{"level":30,"time":1772987172653,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 🛠️ Loading MockEngine..."}
+{"level":30,"time":1772987172653,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ✅ MockEngine ready."}
+{"level":30,"time":1772987172653,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] MockEngine initialized successfully."}
+{"level":30,"time":1772987172660,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772987172660,"pid":5631,"hostname":"Mac.lan","webGPUAvailable":true,"forceSafe":false,"msg":"[PrivateSTT] 🔍 WebGPU support check"}
+{"level":30,"time":1772987172660,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ⚡ WebGPU available. Attempting to initialize WhisperTurbo (Fast Path)..."}
+{"level":30,"time":1772987172660,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] WebGPU available. Trying WhisperTurbo engine..."}
+{"level":30,"time":1772987172660,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 📥 Importing WhisperTurbo engine..."}
+{"level":30,"time":1772987172660,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ⏳ calling WhisperTurbo.init()..."}
+{"level":30,"time":1772987172660,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] WhisperTurbo engine initialized successfully."}
+{"level":30,"time":1772987172660,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ✅ WhisperTurbo initialized successfully."}
+{"level":30,"time":1772987172661,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] [DEBUG-PRIVATE] 🚀 Verified: Using Fast WhisperTurbo engine."}
+{"level":30,"time":1772987172661,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772987172661,"pid":5631,"hostname":"Mac.lan","webGPUAvailable":true,"forceSafe":false,"msg":"[PrivateSTT] 🔍 WebGPU support check"}
+{"level":30,"time":1772987172661,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ⚡ WebGPU available. Attempting to initialize WhisperTurbo (Fast Path)..."}
+{"level":30,"time":1772987172661,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] WebGPU available. Trying WhisperTurbo engine..."}
+{"level":30,"time":1772987172661,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 📥 Importing WhisperTurbo engine..."}
+{"level":30,"time":1772987172662,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ⏳ calling WhisperTurbo.init()..."}
+{"level":40,"time":1772987172662,"pid":5631,"hostname":"Mac.lan","err":{"type":"Error","message":"WebGPU Init Failed","stack":"Error: WebGPU Init Failed\n    at t.<anonymous> (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:124:56)\n    at new mockCall (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/spy/dist/index.js:96:15)\n    at new spy (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/tinyspy/dist/index.js:47:34)\n    at PrivateSTT.initFastEngine (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:136:28)\n    at PrivateSTT.init (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:81:32)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:136:24\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[PrivateSTT] ⚠️ WhisperTurbo init returned error"}
+{"level":40,"time":1772987172670,"pid":5631,"hostname":"Mac.lan","err":{"type":"Error","message":"WebGPU Init Failed","stack":"Error: WebGPU Init Failed\n    at t.<anonymous> (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:124:56)\n    at new mockCall (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/spy/dist/index.js:96:15)\n    at new spy (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/tinyspy/dist/index.js:47:34)\n    at PrivateSTT.initFastEngine (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:136:28)\n    at PrivateSTT.init (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:81:32)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:136:24\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[PrivateSTT] ⚠️ WhisperTurbo failed to initialize. Falling back to safe engine."}
+{"level":40,"time":1772987172670,"pid":5631,"hostname":"Mac.lan","err":{"type":"Error","message":"WebGPU Init Failed","stack":"Error: WebGPU Init Failed\n    at t.<anonymous> (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:124:56)\n    at new mockCall (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/spy/dist/index.js:96:15)\n    at new spy (file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/tinyspy/dist/index.js:47:34)\n    at PrivateSTT.initFastEngine (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:136:28)\n    at PrivateSTT.init (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:81:32)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:136:24\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[PrivateSTT] WhisperTurbo failed. Falling back to TransformersJS..."}
+{"level":30,"time":1772987172670,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)..."}
+{"level":30,"time":1772987172670,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 📥 Importing TransformersJS engine..."}
+{"level":30,"time":1772987172670,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ⏳ calling TransformersJS.init()..."}
+{"level":30,"time":1772987172670,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ✅ TransformersJS engine initialized successfully."}
+{"level":30,"time":1772987172670,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] TransformersJS engine initialized successfully."}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","webGPUAvailable":true,"forceSafe":false,"msg":"[PrivateSTT] 🔍 WebGPU support check"}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ⚡ WebGPU available. Attempting to initialize WhisperTurbo (Fast Path)..."}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] WebGPU available. Trying WhisperTurbo engine..."}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 📥 Importing WhisperTurbo engine..."}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ⏳ calling WhisperTurbo.init()..."}
+{"level":40,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","err":{"type":"TypeError","message":"Cannot read properties of undefined (reading 'isErr')","stack":"TypeError: Cannot read properties of undefined (reading 'isErr')\n    at PrivateSTT.initFastEngine (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:141:24)\n    at PrivateSTT.init (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:81:32)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:155:24\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[PrivateSTT] ⚠️ WhisperTurbo init threw exception"}
+{"level":40,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","err":{"type":"TypeError","message":"Cannot read properties of undefined (reading 'isErr')","stack":"TypeError: Cannot read properties of undefined (reading 'isErr')\n    at PrivateSTT.initFastEngine (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:141:24)\n    at PrivateSTT.init (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:81:32)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:155:24\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[PrivateSTT] ⚠️ WhisperTurbo failed to initialize. Falling back to safe engine."}
+{"level":40,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","err":{"type":"TypeError","message":"Cannot read properties of undefined (reading 'isErr')","stack":"TypeError: Cannot read properties of undefined (reading 'isErr')\n    at PrivateSTT.initFastEngine (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:141:24)\n    at PrivateSTT.init (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:81:32)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:155:24\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[PrivateSTT] WhisperTurbo failed. Falling back to TransformersJS..."}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)..."}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 📥 Importing TransformersJS engine..."}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ⏳ calling TransformersJS.init()..."}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ✅ TransformersJS engine initialized successfully."}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] TransformersJS engine initialized successfully."}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 🧪 Test environment detected. Using MockEngine."}
+{"level":30,"time":1772987172671,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 🛠️ Loading MockEngine..."}
+{"level":30,"time":1772987172672,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ✅ MockEngine ready."}
+{"level":30,"time":1772987172672,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] MockEngine initialized successfully."}
+{"level":40,"time":1772987172672,"pid":5631,"hostname":"Mac.lan","err":{"type":"TypeError","message":"Cannot read properties of undefined (reading 'isErr')","stack":"TypeError: Cannot read properties of undefined (reading 'isErr')\n    at PrivateSTT.initFastEngine (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:141:24)\n    at PrivateSTT.init (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:81:32)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:193:9\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[PrivateSTT] ⚠️ WhisperTurbo init threw exception"}
+{"level":40,"time":1772987172673,"pid":5631,"hostname":"Mac.lan","err":{"type":"TypeError","message":"Cannot read properties of undefined (reading 'isErr')","stack":"TypeError: Cannot read properties of undefined (reading 'isErr')\n    at PrivateSTT.initFastEngine (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:141:24)\n    at PrivateSTT.init (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:81:32)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:193:9\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[PrivateSTT] ⚠️ WhisperTurbo failed to initialize. Falling back to safe engine."}
+{"level":40,"time":1772987172673,"pid":5631,"hostname":"Mac.lan","err":{"type":"TypeError","message":"Cannot read properties of undefined (reading 'isErr')","stack":"TypeError: Cannot read properties of undefined (reading 'isErr')\n    at PrivateSTT.initFastEngine (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:141:24)\n    at PrivateSTT.init (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:81:32)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:193:9\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[PrivateSTT] WhisperTurbo failed. Falling back to TransformersJS..."}
+{"level":50,"time":1772987172673,"pid":5631,"hostname":"Mac.lan","err":{"type":"TypeError","message":"Cannot read properties of undefined (reading 'isErr')","stack":"TypeError: Cannot read properties of undefined (reading 'isErr')\n    at PrivateSTT.initSafeEngine (/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/engines/PrivateSTT.ts:172:24)\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:193:9\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[PrivateSTT] ❌ TransformersJS init threw exception"}
+{"level":30,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","webGPUAvailable":true,"forceSafe":false,"msg":"[PrivateSTT] 🔍 WebGPU support check"}
+{"level":30,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ⚡ WebGPU available. Attempting to initialize WhisperTurbo (Fast Path)..."}
+{"level":30,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] WebGPU available. Trying WhisperTurbo engine..."}
+{"level":30,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 📥 Importing WhisperTurbo engine..."}
+{"level":30,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ⏳ calling WhisperTurbo.init()..."}
+{"level":40,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","err":{"type":"Error","message":"Low-level WASM crash","stack":"Error: Low-level WASM crash\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:210:27\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[PrivateSTT] ⚠️ WhisperTurbo init returned error"}
+{"level":40,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","err":{"type":"Error","message":"Low-level WASM crash","stack":"Error: Low-level WASM crash\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:210:27\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[PrivateSTT] ⚠️ WhisperTurbo failed to initialize. Falling back to safe engine."}
+{"level":40,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","err":{"type":"Error","message":"Low-level WASM crash","stack":"Error: Low-level WASM crash\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/tests/integration/PrivateSTT.integration.test.ts:210:27\n    at file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/node_modules/@vitest/runner/dist/chunk-hooks.js:752:20"},"msg":"[PrivateSTT] WhisperTurbo failed. Falling back to TransformersJS..."}
+{"level":30,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)..."}
+{"level":30,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] 📥 Importing TransformersJS engine..."}
+{"level":30,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ⏳ calling TransformersJS.init()..."}
+{"level":30,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] ✅ TransformersJS engine initialized successfully."}
+{"level":30,"time":1772987172680,"pid":5631,"hostname":"Mac.lan","msg":"[PrivateSTT] TransformersJS engine initialized successfully."}
+ [32m✓[39m frontend/tests/integration/PrivateSTT.integration.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 45[2mms[22m[39m
+ [32m✓[39m frontend/src/services/transcription/utils/__tests__/audio-processor.worker.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+ [32m✓[39m frontend/src/utils/__tests__/highlightUtils.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m frontend/src/services/transcription/utils/__tests__/ImmutableCallbackProxy.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 55[2mms[22m[39m
+ [32m✓[39m frontend/src/services/transcription/engines/__tests__/WhisperEngineRegistry.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+ [32m✓[39m frontend/src/hooks/useSpeechRecognition/__tests__/utils.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+{"level":30,"time":1772987178539,"pid":5655,"hostname":"Mac.lan","userId":"user1...","msg":"[Supabase DB] 📥 Fetching sessions"}
+{"level":30,"time":1772987178539,"pid":5655,"hostname":"Mac.lan","requestUrl":"https://yxlapjuovrsvjswkwnrk.supabase.co/rest/v1/sessions","msg":"[Supabase DB] Request URL"}
+{"level":30,"time":1772987178539,"pid":5655,"hostname":"Mac.lan","sessionCount":1,"msg":"[Supabase DB] ✅ Sessions fetched"}
+{"level":30,"time":1772987178540,"pid":5655,"hostname":"Mac.lan","userId":"user1...","msg":"[Supabase DB] 📥 Fetching sessions"}
+{"level":30,"time":1772987178540,"pid":5655,"hostname":"Mac.lan","requestUrl":"https://yxlapjuovrsvjswkwnrk.supabase.co/rest/v1/sessions","msg":"[Supabase DB] Request URL"}
+{"level":30,"time":1772987178540,"pid":5655,"hostname":"Mac.lan","sessionCount":0,"msg":"[Supabase DB] ✅ Sessions fetched"}
+{"level":30,"time":1772987178541,"pid":5655,"hostname":"Mac.lan","userId":"user1...","msg":"[Supabase DB] 📥 Fetching sessions"}
+{"level":30,"time":1772987178541,"pid":5655,"hostname":"Mac.lan","requestUrl":"https://yxlapjuovrsvjswkwnrk.supabase.co/rest/v1/sessions","msg":"[Supabase DB] Request URL"}
+{"level":30,"time":1772987178541,"pid":5655,"hostname":"Mac.lan","sessionCount":0,"msg":"[Supabase DB] ✅ Sessions fetched"}
+{"level":30,"time":1772987178543,"pid":5655,"hostname":"Mac.lan","userId":"user1","duration":60,"engineType":"native","msg":"[Supabase DB] 💾 Saving session via RPC"}
+{"level":30,"time":1772987178544,"pid":5655,"hostname":"Mac.lan","userId":"user1","duration":60,"engineType":"cloud","msg":"[Supabase DB] 💾 Saving session via RPC"}
+{"level":30,"time":1772987178545,"pid":5655,"hostname":"Mac.lan","userId":"user1","duration":60,"engineType":"native","msg":"[Supabase DB] 💾 Saving session via RPC"}
+{"level":30,"time":1772987178547,"pid":5655,"hostname":"Mac.lan","userId":"user1...","msg":"[Supabase DB] 📥 Fetching sessions"}
+{"level":30,"time":1772987178547,"pid":5655,"hostname":"Mac.lan","requestUrl":"https://yxlapjuovrsvjswkwnrk.supabase.co/rest/v1/sessions","msg":"[Supabase DB] Request URL"}
+{"level":30,"time":1772987178547,"pid":5655,"hostname":"Mac.lan","sessionCount":1,"msg":"[Supabase DB] ✅ Sessions fetched"}
+ [32m✓[39m frontend/src/lib/__tests__/storage.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+{"level":30,"time":1772987179514,"pid":5657,"hostname":"Mac.lan","attempt":1,"delayMs":100,"msg":"[fetchWithRetry] Retrying failed fetch"}
+{"level":30,"time":1772987179614,"pid":5657,"hostname":"Mac.lan","attempt":2,"delayMs":200,"msg":"[fetchWithRetry] Retrying failed fetch"}
+{"level":30,"time":1772987179515,"pid":5657,"hostname":"Mac.lan","attempt":1,"delayMs":100,"msg":"[fetchWithRetry] Retrying failed fetch"}
+{"level":30,"time":1772987179615,"pid":5657,"hostname":"Mac.lan","attempt":2,"delayMs":200,"msg":"[fetchWithRetry] Retrying failed fetch"}
+{"level":30,"time":1772987179516,"pid":5657,"hostname":"Mac.lan","attempt":1,"delayMs":100,"msg":"[fetchWithRetry] Retrying failed fetch"}
+{"level":30,"time":1772987179616,"pid":5657,"hostname":"Mac.lan","attempt":2,"delayMs":200,"msg":"[fetchWithRetry] Retrying failed fetch"}
+{"level":30,"time":1772987179517,"pid":5657,"hostname":"Mac.lan","attempt":1,"delayMs":100,"msg":"[fetchWithRetry] Retrying failed fetch"}
+{"level":30,"time":1772987179517,"pid":5657,"hostname":"Mac.lan","attempt":1,"delayMs":500,"msg":"[fetchWithRetry] Retrying failed fetch"}
+{"level":30,"time":1772987179517,"pid":5657,"hostname":"Mac.lan","attempt":1,"delayMs":100,"msg":"[fetchWithRetry] Retrying failed fetch"}
+ [32m✓[39m frontend/src/utils/__tests__/fetchWithRetry.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","policyId":"test","policyPref":"private","allowNative":true,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","resolved":"private","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: private"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","key":"privateSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧪 E2E Mode detected: DISABLING optimistic fallback. Waiting for full engine init."}
+{"level":50,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","mode":"private","error":{},"msg":"[TranscriptionService] Implementation failure"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] Attempting Native Fallback..."}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] Interrupting active session for new request"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> CLEANING_UP"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","policyId":"test","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987180338,"pid":5659,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","policyId":"test","policyPref":"private","allowNative":true,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","resolved":"private","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: private"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","key":"privateSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧪 E2E Mode detected: DISABLING optimistic fallback. Waiting for full engine init."}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] Cache miss - triggering download"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] Handling cache miss - switching to native fallback"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987180345,"pid":5659,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987180346,"pid":5659,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987180346,"pid":5659,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987180346,"pid":5659,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987180346,"pid":5659,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987180346,"pid":5659,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987180346,"pid":5659,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987180346,"pid":5659,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987180346,"pid":5659,"hostname":"Mac.lan","policyId":"test","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987180346,"pid":5659,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987180346,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772987180346,"pid":5659,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987180346,"pid":5659,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987180346,"pid":5659,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","policyId":"test","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772987180347,"pid":5659,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+ [32m✓[39m frontend/src/services/transcription/__tests__/TranscriptionService.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/pdfGenerator.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+{"level":30,"time":1772987182366,"pid":5664,"hostname":"Mac.lan","userPref":"private","policyPref":"cloud","allowNative":true,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987182366,"pid":5664,"hostname":"Mac.lan","resolved":"private","source":"user-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987182367,"pid":5664,"hostname":"Mac.lan","userPref":"cloud","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987182367,"pid":5664,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987182367,"pid":5664,"hostname":"Mac.lan","userPref":null,"policyPref":"cloud","allowNative":true,"allowCloud":true,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987182367,"pid":5664,"hostname":"Mac.lan","resolved":"cloud","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987182367,"pid":5664,"hostname":"Mac.lan","policyPref":null,"allowNative":true,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987182367,"pid":5664,"hostname":"Mac.lan","resolved":"native","source":"fallback","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987182367,"pid":5664,"hostname":"Mac.lan","policyPref":null,"allowNative":false,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987182367,"pid":5664,"hostname":"Mac.lan","resolved":"cloud","source":"fallback","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987182367,"pid":5664,"hostname":"Mac.lan","policyPref":null,"allowNative":false,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987182367,"pid":5664,"hostname":"Mac.lan","resolved":"private","source":"fallback","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987182368,"pid":5664,"hostname":"Mac.lan","policyPref":null,"allowNative":false,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+ [32m✓[39m frontend/src/services/transcription/__tests__/TranscriptionPolicy.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m frontend/src/config/__tests__/env.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+{"level":30,"time":1772987184057,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772987184057,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] 🧪 Test environment detected. Using MockEngine."}
+{"level":30,"time":1772987184057,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] 🛠️ Loading MockEngine..."}
+{"level":30,"time":1772987184057,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] ✅ MockEngine ready."}
+{"level":30,"time":1772987184057,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] MockEngine initialized successfully."}
+{"level":30,"time":1772987184059,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772987184059,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] 🧪 Test environment detected. Using MockEngine."}
+{"level":30,"time":1772987184059,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] 🛠️ Loading MockEngine..."}
+{"level":30,"time":1772987184059,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] ✅ MockEngine ready."}
+{"level":30,"time":1772987184059,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] MockEngine initialized successfully."}
+{"level":30,"time":1772987184060,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772987184060,"pid":5674,"hostname":"Mac.lan","forceEngine":"whisper-turbo","msg":"[PrivateSTT] 🎯 Forcing engine"}
+{"level":30,"time":1772987184060,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] 📥 Importing WhisperTurbo engine..."}
+{"level":30,"time":1772987184061,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] ⏳ calling WhisperTurbo.init()..."}
+{"level":30,"time":1772987184061,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] WhisperTurbo engine initialized successfully."}
+{"level":30,"time":1772987184062,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] 🚀 Automatic engine selection started..."}
+{"level":30,"time":1772987184062,"pid":5674,"hostname":"Mac.lan","forceEngine":"transformers-js","msg":"[PrivateSTT] 🎯 Forcing engine"}
+{"level":30,"time":1772987184062,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] 📥 Importing TransformersJS engine..."}
+{"level":30,"time":1772987184062,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] ⏳ calling TransformersJS.init()..."}
+{"level":30,"time":1772987186062,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] ✅ TransformersJS engine initialized successfully."}
+{"level":30,"time":1772987186062,"pid":5674,"hostname":"Mac.lan","msg":"[PrivateSTT] TransformersJS engine initialized successfully."}
+ [32m✓[39m frontend/src/services/transcription/engines/__tests__/PrivateSTT.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+{"level":30,"time":1772987185220,"pid":5680,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987185220,"pid":5680,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987185220,"pid":5680,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987185220,"pid":5680,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+{"level":30,"time":1772987185220,"pid":5680,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987185220,"pid":5680,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987185220,"pid":5680,"hostname":"Mac.lan","policyId":"test","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987185220,"pid":5680,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987185220,"pid":5680,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772987185220,"pid":5680,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987185220,"pid":5680,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987185420,"pid":5680,"hostname":"Mac.lan","from":"RECORDING","to":"STOPPING","event":"STOP_REQUESTED","msg":"[FSM] State transition: RECORDING -> STOPPING"}
+{"level":40,"time":1772987185420,"pid":5680,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772987185420,"pid":5680,"hostname":"Mac.lan","from":"STOPPING","to":"READY","event":"STOP_COMPLETED","msg":"[FSM] State transition: STOPPING -> READY"}
+{"level":30,"time":1772987185420,"pid":5680,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987185225,"pid":5680,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987185225,"pid":5680,"hostname":"Mac.lan","key":"cloudSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987185225,"pid":5680,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987185225,"pid":5680,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+{"level":30,"time":1772987185225,"pid":5680,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987185225,"pid":5680,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987185225,"pid":5680,"hostname":"Mac.lan","policyId":"test","policyPref":"cloud","allowNative":false,"allowCloud":true,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987185225,"pid":5680,"hostname":"Mac.lan","resolved":"cloud","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987185225,"pid":5680,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: cloud"}
+{"level":30,"time":1772987185225,"pid":5680,"hostname":"Mac.lan","key":"cloudSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987185225,"pid":5680,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987185425,"pid":5680,"hostname":"Mac.lan","from":"RECORDING","to":"STOPPING","event":"STOP_REQUESTED","msg":"[FSM] State transition: RECORDING -> STOPPING"}
+{"level":40,"time":1772987185425,"pid":5680,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772987185425,"pid":5680,"hostname":"Mac.lan","from":"STOPPING","to":"READY","event":"STOP_COMPLETED","msg":"[FSM] State transition: STOPPING -> READY"}
+{"level":30,"time":1772987185425,"pid":5680,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987185227,"pid":5680,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987185227,"pid":5680,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987185227,"pid":5680,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987185227,"pid":5680,"hostname":"Mac.lan","msg":"Mocking microphone stream for TEST_ENVIRONMENT"}
+{"level":30,"time":1772987185227,"pid":5680,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987185227,"pid":5680,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987185227,"pid":5680,"hostname":"Mac.lan","policyId":"test","policyPref":"private","allowNative":false,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987185227,"pid":5680,"hostname":"Mac.lan","resolved":"private","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987185227,"pid":5680,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: private"}
+{"level":30,"time":1772987185227,"pid":5680,"hostname":"Mac.lan","key":"privateSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987185227,"pid":5680,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧪 E2E Mode detected: DISABLING optimistic fallback. Waiting for full engine init."}
+{"level":30,"time":1772987185227,"pid":5680,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987185427,"pid":5680,"hostname":"Mac.lan","from":"RECORDING","to":"STOPPING","event":"STOP_REQUESTED","msg":"[FSM] State transition: RECORDING -> STOPPING"}
+{"level":40,"time":1772987185427,"pid":5680,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772987185427,"pid":5680,"hostname":"Mac.lan","from":"STOPPING","to":"READY","event":"STOP_COMPLETED","msg":"[FSM] State transition: STOPPING -> READY"}
+{"level":30,"time":1772987185427,"pid":5680,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+ [32m✓[39m frontend/src/services/transcription/__tests__/TranscriptionAccuracy.integration.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+{"level":30,"time":1772987185804,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Init complete."}
+{"level":30,"time":1772987185804,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Calling onReady callback..."}
+{"level":30,"time":1772987185805,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Init complete."}
+{"level":30,"time":1772987185805,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Calling onReady callback..."}
+{"level":30,"time":1772987185805,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] startTranscription called"}
+{"level":30,"time":1772987185805,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Starting recognition.start()..."}
+{"level":30,"time":1772987185805,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] recognition.start() called successfully."}
+{"level":30,"time":1772987185806,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Init complete."}
+{"level":30,"time":1772987185806,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Calling onReady callback..."}
+{"level":30,"time":1772987185806,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] startTranscription called"}
+{"level":30,"time":1772987185806,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Starting recognition.start()..."}
+{"level":30,"time":1772987185806,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] recognition.start() called successfully."}
+{"level":30,"time":1772987185806,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] stopTranscription called"}
+{"level":30,"time":1772987185806,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Init complete."}
+{"level":30,"time":1772987185806,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Calling onReady callback..."}
+{"level":30,"time":1772987185806,"pid":5682,"hostname":"Mac.lan","resultIndex":0,"resultsLength":1,"msg":"[NativeBrowser] onresult called!"}
+{"level":30,"time":1772987185806,"pid":5682,"hostname":"Mac.lan","finalTranscript":"hello world","msg":"[NativeBrowser] Final transcript received"}
+{"level":30,"time":1772987185807,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Init complete."}
+{"level":30,"time":1772987185807,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Calling onReady callback..."}
+{"level":30,"time":1772987185807,"pid":5682,"hostname":"Mac.lan","resultIndex":0,"resultsLength":1,"msg":"[NativeBrowser] onresult called!"}
+{"level":30,"time":1772987185807,"pid":5682,"hostname":"Mac.lan","interimTranscript":"hello","msg":"[NativeBrowser] Interim transcript received"}
+{"level":30,"time":1772987185807,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Init complete."}
+{"level":30,"time":1772987185807,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Calling onReady callback..."}
+{"level":30,"time":1772987185807,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] startTranscription called"}
+{"level":30,"time":1772987185807,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] Starting recognition.start()..."}
+{"level":30,"time":1772987185807,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] recognition.start() called successfully."}
+{"level":30,"time":1772987185807,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] onend reached, attempting immediate restart..."}
+{"level":30,"time":1772987185867,"pid":5682,"hostname":"Mac.lan","msg":"[NativeBrowser] onend reached, attempting immediate restart..."}
+ [32m✓[39m frontend/src/services/transcription/modes/__tests__/NativeBrowser.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+{"level":30,"time":1772987186685,"pid":5684,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987186686,"pid":5684,"hostname":"Mac.lan","msg":"[EngineFactory] 🌐 Starting Native Browser mode"}
+{"level":30,"time":1772987186687,"pid":5684,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987186687,"pid":5684,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987186687,"pid":5684,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987186688,"pid":5684,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987186688,"pid":5684,"hostname":"Mac.lan","msg":"[EngineFactory] ☁️ Starting Cloud (AssemblyAI) mode"}
+{"level":30,"time":1772987186688,"pid":5684,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987186688,"pid":5684,"hostname":"Mac.lan","key":"cloudSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987186688,"pid":5684,"hostname":"Mac.lan","key":"cloudSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987186688,"pid":5684,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+ [32m✓[39m frontend/src/services/transcription/__tests__/EngineFactory.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","key":"cloudSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","policyId":"prod-free","policyPref":"cloud","allowNative":true,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","resolved":"cloud","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: cloud"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","key":"cloudSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] Interrupting active session for new request"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","policyId":"prod-free","policyPref":"private","allowNative":true,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","resolved":"private","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: private"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","key":"privateSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧪 E2E Mode detected: DISABLING optimistic fallback. Waiting for full engine init."}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772987187485,"pid":5686,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987187489,"pid":5686,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987187489,"pid":5686,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987187489,"pid":5686,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987187489,"pid":5686,"hostname":"Mac.lan","key":"cloudSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987187489,"pid":5686,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987187489,"pid":5686,"hostname":"Mac.lan","policyId":"prod-free","policyPref":"cloud","allowNative":true,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987187489,"pid":5686,"hostname":"Mac.lan","resolved":"cloud","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987187489,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: cloud"}
+{"level":30,"time":1772987187489,"pid":5686,"hostname":"Mac.lan","key":"cloudSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987187489,"pid":5686,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987187489,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772987187489,"pid":5686,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772987187489,"pid":5686,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772987187539,"pid":5686,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772987187539,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772987187589,"pid":5686,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","key":"cloudSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","policyId":"prod-free","policyPref":"cloud","allowNative":true,"allowCloud":true,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","resolved":"cloud","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: cloud"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","key":"cloudSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772987187490,"pid":5686,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+ [32m✓[39m frontend/src/services/transcription/__tests__/TranscriptionService.zombie.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/globalErrorHandlers.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m frontend/src/lib/__tests__/storage.validation.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 99[2mms[22m[39m
+{"level":30,"time":1772987192246,"pid":5693,"hostname":"Mac.lan","msg":"[WhisperTurbo] [PERF] Initializing engine via Registry at 2026-03-08T16:26:32.246Z"}
+{"level":30,"time":1772987192246,"pid":5693,"hostname":"Mac.lan","msg":"[WhisperTurbo] [PERF] Engine acquisition took 0.00ms"}
+{"level":30,"time":1772987192250,"pid":5693,"hostname":"Mac.lan","msg":"[WhisperTurbo] [PERF] Initializing engine via Registry at 2026-03-08T16:26:32.250Z"}
+{"level":30,"time":1772987192250,"pid":5693,"hostname":"Mac.lan","msg":"[WhisperTurbo] [PERF] Engine acquisition took 0.00ms"}
+ [32m✓[39m frontend/src/services/transcription/engines/__tests__/WhisperTurboEngine.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+{"level":30,"time":1772987193321,"pid":5695,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987193321,"pid":5695,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987193321,"pid":5695,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987193321,"pid":5695,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987193321,"pid":5695,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987193321,"pid":5695,"hostname":"Mac.lan","policyId":"test","policyPref":"native","allowNative":true,"allowCloud":false,"allowPrivate":false,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987193321,"pid":5695,"hostname":"Mac.lan","resolved":"native","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":30,"time":1772987193321,"pid":5695,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772987193321,"pid":5695,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987193321,"pid":5695,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987193321,"pid":5695,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772987193321,"pid":5695,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772987193321,"pid":5695,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772987193371,"pid":5695,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772987193371,"pid":5695,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772987193421,"pid":5695,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987193330,"pid":5695,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987193330,"pid":5695,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987193330,"pid":5695,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987193330,"pid":5695,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987193330,"pid":5695,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987193330,"pid":5695,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987193330,"pid":5695,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772987193330,"pid":5695,"hostname":"Mac.lan","from":"READY","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: READY -> CLEANING_UP"}
+{"level":30,"time":1772987193330,"pid":5695,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772987193330,"pid":5695,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772987193430,"pid":5695,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772987193430,"pid":5695,"hostname":"Mac.lan","from":"READY","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: READY -> CLEANING_UP"}
+{"level":30,"time":1772987193430,"pid":5695,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772987193430,"pid":5695,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772987193430,"pid":5695,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+ [32m✓[39m frontend/src/services/transcription/__tests__/TranscriptionService.race.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 13[2mms[22m[39m
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","from":"IDLE","to":"ACTIVATING_MIC","event":"START_REQUESTED","msg":"[FSM] State transition: IDLE -> ACTIVATING_MIC"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","from":"ACTIVATING_MIC","to":"READY","event":"MIC_ACQUIRED","msg":"[FSM] State transition: ACTIVATING_MIC -> READY"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","key":"privateSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","key":"nativeSTT","priority":100,"testName":"unknown","msg":"[TestRegistry] Registered factory"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","from":"READY","to":"INITIALIZING_ENGINE","event":"ENGINE_INIT_REQUESTED","msg":"[FSM] State transition: READY -> INITIALIZING_ENGINE"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","policyId":"test-max-attempts","policyPref":"private","allowNative":true,"allowCloud":false,"allowPrivate":true,"msg":"[TranscriptionPolicy] Resolving mode:"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","resolved":"private","source":"policy-preference","msg":"[TranscriptionPolicy] Resolved mode"}
+{"level":40,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","failures":3,"max":2,"msg":"[TranscriptionService] Max Private attempts reached. Forcing Native Fallback."}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","msg":"[TranscriptionService] Preparing engine for mode: native"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","key":"nativeSTT","testName":"unknown","age":0,"msg":"[TestRegistry] Retrieved factory"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","from":"INITIALIZING_ENGINE","to":"RECORDING","event":"ENGINE_STARTED","msg":"[FSM] State transition: INITIALIZING_ENGINE -> RECORDING"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","msg":"[TranscriptionService] 🧹 Starting cleanup sequence"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","from":"RECORDING","to":"CLEANING_UP","event":"TERMINATE_REQUESTED","msg":"[FSM] State transition: RECORDING -> CLEANING_UP"}
+{"level":40,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","status":{"type":"idle","message":"Ready"},"msg":"[Store] ⚠️ Attempted to overwrite recording state"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","from":"CLEANING_UP","to":"IDLE","event":"RESET_REQUESTED","msg":"[FSM] State transition: CLEANING_UP -> IDLE"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","msg":"[TranscriptionService] ✅ Cleanup complete"}
+{"level":30,"time":1772987194442,"pid":5697,"hostname":"Mac.lan","msg":"[TestRegistry] Cleared all registrations"}
+ [32m✓[39m frontend/src/services/transcription/__tests__/TranscriptionService.maxAttempts.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 10[2mms[22m[39m
+ [32m✓[39m frontend/src/stores/__tests__/useSessionStore.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 4[2mms[22m[39m
+ [32m✓[39m frontend/src/components/session/__tests__/StatusNotificationBar.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+
+[31m⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Suites 2 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m frontend/src/pages/__tests__/SessionPage.timer.component.test.tsx[2m [ frontend/src/pages/__tests__/SessionPage.timer.component.test.tsx ][22m
+[31m[1mError[22m: Failed to resolve import "tests/unit/factories/storeFactory" from "frontend/src/pages/__tests__/SessionPage.timer.component.test.tsx". Does the file exist?[39m
+  Plugin: [35mvite:import-analysis[39m
+  File: [36m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/__tests__/SessionPage.timer.component.test.tsx[39m:22:0
+[33m  69 |  const __vi_import_7__ = await import("@/hooks/useUserProfile");
+  70 |  const __vi_import_8__ = await import("@/hooks/useUsageLimit");
+  71 |  const __vi_import_9__ = await import("tests/unit/factories/storeFactory");
+     |                                       ^
+  72 |  const __vi_import_10__ = await import("@/providers/TranscriptionProvider");
+  73 |  const __vi_import_11__ = await import("@/providers/useTranscriptionContext");[39m
+[90m [2m❯[22m TransformPluginContext._formatLog node_modules/vite/dist/node/chunks/config.js:[2m29618:43[22m[39m
+[90m [2m❯[22m TransformPluginContext.error node_modules/vite/dist/node/chunks/config.js:[2m29615:14[22m[39m
+[90m [2m❯[22m normalizeUrl node_modules/vite/dist/node/chunks/config.js:[2m27738:18[22m[39m
+[90m [2m❯[22m node_modules/vite/dist/node/chunks/config.js:[2m27796:32[22m[39m
+[90m [2m❯[22m TransformPluginContext.transform node_modules/vite/dist/node/chunks/config.js:[2m27764:4[22m[39m
+[90m [2m❯[22m EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/config.js:[2m29416:14[22m[39m
+[90m [2m❯[22m loadAndTransform node_modules/vite/dist/node/chunks/config.js:[2m23287:26[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m frontend/src/pages/__tests__/SessionPage.ui.component.test.tsx[2m [ frontend/src/pages/__tests__/SessionPage.ui.component.test.tsx ][22m
+[31m[1mError[22m: Failed to resolve import "tests/unit/factories/storeFactory" from "frontend/src/pages/__tests__/SessionPage.ui.component.test.tsx". Does the file exist?[39m
+  Plugin: [35mvite:import-analysis[39m
+  File: [36m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/__tests__/SessionPage.ui.component.test.tsx[39m:9:0
+[33m  51 |  const __vi_import_6__ = await import("@/hooks/useVocalAnalysis");
+  52 |  const __vi_import_7__ = await import("@/contexts/AuthProvider");
+  53 |  const __vi_import_8__ = await import("tests/unit/factories/storeFactory");
+     |                                       ^
+  54 |  const __vi_import_9__ = await import("@/hooks/useSessionLifecycle");
+  55 |  [39m
+[90m [2m❯[22m TransformPluginContext._formatLog node_modules/vite/dist/node/chunks/config.js:[2m29618:43[22m[39m
+[90m [2m❯[22m TransformPluginContext.error node_modules/vite/dist/node/chunks/config.js:[2m29615:14[22m[39m
+[90m [2m❯[22m normalizeUrl node_modules/vite/dist/node/chunks/config.js:[2m27738:18[22m[39m
+[90m [2m❯[22m node_modules/vite/dist/node/chunks/config.js:[2m27796:32[22m[39m
+[90m [2m❯[22m TransformPluginContext.transform node_modules/vite/dist/node/chunks/config.js:[2m27764:4[22m[39m
+[90m [2m❯[22m EnvironmentPluginContainer.transform node_modules/vite/dist/node/chunks/config.js:[2m29416:14[22m[39m
+[90m [2m❯[22m loadAndTransform node_modules/vite/dist/node/chunks/config.js:[2m23287:26[22m[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯[22m[39m
+
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 6 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx[2m > [22museSpeechRecognition Integration[2m > [22mshould handle service errors gracefully
+[31m[1mAssertionError[22m: expected 'Error occurred' to be 'Microphone access denied' // Object.is equality[39m
+
+Expected: [32m"[7mMicrophone access deni[27med"[39m
+Received: [31m"[7mError occurr[27med"[39m
+
+[36m [2m❯[22m vi.waitFor.timeout frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx:[2m134:54[22m[39m
+    [90m132| [39m        [35mawait[39m vi[33m.[39m[34mwaitFor[39m(() [33m=>[39m {
+    [90m133| [39m            [34mexpect[39m(result[33m.[39mcurrent[33m.[39msttStatus[33m.[39mtype)[33m.[39m[34mtoBe[39m([32m'error'[39m)[33m;[39m
+    [90m134| [39m            expect(result.current.sttStatus.message).toBe('Microphone …
+    [90m   | [39m                                                     [31m^[39m
+    [90m135| [39m        }[33m,[39m { timeout[33m:[39m [34m3000[39m })[33m;[39m
+    [90m136| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx[2m > [22museSpeechRecognition Integration[2m > [22mshould capture usage limit exceeded state mid-session
+[31m[1mAssertionError[22m: expected 'recording' to be 'error' // Object.is equality[39m
+
+Expected: [32m"error"[39m
+Received: [31m"recording"[39m
+
+[36m [2m❯[22m vi.waitFor.timeout frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx:[2m161:51[22m[39m
+    [90m159| [39m        [90m// Verify the hook reflects the limit error[39m
+    [90m160| [39m        [35mawait[39m vi[33m.[39m[34mwaitFor[39m(() [33m=>[39m {
+    [90m161| [39m            [34mexpect[39m(result[33m.[39mcurrent[33m.[39msttStatus[33m.[39mtype)[33m.[39m[34mtoBe[39m([32m'error'[39m)[33m;[39m
+    [90m   | [39m                                                  [31m^[39m
+    [90m162| [39m            expect(result.current.sttStatus.message).toBe('Daily usage…
+    [90m163| [39m        }[33m,[39m { timeout[33m:[39m [34m3000[39m })[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx[2m > [22museSpeechRecognition Integration[2m > [22mshould cleanup on unmount
+[31m[1mAssertionError[22m: expected "spy" to be called at least once[39m
+[36m [2m❯[22m frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx:[2m185:34[22m[39m
+    [90m183| [39m
+    [90m184| [39m        [35mawait[39m vi[33m.[39m[34mwaitFor[39m(() [33m=>[39m {
+    [90m185| [39m            [34mexpect[39m(terminateSpy)[33m.[39m[34mtoHaveBeenCalled[39m()[33m;[39m
+    [90m   | [39m                                 [31m^[39m
+    [90m186| [39m        })[33m;[39m
+    [90m187| [39m    })[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m frontend/src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.component.test.tsx[2m > [22museTranscriptionService[2m > [22mshould stop listening successfully
+[31m[1mAssertionError[22m: expected "spy" to be called at least once[39m
+[36m [2m❯[22m frontend/src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.component.test.tsx:[2m109:35[22m[39m
+    [90m107| [39m    [90m// We need to wait for the mock to be called.[39m
+    [90m108| [39m    [35mawait[39m vi[33m.[39m[34mwaitFor[39m(() [33m=>[39m {
+    [90m109| [39m      [34mexpect[39m(mockService[33m.[39mdestroy)[33m.[39m[34mtoHaveBeenCalled[39m()[33m;[39m
+    [90m   | [39m                                  [31m^[39m
+    [90m110| [39m    })[33m;[39m
+    [90m111| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m frontend/src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.component.test.tsx[2m > [22museTranscriptionService[2m > [22mshould cleanup on unmount
+[31m[1mAssertionError[22m: expected "spy" to be called at least once[39m
+[36m [2m❯[22m frontend/src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.component.test.tsx:[2m148:33[22m[39m
+    [90m146| [39m    })[33m;[39m
+    [90m147| [39m
+    [90m148| [39m    [34mexpect[39m(mockService[33m.[39mdestroy)[33m.[39m[34mtoHaveBeenCalled[39m()[33m;[39m
+    [90m   | [39m                                [31m^[39m
+    [90m149| [39m  })[33m;[39m
+    [90m150| [39m})[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.test.ts[2m > [22mTransformersJSEngine (Unit)[2m > [22mshould handle transcription errors
+[31m[1mAssertionError[22m: expected false to be true // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+[36m [2m❯[22m frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.test.ts:[2m126:30[22m[39m
+    [90m124| [39m
+    [90m125| [39m        const result = await engine.transcribe(new Float32Array(16000)…
+    [90m126| [39m        [34mexpect[39m(result[33m.[39misErr)[33m.[39m[34mtoBe[39m([35mtrue[39m)[33m;[39m
+    [90m   | [39m                             [31m^[39m
+    [90m127| [39m    })[33m;[39m
+    [90m128| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m5 failed[39m[22m[2m | [22m[1m[32m84 passed[39m[22m[90m (89)[39m
+[2m      Tests [22m [1m[31m6 failed[39m[22m[2m | [22m[1m[32m546 passed[39m[22m[90m (552)[39m
+[2m   Start at [22m 12:24:38
+[2m   Duration [22m 119.12s[2m (transform 3.00s, setup 18.20s, collect 24.55s, tests 16.82s, environment 21.55s, prepare 10.88s)[22m
+
+ ELIFECYCLE  Command failed with exit code 1.

@@ -8,6 +8,7 @@ import * as Sentry from '@sentry/react';
 vi.mock('../../lib/logger', () => ({
     default: {
         error: vi.fn(),
+        info: vi.fn(),
     },
 }));
 

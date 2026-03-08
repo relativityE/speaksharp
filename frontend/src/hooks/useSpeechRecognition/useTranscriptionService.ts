@@ -109,8 +109,14 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
   // ============================================
   useEffect(() => {
     isMountedRef.current = true;
-    return () => { isMountedRef.current = false; };
-  }, []);
+    return () => {
+      isMountedRef.current = false;
+      // In tests, we want to verify that destruction happens
+      if (service) {
+        service.destroy().catch(err => logger.error({ err }, '[Hook] Cleanup failed'));
+      }
+    };
+  }, [service]);
 
   useEffect(() => {
     if (!service || !isServiceReady) return;

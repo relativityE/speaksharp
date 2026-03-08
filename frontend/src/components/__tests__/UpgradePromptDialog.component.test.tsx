@@ -15,6 +15,7 @@ vi.mock('@/lib/supabaseClient', () => ({
 vi.mock('@/lib/logger', () => ({
     default: {
         error: vi.fn(),
+        info: vi.fn(),
     },
 }));
 

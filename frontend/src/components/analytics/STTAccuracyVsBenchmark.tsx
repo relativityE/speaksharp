@@ -9,7 +9,28 @@ import { useParams } from 'react-router-dom';
 // Need to import using absolute root resolving or relative mapping.
 import benchmarkDataRaw from '../../../../docs/STT_BENCHMARKS.json';
 
-const STT_BENCHMARKS = benchmarkDataRaw.engines as Record<string, { expectedAccuracy: number, provider: string }>;
+interface BenchmarkEntry {
+    expectedAccuracy?: number | null;
+    provider?: string;
+    webgpu?: { expectedAccuracy: number; provider: string };
+    cpu?: { expectedAccuracy: number; provider: string };
+}
+
+const STT_BENCHMARKS = benchmarkDataRaw.engines as Record<string, BenchmarkEntry>;
+
+const getEngineCeiling = (engine: string): number => {
+    // Standardize key (Cloud, Private, Native)
+    const key = engine.charAt(0).toUpperCase() + engine.slice(1);
+    const entry = STT_BENCHMARKS[key];
+    if (!entry) return 90;
+
+    // Handle nested Private structure (webgpu/cpu)
+    if (key === 'Private') {
+        return entry.webgpu?.expectedAccuracy || entry.cpu?.expectedAccuracy || 90;
+    }
+
+    return entry.expectedAccuracy || 90;
+};
 
 /**
  * STT Accuracy Vs Benchmark Chart
@@ -50,7 +71,7 @@ export const STTAccuracyVsBenchmark: React.FC = () => {
         // accuracyData is already scoped to this session by useAnalytics
         const accuracy = accuracyData[0]?.accuracy || 0;
         const engine = specificSession.engine;
-        const ceiling = STT_BENCHMARKS[engine]?.expectedAccuracy || 90;
+        const ceiling = getEngineCeiling(engine);
 
         const data = [
             {
@@ -89,7 +110,7 @@ export const STTAccuracyVsBenchmark: React.FC = () => {
     // 2. Dashboard Trend View (Vertical Bars)
     const enrichedData = accuracyData.map(d => ({
         ...d,
-        ceiling: STT_BENCHMARKS[d.engine]?.expectedAccuracy || 90
+        ceiling: getEngineCeiling(d.engine)
     }));
 
     return (

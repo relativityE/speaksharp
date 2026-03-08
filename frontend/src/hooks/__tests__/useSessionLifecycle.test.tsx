@@ -22,6 +22,20 @@ vi.mock('@/hooks/useProfile', () => ({
 }));
 
 import { useProfile } from '@/hooks/useProfile';
+import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
+import { TranscriptionProvider } from '@/providers/TranscriptionProvider';
+
+vi.mock('@/providers/useTranscriptionContext', () => ({
+    useTranscriptionContext: vi.fn(() => ({
+        service: {
+            getTranscriptionService: vi.fn(),
+        },
+    })),
+}));
+
+vi.mock('@/providers/TranscriptionProvider', () => ({
+    TranscriptionProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
 
 vi.mock('@/contexts/AuthProvider', () => ({
     useAuthProvider: () => ({ session: { access_token: 'mock-token' }, user: { id: 'test-user' } }),
@@ -229,7 +243,13 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         // Verify it is indeed a Free user via isPro mock if necessary, 
         // but isPro(profile.subscription_status) handles it.
 
-        renderHook(() => useSessionLifecycle());
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
 
         await waitFor(() => {
             expect(mockStopListening).toHaveBeenCalled();
@@ -278,7 +298,13 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             status: 'success',
         } as unknown as UseQueryResult<UsageLimitCheck, Error>);
 
-        renderHook(() => useSessionLifecycle());
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
 
         expect(mockStopListening).not.toHaveBeenCalled();
     });

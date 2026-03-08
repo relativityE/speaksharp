@@ -7,6 +7,7 @@ import logger from '../../lib/logger';
 vi.mock('../../lib/logger', () => ({
     default: {
         error: vi.fn(),
+        info: vi.fn(),
     },
 }));
 

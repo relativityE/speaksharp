@@ -30,8 +30,16 @@ vi.mock('../../../services/transcription/TranscriptionService', () => {
         default: vi.fn().mockImplementation(() => ({
             updateCallbacks: vi.fn(),
             startTranscription: vi.fn(),
-            destroy: vi.fn(),
+            destroy: vi.fn().mockResolvedValue(undefined),
         })),
+        getTranscriptionService: vi.fn().mockImplementation(() => ({
+            updateCallbacks: vi.fn(),
+            startTranscription: vi.fn(),
+            destroy: vi.fn().mockResolvedValue(undefined),
+        })),
+        useSessionStore: {
+            getState: vi.fn()
+        }
     };
 });
 
@@ -45,7 +53,7 @@ const mockService = {
     fsm: {
         subscribe: vi.fn().mockReturnValue(() => { }),
     },
-    destroy: vi.fn()
+    destroy: vi.fn().mockResolvedValue(undefined)
 } as unknown as TranscriptionService;
 
 const mockStore = {
@@ -58,8 +66,10 @@ const mockStore = {
     setSTTStatus: vi.fn(),
     setSTTMode: vi.fn(),
     startSession: vi.fn(),
-    stopSession: vi.fn()
+    stopSession: vi.fn(),
+    getState: vi.fn()
 };
+mockStore.getState.mockReturnValue(mockStore);
 
 describe('useTranscriptionService - Integrated Behavior', () => {
     beforeEach(() => {
@@ -89,7 +99,7 @@ describe('useTranscriptionService - Integrated Behavior', () => {
         expect(mockService.updateCallbacks).toHaveBeenCalled();
     });
 
-    it('should call startTranscription when isListening becomes true', () => {
+    it('should call startTranscription when isListening becomes true', async () => {
         mockStore.isListening = true;
         const options: UseTranscriptionServiceOptions = {
             onTranscriptUpdate: vi.fn(),
@@ -100,6 +110,8 @@ describe('useTranscriptionService - Integrated Behavior', () => {
 
         renderHook(() => useTranscriptionService(options));
 
-        expect(mockService.startTranscription).toHaveBeenCalled();
+        await vi.waitFor(() => {
+            expect(mockService.startTranscription).toHaveBeenCalled();
+        });
     });
 });

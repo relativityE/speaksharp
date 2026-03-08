@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
-import { render, screen } from '../../../tests/support/test-utils';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SessionPage } from '../SessionPage';
 import * as UsageLimitHook from '@/hooks/useUsageLimit';
-import * as SessionStore from '../../stores/useSessionStore';
-import * as VocalAnalysisHook from '../../hooks/useVocalAnalysis';
-import * as AuthProvider from '../../contexts/AuthProvider';
-import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
+import * as SessionStore from '@/stores/useSessionStore';
+import * as VocalAnalysisHook from '@/hooks/useVocalAnalysis';
+import * as AuthProvider from '@/contexts/AuthProvider';
+import { createTestSessionStore } from 'tests/unit/factories/storeFactory';
 
 // ARCHITECTURE: Mock useSessionLifecycle to strictly unit test the View
 vi.mock('@/hooks/useSessionLifecycle');
@@ -14,12 +14,18 @@ import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 const mockUseSessionLifecycle = vi.mocked(useSessionLifecycle);
 
 // Mock dependencies
-vi.mock('../../hooks/useSpeechRecognition');
-vi.mock('../../stores/useSessionStore');
-vi.mock('../../hooks/useVocalAnalysis');
-vi.mock('../../contexts/AuthProvider');
+vi.mock('@/hooks/useSpeechRecognition');
+vi.mock('@/stores/useSessionStore');
+vi.mock('@/hooks/useVocalAnalysis');
+vi.mock('@/contexts/AuthProvider');
 vi.mock('@/hooks/useUserProfile');
 vi.mock('@/hooks/useUsageLimit');
+vi.mock('@/lib/logger', () => ({
+    default: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
+}));
+vi.mock('@/providers/useTranscriptionContext', () => ({
+    useTranscriptionContext: vi.fn(() => ({ service: { warmUp: vi.fn() } })),
+}));
 vi.mock('@/hooks/useUserFillerWords', () => ({
     useUserFillerWords: () => ({
         userFillerWords: ['mock-word'],
@@ -59,7 +65,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
         vi.clearAllMocks();
 
         // Default Lifecycle Mock
-        mockUseSessionLifecycle.mockReturnValue({
+        const defaultLifecycleMock = {
             isListening: false,
             isReady: true,
             isProUser: false, // Default to false
@@ -84,7 +90,8 @@ describe('SessionPage - STT Mode Selection UI', () => {
             showAnalyticsPrompt: false,
             sessionFeedbackMessage: null,
             sunsetModal: { type: 'daily', open: false }
-        } as unknown as ReturnType<typeof useSessionLifecycle>);
+        };
+        mockUseSessionLifecycle.mockReturnValue(defaultLifecycleMock as any);
 
         (mockUseSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
             elapsedTime: 0,
@@ -109,9 +116,31 @@ describe('SessionPage - STT Mode Selection UI', () => {
 
         // Mock Free User via Lifecycle Hook
         mockUseSessionLifecycle.mockReturnValue({
-            ...mockUseSessionLifecycle(),
-            isProUser: false
-        } as unknown as ReturnType<typeof useSessionLifecycle>);
+            isListening: false,
+            isReady: true,
+            isProUser: false, // Free user
+            mode: 'native',
+            sttStatus: { type: 'ready', message: '' },
+            modelLoadingProgress: null,
+            metrics: {
+                formattedTime: '00:00',
+                wpm: 0,
+                clarityScore: 100,
+                clarityLabel: 'Excellent',
+                wpmLabel: 'Optimal',
+                fillerCount: 0
+            },
+            pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },
+            transcriptContent: '',
+            fillerData: {},
+            setMode: vi.fn(),
+            handleStartStop: vi.fn(),
+            isButtonDisabled: false,
+            showPromoExpiredDialog: false,
+            showAnalyticsPrompt: false,
+            sessionFeedbackMessage: null,
+            sunsetModal: { type: 'daily', open: false }
+        } as any);
 
         render(<SessionPage />);
 
@@ -134,9 +163,31 @@ describe('SessionPage - STT Mode Selection UI', () => {
 
         // Mock Pro User via Lifecycle Hook
         mockUseSessionLifecycle.mockReturnValue({
-            ...mockUseSessionLifecycle(),
-            isProUser: true
-        } as unknown as ReturnType<typeof useSessionLifecycle>);
+            isListening: false,
+            isReady: true,
+            isProUser: true, // Pro user
+            mode: 'native',
+            sttStatus: { type: 'ready', message: '' },
+            modelLoadingProgress: null,
+            metrics: {
+                formattedTime: '00:00',
+                wpm: 0,
+                clarityScore: 100,
+                clarityLabel: 'Excellent',
+                wpmLabel: 'Optimal',
+                fillerCount: 0
+            },
+            pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },
+            transcriptContent: '',
+            fillerData: {},
+            setMode: vi.fn(),
+            handleStartStop: vi.fn(),
+            isButtonDisabled: false,
+            showPromoExpiredDialog: false,
+            showAnalyticsPrompt: false,
+            sessionFeedbackMessage: null,
+            sunsetModal: { type: 'daily', open: false }
+        } as any);
 
         render(<SessionPage />);
 

@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/19</span>
+                <span class='fraction'>20/20</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">75% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>3/4</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/19</span>
+                <span class='fraction'>20/20</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -94,67 +94,70 @@
 <a name='L29'></a><a href='#L29'>29</a>
 <a name='L30'></a><a href='#L30'>30</a>
 <a name='L31'></a><a href='#L31'>31</a>
-<a name='L32'></a><a href='#L32'>32</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<a name='L32'></a><a href='#L32'>32</a>
+<a name='L33'></a><a href='#L33'>33</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">36x</span>
+<span class="cline-any cline-yes">36x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js"><span class="cstat-no" title="statement not covered" >import React, { useEffect, useState } from 'react';<span class="fstat-no" title="function not covered" ><span class="branch-0 cbranch-no" title="branch not covered" ></span></span></span>
-<span class="cstat-no" title="statement not covered" >import { getTranscriptionService } from '../services/transcription/TranscriptionService';</span>
+<span class="cline-any cline-yes">36x</span>
+<span class="cline-any cline-yes">31x</span>
+<span class="cline-any cline-yes">31x</span>
+<span class="cline-any cline-yes">31x</span>
+<span class="cline-any cline-yes">31x</span>
+<span class="cline-any cline-yes">31x</span>
+<span class="cline-any cline-yes">36x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">36x</span>
+<span class="cline-any cline-yes">36x</span>
+<span class="cline-any cline-yes">36x</span>
+<span class="cline-any cline-yes">36x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">36x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import React, { useEffect, useState } from 'react';
+import { getTranscriptionService } from '../services/transcription/TranscriptionService';
 import { TranscriptionPolicy } from '../services/transcription/TranscriptionPolicy'; // Import the type
-<span class="cstat-no" title="statement not covered" >import logger from '../lib/logger';</span>
+import logger from '../lib/logger';
 &nbsp;
-<span class="cstat-no" title="statement not covered" >import { TranscriptionContext } from './TranscriptionContext';</span>
+import { TranscriptionContext } from './TranscriptionContext';
 &nbsp;
-<span class="cstat-no" title="statement not covered" >export const TranscriptionProvider: React.FC&lt;{</span>
+export const TranscriptionProvider: React.FC&lt;{
     children: React.ReactNode;
     policy?: TranscriptionPolicy; // Optional policy
-<span class="cstat-no" title="statement not covered" >}&gt; = ({ children, policy }) =&gt; {</span>
+}&gt; = ({ children, policy }) =&gt; {
     // 1. Singleton Acquisition (Survives Remounts)
-<span class="cstat-no" title="statement not covered" >    const service = getTranscriptionService(policy ? { policy } : {});</span>
-<span class="cstat-no" title="statement not covered" >    const [isReady, setIsReady] = useState(true);</span>
+    const service = getTranscriptionService(<span class="branch-0 cbranch-no" title="branch not covered" >policy ? { policy } : {</span>});
+    const [isReady] = useState(true);
 &nbsp;
     // 2. Lifecycle Audit: We no longer destroy the service on unmount 
     // because it is a global singleton protecting the WASM state.
-<span class="cstat-no" title="statement not covered" >    useEffect(() =&gt; {</span>
-<span class="cstat-no" title="statement not covered" >        logger.info('[TranscriptionProvider] Component mounted/updated');</span>
-<span class="cstat-no" title="statement not covered" >        return () =&gt; {</span>
-<span class="cstat-no" title="statement not covered" >            logger.info('[TranscriptionProvider] Component unmounting (Service persists)');</span>
-<span class="cstat-no" title="statement not covered" >        };</span>
-<span class="cstat-no" title="statement not covered" >    }, []);</span>
+    useEffect(() =&gt; {
+        logger.info('[TranscriptionProvider] Component mounted/updated');
+        return () =&gt; {
+            logger.info('[TranscriptionProvider] Component unmounting - Destroying service');
+            service.destroy().catch(err =&gt; logger.error({ err }, '[TranscriptionProvider] Failed to destroy service'));
+        };
+    }, [service]);
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    return (</span>
-<span class="cstat-no" title="statement not covered" >        &lt;TranscriptionContext.Provider value={{ service, isReady }}&gt;</span>
-<span class="cstat-no" title="statement not covered" >            {children}</span>
-<span class="cstat-no" title="statement not covered" >        &lt;/TranscriptionContext.Provider&gt;</span>
+    return (
+        &lt;TranscriptionContext.Provider value={{ service, isReady }}&gt;
+            {children}
+        &lt;/TranscriptionContext.Provider&gt;
     );
-<span class="cstat-no" title="statement not covered" >};</span>
+};
 &nbsp;
 &nbsp;</pre></td></tr></table></pre>
 
@@ -163,7 +166,7 @@ import { TranscriptionPolicy } from '../services/transcription/TranscriptionPoli
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-08T03:37:21.981Z
+                at 2026-03-08T16:56:14.351Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

@@ -8,7 +8,7 @@ vi.mock('@/hooks/useAnalytics');
 vi.mock('react-router-dom', async () => {
     const actual = await vi.importActual('react-router-dom');
     return {
-        ...actual as any,
+        ...actual as Record<string, unknown>,
         useParams: vi.fn(),
     };
 });
@@ -31,17 +31,17 @@ describe('STTAccuracyVsBenchmark', () => {
             overallStats: {
                 totalSessions: 0,
                 totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
+                avgWpm: 0,
+                avgFillerWordsPerMin: "0.0",
+                avgAccuracy: "0.0",
+                chartData: []
             },
-            fillerWordTrends: { dates: [], datasets: [] },
+            fillerWordTrends: {},
             topFillerWords: [],
             weeklySessionsCount: 0,
             weeklyActivity: [],
             refreshAnalytics: vi.fn(),
-        });
+        } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
         expect(screen.getByText('STT Accuracy vs Benchmark')).toBeInTheDocument();
@@ -59,17 +59,20 @@ describe('STTAccuracyVsBenchmark', () => {
             overallStats: {
                 totalSessions: 0,
                 totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
+                avgWpm: 0,
+                avgFillerWordsPerMin: "0.0",
+                avgAccuracy: "0.0",
+                chartData: []
             },
-            fillerWordTrends: { dates: [], datasets: [] },
+            fillerWordTrends: {
+                'uh': { current: 1.2, previous: 0.8 },
+                'um': { current: 0.5, previous: 0.7 }
+            },
             topFillerWords: [],
             weeklySessionsCount: 0,
             weeklyActivity: [],
             refreshAnalytics: vi.fn(),
-        });
+        } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
         expect(screen.getByText('Dynamic STT Accuracy vs Ceiling')).toBeInTheDocument();
@@ -84,17 +87,17 @@ describe('STTAccuracyVsBenchmark', () => {
             overallStats: {
                 totalSessions: 0,
                 totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
+                avgWpm: 0,
+                avgFillerWordsPerMin: "0.0",
+                avgAccuracy: "0.0",
+                chartData: []
             },
-            fillerWordTrends: { dates: [], datasets: [] },
+            fillerWordTrends: {},
             topFillerWords: [],
             weeklySessionsCount: 0,
             weeklyActivity: [],
             refreshAnalytics: vi.fn(),
-        });
+        } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
         expect(screen.getByText('Provide ground truth transcripts to see your accuracy benchmarked against STT ceilings.')).toBeInTheDocument();
@@ -123,21 +126,22 @@ describe('STTAccuracyVsBenchmark', () => {
             overallStats: {
                 totalSessions: 0,
                 totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
+                avgWpm: 0,
+                avgFillerWordsPerMin: "0.0",
+                avgAccuracy: "0.0",
+                chartData: []
             },
-            fillerWordTrends: { dates: [], datasets: [] },
+            fillerWordTrends: {},
             topFillerWords: [],
             weeklySessionsCount: 0,
             weeklyActivity: [],
             refreshAnalytics: vi.fn(),
-        });
+        } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
         expect(screen.getByText(/Session Accuracy vs/)).toBeInTheDocument();
-        expect(screen.getByText(/Private/)).toBeInTheDocument();
+        const engineEls = screen.getAllByText(/Private/);
+        expect(engineEls.length).toBeGreaterThan(0);
         expect(screen.getByText(/This session used the/)).toBeInTheDocument();
     });
 });
