@@ -1,7 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { getTranscriptionService } from '../services/transcription/TranscriptionService';
-import { TranscriptionPolicy } from '../services/transcription/TranscriptionPolicy'; // Import the type
+import { TranscriptionPolicy, PROD_FREE_POLICY } from '../services/transcription/TranscriptionPolicy'; // Import the type
 import logger from '../lib/logger';
+import { SpeechRuntimeController } from '../services/transcription/runtime/SpeechRuntimeController';
+import {
+    SpeechRuntimeState,
+    SpeechRuntimeEvent
+} from '../services/transcription/runtime/types';
+import { SttStatus, TranscriptUpdate } from '@/types/transcription';
+import { useSessionStore } from '../stores/useSessionStore';
 
 import { TranscriptionContext } from './TranscriptionContext';
 
@@ -11,9 +18,29 @@ export const TranscriptionProvider: React.FC<{
 }> = ({ children, policy }) => {
     // 1. Singleton Acquisition (Survives Remounts)
     const service = getTranscriptionService(policy ? { policy } : {});
-    const [isReady, setIsReady] = useState(true);
 
-    // 2. Lifecycle Audit: We no longer destroy the service on unmount 
+    // 2. Initialize Speech Runtime Controller (Layer 1 Orchestrator)
+    const runtime = useMemo(() => {
+        const config = {
+            onStateChange: (state: SpeechRuntimeState) => logger.info(`[Runtime] State: ${state}`),
+            onStatusChange: (status: SttStatus) => useSessionStore.getState().setSTTStatus(status),
+            onTranscriptUpdate: (_update: TranscriptUpdate) => { /* handled by callbacks in service for now */ },
+            onEvent: (event: SpeechRuntimeEvent) => logger.info({ event }, '[Runtime] Event'),
+        };
+
+        // We bridge the legacy options here for compatibility during migration
+        const legacyOptions = (service as any).options;
+
+        return new SpeechRuntimeController(
+            config,
+            policy || service.getPolicy() || PROD_FREE_POLICY,
+            legacyOptions
+        );
+    }, [service, policy]);
+
+    const isReady = true;
+
+    // 3. Lifecycle Audit: We no longer destroy the service on unmount
     // because it is a global singleton protecting the WASM state.
     useEffect(() => {
         logger.info('[TranscriptionProvider] Component mounted/updated');
@@ -23,7 +50,7 @@ export const TranscriptionProvider: React.FC<{
     }, []);
 
     return (
-        <TranscriptionContext.Provider value={{ service, isReady }}>
+        <TranscriptionContext.Provider value={{ service, runtime, isReady }}>
             {children}
         </TranscriptionContext.Provider>
     );

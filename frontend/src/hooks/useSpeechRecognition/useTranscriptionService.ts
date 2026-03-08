@@ -45,7 +45,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
   // ============================================
   // CONTEXT & STORE
   // ============================================
-  const { service, isReady: isServiceReady } = useTranscriptionContext();
+  const { service, runtime, isReady: isServiceReady } = useTranscriptionContext();
   const {
     isListening,
     isReady,
@@ -141,7 +141,11 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     const manageSession = async () => {
       isStartingRef.current = true;
       try {
-        await service.startTranscription(optionsRef.current.policy);
+        if (runtime) {
+          await runtime.start();
+        } else {
+          await service.startTranscription(optionsRef.current.policy);
+        }
 
         if (isMountedRef.current) {
           setSTTMode(service.getMode());
@@ -156,7 +160,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     };
 
     manageSession();
-  }, [service, isServiceReady, isListening, options.profileLoading, stopSession, setSTTMode]);
+  }, [service, isServiceReady, isListening, options.profileLoading, stopSession, setSTTMode, runtime]);
 
   // ============================================
   // ACTIONS
@@ -172,10 +176,17 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     if (!isListening || !service) return null;
     logger.info('[Hook] stopListening called');
 
-    const result = await service.stopTranscription();
+    let result;
+    if (runtime) {
+      const transcript = await runtime.stop();
+      // Need to construct the full result structure for legacy compatibility
+      result = { success: true, transcript, stats: { transcript, total_words: 0, accuracy: 0, duration: 0 } };
+    } else {
+      result = await service.stopTranscription();
+    }
     stopSession();
     return result;
-  }, [isListening, service, stopSession]);
+  }, [isListening, service, stopSession, runtime]);
 
   const reset = useCallback(() => {
     stopSession();
