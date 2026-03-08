@@ -506,6 +506,17 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         );
     };
 
+    // Memoize displayed cards/slides for performance
+    const displayedStatCards = useMemo(() => {
+        const selectedSet = new Set(selectedStatCards);
+        return STAT_CARD_OPTIONS.filter(option => selectedSet.has(option.id));
+    }, [selectedStatCards]);
+
+    const displayedAnalysisSlides = useMemo(() => {
+        const selectedSet = new Set(selectedAnalysisSlides);
+        return ANALYSIS_SLIDE_OPTIONS.filter(option => selectedSet.has(option.id));
+    }, [selectedAnalysisSlides]);
+
     const selectedSessionData = useMemo(() => {
         if (selectedSessions.length !== 2 || !sessionHistory) return null;
         const sessions = selectedSessions.map(id => sessionHistory.find(s => s.id === id)).filter(Boolean);
@@ -708,19 +719,16 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
                     {/* Dynamic Stat Cards */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                        {STAT_CARD_OPTIONS
-                            .filter(option => selectedStatCards.includes(option.id))
-                            .map(option => (
-                                <StatCard
-                                    key={option.id}
-                                    icon={option.icon}
-                                    label={option.label}
-                                    value={option.getValue(overallStats)}
-                                    unit={option.unit}
-                                    testId={`stat-card-${option.id}`}
-                                />
-                            ))
-                        }
+                        {displayedStatCards.map(option => (
+                            <StatCard
+                                key={option.id}
+                                icon={option.icon}
+                                label={option.label}
+                                value={option.getValue(overallStats)}
+                                unit={option.unit}
+                                testId={`stat-card-${option.id}`}
+                            />
+                        ))}
                     </div>
 
                     {/* Analysis Section Header with Settings */}
@@ -759,69 +767,67 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     <div className="space-y-4">
                         <Carousel className="w-full" opts={{ loop: true }} setApi={setApi}>
                             <CarouselContent>
-                                {ANALYSIS_SLIDE_OPTIONS
-                                    .filter(option => selectedAnalysisSlides.includes(option.id))
-                                    .map(option => (
-                                        <CarouselItem key={option.id} className="basis-full">
-                                            <div className="p-1">
-                                                {/* Render content based on ID */}
-                                                {option.id === 'pace_trend' && (
-                                                    <div>
-                                                        <TrendChart
-                                                            title="Speaking Pace Trend"
-                                                            description="Track your words per minute over time"
-                                                            data={trendData}
-                                                            metric="wpm"
-                                                        />
-                                                    </div>
-                                                )}
-                                                {option.id === 'clarity_trend' && (
-                                                    <div>
-                                                        <TrendChart
-                                                            title="Clarity Trend"
-                                                            description="Monitor your speech clarity percentage"
-                                                            data={trendData}
-                                                            metric="clarity"
-                                                        />
-                                                    </div>
-                                                )}
-                                                {option.id === 'weekly_activity' && (
-                                                    <WeeklyActivityChart />
-                                                )}
-                                                {option.id === 'goals_progress' && (
-                                                    <GoalsSection />
-                                                )}
-                                                {option.id === 'filler_trend' && (
-                                                    <Card>
-                                                        <CardHeader><CardTitle>Filler Word Trend</CardTitle></CardHeader>
-                                                        <CardContent className="pl-2">
-                                                            {overallStats.chartData.length > 1 ? (
-                                                                <div className="h-[300px] w-full">
-                                                                    <ResponsiveContainer width="100%" height="100%">
-                                                                        <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                                                            <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                                                                            <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                                                                            <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                                                                            <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-                                                                            <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                                                                        </LineChart>
-                                                                    </ResponsiveContainer>
-                                                                </div>
-                                                            ) : (
-                                                                <div className="flex items-center justify-center h-[300px] text-center text-muted-foreground"><p>Complete at least two sessions to see your progress trend.</p></div>
-                                                            )}
-                                                        </CardContent>
-                                                    </Card>
-                                                )}
-                                                {option.id === 'filler_analysis' && (
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                        <TopFillerWords />
-                                                        <FillerWordTable trendData={fillerWordTrends} />
-                                                    </div>
-                                                )}
-                                                {option.id === 'stt_comparison' && (
-                                                    <STTAccuracyComparison />
-                                                )}
+                                {displayedAnalysisSlides.map(option => (
+                                    <CarouselItem key={option.id} className="basis-full">
+                                        <div className="p-1">
+                                            {/* Render content based on ID */}
+                                            {option.id === 'pace_trend' && (
+                                                <div>
+                                                    <TrendChart
+                                                        title="Speaking Pace Trend"
+                                                        description="Track your words per minute over time"
+                                                        data={trendData}
+                                                        metric="wpm"
+                                                    />
+                                                </div>
+                                            )}
+                                            {option.id === 'clarity_trend' && (
+                                                <div>
+                                                    <TrendChart
+                                                        title="Clarity Trend"
+                                                        description="Monitor your speech clarity percentage"
+                                                        data={trendData}
+                                                        metric="clarity"
+                                                    />
+                                                </div>
+                                            )}
+                                            {option.id === 'weekly_activity' && (
+                                                <WeeklyActivityChart />
+                                            )}
+                                            {option.id === 'goals_progress' && (
+                                                <GoalsSection />
+                                            )}
+                                            {option.id === 'filler_trend' && (
+                                                <Card>
+                                                    <CardHeader><CardTitle>Filler Word Trend</CardTitle></CardHeader>
+                                                    <CardContent className="pl-2">
+                                                        {overallStats.chartData.length > 1 ? (
+                                                            <div className="h-[300px] w-full">
+                                                                <ResponsiveContainer width="100%" height="100%">
+                                                                    <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                                                        <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                                                                        <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
+                                                                        <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
+                                                                        <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+                                                                        <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                                                    </LineChart>
+                                                                </ResponsiveContainer>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex items-center justify-center h-[300px] text-center text-muted-foreground"><p>Complete at least two sessions to see your progress trend.</p></div>
+                                                        )}
+                                                    </CardContent>
+                                                </Card>
+                                            )}
+                                            {option.id === 'filler_analysis' && (
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                    <TopFillerWords />
+                                                    <FillerWordTable trendData={fillerWordTrends} />
+                                                </div>
+                                            )}
+                                            {option.id === 'stt_comparison' && (
+                                                <STTAccuracyComparison />
+                                            )}
 
                                             </div>
                                         </CarouselItem>
