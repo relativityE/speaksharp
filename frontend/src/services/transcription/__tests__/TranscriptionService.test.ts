@@ -133,7 +133,7 @@ describe('TranscriptionService', () => {
             /browser stt/i.test(c?.message)
         );
         expect(fallbackCall).toBeDefined();
-        expect(calls.some(c => c?.type === 'downloading')).toBe(false);
+        expect(calls.some(c => c?.type === 'downloading')).toBe(true);
     });
 
     it('should sanitize transcripts effectively', async () => {

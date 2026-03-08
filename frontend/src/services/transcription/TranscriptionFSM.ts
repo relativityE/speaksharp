@@ -4,6 +4,7 @@ export type TranscriptionState =
     | 'IDLE'
     | 'ACTIVATING_MIC'
     | 'READY'
+    | 'DOWNLOADING_MODEL'
     | 'INITIALIZING_ENGINE'
     | 'RECORDING'
     | 'PAUSED'
@@ -16,6 +17,7 @@ export type TranscriptionEvent =
     | { type: 'START_REQUESTED' }
     | { type: 'MIC_ACQUIRED' }
     | { type: 'ENGINE_INIT_REQUESTED' }
+    | { type: 'DOWNLOAD_STARTED' }
     | { type: 'ENGINE_STARTED' }
     | { type: 'PAUSE_REQUESTED' }
     | { type: 'RESUME_REQUESTED' }
@@ -47,8 +49,11 @@ export class TranscriptionFSM {
         { from: 'ACTIVATING_MIC', to: 'READY', event: 'MIC_ACQUIRED' },
 
         { from: 'READY', to: 'INITIALIZING_ENGINE', event: 'ENGINE_INIT_REQUESTED' },
+        { from: 'INITIALIZING_ENGINE', to: 'DOWNLOADING_MODEL', event: 'DOWNLOAD_STARTED' },
+        { from: 'DOWNLOADING_MODEL', to: 'INITIALIZING_ENGINE', event: 'ENGINE_INIT_REQUESTED' },
 
         { from: 'INITIALIZING_ENGINE', to: 'RECORDING', event: 'ENGINE_STARTED' },
+        { from: 'DOWNLOADING_MODEL', to: 'RECORDING', event: 'ENGINE_STARTED' },
 
         { from: 'RECORDING', to: 'PAUSED', event: 'PAUSE_REQUESTED' },
         { from: 'PAUSED', to: 'RECORDING', event: 'RESUME_REQUESTED' },
@@ -63,6 +68,7 @@ export class TranscriptionFSM {
         { from: 'IDLE', to: 'ERROR', event: 'ERROR_OCCURRED' },
         { from: 'ACTIVATING_MIC', to: 'ERROR', event: 'ERROR_OCCURRED' },
         { from: 'READY', to: 'ERROR', event: 'ERROR_OCCURRED' },
+        { from: 'DOWNLOADING_MODEL', to: 'ERROR', event: 'ERROR_OCCURRED' },
         { from: 'INITIALIZING_ENGINE', to: 'ERROR', event: 'ERROR_OCCURRED' },
         { from: 'RECORDING', to: 'ERROR', event: 'ERROR_OCCURRED' },
         { from: 'PAUSED', to: 'ERROR', event: 'ERROR_OCCURRED' },
@@ -76,6 +82,7 @@ export class TranscriptionFSM {
         { from: 'STOPPING', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'ACTIVATING_MIC', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'INITIALIZING_ENGINE', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
+        { from: 'DOWNLOADING_MODEL', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'READY', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
 
         // Finalize cleanup - Strict outbound transitions per Senior Audit

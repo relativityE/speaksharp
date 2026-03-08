@@ -70,6 +70,7 @@ export default class TranscriptionService {
   private mic: MicStream | null = null;
   private micError: Error | null = null;
   private fallbackTimer: NodeJS.Timeout | null = null;
+  private fallbackAbortController: AbortController | null = null;
 
   private callbackProxy: ImmutableCallbackProxy<TranscriptionModeOptions>;
   private policy: TranscriptionPolicy;
@@ -123,17 +124,7 @@ export default class TranscriptionService {
       if (!this.engine || (this.engine as any).type !== 'transformers-js') {
         const engineConfig: TranscriptionModeOptions = {
           ...this.options,
-          onModelLoadProgress: (progress) => {
-            const percent = progress !== null ? Math.round(progress * 100) : null;
-            useSessionStore.getState().setModelLoadingProgress(percent);
-            if (percent === 100) {
-              setTimeout(() => {
-                if (useSessionStore.getState().modelLoadingProgress === 100) {
-                  useSessionStore.getState().setModelLoadingProgress(null);
-                }
-              }, 1500);
-            }
-          }
+          onModelLoadProgress: (progress) => this.handleModelLoadProgress(progress)
         };
         this.engine = await EngineFactory.create(mode, engineConfig, this.policy);
       }
@@ -143,6 +134,35 @@ export default class TranscriptionService {
       logger.info(`[TranscriptionService] ✅ Warm-up complete for ${mode}`);
     } catch (error) {
       logger.error({ error }, '[TranscriptionService] Warm-up failed');
+    }
+  }
+
+  /**
+   * Unified progress handler for engine/model loading.
+   * Handles FSM transitions and store updates deterministically.
+   * ✅ ROBUSTNESS: Standardized on 0-100 range.
+   */
+  private handleModelLoadProgress(progress: number | null): void {
+    if (progress === null) return;
+
+    // Standardize: If already 0-100 (from modern engine), use it.
+    // If we ever have a legacy engine emitting 0-1, we would scale it here,
+    // but current audit confirms Engines now emit 0-100.
+    const percent = Math.round(progress);
+    useSessionStore.getState().setModelLoadingProgress(percent);
+
+    if (percent === 100) {
+      // Signal transition back to initializing once download finishes
+      if (this.fsm.is('DOWNLOADING_MODEL')) {
+        this.fsm.transition({ type: 'ENGINE_INIT_REQUESTED' });
+      }
+
+      // AUTO-CLEANUP: Clear indicator once it hits 100%
+      setTimeout(() => {
+        if (useSessionStore.getState().modelLoadingProgress === 100) {
+          useSessionStore.getState().setModelLoadingProgress(null);
+        }
+      }, 1500);
     }
   }
 
@@ -238,18 +258,7 @@ export default class TranscriptionService {
         onModelLoadProgress: (progress) => {
           logger.debug({ progress }, '[TranscriptionService] modelLoadProgress callback triggered');
           this.options.onModelLoadProgress?.(progress);
-          // Standardize: If already 0-100 (from engine), use it; if 0-1 (legacy), scale it.
-          // Engines like TransformersJSEngine and WhisperTurboEngine now emit 0-100.
-          const percent = (progress !== null && progress <= 1) ? Math.round(progress * 100) : (progress as number | null);
-          useSessionStore.getState().setModelLoadingProgress(percent);
-
-          if (percent === 100) {
-            setTimeout(() => {
-              if (useSessionStore.getState().modelLoadingProgress === 100) {
-                useSessionStore.getState().setModelLoadingProgress(null);
-              }
-            }, 1500);
-          }
+          this.handleModelLoadProgress(progress);
         },
         onTranscriptUpdate: (update) => {
           if (update.transcript.final) {
@@ -331,10 +340,7 @@ export default class TranscriptionService {
             await Promise.race([initPromise, timeoutPromise]);
             skipInitInExecute = true;
           } finally {
-            if (this.fallbackTimer) {
-              clearTimeout(this.fallbackTimer);
-              this.fallbackTimer = null;
-            }
+            this.clearFallbackTimer();
           }
         }
 
@@ -349,8 +355,7 @@ export default class TranscriptionService {
               message: 'Private model ready'
             });
           }
-          // Clear progress indicator upon successful load
-          useSessionStore.getState().setModelLoadingProgress(null);
+          // Progress cleanup is handled via onModelLoadProgress(100)
         }).catch(err => {
           if (!isCacheMiss(err)) {
             logger.error({ err }, '[TranscriptionService] Background private engine init failed');
@@ -543,14 +548,33 @@ export default class TranscriptionService {
       return; // No timer. No fallback. Engine gets full Playwright timeout.
     }
 
+    // Cancel existing timer if any
+    this.clearFallbackTimer();
+
+    this.fallbackAbortController = new AbortController();
+    const { signal } = this.fallbackAbortController;
+
     const timeout = (typeof window !== 'undefined' && (window as any).__STT_LOAD_TIMEOUT__)
       ?? STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.CI;
 
     console.log(`[STT] Starting fallback timer: ${timeout}ms`);
+
     this.fallbackTimer = setTimeout(() => {
+      if (signal.aborted) return;
       console.warn('[STT] Fallback timer fired — switching to Native STT');
       this.fallbackToNative();
     }, timeout);
+  }
+
+  private clearFallbackTimer(): void {
+    if (this.fallbackTimer) {
+      clearTimeout(this.fallbackTimer);
+      this.fallbackTimer = null;
+    }
+    if (this.fallbackAbortController) {
+      this.fallbackAbortController.abort();
+      this.fallbackAbortController = null;
+    }
   }
 
   private fallbackToNative(): void {
@@ -578,18 +602,7 @@ export default class TranscriptionService {
     return {
       onModelLoadProgress: (progress) => {
         this.options.onModelLoadProgress(progress);
-        const percent = progress !== null ? Math.round(progress * 100) : null;
-        useSessionStore.getState().setModelLoadingProgress(percent);
-
-        // ✅ AUTO-CLEANUP: Clear indicator once it hits 100%
-        if (percent === 100) {
-          setTimeout(() => {
-            // Only clear if still 100 (haven't started a new download)
-            if (useSessionStore.getState().modelLoadingProgress === 100) {
-              useSessionStore.getState().setModelLoadingProgress(null);
-            }
-          }, 1500); // Give user a moment to see "100%"
-        }
+        this.handleModelLoadProgress(progress);
       },
       onReady: this.options.onReady,
       onTranscriptUpdate: (update) => {
@@ -641,6 +654,7 @@ export default class TranscriptionService {
       case 'TERMINATED': status = { type: 'idle', message: 'Ready' }; break;
       case 'ACTIVATING_MIC': status = { type: 'initializing', message: 'Mic requested...' }; break;
       case 'READY': status = { type: 'idle', message: 'Mic ready' }; break;
+      case 'DOWNLOADING_MODEL': status = { type: 'downloading', message: 'Downloading model...' }; break;
       case 'INITIALIZING_ENGINE': status = { type: 'initializing', message: 'Initializing engine...' }; break;
       case 'RECORDING': {
         const engineType = (this.engine as unknown as { getEngineType: () => string })?.getEngineType() || '';
@@ -691,10 +705,19 @@ export default class TranscriptionService {
   private async handleCacheMiss(): Promise<void> {
     logger.info('[TranscriptionService] Handling cache miss - switching to native fallback');
 
+    this.fsm.transition({ type: 'DOWNLOAD_STARTED' });
+
     this.options.onStatusChange?.({
       type: 'fallback',
       message: 'Private model not ready. using Browser STT (Native)...',
       progress: 0
+    });
+
+    // ✅ TRIGGER BACKGROUND DOWNLOAD
+    // We start the download without awaiting it, allowing the current session
+    // to proceed with Native fallback while the model hydrates in the background.
+    this.warmUp('private').catch(err => {
+      logger.error({ err }, '[TranscriptionService] Background download trigger failed');
     });
 
     // We still keep the loading progress at 0 for the background download indicator

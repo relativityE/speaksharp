@@ -23,6 +23,7 @@ import logger from '../../../lib/logger';
 export class WhisperTurboEngine implements IPrivateSTTEngine {
     public readonly type: EngineType = 'whisper-turbo';
     private session: unknown | null = null; // Use unknown for Comlink compatibility
+    private hasStartedMark = false;
 
     constructor() { }
 
@@ -37,7 +38,17 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
 
             // Acquire engine from singleton registry
             // This avoids re-downloading/re-compiling if already warmed up.
-            this.session = await WhisperEngineRegistry.acquire(callbacks.onModelLoadProgress);
+            this.session = await WhisperEngineRegistry.acquire((progress) => {
+                if (callbacks.onModelLoadProgress) {
+                    callbacks.onModelLoadProgress(progress);
+                }
+                // Instrumentation for observability (Audit Proposal P4)
+                if (!this.hasStartedMark) {
+                    performance.mark('whisper-download-start');
+                    this.hasStartedMark = true;
+                }
+                if (progress === 100) performance.mark('whisper-download-end');
+            });
 
             const tTotalInit = performance.now() - tStart;
             logger.info(`[WhisperTurbo] [PERF] Engine acquisition took ${tTotalInit.toFixed(2)}ms`);

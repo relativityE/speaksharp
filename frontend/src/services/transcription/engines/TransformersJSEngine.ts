@@ -25,6 +25,7 @@ type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeli
 export class TransformersJSEngine implements IPrivateSTTEngine {
     public readonly type: EngineType = 'transformers-js';
     private transcriber: Pipeline | null = null;
+    private hasStartedMark = false;
 
     async init(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
         if (this.transcriber) {
@@ -88,6 +89,13 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
                     progress_callback: (data: { progress?: number }) => {
                         if (callbacks.onModelLoadProgress && data.progress !== undefined) {
                             callbacks.onModelLoadProgress(data.progress);
+
+                            // Instrumentation (Audit Proposal P4)
+                            if (!this.hasStartedMark) {
+                                performance.mark('transformers-download-start');
+                                this.hasStartedMark = true;
+                            }
+                            if (data.progress === 100) performance.mark('transformers-download-end');
                         }
                     }
                 }
