@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SPEECH_FIXTURES, SpeechFixture } from '../fixtures/stt-isomorphic/speech-metadata.isomorphic';
+import { SPEECH_FIXTURES } from '../fixtures/stt-isomorphic/speech-metadata.isomorphic';
 import { HARVARD_SENTENCES } from '../fixtures/stt-isomorphic/harvard-sentences';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 
@@ -57,11 +57,11 @@ describe('STT Correctness Baseline Suite', () => {
     describe('Isomorphic Speech Fixtures', () => {
         const fixtures = Object.values(SPEECH_FIXTURES);
 
-        fixtures.forEach((speech: SpeechFixture) => {
+        fixtures.forEach((speech) => {
             describe(`Speech: ${speech.id}`, () => {
                 it('should detect required filler words accurately from ground truth', () => {
                     const fillers = Object.entries(speech.expectedFillers)
-                        .filter(([_, count]) => count > 0)
+                        .filter(([, count]) => count > 0)
                         .map(([filler]) => filler);
 
                     if (fillers.length === 0) return;

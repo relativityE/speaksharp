@@ -5,10 +5,10 @@ import * as AnalyticsHook from '@/hooks/useAnalytics';
 import * as RouterDom from 'react-router-dom';
 
 vi.mock('@/hooks/useAnalytics');
-vi.mock('react-router-dom', async () => {
-    const actual = await vi.importActual('react-router-dom');
+vi.mock('react-router-dom', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('react-router-dom')>();
     return {
-        ...actual as any,
+        ...actual,
         useParams: vi.fn(),
     };
 });
@@ -137,7 +137,8 @@ describe('STTAccuracyVsBenchmark', () => {
 
         render(<STTAccuracyVsBenchmark />);
         expect(screen.getByText(/Session Accuracy vs/)).toBeInTheDocument();
-        expect(screen.getByText(/Private/)).toBeInTheDocument();
+        // Use getAllByText and check that at least one is present to handle duplicates in header and text
+        expect(screen.getAllByText(/Private/).length).toBeGreaterThan(0);
         expect(screen.getByText(/This session used the/)).toBeInTheDocument();
     });
 });

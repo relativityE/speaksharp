@@ -9,6 +9,7 @@ import { useSpeechRecognition } from './useSpeechRecognition';
 import { useSessionManager } from './useSessionManager';
 import { useSessionMetrics } from './useSessionMetrics';
 import { useUsageLimit } from './useUsageLimit';
+import { useUserProfile } from './useUserProfile';
 import { useStreak } from './useStreak';
 import { useUserFillerWords } from './useUserFillerWords';
 import { isPro } from '@/constants/subscriptionTiers';
@@ -22,6 +23,7 @@ import type { Chunk } from './useSpeechRecognition/types';
 export const useSessionLifecycle = () => {
     const { session } = useAuthProvider();
     const profile = useProfile();
+    const { isVerified: isProfileVerified } = useUserProfile();
     const queryClient = useQueryClient();
     const tick = useSessionStore(state => state.tick);
     const elapsedTime = useSessionStore(state => state.elapsedTime);
@@ -37,6 +39,7 @@ export const useSessionLifecycle = () => {
     const isProUser = isPro(profile?.subscription_status);
 
     const [mode, setMode] = useState<'cloud' | 'native' | 'private'>('native');
+    const [isTierInitialized, setIsTierInitialized] = useState(false);
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const [sessionFeedbackMessage, setSessionFeedbackMessage] = useState<string | null>(null);
     const [sunsetModal, setSunsetModal] = useState<{ type: 'daily' | 'monthly'; open: boolean }>({ type: 'daily', open: false });
@@ -129,7 +132,7 @@ export const useSessionLifecycle = () => {
                 });
 
                 const streakResult = updateStreak();
-                const engineType = (activeEngine === 'cloud') ? 'cloud' : 'native';
+                const engineType = (activeEngine === 'cloud') ? 'cloud' : (activeEngine === 'private' ? 'private' : 'native');
 
                 const result = await saveSession({
                     transcript: finalStats.transcript,
@@ -239,12 +242,22 @@ export const useSessionLifecycle = () => {
 
 
 
+    // ✅ SYNC: Mark tier as initialized once profile is verified
+    useEffect(() => {
+        if (isProfileVerified && profile?.subscription_status) {
+            setIsTierInitialized(true);
+        }
+    }, [isProfileVerified, profile?.subscription_status]);
+
     // Tier enforcement: Auto-stop and 5-minute Warning
     useEffect(() => {
+        // ✅ BLOCK: Prevent auto-stop until tier state is strictly verified
+        if (!isTierInitialized) return;
+
         // ✅ GUARANTEE: Never enforce limits for Pro users or if unlimited flag (-1) is present.
         if (isProUser || (usageLimit && usageLimit.remaining_seconds === -1)) return;
 
-        if (isListening && usageLimit && typeof usageLimit.remaining_seconds === 'number' && usageLimit.remaining_seconds > 0) {
+        if (isListening && usageLimit && typeof usageLimit.remaining_seconds === 'number') {
             const remaining = usageLimit.remaining_seconds - elapsedTime;
 
             // 5-minute warning (300 seconds)
@@ -272,7 +285,7 @@ export const useSessionLifecycle = () => {
                 });
             }
         }
-    }, [elapsedTime, isListening, usageLimit, sessionFeedbackMessage]); // Removed handleStartStop dependency
+    }, [elapsedTime, isListening, usageLimit, sessionFeedbackMessage, isProUser, isTierInitialized]); // Removed handleStartStop dependency
 
     // VAD Auto-Pause Logic: 5 minutes of silence detected via transcript inactivity
     const lastTranscriptRef = useRef(transcript.transcript);

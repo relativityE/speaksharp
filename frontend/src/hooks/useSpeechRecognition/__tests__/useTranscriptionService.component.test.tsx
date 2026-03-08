@@ -5,8 +5,8 @@ import { E2E_DETERMINISTIC_NATIVE } from '../types';
 import { TranscriptionProvider } from '../../../providers/TranscriptionProvider';
 
 // Mock the TranscriptionService with callback support
-const mockCallbacks: Record<string, (...args: unknown[]) => void> = {};
-const mockService = {
+const mockCallbacks: Record<string, (...args: unknown[]) => void> = vi.hoisted(() => ({}));
+const mockService = vi.hoisted(() => ({
   init: vi.fn().mockResolvedValue({ success: true }),
   startTranscription: vi.fn().mockImplementation(async () => {
     // Simulate FSM transition or callback if needed for success path
@@ -27,10 +27,11 @@ const mockService = {
     getState: vi.fn().mockReturnValue('IDLE')
   },
   getState: vi.fn().mockReturnValue('IDLE')
-};
+}));
 
 vi.mock('../../../services/transcription/TranscriptionService', () => ({
-  default: vi.fn().mockImplementation(() => mockService)
+  default: vi.fn().mockImplementation(() => mockService),
+  getTranscriptionService: vi.fn().mockReturnValue(mockService)
 }));
 
 vi.mock('../../../lib/logger', () => ({
@@ -102,11 +103,11 @@ describe('useTranscriptionService', () => {
       unmount();
     });
 
-    // The useEffect cleanup which calls destroy is asynchronous.
-    // We need to wait for the mock to be called.
-    await vi.waitFor(() => {
-      expect(mockService.destroy).toHaveBeenCalled();
-    });
+    // In the singleton model, useTranscriptionService does NOT call destroy on unmount
+    // because the service persists across remounts.
+
+    // We verify it was NOT called.
+    expect(mockService.destroy).not.toHaveBeenCalled();
 
     // isListening is derived from store, which is not mocked here but works because module state is shared?
     // Actually store IS NOT mocked in this file. It uses real store.
@@ -133,7 +134,7 @@ describe('useTranscriptionService', () => {
     expect(result.current.isSupported).toBe(true);
   });
 
-  it('should cleanup on unmount', async () => {
+  it('should NOT destroy singleton on unmount', async () => {
     const { result, unmount } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
 
     await act(async () => {
@@ -144,6 +145,7 @@ describe('useTranscriptionService', () => {
       unmount();
     });
 
-    expect(mockService.destroy).toHaveBeenCalled();
+    // Singleton persists
+    expect(mockService.destroy).not.toHaveBeenCalled();
   });
 });

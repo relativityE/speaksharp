@@ -120,9 +120,9 @@ describe('SessionPage - STT Mode Selection UI', () => {
         await user.click(trigger);
 
         // Radix UI renders content in a specific way, userEvent should handle it.
-        // Wait for items to appear - Free users see "Private" and "Cloud"
-        const onDeviceItem = await screen.findByText('Private');
-        const cloudItem = await screen.findByText('Cloud');
+        // Wait for items to appear - Free users see "Private (Pro)" and "Cloud (Pro)"
+        const onDeviceItem = await screen.findByText(/Private/);
+        const cloudItem = await screen.findByText(/Cloud/);
 
         expect(onDeviceItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
         expect(cloudItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');

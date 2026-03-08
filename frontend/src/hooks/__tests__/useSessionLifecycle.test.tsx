@@ -24,10 +24,36 @@ vi.mock('@/hooks/useProfile', () => ({
 import { useProfile } from '@/hooks/useProfile';
 
 vi.mock('@/contexts/AuthProvider', () => ({
-    useAuthProvider: () => ({ session: { access_token: 'mock-token' }, user: { id: 'test-user' } }),
+    useAuthProvider: () => ({ session: { access_token: 'mock-token' }, user: { id: 'test-user' }, loading: false }),
 }));
 
-// Redundant useUserProfile removed
+vi.mock('@/hooks/useUserProfile', () => ({
+    useUserProfile: vi.fn(() => ({
+        data: {
+            id: 'test-user',
+            subscription_status: 'free',
+            email: 'test@example.com'
+        },
+        isLoading: false,
+        isVerified: true
+    })),
+}));
+
+vi.mock('@/providers/useTranscriptionContext', () => ({
+    useTranscriptionContext: () => ({
+        service: {
+            warmUp: vi.fn(),
+        },
+        isReady: true
+    }),
+}));
+
+vi.mock('@/hooks/useActiveSessionLock', () => ({
+    useActiveSessionLock: () => ({
+        acquireLock: vi.fn(() => true),
+        releaseLock: vi.fn(),
+    }),
+}));
 
 vi.mock('@tanstack/react-query', () => ({
     useQueryClient: () => ({ invalidateQueries: vi.fn() }),
@@ -141,6 +167,18 @@ vi.mock('../useStreak', () => ({
 
 vi.mock('../useUserFillerWords', () => ({
     useUserFillerWords: () => ({ userFillerWords: [] }),
+}));
+
+vi.mock('../useUserProfile', () => ({
+    useUserProfile: vi.fn(() => ({
+        data: {
+            id: 'test-user',
+            subscription_status: 'free',
+            email: 'test@example.com'
+        },
+        isLoading: false,
+        isVerified: true
+    })),
 }));
 
 vi.mock('@/constants/subscriptionTiers', () => ({

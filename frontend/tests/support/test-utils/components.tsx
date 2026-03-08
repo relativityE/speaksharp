@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { ProfileProvider } from '@/contexts/ProfileContext';
 import { UserProfile } from '@/types/user';
+import { TranscriptionProvider } from '../../../src/providers/TranscriptionProvider';
 
 export const MockElements = ({ children }: { children: ReactNode }) => <>{children}</>;
 
@@ -62,10 +63,12 @@ export const AllTheProviders = ({ children, authMock, profileMock, route = '/', 
       <QueryClientProvider client={queryClient}>
         <MockAuthProvider mockValue={{ ...defaultAuthMock, ...authMock }}>
           <ProfileProvider value={{ profile: defaultProfile }}>
-            <MockElements>
-              {content}
-              <Toaster />
-            </MockElements>
+            <TranscriptionProvider>
+              <MockElements>
+                {content}
+                <Toaster />
+              </MockElements>
+            </TranscriptionProvider>
           </ProfileProvider>
         </MockAuthProvider>
       </QueryClientProvider>

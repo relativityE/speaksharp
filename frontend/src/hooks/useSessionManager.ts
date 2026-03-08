@@ -8,7 +8,7 @@ import { useUserProfile } from './useUserProfile';
 interface UseSessionManager {
   saveSession: (
     sessionData: Partial<PracticeSession>,
-    engineType: 'native' | 'cloud'
+    engineType: 'native' | 'cloud' | 'private'
   ) => Promise<{ session: PracticeSession | null; usageExceeded: boolean }>;
   deleteSession: (sessionId: string) => Promise<boolean>;
   exportSessions: () => Promise<void>;
@@ -23,7 +23,7 @@ export const useSessionManager = (): UseSessionManager => {
 
   const saveSession = async (
     sessionData: Partial<PracticeSession>,
-    engineType: 'native' | 'cloud' = 'native'
+    engineType: 'native' | 'cloud' | 'private' = 'native'
   ): Promise<{ session: PracticeSession | null; usageExceeded: boolean }> => {
     try {
       // Handle anonymous users: save to sessionStorage instead of DB.

@@ -1,10 +1,10 @@
 import React, { ReactElement, ReactNode } from 'react';
 import { render, renderHook, RenderOptions, RenderHookOptions } from '@testing-library/react';
 import { Location } from 'react-router-dom';
-import { AuthContextType } from '@/contexts/AuthProvider';
+import { AuthContextType } from '../../../src/contexts/AuthProvider';
 import { AllTheProviders } from './components';
 
-import { UserProfile } from '@/types/user';
+import { UserProfile } from '../../../src/types/user';
 
 interface CustomRenderOptions extends RenderOptions {
   authMock?: Partial<AuthContextType>;

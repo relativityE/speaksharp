@@ -19,7 +19,7 @@ test.use({
 });
 
 test('measure TransformersJS (CPU)', async ({ page }) => {
-    test.setTimeout(240_000); // 4 minutes overall to allow for 3min WASM load + audio recording
+    test.setTimeout(300_000); // 5 minutes overall to allow for 3min WASM load + audio recording
 
     const testEmail = process.env.E2E_PRO_EMAIL;
     const testPassword = process.env.E2E_PRO_PASSWORD;

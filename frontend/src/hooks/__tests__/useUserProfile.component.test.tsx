@@ -59,13 +59,14 @@ describe('useUserProfile', () => {
         const mockUser = { id: 'test-user-id' };
         const mockProfile = { id: 'test-user-id', subscription_status: 'pro' };
 
-        (useAuthProvider as unknown as Mock).mockReturnValue({ session: { user: mockUser } });
+        (useAuthProvider as unknown as Mock).mockReturnValue({ session: { user: mockUser }, loading: false });
         (profileService.getById as unknown as Mock).mockResolvedValue(mockProfile);
 
         const { result } = renderHook(() => useUserProfile(), { wrapper });
 
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
         expect(result.current.data).toEqual(mockProfile);
+        expect(result.current.isVerified).toBe(true);
         expect(profileService.getById).toHaveBeenCalledWith('test-user-id');
     });
 

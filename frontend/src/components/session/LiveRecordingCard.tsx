@@ -42,7 +42,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     isListening,
     isReady,
     isProUser,
-    statusMessage,
+    statusMessage: _statusMessage,
     formattedTime,
     elapsedSeconds,
     isButtonDisabled,
@@ -63,13 +63,13 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
-            <div className={`bg-primary/5 border border-primary/20 rounded-2xl p-8 shadow-[0_0_40px_-10px_rgba(251,191,36,0.15)] relative z-10 h-full flex flex-col items-center justify-center text-center gap-4 ${className}`} data-testid="live-recording-card">
+            <div className={`bg-primary/5 border border-primary/20 rounded-2xl p-6 sm:p-8 shadow-[0_0_40px_-10px_rgba(251,191,36,0.15)] relative z-10 h-full flex flex-col items-center justify-center text-center gap-4 ${className}`} data-testid="live-recording-card">
 
-                {/* Visual Center with Left Controls */}
-                <div className="flex items-center justify-center gap-6 w-full translate-x-[-10px]"> {/* Offset to visually center the mic/timer duo */}
+                {/* Main Content: Responsive Grid */}
+                <div className="w-full grid grid-cols-1 sm:grid-cols-3 items-center gap-6">
 
-                    {/* Left Column Stack: Secure + Selector */}
-                    <div className="flex flex-col items-start gap-1 flex-shrink-0 min-w-0">
+                    {/* Column 1: Mode Selector (Left on desktop, Top on mobile) */}
+                    <div className="flex flex-col items-center sm:items-start gap-1 min-w-0 order-2 sm:order-1">
                         <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[7px] font-black text-emerald-500 uppercase tracking-tighter" data-state="secure">
                             <Shield className="h-2 w-2 fill-emerald-500/10" />
                             <span>SECURE</span>
@@ -90,19 +90,23 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     {!isListening && <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
                                 </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start" className="min-w-[140px]">
+                            <DropdownMenuContent align="center" className="min-w-[140px] sm:align-start">
                                 <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
                                     <DropdownMenuRadioItem value="native" className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_NATIVE}>Native Browser</DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="private" disabled={!isProUser} className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_PRIVATE}>Private (Pro)</DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="cloud" disabled={!isProUser} className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_CLOUD}>Cloud (Pro)</DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem value="private" disabled={!isProUser} className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_PRIVATE}>
+                                        Private {!isProUser && '(Pro)'}
+                                    </DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem value="cloud" disabled={!isProUser} className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_CLOUD}>
+                                        Cloud {!isProUser && '(Pro)'}
+                                    </DropdownMenuRadioItem>
                                 </DropdownMenuRadioGroup>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
 
-                    {/* Proportional Vertical Stack: Mic + Timer */}
-                    <div className="flex flex-col items-center gap-3 flex-shrink-0">
-                        {/* Mic Button (Balanced with Timer weight) */}
+                    {/* Column 2: Mic + Timer (Center) */}
+                    <div className="flex flex-col items-center gap-3 order-1 sm:order-2">
+                        {/* Mic Button */}
                         <div className="relative">
                             {isListening && (
                                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -133,7 +137,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             )}
                         </div>
 
-                        {/* Timer (Matching Mic weight) */}
+                        {/* Timer */}
                         <div className="flex flex-col items-center">
                             <div className="text-4xl font-mono font-bold text-foreground tracking-tighter tabular-nums leading-none">
                                 {formattedTime}
@@ -147,12 +151,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         </div>
                     </div>
 
-                    {/* Empty Space for visual symmetry on the left controls */}
-                    <div className="flex-1 hidden sm:block min-w-[60px]" aria-hidden="true" />
+                    {/* Column 3: Spacer (Right on desktop, hidden on mobile) */}
+                    <div className="hidden sm:block order-3" aria-hidden="true" />
                 </div>
 
                 {/* Stream Indicator (Refined) */}
-                <div className="h-4 w-full max-w-[140px] flex items-center justify-center gap-0.5 overflow-hidden opacity-30">
+                <div className="h-4 w-full max-w-[140px] flex items-center justify-center gap-0.5 overflow-hidden opacity-30 order-3 sm:order-4">
                     {isListening && isReady && (
                         <div className="flex items-center gap-0.5" data-testid="recording-indicator">
                             {[...Array(10)].map((_, i) => (

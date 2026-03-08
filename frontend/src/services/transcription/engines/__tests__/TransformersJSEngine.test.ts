@@ -4,7 +4,7 @@
  * Verifies PCM processing and internal wiring without heavy WASM/Model downloads.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TransformersJSEngine } from '../TransformersJSEngine';
 
 // Hoist mock factories to top of file
@@ -115,11 +115,13 @@ describe('TransformersJSEngine (Unit)', () => {
     });
 
     it('should handle transcription errors', async () => {
-        await engine.init({});
+        // Reset engine to clear previous init
+        engine = new TransformersJSEngine();
+
         mockPipeline.mockImplementationOnce(async () => {
             return async () => { throw new Error('Transcription failure'); };
         });
-        // Non-cached init for this test to pick up the failing mock
+
         await engine.init({});
 
         const result = await engine.transcribe(new Float32Array(16000));

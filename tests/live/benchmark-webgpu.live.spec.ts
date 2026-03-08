@@ -18,7 +18,22 @@ test.use({
 });
 
 test('measure WhisperTurbo (WebGPU)', async ({ page }) => {
-    test.setTimeout(240_000); // 4 minutes
+    // Skip if WebGPU is not available
+    const gpuAvailable = await page.evaluate(async () => {
+        if (!navigator.gpu) return false;
+        try {
+            const adapter = await navigator.gpu.requestAdapter();
+            return !!adapter;
+        } catch {
+            return false;
+        }
+    });
+
+    if (!gpuAvailable) {
+        test.skip(true, 'WebGPU is not available on this runner.');
+    }
+
+    test.setTimeout(300_000); // 5 minutes
 
     const testEmail = process.env.E2E_PRO_EMAIL;
     const testPassword = process.env.E2E_PRO_PASSWORD;

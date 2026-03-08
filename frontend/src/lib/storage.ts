@@ -101,13 +101,13 @@ export const getSessionById = async (sessionId: string): Promise<PracticeSession
  * This function is now architected to be atomic by using a single RPC call.
  * @param {object} sessionData - The session data to save.
  * @param {object} profile - The user's profile.
- * @param {string} engineType - The transcription engine type used ('native' | 'cloud').
+ * @param {string} engineType - The transcription engine type used ('native' | 'cloud' | 'private').
  * @returns {Promise<{session: object|null, usageExceeded: boolean}>} A promise that resolves to an object containing the saved session and a flag for usage limit.
  */
 export const saveSession = async (
   sessionData: Partial<PracticeSession> & { user_id: string },
   profile: UserProfile,
-  engineType: 'native' | 'cloud' = 'native'
+  engineType: 'native' | 'cloud' | 'private' = 'native'
 ): Promise<{ session: PracticeSession | null, usageExceeded: boolean }> => {
   const supabase = getSupabaseClient();
   if (!sessionData || !sessionData.user_id) {

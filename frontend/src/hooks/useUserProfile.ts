@@ -26,7 +26,7 @@ export interface UseUserProfileOptions {
 }
 
 export const useUserProfile = (options: UseUserProfileOptions = {}) => {
-  const { session } = useAuthProvider();
+  const { session, loading: authLoading } = useAuthProvider();
   const isDevBypass = window.location.search.includes('devBypass=true');
 
   // Production defaults: 3 retries with exponential backoff
@@ -129,5 +129,8 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
     };
   }
 
-  return query;
+  return {
+    ...query,
+    isVerified: !!query.data && !query.isLoading && !authLoading
+  };
 };

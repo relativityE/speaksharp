@@ -12,6 +12,9 @@ export interface UsageLimitCheck {
     daily_limit: number;
     monthly_remaining: number; // For COGS protection check
     monthly_limit: number;
+    native_used?: number;
+    cloud_used?: number;
+    private_used?: number;
     remaining_seconds: number; // Legacy, kept for compatibility with existing UI
     subscription_status: string;
     is_pro: boolean;
