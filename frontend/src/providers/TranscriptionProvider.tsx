@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
-import { getTranscriptionService } from '../services/transcription/TranscriptionService';
+import { getTranscriptionService, TranscriptionServiceOptions } from '../services/transcription/TranscriptionService';
+import { TranscriptionModeOptions } from '../services/transcription/modes/types';
 import { TranscriptionPolicy, PROD_FREE_POLICY } from '../services/transcription/TranscriptionPolicy'; // Import the type
 import logger from '../lib/logger';
 import { SpeechRuntimeController } from '../services/transcription/runtime/SpeechRuntimeController';
@@ -29,12 +30,12 @@ export const TranscriptionProvider: React.FC<{
         };
 
         // We bridge the legacy options here for compatibility during migration
-        const legacyOptions = (service as any).options;
+        const legacyOptions = (service as unknown as { options: TranscriptionServiceOptions }).options;
 
         return new SpeechRuntimeController(
             config,
             policy || service.getPolicy() || PROD_FREE_POLICY,
-            legacyOptions
+            legacyOptions as unknown as TranscriptionModeOptions
         );
     }, [service, policy]);
 
