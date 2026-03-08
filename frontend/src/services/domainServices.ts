@@ -27,6 +27,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '@/lib/logger';
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
+import type { UserGoals } from '@/types/goals';
 
 // Lazy getter to avoid module-load-time errors in tests
 const getClient = () => getSupabaseClient();
@@ -268,7 +269,7 @@ export const goalsService = {
     /**
      * Get user goals
      */
-    async get(userId: string): Promise<UserGoal | null> {
+    async get(userId: string): Promise<UserGoals | null> {
         const supabase = getClient();
         const { data, error } = await supabase
             .from('user_goals')
@@ -285,17 +286,29 @@ export const goalsService = {
             throw error;
         }
 
-        return data as UserGoal;
+        if (!data) return null;
+
+        const dbGoal = data as UserGoal;
+        return {
+            weeklyGoal: dbGoal.weekly_goal,
+            clarityGoal: dbGoal.clarity_goal,
+        };
     },
 
     /**
      * Upsert user goals
      */
-    async upsert(userId: string, goals: Partial<UserGoal>): Promise<UserGoal> {
+    async upsert(userId: string, goals: Partial<UserGoals>): Promise<UserGoals> {
         const supabase = getClient();
+
+        // Map domain model to DB model
+        const dbGoals: Partial<UserGoal> = {};
+        if (goals.weeklyGoal !== undefined) dbGoals.weekly_goal = goals.weeklyGoal;
+        if (goals.clarityGoal !== undefined) dbGoals.clarity_goal = goals.clarityGoal;
+
         const { data, error } = await supabase
             .from('user_goals')
-            .upsert({ user_id: userId, ...goals })
+            .upsert({ user_id: userId, ...dbGoals })
             .select()
             .single();
 
@@ -304,6 +317,10 @@ export const goalsService = {
             throw error;
         }
 
-        return data as UserGoal;
+        const dbGoal = data as UserGoal;
+        return {
+            weeklyGoal: dbGoal.weekly_goal,
+            clarityGoal: dbGoal.clarity_goal,
+        };
     },
 };

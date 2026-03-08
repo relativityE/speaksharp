@@ -181,13 +181,16 @@ describe('domainServices', () => {
     // =========================================================================
     describe('goalsService', () => {
         describe('get', () => {
-            it('should return goals on success', async () => {
+            it('should return goals in domain format on success', async () => {
                 const mockData = { id: 'goal-1', user_id: 'user-1', weekly_goal: 5, clarity_goal: 90 };
                 const mockClient = createSupabaseMock(mockData, null);
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
                 const result = await goalsService.get('user-1');
-                expect(result).toEqual(mockData);
+                expect(result).toEqual({
+                    weeklyGoal: 5,
+                    clarityGoal: 90
+                });
             });
 
             it('should return null when not found', async () => {
@@ -200,13 +203,21 @@ describe('domainServices', () => {
         });
 
         describe('upsert', () => {
-            it('should upsert goals on success', async () => {
+            it('should upsert goals and return domain format on success', async () => {
                 const mockData = { id: 'goal-1', user_id: 'user-1', weekly_goal: 10, clarity_goal: 95 };
                 const mockClient = createSupabaseMock(mockData, null);
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
-                const result = await goalsService.upsert('user-1', { weekly_goal: 10, clarity_goal: 95 });
-                expect(result).toEqual(mockData);
+                const result = await goalsService.upsert('user-1', { weeklyGoal: 10, clarityGoal: 95 });
+                expect(result).toEqual({
+                    weeklyGoal: 10,
+                    clarityGoal: 95
+                });
+                expect(mockClient.upsert).toHaveBeenCalledWith({
+                    user_id: 'user-1',
+                    weekly_goal: 10,
+                    clarity_goal: 95
+                });
             });
         });
     });

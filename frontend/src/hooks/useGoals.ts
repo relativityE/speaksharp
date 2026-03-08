@@ -2,11 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { goalsService } from '@/services/domainServices';
 import logger from '@/lib/logger';
-
-export interface UserGoals {
-    weeklyGoal: number;
-    clarityGoal: number;
-}
+import type { UserGoals } from '@/types/goals';
 
 const STORAGE_KEY = 'speaksharp:user-goals';
 const DEFAULT_GOALS: UserGoals = {
@@ -16,8 +12,6 @@ const DEFAULT_GOALS: UserGoals = {
 
 /**
  * Custom hook for managing user goals with Supabase sync and localStorage fallback.
- * 
- * P2-6 FIX: Uses goalsService domain service instead of direct Supabase calls.
  * 
  * - Authenticated users: Goals sync to Supabase `user_goals` table
  * - Unauthenticated/offline: Goals stored in localStorage only
@@ -50,17 +44,12 @@ export function useGoals() {
 
         const fetchGoals = async () => {
             try {
-                // P2-6 FIX: Use domain service
                 const data = await goalsService.get(user.id);
 
                 if (data) {
-                    const supabaseGoals = {
-                        weeklyGoal: data.weekly_goal,  // DB column name
-                        clarityGoal: data.clarity_goal,
-                    };
-                    setGoalsState(supabaseGoals);
+                    setGoalsState(data);
                     // Sync to localStorage
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(supabaseGoals));
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
                 }
             } catch (err) {
                 logger.error({ err }, '[useGoals] Failed to fetch goals');
@@ -84,11 +73,7 @@ export function useGoals() {
         // Sync to Supabase if authenticated
         if (user) {
             try {
-                // P2-6 FIX: Use domain service
-                await goalsService.upsert(user.id, {
-                    weekly_goal: newGoals.weeklyGoal,  // DB column name
-                    clarity_goal: newGoals.clarityGoal,
-                });
+                await goalsService.upsert(user.id, newGoals);
             } catch (err) {
                 logger.error({ err }, '[useGoals] Failed to sync goals');
             }
