@@ -196,6 +196,30 @@ This project uses a strict `pnpm-lock.yaml` file to guarantee that every develop
 
 The `pnpm setup` command executes `pnpm install --frozen-lockfile`, which is the **only** correct way to install dependencies in this project. It forces pnpm to install the exact versions specified in the lockfile, ensuring a reproducible environment.
 
+## Troubleshooting: The "Dead Environment" Trap
+ 
+**Status:** High Importance for AI Agents & Remote Shards
+ 
+If you find yourself in a state where `node_modules` is missing and `pnpm install` fails due to network or environment restrictions, you are in a "Dead Environment." 
+ 
+### Recovery Steps:
+ 
+1.  **Run the Stabilizer**:
+    ```bash
+    ./scripts/env-stabilizer.sh
+    ```
+    This script attempts to recover local links and clear corrupted caches without requiring a full re-download.
+ 
+2.  **The "Rebase then Setup" Rule**:
+    Never run `pnpm install` immediately after a large rebase if dependencies have changed significantly.
+    - `git pull --rebase`
+    - `./scripts/git-pull-fix.sh` (This script automates the cleanup and re-install)
+ 
+3.  **Check TIA Impact**:
+    If your tests are not running, verify that your changes are captured in `test-impact-map.json`. If you added a new file, you **must** update this map or the `test:agent` command will skip it.
+ 
+---
+ 
 ## How to Test (Full Audit Suite)
 
 This project uses a unified testing strategy centered around a single, robust script (`scripts/test-audit.sh`) that is accessed via simple `pnpm` commands. This ensures that local validation and the CI pipeline are perfectly aligned.

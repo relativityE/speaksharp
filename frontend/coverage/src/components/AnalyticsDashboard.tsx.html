@@ -25,7 +25,7 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/707</span>
+                <span class='fraction'>0/711</span>
             </div>
         
             
@@ -46,7 +46,7 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/707</span>
+                <span class='fraction'>0/711</span>
             </div>
         
             
@@ -965,7 +965,12 @@
 <a name='L900'></a><a href='#L900'>900</a>
 <a name='L901'></a><a href='#L901'>901</a>
 <a name='L902'></a><a href='#L902'>902</a>
-<a name='L903'></a><a href='#L903'>903</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
+<a name='L903'></a><a href='#L903'>903</a>
+<a name='L904'></a><a href='#L904'>904</a>
+<a name='L905'></a><a href='#L905'>905</a>
+<a name='L906'></a><a href='#L906'>906</a>
+<a name='L907'></a><a href='#L907'>907</a>
+<a name='L908'></a><a href='#L908'>908</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -1378,6 +1383,10 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -1439,13 +1448,19 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -1674,7 +1689,6 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -1688,8 +1702,6 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -1723,8 +1735,6 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -2279,7 +2289,11 @@ type AnalysisSlideConfig = {
 <span class="cstat-no" title="statement not covered" >        }</span>
 <span class="cstat-no" title="statement not covered" >    }, [selectedStatCards]);</span>
 &nbsp;
-&nbsp;
+    // Optimization: Memoize filtered stat cards for O(1) lookup in render path
+<span class="cstat-no" title="statement not covered" >    const displayedStatCards = useMemo(() =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >        const selectedSet = new Set(selectedStatCards);</span>
+<span class="cstat-no" title="statement not covered" >        return STAT_CARD_OPTIONS.filter(option =&gt; selectedSet.has(option.id));</span>
+<span class="cstat-no" title="statement not covered" >    }, [selectedStatCards]);</span>
 &nbsp;
     // Carousel API state
 <span class="cstat-no" title="statement not covered" >    const [api, setApi] = useState&lt;CarouselApi&gt;();</span>
@@ -2347,6 +2361,12 @@ type AnalysisSlideConfig = {
 <span class="cstat-no" title="statement not covered" >        } catch (e) {</span>
 <span class="cstat-no" title="statement not covered" >            logger.warn('Failed to save analysis slide preferences');</span>
 <span class="cstat-no" title="statement not covered" >        }</span>
+<span class="cstat-no" title="statement not covered" >    }, [selectedAnalysisSlides]);</span>
+&nbsp;
+    // Optimization: Memoize filtered analysis slides for O(1) lookup in render path
+<span class="cstat-no" title="statement not covered" >    const displayedAnalysisSlides = useMemo(() =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >        const selectedSet = new Set(selectedAnalysisSlides);</span>
+<span class="cstat-no" title="statement not covered" >        return ANALYSIS_SLIDE_OPTIONS.filter(option =&gt; selectedSet.has(option.id));</span>
 <span class="cstat-no" title="statement not covered" >    }, [selectedAnalysisSlides]);</span>
 &nbsp;
 <span class="cstat-no" title="statement not covered" >    const toggleAnalysisSlide = (slideId: string) =&gt; {</span>
@@ -2577,19 +2597,16 @@ type AnalysisSlideConfig = {
 &nbsp;
                     {/* Dynamic Stat Cards */}
 <span class="cstat-no" title="statement not covered" >                    &lt;div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"&gt;</span>
-<span class="cstat-no" title="statement not covered" >                        {STAT_CARD_OPTIONS</span>
-<span class="cstat-no" title="statement not covered" >                            .filter(option =&gt; selectedStatCards.includes(option.id))</span>
-<span class="cstat-no" title="statement not covered" >                            .map(option =&gt; (</span>
-<span class="cstat-no" title="statement not covered" >                                &lt;StatCard</span>
-<span class="cstat-no" title="statement not covered" >                                    key={option.id}</span>
-<span class="cstat-no" title="statement not covered" >                                    icon={option.icon}</span>
-<span class="cstat-no" title="statement not covered" >                                    label={option.label}</span>
-<span class="cstat-no" title="statement not covered" >                                    value={option.getValue(overallStats)}</span>
-<span class="cstat-no" title="statement not covered" >                                    unit={option.unit}</span>
-<span class="cstat-no" title="statement not covered" >                                    testId={`stat-card-${option.id}`}</span>
-<span class="cstat-no" title="statement not covered" >                                /&gt;</span>
-<span class="cstat-no" title="statement not covered" >                            ))</span>
-                        }
+<span class="cstat-no" title="statement not covered" >                        {displayedStatCards.map(option =&gt; (</span>
+<span class="cstat-no" title="statement not covered" >                            &lt;StatCard</span>
+<span class="cstat-no" title="statement not covered" >                                key={option.id}</span>
+<span class="cstat-no" title="statement not covered" >                                icon={option.icon}</span>
+<span class="cstat-no" title="statement not covered" >                                label={option.label}</span>
+<span class="cstat-no" title="statement not covered" >                                value={option.getValue(overallStats)}</span>
+<span class="cstat-no" title="statement not covered" >                                unit={option.unit}</span>
+<span class="cstat-no" title="statement not covered" >                                testId={`stat-card-${option.id}`}</span>
+<span class="cstat-no" title="statement not covered" >                            /&gt;</span>
+<span class="cstat-no" title="statement not covered" >                        ))}</span>
 <span class="cstat-no" title="statement not covered" >                    &lt;/div&gt;</span>
 &nbsp;
                     {/* Analysis Section Header with Settings */}
@@ -2628,73 +2645,71 @@ type AnalysisSlideConfig = {
 <span class="cstat-no" title="statement not covered" >                    &lt;div className="space-y-4"&gt;</span>
 <span class="cstat-no" title="statement not covered" >                        &lt;Carousel className="w-full" opts={{ loop: true }} setApi={setApi}&gt;</span>
 <span class="cstat-no" title="statement not covered" >                            &lt;CarouselContent&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                {ANALYSIS_SLIDE_OPTIONS</span>
-<span class="cstat-no" title="statement not covered" >                                    .filter(option =&gt; selectedAnalysisSlides.includes(option.id))</span>
-<span class="cstat-no" title="statement not covered" >                                    .map(option =&gt; (</span>
-<span class="cstat-no" title="statement not covered" >                                        &lt;CarouselItem key={option.id} className="basis-full"&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                            &lt;div className="p-1"&gt;</span>
-                                                {/* Render content based on ID */}
-<span class="cstat-no" title="statement not covered" >                                                {option.id === 'pace_trend' &amp;&amp; (</span>
-<span class="cstat-no" title="statement not covered" >                                                    &lt;div&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                        &lt;TrendChart</span>
-<span class="cstat-no" title="statement not covered" >                                                            title="Speaking Pace Trend"</span>
-<span class="cstat-no" title="statement not covered" >                                                            description="Track your words per minute over time"</span>
-<span class="cstat-no" title="statement not covered" >                                                            data={trendData}</span>
-<span class="cstat-no" title="statement not covered" >                                                            metric="wpm"</span>
-<span class="cstat-no" title="statement not covered" >                                                        /&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                    &lt;/div&gt;</span>
-                                                )}
-<span class="cstat-no" title="statement not covered" >                                                {option.id === 'clarity_trend' &amp;&amp; (</span>
-<span class="cstat-no" title="statement not covered" >                                                    &lt;div&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                        &lt;TrendChart</span>
-<span class="cstat-no" title="statement not covered" >                                                            title="Clarity Trend"</span>
-<span class="cstat-no" title="statement not covered" >                                                            description="Monitor your speech clarity percentage"</span>
-<span class="cstat-no" title="statement not covered" >                                                            data={trendData}</span>
-<span class="cstat-no" title="statement not covered" >                                                            metric="clarity"</span>
-<span class="cstat-no" title="statement not covered" >                                                        /&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                    &lt;/div&gt;</span>
-                                                )}
-<span class="cstat-no" title="statement not covered" >                                                {option.id === 'weekly_activity' &amp;&amp; (</span>
-<span class="cstat-no" title="statement not covered" >                                                    &lt;WeeklyActivityChart /&gt;</span>
-                                                )}
-<span class="cstat-no" title="statement not covered" >                                                {option.id === 'goals_progress' &amp;&amp; (</span>
-<span class="cstat-no" title="statement not covered" >                                                    &lt;GoalsSection /&gt;</span>
-                                                )}
-<span class="cstat-no" title="statement not covered" >                                                {option.id === 'filler_trend' &amp;&amp; (</span>
-<span class="cstat-no" title="statement not covered" >                                                    &lt;Card&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                        &lt;CardHeader&gt;&lt;CardTitle&gt;Filler Word Trend&lt;/CardTitle&gt;&lt;/CardHeader&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                        &lt;CardContent className="pl-2"&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                            {overallStats.chartData.length &gt; 1 ? (</span>
-<span class="cstat-no" title="statement not covered" >                                                                &lt;div className="h-[300px] w-full"&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                                    &lt;ResponsiveContainer width="100%" height="100%"&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                                        &lt;LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                                            &lt;CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} /&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                                            &lt;XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} /&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                                            &lt;YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} /&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                                            &lt;Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} /&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                                            &lt;Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} /&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                                        &lt;/LineChart&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                                    &lt;/ResponsiveContainer&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                                &lt;/div&gt;</span>
-                                                            ) : (
-<span class="cstat-no" title="statement not covered" >                                                                &lt;div className="flex items-center justify-center h-[300px] text-center text-muted-foreground"&gt;&lt;p&gt;Complete at least two sessions to see your progress trend.&lt;/p&gt;&lt;/div&gt;</span>
-                                                            )}
-<span class="cstat-no" title="statement not covered" >                                                        &lt;/CardContent&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                    &lt;/Card&gt;</span>
-                                                )}
-<span class="cstat-no" title="statement not covered" >                                                {option.id === 'filler_analysis' &amp;&amp; (</span>
-<span class="cstat-no" title="statement not covered" >                                                    &lt;div className="grid grid-cols-1 md:grid-cols-2 gap-6"&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                        &lt;TopFillerWords /&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                        &lt;FillerWordTable trendData={fillerWordTrends} /&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                                    &lt;/div&gt;</span>
-                                                )}
-<span class="cstat-no" title="statement not covered" >                                                {option.id === 'stt_comparison' &amp;&amp; (</span>
-<span class="cstat-no" title="statement not covered" >                                                    &lt;STTAccuracyVsBenchmark /&gt;</span>
-                                                )}
+<span class="cstat-no" title="statement not covered" >                                {displayedAnalysisSlides.map(option =&gt; (</span>
+<span class="cstat-no" title="statement not covered" >                                    &lt;CarouselItem key={option.id} className="basis-full"&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                        &lt;div className="p-1"&gt;</span>
+                                            {/* Render content based on ID */}
+<span class="cstat-no" title="statement not covered" >                                            {option.id === 'pace_trend' &amp;&amp; (</span>
+<span class="cstat-no" title="statement not covered" >                                                &lt;div&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                    &lt;TrendChart</span>
+<span class="cstat-no" title="statement not covered" >                                                        title="Speaking Pace Trend"</span>
+<span class="cstat-no" title="statement not covered" >                                                        description="Track your words per minute over time"</span>
+<span class="cstat-no" title="statement not covered" >                                                        data={trendData}</span>
+<span class="cstat-no" title="statement not covered" >                                                        metric="wpm"</span>
+<span class="cstat-no" title="statement not covered" >                                                    /&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                &lt;/div&gt;</span>
+                                            )}
+<span class="cstat-no" title="statement not covered" >                                            {option.id === 'clarity_trend' &amp;&amp; (</span>
+<span class="cstat-no" title="statement not covered" >                                                &lt;div&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                    &lt;TrendChart</span>
+<span class="cstat-no" title="statement not covered" >                                                        title="Clarity Trend"</span>
+<span class="cstat-no" title="statement not covered" >                                                        description="Monitor your speech clarity percentage"</span>
+<span class="cstat-no" title="statement not covered" >                                                        data={trendData}</span>
+<span class="cstat-no" title="statement not covered" >                                                        metric="clarity"</span>
+<span class="cstat-no" title="statement not covered" >                                                    /&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                &lt;/div&gt;</span>
+                                            )}
+<span class="cstat-no" title="statement not covered" >                                            {option.id === 'weekly_activity' &amp;&amp; (</span>
+<span class="cstat-no" title="statement not covered" >                                                &lt;WeeklyActivityChart /&gt;</span>
+                                            )}
+<span class="cstat-no" title="statement not covered" >                                            {option.id === 'goals_progress' &amp;&amp; (</span>
+<span class="cstat-no" title="statement not covered" >                                                &lt;GoalsSection /&gt;</span>
+                                            )}
+<span class="cstat-no" title="statement not covered" >                                            {option.id === 'filler_trend' &amp;&amp; (</span>
+<span class="cstat-no" title="statement not covered" >                                                &lt;Card&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                    &lt;CardHeader&gt;&lt;CardTitle&gt;Filler Word Trend&lt;/CardTitle&gt;&lt;/CardHeader&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                    &lt;CardContent className="pl-2"&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                        {overallStats.chartData.length &gt; 1 ? (</span>
+<span class="cstat-no" title="statement not covered" >                                                            &lt;div className="h-[300px] w-full"&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                                &lt;ResponsiveContainer width="100%" height="100%"&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                                    &lt;LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                                        &lt;CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} /&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                                        &lt;XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} /&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                                        &lt;YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} /&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                                        &lt;Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} /&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                                        &lt;Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} /&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                                    &lt;/LineChart&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                                &lt;/ResponsiveContainer&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                            &lt;/div&gt;</span>
+                                                        ) : (
+<span class="cstat-no" title="statement not covered" >                                                            &lt;div className="flex items-center justify-center h-[300px] text-center text-muted-foreground"&gt;&lt;p&gt;Complete at least two sessions to see your progress trend.&lt;/p&gt;&lt;/div&gt;</span>
+                                                        )}
+<span class="cstat-no" title="statement not covered" >                                                    &lt;/CardContent&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                &lt;/Card&gt;</span>
+                                            )}
+<span class="cstat-no" title="statement not covered" >                                            {option.id === 'filler_analysis' &amp;&amp; (</span>
+<span class="cstat-no" title="statement not covered" >                                                &lt;div className="grid grid-cols-1 md:grid-cols-2 gap-6"&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                    &lt;TopFillerWords /&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                    &lt;FillerWordTable trendData={fillerWordTrends} /&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                                &lt;/div&gt;</span>
+                                            )}
+<span class="cstat-no" title="statement not covered" >                                            {option.id === 'stt_comparison' &amp;&amp; (</span>
+<span class="cstat-no" title="statement not covered" >                                                &lt;STTAccuracyVsBenchmark /&gt;</span>
+                                            )}
 &nbsp;
-<span class="cstat-no" title="statement not covered" >                                            &lt;/div&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                        &lt;/CarouselItem&gt;</span>
-<span class="cstat-no" title="statement not covered" >                                    ))</span>
+<span class="cstat-no" title="statement not covered" >                                        &lt;/div&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                    &lt;/CarouselItem&gt;</span>
+<span class="cstat-no" title="statement not covered" >                                ))</span>
                                 }
 <span class="cstat-no" title="statement not covered" >                            &lt;/CarouselContent&gt;</span>
 <span class="cstat-no" title="statement not covered" >                            &lt;CarouselPrevious /&gt;</span>
@@ -2776,7 +2791,7 @@ type AnalysisSlideConfig = {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-07T08:54:10.041Z
+                at 2026-03-08T03:37:21.981Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

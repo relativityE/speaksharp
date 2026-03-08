@@ -8,10 +8,14 @@ All notable changes to this project will be documented in this file.
 ### [Unreleased] — STT & UI Stabilization (2026-03-07)
 
 - **Infrastructure: Vite Environment Root Alignment** — Corrected `envDir` in `vite.config.mjs` to resolve to the workspace root. This ensures frontend scripts and live benchmarks can load project-wide `.env` cards (e.g., `E2E_PRO_EMAIL`) reliably across different execution contexts.
+- **Performance: O(N) Dashboard Rendering (#726)** — Optimized `AnalyticsDashboard.tsx` by introducing `useMemo` for stat cards and analysis slides. Refactored filtering logic from O(M*N) to O(N) using pre-calculated Sets, significantly reducing UI thread load during tab switching.
+- **Architecture: Goals Domain Service Refactor (#727)** — Enforced domain boundary separation by moving all database-to-domain mapping logic out of the `useGoals` hook and into `goalsService`. Centralized snake_case to camelCase mapping and introduced the `UserGoals` domain interface.
+- **Performance: Analytics Aggregation Optimization (#728)** — Optimized `analyticsUtils.ts` by consolidating redundant `reduce` operations. Extracted intermediate calculation variables to avoid repeated object iteration, improving CPU efficiency for session statistics.
+- **Infrastructure: README Hardening & TIA Taxonomy** — Updated `README.md` with "Dead Environment" troubleshooting steps and clarified the `Level:Env:Mode` test taxonomy. Integrated `test-impact-map.json` for surgical agent-safe verification.
 - **UI: LiveRecordingCard Overhaul** — Redesigned the recording interface for improved proportionality and focus. Implemented a vertical center-stack for the Microphone (`w-11 h-11`) and Timer (`text-4xl`), and a left-aligned column for the **SECURE** badge and STT selector.
 - **Logic: Session Lifecycle Hardening** — Resolved the "9s Quit" race condition in `useSessionLifecycle.ts` by hardening state guards against initialization delays and premature teardowns during hydration.
 - **Benchmarking: Modular STT Suite** — Decomposed the monolithic hardware benchmarks into tiered, engine-specific specs (`benchmark-cpu`, `benchmark-webgpu`, `benchmark-cloud`). Added support for authenticated Pro-user testing in restricted STT modes.
-- **Files:** `vite.config.mjs`, `LiveRecordingCard.tsx`, `useSessionLifecycle.ts`, `tests/live/benchmark-cpu.live.spec.ts`, `tests/live/benchmark-cloud.live.spec.ts`
+- **Files:** `vite.config.mjs`, `LiveRecordingCard.tsx`, `useSessionLifecycle.ts`, `AnalyticsDashboard.tsx`, `domainServices.ts`, `analyticsUtils.ts`, `useGoals.ts`, `EditGoalsDialog.tsx`, `README.md`, `tests/live/benchmark-cpu.live.spec.ts`, `tests/live/benchmark-cloud.live.spec.ts`
 
 ### [Unreleased] — STT & CI Stability Hardening (2026-03-05)
 

@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Settings2 } from 'lucide-react';
-import { type UserGoals } from '@/types/goal';
+import { type UserGoals } from '@/types/goals';
 
 interface EditGoalsDialogProps {
     goals: UserGoals;

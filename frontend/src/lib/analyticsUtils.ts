@@ -50,7 +50,8 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
 
         sumWpm += sessionWpm;
 
-        totalFillerWords += Object.entries(s.filler_words || {}).reduce((sum, [word, d]) => {
+        const fillerEntries = Object.entries(s.filler_words || {});
+        totalFillerWords += fillerEntries.reduce((sum, [word, d]) => {
             return word === 'total' ? sum : sum + (d.count || 0);
         }, 0);
         // Use clarity_score for overall metrics, fallback to accuracy for legacy
@@ -70,20 +71,21 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         : "0.0";
     const avgAccuracy = totalSessions > 0 ? (totalClarity / totalSessions).toFixed(1) : "0.0";
 
-    // Chart data - limit to last 10 sessions
     const chartData = sessionHistory.slice(0, 10).map(s => {
-        // PERFORMANCE: Single-pass reduce for all filler word metrics
-        const totalFillerCount = Object.entries(s.filler_words || {}).reduce(
+        const duration = s.duration || 0;
+        const fillerWords = s.filler_words || {};
+        const totalFillerCount = Object.entries(fillerWords).reduce(
             (sum, [word, d]) => word === 'total' ? sum : sum + (d.count || 0),
             0
         );
 
-        const durationInMinutes = s.duration / 60;
+        const durationMins = duration / 60;
+        const fwPerMin = durationMins > 0 ? totalFillerCount / durationMins : 0;
 
         return {
             date: new Date(s.created_at).toLocaleDateString(),
-            'FW/min': s.duration > 0 ? (totalFillerCount / durationInMinutes).toFixed(2) : "0.0",
-            clarity: s.clarity_score ?? (s.duration > 0 ? 100 - ((totalFillerCount / durationInMinutes) * 2) : 100)
+            'FW/min': duration > 0 ? fwPerMin.toFixed(2) : "0.0",
+            clarity: s.clarity_score ?? (duration > 0 ? 100 - (fwPerMin * 2) : 100)
         };
     }).reverse();
 

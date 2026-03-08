@@ -38,9 +38,9 @@ describe('useGoals', () => {
 
     it('fetches goals from Supabase when user is authenticated', async () => {
         const user = { id: 'user-123' };
-        const supabaseGoals = { weekly_goal: 7, clarity_goal: 85 };
+        const domainGoals = { weeklyGoal: 7, clarityGoal: 85 };
         (useAuthProvider as Mock).mockReturnValue({ user });
-        (goalsService.get as Mock).mockResolvedValue(supabaseGoals);
+        (goalsService.get as Mock).mockResolvedValue(domainGoals);
 
         const { result } = renderHook(() => useGoals());
 
@@ -71,10 +71,7 @@ describe('useGoals', () => {
 
         expect(result.current.goals).toEqual(newGoals);
         expect(JSON.parse(localStorage.getItem('speaksharp:user-goals')!)).toEqual(newGoals);
-        expect(goalsService.upsert).toHaveBeenCalledWith('user-123', {
-            weekly_goal: 3,
-            clarity_goal: 98,
-        });
+        expect(goalsService.upsert).toHaveBeenCalledWith('user-123', newGoals);
     });
 
     it('resets goals to defaults', () => {

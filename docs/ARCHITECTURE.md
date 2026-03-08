@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-01
+**Last Reviewed:** 2026-03-07
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -2710,7 +2710,7 @@ The Domain Services Layer centralizes all Supabase database access, providing a 
 **Design Benefits:**
 - **Testability:** Services can be mocked without complex Supabase chain mocking
 - **Consistency:** All database errors handled uniformly
-- **Separation of Concerns:** Hooks handle state, services handle data access
+- **Separation of Concerns:** Hooks handle secondary UI state, while services handle data orchestration and mapping (e.g., snake_case DB fields to camelCase domain models).
 
 **Usage:**
 ```typescript

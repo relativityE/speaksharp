@@ -3,7 +3,7 @@ import { useAuthProvider } from '@/contexts/AuthProvider';
 import { goalsService } from '@/services/domainServices';
 import logger from '@/lib/logger';
 import { GOALS_STORAGE_KEY, DEFAULT_GOALS } from '@/config/env';
-import type { UserGoals } from '@/types/goal';
+import type { UserGoals } from '@/types/goals';
 
 /**
  * Custom hook for managing user goals with Supabase sync and localStorage fallback.
@@ -44,13 +44,9 @@ export function useGoals() {
                 const data = await goalsService.get(user.id);
 
                 if (data) {
-                    const supabaseGoals = {
-                        weeklyGoal: data.weekly_goal,  // DB column name
-                        clarityGoal: data.clarity_goal,
-                    };
-                    setGoalsState(supabaseGoals);
+                    setGoalsState(data);
                     // Sync to localStorage
-                    localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(supabaseGoals));
+                    localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(data));
                 }
             } catch (err) {
                 logger.error({ err }, '[useGoals] Failed to fetch goals');
@@ -75,10 +71,7 @@ export function useGoals() {
         if (user) {
             try {
                 // P2-6 FIX: Use domain service
-                await goalsService.upsert(user.id, {
-                    weekly_goal: newGoals.weeklyGoal,  // DB column name
-                    clarity_goal: newGoals.clarityGoal,
-                });
+                await goalsService.upsert(user.id, newGoals);
             } catch (err) {
                 logger.error({ err }, '[useGoals] Failed to sync goals');
             }

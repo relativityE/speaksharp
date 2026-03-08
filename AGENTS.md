@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-01
+**Last Reviewed:** 2026-03-07
 
 # Agent Instructions for SpeakSharp Repository
 
@@ -19,7 +19,7 @@ To address persistent environment instability, a new automated pre-flight check 
 
 This script performs a fast, minimal sanity check of your environment to ensure Node.js, pnpm, and all dependencies are correctly installed.
 
-Do not proceed until this script completes successfully. If it fails, follow the instructions in the `README.md` to stabilize your environment.
+Do not proceed until this script completes successfully. If it fails, follow the "Dead Environment Trap" troubleshooting in `README.md` to stabilize your environment via `./scripts/env-stabilizer.sh`.
 
 ---
 

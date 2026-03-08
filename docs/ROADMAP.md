@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-01
+**Last Reviewed:** 2026-03-07
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -732,6 +732,21 @@ This phase focuses on hardening the interface between frontend and backend and e
 | **R3** | **UI-First State Reversion** | **HIGH** | ✅ Complete | Pattern 27 implemented for sub-second UI responsiveness during engine teardown. |
 | **R4** | **Documentation Audit** | **HIGH** | ✅ Complete | Synchronized all 7 core markdown files to v3.5.4 SSOT standard. |
 | **R5** | **70/70 E2E Success** | **CRITICAL** | ✅ Complete | Achieved 100% reliability across the full sharded Playwright suite. |
+
+---
+
+## 🚀 Phase 6: Performance & Architecture Consolidation (Mar 2026) ✅ COMPLETE
+
+> **Goal:** surgical application of performance patches and enforcement of strict domain boundaries.
+
+| ID | Title | Priority | Status | Notes |
+|----|-------|----------|--------|-------|
+| **P6.1** | **O(N) Dashboards** | **HIGH** | ✅ Complete | Refactored `AnalyticsDashboard.tsx` filtering logic from O(M*N) to O(N) using memoized Sets (#726). |
+| **P6.2** | **Domain Mapping Layer** | **CRITICAL** | ✅ Complete | Migrated DB mapping (snake_case) to `goalsService`, decoupling Hooks from schema (#727). |
+| **P6.3** | **Analytics Aggregation Fix** | **HIGH** | ✅ Complete | Optimized `analyticsUtils.ts` by consolidating redundant reduce operations and calculations (#728). |
+| **P6.4** | **README Hardening** | **CRITICAL** | ✅ Complete | Documented "Dead Environment" recovery steps and clarified TIA test taxonomy. |
+
+---
 
 ## 🤖 System Integrity & Agent-Loop Formalization (Mar 2026) 🟡 In Progress
 
