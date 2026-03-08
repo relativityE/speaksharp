@@ -272,7 +272,7 @@ export const useSessionLifecycle = () => {
                 });
             }
         }
-    }, [elapsedTime, isListening, usageLimit, sessionFeedbackMessage]); // Removed handleStartStop dependency
+    }, [elapsedTime, isListening, usageLimit, sessionFeedbackMessage, isProUser]); // Removed handleStartStop dependency
 
     // VAD Auto-Pause Logic: 5 minutes of silence detected via transcript inactivity
     const lastTranscriptRef = useRef(transcript.transcript);

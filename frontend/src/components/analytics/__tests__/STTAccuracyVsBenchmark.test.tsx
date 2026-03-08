@@ -3,12 +3,13 @@ import { render, screen } from '../../../../tests/support/test-utils';
 import { STTAccuracyVsBenchmark } from '../STTAccuracyVsBenchmark';
 import * as AnalyticsHook from '@/hooks/useAnalytics';
 import * as RouterDom from 'react-router-dom';
+import type { PracticeSession } from '@/types/session';
 
 vi.mock('@/hooks/useAnalytics');
-vi.mock('react-router-dom', async () => {
-    const actual = await vi.importActual('react-router-dom');
+vi.mock('react-router-dom', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('react-router-dom')>();
     return {
-        ...actual as any,
+        ...actual,
         useParams: vi.fn(),
     };
 });
@@ -17,6 +18,28 @@ describe('STTAccuracyVsBenchmark', () => {
     const mockUseAnalytics = vi.mocked(AnalyticsHook.useAnalytics);
     const mockUseParams = vi.mocked(RouterDom.useParams);
 
+    const mockStats = {
+        totalSessions: 0,
+        totalPracticeTime: 0,
+        avgWpm: 0,
+        avgFillerWordsPerMin: "0.0",
+        avgAccuracy: "0.0",
+        chartData: []
+    };
+
+    const mockBaseReturn = {
+        accuracyData: [],
+        sessionHistory: [],
+        loading: false,
+        error: null,
+        overallStats: mockStats,
+        fillerWordTrends: {},
+        topFillerWords: [],
+        weeklySessionsCount: 0,
+        weeklyActivity: [],
+        refreshAnalytics: vi.fn(),
+    };
+
     beforeEach(() => {
         vi.clearAllMocks();
         mockUseParams.mockReturnValue({});
@@ -24,23 +47,8 @@ describe('STTAccuracyVsBenchmark', () => {
 
     it('should render loading skeleton', () => {
         mockUseAnalytics.mockReturnValue({
-            accuracyData: [],
-            sessionHistory: [],
+            ...mockBaseReturn,
             loading: true,
-            error: null,
-            overallStats: {
-                totalSessions: 0,
-                totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
-            },
-            fillerWordTrends: { dates: [], datasets: [] },
-            topFillerWords: [],
-            weeklySessionsCount: 0,
-            weeklyActivity: [],
-            refreshAnalytics: vi.fn(),
         });
 
         render(<STTAccuracyVsBenchmark />);
@@ -49,26 +57,11 @@ describe('STTAccuracyVsBenchmark', () => {
 
     it('should render dashboard trend view when no session id is provided', () => {
         mockUseAnalytics.mockReturnValue({
+            ...mockBaseReturn,
             accuracyData: [
                 { date: '10/10', accuracy: 85, engine: 'Native' },
                 { date: '10/11', accuracy: 92, engine: 'Private' },
             ],
-            sessionHistory: [],
-            loading: false,
-            error: null,
-            overallStats: {
-                totalSessions: 0,
-                totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
-            },
-            fillerWordTrends: { dates: [], datasets: [] },
-            topFillerWords: [],
-            weeklySessionsCount: 0,
-            weeklyActivity: [],
-            refreshAnalytics: vi.fn(),
         });
 
         render(<STTAccuracyVsBenchmark />);
@@ -76,25 +69,7 @@ describe('STTAccuracyVsBenchmark', () => {
     });
 
     it('should render empty state when no ground truth data exists', () => {
-        mockUseAnalytics.mockReturnValue({
-            accuracyData: [],
-            sessionHistory: [],
-            loading: false,
-            error: null,
-            overallStats: {
-                totalSessions: 0,
-                totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
-            },
-            fillerWordTrends: { dates: [], datasets: [] },
-            topFillerWords: [],
-            weeklySessionsCount: 0,
-            weeklyActivity: [],
-            refreshAnalytics: vi.fn(),
-        });
+        mockUseAnalytics.mockReturnValue(mockBaseReturn);
 
         render(<STTAccuracyVsBenchmark />);
         expect(screen.getByText('Provide ground truth transcripts to see your accuracy benchmarked against STT ceilings.')).toBeInTheDocument();
@@ -104,8 +79,9 @@ describe('STTAccuracyVsBenchmark', () => {
         mockUseParams.mockReturnValue({ sessionId: 'session-123' });
 
         mockUseAnalytics.mockReturnValue({
+            ...mockBaseReturn,
             accuracyData: [
-                { date: '10/10', accuracy: 88, engine: 'Private' } // Mocked filtered accuracy data
+                { date: '10/10', accuracy: 88, engine: 'Private' }
             ],
             sessionHistory: [
                 {
@@ -116,23 +92,8 @@ describe('STTAccuracyVsBenchmark', () => {
                     transcript: 'Hello world',
                     ground_truth: 'Hello world',
                     engine: 'Private',
-                }
+                } as PracticeSession
             ],
-            loading: false,
-            error: null,
-            overallStats: {
-                totalSessions: 0,
-                totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
-            },
-            fillerWordTrends: { dates: [], datasets: [] },
-            topFillerWords: [],
-            weeklySessionsCount: 0,
-            weeklyActivity: [],
-            refreshAnalytics: vi.fn(),
         });
 
         render(<STTAccuracyVsBenchmark />);

@@ -38,6 +38,18 @@ export function getTranscriptionService(options: Partial<TranscriptionServiceOpt
   return _instance;
 }
 
+/**
+ * Resets the transcription service singleton.
+ * Mandatory for test isolation and clean session transitions.
+ */
+export async function resetTranscriptionService(): Promise<void> {
+  if (_instance) {
+    await _instance.destroy();
+    _instance = null;
+  }
+  FailureManager.getInstance().resetFailureCount();
+}
+
 // Types moved to src/types/transcription.ts
 
 export interface TranscriptionServiceOptions {
@@ -120,7 +132,8 @@ export default class TranscriptionService {
 
     try {
       // 1. Create engine if not exists (or different)
-      if (!this.engine || (this.engine as unknown as { type: string }).type !== 'transformers-js') {
+      const existingType = this.engine?.getEngineType();
+      if (!this.engine || (existingType !== 'transformers-js' && existingType !== 'whisper-turbo')) {
         const engineConfig: TranscriptionModeOptions = {
           ...this.options,
           onModelLoadProgress: (progress) => {
@@ -273,7 +286,7 @@ export default class TranscriptionService {
       logger.info(`[TranscriptionService] Preparing engine for mode: ${mode}`);
 
       // ✅ EXPERT OPTIMIZATION: Preserve warm-up by reusing existing engine if mode matches
-      const existingType = this.engine ? (this.engine as { getEngineType?: () => string, type?: string }).getEngineType?.() || (this.engine as { type?: string }).type : null;
+      const existingType = this.engine?.getEngineType();
       const isPrivate = mode === 'private';
       const isSameMode = (isPrivate && (existingType === 'transformers-js' || existingType === 'whisper-turbo')) ||
         (mode === 'native' && existingType === 'native') ||
@@ -282,8 +295,8 @@ export default class TranscriptionService {
       if (this.engine && isSameMode) {
         logger.info(`[TranscriptionService] Reusing existing ${mode} engine instance`);
         // Update callbacks of existing engine to handle potential stale closures
-        if (typeof (this.engine as unknown as { updateOptions: (opts: TranscriptionModeOptions) => void }).updateOptions === 'function') {
-          (this.engine as unknown as { updateOptions: (opts: TranscriptionModeOptions) => void }).updateOptions(this.getProxyOptions());
+        if (typeof this.engine.updateOptions === 'function') {
+          this.engine.updateOptions(this.getProxyOptions());
         }
       } else {
         if (this.engine) {
@@ -303,7 +316,7 @@ export default class TranscriptionService {
 
         // ✅ EXPERT FIX: Disabling fallback entirely in E2E context to allow full WASM init.
         const win = typeof window !== 'undefined' ? window as { __E2E_CONTEXT__?: boolean, REAL_WHISPER_TEST?: boolean } : {};
-        const isE2E = (win as { __E2E_CONTEXT__?: boolean }).__E2E_CONTEXT__ || (win as { REAL_WHISPER_TEST?: boolean }).REAL_WHISPER_TEST || IS_TEST_ENVIRONMENT;
+        const isE2E = win.__E2E_CONTEXT__ || win.REAL_WHISPER_TEST || IS_TEST_ENVIRONMENT;
 
         if (isE2E) {
           logger.info('[TranscriptionService] 🧪 E2E Mode detected: DISABLING optimistic fallback. Waiting for full engine init.');
@@ -535,16 +548,15 @@ export default class TranscriptionService {
   private startOptimisticEntryTimer(): void {
     // Read lazily HERE, not in constructor — addInitScript flags
     // are not present at module evaluation time.
-    const win = typeof window !== 'undefined' ? window as { __E2E_CONTEXT__?: boolean, REAL_WHISPER_TEST?: boolean } : {};
-    const isE2E = (win as { __E2E_CONTEXT__?: boolean }).__E2E_CONTEXT__ === true || (win as { REAL_WHISPER_TEST?: boolean }).REAL_WHISPER_TEST === true;
+    const win = typeof window !== 'undefined' ? window as { __E2E_CONTEXT__?: boolean, REAL_WHISPER_TEST?: boolean, __STT_LOAD_TIMEOUT__?: number } : {};
+    const isE2E = win.__E2E_CONTEXT__ || win.REAL_WHISPER_TEST || IS_TEST_ENVIRONMENT;
 
     if (isE2E) {
       logger.info('[TranscriptionService] E2E context detected: fallback timer DISABLED. Private engine must initialize or test will fail.');
       return; // No timer. No fallback. Engine gets full Playwright timeout.
     }
 
-    const timeout = (typeof window !== 'undefined' && (window as unknown as { __STT_LOAD_TIMEOUT__?: number }).__STT_LOAD_TIMEOUT__)
-      || STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.CI;
+    const timeout = win.__STT_LOAD_TIMEOUT__ ?? STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.CI;
 
     logger.info({ timeout }, '[STT] Starting fallback timer');
     this.fallbackTimer = setTimeout(() => {
@@ -643,7 +655,7 @@ export default class TranscriptionService {
       case 'READY': status = { type: 'idle', message: 'Mic ready' }; break;
       case 'INITIALIZING_ENGINE': status = { type: 'initializing', message: 'Initializing engine...' }; break;
       case 'RECORDING': {
-        const engineType = (this.engine as unknown as { getEngineType: () => string })?.getEngineType() || '';
+        const engineType = this.engine?.getEngineType() || '';
         const isFast = engineType === 'whisper-turbo';
         const label = isFast ? '🔒 Private (Fast)' : (engineType === 'transformers-js' ? '🔒 Private (Safe)' : 'Recording active');
         status = { type: 'recording', message: label };

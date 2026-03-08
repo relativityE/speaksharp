@@ -9,7 +9,7 @@ import { useParams } from 'react-router-dom';
 // Need to import using absolute root resolving or relative mapping.
 import benchmarkDataRaw from '../../../../docs/STT_BENCHMARKS.json';
 
-const STT_BENCHMARKS = benchmarkDataRaw.engines as Record<string, { expectedAccuracy: number, provider: string }>;
+const STT_BENCHMARKS = benchmarkDataRaw.engines as unknown as Record<string, { expectedAccuracy: number, provider: string }>;
 
 /**
  * STT Accuracy Vs Benchmark Chart
