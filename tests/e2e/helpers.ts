@@ -8,6 +8,7 @@ import { type Page, expect } from '@playwright/test';
 import {
   MOCK_TRANSCRIPTS,
 } from './fixtures/mockData';
+import { MOCK_SESSION } from '../../backend/supabase/functions/_shared/test-fixtures';
 import { TEST_IDS } from '../constants';
 
 // 1. Unified E2E Window interface (consolidated from various files)
@@ -248,31 +249,44 @@ export async function programmaticLogin(
 export async function navigateToRoute(
   page: Page,
   route: string,
-  options: { waitForMocks?: boolean } = {}
+  options: { waitForMocks?: boolean; forceFullReload?: boolean } = {}
 ): Promise<void> {
-  const { waitForMocks = true } = options;
-  // Use evaluate to trigger React Router navigation without full page reload
-  await page.evaluate((targetRoute) => {
-    // React Router uses the browser history API
-    window.history.pushState({}, '', targetRoute);
-    // Dispatch popstate to notify React Router of the change
-    window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-  }, route);
+  const { waitForMocks = true, forceFullReload = false } = options;
 
-  // Wait for route change to complete
+  // 🧪 E2E HARDENING: Fast navigation (pushState) can race React Router hydration.
+  // If we just reloaded or are early in the lifecycle, a full page.goto is safer.
+  if (forceFullReload) {
+    debugLog(`[NAV] Performing full reload navigation to ${route}`);
+    await page.goto(route);
+  } else {
+    try {
+      debugLog(`[NAV] Attempting Fast Navigation (pushState) to ${route}`);
+      await page.evaluate((targetRoute) => {
+        window.history.pushState({}, '', targetRoute);
+        window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+      }, route);
+
+      // Verify that React Router actually picked it up
+      await page.waitForURL(`**${route}`, { timeout: 3000 });
+    } catch (err) {
+      debugLog(`[NAV] Fast Navigation failed or timed out for ${route}, falling back to page.goto`);
+      // Fallback to literal navigation if Fast Navigation fails
+      await page.goto(route);
+    }
+  }
+
+  // Final URL verification with standard Playwright timeout
   await debugWait(
     `Route Change (${route})`,
-    page.waitForURL(`**${route}`, { timeout: 10000 })
+    page.waitForURL(`**${route}`, { timeout: 30000 })
   );
 
   if (waitForMocks) {
-    // Wait for MSW to be ready to intercept requests (timing fix)
-    // This gives the service worker time to catch up after navigation
     await debugWait(
       'MSW Ready (Post-Navigation)',
       page.waitForFunction(() => {
         return !!window.mswReady;
-      }, null, { timeout: 10000 })
+      }, null, { timeout: 15000 })
     );
   }
 }
@@ -458,34 +472,36 @@ export async function programmaticLoginWithRoutes(
     emptySessions: options.emptySessions
   });
 
-  // 2. Set mock session flag and consolidated E2E context sentinel
-  await page.addInitScript(() => {
+  // 2. Set mock session flag AND inject session atomically BEFORE navigation
+  // 🧪 EXPERT PRESCRIPTION: Exact projectRef extraction from hostname
+  const url = process.env.VITE_SUPABASE_URL || 'https://mock.supabase.co';
+  const projectRef = new URL(url).hostname.split('.')[0];
+  const storageKey = `sb-${projectRef}-auth-token`;
+
+  await page.addInitScript(({ key, session }) => {
     window.__E2E_CONTEXT__ = true;
     window.__E2E_MOCK_SESSION__ = true;
-    window.mswReady = true; // Set mswReady for navigateToRoute compatibility
+    window.mswReady = true;
 
-    // Retirement period: Set legacy flags to maintain compatibility until all code is updated
-    window.TEST_MODE = true;
-    window.__E2E_PLAYWRIGHT__ = true;
-  });
+    // 🧪 Force Test Mode flags so the app uses the test environment config
+    (window as any).TEST_MODE = true;
+    (window as any).VITE_TEST_MODE = 'true';
+    (window as any).__E2E_PLAYWRIGHT__ = true;
+
+    // Atomic injection into localStorage before app starts
+    window.localStorage.setItem(key, JSON.stringify(session));
+    console.log('[E2E-TEST] 💉 Injected session at key:', key);
+  }, { key: storageKey, session: MOCK_SESSION });
 
   // 3. Navigate to app
+  // No reload needed because session is injected before the first byte arrives.
   await page.goto('/');
 
-  // 4. Wait for React to mount (no MSW wait needed!)
+  // 4. Wait for React to mount
   await debugWait(
     'React Mount (#root > *)',
     page.waitForSelector('#root > *', { timeout: 15000 })
   );
-
-  // 5. Inject mock session
-  await injectMockSession(page);
-
-  // 6. Reload to pick up the session from localStorage
-  // NOTE: page.reload() is required because Supabase Auth initializes synchronously on page load
-  // and won't detect localStorage changes via storage events after initialization.
-  // Route interceptors (setupE2EMocks) persist across reload in Playwright.
-  await page.reload();
 
   // 7. Wait for authenticated state
   // Note: app-main confirms auth is complete. Profile is now fetched via useUserProfile hook (C2 refactor).

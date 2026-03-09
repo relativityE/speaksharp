@@ -11,7 +11,7 @@ describe('TopFillerWords', () => {
         overallStats: {
             totalSessions: 0,
             totalPracticeTime: 0,
-            avgWpm: 0,
+            averageWPM: 0,
             avgFillerWordsPerMin: "0.0",
             avgAccuracy: "0.0",
             chartData: []

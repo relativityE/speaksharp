@@ -74,6 +74,7 @@ export default class TranscriptionService {
   private mic: MicStream | null = null;
   private micError: Error | null = null;
   private fallbackTimer: NodeJS.Timeout | null = null;
+  private timerFired: boolean = false;
 
   private callbackProxy: ImmutableCallbackProxy<TranscriptionModeOptions>;
   private policy: TranscriptionPolicy;
@@ -146,7 +147,11 @@ export default class TranscriptionService {
       await this.engine.init();
       logger.info(`[TranscriptionService] ✅ Warm-up complete for ${mode}`);
     } catch (error) {
-      logger.error({ error }, '[TranscriptionService] Warm-up failed');
+      if (isCacheMiss(error)) {
+        logger.info('[TranscriptionService] Warm-up: Cache miss (Expected for first-time use)');
+      } else {
+        logger.error({ error }, '[TranscriptionService] Warm-up failed');
+      }
     }
   }
 
@@ -269,29 +274,27 @@ export default class TranscriptionService {
 
         // ✅ EXPERT FIX: Disabling fallback entirely in E2E context to allow full WASM init.
         const win = typeof window !== 'undefined' ? window as unknown as Record<string, unknown> : {};
+        const explicitTimeout = win.__STT_LOAD_TIMEOUT__;
         const isE2E = win.__E2E_CONTEXT__ || win.REAL_WHISPER_TEST || IS_TEST_ENVIRONMENT;
 
-        if (isE2E) {
+        if (isE2E && explicitTimeout === undefined) {
           console.info('[STT] E2E context detected: fallback timer DISABLED. Private engine must initialize or test will fail.');
           logger.info('[TranscriptionService] 🧪 E2E Mode detected: DISABLING optimistic fallback. Waiting for full engine init.');
           await initPromise;
           skipInitInExecute = true;
         } else {
-          // Normal mode: Start the optimistic timeout race
+          // Normal mode OR explicit E2E timeout override: Start the optimistic timeout race
+          this.timerFired = false;
           this.startOptimisticEntryTimer();
 
           try {
-            // We still need to race the initPromise with the error from the timer
-            // I'll adapt to use a promise-wrapped version of the timer for the race.
             const timeoutPromise = new Promise((_, reject) => {
-              // The startOptimisticEntryTimer sets this.fallbackTimer
-              // We just need to wait for it or for initPromise
               const checkTimer = setInterval(() => {
-                if (!this.fallbackTimer && !isE2E) {
+                if (this.timerFired && !isE2E) {
                   clearInterval(checkTimer);
                   reject(new CacheMissEvent());
                 }
-              }, 100);
+              }, 50);
               initPromise.finally(() => clearInterval(checkTimer));
             });
 
@@ -503,18 +506,19 @@ export default class TranscriptionService {
     // Read lazily HERE, not in constructor — addInitScript flags
     // are not present at module evaluation time.
     const win = typeof window !== 'undefined' ? window as unknown as Record<string, unknown> : {};
+    const explicitTimeout = win.__STT_LOAD_TIMEOUT__ as number | undefined;
     const isE2E = win.__E2E_CONTEXT__ === true || win.REAL_WHISPER_TEST === true;
 
-    if (isE2E) {
+    if (isE2E && explicitTimeout === undefined) {
       console.info('[STT] E2E context detected: fallback timer DISABLED. Private engine must initialize or test will fail.');
       return; // No timer. No fallback. Engine gets full Playwright timeout.
     }
 
-    const timeout = (typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>).__STT_LOAD_TIMEOUT__ as number : undefined)
-      ?? STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.CI;
+    const timeout = explicitTimeout ?? STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.CI;
 
     console.info(`[STT] Starting fallback timer: ${timeout}ms`);
     this.fallbackTimer = setTimeout(() => {
+      this.timerFired = true;
       console.warn('[STT] Fallback timer fired — switching to Native STT');
       this.fallbackToNative();
     }, timeout);
@@ -622,13 +626,18 @@ export default class TranscriptionService {
     }
 
     // PERSISTENCE FIX: Ensure background download progress isn't clobbered by state changes
-    const currentProgress = useSessionStore.getState().modelLoadingProgress;
-    if (currentProgress !== null && state !== 'TERMINATED') {
-      status.progress = currentProgress;
+    const store = typeof useSessionStore !== 'undefined' ? useSessionStore?.getState?.() : null;
+    if (store) {
+      const currentProgress = store.modelLoadingProgress;
+      if (currentProgress !== null && state !== 'TERMINATED') {
+        status.progress = currentProgress;
+      }
     }
 
     this.options.onStatusChange?.(status);
-    useSessionStore.getState().setSTTStatus(status);
+    if (store) {
+      store.setSTTStatus(status);
+    }
   }
 
   private async handleFailure(mode: TranscriptionMode, error: Error): Promise<void> {

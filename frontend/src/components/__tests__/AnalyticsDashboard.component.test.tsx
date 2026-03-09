@@ -49,7 +49,7 @@ const mockProfile: UserProfile = {
 // Matches local OverallStats type in AnalyticsDashboard.tsx
 const mockStats = {
     totalSessions: 10,
-    avgWpm: 120,
+    averageWPM: 120,
     avgFillerWordsPerMin: 5,
     totalPracticeTime: 300,
     avgAccuracy: 85,

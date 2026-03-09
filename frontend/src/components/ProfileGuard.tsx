@@ -78,8 +78,10 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
     }
 
     // 5. Success - Profile available
+    const isVerified = !!profile && !profileLoading;
+
     return (
-        <ProfileProvider value={{ profile }}>
+        <ProfileProvider value={{ profile, isVerified }}>
             {children}
         </ProfileProvider>
     );

@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">14.63% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/82</span>
+                <span class='fraction'>12/82</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>1/1</span>
-            </div>
-        
-            
-            <div class='fl pad1y space-right2'>
-                <span class="strong">100% </span>
-                <span class="quiet">Functions</span>
-                <span class='fraction'>1/1</span>
+                <span class='fraction'>0/0</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>0/1</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">14.63% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/82</span>
+                <span class='fraction'>12/82</span>
             </div>
         
             
@@ -167,20 +167,20 @@
 <a name='L102'></a><a href='#L102'>102</a>
 <a name='L103'></a><a href='#L103'>103</a>
 <a name='L104'></a><a href='#L104'>104</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -270,20 +270,20 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">&nbsp;
-<span class="cstat-no" title="statement not covered" >import React, { useEffect, useState } from 'react';</span>
-<span class="cstat-no" title="statement not covered" >import { Skeleton } from '@/components/ui/skeleton';</span>
-<span class="cstat-no" title="statement not covered" >import { Card } from '@/components/ui/card';</span>
+import React, { useEffect, useState } from 'react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Card } from '@/components/ui/card';
 &nbsp;
-<span class="cstat-no" title="statement not covered" >const LOADING_TIPS = [</span>
-<span class="cstat-no" title="statement not covered" >    "Tip: Pause instead of using filler words like 'um' or 'ah'.",</span>
-<span class="cstat-no" title="statement not covered" >    "Did you know? Speaking slowly (120-150 wpm) improves clarity.",</span>
-<span class="cstat-no" title="statement not covered" >    "Tip: Vary your tone to keep your audience engaged.",</span>
-<span class="cstat-no" title="statement not covered" >    "Fact: Eye contact (even with a camera) builds trust.",</span>
-<span class="cstat-no" title="statement not covered" >    "Tip: Take a deep breath before starting to calm nerves.",</span>
-<span class="cstat-no" title="statement not covered" >    "Tip: Structure your points: Tell them what you're going to say, say it, then tell them what you said."</span>
-<span class="cstat-no" title="statement not covered" >];</span>
+const LOADING_TIPS = [
+    "Tip: Pause instead of using filler words like 'um' or 'ah'.",
+    "Did you know? Speaking slowly (120-150 wpm) improves clarity.",
+    "Tip: Vary your tone to keep your audience engaged.",
+    "Fact: Eye contact (even with a camera) builds trust.",
+    "Tip: Take a deep breath before starting to calm nerves.",
+    "Tip: Structure your points: Tell them what you're going to say, say it, then tell them what you said."
+];
 &nbsp;
-<span class="cstat-no" title="statement not covered" >export function SessionPageSkeleton() {</span>
+export <span class="fstat-no" title="function not covered" >function SessionPageSkeleton() {</span>
 <span class="cstat-no" title="statement not covered" >    const [tip, setTip] = useState("");</span>
 &nbsp;
 <span class="cstat-no" title="statement not covered" >    useEffect(() =&gt; {</span>
@@ -379,7 +379,7 @@
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-08T16:56:14.351Z
+                at 2026-03-09T12:41:07.637Z
             </div>
         <script src="../../../prettify.js"></script>
         <script>

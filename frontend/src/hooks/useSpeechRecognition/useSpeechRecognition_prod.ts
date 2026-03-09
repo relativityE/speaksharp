@@ -31,7 +31,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     const userWords = useMemo(() => props.userWords || [], [props.userWords]);
     const userVocabulary = useMemo(() => props.userVocabulary || [], [props.userVocabulary]);
     const { session } = props;
-    const profile = useProfile();
+    const { profile } = useProfile();
     const { session: authSession } = useAuthProvider();
     const navigate = useNavigate();
     const { stopSession, startSession, sttStatus, modelLoadingProgress } = useSessionStore();

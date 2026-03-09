@@ -14,26 +14,26 @@ test.describe('Session Variations', () => {
         await modeButton.waitFor({ state: 'visible', timeout: 5000 });
 
         // Verify initial mode (should be Native by default)
-        await expect(modeButton).toContainText(/Native/);
+        await expect(modeButton).toHaveAttribute('data-state', 'native');
 
         // Open dropdown
         await modeButton.click();
 
         // Switch to Cloud
         await page.getByRole('menuitemradio', { name: /Cloud/ }).click();
-        await expect(modeButton).toContainText(/Cloud/);
+        await expect(modeButton).toHaveAttribute('data-state', 'cloud');
 
         // Open dropdown again
         await modeButton.click();
 
         // Switch to Private
         await page.getByRole('menuitemradio', { name: /Private/ }).click();
-        await expect(modeButton).toContainText(/Private/);
+        await expect(modeButton).toHaveAttribute('data-state', 'private');
 
         // Switch back to Native
         await modeButton.click();
         await page.getByRole('menuitemradio', { name: /Native/ }).click();
-        await expect(modeButton).toContainText(/Native/);
+        await expect(modeButton).toHaveAttribute('data-state', 'native');
     });
 
     test('Journey 6: User Word Management', async ({ page }) => {

@@ -81,14 +81,18 @@ test('DIAGNOSTIC: check isProUser and profile state', async ({ page }) => {
     await page.waitForTimeout(3000);
 
     // Check results
-    const statusText = await page.getByTestId('stt-status-bar').textContent();
-    console.log(`[DIAG] Status bar: "${statusText}"`);
+    const statusHeader = page.getByTestId('live-session-header');
+    await expect(statusHeader).toBeVisible();
+
+    const isRecordingAttribute = await statusHeader.getAttribute('data-recording');
+    console.log(`[DIAG] Status bar data-recording: "${isRecordingAttribute}"`);
 
     const modeText = await page.getByTestId('stt-mode-select').textContent();
     console.log(`[DIAG] Mode button: "${modeText}"`);
 
     // The test: After starting in Private mode with mock engine, recording starts immediately.
-    // Status bar shows "Recording active" (not the engine name), while mode selector confirms "Private".
-    expect(statusText?.toLowerCase()).toContain('recording');
-    expect(modeText?.toLowerCase()).toContain('private');
+    // We assert on behavioral attributes, not text.
+    await expect(statusHeader).toHaveAttribute('data-recording', 'true');
+    await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'true');
+    await expect(page.getByTestId('stt-mode-select')).toHaveText(/Private/i);
 });

@@ -1,38 +1,31 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-01
+**Last Reviewed:** 2026-03-09
 
 # Changelog
 
 All notable changes to this project will be documented in this file.
 
-### [Unreleased] — STT & UI Stabilization (2026-03-07)
+### [3.5.6] — Zero-Debt Baseline & Hardening (2026-03-09)
 
-- **Infrastructure: Vite Environment Root Alignment** — Corrected `envDir` in `vite.config.mjs` to resolve to the workspace root. This ensures frontend scripts and live benchmarks can load project-wide `.env` cards (e.g., `E2E_PRO_EMAIL`) reliably across different execution contexts.
-- **Performance: O(N) Dashboard Rendering (#726)** — Optimized `AnalyticsDashboard.tsx` by introducing `useMemo` for stat cards and analysis slides. Refactored filtering logic from O(M*N) to O(N) using pre-calculated Sets, significantly reducing UI thread load during tab switching.
-- **Architecture: Goals Domain Service Refactor (#727)** — Enforced domain boundary separation by moving all database-to-domain mapping logic out of the `useGoals` hook and into `goalsService`. Centralized snake_case to camelCase mapping and introduced the `UserGoals` domain interface.
-- **Performance: Analytics Aggregation Optimization (#728)** — Optimized `analyticsUtils.ts` by consolidating redundant `reduce` operations. Extracted intermediate calculation variables to avoid repeated object iteration, improving CPU efficiency for session statistics.
-- **Infrastructure: README Hardening & TIA Taxonomy** — Updated `README.md` with "Dead Environment" troubleshooting steps and clarified the `Level:Env:Mode` test taxonomy. Integrated `test-impact-map.json` for surgical agent-safe verification.
-- **UI: LiveRecordingCard Overhaul** — Redesigned the recording interface for improved proportionality and focus. Implemented a vertical center-stack for the Microphone (`w-11 h-11`) and Timer (`text-4xl`), and a left-aligned column for the **SECURE** badge and STT selector.
+- **Infrastructure: Zero-Debt CI Baseline** — Achieved 100% reliability across the full test suite: 557/557 Vitest (Unit/Integration) and 71/71 Playwright (E2E) passing.
+- **Infrastructure: Node.js CI Orchestrator** — Migrated the primary CI pipeline to `run-ci.mjs`, a unified Node.js orchestrator with built-in Test Impact Analysis (TIA), zombie process prevention (`AbortController`), and parallel buffered logging.
+- **Logic: Hydration Guard & `isVerified` State** — Implemented a robust `isVerified` flag in `ProfileContext` to ensure profile data is fully hydrated before session logic initiates. Resolved the persistent "9s Quit" race condition.
 - **Logic: Session Lifecycle Hardening** — Resolved the "9s Quit" race condition in `useSessionLifecycle.ts` by hardening state guards against initialization delays and premature teardowns during hydration.
-- **Benchmarking: Modular STT Suite** — Decomposed the monolithic hardware benchmarks into tiered, engine-specific specs (`benchmark-cpu`, `benchmark-webgpu`, `benchmark-cloud`). Added support for authenticated Pro-user testing in restricted STT modes.
-- **Files:** `vite.config.mjs`, `LiveRecordingCard.tsx`, `useSessionLifecycle.ts`, `AnalyticsDashboard.tsx`, `domainServices.ts`, `analyticsUtils.ts`, `useGoals.ts`, `EditGoalsDialog.tsx`, `README.md`, `tests/live/benchmark-cpu.live.spec.ts`, `tests/live/benchmark-cloud.live.spec.ts`
+- **Architecture: Behavioral Integrity Pivot** — Standardized all E2E tests on `data-state` and `data-action` attributes (Pattern 10). Migrated from brittle text matching to stable behavioral contracts.
+- **Architecture: Atomic Consistency & Mutex Hardening** — Enforced a universal "No Multi-Tab" policy and restored atomic row-locking using `SELECT ... FOR UPDATE` within the `update_user_usage` Supabase RPC.
+- **Architecture: UI-First State Reversion** — Implemented Pattern 27, decoupling UI state from async engine cleanup for sub-second responsiveness during recording teardown.
+- **Performance: O(N) Dashboard Rendering** — Optimized `AnalyticsDashboard.tsx` filtering logic from O(M*N) to O(N) using memoized Sets, significantly reducing UI thread load.
+- **Performance: Analytics Aggregation Optimization** — Consolidated redundant `reduce` operations in `analyticsUtils.ts` and extracted intermediate calculation variables.
+- **UI: LiveRecordingCard Overhaul** — Redesigned the recording interface with a vertical center-stack (Mic/Timer) and left-aligned SECURE/Selector column for high-fidelity proportionality.
+- **Maintenance: Metric Name Standardization** — Unified naming conventions by renaming `avgWpm` to `averageWPM` across all layers (DB, Hook, UI).
+- **Files:** `scripts/run-ci.mjs`, `test-audit.sh`, `useSessionLifecycle.ts`, `LiveRecordingCard.tsx`, `AnalyticsDashboard.tsx`, `analyticsUtils.ts`, `useUserProfile.ts`, `ProfileContext.tsx`, `useActiveSessionLock.ts`, `20260212000000_database_hardening.sql`
 
-### [Unreleased] — STT & CI Stability Hardening (2026-03-05)
+### [3.5.5] — Live UI & STT Stabilization (2026-03-07)
 
-- **Agent-Loop Integration** — Established an isolated mock suite (`test:agent`), Test Impact Analysis (`test-impact-map.json`), and the `run-ci.mjs` Node Orchestrator for agentic CI loops.
-- **Flaky Test Resolution** — Replaced brittle `networkidle` heavily async routines with deterministic behavioral assertions in `auth.e2e.spec.ts`. Added explicit readiness DOM signals to `private-stt.live.spec.ts`.
-- **STT Behavioral Contract Fix** — Refactored `tests/live/stt-integration.live.spec.ts` to use `data-action` + `aria-label` assertions (Pattern 10) instead of brittle text matching. Resolves "Green Illusion" where CI passed while live hardware tests failed after icon-only UI redesign.
-- **Isolated Test Governance** — Created `playwright.live.config.ts` to separate hardware-dependent live tests (WASM, fake audio injection) from mock E2E suite. Prevents WASM model downloads on every PR.
-- **Metrics Pipeline Hardening** — `scripts/run-metrics.sh` now uses file existence guards and typed JSON `null` fallbacks. Prevents silent CI crashes when shard reports are missing.
-- **Canonical CI Merge** — `scripts/test-audit.sh` replaced fragile JSONL blob parsing with standard `playwright merge-reports` after blob flattening. Local simulation now matches `ci.yml` exactly.
-- **Gated Live-STT CI Job** — `.github/workflows/ci.yml` updated with a nightly/label-gated `live-stt` job and correct shard artifact merging.
-- **Lovable Visual Polish & Accessibility (Phase 2 UI)**:
-  - Addressed missing section `aria-labels` across Landing and Design System pages.
-  - Added Framer Motion `<PageTransition>` component wrapping `react-router-dom` to provide seamless page entry/exit animations.
-  - Added Open Graph `<meta>` tags and a dedicated `og-image.webp` to `index.html` for rich social media sharing.
-  - Resolved generic visual hierarchy issues on feature cards, mobile nav, and pro badges by injecting brand-aligned gradients and interactive hover states.
-- **Open Issue** — Exact-match golden transcript verification (`toHaveText`) times out at 120s with `"Listening..."`. Suspected race: Playwright fake audio stream starts at `T=0`, WASM engine takes ~20s to initialize. See `expert_second_opinion.md` in brain for full analysis.
-- **Files:** `package.json`, `tests/live/stt-integration.live.spec.ts`, `playwright.live.config.ts`, `scripts/run-metrics.sh`, `scripts/test-audit.sh`, `.github/workflows/ci.yml`, `App.tsx`, `PageTransition.tsx`, `index.html`
+- **Infrastructure: Vite Environment Root Alignment** — Corrected `envDir` in `vite.config.mjs` to resolve to the workspace root for reliable `.env` loading in benchmarks and scripts.
+- **Architecture: Goals Domain Service Refactor** — Enforced domain boundary separation by moving database-to-domain mapping logic from `useGoals` into `goalsService`.
+- **Benchmarking: Modular STT Suite** — Decomposed the monolithic hardware benchmarks into tiered, engine-specific specs (`benchmark-cpu`, `benchmark-webgpu`, `benchmark-cloud`).
+- **Files:** `vite.config.mjs`, `LiveRecordingCard.tsx`, `useGoals.ts`, `domainServices.ts`, `tests/live/benchmark-cpu.live.spec.ts`
 
 ### [3.5.4] - 2026-03-02
 

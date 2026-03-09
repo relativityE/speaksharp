@@ -22,7 +22,6 @@ vi.mock('@/hooks/useProfile', () => ({
 }));
 
 import { useProfile } from '@/hooks/useProfile';
-import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { TranscriptionProvider } from '@/providers/TranscriptionProvider';
 
 vi.mock('@/providers/useTranscriptionContext', () => ({
@@ -189,10 +188,13 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         // Ensure default is free for auto-stop tests
         vi.mocked(useProfile).mockReturnValue({
-            id: 'test-user',
-            subscription_status: 'free',
-            email: 'test@example.com'
-        } as unknown as UserProfile);
+            profile: {
+                id: 'test-user',
+                subscription_status: 'free',
+                email: 'test@example.com'
+            } as UserProfile,
+            isVerified: true
+        });
     });
 
     it('should trigger handleStartStop when elapsed time exceeds limit', async () => {

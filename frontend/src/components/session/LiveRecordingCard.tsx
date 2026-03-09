@@ -115,6 +115,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     onClick={onStartStop}
                                     disabled={isButtonDisabled}
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
+                                    data-recording={isListening}
                                     aria-label="Start Recording"
                                     className="w-11 h-11 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-elegant hover:scale-105 transition-all duration-300 p-0"
                                 >
@@ -125,6 +126,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     onClick={onStartStop}
                                     disabled={isButtonDisabled}
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
+                                    data-recording={isListening}
                                     aria-label="Stop Recording"
                                     className="w-11 h-11 rounded-full bg-primary hover:bg-primary/80 text-primary-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"
                                 >
@@ -140,8 +142,8 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </div>
                             <div className="mt-1 inline-flex items-center gap-1.5 py-0.5 px-2 rounded-full bg-muted/5 border border-muted/10 opacity-60">
                                 <div className={`h-1 w-1 rounded-full ${isListening ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/30'}`} />
-                                <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-[0.2em]">
-                                    {isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Syncing") : "Engine Ready"}
+                                <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-[0.2em]" data-testid="stt-status-label">
+                                    {_statusMessage || (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Syncing") : "Engine Ready")}
                                 </span>
                             </div>
                         </div>

@@ -101,11 +101,12 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         // 7. Click Start -> Should trigger error message
         await startButton.click();
 
-        // 8. Check for usage limit reached status message (supports both Daily and Monthly as per requirements)
-        await expect(page.getByTestId('session-status-indicator')).toContainText(/(Daily|Monthly) usage limit reached/i);
+        // 8. Check for usage limit reached state (behavioral truth)
+        await expect(page.getByTestId('live-session-header')).toHaveAttribute('data-state', 'error');
+        await expect(page.getByTestId('status-message-text')).toContainText(/limit reached/i);
 
-        // 9. Verify we are NOT recording (Button is still 'Start', not 'Stop')
-        await expect(startButton.getByText('Stop')).not.toBeVisible();
+        // 9. Verify we are NOT recording (Button attribute confirms)
+        await expect(startButton).toHaveAttribute('data-recording', 'false');
     });
 
     test('Free user is blocked when monthly limit is exhausted', async ({ page }) => {
@@ -175,8 +176,9 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         const startButton = page.getByTestId('session-start-stop-button');
         await startButton.click();
 
-        // 6. Check for "Monthly usage limit reached" status message
-        await expect(page.getByTestId('session-status-indicator')).toContainText(/Monthly usage limit reached/i);
+        // 6. Check for "Monthly usage limit reached" state
+        await expect(page.getByTestId('live-session-header')).toHaveAttribute('data-state', 'error');
+        await expect(page.getByTestId('status-message-text')).toContainText(/Monthly usage limit reached/i);
     });
 
     test('Daily limit auto-stops an active session', async ({ page }) => {
@@ -232,8 +234,9 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         // 9. Wait for auto-stop modal
         await expect(page.getByText(/Daily Target Crushed/i)).toBeVisible({ timeout: 15000 });
 
-        // 10. Check for usage limit reached status message (behavioral truth)
-        await expect(page.getByTestId('session-status-indicator')).toContainText(/Daily usage limit reached/i);
+        // 10. Check for usage limit reached state (behavioral truth)
+        await expect(page.getByTestId('live-session-header')).toHaveAttribute('data-state', 'error');
+        await expect(page.getByTestId('status-message-text')).toContainText(/Daily usage limit reached/i);
 
         // 11. Close modal to verify button state
         await page.getByRole('button', { name: /Close/i }).click();
@@ -241,8 +244,9 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         // 12. Verify button reverted from 'Stop Recording' to 'Start Recording'
         await expect(page.getByRole('button', { name: /Start Recording/i })).toBeVisible();
 
-        // 13. Verify session stopped (Header reverted)
-        await expect(page.getByTestId('live-session-header')).toContainText(/Ready to record/i, { timeout: 5000 });
+        // 13. Verify session stopped (Attribute reverted to idle or ready)
+        await expect(page.getByTestId('live-session-header')).toHaveAttribute('data-recording', 'false');
+        await expect(page.getByTestId('live-session-header')).not.toHaveAttribute('data-state', 'recording');
     });
 
     test('Free users can add up to 100 filler words', async ({ page }) => {

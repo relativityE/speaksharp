@@ -50,14 +50,30 @@ import {
 
 export { MOCK_SESSION_HISTORY };
 
-// Per-test state for user words (resets on each setupE2EMocks call)
-// Stateful mocks to allow dynamic changes during a test (e.g. promo code)
-let statefulProfile = { ...MOCK_USER_PROFILE };
-let userWordStore: Map<string, Array<{ id: string; user_id: string; word: string; created_at: string }>> = new Map();
+// Per-page state storage for parallel test isolation
+// This ensures that 'Pro' and 'Free' tests running concurrently don't step on each other.
+interface PageState {
+    profile: typeof MOCK_USER_PROFILE;
+    userWords: Array<{ id: string; user_id: string; word: string; created_at: string }>;
+    sessions: Array<Record<string, unknown>>;
+    emptySessions: boolean;
+}
 
-// Per-test state for sessions (resets on each setupE2EMocks call)
-// Initialize with mock history
-let sessionStore: Array<Record<string, unknown>> = [];
+const pageStateStore = new WeakMap<Page, PageState>();
+
+function getPageState(page: Page): PageState {
+    let state = pageStateStore.get(page);
+    if (!state) {
+        state = {
+            profile: { ...MOCK_USER_PROFILE },
+            userWords: [],
+            sessions: [...MOCK_SESSION_HISTORY],
+            emptySessions: false
+        };
+        pageStateStore.set(page, state);
+    }
+    return state;
+}
 
 // ============================================================================
 // ROUTE HANDLERS
@@ -123,17 +139,18 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
     await page.route('**/rest/v1/user_profiles*', async (route) => {
         const acceptHeader = route.request().headers()['accept'];
         const isSingleObject = acceptHeader === 'application/vnd.pgrst.object+json';
+        const page = route.request().frame()?.page();
+        if (!page) return route.continue();
+
+        const state = getPageState(page);
 
         // Check if profile override flag is set (for free user testing)
-        // Read override from window flag (set by setupE2EMocks or test)
-        const profileOverride = await route.request().frame()?.page()?.evaluate(() => {
+        const profileOverride = await page.evaluate(() => {
             return (window as Window & { __E2E_MOCK_PROFILE__?: { id: string; subscription_status: string } }).__E2E_MOCK_PROFILE__;
         }).catch(() => undefined);
 
-        // Merge: MOCK_USER_PROFILE (base) -> statefulProfile (state) -> profileOverride (hard override)
-        let profile = { ...statefulProfile };
+        let profile = { ...state.profile };
         if (profileOverride) {
-            mockLog(`[E2E MOCK] Profile override detected: ${JSON.stringify(profileOverride)} `);
             profile = { ...profile, ...profileOverride };
         }
 
@@ -148,49 +165,36 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
 
     // GET /rest/v1/sessions
     await page.route('**/rest/v1/sessions*', async (route) => {
-        // Check if empty sessions flag is set in the page context
-        // The flag is set via page.addInitScript() BEFORE navigation
-        const isEmpty = await route.request().frame()?.page()?.evaluate(() => {
-            return !!(window as Window & { __E2E_EMPTY_SESSIONS__?: boolean }).__E2E_EMPTY_SESSIONS__;
-        }).catch(() => false);
+        const page = route.request().frame()?.page();
+        if (!page) return route.continue();
+        const state = getPageState(page);
 
-        if (isEmpty) {
-            mockLog('[E2E MOCK] Returning sessionStore (flag set, might be empty)');
+        if (state.emptySessions) {
+            mockLog('[E2E MOCK] Returning empty sessions (flag set)');
         }
 
         // Check for specific ID filter (e.g., id=eq.xxx)
         const url = new URL(route.request().url());
         const idParam = url.searchParams.get('id');
-        let filteredSessions = [...sessionStore];
+        let filteredSessions = [...state.sessions];
 
         if (idParam && idParam.startsWith('eq.')) {
             const targetId = idParam.replace('eq.', '');
-            filteredSessions = sessionStore.filter(s => (s as unknown as { id: string }).id === targetId);
-            if (filteredSessions.length === 0) {
-                mockLog(`[E2E MOCK] Session ID ${targetId} not found, returning empty array`);
-            }
+            filteredSessions = state.sessions.filter(s => (s as unknown as { id: string }).id === targetId);
         }
 
-        // Handle .single() requests (Accept: application/vnd.pgrst.object+json)
         const acceptHeader = route.request().headers()['accept'];
         const isSingleObject = acceptHeader === 'application/vnd.pgrst.object+json';
 
         if (isSingleObject) {
             if (filteredSessions.length === 0) {
-                // Emulate PostgREST 406 Not Acceptable (PGRST116)
                 await route.fulfill({
                     status: 406,
                     contentType: 'application/json',
-                    body: JSON.stringify({
-                        code: 'PGRST116',
-                        details: 'The result contains 0 rows',
-                        hint: null,
-                        message: 'JSON object requested, multiple (or no) rows returned'
-                    }),
+                    body: JSON.stringify({ code: 'PGRST116', message: 'No rows returned' }),
                 });
                 return;
             }
-            // Return single object
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
@@ -199,7 +203,6 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
             return;
         }
 
-        // Return array (default)
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -209,14 +212,15 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
 
     // POST /rest/v1/rpc/create_session_and_update_usage
     await registerRoute(page, '**/rest/v1/rpc/create_session_and_update_usage', async (route) => {
+        const page = route.request().frame()?.page();
+        if (!page) return route.continue();
+        const state = getPageState(page);
+
         const body = JSON.parse(route.request().postData() || '{}');
         const { p_session_data } = body;
 
-        mockLog('[E2E MOCK] RPC create_session called with:', p_session_data);
-
-        // Create new session object
         const newSession = {
-            id: `session - ${Date.now()} `,
+            id: `session-${Date.now()}`,
             user_id: p_session_data.user_id || 'test-user-123',
             created_at: new Date().toISOString(),
             duration: p_session_data.duration || 0,
@@ -230,9 +234,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
             accuracy: p_session_data.accuracy || 0,
         };
 
-        // Add to store at the BEGINNING (latest first)
-        sessionStore.unshift(newSession);
-        mockLog(`Session created and added to store. Total sessions: ${sessionStore.length}`);
+        state.sessions.unshift(newSession);
 
         await route.fulfill({
             status: 200,
@@ -246,35 +248,31 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
 
     // GET/POST /rest/v1/user_filler_words
     await registerRoute(page, '**/rest/v1/user_filler_words*', async (route) => {
+        const page = route.request().frame()?.page();
+        if (!page) return route.continue();
+        const state = getPageState(page);
+
         const method = route.request().method();
 
         if (method === 'GET') {
-            const userId = 'test-user-123';
-            const words = userWordStore.get(userId) || [];
-
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify(words),
+                body: JSON.stringify(state.userWords),
             });
         } else if (method === 'POST') {
             let body = JSON.parse(route.request().postData() || '{}');
-            // Handle array payload (Supabase insert sends array)
-            if (Array.isArray(body)) {
-                body = body[0] || {};
-            }
+            if (Array.isArray(body)) body = body[0] || {};
             const userId = body.user_id || 'test-user-123';
 
             const newWord = {
-                id: `word - ${Date.now()} `,
+                id: `word-${Date.now()}`,
                 user_id: userId,
                 word: body.word,
                 created_at: new Date().toISOString(),
             };
 
-            const userWords = userWordStore.get(userId) || [];
-            userWords.push(newWord);
-            userWordStore.set(userId, userWords);
+            state.userWords.push(newWord);
 
             await route.fulfill({
                 status: 201,
@@ -282,18 +280,11 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
                 body: JSON.stringify(newWord),
             });
         } else if (method === 'DELETE') {
-            // Parse word ID from URL query params: ?id=eq.word-xxx&user_id=eq.test-user-123
             const url = new URL(route.request().url());
             const idParam = url.searchParams.get('id') || '';
             const wordId = idParam.replace('eq.', '');
-            const userId = 'test-user-123';
 
-            // Actually remove the word from the store
-            const userWords = userWordStore.get(userId) || [];
-            const filteredWords = userWords.filter(w => w.id !== wordId);
-            userWordStore.set(userId, filteredWords);
-
-            mockLog(`[E2E MOCK] Deleted word ${wordId}, remaining: ${filteredWords.length} `);
+            state.userWords = state.userWords.filter(w => w.id !== wordId);
             await route.fulfill({ status: 204 });
         } else {
             await route.continue();
@@ -328,13 +319,15 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
 
     // POST /functions/v1/apply-promo
     await registerRoute(page, '**/functions/v1/apply-promo', async (route) => {
+        const page = route.request().frame()?.page();
+        if (!page) return route.continue();
+        const state = getPageState(page);
+
         mockLog('[E2E MOCK] Specific Handler: apply-promo');
         const body = await route.request().postDataJSON();
-        // Accept our standard E2E mock code
         if (body?.promoCode === 'MOCK-PROMO-123') {
-            // Update stateful profile to Pro
-            statefulProfile.subscription_status = SUBSCRIPTION_STATUS.PRO;
-            mockLog('[E2E MOCK] Promo code applied: statefulProfile updated to PRO');
+            state.profile.subscription_status = SUBSCRIPTION_STATUS.PRO;
+            mockLog('[E2E MOCK] Promo code applied: state updated to PRO');
 
             return route.fulfill({
                 status: 200,
@@ -490,26 +483,21 @@ export async function setupE2EMocks(
     const { strictMode = false, emptySessions = false, subscriptionStatus } = options;
 
     // Inject profile override if subscriptionStatus is explicitly set
-    // This must happen BEFORE navigation so it's available when routes are intercepted
     if (subscriptionStatus) {
         await page.addInitScript((status: string) => {
             (window as Window & { __E2E_MOCK_PROFILE__?: { subscription_status: string } }).__E2E_MOCK_PROFILE__ = { subscription_status: status };
         }, subscriptionStatus);
     }
 
-    // Reset per-test state
-    statefulProfile = { ...MOCK_USER_PROFILE };
-
-    // CRITICAL FIX: Directly set statefulProfile.subscription_status when subscriptionStatus is passed.
-    // The route handler reads __E2E_MOCK_PROFILE__ via page.evaluate() inside the route callback,
-    // but this can fail silently (.catch(() => undefined)), causing the profile to return 'free'.
-    // By setting statefulProfile directly, we ensure correct status without fragile window reads.
+    // Initialize per-page state
+    const state = getPageState(page);
+    state.profile = { ...MOCK_USER_PROFILE };
     if (subscriptionStatus) {
-        statefulProfile.subscription_status = subscriptionStatus;
+        state.profile.subscription_status = subscriptionStatus;
     }
-    userWordStore = new Map();
-    // Initialize session history (start empty if option is set)
-    sessionStore = emptySessions ? [] : [...MOCK_SESSION_HISTORY];
+    state.userWords = [];
+    state.sessions = emptySessions ? [] : [...MOCK_SESSION_HISTORY];
+    state.emptySessions = emptySessions;
 
     // Set window flag for components or MSW handlers that check it
     if (emptySessions) {
@@ -563,23 +551,19 @@ export async function setupE2EMocks(
  */
 export async function injectMockSession(page: Page): Promise<void> {
     await page.evaluate(({ session }) => {
-        // Supabase storage key format: sb-{project-id}-auth-token
-        // The app connects to real Supabase (yxlapjuovrsvjswkwnrk) even in E2E tests,
-        // so we must use the matching storage key for Supabase to detect the session.
-        const storageKey = 'sb-yxlapjuovrsvjswkwnrk-auth-token';
-        localStorage.setItem(storageKey, JSON.stringify({
-            access_token: session.access_token,
-            refresh_token: session.refresh_token,
-            expires_at: session.expires_at,
-            expires_in: session.expires_in,
-            token_type: session.token_type,
-            user: session.user,
-        }));
+        // Derive project ref from Vite environment in browser
+        const win = window as unknown as { import: { meta: { env: Record<string, string> } } };
+        const url = win.import?.meta?.env?.VITE_SUPABASE_URL || 'https://mock.supabase.co';
 
-        // Set flag that app checks for mock session
-        (window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__ = true;
+        let projectRef = 'mock';
+        try {
+            projectRef = new URL(url).hostname.split('.')[0];
+        } catch (e) { /* fallback to mock */ }
 
-        // Use console.debug to keep it out of standard CI logs
-        console.debug('[E2E MOCK] Session injected into localStorage');
+        const storageKey = `sb-${projectRef}-auth-token`;
+        localStorage.setItem(storageKey, JSON.stringify(session));
+
+        (window as any).__E2E_MOCK_SESSION__ = true;
+        console.debug(`[E2E MOCK] Session backup injection: ${storageKey}`);
     }, { session: MOCK_SESSION });
 }

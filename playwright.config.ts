@@ -58,8 +58,8 @@ export default defineConfig({
   updateSnapshots: process.env.CI ? 'missing' : 'none',
   // ✅ CRITICAL: Web server configuration
   webServer: {
-    // ✅ Use Dev Server for E2E (No build artifacts, faster HMR, fresh code)
-    command: 'pnpm run dev --port 5173',
+    // ✅ Use Dev Server for E2E in TEST mode (loads .env.test)
+    command: 'pnpm run dev --port 5173 --mode test',
 
     port: 5173,
 

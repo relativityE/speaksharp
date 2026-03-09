@@ -132,8 +132,15 @@ const renderApp = async (initialSession: Session | null = null) => {
       // Get initial session (mock if in E2E mode)
       let sessionToUse = initialSession;
       if (IS_TEST_ENVIRONMENT) {
-        const { getInitialSession } = await import('@/lib/e2e-bridge');
-        sessionToUse = getInitialSession(initialSession);
+        // Non-blocking bridge import - use window flag for session if available
+        import('@/lib/e2e-bridge').then(m => {
+          const session = m.getInitialSession(initialSession);
+          if (session && !sessionToUse) {
+            // This is a race condition fallback, but atomic injection 
+            // via localStorage is the primary source of truth.
+            logger.info('[E2E] Bridge session resolved asynchronously');
+          }
+        }).catch(() => { });
       }
 
       root.render(
@@ -204,30 +211,24 @@ const initialize = async () => {
     const skipMSW = import.meta.env.VITE_SKIP_MSW === 'true' || import.meta.env.VITE_USE_LIVE_DB === 'true';
 
     if (skipMSW) {
-      // Playwright routes handle network mocking - skip MSW entirely
       logger.info('[E2E] VITE_SKIP_MSW=true, skipping MSW initialization');
-      logger.info('[E2E] Using Playwright route interception instead');
 
-      // Set up mock speech recognition, MockOnDeviceWhisper, and dispatchMockTranscript
-      // This is the same setup as initializeE2EEnvironment but without MSW
-      const { setupSpeechRecognitionMock } = await import('@/lib/e2e-bridge');
-      setupSpeechRecognitionMock();
-      logger.info('[E2E] Mock speech recognition and dispatchMockTranscript configured');
+      // Fire and forget bridge setup
+      import('@/lib/e2e-bridge').then(m => m.setupSpeechRecognitionMock()).catch(() => { });
 
       // Set mswReady immediately since we're not using MSW
       Object.assign(window, { mswReady: true });
       window.dispatchEvent(new CustomEvent('e2e:msw-ready'));
-      logger.info('[E2E] Dispatched e2e:msw-ready (no MSW)');
 
-      await renderApp();
-      logger.info('[E2E] App fully mounted (Playwright routes mode)');
+      renderApp();
     } else {
-      // Original MSW-based initialization
-      const { initializeE2EEnvironment } = await import('@/lib/e2e-bridge');
-      await initializeE2EEnvironment();
-      logger.info('[E2E] Environment ready, now rendering app');
-      await renderApp();
-      logger.info('[E2E] App fully mounted');
+      // Original MSW-based initialization - still fire and forget to avoid deadlocks
+      import('@/lib/e2e-bridge').then(async m => {
+        await m.initializeE2EEnvironment();
+        logger.info('[E2E] Environment ready');
+      }).catch(err => logger.error({ err }, '[E2E] Bridge setup failed'));
+
+      renderApp();
     }
   } else {
     await renderApp();

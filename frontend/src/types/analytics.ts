@@ -15,7 +15,7 @@ export interface ChartDataPoint {
 export interface OverallStats {
   totalSessions: number;
   totalPracticeTime: number;
-  avgWpm: number;
+  averageWPM: number;
   avgFillerWordsPerMin: string | number;
   avgAccuracy: string | number;
   chartData: ChartDataPoint[];

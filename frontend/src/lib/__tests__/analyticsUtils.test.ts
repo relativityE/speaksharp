@@ -33,7 +33,7 @@ describe('analyticsUtils', () => {
             const stats = calculateOverallStats(mockSessionHistory);
             expect(stats.totalSessions).toBe(2);
             expect(stats.totalPracticeTime).toBe(15);
-            expect(stats.avgWpm).toBe(100);
+            expect(stats.averageWPM).toBe(100);
             expect(stats.avgFillerWordsPerMin).toBe('1.5');
             expect(stats.avgAccuracy).toBe('92.5');
         });

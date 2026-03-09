@@ -23,9 +23,9 @@ build/
 /screenshots/
 /coverage/
 /html/
-# Legacy/Suspicious artifacts
-/blob-collection/
-/playwright-results.json/
+**/coverage/**
+**/html/**
+# test-impact-map.json (Essential for TIA - keep tracked)
 
 # --- Metrics & Results (Unified) ---
 *-metrics.json
@@ -48,9 +48,11 @@ test_output.txt
 smoke-*.txt
 *_LOG.txt
 *_FAILURE_LOG.txt
-*_FAILURE_LOG.txt
 debug*
 .vite.pid
+*.diff
+*.patch
+scratchpad*
 
 # --- OS & Editor ---
 .DS_Store

@@ -35,6 +35,7 @@
 
 import { Session } from '@supabase/supabase-js';
 import logger from '@/lib/logger';
+import { MOCK_SESSION } from '@shared/test-fixtures';
 import { TranscriptionModeOptions, Transcript } from '@/services/transcription/modes/types';
 import { TestFlags } from '@/config/TestFlags';
 import { getE2EConfig } from '../../../tests/types/e2eConfig';
@@ -119,26 +120,7 @@ export const getInitialSession = (fallbackSession: Session | null = null): Sessi
     // while still allowing standard E2E tests to use the mock user.
     if (window.__E2E_MOCK_SESSION__ && !TestFlags.USE_REAL_DATABASE) {
         logger.info('[E2E Bridge] Using mock session (test-user-123)');
-        return {
-            user: {
-                id: 'test-user-123',
-                email: 'test@example.com',
-                aud: 'authenticated',
-                role: 'authenticated',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-                app_metadata: {
-                    provider: 'email',
-                    providers: ['email'],
-                },
-                user_metadata: { subscription_status: 'free' },
-            },
-            access_token: 'mock-token',
-            refresh_token: 'mock-refresh-token',
-            expires_in: 3600,
-            expires_at: Math.floor(Date.now() / 1000) + 3600,
-            token_type: 'bearer',
-        } as Session;
+        return MOCK_SESSION as Session;
     }
 
     // Fallback: Return null to allow AuthProvider to fetch from localStorage

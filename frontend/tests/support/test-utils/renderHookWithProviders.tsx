@@ -33,7 +33,7 @@ export function renderWithProviders(ui: ReactElement, { route = '/', session = n
       <MemoryRouter initialEntries={[route]}>
         <QueryClientProvider client={queryClient}>
           <AuthProvider initialSession={session || (authMock?.session as Session)}>
-            <ProfileProvider value={{ profile: defaultProfile }}>
+            <ProfileProvider value={{ profile: defaultProfile, isVerified: true }}>
               <TranscriptionProvider>
                 {children}
               </TranscriptionProvider>
@@ -65,7 +65,7 @@ export function renderHookWithProviders<Result, Props>(
       <MemoryRouter initialEntries={[route]}>
         <QueryClientProvider client={queryClient}>
           <AuthProvider initialSession={session || (authMock?.session as Session)}>
-            <ProfileProvider value={{ profile: defaultProfile }}>
+            <ProfileProvider value={{ profile: defaultProfile, isVerified: true }}>
               <TranscriptionProvider>
                 {children}
               </TranscriptionProvider>

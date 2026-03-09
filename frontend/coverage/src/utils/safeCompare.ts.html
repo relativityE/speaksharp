@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/13</span>
+                <span class='fraction'>13/13</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">100% </span>
+                <span class="strong">83.33% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>1/1</span>
+                <span class='fraction'>5/6</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/13</span>
+                <span class='fraction'>13/13</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -109,26 +109,26 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">82x</span>
+<span class="cline-any cline-yes">82x</span>
+<span class="cline-any cline-yes">82x</span>
+<span class="cline-any cline-yes">82x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">/**
  * Performs a constant-time comparison of two strings to prevent timing attacks.
  * This is crucial for verifying secrets/tokens where the time taken to compare
@@ -142,26 +142,26 @@
  * @param b The second string (e.g., the user input)
  * @returns Promise&lt;boolean&gt; True if strings match, false otherwise
  */
-<span class="cstat-no" title="statement not covered" >export async function safeCompare(a: string, b: string): Promise&lt;boolean&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    const encoder = new TextEncoder();</span>
-<span class="cstat-no" title="statement not covered" >    const bufA = encoder.encode(a);</span>
-<span class="cstat-no" title="statement not covered" >    const bufB = encoder.encode(b);</span>
+export async function safeCompare(a: string, b: string): Promise&lt;boolean&gt; {
+    const encoder = new TextEncoder();
+    const bufA = encoder.encode(a);
+    const bufB = encoder.encode(b);
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    const maxLength = Math.max(bufA.byteLength, bufB.byteLength);</span>
+    const maxLength = Math.max(bufA.byteLength, bufB.byteLength);
 &nbsp;
     // Start with 0 if lengths match, 1 otherwise
-<span class="cstat-no" title="statement not covered" >    let result = bufA.byteLength === bufB.byteLength ? 0 : 1;</span>
+    let result = bufA.byteLength === bufB.byteLength ? 0 : 1;
 &nbsp;
     // Iterate over the maximum length. Use XOR to check for differences.
     // If indices are out of bounds, we XOR with 0 (or any constant).
-<span class="cstat-no" title="statement not covered" >    for (let i = 0; i &lt; maxLength; i++) {</span>
-<span class="cstat-no" title="statement not covered" >        const charA = bufA[i] || 0;</span>
-<span class="cstat-no" title="statement not covered" >        const charB = bufB[i] || 0;</span>
-<span class="cstat-no" title="statement not covered" >        result |= charA ^ charB;</span>
-<span class="cstat-no" title="statement not covered" >    }</span>
+    for (let i = 0; i &lt; maxLength; i++) {
+        const charA = bufA[i<span class="branch-0 cbranch-no" title="branch not covered" >] || 0;</span>
+        const charB = bufB[i] || 0;
+        result |= charA ^ charB;
+    }
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    return result === 0;</span>
-<span class="cstat-no" title="statement not covered" >}</span>
+    return result === 0;
+}
 &nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
@@ -169,7 +169,7 @@
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-08T16:56:14.351Z
+                at 2026-03-09T12:41:07.637Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

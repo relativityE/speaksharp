@@ -62,7 +62,7 @@ export const AllTheProviders = ({ children, authMock, profileMock, route = '/', 
     <MemoryRouter initialEntries={initialEntries}>
       <QueryClientProvider client={queryClient}>
         <MockAuthProvider mockValue={{ ...defaultAuthMock, ...authMock }}>
-          <ProfileProvider value={{ profile: defaultProfile }}>
+          <ProfileProvider value={{ profile: defaultProfile, isVerified: true }}>
             <TranscriptionProvider>
               <MockElements>
                 {content}

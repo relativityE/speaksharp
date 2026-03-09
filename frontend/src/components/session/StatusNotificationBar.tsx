@@ -104,8 +104,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             className={`flex items-center gap-4 w-full px-5 py-2 rounded-t-xl border-b border-white/5 ${config.bgClass} ${className} transition-all duration-300`}
             role="status"
             aria-live="polite"
-            data-testid="stt-status-bar"
+            data-testid="live-session-header"
             data-state={status.type}
+            data-recording={status.type === 'recording' || status.type === 'fallback'}
             data-engine={activeEngine || 'none'}
         >
             {/* Primary Status Indicator */}

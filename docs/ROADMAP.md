@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-07
+**Last Reviewed:** 2026-03-09
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -748,7 +748,7 @@ This phase focuses on hardening the interface between frontend and backend and e
 
 ---
 
-## 🤖 System Integrity & Agent-Loop Formalization (Mar 2026) 🟡 In Progress
+## 🤖 System Integrity & Agent-Loop Formalization (Mar 2026) ✅ COMPLETE
 
 > **Goal:** Solidify system reliability via strict test governance and formalize the infrastructure for autonomous AI agents to safely interact with the CI loop.
 
@@ -764,5 +764,5 @@ This phase focuses on hardening the interface between frontend and backend and e
 |----|-------|----------|--------|-------|
 | **B1** | **Accuracy Signal Strategy** | **HIGH** | ✅ Complete | Selected Path A: Client-Side Dynamic Comparison against static JSON config. |
 | **B2** | **Harvard Sentence Baselines** | **HIGH** | ✅ Complete | Created `harvard-sentences.ts`, generated 16kHz audio fixtures, and implemented `benchmark-*.mts` Node.js runners using `tsx`. |
-| **B3** | **STTAccuracyVsBenchmark**   | **HIGH** | 🔴 In Progress | Build Recharts component for plotting dynamic accuracy vs config ceiling. |
-| **B4** | **Hook Integration**         | **HIGH** | 🔴 Not Started | Update `useAnalytics` and DB to track active `engine` per session. |
+| **B3** | **STTAccuracyVsBenchmark**   | **HIGH** | ✅ Complete | Built Recharts component for plotting dynamic accuracy vs config ceiling. |
+| **B4** | **Hook Integration**         | **HIGH** | ✅ Complete | Updated `useAnalytics` and DB to track active `engine` per session. |

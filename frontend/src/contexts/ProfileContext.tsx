@@ -14,6 +14,7 @@ import { UserProfile } from '../types/user';
 
 interface ProfileContextType {
     profile: UserProfile;
+    isVerified: boolean;
 }
 
 const ProfileContext = createContext<ProfileContextType | undefined>(undefined);

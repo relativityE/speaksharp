@@ -97,7 +97,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         id: 'speaking_pace',
         label: 'Speaking Pace',
         icon: <Gauge size={24} className="text-muted-foreground" />,
-        getValue: (stats) => stats.avgWpm,
+        getValue: (stats) => stats.averageWPM,
         unit: 'WPM',
         description: 'Average words per minute'
     },

@@ -25,7 +25,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         return {
             totalSessions: 0,
             totalPracticeTime: 0,
-            avgWpm: 0,
+            averageWPM: 0,
             avgFillerWordsPerMin: "0.0",
             avgAccuracy: "0.0",
             chartData: []
@@ -64,7 +64,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     // totalPracticeTimeMinutes: precise for rate calculations (industry standard)
     const totalPracticeTimeMinutes = totalDurationSeconds / 60;
 
-    const avgWpm = Math.round(sumWpm / totalSessions);
+    const averageWPM = Math.round(sumWpm / totalSessions);
     // Industry standard: Filler Rate = Total Fillers / Total Speaking Time (precise minutes)
     const avgFillerWordsPerMin = totalPracticeTimeMinutes > 0
         ? (totalFillerWords / totalPracticeTimeMinutes).toFixed(1)
@@ -89,7 +89,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         };
     }).reverse();
 
-    return { totalSessions, totalPracticeTime, avgWpm, avgFillerWordsPerMin, avgAccuracy, chartData };
+    return { totalSessions, totalPracticeTime, averageWPM, avgFillerWordsPerMin, avgAccuracy, chartData };
 };
 
 export const calculateFillerWordTrends = (sessionHistory: PracticeSession[]) => {

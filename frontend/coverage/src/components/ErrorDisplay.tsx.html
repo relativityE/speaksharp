@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/16</span>
+                <span class='fraction'>16/16</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">100% </span>
+                <span class="strong">66.66% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>1/1</span>
+                <span class='fraction'>4/6</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/16</span>
+                <span class='fraction'>16/16</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -89,55 +89,55 @@
 <a name='L24'></a><a href='#L24'>24</a>
 <a name='L25'></a><a href='#L25'>25</a>
 <a name='L26'></a><a href='#L26'>26</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">13x</span>
+<span class="cline-any cline-yes">13x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">18x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">18x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">18x</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import React from 'react';
-<span class="cstat-no" title="statement not covered" >import { Alert } from '@/components/ui/alert';</span>
-<span class="cstat-no" title="statement not covered" >import { AlertCircle } from 'lucide-react';</span>
+import { Alert } from '@/components/ui/alert';
+import { AlertCircle } from 'lucide-react';
 &nbsp;
 interface ErrorDisplayProps {
   error: string | { message: string } | null | undefined;
 }
 &nbsp;
-<span class="cstat-no" title="statement not covered" >export const ErrorDisplay: React.FC&lt;ErrorDisplayProps&gt; = ({ error }) =&gt; {</span>
-<span class="cstat-no" title="statement not covered" >  if (!error) {</span>
-<span class="cstat-no" title="statement not covered" >    return null;</span>
-<span class="cstat-no" title="statement not covered" >  }</span>
+export const ErrorDisplay: React.FC&lt;ErrorDisplayProps&gt; = ({ error }) =&gt; {
+  if (!error) {
+    return null;
+  }
 &nbsp;
-<span class="cstat-no" title="statement not covered" >  const errorMessage = typeof error === 'string' ? error : error.message;</span>
+  const errorMessage = typeof error === <span class="branch-0 cbranch-no" title="branch not covered" >'string' ? error : e</span>rror.message;
 &nbsp;
-<span class="cstat-no" title="statement not covered" >  return (</span>
-<span class="cstat-no" title="statement not covered" >    &lt;Alert variant="error" size="md" className="mb-6 max-w-2xl mx-auto" data-testid="error-display"&gt;</span>
-<span class="cstat-no" title="statement not covered" >      &lt;AlertCircle className="h-5 w-5" /&gt;</span>
-<span class="cstat-no" title="statement not covered" >      &lt;div&gt;</span>
-<span class="cstat-no" title="statement not covered" >        &lt;h5 className="font-bold"&gt;An Error Occurred&lt;/h5&gt;</span>
-<span class="cstat-no" title="statement not covered" >        &lt;p className="text-sm"&gt;{errorMessage || 'An unknown error occurred.'}&lt;/p&gt;</span>
-<span class="cstat-no" title="statement not covered" >      &lt;/div&gt;</span>
-<span class="cstat-no" title="statement not covered" >    &lt;/Alert&gt;</span>
+  return (
+    &lt;Alert variant="error" size="md" className="mb-6 max-w-2xl mx-auto" data-testid="error-display"&gt;
+      &lt;AlertCircle className="h-5 w-5" /&gt;
+      &lt;div&gt;
+        &lt;h5 className="font-bold"&gt;An Error Occurred&lt;/h5&gt;
+        &lt;p className="text-sm"&gt;{<span class="branch-0 cbranch-no" title="branch not covered" >errorMessage || 'An unknown error occurred.'}&lt;</span>/p&gt;
+      &lt;/div&gt;
+    &lt;/Alert&gt;
   );
-<span class="cstat-no" title="statement not covered" >};</span>
+};
 &nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
@@ -145,7 +145,7 @@ interface ErrorDisplayProps {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-08T16:56:14.351Z
+                at 2026-03-09T12:41:07.637Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

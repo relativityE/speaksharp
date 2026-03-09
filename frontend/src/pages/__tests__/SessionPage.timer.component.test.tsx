@@ -19,7 +19,7 @@ import * as VocalAnalysisHook from '@/hooks/useVocalAnalysis';
 import * as AuthProvider from '@/contexts/AuthProvider';
 import * as UserProfileHook from '@/hooks/useUserProfile';
 import * as UsageLimitHook from '@/hooks/useUsageLimit';
-import { createTestSessionStore } from 'tests/unit/factories/storeFactory';
+import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
 import { TranscriptionProvider } from '@/providers/TranscriptionProvider';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 
@@ -43,9 +43,6 @@ vi.mock('@/providers/TranscriptionProvider', () => ({
 
 vi.mock('@/lib/logger', () => ({
     default: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
-}));
-vi.mock('@/providers/useTranscriptionContext', () => ({
-    useTranscriptionContext: vi.fn(() => ({ service: { warmUp: vi.fn() } })),
 }));
 vi.mock('@/hooks/useUserFillerWords', () => ({
     useUserFillerWords: () => ({
@@ -102,7 +99,6 @@ const mockUseUsageLimit = vi.mocked(UsageLimitHook.useUsageLimit);
 describe('useSessionLifecycle Timer Logic', () => {
     const mockStartListening = vi.fn();
     const mockStopListening = vi.fn();
-    // const mockUpdateElapsedTime = vi.fn(); // Removed unused
 
     let store: ReturnType<typeof createTestSessionStore>;
     beforeEach(() => {
@@ -129,7 +125,7 @@ describe('useSessionLifecycle Timer Logic', () => {
             chunks: [],
             mode: 'native',
         };
-        mockUseSpeechRecognition.mockReturnValue(defaultSpeechMock as any);
+        mockUseSpeechRecognition.mockReturnValue(defaultSpeechMock as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
         (mockUseSessionStore as unknown as Mock).mockImplementation((selector: unknown) => ((store as unknown as { getState: () => unknown }).getState() as (s: unknown) => unknown)(selector));
 
@@ -181,7 +177,7 @@ describe('useSessionLifecycle Timer Logic', () => {
             sttStatus: { type: 'ready', message: 'Ready' },
             chunks: [],
             mode: 'native',
-        } as any);
+        } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
         (useTranscriptionContext as Mock).mockReturnValue({
             service: {
@@ -206,7 +202,6 @@ describe('useSessionLifecycle Timer Logic', () => {
         });
 
         // Verify state update (tick logic)
-        // Note: We check if tick was called, or if elapsed time updated
         expect((store as unknown as { getState: () => { tick: Mock } }).getState().tick).toHaveBeenCalled();
     });
 
@@ -226,7 +221,7 @@ describe('useSessionLifecycle Timer Logic', () => {
             sttStatus: { type: 'ready', message: 'Ready' },
             chunks: [],
             mode: 'native',
-        } as any);
+        } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
         (useTranscriptionContext as Mock).mockReturnValue({
             service: {
@@ -242,15 +237,6 @@ describe('useSessionLifecycle Timer Logic', () => {
             )
         });
 
-        // Check if updateElapsedTime was called with 0 (which happens in useSessionStore init or similar?)
-        // Wait, useSessionLifecycle doesn't call updateElapsedTime(0) on mount anymore?
-        // Let's check the code.
-        // It doesn't seem to.
-        // If this test is obsolete, we should remove it or update it.
-        // Assuming it's testing cleanup or init logic.
-        // For now, let's just make it pass if logic exists, or remove if not.
-        // Inspecting useSessionLifecycle: No usage of updateElapsedTime(0).
-        // It relies on store default.
         expect(true).toBe(true);
     });
 });

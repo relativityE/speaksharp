@@ -1,12 +1,14 @@
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { renderWithAllProviders as render } from '../../../tests/support/test-utils/render';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SessionPage } from '../SessionPage';
+import { TEST_IDS } from '@/constants/testIds';
 import * as UsageLimitHook from '@/hooks/useUsageLimit';
 import * as SessionStore from '@/stores/useSessionStore';
 import * as VocalAnalysisHook from '@/hooks/useVocalAnalysis';
 import * as AuthProvider from '@/contexts/AuthProvider';
-import { createTestSessionStore } from 'tests/unit/factories/storeFactory';
+import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
 
 // ARCHITECTURE: Mock useSessionLifecycle to strictly unit test the View
 vi.mock('@/hooks/useSessionLifecycle');
@@ -24,7 +26,7 @@ vi.mock('@/lib/logger', () => ({
     default: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
 }));
 vi.mock('@/providers/useTranscriptionContext', () => ({
-    useTranscriptionContext: vi.fn(() => ({ service: { warmUp: vi.fn() } })),
+    useTranscriptionContext: vi.fn(() => ({ service: { warmUp: vi.fn(), destroy: vi.fn(), getState: vi.fn().mockReturnValue('IDLE') } })),
 }));
 vi.mock('@/hooks/useUserFillerWords', () => ({
     useUserFillerWords: () => ({
@@ -50,48 +52,45 @@ vi.mock('posthog-js', () => ({ default: { capture: vi.fn() } }));
 vi.mock('@/components/session/PauseMetricsDisplay', () => ({ PauseMetricsDisplay: () => <div>Pause Metrics</div> }));
 vi.mock('@/components/session/UserFillerWordsManager', () => ({ UserFillerWordsManager: () => <div>User Filler Words</div> }));
 
-// Helper removed - using custom render from test-utils
-
-
 const mockUseUsageLimit = vi.mocked(UsageLimitHook.useUsageLimit);
-// Unused mocks removed
 const mockUseSessionStore = vi.mocked(SessionStore.useSessionStore);
 const mockUseVocalAnalysis = vi.mocked(VocalAnalysisHook.useVocalAnalysis);
 const mockUseAuthProvider = vi.mocked(AuthProvider.useAuthProvider);
+
+// Stable base mock to avoid destructuring undefined
+const DEFAULT_LIFECYCLE_MOCK = {
+    isListening: false,
+    isReady: true,
+    isProUser: false,
+    mode: 'native',
+    sttStatus: { type: 'ready', message: '' },
+    modelLoadingProgress: null,
+    metrics: {
+        formattedTime: '00:00',
+        wpm: 0,
+        clarityScore: 100,
+        clarityLabel: 'Excellent',
+        wpmLabel: 'Optimal',
+        fillerCount: 0
+    },
+    pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },
+    transcriptContent: '',
+    fillerData: {},
+    setMode: vi.fn(),
+    handleStartStop: vi.fn(),
+    isButtonDisabled: false,
+    showPromoExpiredDialog: false,
+    showAnalyticsPrompt: false,
+    sessionFeedbackMessage: null,
+    sunsetModal: { type: 'daily', open: false }
+};
 
 describe('SessionPage - STT Mode Selection UI', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
 
-        // Default Lifecycle Mock
-        const defaultLifecycleMock = {
-            isListening: false,
-            isReady: true,
-            isProUser: false, // Default to false
-            mode: 'native',
-            sttStatus: { type: 'ready', message: '' },
-            modelLoadingProgress: null,
-            metrics: {
-                formattedTime: '00:00',
-                wpm: 0,
-                clarityScore: 100,
-                clarityLabel: 'Excellent',
-                wpmLabel: 'Optimal',
-                fillerCount: 0
-            },
-            pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },
-            transcriptContent: '',
-            fillerData: {},
-            setMode: vi.fn(),
-            handleStartStop: vi.fn(),
-            isButtonDisabled: false,
-            showPromoExpiredDialog: false,
-            showAnalyticsPrompt: false,
-            sessionFeedbackMessage: null,
-            sunsetModal: { type: 'daily', open: false }
-        };
-        mockUseSessionLifecycle.mockReturnValue(defaultLifecycleMock as any);
+        mockUseSessionLifecycle.mockReturnValue(DEFAULT_LIFECYCLE_MOCK as unknown as ReturnType<typeof useSessionLifecycle>);
 
         (mockUseSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
             elapsedTime: 0,
@@ -114,92 +113,61 @@ describe('SessionPage - STT Mode Selection UI', () => {
     it('should disable Pro options (Private, Cloud) for Free users', async () => {
         const user = userEvent.setup({ pointerEventsCheck: 0 });
 
-        // Mock Free User via Lifecycle Hook
         mockUseSessionLifecycle.mockReturnValue({
-            isListening: false,
-            isReady: true,
-            isProUser: false, // Free user
-            mode: 'native',
-            sttStatus: { type: 'ready', message: '' },
-            modelLoadingProgress: null,
-            metrics: {
-                formattedTime: '00:00',
-                wpm: 0,
-                clarityScore: 100,
-                clarityLabel: 'Excellent',
-                wpmLabel: 'Optimal',
-                fillerCount: 0
-            },
-            pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },
-            transcriptContent: '',
-            fillerData: {},
-            setMode: vi.fn(),
-            handleStartStop: vi.fn(),
-            isButtonDisabled: false,
-            showPromoExpiredDialog: false,
-            showAnalyticsPrompt: false,
-            sessionFeedbackMessage: null,
-            sunsetModal: { type: 'daily', open: false }
-        } as any);
+            ...DEFAULT_LIFECYCLE_MOCK,
+            isProUser: false
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
 
         render(<SessionPage />);
 
-        // Open dropdown using userEvent
-        const trigger = screen.getByText('Native Browser'); // Initial label
+        const trigger = screen.getByText(/Native/i);
         await user.click(trigger);
 
-        // Radix UI renders content in a specific way, userEvent should handle it.
-        // Wait for items to appear - Free users see "Private" and "Cloud"
-        const onDeviceItem = await screen.findByText('Private');
-        const cloudItem = await screen.findByText('Cloud');
+        const onDeviceItem = await screen.findByText(/Private/i);
+        const cloudItem = await screen.findByText(/Cloud/i);
 
         expect(onDeviceItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
         expect(cloudItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
-        expect(true).toBe(true); // Explicit assertion for linter
     });
 
     it('should enable options for Pro users', async () => {
         const user = userEvent.setup({ pointerEventsCheck: 0 });
 
-        // Mock Pro User via Lifecycle Hook
         mockUseSessionLifecycle.mockReturnValue({
-            isListening: false,
-            isReady: true,
-            isProUser: true, // Pro user
-            mode: 'native',
-            sttStatus: { type: 'ready', message: '' },
-            modelLoadingProgress: null,
-            metrics: {
-                formattedTime: '00:00',
-                wpm: 0,
-                clarityScore: 100,
-                clarityLabel: 'Excellent',
-                wpmLabel: 'Optimal',
-                fillerCount: 0
-            },
-            pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },
-            transcriptContent: '',
-            fillerData: {},
-            setMode: vi.fn(),
-            handleStartStop: vi.fn(),
-            isButtonDisabled: false,
-            showPromoExpiredDialog: false,
-            showAnalyticsPrompt: false,
-            sessionFeedbackMessage: null,
-            sunsetModal: { type: 'daily', open: false }
-        } as any);
+            ...DEFAULT_LIFECYCLE_MOCK,
+            isProUser: true
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
 
         render(<SessionPage />);
 
-        const trigger = screen.getByText('Native Browser');
+        const trigger = screen.getByText(/Native/i);
         await user.click(trigger);
 
-        // Note: For Pro users, the "(Pro)" suffix is not shown
-        const onDeviceItem = await screen.findByText('Private');
-        const cloudItem = await screen.findByText('Cloud');
+        const onDeviceItem = await screen.findByText(/Private/i);
+        const cloudItem = await screen.findByText(/Cloud/i);
 
         expect(onDeviceItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
         expect(cloudItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
-        expect(true).toBe(true); // Explicit assertion for linter
+    });
+
+    it('should correctly trigger mode change', async () => {
+        const user = userEvent.setup({ pointerEventsCheck: 0 });
+        const setModeSpy = vi.fn();
+
+        mockUseSessionLifecycle.mockReturnValue({
+            ...DEFAULT_LIFECYCLE_MOCK,
+            isProUser: true,
+            setMode: setModeSpy
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+
+        render(<SessionPage />);
+
+        const trigger = await screen.findByTestId(TEST_IDS.STT_MODE_SELECT);
+        await user.click(trigger);
+
+        const privateItem = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
+        await user.click(privateItem);
+
+        expect(setModeSpy).toHaveBeenCalledWith('private');
     });
 });

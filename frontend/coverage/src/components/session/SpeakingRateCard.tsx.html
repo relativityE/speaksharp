@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/23</span>
+                <span class='fraction'>23/23</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">100% </span>
+                <span class="strong">50% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>1/1</span>
+                <span class='fraction'>1/2</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/23</span>
+                <span class='fraction'>23/23</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -102,7 +102,7 @@
 <a name='L37'></a><a href='#L37'>37</a>
 <a name='L38'></a><a href='#L38'>38</a>
 <a name='L39'></a><a href='#L39'>39</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -114,33 +114,33 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import React from 'react';
-<span class="cstat-no" title="statement not covered" >import { Badge } from '@/components/ui/badge';</span>
+import { Badge } from '@/components/ui/badge';
 &nbsp;
 interface SpeakingRateCardProps {
     wpm: number;
@@ -152,31 +152,31 @@ interface SpeakingRateCardProps {
  * Presentational component displaying the speaking rate (WPM) metric.
  * Extracted from SessionPage for better reusability and testability.
  */
-<span class="cstat-no" title="statement not covered" >export const SpeakingRateCard: React.FC&lt;SpeakingRateCardProps&gt; = ({</span>
-<span class="cstat-no" title="statement not covered" >    wpm,</span>
-<span class="cstat-no" title="statement not covered" >    wpmLabel,</span>
-<span class="cstat-no" title="statement not covered" >    className = "",</span>
-<span class="cstat-no" title="statement not covered" >}) =&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return (</span>
-<span class="cstat-no" title="statement not covered" >        &lt;div className={`bg-card border border-border rounded-xl p-4 shadow-sm ${className}`}&gt;</span>
-<span class="cstat-no" title="statement not covered" >            &lt;h3 className="text-base font-semibold text-foreground mb-2"&gt;Speaking Pace&lt;/h3&gt;</span>
-<span class="cstat-no" title="statement not covered" >            &lt;div className="bg-muted/30 rounded-lg p-4 text-center"&gt;</span>
-<span class="cstat-no" title="statement not covered" >                &lt;div</span>
-<span class="cstat-no" title="statement not covered" >                    data-testid="wpm-value"</span>
-<span class="cstat-no" title="statement not covered" >                    className="text-3xl font-bold text-foreground mb-0.5"</span>
+export const SpeakingRateCard: React.FC&lt;SpeakingRateCardProps&gt; = ({
+    wpm,
+    wpmLabel,
+    className = "",
+}) =&gt; {
+    return (
+        &lt;div className={`bg-card border border-border rounded-xl p-4 shadow-sm ${className}`}&gt;
+            &lt;h3 className="text-base font-semibold text-foreground mb-2"&gt;Speaking Pace&lt;/h3&gt;
+            &lt;div className="bg-muted/30 rounded-lg p-4 text-center"&gt;
+                &lt;div
+                    data-testid="wpm-value"
+                    className="text-3xl font-bold text-foreground mb-0.5"
                 &gt;
-<span class="cstat-no" title="statement not covered" >                    {wpm}</span>
-<span class="cstat-no" title="statement not covered" >                &lt;/div&gt;</span>
-<span class="cstat-no" title="statement not covered" >                &lt;p className="text-xs text-muted-foreground mb-3 uppercase tracking-wider"&gt;Words Per Minute&lt;/p&gt;</span>
-<span class="cstat-no" title="statement not covered" >                &lt;Badge variant="secondary" className="bg-secondary/10 text-secondary hover:bg-secondary/20 border-none"&gt;</span>
-<span class="cstat-no" title="statement not covered" >                    {wpmLabel || 'Optimal'}</span>
-<span class="cstat-no" title="statement not covered" >                &lt;/Badge&gt;</span>
-<span class="cstat-no" title="statement not covered" >            &lt;/div&gt;</span>
-<span class="cstat-no" title="statement not covered" >        &lt;/div&gt;</span>
+                    {wpm}
+                &lt;/div&gt;
+                &lt;p className="text-xs text-muted-foreground mb-3 uppercase tracking-wider"&gt;Words Per Minute&lt;/p&gt;
+                &lt;Badge variant="secondary" className="bg-secondary/10 text-secondary hover:bg-secondary/20 border-none"&gt;
+                    {<span class="branch-0 cbranch-no" title="branch not covered" >wpmLabel || 'Optimal'}</span>
+                &lt;/Badge&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
     );
-<span class="cstat-no" title="statement not covered" >};</span>
+};
 &nbsp;
-<span class="cstat-no" title="statement not covered" >export default SpeakingRateCard;</span>
+export default SpeakingRateCard;
 &nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
@@ -184,7 +184,7 @@ interface SpeakingRateCardProps {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-08T16:56:14.351Z
+                at 2026-03-09T12:41:07.637Z
             </div>
         <script src="../../../prettify.js"></script>
         <script>

@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 7.0** | **Last Updated: 2026-02-21**
+**Version 7.1** | **Last Updated: 2026-03-09**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -460,11 +460,11 @@ We have transitioned from **Structural Verification** (internal method spies) to
 
 | Dimension | Prior (Structural) | Current (Behavioral) | Grade |
 | :--- | :--- | :--- | :--- |
-| **Reliability** | "Green" tests failed in prod due to mock drift. | Verified against real speech and "Golden Transcripts". | **A+** |
-| **Maintenance** | Brittle; broke on copy or CSS changes. | Stable; uses `data-state` behavioral contracts. | **A** |
-| **Hardware Safety** | Assumed; race conditions were common. | Hardened; FSM stress testing for concurrent safety. | **A+** |
-| **UX Coverage** | Fragmented download/cache logic. | Comprehensive E2E for Whisper Lifecycle. | **A** |
-| **Audit Compliance**| Bloated 30s timeouts masked sloth. | Lean 12s CI thresholds with event-based waits. | **A** |
+| **Reliability** | "Green" tests failed in prod due to mock drift. | **Zero-Debt Baseline**: Verified against 100% real speech pass rate. | **A++** |
+| **Maintenance** | Brittle; broke on copy or CSS changes. | Stable; uses `[data-state]` behavioral contracts (Pattern 10). | **A+** |
+| **Hardware Safety** | Assumed; race conditions were common. | Hardened; FSM stress testing + `AbortController` guards. | **A+** |
+| **UX Coverage** | Fragmented download/cache logic. | Comprehensive E2E for Whisper Lifecycle & Hybrid Fallback. | **A+** |
+| **Audit Compliance**| Bloated 30s timeouts masked sloth. | Standardized `scripts/test-audit.sh` with 12s thresholds. | **A++** |
 
 **Main Tenets:**
 1.  **Requirement-First Verification**: Every test must relate to a user-facing feature.

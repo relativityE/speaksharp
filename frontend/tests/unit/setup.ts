@@ -58,12 +58,14 @@ vi.mock('@/services/transcription/modes/PrivateWhisper', () => ({
 }));
 
 // Mock useProfile (Safe infrastructure mock)
-// Mock useProfile (Safe infrastructure mock)
 vi.mock('@/hooks/useProfile', () => ({
     useProfile: vi.fn().mockReturnValue({
-        id: 'mock-user-id',
-        subscription_status: 'pro',
-        email: 'test@example.com'
+        profile: {
+            id: 'mock-user-id',
+            subscription_status: 'pro',
+            email: 'test@example.com'
+        },
+        isVerified: true
     })
 }));
 

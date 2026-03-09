@@ -21,7 +21,7 @@ import type { Chunk } from './useSpeechRecognition/types';
 
 export const useSessionLifecycle = () => {
     const { session } = useAuthProvider();
-    const profile = useProfile();
+    const { profile, isVerified } = useProfile();
     const queryClient = useQueryClient();
     const tick = useSessionStore(state => state.tick);
     const elapsedTime = useSessionStore(state => state.elapsedTime);
@@ -242,7 +242,8 @@ export const useSessionLifecycle = () => {
     // Tier enforcement: Auto-stop and 5-minute Warning
     useEffect(() => {
         // ✅ GUARANTEE: Never enforce limits for Pro users or if unlimited flag (-1) is present.
-        if (isProUser || (usageLimit && usageLimit.remaining_seconds === -1)) return;
+        // ✅ HYDRATION GUARD: Don't enforce until profile isVerified
+        if (!isVerified || isProUser || (usageLimit && usageLimit.remaining_seconds === -1)) return;
 
         if (isListening && usageLimit && typeof usageLimit.remaining_seconds === 'number' && usageLimit.remaining_seconds > 0) {
             const remaining = usageLimit.remaining_seconds - elapsedTime;
@@ -272,7 +273,7 @@ export const useSessionLifecycle = () => {
                 });
             }
         }
-    }, [elapsedTime, isListening, usageLimit, sessionFeedbackMessage, isProUser]); // Added isProUser
+    }, [elapsedTime, isListening, usageLimit, sessionFeedbackMessage, isProUser, isVerified]);
 
     // VAD Auto-Pause Logic: 5 minutes of silence detected via transcript inactivity
     const lastTranscriptRef = useRef(transcript.transcript);

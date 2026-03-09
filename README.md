@@ -1,8 +1,8 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-01
+**Last Reviewed:** 2026-03-09
 
 # SpeakSharp
-**v3.5.5-dev** | **Last Updated: 2026-03-07**
+**v3.5.6-dev** | **Last Updated: 2026-03-09**
 
 SpeakSharp is an AI-powered speech coaching application that helps users improve their public speaking skills. It provides real-time feedback on filler words, speaking pace, and more.
 
@@ -220,9 +220,12 @@ If you find yourself in a state where `node_modules` is missing and `pnpm instal
  
 ---
  
-## How to Test (Full Audit Suite)
+## How to Test (Zero-Debt Audit Suite)
 
 This project uses a unified testing strategy centered around a single, robust script (`scripts/test-audit.sh`) that is accessed via simple `pnpm` commands. This ensures that local validation and the CI pipeline are perfectly aligned.
+
+### Behavioral Integrity Mandate
+We have pivoted to **Black-Box Behavioral Testing**. We test user-facing requirements (Accuracy, Privacy, Speed) rather than internal implementation details. Tests target stable `[data-state]` and `[data-action]` attributes, ensuring resilience against CSS/HTML restructuring.
 
 All test scripts follow a strict **Level : Env : Mode** taxonomy: `test:<level>:<env>[:<mode>]`
 

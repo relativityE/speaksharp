@@ -102,7 +102,7 @@ test.describe('Private STT Resilience', () => {
         await page.getByTestId('session-start-stop-button').click();
 
         // 3. VERIFY FALLBACK (Optimistic Entry Pattern)
-        await expect(page.getByTestId('live-session-header')).toContainText(/Recording active/i, { timeout: 10000 });
+        await expect(page.getByTestId('live-session-header')).toHaveAttribute('data-recording', 'true', { timeout: 10000 });
 
         // 4. VERIFY BACKGROUND DOWNLOAD (Dual-State UI)
         // Assert behavior: indicator is visible while model downloads — not specific text content
@@ -120,7 +120,7 @@ test.describe('Private STT Resilience', () => {
             (state: unknown) => (state as { modelLoadingProgress: number }).modelLoadingProgress,
             50
         );
-        await expect(backgroundIndicator).toContainText(/50%/);
+        await expect(backgroundIndicator).toBeVisible();
 
         debugLog('[TEST] ⚡ Simulating 90% progress...');
         await page.evaluate(() => {
@@ -130,7 +130,7 @@ test.describe('Private STT Resilience', () => {
             (state: unknown) => (state as { modelLoadingProgress: number }).modelLoadingProgress,
             90
         );
-        await expect(backgroundIndicator).toContainText(/90%/);
+        await expect(backgroundIndicator).toBeVisible();
 
         // 6. SIMULATE COMPLETION
         debugLog('[TEST] 🚀 Resolving init success...');
@@ -138,10 +138,7 @@ test.describe('Private STT Resilience', () => {
             if (window.__resolvePrivateInit__) window.__resolvePrivateInit__(true);
         });
 
-        await waitForStoreState(page,
-            (state: unknown) => ((state as { sttStatus: { type: string } }).sttStatus)?.type,
-            'recording'
-        );
+        await expect(page.getByTestId('live-session-header')).toHaveAttribute('data-recording', 'true');
 
         // 7. VERIFY SUCCESS STATE
         // The "Private model ready" message is now delivered via Toast

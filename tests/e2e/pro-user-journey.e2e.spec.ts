@@ -159,12 +159,11 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
 
     test('should display all analytics metrics', async ({ page }) => {
         // Ensure fresh state and synchronize MSW
-        await page.reload();
-        await page.waitForLoadState('networkidle');
-
+        // Ensure app/auth is stable after reload
+        await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
         await navigateToRoute(page, '/analytics');
-        await page.waitForLoadState('networkidle');
-
+        // Double-Signal pattern for route transition
+        await expect(page).toHaveURL(/\/analytics/, { timeout: 10000 });
         await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
         debugLog('[PRO] ✅ Analytics dashboard loaded');
 
@@ -184,11 +183,10 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
 
     test('should allow PDF export', async ({ page }) => {
         // Ensure fresh state and synchronize MSW
-        await page.reload();
-        await page.waitForLoadState('networkidle');
-
+        // Ensure app/auth is stable after reload
+        await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
         await navigateToRoute(page, '/analytics');
-        await page.waitForLoadState('networkidle');
+        await expect(page).toHaveURL(/\/analytics/, { timeout: 10000 });
         await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
 
         // Look for PDF export button
@@ -216,12 +214,11 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
         debugLog('[PRO] ✅ Session completed');
 
         // Analytics
-        // Ensure fresh state and synchronize MSW
-        await page.reload();
-        await page.waitForLoadState('networkidle');
+        // Ensure app/auth is stable after reload
+        await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
 
         await navigateToRoute(page, '/analytics');
-        await page.waitForLoadState('networkidle');
+        await expect(page).toHaveURL(/\/analytics/, { timeout: 10000 });
         await expect(page.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
         await expect(page.getByText('Export Reports')).toBeVisible();
         debugLog('[PRO] ✅ Analytics verified');

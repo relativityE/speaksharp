@@ -37,10 +37,39 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children, initialSession = null }: AuthProviderProps) {
-  const [sessionState, setSessionState] = useState<Session | null | undefined>(undefined);
-  const [loading, setLoading] = useState(true);
-
   const supabase = getSupabaseClient();
+
+  // 🧪 E2E/Expert Prescription: Initialize synchronously from localStorage 
+  // to avoid the async 'getSession' flash/hang.
+  const getInjectedSession = () => {
+    if (initialSession) return initialSession;
+    if (typeof window === 'undefined') return null;
+
+    try {
+      const url = import.meta.env.VITE_SUPABASE_URL;
+      if (!url) return null;
+      const projectRef = new URL(url).hostname.split('.')[0];
+      const storageKey = `sb-${projectRef}-auth-token`;
+
+      const keys = Object.keys(window.localStorage);
+      console.log('[DEBUG-AUTH] Expected Key:', storageKey);
+      console.log('[DEBUG-AUTH] VITE_SUPABASE_URL:', url);
+      console.log('[DEBUG-AUTH] All LocalStorage Keys:', keys);
+
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        // Supabase session shape check
+        if (parsed?.access_token && parsed?.user) return parsed;
+      }
+    } catch (err) {
+      logger.error({ err }, '[AuthProvider] Error reading sync session');
+    }
+    return null;
+  };
+
+  const [sessionState, setSessionState] = useState<Session | null | undefined>(getInjectedSession);
+  const [loading, setLoading] = useState(!getInjectedSession());
 
   useEffect(() => {
     // DEV BYPASS: Add ?devBypass=true to URL to skip auth for UI testing
@@ -74,50 +103,50 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       return;
     }
 
-    // Initialize session
-    const initStartTime = Date.now();
-    if (initialSession) {
-      logger.info({ userId: initialSession.user.id }, '[AuthProvider] Using injected initialSession');
-      setSessionState(initialSession);
-      setLoading(false);
-    } else {
-      supabase.auth.getSession().then(({ data: { session }, error }) => {
+    // Initialize session with explicit hardening
+    const initAuth = async () => {
+      const initStartTime = Date.now();
+      try {
+        if (sessionState) {
+          setLoading(false);
+          return;
+        }
+
+        const { data: { session }, error } = await supabase.auth.getSession();
         const duration = Date.now() - initStartTime;
+
         if (error) {
-          logger.error({
-            error: error.message,
-            code: error.status,
-            durationMs: duration
-          }, '[AuthProvider] getSession failed');
-          setSessionState(null);
-        } else {
-          logger.info({
-            hasSession: !!session,
-            userId: session?.user?.id,
-            expiresAt: session?.expires_at,
-            durationMs: duration
-          }, '[AuthProvider] getSession complete');
+          logger.error({ error: error.message, durationMs: duration }, '[AuthProvider] getSession fallback failed');
+        } else if (session) {
+          logger.info({ userId: session.user.id, durationMs: duration }, '[AuthProvider] getSession fallback resolved');
           setSessionState(session);
         }
+      } catch (err) {
+        logger.error({ err }, '[AuthProvider] CRITICAL: Fatal error in getSession fallback');
+        console.error("[AUTH FATAL] Could not resolve session:", err);
+      } finally {
+        // ALWAYS release the render gate
         setLoading(false);
-      }).catch(err => {
-        logger.error({ err }, '[AuthProvider] Fatal error in getSession');
-        setSessionState(null);
-        setLoading(false);
-      });
-    }
+      }
+    };
+
+    initAuth();
 
     // Safety timeout for loading state to prevent infinite spinner
+    // Expert 2: 3s is a safe hedge for CI stability
+    const AUTH_TIMEOUT = (import.meta.env.VITE_AUTH_TIMEOUT ? parseInt(import.meta.env.VITE_AUTH_TIMEOUT) : (import.meta.env.MODE === 'test' ? 8000 : 3000));
+
     const timeoutId = setTimeout(() => {
       setLoading(currentLoading => {
         if (currentLoading) {
-          logger.warn('[AuthProvider] Safety timeout reached, forcing loading false');
+          logger.warn(`[AuthProvider] Safety timeout reached (${AUTH_TIMEOUT}ms), forcing boot`);
+          console.warn(`[AUTH] Safety timeout - triggering forced boot for E2E stability (${AUTH_TIMEOUT}ms)`);
           setSessionState(prev => prev === undefined ? null : prev);
           return false;
         }
         return currentLoading;
       });
-    }, 5000);
+    }, AUTH_TIMEOUT);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, newSession) => {

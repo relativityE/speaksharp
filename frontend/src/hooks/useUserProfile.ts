@@ -129,5 +129,8 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
     };
   }
 
-  return query;
+  return {
+    ...query,
+    isVerified: !!query.data && !query.isLoading
+  };
 };

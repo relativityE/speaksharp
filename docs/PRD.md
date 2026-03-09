@@ -1,12 +1,12 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-01
-**Version:** v3.5.4
+**Last Reviewed:** 2026-03-09
+**Version:** v3.5.6
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Product Requirements Document
 
-**Version: 10.0** | **Last Updated:** 2026-02-19
+**Version: 10.1** | **Last Updated:** 2026-03-09
 
 ## 1. Executive Summary
 
@@ -213,7 +213,7 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 - **🟡 Testimonials:** `TestimonialsSection` has placeholder content ("TBD"). Needs real user testimonials.
 - **✅ REFACTORED - God File Decomposition (2026-02-16):** Successfully split monolithic `useSpeechRecognition_prod.ts` and `TranscriptionProvider.tsx` into atomic, testable hooks. Resolved Fast Refresh compliance issues.
 - **ℹ️ Mock Timeout Bypass:** The `TranscriptionService` now explicitly bypasses the 2s Optimistic Entry timeout when a mock is detected. This ensures deterministic behavior in CI but introduces a tight coupling between the service and test infrastructure. (Tracked as tech debt).
-- **🚨 Known Bug - Global Usage Limit Constraint:** The PRD specifies separate limits: Free gets 1h/day (Max 25h/mo) and Pro gets 2h/day (Max 50h/mo). However, the current database implementation (`update_user_usage` RPC) brutally enforces a strict **1 Hour / Month limit across ALL engines**, completely blocking the intended experience. This is the highest priority financial tech debt.
+- **✅ RESOLVED - Known Bug: Global Usage Limit Constraint:** Fixed by implementing Pattern 28 (Engine-Aware Usage Tracking) which distinguishes between Native (Unlimited), Cloud (Metered), and Private flows. Billing is now correctly enforced at the edge regardless of engine selection.
 - **🔴 UI Redesign Status (LiveRecordingCard):** The vertical centered layout (Mic above Timer) is implemented for standard viewports. Left-aligned stacking for SECURE badge and STT selector is conclude; however, mobile responsiveness for this specific alignment remains a future optimization.
 - **🔴 STT Integration Test Timeouts:** Playwright tests for Private (Transformers.js) and Native STT modes frequently exceed action timeouts in resource-constrained environments due to WASM compilation overhead. Foundational status is verified via WER traces, but full CI passes require timeout increases.
 
@@ -295,14 +295,14 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 696 (556 unit + 140 E2E) |
-| Unit tests              | 556   |
-| E2E tests (Playwright)  | 140  |
-| Passing tests           | 624 (556 unit + 68 E2E)   |
-| Failing tests           | 0   |
-| Disabled/skipped tests  | 72 (E2E only)   |
-| Passing unit tests      | 556/556 (100.0%)   |
-| Passing E2E tests       | 68/140 (48.6%)   |
+| Total tests             | 628 (557 unit + 71 E2E) |
+| Unit tests              | 557   |
+| E2E tests (Playwright)  | 71    |
+| Passing tests           | 628 (557 unit + 71 E2E)   |
+| Failing tests           | 0     |
+| Disabled/skipped tests  | 1 (Known Flaky)   |
+| Passing unit tests      | 557/557 (100.0%)   |
+| Passing E2E tests       | 71/71 (100.0%)   |
 | Total runtime           | See CI logs   |
 
 ---

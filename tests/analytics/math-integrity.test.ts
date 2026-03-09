@@ -44,7 +44,7 @@ describe('Analytics Math Integrity', () => {
             } as Partial<PracticeSession>;
 
             const stats = calculateOverallStats([session as PracticeSession]);
-            expect(stats.avgWpm).toBe(150);
+            expect(stats.averageWPM).toBe(150);
         });
 
         it('should accurately calculate WPM for fractional minutes', () => {
@@ -56,7 +56,7 @@ describe('Analytics Math Integrity', () => {
             } as Partial<PracticeSession>;
 
             const stats = calculateOverallStats([session as PracticeSession]);
-            expect(stats.avgWpm).toBe(200);
+            expect(stats.averageWPM).toBe(200);
         });
     });
 

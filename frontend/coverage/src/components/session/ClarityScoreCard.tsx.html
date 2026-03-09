@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/26</span>
+                <span class='fraction'>26/26</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">100% </span>
+                <span class="strong">50% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>1/1</span>
+                <span class='fraction'>1/2</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/26</span>
+                <span class='fraction'>26/26</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -115,34 +115,34 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import React from 'react';
 &nbsp;
 interface ClarityScoreCardProps {
@@ -155,34 +155,34 @@ interface ClarityScoreCardProps {
  * Presentational component displaying the clarity score metric.
  * Extracted from SessionPage for better reusability and testability.
  */
-<span class="cstat-no" title="statement not covered" >export const ClarityScoreCard: React.FC&lt;ClarityScoreCardProps&gt; = ({</span>
-<span class="cstat-no" title="statement not covered" >    clarityScore,</span>
-<span class="cstat-no" title="statement not covered" >    clarityLabel,</span>
-<span class="cstat-no" title="statement not covered" >    className = "",</span>
-<span class="cstat-no" title="statement not covered" >}) =&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return (</span>
-<span class="cstat-no" title="statement not covered" >        &lt;div className={`bg-card border border-border rounded-xl p-4 shadow-sm ${className}`}&gt;</span>
-<span class="cstat-no" title="statement not covered" >            &lt;h3 className="text-base font-semibold text-foreground mb-2"&gt;Live Stats&lt;/h3&gt;</span>
-<span class="cstat-no" title="statement not covered" >            &lt;div className="bg-muted/30 rounded-lg p-3"&gt;</span>
-<span class="cstat-no" title="statement not covered" >                &lt;div className="flex items-center justify-between mb-1"&gt;</span>
-<span class="cstat-no" title="statement not covered" >                    &lt;span className="text-muted-foreground text-sm"&gt;Clarity Score&lt;/span&gt;</span>
-<span class="cstat-no" title="statement not covered" >                    &lt;span className="text-primary font-bold" data-testid="clarity-score-value"&gt;{Math.round(clarityScore)}%&lt;/span&gt;</span>
-<span class="cstat-no" title="statement not covered" >                &lt;/div&gt;</span>
-<span class="cstat-no" title="statement not covered" >                &lt;div className="h-2 bg-muted rounded-full overflow-hidden mb-2"&gt;</span>
-<span class="cstat-no" title="statement not covered" >                    &lt;div</span>
-<span class="cstat-no" title="statement not covered" >                        className="h-full bg-primary rounded-full transition-all duration-300"</span>
-<span class="cstat-no" title="statement not covered" >                        style={{ width: `${clarityScore}%` }}</span>
-<span class="cstat-no" title="statement not covered" >                    /&gt;</span>
-<span class="cstat-no" title="statement not covered" >                &lt;/div&gt;</span>
-<span class="cstat-no" title="statement not covered" >                &lt;p className="text-xs text-muted-foreground text-right"&gt;</span>
-<span class="cstat-no" title="statement not covered" >                    {clarityLabel || 'Keep speaking clearly'}</span>
-<span class="cstat-no" title="statement not covered" >                &lt;/p&gt;</span>
-<span class="cstat-no" title="statement not covered" >            &lt;/div&gt;</span>
-<span class="cstat-no" title="statement not covered" >        &lt;/div&gt;</span>
+export const ClarityScoreCard: React.FC&lt;ClarityScoreCardProps&gt; = ({
+    clarityScore,
+    clarityLabel,
+    className = "",
+}) =&gt; {
+    return (
+        &lt;div className={`bg-card border border-border rounded-xl p-4 shadow-sm ${className}`}&gt;
+            &lt;h3 className="text-base font-semibold text-foreground mb-2"&gt;Live Stats&lt;/h3&gt;
+            &lt;div className="bg-muted/30 rounded-lg p-3"&gt;
+                &lt;div className="flex items-center justify-between mb-1"&gt;
+                    &lt;span className="text-muted-foreground text-sm"&gt;Clarity Score&lt;/span&gt;
+                    &lt;span className="text-primary font-bold" data-testid="clarity-score-value"&gt;{Math.round(clarityScore)}%&lt;/span&gt;
+                &lt;/div&gt;
+                &lt;div className="h-2 bg-muted rounded-full overflow-hidden mb-2"&gt;
+                    &lt;div
+                        className="h-full bg-primary rounded-full transition-all duration-300"
+                        style={{ width: `${clarityScore}%` }}
+                    /&gt;
+                &lt;/div&gt;
+                &lt;p className="text-xs text-muted-foreground text-right"&gt;
+                    {<span class="branch-0 cbranch-no" title="branch not covered" >clarityLabel || 'Keep speaking clearly'}</span>
+                &lt;/p&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
     );
-<span class="cstat-no" title="statement not covered" >};</span>
+};
 &nbsp;
-<span class="cstat-no" title="statement not covered" >export default ClarityScoreCard;</span>
+export default ClarityScoreCard;
 &nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
@@ -190,7 +190,7 @@ interface ClarityScoreCardProps {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-08T16:56:14.351Z
+                at 2026-03-09T12:41:07.637Z
             </div>
         <script src="../../../prettify.js"></script>
         <script>
