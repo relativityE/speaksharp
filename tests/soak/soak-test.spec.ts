@@ -27,7 +27,7 @@ test.describe('Soak Test Coordinator: Unified Dual Architecture', () => {
                 const latest = cloudHistory[cloudHistory.length - 1];
                 logger.info(`\n[SYNERGY] Last STT Benchmark: ${latest.timestamp} (Accuracy: ${latest.ceiling_accuracy_pct}%)`);
             }
-        } catch (e) {
+        } catch {
             logger.warn(`\n[SYNERGY] Could not read STT_BENCHMARKS.json for context.`);
         }
     });

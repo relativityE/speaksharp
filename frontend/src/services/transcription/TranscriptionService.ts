@@ -120,7 +120,8 @@ export default class TranscriptionService {
 
     try {
       // 1. Create engine if not exists (or different)
-      if (!this.engine || (this.engine as any).type !== 'transformers-js') {
+      const currentType = (this.engine as unknown as { type?: string })?.type;
+      if (!this.engine || currentType !== 'transformers-js') {
         const engineConfig: TranscriptionModeOptions = {
           ...this.options,
           onModelLoadProgress: (progress) => {
@@ -230,49 +231,11 @@ export default class TranscriptionService {
     try {
       if (mode !== 'native' && !this.mic) throw new Error('Microphone not initialized');
 
-      // FIX: Bypass Proxy (solution for E2E eval serialization) 
-      // The Proxy object fails to serialize correctly when passed to eval-based test factories in the browser
-      const engineConfig: TranscriptionModeOptions = {
-        ...this.options,
-        // Explicitly override the progress callback to ensure store updates happen
-        onModelLoadProgress: (progress) => {
-          logger.debug({ progress }, '[TranscriptionService] modelLoadProgress callback triggered');
-          this.options.onModelLoadProgress?.(progress);
-          // Standardize: If already 0-100 (from engine), use it; if 0-1 (legacy), scale it.
-          // Engines like TransformersJSEngine and WhisperTurboEngine now emit 0-100.
-          const percent = (progress !== null && progress <= 1) ? Math.round(progress * 100) : (progress as number | null);
-          useSessionStore.getState().setModelLoadingProgress(percent);
-
-          if (percent === 100) {
-            setTimeout(() => {
-              if (useSessionStore.getState().modelLoadingProgress === 100) {
-                useSessionStore.getState().setModelLoadingProgress(null);
-              }
-            }, 1500);
-          }
-        },
-        onTranscriptUpdate: (update) => {
-          if (update.transcript.final) {
-            update.transcript.final = this.sanitizeTranscript(update.transcript.final);
-          }
-          if (update.transcript.partial) {
-            update.transcript.partial = this.sanitizeTranscript(update.transcript.partial);
-          }
-          // Only forward if there's actually something left after sanitization
-          if (update.transcript.final || update.transcript.partial) {
-            this.options.onTranscriptUpdate(update);
-          }
-        },
-        onError: (err) => {
-          // Forward to the main handler
-          this.handleFailure(mode, err); // Pass mode to handleFailure
-        }
-      };
-
       logger.info(`[TranscriptionService] Preparing engine for mode: ${mode}`);
 
       // ✅ EXPERT OPTIMIZATION: Preserve warm-up by reusing existing engine if mode matches
-      const existingType = this.engine ? (this.engine as any).getEngineType?.() || (this.engine as any).type : null;
+      const engineInterface = this.engine as unknown as { getEngineType?: () => string; updateOptions?: (opts: TranscriptionModeOptions) => void; type?: string };
+      const existingType = this.engine ? engineInterface.getEngineType?.() || engineInterface.type : null;
       const isPrivate = mode === 'private';
       const isSameMode = (isPrivate && (existingType === 'transformers-js' || existingType === 'whisper-turbo')) ||
         (mode === 'native' && existingType === 'native') ||
@@ -281,8 +244,8 @@ export default class TranscriptionService {
       if (this.engine && isSameMode) {
         logger.info(`[TranscriptionService] Reusing existing ${mode} engine instance`);
         // Update callbacks of existing engine to handle potential stale closures
-        if (typeof (this.engine as any).updateOptions === 'function') {
-          (this.engine as any).updateOptions(this.getProxyOptions());
+        if (typeof engineInterface.updateOptions === 'function') {
+          engineInterface.updateOptions(this.getProxyOptions());
         }
       } else {
         if (this.engine) {
@@ -295,18 +258,13 @@ export default class TranscriptionService {
       let skipInitInExecute = false;
 
       if (mode === 'private') {
+        // Trigger init (this starts the WASM loading)
+        const initPromise = this.engine.init();
+
         const timeout = this.getLoadTimeout();
 
-        // Trigger init (this starts the WASM loading)
-        let initPromise = this.engine.init();
-
-        // ✅ EXPERT FIX: Disabling fallback entirely in E2E context to allow full WASM init.
-        const win = typeof window !== 'undefined' ? window as any : {};
-        const isE2E = win.__E2E_CONTEXT__ || win.REAL_WHISPER_TEST || IS_TEST_ENVIRONMENT;
-
-        if (isE2E) {
-          console.log('[STT] E2E context detected: fallback timer DISABLED. Private engine must initialize or test will fail.');
-          logger.info('[TranscriptionService] 🧪 E2E Mode detected: DISABLING optimistic fallback. Waiting for full engine init.');
+        if (timeout === 0) {
+          logger.info('[TranscriptionService] 🧪 Manual timeout bypass: Waiting for full engine init.');
           await initPromise;
           skipInitInExecute = true;
         } else {
@@ -315,12 +273,9 @@ export default class TranscriptionService {
 
           try {
             // We still need to race the initPromise with the error from the timer
-            // I'll adapt to use a promise-wrapped version of the timer for the race.
             const timeoutPromise = new Promise((_, reject) => {
-              // The startOptimisticEntryTimer sets this.fallbackTimer
-              // We just need to wait for it or for initPromise
               const checkTimer = setInterval(() => {
-                if (!this.fallbackTimer && !isE2E) {
+                if (!this.fallbackTimer) {
                   clearInterval(checkTimer);
                   reject(new CacheMissEvent());
                 }
@@ -422,12 +377,19 @@ export default class TranscriptionService {
 
     try {
       // ✅ RESILIENCE: Race the engine stop against a timeout to prevent UI hangs
-      const transcript = this.engine ? await Promise.race([
+      let transcript = this.engine ? await Promise.race([
         this.engine.stopTranscription(),
         new Promise<string>((_, reject) =>
           setTimeout(() => reject(new Error('Engine stop timeout')), 3000)
         )
       ]) : '';
+
+      // 🔴 TD-015: Input length enforcement (DB limit: 100k)
+      const MAX_TRANSCRIPT_LENGTH = 99900;
+      if (transcript.length > MAX_TRANSCRIPT_LENGTH) {
+        logger.warn({ length: transcript.length }, '[TranscriptionService] Transcript exceeds limit, truncating');
+        transcript = transcript.substring(0, MAX_TRANSCRIPT_LENGTH) + '... [TRUNCATED]';
+      }
 
       const duration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
       const stats = calculateTranscriptStats([{ transcript }], [], '', duration);
@@ -533,20 +495,13 @@ export default class TranscriptionService {
    * long-tail hangs or force immediate transitions without modifying code.
    */
   private startOptimisticEntryTimer(): void {
-    // Read lazily HERE, not in constructor — addInitScript flags
-    // are not present at module evaluation time.
-    const win = typeof window !== 'undefined' ? window as any : {};
-    const isE2E = win.__E2E_CONTEXT__ === true || win.REAL_WHISPER_TEST === true;
+    const timeout = this.getLoadTimeout();
 
-    if (isE2E) {
-      console.log('[STT] E2E context detected: fallback timer DISABLED. Private engine must initialize or test will fail.');
-      return; // No timer. No fallback. Engine gets full Playwright timeout.
+    if (timeout === 0) {
+      return;
     }
 
-    const timeout = (typeof window !== 'undefined' && (window as any).__STT_LOAD_TIMEOUT__)
-      ?? STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.CI;
-
-    console.log(`[STT] Starting fallback timer: ${timeout}ms`);
+    logger.info(`[STT] Starting fallback timer: ${timeout}ms`);
     this.fallbackTimer = setTimeout(() => {
       console.warn('[STT] Fallback timer fired — switching to Native STT');
       this.fallbackToNative();
@@ -561,13 +516,21 @@ export default class TranscriptionService {
   }
 
   private getLoadTimeout(): number {
-    const win = typeof window !== 'undefined' ? window as unknown as { __STT_LOAD_TIMEOUT__?: number } : null;
-    if (win && win.__STT_LOAD_TIMEOUT__) {
+    const win = (typeof window !== 'undefined' ? window : {}) as unknown as {
+      __E2E_CONTEXT__?: boolean;
+      REAL_WHISPER_TEST?: boolean;
+      __STT_LOAD_TIMEOUT__?: number;
+    };
+    const isE2E = win.__E2E_CONTEXT__ || win.REAL_WHISPER_TEST || IS_TEST_ENVIRONMENT;
+
+    if (typeof win.__STT_LOAD_TIMEOUT__ !== 'undefined') {
       return win.__STT_LOAD_TIMEOUT__;
     }
-    return IS_TEST_ENVIRONMENT
-      ? STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.CI
-      : STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.PROD;
+
+    // Default to 0 (no timeout) for E2E unless explicitly overridden
+    if (isE2E) return 0;
+
+    return STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.PROD;
   }
 
   /**
@@ -610,11 +573,18 @@ export default class TranscriptionService {
       userWords: this.options.userWords || [],
       onAudioData: this.options.onAudioData,
       onError: (err) => {
+        this.lastError = err;
         this.fsm.transition({ type: 'ERROR_OCCURRED', error: err });
         this.options.onError?.(err);
       },
       onModeChange: this.options.onModeChange,
-      onStatusChange: this.options.onStatusChange,
+      onStatusChange: (status) => {
+        if (status.type === 'error') {
+          this.lastError = new Error(status.message);
+          this.fsm.transition({ type: 'ERROR_OCCURRED', error: this.lastError });
+        }
+        this.options.onStatusChange?.(status);
+      },
     };
   }
 

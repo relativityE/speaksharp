@@ -98,6 +98,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         onStatusChange: (status) => {
             if (status.type === 'error') handleTranscriptionError(new Error(status.message), stopSession);
             if (status.type === 'info') toast.info(status.message);
+            props.onStatusChange?.(status);
         }
     });
 

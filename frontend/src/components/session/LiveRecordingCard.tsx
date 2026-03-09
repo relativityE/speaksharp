@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { Mic, Square, ChevronDown, AlertCircle, Shield } from 'lucide-react';
+import { Mic, Square, ChevronDown, AlertCircle, Shield, Lock } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
@@ -42,7 +42,6 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     isListening,
     isReady,
     isProUser,
-    statusMessage,
     formattedTime,
     elapsedSeconds,
     isButtonDisabled,
@@ -71,8 +70,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                     {/* Left Column Stack: Secure + Selector */}
                     <div className="flex flex-col items-start gap-1 flex-shrink-0 min-w-0">
                         <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[7px] font-black text-emerald-500 uppercase tracking-tighter" data-state="secure">
-                            <Shield className="h-2 w-2 fill-emerald-500/10" />
-                            <span>SECURE</span>
+                            {activeEngine === 'private' ? (
+                                <Lock className="h-2 w-2 fill-emerald-500/10" />
+                            ) : (
+                                <Shield className="h-2 w-2 fill-emerald-500/10" />
+                            )}
+                            <span>{activeEngine === 'private' ? 'VAULT MODE' : 'SECURE'}</span>
                         </div>
 
                         <DropdownMenu>

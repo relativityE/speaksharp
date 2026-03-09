@@ -61,7 +61,7 @@ describe('STT Correctness Baseline Suite', () => {
             describe(`Speech: ${speech.id}`, () => {
                 it('should detect required filler words accurately from ground truth', () => {
                     const fillers = Object.entries(speech.expectedFillers)
-                        .filter(([_, count]) => count > 0)
+                        .filter(([, count]) => count > 0)
                         .map(([filler]) => filler);
 
                     if (fillers.length === 0) return;

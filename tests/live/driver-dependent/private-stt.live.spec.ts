@@ -42,7 +42,6 @@ import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from '../../e2
 // calculateWordErrorRate is the SSOT in frontend/src/lib/wer.ts (not a new file).
 // WER ≤ 0.15 replaces exact/regex match — Whisper WASM is non-deterministic at chunk
 // boundaries in quantized ONNX. This is the NIST/industry standard for STT gates.
-import { calculateWordErrorRate } from '../../../frontend/src/lib/wer';
 import { MicStream } from '../../../frontend/src/services/transcription/utils/types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

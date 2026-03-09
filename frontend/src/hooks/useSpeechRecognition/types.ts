@@ -17,6 +17,7 @@ export interface UseSpeechRecognitionProps {
   userWords?: string[];
   userVocabulary?: string[];
   session?: SupabaseSession | null;
+  onStatusChange?: (status: import('../../types/transcription').SttStatus) => void;
 }
 
 export interface TranscriptStats {

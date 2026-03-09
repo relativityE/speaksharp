@@ -8,17 +8,17 @@ import { testRegistry } from '@/services/transcription/TestRegistry';
 import type { Session as SupabaseSession } from '@supabase/supabase-js';
 import { TranscriptionModeOptions, ITranscriptionMode } from '@/services/transcription/modes/types';
 
-
-
-
 // Mock the TestRegistry to ensure we can register our mock
-vi.mock('@/services/transcription/TestRegistry', async () => {
-    const actual = await vi.importActual('@/services/transcription/TestRegistry');
+vi.mock('@/services/transcription/TestRegistry', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/services/transcription/TestRegistry')>();
     return {
         ...actual,
         testRegistry: {
             register: vi.fn(),
             get: vi.fn(),
+            enable: vi.fn(),
+            disable: vi.fn(),
+            clear: vi.fn(),
         }
     };
 });
@@ -28,19 +28,12 @@ describe('useSpeechRecognition Integration', () => {
         vi.clearAllMocks();
         MockTranscriptionService.latestInstance = null;
         // Setup the registry to return our MockTranscriptionService constructor
-        // We use a specific constructor type to avoid the 'any' lint error while maintaining compatibility
-        vi.mocked(testRegistry.get).mockReturnValue((opts: TranscriptionModeOptions) => new MockTranscriptionService(opts));
+        vi.mocked(testRegistry.get).mockReturnValue((opts: TranscriptionModeOptions) => new MockTranscriptionService(opts) as unknown as ITranscriptionMode);
 
-        const win = window as unknown as Window & {
-            __E2E_MOCK_NATIVE__?: boolean;
-            __E2E_MOCK_LOCAL_WHISPER__?: boolean;
-            MockNativeBrowser?: unknown;
-            MockPrivateWhisper?: unknown;
-        };
-
+        const win = window as unknown as Record<string, unknown>;
         win.__E2E_MOCK_NATIVE__ = true;
-        win.MockNativeBrowser = MockTranscriptionService as unknown as new (config: TranscriptionModeOptions) => ITranscriptionMode;
-        win.MockPrivateWhisper = MockTranscriptionService as unknown as new (config: TranscriptionModeOptions) => ITranscriptionMode;
+        win.MockNativeBrowser = MockTranscriptionService;
+        win.MockPrivateWhisper = MockTranscriptionService;
         win.__E2E_MOCK_LOCAL_WHISPER__ = true;
     });
 
@@ -107,7 +100,6 @@ describe('useSpeechRecognition Integration', () => {
         await stopPromise;
 
         // CRITICAL: Verify final words are captured in the hook state
-        // Note: The hook's 'chunks' might be updated via state updates which happen async
         await waitFor(() => {
             expect(result.current.chunks.some(c => c.transcript === 'final words')).toBe(true);
         });
@@ -133,9 +125,6 @@ describe('useSpeechRecognition Integration', () => {
             expect(result.current.sttStatus.type).toBe('error');
             expect(result.current.sttStatus.message).toBe('Microphone access denied');
         }, { timeout: 3000 });
-
-        // Should stop listening on critical error or user logic choice
-        // (This depends on specific hook implementation, but usually errors don't auto-reset isListening unless programmed)
     });
 
     it('should capture usage limit exceeded state mid-session', async () => {

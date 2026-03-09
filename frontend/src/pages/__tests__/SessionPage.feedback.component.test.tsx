@@ -119,6 +119,15 @@ vi.mock('@/components/session/UserFillerWordsManager', () => ({ UserFillerWordsM
 vi.mock('@/components/session/SessionPageSkeleton', () => ({ SessionPageSkeleton: () => <div /> }));
 vi.mock('@/components/session/PauseMetricsDisplay', () => ({ PauseMetricsDisplay: () => <div /> }));
 
+vi.mock('@/providers/useTranscriptionContext', () => ({
+    useTranscriptionContext: () => ({
+        service: {
+            warmUp: vi.fn(),
+        },
+        isReady: true,
+    }),
+}));
+
 // Import for mocking responses
 import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
 import { useSessionStore } from '../../stores/useSessionStore';

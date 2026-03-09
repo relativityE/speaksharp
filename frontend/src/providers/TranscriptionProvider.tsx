@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { getTranscriptionService } from '../services/transcription/TranscriptionService';
 import { TranscriptionPolicy } from '../services/transcription/TranscriptionPolicy'; // Import the type
 import logger from '../lib/logger';
@@ -11,7 +11,7 @@ export const TranscriptionProvider: React.FC<{
 }> = ({ children, policy }) => {
     // 1. Singleton Acquisition (Survives Remounts)
     const service = getTranscriptionService(policy ? { policy } : {});
-    const [isReady, setIsReady] = useState(true);
+    const isReady = true;
 
     // 2. Lifecycle Audit: We no longer destroy the service on unmount 
     // because it is a global singleton protecting the WASM state.

@@ -1,7 +1,6 @@
 import { renderHook, act } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { TranscriptionProvider } from '../../../providers/TranscriptionProvider';
 import { useSpeechRecognition_prod as useSpeechRecognition } from '../index';
 import { useTranscriptionState } from '../useTranscriptionState';
 import { useFillerWords } from '../useFillerWords';
@@ -10,11 +9,12 @@ import { testRegistry } from '../../../services/transcription/TestRegistry';
 import { ITranscriptionMode } from '../../../services/transcription/modes/types';
 import { TranscriptionServiceOptions } from '../../../services/transcription/TranscriptionService';
 import { Mock } from 'vitest';
+import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
+import { TranscriptionContextValue } from '@/providers/TranscriptionContext';
 
 vi.mock('../useTranscriptionState');
 vi.mock('../useFillerWords');
 vi.mock('@/providers/useTranscriptionContext');
-// REMOVED: vi.mock('../useTranscriptionService'); -- We want the real one!
 
 vi.mock('../../useVocalAnalysis', () => ({
   useVocalAnalysis: vi.fn(() => ({
@@ -30,7 +30,7 @@ vi.mock('../../useProfile', () => ({
 }));
 
 vi.mock('sonner', () => ({
-  toast: { error: vi.fn(), loading: vi.fn(), dismiss: vi.fn(), success: vi.fn() },
+  toast: { error: vi.fn(), loading: vi.fn(), dismiss: vi.fn(), success: vi.fn(), info: vi.fn() },
   Toaster: vi.fn(() => null)
 }));
 
@@ -42,14 +42,6 @@ vi.mock('../../../contexts/AuthProvider', async () => {
   };
 });
 
-vi.mock('../../useProfile', () => ({
-  useProfile: vi.fn(() => ({ subscription_status: 'free' }))
-}));
-
-vi.mock('../../useProfile', () => ({
-  useProfile: vi.fn(() => ({ subscription_status: 'free' }))
-}));
-
 vi.mock('../../../utils/fillerWordUtils', () => ({
   calculateTranscriptStats: vi.fn(() => ({
     transcript: 'test transcript',
@@ -58,8 +50,6 @@ vi.mock('../../../utils/fillerWordUtils', () => ({
     duration: 30
   }))
 }));
-
-
 
 // --- Test Helper: Mock Engine ---
 class MockEngine implements ITranscriptionMode {
@@ -71,14 +61,13 @@ class MockEngine implements ITranscriptionMode {
   getEngineType = () => 'native' as const;
 }
 
-function wrapper({ children }: { children: React.ReactNode }): React.ReactElement {
+const wrapper = ({ children }: { children: React.ReactNode }): React.ReactElement => {
   return (
-    <TranscriptionProvider>
+    <div data-testid="transcription-provider-mock">
       {children}
-    </TranscriptionProvider>
+    </div>
   );
-}
-import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
+};
 
 describe('useSpeechRecognition', () => {
   const mockUseTranscriptionState = {
@@ -100,34 +89,33 @@ describe('useSpeechRecognition', () => {
     totalCount: 0
   };
 
-  let mockUseTranscriptionContext: ReturnType<typeof useTranscriptionContext>;
+  let mockUseTranscriptionContextValue: TranscriptionContextValue;
   let mockEngine: MockEngine;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
 
-    mockUseTranscriptionContext = {
+    mockUseTranscriptionContextValue = {
       service: {
         startTranscription: vi.fn(),
         stopTranscription: vi.fn(),
         init: vi.fn(),
         terminate: vi.fn(),
-        updateCallbacks: vi.fn()
-      },
+        updateCallbacks: vi.fn(),
+        destroy: vi.fn(),
+      } as unknown as TranscriptionContextValue['service'],
       isReady: true,
-      error: null,
-      status: { type: 'idle', message: '' }
-    } as unknown as ReturnType<typeof useTranscriptionContext>;
+    };
 
     // Inject Mock Engine
     mockEngine = new MockEngine();
     testRegistry.enable(); // Important!
     testRegistry.register('native', () => mockEngine);
 
-    vi.mocked(useTranscriptionState).mockReturnValue(mockUseTranscriptionState as unknown as ReturnType<typeof useTranscriptionState>); // Cast to avoid strict type checks on mock
+    vi.mocked(useTranscriptionState).mockReturnValue(mockUseTranscriptionState as unknown as ReturnType<typeof useTranscriptionState>);
     vi.mocked(useFillerWords).mockReturnValue(mockUseFillerWords);
-    vi.mocked(useTranscriptionContext).mockReturnValue(mockUseTranscriptionContext);
+    vi.mocked(useTranscriptionContext).mockReturnValue(mockUseTranscriptionContextValue);
   });
 
   afterEach(() => {
@@ -154,25 +142,22 @@ describe('useSpeechRecognition', () => {
   });
 
   it('should initialize and return expected interface (Baseline)', () => {
-    mockUseTranscriptionContext.isReady = false; // Override for baseline check
+    mockUseTranscriptionContextValue.isReady = false;
     const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
 
     expect(result.current.isListening).toBe(false);
-    expect(result.current.isReady).toBe(false); // Initially false
+    expect(result.current.isReady).toBe(false);
     expect(result.current.startListening).toBeDefined();
     expect(result.current.stopListening).toBeDefined();
     expect(result.current.reset).toBeDefined();
   });
 
-  // REMOVED: "should call sub-hooks with correct parameters" - Implementation Detail
-
   it('should handle stopListening with stats (Behavior)', async () => {
     const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
 
-    (mockUseTranscriptionContext.service!.stopTranscription as unknown as Mock).mockResolvedValueOnce({ success: true });
+    (mockUseTranscriptionContextValue.service!.stopTranscription as unknown as Mock).mockResolvedValueOnce({ success: true });
 
     await act(async () => {
-      // Must start first to get stats on stop
       await result.current.startListening();
       const stats = await result.current.stopListening();
 
@@ -193,49 +178,40 @@ describe('useSpeechRecognition', () => {
       await result.current.startListening();
     });
 
-    // Advance time to satisfy MIN_RECORDING_DURATION_MS (100ms)
     act(() => {
       vi.advanceTimersByTime(1000);
     });
 
     expect(mockUseTranscriptionState.reset).toHaveBeenCalled();
-    // Verify engine start was called (Behavior verification)
-    expect(mockUseTranscriptionContext.service!.startTranscription).toHaveBeenCalled();
+    expect(mockUseTranscriptionContextValue.service!.startTranscription).toHaveBeenCalled();
   });
 
   it('should handle partial transcript updates (Placeholder)', () => {
-    // Placeholder assertion to satisfy vitest/expect-expect
     expect(true).toBe(true);
   });
 
   it('should handle errors during startListening', async () => {
     const error = new Error('Permission denied');
 
-    // 1. Capture the callbacks passed to the service via updateCallbacks
     let serviceCallbacks: Partial<TranscriptionServiceOptions> = {};
-    (mockUseTranscriptionContext.service!.updateCallbacks as unknown as Mock).mockImplementation((opts: Partial<TranscriptionServiceOptions>) => {
+    (mockUseTranscriptionContextValue.service!.updateCallbacks as unknown as Mock).mockImplementation((opts: Partial<TranscriptionServiceOptions>) => {
       serviceCallbacks = { ...serviceCallbacks, ...opts };
     });
 
-    // 2. Re-render hook to ensure updateCallbacks is called with the capture mock
     const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
 
-    // 3. Mock startTranscription to Resolve (as per architecture) but trigger onError callback
-    (mockUseTranscriptionContext.service!.startTranscription as unknown as Mock).mockImplementation(async () => {
-      // Simulate internal failure handling in Service
+    (mockUseTranscriptionContextValue.service!.startTranscription as unknown as Mock).mockImplementation(async () => {
       if (serviceCallbacks.onError) {
         serviceCallbacks.onError(error);
       }
     });
 
-    // Ensure service is "ready"
-    mockUseTranscriptionContext.isReady = true;
+    mockUseTranscriptionContextValue.isReady = true;
 
     await act(async () => {
       await result.current.startListening();
     });
 
-    // 4. Validate that the Hook's error state updated via the callback chain
     expect(mockUseTranscriptionState.setError).toHaveBeenCalledWith(error);
   });
 });

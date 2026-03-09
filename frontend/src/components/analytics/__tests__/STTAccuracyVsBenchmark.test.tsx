@@ -5,10 +5,10 @@ import * as AnalyticsHook from '@/hooks/useAnalytics';
 import * as RouterDom from 'react-router-dom';
 
 vi.mock('@/hooks/useAnalytics');
-vi.mock('react-router-dom', async () => {
-    const actual = await vi.importActual('react-router-dom');
+vi.mock('react-router-dom', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('react-router-dom')>();
     return {
-        ...actual as any,
+        ...actual,
         useParams: vi.fn(),
     };
 });
@@ -16,6 +16,15 @@ vi.mock('react-router-dom', async () => {
 describe('STTAccuracyVsBenchmark', () => {
     const mockUseAnalytics = vi.mocked(AnalyticsHook.useAnalytics);
     const mockUseParams = vi.mocked(RouterDom.useParams);
+
+    const emptyStats = {
+        totalSessions: 0,
+        totalPracticeTime: 0,
+        avgWpm: 0,
+        avgFillerWordsPerMin: "0.0",
+        avgAccuracy: "0.0",
+        chartData: []
+    };
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -28,20 +37,13 @@ describe('STTAccuracyVsBenchmark', () => {
             sessionHistory: [],
             loading: true,
             error: null,
-            overallStats: {
-                totalSessions: 0,
-                totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
-            },
-            fillerWordTrends: { dates: [], datasets: [] },
+            overallStats: emptyStats,
+            fillerWordTrends: {},
             topFillerWords: [],
             weeklySessionsCount: 0,
             weeklyActivity: [],
             refreshAnalytics: vi.fn(),
-        });
+        } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
         expect(screen.getByText('STT Accuracy vs Benchmark')).toBeInTheDocument();
@@ -56,20 +58,13 @@ describe('STTAccuracyVsBenchmark', () => {
             sessionHistory: [],
             loading: false,
             error: null,
-            overallStats: {
-                totalSessions: 0,
-                totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
-            },
-            fillerWordTrends: { dates: [], datasets: [] },
+            overallStats: emptyStats,
+            fillerWordTrends: {},
             topFillerWords: [],
             weeklySessionsCount: 0,
             weeklyActivity: [],
             refreshAnalytics: vi.fn(),
-        });
+        } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
         expect(screen.getByText('Dynamic STT Accuracy vs Ceiling')).toBeInTheDocument();
@@ -81,20 +76,13 @@ describe('STTAccuracyVsBenchmark', () => {
             sessionHistory: [],
             loading: false,
             error: null,
-            overallStats: {
-                totalSessions: 0,
-                totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
-            },
-            fillerWordTrends: { dates: [], datasets: [] },
+            overallStats: emptyStats,
+            fillerWordTrends: {},
             topFillerWords: [],
             weeklySessionsCount: 0,
             weeklyActivity: [],
             refreshAnalytics: vi.fn(),
-        });
+        } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
         expect(screen.getByText('Provide ground truth transcripts to see your accuracy benchmarked against STT ceilings.')).toBeInTheDocument();
@@ -120,24 +108,17 @@ describe('STTAccuracyVsBenchmark', () => {
             ],
             loading: false,
             error: null,
-            overallStats: {
-                totalSessions: 0,
-                totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
-            },
-            fillerWordTrends: { dates: [], datasets: [] },
+            overallStats: emptyStats,
+            fillerWordTrends: {},
             topFillerWords: [],
             weeklySessionsCount: 0,
             weeklyActivity: [],
             refreshAnalytics: vi.fn(),
-        });
+        } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
         expect(screen.getByText(/Session Accuracy vs/)).toBeInTheDocument();
-        expect(screen.getByText(/Private/)).toBeInTheDocument();
+        expect(screen.getAllByText(/Private/)[0]).toBeInTheDocument();
         expect(screen.getByText(/This session used the/)).toBeInTheDocument();
     });
 });

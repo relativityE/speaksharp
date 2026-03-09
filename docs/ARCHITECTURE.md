@@ -2872,6 +2872,61 @@ SpeakSharp maintains an active tracking document for architectural debt, code sm
 
 Maintainers should consult the ROADMAP.md Tech Debt sections before starting major refactors or if encountering intermittent system behavior.
 
+<!-- SQM:START -->
+## 6. Software Quality Metrics
+
+**Last Updated:** Sun, 08 Mar 2026 19:20:50 GMT
+
+**Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
+
+**Metric Definitions:**
+- **Total Source Size:** Sum of all code in src, backend, tests, docs, and scripts.
+- **Total Project Size:** Total disk footprint including node_modules and assets.
+- **Initial Chunk Size:** The size of the largest initial JavaScript bundle.
+- **Code Bloat Index:** Ratio of Initial Chunk Size to Total Source Size (lower is better).
+
+---
+
+### Test Suite State
+
+| Metric                  | Value |
+| ----------------------- | ----- |
+| Total tests             | 626 (556 unit + 70 E2E) |
+| Unit tests              | 556   |
+| E2E tests (Playwright)  | 70  |
+| Passing tests           | 626 (556 unit + 70 E2E)   |
+| Failing tests           | 0   |
+| Disabled/skipped tests  | 0 (E2E only)   |
+| Passing unit tests      | 556/556 (100.0%)   |
+| Passing E2E tests       | 70/70 (100.0%)   |
+| Total runtime           | 2m 24s   |
+
+---
+
+### Coverage Summary
+
+| Metric     | Value |
+| ---------- | ----- |
+| Statements | 85.5%   |
+| Branches   | 78.2%   |
+| Functions  | 82.1%   |
+| Lines      | 85.5%   |
+
+---
+
+### Code Bloat & Performance
+
+| Metric              | Value |
+| ------------------- | ----- |
+| Total Source Size   | 3.5MB   |
+| Total Project Size  | 214MB   |
+| Initial Chunk Size  | 933KB   |
+| Code Bloat Index    | 26.3%   |
+| Lighthouse Scores   | P: 97, A: 94, BP: 100, SEO: 91 |
+
+---
+<!-- SQM:END -->
+
 
 #### 3.7 Canary Smoke Test (`canary.yml`)
 

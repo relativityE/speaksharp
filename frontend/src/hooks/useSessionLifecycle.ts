@@ -36,7 +36,7 @@ export const useSessionLifecycle = () => {
 
     const isProUser = isPro(profile?.subscription_status);
 
-    const [mode, setMode] = useState<'cloud' | 'native' | 'private'>('native');
+    const [mode, setMode] = useState<'cloud' | 'native' | 'private'>(isProUser ? 'private' : 'native');
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const [sessionFeedbackMessage, setSessionFeedbackMessage] = useState<string | null>(null);
     const [sunsetModal, setSunsetModal] = useState<{ type: 'daily' | 'monthly'; open: boolean }>({ type: 'daily', open: false });
@@ -272,7 +272,7 @@ export const useSessionLifecycle = () => {
                 });
             }
         }
-    }, [elapsedTime, isListening, usageLimit, sessionFeedbackMessage]); // Removed handleStartStop dependency
+    }, [elapsedTime, isListening, usageLimit, sessionFeedbackMessage, isProUser]);
 
     // VAD Auto-Pause Logic: 5 minutes of silence detected via transcript inactivity
     const lastTranscriptRef = useRef(transcript.transcript);
@@ -334,6 +334,13 @@ export const useSessionLifecycle = () => {
             service.warmUp('private');
         }
     }, [mode, service, isListening]);
+
+    // Default mode for Pro users: Ensure they start with Private
+    useEffect(() => {
+        if (isProUser && !isListening && mode === 'native') {
+            setMode('private');
+        }
+    }, [isProUser, isListening, mode]);
 
     return {
         isListening,

@@ -1,37 +1,39 @@
 import { renderHook, act } from '../../../../tests/support/test-utils';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { useTranscriptionService } from '../useTranscriptionService';
 import { E2E_DETERMINISTIC_NATIVE } from '../types';
 import { TranscriptionProvider } from '../../../providers/TranscriptionProvider';
+import { TranscriptionServiceOptions } from '../../../services/transcription/TranscriptionService';
 
-// Mock the TranscriptionService with callback support
-const mockCallbacks: Record<string, (...args: unknown[]) => void> = {};
-const mockService = {
-  init: vi.fn().mockResolvedValue({ success: true }),
-  startTranscription: vi.fn().mockImplementation(async () => {
-    // Simulate FSM transition or callback if needed for success path
-  }),
-  stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: '', stats: { transcript: '', total_words: 0, accuracy: 0, duration: 0 } }),
-  destroy: vi.fn().mockResolvedValue(undefined),
-  getMode: vi.fn().mockReturnValue('native'),
-  getEngineType: vi.fn().mockReturnValue('native'),
-  updateCallbacks: vi.fn().mockImplementation((cbs) => {
-    Object.assign(mockCallbacks, cbs);
-  }),
-  updatePolicy: vi.fn(),
-  fsm: {
-    subscribe: vi.fn((_cb) => {
-      // Simulate subscription if needed, or just return unmouter
-      return vi.fn();
+// Hoist the mock to avoid ReferenceError
+vi.mock('../../../services/transcription/TranscriptionService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../services/transcription/TranscriptionService')>();
+
+  const localMockService = {
+    init: vi.fn().mockResolvedValue({ success: true }),
+    startTranscription: vi.fn().mockImplementation(async () => {}),
+    stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: '', stats: { transcript: '', total_words: 0, accuracy: 0, duration: 0 } }),
+    destroy: vi.fn().mockResolvedValue(undefined),
+    getMode: vi.fn().mockReturnValue('native'),
+    getEngineType: vi.fn().mockReturnValue('native'),
+    updateCallbacks: vi.fn().mockImplementation((cbs) => {
+      (globalThis as Record<string, unknown>)._lastMockCallbacks = cbs;
     }),
+    updatePolicy: vi.fn(),
+    fsm: {
+      subscribe: vi.fn(() => vi.fn()),
+      getState: vi.fn().mockReturnValue('IDLE')
+    },
     getState: vi.fn().mockReturnValue('IDLE')
-  },
-  getState: vi.fn().mockReturnValue('IDLE')
-};
+  };
 
-vi.mock('../../../services/transcription/TranscriptionService', () => ({
-  default: vi.fn().mockImplementation(() => mockService)
-}));
+  (globalThis as Record<string, unknown>)._currentMockService = localMockService;
+
+  return {
+    ...actual,
+    getTranscriptionService: vi.fn().mockReturnValue(localMockService),
+  };
+});
 
 vi.mock('../../../lib/logger', () => ({
   default: {
@@ -52,8 +54,11 @@ describe('useTranscriptionService', () => {
     getAssemblyAIToken: vi.fn().mockResolvedValue('token')
   };
 
+  let activeMockService: Record<string, unknown>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    activeMockService = (globalThis as Record<string, unknown>)._currentMockService as Record<string, unknown>;
   });
 
   // Common wrapper
@@ -78,7 +83,7 @@ describe('useTranscriptionService', () => {
       await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
     });
 
-    expect(mockService.startTranscription).toHaveBeenCalled();
+    expect(activeMockService.startTranscription).toHaveBeenCalled();
     expect(result.current.isListening).toBe(true);
     expect(result.current.mode).toBe('native');
   });
@@ -102,22 +107,19 @@ describe('useTranscriptionService', () => {
       unmount();
     });
 
-    // The useEffect cleanup which calls destroy is asynchronous.
-    // We need to wait for the mock to be called.
     await vi.waitFor(() => {
-      expect(mockService.destroy).toHaveBeenCalled();
+      expect(activeMockService.destroy).toHaveBeenCalled();
     });
 
-    // isListening is derived from store, which is not mocked here but works because module state is shared?
-    // Actually store IS NOT mocked in this file. It uses real store.
     expect(result.current.isListening).toBe(false);
   });
 
   it('should handle start listening errors', async () => {
-    // Simulate failure by triggering onError callback, as the real service does
-    mockService.startTranscription.mockImplementationOnce(async () => {
-      if (mockCallbacks.onError) {
-        mockCallbacks.onError(new Error('Permission denied'));
+    // Simulate failure
+    (activeMockService.startTranscription as Mock).mockImplementationOnce(async () => {
+      const cbs = (globalThis as Record<string, unknown>)._lastMockCallbacks as Partial<TranscriptionServiceOptions>;
+      if (cbs && cbs.onError) {
+        cbs.onError(new Error('Permission denied'));
       }
     });
 
@@ -144,6 +146,6 @@ describe('useTranscriptionService', () => {
       unmount();
     });
 
-    expect(mockService.destroy).toHaveBeenCalled();
+    expect(activeMockService.destroy).toHaveBeenCalled();
   });
 });

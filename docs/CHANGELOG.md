@@ -5,6 +5,15 @@
 
 All notable changes to this project will be documented in this file.
 
+### [Unreleased] — Technical Debt Remediation (2026-03-08)
+
+- **Security: Hardened CORS & Database Constraints** — Implemented strict origin validation for Edge Functions and enforced character limits on session transcripts via Postgres constraints to prevent DB bloat.
+- **Architecture: Decoupled Test Infrastructure** — Removed explicit `IS_TEST_ENVIRONMENT` checks from `TranscriptionService.ts` in favor of a clean `window` override pattern for timeouts.
+- **UX: Pro Tier Optimization** — Defaulted Pro users to "Private" (WebGPU) STT mode to reduce costs and enhance privacy. Added "Vault Mode" branding and integrated WASM loading progress bars into the status notification system.
+- **Reliability: Stabilized Component Tests** — Resolved a cascade of test regressions caused by structural hardening. Standardized `TranscriptionProvider` usage across the unit test suite and fixed Radix UI selector conflicts.
+- **Maintenance: Documentation Metric Sync** — Automated the synchronization of Software Quality Metrics (SQM) across `README.md` and `ARCHITECTURE.md` via standardized markdown markers.
+- **Files:** `TranscriptionService.ts`, `cors.ts`, `useSessionLifecycle.ts`, `StatusNotificationBar.tsx`, `LiveRecordingCard.tsx`, `main.tsx`, `update-prd-metrics.mjs`, `SessionPage.ui.component.test.tsx`
+
 ### [Unreleased] — STT & UI Stabilization (2026-03-07)
 
 - **Infrastructure: Vite Environment Root Alignment** — Corrected `envDir` in `vite.config.mjs` to resolve to the workspace root. This ensures frontend scripts and live benchmarks can load project-wide `.env` cards (e.g., `E2E_PRO_EMAIL`) reliably across different execution contexts.

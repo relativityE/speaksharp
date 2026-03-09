@@ -2,15 +2,18 @@
 import fs from 'fs';
 import path from 'path';
 
-const PRD_FILE = path.resolve(process.cwd(), 'docs/PRD.md');
+const TARGET_FILES = [
+  path.resolve(process.cwd(), 'docs/PRD.md'),
+  path.resolve(process.cwd(), 'docs/ARCHITECTURE.md'),
+  path.resolve(process.cwd(), 'README.md'),
+];
+
 const METRICS_FILE = path.resolve(process.cwd(), 'test-results/metrics.json');
 const COVERAGE_FILE = path.resolve(process.cwd(), 'frontend/coverage/coverage-summary.json');
 
-console.log('[UpdateScript] Starting PRD metrics update.');
+console.log('[UpdateScript] Starting unified metrics update.');
 
 try {
-  // Read all necessary source files
-  const prdContent = fs.readFileSync(PRD_FILE, 'utf-8');
   const metrics = JSON.parse(fs.readFileSync(METRICS_FILE, 'utf-8'));
 
   // Read coverage data from metrics.json (primary) or coverage-summary.json (fallback)
@@ -112,22 +115,39 @@ try {
   // --- File Injection Logic ---
   const startMarker = '<!-- SQM:START -->';
   const endMarker = '<!-- SQM:END -->';
-  const startIndex = prdContent.indexOf(startMarker);
-  const endIndex = prdContent.indexOf(endMarker);
 
-  if (startIndex === -1 || endIndex === -1) {
-    throw new Error('SQM markers not found in PRD.md');
+  let updateCount = 0;
+
+  for (const filePath of TARGET_FILES) {
+    if (!fs.existsSync(filePath)) {
+      console.warn(`[UpdateScript] Skip missing file: ${filePath}`);
+      continue;
+    }
+
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const startIndex = content.indexOf(startMarker);
+    const endIndex = content.indexOf(endMarker);
+
+    if (startIndex === -1 || endIndex === -1) {
+      console.warn(`[UpdateScript] SQM markers not found in: ${filePath}`);
+      continue;
+    }
+
+    const contentBefore = content.substring(0, startIndex + startMarker.length);
+    const contentAfter = content.substring(endIndex);
+
+    const newContent = [contentBefore, newSqmSection, contentAfter].join('\n');
+
+    fs.writeFileSync(filePath, newContent);
+    console.log(`[UpdateScript] ${path.basename(filePath)} updated successfully.`);
+    updateCount++;
   }
 
-  const contentBefore = prdContent.substring(0, startIndex + startMarker.length);
-  const contentAfter = prdContent.substring(endIndex);
-
-  const newPrdContent = [contentBefore, newSqmSection, contentAfter].join('\n');
-
-  fs.writeFileSync(PRD_FILE, newPrdContent);
-  console.log('[UpdateScript] PRD.md updated successfully.');
+  if (updateCount === 0) {
+    console.warn('[UpdateScript] No files were updated.');
+  }
 
 } catch (error) {
-  console.error('[UpdateScript] Failed to update PRD.md:', error);
+  console.error('[UpdateScript] Failed to update metrics:', error);
   process.exit(1);
 }

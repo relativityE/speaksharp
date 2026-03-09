@@ -21,7 +21,7 @@ build/
 /lighthouse-results/
 /.lighthouseci/
 /screenshots/
-/coverage/
+coverage/
 /html/
 # Legacy/Suspicious artifacts
 /blob-collection/

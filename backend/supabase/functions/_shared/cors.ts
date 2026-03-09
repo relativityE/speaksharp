@@ -23,14 +23,28 @@
 const DEV_PORT = 5173;
 
 // Read from environment, default to localhost for development
-const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") ?? `http://localhost:${DEV_PORT}`;
+const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN");
+const FALLBACK_ORIGIN = `http://localhost:${DEV_PORT}`;
 
 export const corsHeaders = (req?: Request) => {
   const origin = req?.headers.get("Origin");
 
-  // Dynamic Origin Matching for Vercel Previews and Staging
-  if (origin) {
-    // Allow localhost (Dev)
+  // If origin matches ALLOWED_ORIGIN exactly, return it.
+  // This is the most secure path for production.
+  if (ALLOWED_ORIGIN && origin === ALLOWED_ORIGIN) {
+    return {
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    };
+  }
+
+  // 🧪 DEVELOPMENT/PREVIEW MODE
+  // Allow localhost and Vercel previews if ALLOWED_ORIGIN is not set or is permissive
+  const isPermissive = !ALLOWED_ORIGIN || ALLOWED_ORIGIN === "*";
+
+  if (origin && isPermissive) {
+    // Allow localhost
     if (origin.includes("localhost") || origin.includes("127.0.0.1")) {
       return {
         "Access-Control-Allow-Origin": origin,
@@ -38,8 +52,8 @@ export const corsHeaders = (req?: Request) => {
         "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
       };
     }
-    // Allow Vercel Deployments (Preview/Staging) and Production Domain
-    if (originalMatches(origin)) {
+    // Allow Vercel Deployments
+    if (origin.endsWith(".vercel.app")) {
       return {
         "Access-Control-Allow-Origin": origin,
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -48,18 +62,10 @@ export const corsHeaders = (req?: Request) => {
     }
   }
 
-  // Fallback to configured ALLOWED_ORIGIN
+  // Final fallback
   return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+    "Access-Control-Allow-Origin": ALLOWED_ORIGIN ?? FALLBACK_ORIGIN,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   };
 };
-
-function originalMatches(origin: string): boolean {
-  return (
-    origin.endsWith(".vercel.app") ||
-    origin.endsWith("speaksharp.ai") ||
-    origin === ALLOWED_ORIGIN
-  );
-}

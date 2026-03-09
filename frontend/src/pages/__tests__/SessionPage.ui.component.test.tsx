@@ -15,9 +15,23 @@ const mockUseSessionLifecycle = vi.mocked(useSessionLifecycle);
 
 // Mock dependencies
 vi.mock('../../hooks/useSpeechRecognition');
-vi.mock('../../stores/useSessionStore');
+vi.mock('../../stores/useSessionStore', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../stores/useSessionStore')>();
+    return {
+        ...actual,
+        useSessionStore: Object.assign(vi.fn(), {
+            getState: vi.fn(() => ({ modelLoadingProgress: null }))
+        }),
+    };
+});
 vi.mock('../../hooks/useVocalAnalysis');
-vi.mock('../../contexts/AuthProvider');
+vi.mock('../../contexts/AuthProvider', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../contexts/AuthProvider')>();
+    return {
+        ...actual,
+        useAuthProvider: vi.fn(() => ({ session: { user: { id: 'test-user' } } })),
+    };
+});
 vi.mock('@/hooks/useUserProfile');
 vi.mock('@/hooks/useUsageLimit');
 vi.mock('@/hooks/useUserFillerWords', () => ({
@@ -44,11 +58,16 @@ vi.mock('posthog-js', () => ({ default: { capture: vi.fn() } }));
 vi.mock('@/components/session/PauseMetricsDisplay', () => ({ PauseMetricsDisplay: () => <div>Pause Metrics</div> }));
 vi.mock('@/components/session/UserFillerWordsManager', () => ({ UserFillerWordsManager: () => <div>User Filler Words</div> }));
 
-// Helper removed - using custom render from test-utils
-
+vi.mock('@/providers/useTranscriptionContext', () => ({
+    useTranscriptionContext: () => ({
+        service: {
+            warmUp: vi.fn(),
+        },
+        isReady: true,
+    }),
+}));
 
 const mockUseUsageLimit = vi.mocked(UsageLimitHook.useUsageLimit);
-// Unused mocks removed
 const mockUseSessionStore = vi.mocked(SessionStore.useSessionStore);
 const mockUseVocalAnalysis = vi.mocked(VocalAnalysisHook.useVocalAnalysis);
 const mockUseAuthProvider = vi.mocked(AuthProvider.useAuthProvider);
@@ -86,9 +105,11 @@ describe('SessionPage - STT Mode Selection UI', () => {
             sunsetModal: { type: 'daily', open: false }
         } as unknown as ReturnType<typeof useSessionLifecycle>);
 
-        (mockUseSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
+        const mockStore = createTestSessionStore({
             elapsedTime: 0,
-        }));
+        });
+        (mockUseSessionStore as unknown as Mock).mockImplementation(mockStore);
+        mockUseSessionStore.getState = vi.fn(() => mockStore.getState());
 
         mockUseVocalAnalysis.mockReturnValue({
             pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },
@@ -120,13 +141,13 @@ describe('SessionPage - STT Mode Selection UI', () => {
         await user.click(trigger);
 
         // Radix UI renders content in a specific way, userEvent should handle it.
-        // Wait for items to appear - Free users see "Private" and "Cloud"
-        const onDeviceItem = await screen.findByText('Private');
-        const cloudItem = await screen.findByText('Cloud');
+        // Wait for items to appear - Free users see "Private (Pro)" and "Cloud (Pro)"
+        // Using regex with ignoreCase to be more resilient to styling (uppercase etc)
+        const onDeviceItem = await screen.findByText(/Private/i);
+        const cloudItem = await screen.findByText(/Cloud/i);
 
         expect(onDeviceItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
         expect(cloudItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
-        expect(true).toBe(true); // Explicit assertion for linter
     });
 
     it('should enable options for Pro users', async () => {
@@ -135,7 +156,8 @@ describe('SessionPage - STT Mode Selection UI', () => {
         // Mock Pro User via Lifecycle Hook
         mockUseSessionLifecycle.mockReturnValue({
             ...mockUseSessionLifecycle(),
-            isProUser: true
+            isProUser: true,
+            mode: 'native' // Explicitly start with native to match trigger text
         } as unknown as ReturnType<typeof useSessionLifecycle>);
 
         render(<SessionPage />);
@@ -143,12 +165,11 @@ describe('SessionPage - STT Mode Selection UI', () => {
         const trigger = screen.getByText('Native Browser');
         await user.click(trigger);
 
-        // Note: For Pro users, the "(Pro)" suffix is not shown
-        const onDeviceItem = await screen.findByText('Private');
-        const cloudItem = await screen.findByText('Cloud');
+        // Find items in the dropdown
+        const onDeviceItem = await screen.findByTestId('stt-mode-private');
+        const cloudItem = await screen.findByTestId('stt-mode-cloud');
 
-        expect(onDeviceItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
-        expect(cloudItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
-        expect(true).toBe(true); // Explicit assertion for linter
+        expect(onDeviceItem).not.toHaveAttribute('aria-disabled', 'true');
+        expect(cloudItem).not.toHaveAttribute('aria-disabled', 'true');
     });
 });

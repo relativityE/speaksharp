@@ -56,6 +56,15 @@ vi.mock('posthog-js', () => ({
     },
 }));
 
+vi.mock('@/providers/useTranscriptionContext', () => ({
+    useTranscriptionContext: () => ({
+        service: {
+            warmUp: vi.fn(),
+        },
+        isReady: true,
+    }),
+}));
+
 // Mock react-router-dom
 vi.mock('react-router-dom', async () => {
     const actual = await vi.importActual('react-router-dom') as object;

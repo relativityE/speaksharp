@@ -115,12 +115,13 @@ describe('TransformersJSEngine (Unit)', () => {
     });
 
     it('should handle transcription errors', async () => {
+        // First init to get a working transcriber
         await engine.init({});
-        mockPipeline.mockImplementationOnce(async () => {
-            return async () => { throw new Error('Transcription failure'); };
-        });
-        // Non-cached init for this test to pick up the failing mock
-        await engine.init({});
+
+        // Directly mock the instance's transcriber to fail
+        // We reach into the engine to set the transcriber to a failing one
+        // @ts-expect-error accessing private member for testing
+        engine['transcriber'] = async () => { throw new Error('Transcription failure'); };
 
         const result = await engine.transcribe(new Float32Array(16000));
         expect(result.isErr).toBe(true);
