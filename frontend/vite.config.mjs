@@ -106,6 +106,9 @@ export default defineConfig(({ mode }) => {
       alias: {
         "@": path.resolve(__dirname, "./src"),
         "@shared": path.resolve(__dirname, "../backend/supabase/functions/_shared"),
+        "@test-utils": path.resolve(__dirname, "./tests/support/test-utils"),
+        "@test-mocks": path.resolve(__dirname, "./tests/mocks"),
+        "tests": path.resolve(__dirname, "./tests"),
       },
     },
     define: {

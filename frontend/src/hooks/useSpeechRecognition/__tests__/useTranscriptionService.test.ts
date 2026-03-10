@@ -25,12 +25,20 @@ vi.mock('../../../lib/logger', () => ({
 }));
 
 // Mock TranscriptionService for the second test suite
-vi.mock('../../../services/transcription/TranscriptionService', () => {
+vi.mock('../../../services/transcription/TranscriptionService', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../../services/transcription/TranscriptionService')>();
     return {
+        ...actual,
         default: vi.fn().mockImplementation(() => ({
             updateCallbacks: vi.fn(),
             startTranscription: vi.fn(),
             destroy: vi.fn(),
+        })),
+        getTranscriptionService: vi.fn().mockImplementation(() => ({
+            updateCallbacks: vi.fn(),
+            startTranscription: vi.fn(),
+            destroy: vi.fn(),
+            fsm: { subscribe: vi.fn(() => () => {}) }
         })),
     };
 });

@@ -39,7 +39,7 @@ export async function createMicStreamImpl(
       offFrame: () => { },
       stop: () => { },
       close: () => { },
-      _mediaStream: new MediaStream(),
+      _mediaStream: typeof MediaStream !== 'undefined' ? new MediaStream() : { getTracks: () => [] } as unknown as MediaStream,
     };
 
     // Expose for E2E synchronization

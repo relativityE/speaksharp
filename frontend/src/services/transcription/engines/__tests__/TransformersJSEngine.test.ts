@@ -120,8 +120,7 @@ describe('TransformersJSEngine (Unit)', () => {
 
         // Directly mock the instance's transcriber to fail
         // We reach into the engine to set the transcriber to a failing one
-        // @ts-expect-error accessing private member for testing
-        engine['transcriber'] = async () => { throw new Error('Transcription failure'); };
+        (engine as unknown as { transcriber: () => Promise<never> }).transcriber = async () => { throw new Error('Transcription failure'); };
 
         const result = await engine.transcribe(new Float32Array(16000));
         expect(result.isErr).toBe(true);

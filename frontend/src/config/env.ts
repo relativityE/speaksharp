@@ -22,7 +22,7 @@ export const E2E_MSW_READY_FLAG = 'mswReady'; // Legacy compat
 
 import { TestFlags } from './TestFlags';
 
-export const IS_TEST_ENVIRONMENT = TestFlags.IS_TEST_MODE;
+export const IS_TEST_ENVIRONMENT = TestFlags.IS_TEST_MODE || (typeof window !== 'undefined' && window.TEST_MODE === true);
 
 // ServiceWorker registration timeout (in milliseconds)
 export const SW_TIMEOUT_MS = 2000;

@@ -7,24 +7,24 @@
 | TD-001 | ROADMAP.md:84 | Harden Supabase Security (OTP expiry, leaked password, Postgres upgrade) | Security / Infra | Requires Supabase Pro for some items |
 | TD-002 | ROADMAP.md:92 | Domain Services DI Refactor | Architecture | Low priority, current spies work |
 | TD-003 | ROADMAP.md:456 | Simplify Setup Test Users Workflow UI | Dev Experience | GH Actions UI limitations |
-| TD-004 | ROADMAP.md:546 | Unified Documentation Metric Sync | Dev Experience | ✅ RESOLVED in PR #DebtRemediation |
-| TD-005 | ROADMAP.md:547 | Remove Mock Timeout Bypass in `TranscriptionService.ts` | Testing / Reliability | ✅ RESOLVED in PR #DebtRemediation |
+| TD-004 | ROADMAP.md:546 | Unified Documentation Metric Sync | Dev Experience | ✅ Resolved in TD-REMEDIATION |
+| TD-005 | ROADMAP.md:547 | Remove Mock Timeout Bypass in `TranscriptionService.ts` | Testing / Reliability | ✅ Resolved in TD-REMEDIATION |
 | TD-006 | ROADMAP.md:604 | Split Usage Tracking (cloud_usage vs native_usage) | Billing / DB | Part of Tier Enforcement Refactor |
 | TD-007 | ROADMAP.md:606 | Update RPC Logic for engine-specific counters | Billing / DB | Part of Tier Enforcement Refactor |
 | TD-008 | ROADMAP.md:608 | Revise Edge Function Limits (daily vs monthly) | Billing / DB | Part of Tier Enforcement Refactor |
 | TD-009 | ROADMAP.md:610 | Frontend UI Sync for decoupled usage bars | UI / UX | Part of Tier Enforcement Refactor |
-| TD-010 | ROADMAP.md:613 | Default to Private STT for Pro users | UX / Cost | ✅ RESOLVED in PR #DebtRemediation |
-| TD-011 | ROADMAP.md:615 | "Zero-Network Vault Mode" UI | UX / Privacy | ✅ RESOLVED in PR #DebtRemediation |
-| TD-012 | ROADMAP.md:617 | Delightful Loading States for WebGPU | UX | ✅ RESOLVED in PR #DebtRemediation |
+| TD-010 | ROADMAP.md:613 | Default to Private STT for Pro users | UX / Cost | ✅ Resolved in TD-REMEDIATION |
+| TD-011 | ROADMAP.md:615 | "Zero-Network Vault Mode" UI | UX / Privacy | ✅ Resolved in TD-REMEDIATION |
+| TD-012 | ROADMAP.md:617 | Delightful Loading States for WebGPU | UX | ✅ Resolved in TD-REMEDIATION |
 | TD-013 | ROADMAP.md:619 | Secure Model Hosting (Signed URLs) | Security / Cost | Gating model access by subscription |
 | TD-014 | ROADMAP.md:419 | Profile Loading Root Cause Investigation | Reliability | Intermittent Supabase fetch failures |
-| TD-015 | ARCHITECTURE.md:3057 | Input length enforcement for `transcript` field | Reliability / Security | ✅ RESOLVED in PR #DebtRemediation |
+| TD-015 | ARCHITECTURE.md:3057 | Input length enforcement for `transcript` field | Reliability / Security | ✅ Resolved in TD-REMEDIATION |
 | TD-016 | ARCHITECTURE.md:3058 | Cold start optimization for Edge Functions | Performance | Optimize imports/warmup logic |
 | TD-017 | tests/live/analytics-journey.live.spec.ts:37 | Implement dynamic promo generation for Free path | Testing / Marketing | E2E automation for promo flow |
-| TD-018 | ROADMAP.md:134 | Set `ALLOWED_ORIGIN` in Supabase for production | Security | ✅ RESOLVED in PR #DebtRemediation |
+| TD-018 | ROADMAP.md:134 | Set `ALLOWED_ORIGIN` in Supabase for production | Security | ✅ Resolved in TD-REMEDIATION |
 | TD-019 | PRD.md:209 | Testimonials placeholders ("TBD") | Marketing / UI | Needs real content |
-| TD-020 | ROADMAP.md:550 | Migration Idempotency (IF NOT EXISTS) | Infrastructure | ✅ RESOLVED in PR #DebtRemediation |
-| TD-021 | ROADMAP.md:552 | React Router v7 Deprecation future flags | Architecture | ✅ RESOLVED in PR #DebtRemediation |
+| TD-020 | ROADMAP.md:550 | Migration Idempotency (IF NOT EXISTS) | Infrastructure | ✅ Resolved in TD-REMEDIATION |
+| TD-021 | ROADMAP.md:552 | React Router v7 Deprecation future flags | Architecture | ✅ Resolved in TD-REMEDIATION |
 | TD-022 | PRD.md:214 | STT Integration Test Timeouts | Testing | WASM overhead causes flakiness in CI |
 | TD-023 | ROADMAP.md:483 | 1-Click Practice Session Summaries (Watermarked) | Marketing / Funnel | viral acquisition feature |
 | TD-024 | ROADMAP.md:485 | AI Speech Coach (Pro Tier) | Product / AI | Post-session feedback agent |

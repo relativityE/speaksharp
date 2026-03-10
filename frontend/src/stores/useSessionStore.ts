@@ -101,7 +101,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
     setSTTStatus: (status) => {
         set((state) => {
             // ✅ GUARD: Don't allow overwriting 'recording' with 'idle' or 'ready' silently
-            if (state.sttStatus.type === 'recording') {
+            if (state.sttStatus?.type === 'recording') {
                 if (status.type === 'idle' || status.type === 'ready') {
                     logger.warn({ status }, '[Store] ⚠️ Attempted to overwrite recording state');
                 }

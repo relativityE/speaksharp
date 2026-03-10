@@ -279,7 +279,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Sun, 08 Mar 2026 19:20:50 GMT
+**Last Updated:** Fri, 06 Mar 2026 01:29:22 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -295,15 +295,15 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 626 (556 unit + 70 E2E) |
+| Total tests             | 696 (556 unit + 140 E2E) |
 | Unit tests              | 556   |
-| E2E tests (Playwright)  | 70  |
-| Passing tests           | 626 (556 unit + 70 E2E)   |
+| E2E tests (Playwright)  | 140  |
+| Passing tests           | 624 (556 unit + 68 E2E)   |
 | Failing tests           | 0   |
-| Disabled/skipped tests  | 0 (E2E only)   |
+| Disabled/skipped tests  | 72 (E2E only)   |
 | Passing unit tests      | 556/556 (100.0%)   |
-| Passing E2E tests       | 70/70 (100.0%)   |
-| Total runtime           | 2m 24s   |
+| Passing E2E tests       | 68/140 (48.6%)   |
+| Total runtime           | See CI logs   |
 
 ---
 
@@ -311,10 +311,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric     | Value |
 | ---------- | ----- |
-| Statements | 85.5%   |
-| Branches   | 78.2%   |
-| Functions  | 82.1%   |
-| Lines      | 85.5%   |
+| Statements | 0%   |
+| Branches   | 0%   |
+| Functions  | 0%   |
+| Lines      | 0%   |
 
 ---
 
@@ -322,11 +322,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 3.5MB   |
-| Total Project Size  | 214MB   |
-| Initial Chunk Size  | 933KB   |
-| Code Bloat Index    | 26.3%   |
-| Lighthouse Scores   | P: 97, A: 94, BP: 100, SEO: 91 |
+| Total Source Size   | 7.0M   |
+| Total Project Size  | 1.4G   |
+| Initial Chunk Size  | 1.1M   |
+| Code Bloat Index    | 14.46%   |
+| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
 
 ---
 <!-- SQM:END -->

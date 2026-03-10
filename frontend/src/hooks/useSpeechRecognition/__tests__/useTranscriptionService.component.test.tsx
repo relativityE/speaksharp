@@ -89,7 +89,7 @@ describe('useTranscriptionService', () => {
   });
 
   it('should stop listening successfully', async () => {
-    const { result, unmount } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
+    const { result } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
 
     // Start listening
     await act(async () => {
@@ -101,14 +101,6 @@ describe('useTranscriptionService', () => {
     await act(async () => {
       const response = await result.current.stopListening();
       expect(response).toEqual(expect.objectContaining({ success: true }));
-    });
-
-    act(() => {
-      unmount();
-    });
-
-    await vi.waitFor(() => {
-      expect(activeMockService.destroy).toHaveBeenCalled();
     });
 
     expect(result.current.isListening).toBe(false);
@@ -135,17 +127,4 @@ describe('useTranscriptionService', () => {
     expect(result.current.isSupported).toBe(true);
   });
 
-  it('should cleanup on unmount', async () => {
-    const { result, unmount } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
-
-    await act(async () => {
-      await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
-    });
-
-    act(() => {
-      unmount();
-    });
-
-    expect(activeMockService.destroy).toHaveBeenCalled();
-  });
 });

@@ -402,10 +402,10 @@ This phase is about confirming the core feature set works as expected and polish
   - ✅ **Task 3: Cross-Tab Mutex Lock (COMPLETE):** Resolved by enforcing a universal single-session policy and synchronous lock release.
   - ✅ **Task 4: Voice Activity Auto-Pause (COMPLETE):** Fully implemented and verified via deterministic `page.clock` E2E tests.
   - ✅ **Task 6: Graceful Session Wrap-up & Limit Modals (COMPLETE):** Implemented "Gracious Sunset" UI and status message synchronization.
-- 🟡 **Prioritize WebGPU Local Engine (Code & UX):** At $0.47/hr for Cloud STT, maximizing Pro user adoption of the Local Engine is critical to prevent losses on heavy users.
-  - ✅ **Task 1: Default Selection:** Refactor `useSpeechRecognition` and `TranscriptionService` to default to `private` mode for Pro users, instead of `cloud`.
-  - ✅ **Task 2: "Zero-Network Vault Mode" UI:** Add a visual "Vault Active" lock icon when WebGPU is selected to prove NO network requests are being made, alleviating #1 privacy fears.
-  - ✅ **Task 3: Delightful Loading States:** Add polished skeleton loaders and progress bars during the chunked WebGPU model download process.
+- 🔴 **Prioritize WebGPU Local Engine (Code & UX):** At $0.47/hr for Cloud STT, maximizing Pro user adoption of the Local Engine is critical to prevent losses on heavy users.
+  - **Task 1: Default Selection:** Refactor `useSpeechRecognition` and `TranscriptionService` to default to `private` mode for Pro users, instead of `cloud`.
+  - **Task 2: "Zero-Network Vault Mode" UI:** Add a visual "Vault Active" lock icon when WebGPU is selected to prove NO network requests are being made, alleviating #1 privacy fears.
+  - **Task 3: Delightful Loading States:** Add polished skeleton loaders and progress bars during the chunked WebGPU model download process.
   - **Task 4: Secure Model Hosting (Anti-Hack):** Move the raw WebGPU model files from a public Vercel CDN into a secure Supabase Storage Bucket. The frontend must hit an Edge Function to acquire a signed, short-lived URL, which enforces RLS (`subscription_status = 'pro'`), rendering client-side React tampering useless.
 - ✅ **Private STT CI Stability (2026-01-01):** Resolved WASM deadlocks and flaky integration tests using Triple-Engine Architecture and MockEngine strategy.
 
@@ -547,15 +547,15 @@ This phase is about confirming the core feature set works as expected and polish
 |---|---------|----------|----------|-------|
 | 1 | **TranscriptionService SRP Violation** | `TranscriptionService.ts` | P2 | ✅ REFACTORED - Split into specialized mode Providers |
 | 2 | **UI State Boolean Flags** | `RecordingControls.tsx` | P2 | ✅ REFACTORED - Decomposed into clean hooks and sub-components |
-| 3 | **Migration Idempotency** | `supabase/migrations/*` | P3 | ✅ FIXED - Implemented IF NOT EXISTS guards for all migrations. |
+| 3 | **Migration Idempotency** | `supabase/migrations/*` | P3 | Add `IF NOT EXISTS` guards before public launch |
 | 4 | **Filler Word Regex False Positives** | `fillerWordUtils.ts` | P3 | ✅ FIXED - Integrated `compromise` NLP and optimized for performance |
-| 5 | **React Router v7 Deprecation** | Console output | P3 | ✅ FIXED - Added future flags to BrowserRouter for v7 compatibility. |
+| 5 | **React Router v7 Deprecation** | Console output | P3 | Add future flags before upgrading |
 | 6 | **SessionPage Mega Component** | `SessionPage.tsx` | P2 | ✅ DECOMPOSED - Logic moved to hooks, UI split into cards |
 | ~~7~~ | ~~**Filler/Min Rounding Edge Case**~~ | ~~`analyticsUtils.ts:61`~~ | ~~P3~~ | ✅ FIXED 2026-01-06 - Now uses precise minutes |
 | 8 | **Minimum Session Duration UX** | `SessionPage.tsx` | P2 | ✅ FIXED - Added HUD indicator and feedback message |
 | 9 | **Test Harness Config (Stale Closure)** | `useSpeechRecognition/__tests__` | P3 | ✅ FIXED - Atomic hook decomposition (`useTranscriptionCallbacks`) and `useRef`-based proxying eliminates stale closure risk. |
-| 10 | **Unified Documentation Metric Sync** | `scripts/update-prd-metrics.mjs` | P2 | ✅ FIXED - Automated metric sync across README/ARCH via markers. |
-| 11 | **Remove Mock Timeout Bypass** | `TranscriptionService.ts` | P2 | ✅ FIXED - Decoupled service from test infra using window override pattern. |
+| 10 | **Unified Documentation Metric Sync** | `scripts/update-prd-metrics.mjs` | P2 | Automate metric sync for `README.md` and `ARCHITECTURE.md` using markers (currently manual). |
+| 11 | **Remove Mock Timeout Bypass** | `TranscriptionService.ts` | P2 | Evolve the Optimistic Entry logic to handle mocks via a more generic "ready-on-init" flag rather than explicitly checking for mocks, reducing test-prod coupling. |
 
 ### ℹ️ Known Limitations (Accepted)
 

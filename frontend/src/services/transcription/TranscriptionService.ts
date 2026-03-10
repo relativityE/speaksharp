@@ -38,6 +38,17 @@ export function getTranscriptionService(options: Partial<TranscriptionServiceOpt
   return _instance;
 }
 
+/**
+ * 🧪 Test-only helper to reset the singleton.
+ * Prevents cross-test state leakage.
+ */
+export function resetTranscriptionService(): void {
+  if (_instance) {
+    _instance.destroy();
+    _instance = null;
+  }
+}
+
 // Types moved to src/types/transcription.ts
 
 export interface TranscriptionServiceOptions {
@@ -624,13 +635,14 @@ export default class TranscriptionService {
     }
 
     // PERSISTENCE FIX: Ensure background download progress isn't clobbered by state changes
-    const currentProgress = useSessionStore.getState().modelLoadingProgress;
-    if (currentProgress !== null && state !== 'TERMINATED') {
+    const store = useSessionStore.getState?.();
+    const currentProgress = store?.modelLoadingProgress;
+    if (currentProgress !== undefined && currentProgress !== null && state !== 'TERMINATED') {
       status.progress = currentProgress;
     }
 
     this.options.onStatusChange?.(status);
-    useSessionStore.getState().setSTTStatus(status);
+    store?.setSTTStatus?.(status);
   }
 
   private async handleFailure(mode: TranscriptionMode, error: Error): Promise<void> {

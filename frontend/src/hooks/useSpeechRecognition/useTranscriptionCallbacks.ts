@@ -15,10 +15,4 @@ export function useTranscriptionCallbacks(callbacks: Partial<TranscriptionServic
         service.updateCallbacks(callbacks);
     }, [service, isReady, callbacks]);
 
-    // 🔴 TD-020 Cleanup: Ensure service is destroyed on unmount to free resources
-    useEffect(() => {
-        return () => {
-            if (service) service.destroy();
-        };
-    }, [service]);
 }

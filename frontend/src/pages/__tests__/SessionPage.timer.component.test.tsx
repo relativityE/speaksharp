@@ -10,20 +10,19 @@
  *
  * @see useSessionLifecycle.ts for the hook under test
  */
-import { describe, it, expect, vi, beforeEach, afterEach, Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '../../../tests/support/test-utils';
 import { useSessionLifecycle } from '../../hooks/useSessionLifecycle';
 import * as SpeechRecognitionHook from '../../hooks/useSpeechRecognition';
-import * as SessionStore from '../../stores/useSessionStore';
+import { useSessionStore } from '../../stores/useSessionStore';
 import * as VocalAnalysisHook from '../../hooks/useVocalAnalysis';
 import * as AuthProvider from '../../contexts/AuthProvider';
 import * as UserProfileHook from '@/hooks/useUserProfile';
 import * as UsageLimitHook from '@/hooks/useUsageLimit';
-import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
 
 // Mock modules
 vi.mock('../../hooks/useSpeechRecognition');
-vi.mock('../../stores/useSessionStore');
+// vi.mock('../../stores/useSessionStore'); // AGENT PRINCIPLE: Use Real Store
 vi.mock('../../hooks/useVocalAnalysis');
 vi.mock('../../contexts/AuthProvider');
 vi.mock('../../hooks/useProfile', () => ({
@@ -56,15 +55,6 @@ vi.mock('posthog-js', () => ({
     },
 }));
 
-vi.mock('@/providers/useTranscriptionContext', () => ({
-    useTranscriptionContext: () => ({
-        service: {
-            warmUp: vi.fn(),
-        },
-        isReady: true,
-    }),
-}));
-
 // Mock react-router-dom
 vi.mock('react-router-dom', async () => {
     const actual = await vi.importActual('react-router-dom') as object;
@@ -86,7 +76,6 @@ vi.mock('@tanstack/react-query', async () => {
 });
 
 const mockUseSpeechRecognition = vi.mocked(SpeechRecognitionHook.useSpeechRecognition);
-const mockUseSessionStore = vi.mocked(SessionStore.useSessionStore);
 const mockUseVocalAnalysis = vi.mocked(VocalAnalysisHook.useVocalAnalysis);
 const mockUseAuthProvider = vi.mocked(AuthProvider.useAuthProvider);
 const mockUseUserProfile = vi.mocked(UserProfileHook.useUserProfile);
@@ -97,15 +86,12 @@ describe('useSessionLifecycle Timer Logic', () => {
     const mockStopListening = vi.fn();
     // const mockUpdateElapsedTime = vi.fn(); // Removed unused
 
-    let store: ReturnType<typeof createTestSessionStore>;
     beforeEach(() => {
         vi.clearAllMocks();
         vi.clearAllTimers();
         vi.useFakeTimers();
 
-        store = createTestSessionStore({
-            elapsedTime: 0,
-        });
+        useSessionStore.getState().resetSession();
 
         // Default mocks
         mockUseSpeechRecognition.mockReturnValue({
@@ -122,8 +108,6 @@ describe('useSessionLifecycle Timer Logic', () => {
             chunks: [],
             mode: 'native',
         } as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
-
-        (mockUseSessionStore as unknown as Mock).mockImplementation((selector: unknown) => ((store as unknown as { getState: () => unknown }).getState() as (s: unknown) => unknown)(selector));
 
         mockUseVocalAnalysis.mockReturnValue({
             pauseMetrics: {
@@ -157,9 +141,6 @@ describe('useSessionLifecycle Timer Logic', () => {
     });
 
     it('should update elapsed time when listening', () => {
-        // Bypass hook complexity - just return state
-        (mockUseSessionStore as unknown as Mock).mockImplementation((selector: unknown) => (selector as (s: unknown) => unknown)((store as unknown as { getState: () => unknown }).getState()));
-
         mockUseSpeechRecognition.mockReturnValue({
             ...mockUseSpeechRecognition(),
             isListening: true,
@@ -168,21 +149,20 @@ describe('useSessionLifecycle Timer Logic', () => {
         renderHook(() => useSessionLifecycle());
 
         // Enable listening in store
-        (store as unknown as { setState: (s: unknown) => void }).setState({ isListening: true, startTime: Date.now() });
+        act(() => {
+            useSessionStore.getState().startSession();
+        });
 
         // Advance time by 1 second
         act(() => {
             vi.advanceTimersByTime(1000);
         });
 
-        // Verify state update (tick logic)
-        // Note: We check if tick was called, or if elapsed time updated
-        expect((store as unknown as { getState: () => { tick: Mock } }).getState().tick).toHaveBeenCalled();
+        // Verify elapsed time updated
+        expect(useSessionStore.getState().elapsedTime).toBe(1);
     });
 
     it('should reset elapsed time when stopped (on mount)', () => {
-        (mockUseSessionStore as unknown as Mock).mockImplementation((selector: unknown) => (selector as (s: unknown) => unknown)((store as unknown as { getState: () => unknown }).getState()));
-
         mockUseSpeechRecognition.mockReturnValue({
             ...mockUseSpeechRecognition(),
             isListening: false,

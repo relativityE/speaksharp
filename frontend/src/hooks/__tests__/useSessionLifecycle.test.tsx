@@ -176,15 +176,6 @@ vi.mock('@/services/transcription/TranscriptionPolicy', async (importOriginal) =
     };
 });
 
-vi.mock('@/providers/useTranscriptionContext', () => ({
-    useTranscriptionContext: () => ({
-        service: {
-            warmUp: vi.fn(),
-        },
-        isReady: true,
-    }),
-}));
-
 vi.mock('@/config/env', () => ({
     MIN_SESSION_DURATION_SECONDS: 5
 }));
@@ -196,7 +187,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         // Use factory for a fresh store each test
         const mockStore = createTestSessionStore();
         (useSessionStore as unknown as Mock).mockImplementation(mockStore);
-        vi.mocked(useSessionStore).getState = vi.fn(() => mockStore.getState());
+        (useSessionStore as unknown as { getState: Mock }).getState.mockImplementation(() => mockStore.getState());
 
         // Ensure default is free for auto-stop tests
         vi.mocked(useProfile).mockReturnValue({
@@ -225,7 +216,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             startTime: Date.now() - (mockElapsedTime * 1000),
         });
         (useSessionStore as unknown as Mock).mockImplementation(mockStoreAuto);
-        vi.mocked(useSessionStore).getState = vi.fn(() => mockStoreAuto.getState());
+        (useSessionStore as unknown as { getState: Mock }).getState.mockImplementation(() => mockStoreAuto.getState());
 
         vi.mocked(useSpeechRecognition).mockReturnValue({
             transcript: baseTranscript,
@@ -270,7 +261,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             startTime: Date.now() - 25000,
         });
         (useSessionStore as unknown as Mock).mockImplementation(mockStoreWait);
-        vi.mocked(useSessionStore).getState = vi.fn(() => mockStoreWait.getState());
+        (useSessionStore as unknown as { getState: Mock }).getState.mockImplementation(() => mockStoreWait.getState());
 
         vi.mocked(useSpeechRecognition).mockReturnValue({
             transcript: baseTranscript,

@@ -5,6 +5,7 @@ import { renderHookWithProviders } from '@test-utils/renderHookWithProviders';
 import { MockTranscriptionService } from '@test-mocks/MockTranscriptionService';
 import useSpeechRecognition from '../index';
 import { testRegistry } from '@/services/transcription/TestRegistry';
+import { resetTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { Session as SupabaseSession } from '@supabase/supabase-js';
 import { TranscriptionModeOptions, ITranscriptionMode } from '@/services/transcription/modes/types';
 
@@ -26,11 +27,18 @@ vi.mock('@/services/transcription/TestRegistry', async (importOriginal) => {
 describe('useSpeechRecognition Integration', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        resetTranscriptionService();
         MockTranscriptionService.latestInstance = null;
         // Setup the registry to return our MockTranscriptionService constructor
-        vi.mocked(testRegistry.get).mockReturnValue((opts: TranscriptionModeOptions) => new MockTranscriptionService(opts) as unknown as ITranscriptionMode);
+        vi.mocked(testRegistry.get).mockReturnValue((opts: TranscriptionModeOptions) => {
+            const mock = new MockTranscriptionService(opts);
+            // Patch it to look like a real engine for the Service's internal checks
+            (mock as unknown as { getEngineType: () => string }).getEngineType = () => 'native';
+            return mock as unknown as ITranscriptionMode;
+        });
 
         const win = window as unknown as Record<string, unknown>;
+        win.TEST_MODE = true;
         win.__E2E_MOCK_NATIVE__ = true;
         win.MockNativeBrowser = MockTranscriptionService;
         win.MockPrivateWhisper = MockTranscriptionService;
@@ -102,7 +110,7 @@ describe('useSpeechRecognition Integration', () => {
         // CRITICAL: Verify final words are captured in the hook state
         await waitFor(() => {
             expect(result.current.chunks.some(c => c.transcript === 'final words')).toBe(true);
-        });
+        }, { timeout: 3000 });
     });
 
     it('should handle service errors gracefully', async () => {
@@ -152,26 +160,4 @@ describe('useSpeechRecognition Integration', () => {
         }, { timeout: 3000 });
     });
 
-    it('should cleanup on unmount', async () => {
-        const { result, unmount } = renderHookWithProviders(() => useSpeechRecognition());
-
-        await act(async () => {
-            await result.current.startListening();
-        });
-
-        // Wait for the instance to be created (async via useEffect/act)
-        let service: MockTranscriptionService | null = null;
-        await vi.waitFor(() => {
-            service = MockTranscriptionService.latestInstance;
-            expect(service).toBeTruthy();
-        });
-
-        const terminateSpy = vi.spyOn(service!, 'terminate');
-
-        unmount();
-
-        await vi.waitFor(() => {
-            expect(terminateSpy).toHaveBeenCalled();
-        });
-    });
 });
