@@ -64,16 +64,6 @@ export class TranscriptionFSM {
         { from: 'STOPPING', to: 'READY', event: 'STOP_COMPLETED' }, // Keep mic hot
         { from: 'STOPPING', to: 'IDLE', event: 'RESET_REQUESTED' },
 
-        // Error from any state
-        { from: 'IDLE', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'ACTIVATING_MIC', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'READY', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'DOWNLOADING_MODEL', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'INITIALIZING_ENGINE', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'RECORDING', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'PAUSED', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'STOPPING', to: 'ERROR', event: 'ERROR_OCCURRED' },
-
         // Terminal & Cleanup Sequence
         { from: 'IDLE', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
         { from: 'ERROR', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
@@ -88,6 +78,16 @@ export class TranscriptionFSM {
         // Finalize cleanup - Strict outbound transitions per Senior Audit
         { from: 'CLEANING_UP', to: 'IDLE', event: 'RESET_REQUESTED' },
         { from: 'CLEANING_UP', to: 'ERROR', event: 'ERROR_OCCURRED' },
+
+        // Global Error Transitions
+        { from: 'IDLE', to: 'ERROR', event: 'ERROR_OCCURRED' },
+        { from: 'ACTIVATING_MIC', to: 'ERROR', event: 'ERROR_OCCURRED' },
+        { from: 'READY', to: 'ERROR', event: 'ERROR_OCCURRED' },
+        { from: 'DOWNLOADING_MODEL', to: 'ERROR', event: 'ERROR_OCCURRED' },
+        { from: 'INITIALIZING_ENGINE', to: 'ERROR', event: 'ERROR_OCCURRED' },
+        { from: 'RECORDING', to: 'ERROR', event: 'ERROR_OCCURRED' },
+        { from: 'PAUSED', to: 'ERROR', event: 'ERROR_OCCURRED' },
+        { from: 'STOPPING', to: 'ERROR', event: 'ERROR_OCCURRED' },
 
         // Reset from Terminal
         { from: 'TERMINATED', to: 'IDLE', event: 'RESET_REQUESTED' },

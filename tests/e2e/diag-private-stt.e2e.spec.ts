@@ -88,7 +88,10 @@ test('DIAGNOSTIC: check isProUser and profile state', async ({ page }) => {
     console.log(`[DIAG] Mode button: "${modeText}"`);
 
     // The test: After starting in Private mode with mock engine, recording starts immediately.
-    // Status bar shows "Recording active" (not the engine name), while mode selector confirms "Private".
-    expect(statusText?.toLowerCase()).toContain('recording');
+    // Status bar shows "Recording active" or "🔒 Private" (not the engine name), while mode selector confirms "Private".
+    const normalizedStatus = statusText?.toLowerCase() || '';
+    const isRecording = normalizedStatus.includes('recording') || normalizedStatus.includes('private');
+
+    expect(isRecording).toBe(true);
     expect(modeText?.toLowerCase()).toContain('private');
 });

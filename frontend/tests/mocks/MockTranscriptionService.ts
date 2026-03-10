@@ -12,6 +12,18 @@ export class MockTranscriptionService {
     public isSupported = true;
     public mode = 'native';
     public sttStatus: SttStatus = { type: 'idle', message: 'Idle' };
+    public fsm = {
+        subscribe: (cb: (state: string) => void) => {
+            this.fsmListeners.add(cb);
+            cb(this.fsmState);
+            return () => this.fsmListeners.delete(cb);
+        },
+        getState: () => this.fsmState,
+        transition: vi.fn(),
+        is: (state: string) => this.fsmState === state,
+    };
+    private fsmState = 'IDLE';
+    private fsmListeners = new Set<(state: string) => void>();
 
     // Callbacks provided by the hook
     private options: TranscriptionModeOptions;
@@ -34,7 +46,8 @@ export class MockTranscriptionService {
 
     startTranscription = async (): Promise<void> => {
         this.isListening = true;
-        this.sttStatus = { type: 'ready', message: 'Recording active' };
+        this.sttStatus = { type: 'recording', message: 'Recording active' };
+        this.updateFsmState('RECORDING');
         return Promise.resolve();
     }
 
@@ -50,6 +63,13 @@ export class MockTranscriptionService {
 
     terminate = async (): Promise<void> => {
         this.isListening = false;
+        this.updateFsmState('IDLE');
+        return Promise.resolve();
+    }
+
+    destroy = async (): Promise<void> => {
+        this.isListening = false;
+        this.updateFsmState('IDLE');
         return Promise.resolve();
     }
 
@@ -61,6 +81,7 @@ export class MockTranscriptionService {
 
     getMode = () => this.mode;
     getEngineType = () => this.mode === 'private' ? 'whisper-turbo' : this.mode;
+    getState = () => this.fsmState;
 
     getTranscript = async (): Promise<string> => {
         return "Current transcript";
@@ -104,13 +125,22 @@ export class MockTranscriptionService {
      */
     simulateStatusChange(status: SttStatus): void {
         this.sttStatus = status;
-        if (status.type === 'error' && this.options.onError) {
-            this.options.onError({
-                message: status.message,
-                code: 'UNKNOWN',
-                recoverable: false,
-                name: 'TranscriptionError'
-            } as unknown as import('@/services/transcription/modes/types').TranscriptionError);
+        if (status.type === 'error') {
+            this.updateFsmState('ERROR');
+            if (this.options.onError) {
+                this.options.onError({
+                    message: status.message,
+                    code: 'UNKNOWN',
+                    recoverable: false,
+                    name: 'TranscriptionError'
+                } as unknown as import('@/services/transcription/modes/types').TranscriptionError);
+            }
         }
+        this.options.onStatusChange?.(status);
+    }
+
+    private updateFsmState(state: string) {
+        this.fsmState = state;
+        this.fsmListeners.forEach(cb => cb(state));
     }
 }

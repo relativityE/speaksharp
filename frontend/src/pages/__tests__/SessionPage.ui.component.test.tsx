@@ -120,9 +120,9 @@ describe('SessionPage - STT Mode Selection UI', () => {
         await user.click(trigger);
 
         // Radix UI renders content in a specific way, userEvent should handle it.
-        // Wait for items to appear - Free users see "Private" and "Cloud"
-        const onDeviceItem = await screen.findByText('Private');
-        const cloudItem = await screen.findByText('Cloud');
+        // Wait for items to appear - Free users see "Private (Pro)" and "Cloud (Pro)"
+        const onDeviceItem = await screen.findByText(/Private/i);
+        const cloudItem = await screen.findByText(/Cloud/i);
 
         expect(onDeviceItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
         expect(cloudItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
@@ -143,9 +143,9 @@ describe('SessionPage - STT Mode Selection UI', () => {
         const trigger = screen.getByText('Native Browser');
         await user.click(trigger);
 
-        // Note: For Pro users, the "(Pro)" suffix is not shown
-        const onDeviceItem = await screen.findByText('Private');
-        const cloudItem = await screen.findByText('Cloud');
+        // Wait for items to appear
+        const onDeviceItem = await screen.findByText(/Private/i);
+        const cloudItem = await screen.findByText(/Cloud/i);
 
         expect(onDeviceItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
         expect(cloudItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');

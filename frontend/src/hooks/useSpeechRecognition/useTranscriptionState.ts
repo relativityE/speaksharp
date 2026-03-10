@@ -69,6 +69,6 @@ export const useTranscriptionState = () => {
         setInterimTranscript,
         reset,
         isRecording: state === 'RECORDING',
-        isInitializing: state === 'INITIALIZING_ENGINE' || state === 'ACTIVATING_MIC'
+        isInitializing: state === 'INITIALIZING_ENGINE' || state === 'ACTIVATING_MIC' || state === 'DOWNLOADING_MODEL'
     };
 };

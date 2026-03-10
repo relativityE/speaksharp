@@ -1,7 +1,5 @@
 import { renderHook, act } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import React from 'react';
-import { TranscriptionProvider } from '../../../providers/TranscriptionProvider';
 import { useSpeechRecognition_prod as useSpeechRecognition } from '../index';
 import { useTranscriptionState } from '../useTranscriptionState';
 import { useFillerWords } from '../useFillerWords';
@@ -71,13 +69,6 @@ class MockEngine implements ITranscriptionMode {
   getEngineType = () => 'native' as const;
 }
 
-function wrapper({ children }: { children: React.ReactNode }): React.ReactElement {
-  return (
-    <TranscriptionProvider>
-      {children}
-    </TranscriptionProvider>
-  );
-}
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 
 describe('useSpeechRecognition', () => {
@@ -113,6 +104,7 @@ describe('useSpeechRecognition', () => {
         stopTranscription: vi.fn(),
         init: vi.fn(),
         terminate: vi.fn(),
+        destroy: vi.fn(),
         updateCallbacks: vi.fn()
       },
       isReady: true,
@@ -137,7 +129,7 @@ describe('useSpeechRecognition', () => {
   });
 
   it('should initialize and return expected interface', () => {
-    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+    const { result } = renderHook(() => useSpeechRecognition());
 
     expect(result.current).toHaveProperty('transcript');
     expect(result.current).toHaveProperty('chunks');
@@ -155,7 +147,7 @@ describe('useSpeechRecognition', () => {
 
   it('should initialize and return expected interface (Baseline)', () => {
     mockUseTranscriptionContext.isReady = false; // Override for baseline check
-    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+    const { result } = renderHook(() => useSpeechRecognition());
 
     expect(result.current.isListening).toBe(false);
     expect(result.current.isReady).toBe(false); // Initially false
@@ -167,7 +159,7 @@ describe('useSpeechRecognition', () => {
   // REMOVED: "should call sub-hooks with correct parameters" - Implementation Detail
 
   it('should handle stopListening with stats (Behavior)', async () => {
-    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+    const { result } = renderHook(() => useSpeechRecognition());
 
     (mockUseTranscriptionContext.service!.stopTranscription as unknown as Mock).mockResolvedValueOnce({ success: true });
 
@@ -187,7 +179,7 @@ describe('useSpeechRecognition', () => {
   });
 
   it('should reset state when startListening is called', async () => {
-    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+    const { result } = renderHook(() => useSpeechRecognition());
 
     await act(async () => {
       await result.current.startListening();
@@ -218,7 +210,7 @@ describe('useSpeechRecognition', () => {
     });
 
     // 2. Re-render hook to ensure updateCallbacks is called with the capture mock
-    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+    const { result } = renderHook(() => useSpeechRecognition());
 
     // 3. Mock startTranscription to Resolve (as per architecture) but trigger onError callback
     (mockUseTranscriptionContext.service!.startTranscription as unknown as Mock).mockImplementation(async () => {

@@ -42,7 +42,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     isListening,
     isReady,
     isProUser,
-    statusMessage,
+    statusMessage: _statusMessage,
     formattedTime,
     elapsedSeconds,
     isButtonDisabled,
@@ -115,6 +115,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     onClick={onStartStop}
                                     disabled={isButtonDisabled}
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
+                                    data-recording="false"
                                     aria-label="Start Recording"
                                     className="w-11 h-11 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-elegant hover:scale-105 transition-all duration-300 p-0"
                                 >
@@ -125,6 +126,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     onClick={onStartStop}
                                     disabled={isButtonDisabled}
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
+                                    data-recording="true"
                                     aria-label="Stop Recording"
                                     className="w-11 h-11 rounded-full bg-primary hover:bg-primary/80 text-primary-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"
                                 >

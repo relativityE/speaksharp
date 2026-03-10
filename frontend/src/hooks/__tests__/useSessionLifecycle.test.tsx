@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '../../../tests/support/test-utils';
 import { useSessionLifecycle } from '../useSessionLifecycle';
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -23,15 +23,23 @@ vi.mock('@/hooks/useProfile', () => ({
 
 import { useProfile } from '@/hooks/useProfile';
 
-vi.mock('@/contexts/AuthProvider', () => ({
-    useAuthProvider: () => ({ session: { access_token: 'mock-token' }, user: { id: 'test-user' } }),
-}));
+vi.mock('@/contexts/AuthProvider', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/contexts/AuthProvider')>();
+    return {
+        ...actual,
+        useAuthProvider: () => ({ session: { access_token: 'mock-token' }, user: { id: 'test-user' } }),
+    };
+});
 
 // Redundant useUserProfile removed
 
-vi.mock('@tanstack/react-query', () => ({
-    useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-}));
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@tanstack/react-query')>();
+    return {
+        ...actual,
+        useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+    };
+});
 
 import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
 
@@ -147,20 +155,24 @@ vi.mock('@/constants/subscriptionTiers', () => ({
     isPro: vi.fn((status: string | undefined) => status === 'pro'),
 }));
 
-vi.mock('@/services/transcription/TranscriptionPolicy', () => ({
-    buildPolicyForUser: vi.fn(() => ({
-        allowNative: true,
-        allowCloud: false,
-        allowPrivate: false,
-        preferredMode: 'native',
-        allowFallback: false,
-        executionIntent: 'test'
-    })),
-    TranscriptionMode: {
-        NATIVE: 'native',
-        CLOUD: 'cloud',
-    },
-}));
+vi.mock('@/services/transcription/TranscriptionPolicy', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/services/transcription/TranscriptionPolicy')>();
+    return {
+        ...actual,
+        buildPolicyForUser: vi.fn(() => ({
+            allowNative: true,
+            allowCloud: false,
+            allowPrivate: false,
+            preferredMode: 'native',
+            allowFallback: false,
+            executionIntent: 'test'
+        })),
+        TranscriptionMode: {
+            NATIVE: 'native',
+            CLOUD: 'cloud',
+        },
+    };
+});
 
 vi.mock('@/config/env', () => ({
     MIN_SESSION_DURATION_SECONDS: 5

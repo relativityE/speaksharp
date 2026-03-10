@@ -28,7 +28,16 @@ export function useTranscriptionCallbacks(callbacks: Partial<TranscriptionServic
             onModelLoadProgress: (progress) => callbacksRef.current.onModelLoadProgress?.(progress),
             onReady: () => callbacksRef.current.onReady?.(),
             onModeChange: (mode) => callbacksRef.current.onModeChange?.(mode),
-            onStatusChange: (status) => callbacksRef.current.onStatusChange?.(status),
+            onStatusChange: (status) => {
+                if (status.type === 'error') {
+                    // Force the service into error state so useTranscriptionState picks it up
+                    service.fsm.transition({
+                        type: 'ERROR_OCCURRED',
+                        error: new Error(status.message)
+                    });
+                }
+                callbacksRef.current.onStatusChange?.(status);
+            },
             onAudioData: (data) => callbacksRef.current.onAudioData?.(data),
             onError: (err) => callbacksRef.current.onError?.(err),
             session: callbacksRef.current.session,

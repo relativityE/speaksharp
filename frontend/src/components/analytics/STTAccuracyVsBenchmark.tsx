@@ -9,7 +9,44 @@ import { useParams } from 'react-router-dom';
 // Need to import using absolute root resolving or relative mapping.
 import benchmarkDataRaw from '../../../../docs/STT_BENCHMARKS.json';
 
-const STT_BENCHMARKS = benchmarkDataRaw.engines as Record<string, { expectedAccuracy: number, provider: string }>;
+interface Benchmark {
+    expectedAccuracy: number;
+    provider: string;
+}
+
+const getSTTBenchmarks = () => {
+    const engines = (benchmarkDataRaw as unknown as { engines: Record<string, unknown> }).engines;
+    const benchmarks: Record<string, Benchmark> = {};
+
+    if (engines.Cloud) {
+        const cloud = engines.Cloud as Benchmark;
+        benchmarks.cloud = {
+            expectedAccuracy: cloud.expectedAccuracy,
+            provider: cloud.provider
+        };
+    }
+
+    if (engines.Private) {
+        const priv = engines.Private as { cpu: Benchmark };
+        // Default to CPU for safe comparison if sub-engine not specified
+        benchmarks.private = {
+            expectedAccuracy: priv.cpu.expectedAccuracy,
+            provider: priv.cpu.provider
+        };
+    }
+
+    if (engines.Native) {
+        const native = engines.Native as Benchmark;
+        benchmarks.native = {
+            expectedAccuracy: native.expectedAccuracy || 85,
+            provider: native.provider
+        };
+    }
+
+    return benchmarks;
+};
+
+const STT_BENCHMARKS = getSTTBenchmarks();
 
 /**
  * STT Accuracy Vs Benchmark Chart

@@ -6,9 +6,9 @@ import * as RouterDom from 'react-router-dom';
 
 vi.mock('@/hooks/useAnalytics');
 vi.mock('react-router-dom', async () => {
-    const actual = await vi.importActual('react-router-dom');
+    const actual = await vi.importActual<typeof RouterDom>('react-router-dom');
     return {
-        ...actual as any,
+        ...actual,
         useParams: vi.fn(),
     };
 });
@@ -31,16 +31,15 @@ describe('STTAccuracyVsBenchmark', () => {
             overallStats: {
                 totalSessions: 0,
                 totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
+                avgWpm: 0,
+                avgFillerWordsPerMin: "0.0",
+                avgAccuracy: "0.0",
+                chartData: [],
             },
-            fillerWordTrends: { dates: [], datasets: [] },
+            fillerWordTrends: {},
             topFillerWords: [],
             weeklySessionsCount: 0,
             weeklyActivity: [],
-            refreshAnalytics: vi.fn(),
         });
 
         render(<STTAccuracyVsBenchmark />);
@@ -50,8 +49,8 @@ describe('STTAccuracyVsBenchmark', () => {
     it('should render dashboard trend view when no session id is provided', () => {
         mockUseAnalytics.mockReturnValue({
             accuracyData: [
-                { date: '10/10', accuracy: 85, engine: 'Native' },
-                { date: '10/11', accuracy: 92, engine: 'Private' },
+                { date: '10/10', accuracy: 85, engine: 'native' },
+                { date: '10/11', accuracy: 92, engine: 'private' },
             ],
             sessionHistory: [],
             loading: false,
@@ -59,16 +58,15 @@ describe('STTAccuracyVsBenchmark', () => {
             overallStats: {
                 totalSessions: 0,
                 totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
+                avgWpm: 0,
+                avgFillerWordsPerMin: "0.0",
+                avgAccuracy: "0.0",
+                chartData: [],
             },
-            fillerWordTrends: { dates: [], datasets: [] },
+            fillerWordTrends: {},
             topFillerWords: [],
             weeklySessionsCount: 0,
             weeklyActivity: [],
-            refreshAnalytics: vi.fn(),
         });
 
         render(<STTAccuracyVsBenchmark />);
@@ -84,16 +82,15 @@ describe('STTAccuracyVsBenchmark', () => {
             overallStats: {
                 totalSessions: 0,
                 totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
+                avgWpm: 0,
+                avgFillerWordsPerMin: "0.0",
+                avgAccuracy: "0.0",
+                chartData: [],
             },
-            fillerWordTrends: { dates: [], datasets: [] },
+            fillerWordTrends: {},
             topFillerWords: [],
             weeklySessionsCount: 0,
             weeklyActivity: [],
-            refreshAnalytics: vi.fn(),
         });
 
         render(<STTAccuracyVsBenchmark />);
@@ -105,7 +102,7 @@ describe('STTAccuracyVsBenchmark', () => {
 
         mockUseAnalytics.mockReturnValue({
             accuracyData: [
-                { date: '10/10', accuracy: 88, engine: 'Private' } // Mocked filtered accuracy data
+                { date: '10/10', accuracy: 88, engine: 'private' } // Mocked filtered accuracy data
             ],
             sessionHistory: [
                 {
@@ -115,7 +112,7 @@ describe('STTAccuracyVsBenchmark', () => {
                     duration: 60,
                     transcript: 'Hello world',
                     ground_truth: 'Hello world',
-                    engine: 'Private',
+                    engine: 'private',
                 }
             ],
             loading: false,
@@ -123,21 +120,21 @@ describe('STTAccuracyVsBenchmark', () => {
             overallStats: {
                 totalSessions: 0,
                 totalPracticeTime: 0,
-                averageWPM: 0,
-                averageClarity: 0,
-                totalWords: 0,
-                averageAccuracy: 0,
+                avgWpm: 0,
+                avgFillerWordsPerMin: "0.0",
+                avgAccuracy: "0.0",
+                chartData: [],
             },
-            fillerWordTrends: { dates: [], datasets: [] },
+            fillerWordTrends: {},
             topFillerWords: [],
             weeklySessionsCount: 0,
             weeklyActivity: [],
-            refreshAnalytics: vi.fn(),
         });
 
         render(<STTAccuracyVsBenchmark />);
         expect(screen.getByText(/Session Accuracy vs/)).toBeInTheDocument();
-        expect(screen.getByText(/Private/)).toBeInTheDocument();
+        // Use a function matcher to find text even if it's split across multiple elements
+        expect(screen.getAllByText((content) => content.includes('private')).length).toBeGreaterThan(0);
         expect(screen.getByText(/This session used the/)).toBeInTheDocument();
     });
 });

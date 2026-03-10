@@ -4,11 +4,18 @@ import ErrorBoundary from '../ErrorBoundary';
 import logger from '../../lib/logger';
 
 // Mock logger to avoid console spam and verify calls
-vi.mock('../../lib/logger', () => ({
-    default: {
-        error: vi.fn(),
-    },
-}));
+vi.mock('../../lib/logger', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../lib/logger')>();
+    return {
+        ...actual,
+        default: {
+            error: vi.fn(),
+            info: vi.fn(),
+            warn: vi.fn(),
+            debug: vi.fn(),
+        },
+    };
+});
 
 // Mock ErrorDisplay to avoid alias resolution issues in test environment
 vi.mock('../ErrorDisplay', () => ({
