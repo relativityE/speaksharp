@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '../../../tests/support/test-utils';
-import userEvent from '@testing-library/user-event';
 import { SessionPage } from '../SessionPage';
 import * as UsageLimitHook from '@/hooks/useUsageLimit';
 import { useSessionStore } from '../../stores/useSessionStore';
@@ -100,8 +99,6 @@ describe('SessionPage - STT Mode Selection UI', () => {
     });
 
     it('should disable Pro options (Private, Cloud) for Free users', async () => {
-        const user = userEvent.setup({ pointerEventsCheck: 0 });
-
         // Mock Free User via Lifecycle Hook
         mockUseSessionLifecycle.mockReturnValue({
             ...mockUseSessionLifecycle(),

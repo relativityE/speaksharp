@@ -16,9 +16,13 @@ export const TranscriptionProvider: React.FC<{
     // 2. Lifecycle Audit: We no longer destroy the service on unmount 
     // because it is a global singleton protecting the WASM state.
     useEffect(() => {
-        logger.info('[TranscriptionProvider] Component mounted/updated');
+        if (typeof logger?.info === 'function') {
+            logger.info('[TranscriptionProvider] Component mounted/updated');
+        }
         return () => {
-            logger.info('[TranscriptionProvider] Component unmounting (Service persists)');
+            if (typeof logger?.info === 'function') {
+                logger.info('[TranscriptionProvider] Component unmounting (Service persists)');
+            }
         };
     }, []);
 

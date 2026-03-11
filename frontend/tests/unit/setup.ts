@@ -81,6 +81,21 @@ vi.mock('@/components/ui/sonner', () => ({
     Toaster: () => null
 }));
 
+// Mock logger to avoid "default.info is not a function" in tests
+vi.mock('@/lib/logger', () => ({
+    __esModule: true,
+    default: {
+        info: vi.fn(),
+        error: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+    },
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
+}));
+
 // ============================================
 // DOM Polyfills
 // ============================================
