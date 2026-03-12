@@ -114,6 +114,12 @@ export default class TranscriptionService {
    * Cold Boot Accelerator: Pre-initializes the engine without starting the mic.
    * Crucial for WASM/transformers.js where model loading takes significant time.
    */
+  private getStore(): SessionStore | null {
+    // Zustand store getState is usually available, but we use defensive access for test environments
+    const storeApi = useSessionStore as unknown as { getState?: () => SessionStore };
+    return storeApi.getState?.() || null;
+  }
+
   public async warmUp(mode: TranscriptionMode): Promise<void> {
     if (mode !== 'private') return; // Only private needs heavy warm-up
 
@@ -121,8 +127,8 @@ export default class TranscriptionService {
 
     try {
       // 1. Create engine if not exists (or different)
-      const engineInstance = this.engine as (ITranscriptionMode & { type?: string }) | null;
-      if (!engineInstance || (engineInstance as unknown as { type: string }).type !== 'transformers-js') {
+      const engineInstance = this.engine;
+      if (!engineInstance || engineInstance.getEngineType() !== 'transformers-js') {
         const engineConfig: TranscriptionModeOptions = {
           ...this.options,
           onModelLoadProgress: (progress) => this.handleModelLoadProgress(progress)
@@ -147,14 +153,9 @@ export default class TranscriptionService {
     if (progress === null) return;
 
     // Standardize: If already 0-100 (from modern engine), use it.
-    // If we ever have a legacy engine emitting 0-1, we would scale it here,
-    // but current audit confirms Engines now emit 0-100.
     const percent = Math.round(progress);
-
-    const store = (useSessionStore as unknown as { getState?: () => SessionStore }).getState?.();
-    if (store?.setModelLoadingProgress) {
-      store.setModelLoadingProgress(percent);
-    }
+    const store = this.getStore();
+    store?.setModelLoadingProgress(percent);
 
     if (percent === 100) {
       // Signal transition back to initializing once download finishes
@@ -164,8 +165,8 @@ export default class TranscriptionService {
 
       // AUTO-CLEANUP: Clear indicator once it hits 100%
       setTimeout(() => {
-        const s = (useSessionStore as unknown as { getState?: () => SessionStore }).getState?.();
-        if (s?.modelLoadingProgress === 100 && s?.setModelLoadingProgress) {
+        const s = this.getStore();
+        if (s?.modelLoadingProgress === 100) {
           s.setModelLoadingProgress(null);
         }
       }, 1500);
@@ -198,10 +199,11 @@ export default class TranscriptionService {
       this.fsm.transition({ type: 'MIC_ACQUIRED' });
       return { success: true };
     } catch (error) {
-      this.micError = error instanceof Error ? error : new Error(String(error));
-      this.lastError = this.micError;
-      this.fsm.transition({ type: 'ERROR_OCCURRED', error: this.micError });
-      this.options.onError?.(this.micError);
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.micError = err;
+      this.lastError = err;
+      this.fsm.transition({ type: 'ERROR_OCCURRED', error: err });
+      this.options.onError?.(err);
       return { success: false };
     }
   }
@@ -235,7 +237,7 @@ export default class TranscriptionService {
 
     let mode = resolveMode(this.policy);
 
-    const store = (useSessionStore as unknown as { getState?: () => SessionStore }).getState?.();
+    const store = this.getStore();
 
     // Circuit Breaker: Fallback if too many failures
     if (mode === 'private' && this.failureManager.getEffectiveFailureCount() >= STT_CONFIG.MAX_PRIVATE_ATTEMPTS) {
@@ -254,9 +256,7 @@ export default class TranscriptionService {
 
     this.mode = mode;
     this.startTimestamp = Date.now();
-    if (store?.setSTTMode) {
-      store.setSTTMode(mode);
-    }
+    store?.setSTTMode(mode);
 
     try {
       if (mode !== 'native' && !this.mic) throw new Error('Microphone not initialized');
@@ -275,23 +275,21 @@ export default class TranscriptionService {
       logger.info(`[TranscriptionService] Preparing engine for mode: ${mode}`);
 
       // ✅ EXPERT OPTIMIZATION: Preserve warm-up by reusing existing engine if mode matches
-      const engineInstance = this.engine as (ITranscriptionMode & { getEngineType?: () => string, type?: string, updateOptions?: (opts: TranscriptionModeOptions) => void }) | null;
-      const existingType = engineInstance ? engineInstance.getEngineType?.() || engineInstance.type : null;
+      const engineInstance = this.engine;
+      const existingType = engineInstance?.getEngineType() || null;
       const isPrivate = mode === 'private';
-      const isSameMode = (isPrivate && (existingType === 'transformers-js' || existingType === 'whisper-turbo')) ||
+      const isSameMode = (isPrivate && (existingType === 'transformers-js' || existingType === 'whisper-turbo' || existingType === 'mock')) ||
         (mode === 'native' && existingType === 'native') ||
         (mode === 'cloud' && existingType === 'cloud');
 
       if (engineInstance && isSameMode) {
         logger.info(`[TranscriptionService] Reusing existing ${mode} engine instance`);
         // Update callbacks of existing engine to handle potential stale closures
-        if (typeof (engineInstance as { updateOptions?: (opts: TranscriptionModeOptions) => void }).updateOptions === 'function') {
-          (engineInstance as { updateOptions: (opts: TranscriptionModeOptions) => void }).updateOptions(proxyOptions);
-        }
+        engineInstance.updateOptions?.(proxyOptions);
       } else {
         if (this.engine) {
           logger.info('[TranscriptionService] Mode changed, destroying old engine');
-          await (this.engine as unknown as { terminate?: () => Promise<void> }).terminate?.();
+          await this.engine.terminate?.();
         }
         this.engine = await EngineFactory.create(mode, proxyOptions, this.policy);
       }
@@ -339,7 +337,7 @@ export default class TranscriptionService {
         // ✅ INDUSTRY STANDARD: Handle background completion
         initPromise.then(() => {
           // If we are recording in fallback mode (e.g. native), notify the user that private is now ready
-          const s = (useSessionStore as unknown as { getState?: () => SessionStore }).getState?.();
+          const s = this.getStore();
           const activeEngine = s?.activeEngine;
           if (this.fsm.is('RECORDING') && activeEngine === 'native') {
             logger.info('[TranscriptionService] Background private engine init complete');
@@ -370,13 +368,14 @@ export default class TranscriptionService {
 
       // ✅ EXPECTED EVENT: Any other known event
       if (isExpectedEvent(error)) {
-        const code = (error as unknown as Record<string, unknown>).code;
+        const code = (error as Record<string, unknown>).code;
         logger.info({ code: String(code) }, '[TranscriptionService] Expected event');
         // Handle gracefully, no error propagation
         return;
       }
 
-      await this.handleFailure(mode, error as Error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      await this.handleFailure(mode, err);
     }
   }
 
@@ -394,10 +393,7 @@ export default class TranscriptionService {
 
       this.startTime = Date.now();
       this.options.onModeChange?.(mode);
-      const store = (useSessionStore as unknown as { getState?: () => SessionStore }).getState?.();
-      if (store?.setActiveEngine) {
-        store.setActiveEngine(mode);
-      }
+      this.getStore()?.setActiveEngine(mode);
 
       this.fsm.transition({ type: 'ENGINE_STARTED' });
     } catch (error) {
@@ -423,8 +419,9 @@ export default class TranscriptionService {
 
     try {
       // ✅ RESILIENCE: Race the engine stop against a timeout to prevent UI hangs
-      const transcript = this.engine ? await Promise.race([
-        this.engine.stopTranscription(),
+      const currentEngine = this.engine;
+      const transcript = currentEngine ? await Promise.race([
+        currentEngine.stopTranscription(),
         new Promise<string>((_, reject) =>
           setTimeout(() => reject(new Error('Engine stop timeout')), 3000)
         )
@@ -434,16 +431,14 @@ export default class TranscriptionService {
       const stats = calculateTranscriptStats([{ transcript }], [], '', duration);
 
       this.fsm.transition({ type: 'STOP_COMPLETED' });
-      const store = (useSessionStore as unknown as { getState?: () => SessionStore }).getState?.();
-      if (store?.setActiveEngine) {
-        store.setActiveEngine(null);
-      }
+      this.getStore()?.setActiveEngine(null);
 
       return { success: true, transcript, stats };
     } catch (error) {
-      this.lastError = error as Error;
-      this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
-      this.options.onError?.(error as Error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.lastError = err;
+      this.fsm.transition({ type: 'ERROR_OCCURRED', error: err });
+      this.options.onError?.(err);
       return { success: false, transcript: '', stats: { transcript: '', total_words: 0, accuracy: 0, duration: 0 } };
     } finally {
       this.startTime = null;
@@ -554,8 +549,8 @@ export default class TranscriptionService {
     this.fallbackAbortController = new AbortController();
     const { signal } = this.fallbackAbortController;
 
-    const timeout = (win.__STT_LOAD_TIMEOUT__ as number | undefined)
-      ?? STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.CI;
+    const timeout = Number(win.__STT_LOAD_TIMEOUT__)
+      || STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.CI;
 
     logger.info({ timeout }, '[STT] Starting fallback timer');
 
@@ -585,9 +580,9 @@ export default class TranscriptionService {
   }
 
   private getLoadTimeout(): number {
-    const win = typeof window !== 'undefined' ? window as unknown as { __STT_LOAD_TIMEOUT__?: number } : null;
+    const win = typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>) : null;
     if (win && win.__STT_LOAD_TIMEOUT__) {
-      return win.__STT_LOAD_TIMEOUT__;
+      return Number(win.__STT_LOAD_TIMEOUT__);
     }
     return IS_TEST_ENVIRONMENT
       ? STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.CI
@@ -658,8 +653,8 @@ export default class TranscriptionService {
       case 'DOWNLOADING_MODEL': status = { type: 'downloading', message: 'Downloading model...' }; break;
       case 'INITIALIZING_ENGINE': status = { type: 'initializing', message: 'Initializing engine...' }; break;
       case 'RECORDING': {
-        const engineInstance = this.engine as (ITranscriptionMode & { getEngineType?: () => string }) | null;
-        const engineType = engineInstance?.getEngineType?.() || '';
+        const engineInstance = this.engine;
+        const engineType = engineInstance?.getEngineType() || '';
         const isFast = engineType === 'whisper-turbo';
         const label = isFast ? '🔒 Private (Fast)' : (engineType === 'transformers-js' ? '🔒 Private (Safe)' : 'Recording active');
         status = { type: 'recording', message: label };
@@ -671,16 +666,14 @@ export default class TranscriptionService {
 
     // PERSISTENCE FIX: Ensure background download progress isn't clobbered by state changes
     // Defensive access for tests where store might be mocked
-    const store = (useSessionStore as unknown as { getState?: () => SessionStore }).getState?.();
+    const store = this.getStore();
     const currentProgress = store?.modelLoadingProgress;
     if (currentProgress !== undefined && currentProgress !== null && state !== 'TERMINATED') {
       status.progress = currentProgress;
     }
 
     this.options.onStatusChange?.(status);
-    if (store?.setSTTStatus) {
-      store.setSTTStatus(status);
-    }
+    store?.setSTTStatus(status);
   }
 
   private async handleFailure(mode: TranscriptionMode, error: Error): Promise<void> {
@@ -702,9 +695,10 @@ export default class TranscriptionService {
       // ✅ FIX: Await the fallback to ensure deterministic state transitions
       await this.startTranscription({ ...this.policy, preferredMode: 'native' });
     } else {
-      this.lastError = error;
-      this.fsm.transition({ type: 'ERROR_OCCURRED', error });
-      this.options.onError?.(error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.lastError = err;
+      this.fsm.transition({ type: 'ERROR_OCCURRED', error: err });
+      this.options.onError?.(err);
     }
   }
 
@@ -727,10 +721,7 @@ export default class TranscriptionService {
     });
 
     // We still keep the loading progress at 0 for the background download indicator
-    const store = (useSessionStore as unknown as { getState?: () => SessionStore }).getState?.();
-    if (store?.setModelLoadingProgress) {
-      store.setModelLoadingProgress(0);
-    }
+    this.getStore()?.setModelLoadingProgress(0);
 
     // FIX: Must create a new Native engine instance
     const engineConfig: TranscriptionModeOptions = { ...this.options };

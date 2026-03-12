@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { TranscriptionPolicy } from '../../services/transcription/TranscriptionPolicy';
 import logger from '../../lib/logger';
@@ -25,16 +25,6 @@ export const useTranscriptionControl = () => {
         if (!service) return;
         logger.info('[useTranscriptionControl] Stopping transcription');
         return await service.stopTranscription();
-    }, [service]);
-
-    // Ensure cleanup happens on unmount
-    useEffect(() => {
-        return () => {
-            if (service && typeof service.destroy === 'function') {
-                logger.info('[useTranscriptionControl] Cleaning up service on unmount');
-                service.destroy();
-            }
-        };
     }, [service]);
 
     return {

@@ -42,7 +42,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     isListening,
     isReady,
     isProUser,
-    statusMessage: _statusMessage,
+    statusMessage,
     formattedTime,
     elapsedSeconds,
     isButtonDisabled,
@@ -143,7 +143,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             <div className="mt-1 inline-flex items-center gap-1.5 py-0.5 px-2 rounded-full bg-muted/5 border border-muted/10 opacity-60">
                                 <div className={`h-1 w-1 rounded-full ${isListening ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/30'}`} />
                                 <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-[0.2em]">
-                                    {isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Syncing") : "Engine Ready"}
+                                    {isListening
+                                        ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Syncing")
+                                        : (statusMessage || "Engine Ready")}
                                 </span>
                             </div>
                         </div>

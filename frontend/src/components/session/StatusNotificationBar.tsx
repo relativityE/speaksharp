@@ -9,46 +9,51 @@ interface StatusNotificationBarProps {
     className?: string;
 }
 
+/**
+ * STANDARDIZED UI (v3.5.0): Solid Yellow Thin Bar
+ * Yellow-400 bg, bold black text, 2px border.
+ * Consistent across all operational states.
+ */
 const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string }> = {
     idle: {
         icon: Info,
-        bgClass: 'glass border-white/5 shadow-sm',
-        textClass: 'text-muted-foreground font-semibold',
+        bgClass: 'bg-yellow-400 border-2 border-yellow-500/50 shadow-sm',
+        textClass: 'text-black font-black',
     },
     initializing: {
         icon: Loader2,
-        bgClass: 'bg-primary/10 border-primary/20 shadow-glow backdrop-blur-xl',
-        textClass: 'text-primary font-bold',
+        bgClass: 'bg-yellow-400 border-2 border-yellow-500/50 shadow-yellow-glow',
+        textClass: 'text-black font-black',
     },
     downloading: {
         icon: Loader2,
-        bgClass: 'bg-primary/20 border-primary/30 shadow-cyan-glow backdrop-blur-2xl',
-        textClass: 'text-primary font-bold',
+        bgClass: 'bg-yellow-400 border-2 border-yellow-500/50 shadow-yellow-glow',
+        textClass: 'text-black font-black',
     },
     ready: {
         icon: CheckCircle2,
-        bgClass: 'bg-emerald-500/10 border-emerald-500/20 shadow-sm backdrop-blur-xl',
-        textClass: 'text-emerald-500 font-bold',
+        bgClass: 'bg-yellow-400 border-2 border-yellow-500/50 shadow-sm',
+        textClass: 'text-black font-black',
     },
     recording: {
         icon: Info,
-        bgClass: 'bg-secondary/10 border-secondary/20 shadow-yellow-glow backdrop-blur-xl animate-pulse',
-        textClass: 'text-secondary font-bold',
+        bgClass: 'bg-yellow-400 border-2 border-yellow-500/50 shadow-yellow-glow animate-pulse',
+        textClass: 'text-black font-black',
     },
     fallback: {
         icon: AlertTriangle,
-        bgClass: 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-xl',
-        textClass: 'text-orange-500 font-bold',
+        bgClass: 'bg-yellow-400 border-2 border-yellow-500/50 shadow-sm',
+        textClass: 'text-black font-black',
     },
     error: {
         icon: AlertCircle,
-        bgClass: 'bg-destructive/10 border-destructive/20 shadow-sm backdrop-blur-xl',
-        textClass: 'text-destructive font-bold',
+        bgClass: 'bg-yellow-400 border-2 border-yellow-500/50 shadow-sm',
+        textClass: 'text-black font-black',
     },
     info: {
         icon: Info,
-        bgClass: 'glass border-primary/20 shadow-sm backdrop-blur-xl',
-        textClass: 'text-primary font-bold',
+        bgClass: 'bg-yellow-400 border-2 border-yellow-500/50 shadow-sm',
+        textClass: 'text-black font-black',
     },
 };
 
@@ -141,24 +146,23 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             {/* Secondary Status Indicator (Background Task) - Far Right */}
             {hasSecondary && (
                 <div
-                    className="flex items-center gap-4 pl-4 border-l border-white/10"
+            className="flex items-center gap-4 pl-4 border-l border-black/10"
                     data-testid="background-task-indicator"
                 >
                     <div className="flex flex-col items-end">
-                        <span className={`text-[10px] font-bold uppercase tracking-wider ${config.textClass}`}>
+                <span className={`text-[10px] font-black uppercase tracking-wider ${config.textClass}`}>
                             Private Model
                         </span>
-                        <span className={`text-[9px] font-medium opacity-60 ${config.textClass}`}>
+                <span className={`text-[9px] font-bold opacity-70 ${config.textClass}`}>
                             {modelLoadingProgress === 100 ? 'Cached' : 'Downloading...'}
                         </span>
                     </div>
                     <div className="flex items-center gap-3 w-32">
-                        <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden shadow-inner">
+                <div className="flex-1 h-1.5 bg-black/10 rounded-full overflow-hidden shadow-inner">
                             <div
-                                className="h-full bg-current transition-all duration-500 ease-out shadow-[0_0_10px_rgba(255,255,255,0.3)]"
+                        className="h-full bg-black transition-all duration-500 ease-out"
                                 style={{
-                                    width: `${modelLoadingProgress}%`,
-                                    backgroundColor: 'currentColor'
+                            width: `${modelLoadingProgress}%`
                                 }}
                             />
                         </div>

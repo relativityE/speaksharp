@@ -76,4 +76,5 @@ export interface ITranscriptionMode {
   terminate?(): Promise<void>; // Optional strict cleanup
   getTranscript(): Promise<string>;
   getEngineType(): string;
+  updateOptions?(options: TranscriptionModeOptions): void;
 }
