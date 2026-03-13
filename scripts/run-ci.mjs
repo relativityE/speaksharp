@@ -369,8 +369,9 @@ async function main() {
         // Compute runtime before summary
         ciTelemetry.totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
 
-        printFinalSummary(stagesList, ciTelemetry, true);
-        generateMarkdownReport(rootDir, ciTelemetry, true);
+        const pipelineSuccess = !stagesList.some(s => s.status === 'FAILED');
+        printFinalSummary(stagesList, ciTelemetry, pipelineSuccess);
+        generateMarkdownReport(rootDir, ciTelemetry, pipelineSuccess);
 
     } catch (error) {
         console.error(`\n${ANSI.RED}${ANSI.BOLD}❌ CI Pipeline Failed: ${error.message}${ANSI.RESET}`);
@@ -394,8 +395,9 @@ async function main() {
         }
 
         ciTelemetry.sqm = getSQMResults(rootDir, ciTelemetry);
-        printFinalSummary(stagesList, ciTelemetry, false);
-        generateMarkdownReport(rootDir, ciTelemetry, false);
+        const pipelineSuccess = !stagesList.some(s => s.status === 'FAILED');
+        printFinalSummary(stagesList, ciTelemetry, pipelineSuccess);
+        generateMarkdownReport(rootDir, ciTelemetry, pipelineSuccess);
         
         process.exitCode = 1;
     } finally {
