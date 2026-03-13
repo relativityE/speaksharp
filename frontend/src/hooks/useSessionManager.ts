@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import logger from '../lib/logger';
-import { saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData } from '../lib/storage';
+import { saveSession as saveSessionToDb, deleteSession as deleteSessionFromDb, exportData, updateSession } from '../lib/storage';
 import type { PracticeSession } from '../types/session';
 import { useUserProfile } from './useUserProfile';
 
@@ -46,6 +46,18 @@ export const useSessionManager = (): UseSessionManager => {
       }
 
       // Handle real users
+      if (sessionData.id) {
+        logger.info({ sessionId: sessionData.id }, '[useSessionManager] 💾 Updating existing session');
+        const { success, error } = await updateSession(sessionData.id, { ...sessionData, user_id: user.id });
+        if (success) {
+          logger.info({ sessionId: sessionData.id }, '[useSessionManager] ✅ Session updated successfully');
+          await queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+          return { session: sessionData as PracticeSession, usageExceeded: false };
+        }
+        logger.error({ error }, '[useSessionManager] ⚠️ Session update failed');
+        return { session: null, usageExceeded: false };
+      }
+
       logger.info({ userId: user.id, engineType }, '[useSessionManager] 💾 Saving session');
       const { session: newSession, usageExceeded } = await saveSessionToDb(
         { ...sessionData, user_id: user.id },

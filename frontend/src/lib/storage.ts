@@ -4,7 +4,6 @@ import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
 import type { PostgrestError } from '@supabase/supabase-js';
 import type { AnalyticsSummary } from '../types/analytics';
-import { isFree } from '@/constants/subscriptionTiers';
 
 /**
  * Pagination options for session history queries.
@@ -97,17 +96,21 @@ export const getSessionById = async (sessionId: string): Promise<PracticeSession
 };
 
 /**
- * Saves a new session to the database and checks usage limits for free users.
+ * Saves a new session to the database and checks usage limits.
  * This function is now architected to be atomic by using a single RPC call.
  * @param {object} sessionData - The session data to save.
  * @param {object} profile - The user's profile.
- * @param {string} engineType - The transcription engine type used ('native' | 'cloud').
- * @returns {Promise<{session: object|null, usageExceeded: boolean}>} A promise that resolves to an object containing the saved session and a flag for usage limit.
+ * @param {string} engineType - The transcription engine type used.
+ * @param {string} idempotencyKey - Optional unique key for the session.
+ * @param {object} metadata - Optional engine/device metadata.
+ * @returns {Promise<{session: object|null, usageExceeded: boolean}>}
  */
 export const saveSession = async (
   sessionData: Partial<PracticeSession> & { user_id: string },
   profile: UserProfile,
-  engineType: 'native' | 'cloud' = 'native'
+  engineType: string = 'native',
+  idempotencyKey?: string,
+  metadata?: { engineVersion?: string; modelName?: string; deviceType?: string }
 ): Promise<{ session: PracticeSession | null, usageExceeded: boolean }> => {
   const supabase = getSupabaseClient();
   if (!sessionData || !sessionData.user_id) {
@@ -115,21 +118,20 @@ export const saveSession = async (
     return { session: null, usageExceeded: false };
   }
 
-  // Security: Enforce input length limits to prevent DB stuffing
+  // Security: Enforce input length limits
   if (sessionData.transcript && sessionData.transcript.length > MAX_TRANSCRIPT_LENGTH) {
     logger.warn({ userId: sessionData.user_id, length: sessionData.transcript.length }, 'Session save blocked: Transcript exceeds max length.');
     throw new Error(`Transcript too long (Max ${MAX_TRANSCRIPT_LENGTH} chars). Please contact support.`);
   }
 
-  // The previous implementation had a race condition where a user could save multiple
-  // sessions before the usage check was performed. This has been fixed by delegating
-  // the entire operation to a single, atomic RPC function in the database.
-  // This function is responsible for both creating the session and updating/checking usage.
-  logger.info({ userId: sessionData.user_id, duration: sessionData.duration, engineType }, '[Supabase DB] 💾 Saving session via RPC');
+  logger.info({ userId: sessionData.user_id, duration: sessionData.duration, engineType, idempotencyKey }, '[Supabase DB] 💾 Saving session via RPC');
   const { data, error } = await supabase.rpc('create_session_and_update_usage', {
     p_session_data: sessionData,
-    p_is_free_user: isFree(profile.subscription_status),
-    p_engine_type: engineType
+    p_engine_type: engineType,
+    p_idempotency_key: idempotencyKey,
+    p_engine_version: metadata?.engineVersion,
+    p_model_name: metadata?.modelName,
+    p_device_type: metadata?.deviceType
   });
 
   if (error) {
@@ -137,13 +139,77 @@ export const saveSession = async (
     return { session: null, usageExceeded: false };
   }
 
-  // The RPC is expected to return an object with the shape:
-  // { new_session: PracticeSession, usage_exceeded: boolean }
-  // We adapt this to the client-side expected return type.
   return {
     session: data?.new_session || null,
     usageExceeded: data?.usage_exceeded || false,
   };
+};
+
+/**
+ * Sends a heartbeat to update session usage incrementally and extend expiry.
+ */
+export const heartbeatSession = async (
+  sessionId: string,
+  incrementalSeconds: number = 30
+): Promise<{ success: boolean; error?: string }> => {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.rpc('heartbeat_session', {
+    p_session_id: sessionId,
+    p_incremental_seconds: incrementalSeconds
+  });
+
+  if (error) {
+    logger.error({ error, sessionId }, '[Supabase DB] 💓 Heartbeat failed');
+    return { success: false, error: error.message };
+  }
+
+  const result = data as { success: boolean } | null;
+  return { success: !!result?.success };
+};
+
+/**
+ * Marks a session as completed.
+ */
+export const completeSession = async (
+  sessionId: string,
+  finalTranscript?: string,
+  finalDuration?: number
+): Promise<{ success: boolean }> => {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.rpc('complete_session', {
+    p_session_id: sessionId,
+    p_final_transcript: finalTranscript,
+    p_final_duration: finalDuration
+  });
+
+  if (error) {
+    logger.error({ error, sessionId }, '[Supabase DB] 🏁 Session completion failed');
+    return { success: false };
+  }
+
+  const result = data as { success: boolean } | null;
+  return { success: !!result?.success };
+};
+
+/**
+ * Updates an existing session with rich metrics.
+ */
+export const updateSession = async (
+  sessionId: string,
+  sessionData: Partial<PracticeSession>
+): Promise<{ success: boolean; error?: string }> => {
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
+    .from('sessions')
+    .update(sessionData)
+    .eq('id', sessionId);
+
+  if (error) {
+    logger.error({ error, sessionId }, '[Supabase DB] Session update failed');
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
 };
 
 /**

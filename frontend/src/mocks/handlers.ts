@@ -2,18 +2,87 @@ import { http, HttpResponse, type RequestHandler } from 'msw';
 import logger from '@/lib/logger';
 import { createMockSession, createMockUserProfile, createMockUser } from './test-user-utils';
 import { MOCK_SESSION_HISTORY } from '@shared/test-fixtures';
+import type { PracticeSession } from '@/types/session';
 
-// Pre-populated user word store with technical terms
-const mockVocabularyStore: Map<string, Array<{ id: string; user_id: string; word: string; created_at: string }>> = new Map([
-  ['test-user-123', [
-    { id: 'vocab-1', user_id: 'test-user-123', word: 'Kubernetes', created_at: new Date(Date.now() - 7 * 86400000).toISOString() },
-    { id: 'vocab-2', user_id: 'test-user-123', word: 'microservices', created_at: new Date(Date.now() - 6 * 86400000).toISOString() },
-    { id: 'vocab-3', user_id: 'test-user-123', word: 'CI/CD', created_at: new Date(Date.now() - 5 * 86400000).toISOString() },
-    { id: 'vocab-4', user_id: 'test-user-123', word: 'serverless', created_at: new Date(Date.now() - 3 * 86400000).toISOString() },
-    { id: 'vocab-5', user_id: 'test-user-123', word: 'neural networks', created_at: new Date(Date.now() - 2 * 86400000).toISOString() },
-    { id: 'vocab-6', user_id: 'test-user-123', word: 'gradient descent', created_at: new Date(Date.now() - 1 * 86400000).toISOString() },
-  ]]
-]);
+// Stateful stores with persistence
+const mockVocabularyStore: Map<string, any[]> = new Map();
+const mockSessionStore: Map<string, any[]> = new Map();
+
+// IndexedDB persistence helper
+const DB_NAME = 'MSW_PERSISTENCE';
+const STORE_NAME = 'stores';
+
+const openDB = () => {
+    return new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = () => {
+            request.result.createObjectStore(STORE_NAME);
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+};
+
+const saveToDB = async (key: string, value: any) => {
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).put(value, key);
+        return new Promise((resolve, reject) => {
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => reject(tx.error);
+        });
+    } catch (err) {
+        logger.error({ err, key }, '[MSW DB] Save failed');
+    }
+};
+
+const loadFromDB = async (key: string) => {
+    try {
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const request = tx.objectStore(STORE_NAME).get(key);
+        return new Promise<any>((resolve, reject) => {
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(tx.error);
+        });
+    } catch (err) {
+        logger.error({ err, key }, '[MSW DB] Load failed');
+        return null;
+    }
+};
+
+// Initialize stores from DB or defaults
+const initializeStores = async () => {
+    const vocab = await loadFromDB('vocabulary');
+    if (vocab) {
+        for (const [k, v] of Object.entries(vocab)) mockVocabularyStore.set(k, v as any[]);
+    } else {
+        // Initial Seed
+        mockVocabularyStore.set('test-user-123', [
+            { id: 'vocab-1', user_id: 'test-user-123', word: 'Kubernetes', created_at: new Date(Date.now() - 7 * 86400000).toISOString() },
+            { id: 'vocab-2', user_id: 'test-user-123', word: 'microservices', created_at: new Date(Date.now() - 6 * 86400000).toISOString() },
+            { id: 'vocab-3', user_id: 'test-user-123', word: 'CI/CD', created_at: new Date(Date.now() - 5 * 86400000).toISOString() },
+            { id: 'vocab-4', user_id: 'test-user-123', word: 'serverless', created_at: new Date(Date.now() - 3 * 86400000).toISOString() },
+            { id: 'vocab-5', user_id: 'test-user-123', word: 'neural networks', created_at: new Date(Date.now() - 2 * 86400000).toISOString() },
+            { id: 'vocab-6', user_id: 'test-user-123', word: 'gradient descent', created_at: new Date(Date.now() - 1 * 86400000).toISOString() },
+        ]);
+        await saveToDB('vocabulary', Object.fromEntries(mockVocabularyStore));
+    }
+
+    const sessions = await loadFromDB('sessions');
+    if (sessions) {
+        for (const [k, v] of Object.entries(sessions)) mockSessionStore.set(k, v as any[]);
+    } else {
+        // Initial Seed
+        mockSessionStore.set('test-user-123', [...MOCK_SESSION_HISTORY]);
+        await saveToDB('sessions', Object.fromEntries(mockSessionStore));
+    }
+    logger.info('[MSW] Stores initialized and persisted');
+};
+
+// Run initialization
+initializeStores();
 
 export const handlers: RequestHandler[] = [
   http.get('*/auth/v1/user', () => {
@@ -91,6 +160,21 @@ export const handlers: RequestHandler[] = [
     return HttpResponse.json([profile]);
   }),
 
+  http.head('*/rest/v1/sessions', ({ request }) => {
+    logger.info('[MSW DEBUG] Intercepted: HEAD /rest/v1/sessions');
+    const userId = 'test-user-123';
+    const sessions = mockSessionStore.get(userId) || [];
+    const count = sessions.length;
+
+    return new HttpResponse(null, {
+      status: 200,
+      headers: {
+        'Content-Range': `0-${Math.max(0, count - 1)}/${count}`,
+        'Content-Type': 'application/json',
+      },
+    });
+  }),
+
   http.get('*/rest/v1/sessions', ({ request }) => {
     logger.info('[MSW DEBUG] Intercepted: GET /rest/v1/sessions');
 
@@ -107,9 +191,34 @@ export const handlers: RequestHandler[] = [
       return HttpResponse.json([]);
     }
 
+    const userId = 'test-user-123';
+    const sessions = mockSessionStore.get(userId) || [];
+
     // Rich mock session data for analytics testing
-    // Shows improvement trend over 5 sessions for trend analysis
-    return HttpResponse.json(MOCK_SESSION_HISTORY);
+    return HttpResponse.json(sessions);
+  }),
+
+  http.patch('*/rest/v1/sessions*', async ({ request }) => {
+    logger.info('[MSW DEBUG] Intercepted: PATCH /rest/v1/sessions');
+    const url = new URL(request.url);
+    const idParam = url.searchParams.get('id');
+    const sessionId = idParam?.replace(/^(eq|neq|gt|gte|lt|lte|like|ilike)\./, '');
+    const body = await request.json() as Partial<PracticeSession>;
+
+    const userId = 'test-user-123';
+    const sessions = mockSessionStore.get(userId) || [];
+    const index = sessions.findIndex(s => s.id === sessionId);
+
+    if (index > -1) {
+      sessions[index] = { ...sessions[index], ...body };
+      mockSessionStore.set(userId, sessions);
+      await saveToDB('sessions', Object.fromEntries(mockSessionStore));
+      logger.info({ sessionId, updatedSession: sessions[index] }, '[MSW PATCH] Session updated');
+      return new HttpResponse(null, { status: 204 });
+    }
+
+    logger.warn({ sessionId }, '[MSW PATCH] Session not found for update');
+    return new HttpResponse(null, { status: 404 });
   }),
 
   // User Filler Words endpoints (STATEFUL with PostgREST parsing)
@@ -149,6 +258,7 @@ export const handlers: RequestHandler[] = [
     const userWords = mockVocabularyStore.get(userId) || [];
     userWords.push(newWord);
     mockVocabularyStore.set(userId, userWords);
+    await saveToDB('vocabulary', Object.fromEntries(mockVocabularyStore));
 
     logger.info({ newWord }, '[MSW POST] Word added');
     logger.info({ userWordCount: userWords.length }, '[MSW POST] User word count updated');
@@ -157,7 +267,7 @@ export const handlers: RequestHandler[] = [
     return HttpResponse.json(newWord);
   }),
 
-  http.delete('*/rest/v1/user_filler_words*', ({ request }) => {
+  http.delete('*/rest/v1/user_filler_words*', async ({ request }) => {
     logger.info('[MSW DELETE] Intercepted: DELETE /rest/v1/user_filler_words');
     const url = new URL(request.url);
 
@@ -173,6 +283,7 @@ export const handlers: RequestHandler[] = [
       if (index > -1) {
         words.splice(index, 1);
         mockVocabularyStore.set(userId, words);
+        await saveToDB('vocabulary', Object.fromEntries(mockVocabularyStore));
         logger.info({ userId }, '[MSW DELETE] Word removed from user');
         break;
       }
@@ -204,19 +315,40 @@ export const handlers: RequestHandler[] = [
     logger.info('[MSW DEBUG] Intercepted: RPC create_session_and_update_usage');
     const { p_session_data } = await request.json() as { p_session_data: Record<string, unknown> };
 
+    const userId = 'test-user-123';
     const new_session = {
       ...p_session_data,
       id: `session-mock-${Date.now()}`,
-      user_id: 'test-user-123',
+      user_id: userId,
       created_at: new Date().toISOString(),
     };
 
-    logger.info({ new_session }, '[MSW RPC] Created new session');
+    // PERSIST: Add to stateful session store
+    const sessions = mockSessionStore.get(userId) || [];
+    sessions.unshift(new_session); // Add to beginning (Desc order)
+    mockSessionStore.set(userId, sessions);
+    await saveToDB('sessions', Object.fromEntries(mockSessionStore));
+
+    logger.info({ new_session, totalSessions: sessions.length }, '[MSW RPC] Created and persisted new session');
 
     return HttpResponse.json({
       new_session,
       usage_exceeded: false
     });
+  }),
+
+  // RPC: heartbeat_session
+  http.post('*/rpc/heartbeat_session', async ({ request }) => {
+    const { p_session_id } = await request.json() as { p_session_id: string };
+    logger.info({ p_session_id }, '[MSW RPC] Heartbeat for session');
+    return HttpResponse.json({ success: true });
+  }),
+
+  // RPC: complete_session
+  http.post('*/rpc/complete_session', async ({ request }) => {
+    const { p_session_id } = await request.json() as { p_session_id: string };
+    logger.info({ p_session_id }, '[MSW RPC] Completing session');
+    return HttpResponse.json({ success: true });
   }),
 
   // Edge Function: check-usage-limit
@@ -260,7 +392,7 @@ export const handlers: RequestHandler[] = [
 ];
 
 // Export reset function for test setup
-export function resetMockVocabularyStore() {
+export async function resetMockVocabularyStore() {
   // Reset to pre-populated default state
   mockVocabularyStore.set('test-user-123', [
     { id: 'vocab-1', user_id: 'test-user-123', word: 'Kubernetes', created_at: new Date(Date.now() - 7 * 86400000).toISOString() },
@@ -270,5 +402,11 @@ export function resetMockVocabularyStore() {
     { id: 'vocab-5', user_id: 'test-user-123', word: 'neural networks', created_at: new Date(Date.now() - 2 * 86400000).toISOString() },
     { id: 'vocab-6', user_id: 'test-user-123', word: 'gradient descent', created_at: new Date(Date.now() - 1 * 86400000).toISOString() },
   ]);
-  logger.info('[MSW] Vocabulary store reset with pre-populated data');
+  
+  mockSessionStore.set('test-user-123', [...MOCK_SESSION_HISTORY]);
+  
+  await saveToDB('vocabulary', Object.fromEntries(mockVocabularyStore));
+  await saveToDB('sessions', Object.fromEntries(mockSessionStore));
+  
+  logger.info('[MSW] All mock stores reset with pre-populated data');
 }

@@ -18,6 +18,7 @@ import { useActiveSessionLock } from './useActiveSessionLock';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import type { Chunk } from './useSpeechRecognition/types';
+import { TestFlags } from '@/config/TestFlags';
 
 export const useSessionLifecycle = () => {
     const { session } = useAuthProvider();
@@ -41,11 +42,12 @@ export const useSessionLifecycle = () => {
     const [sessionFeedbackMessage, setSessionFeedbackMessage] = useState<string | null>(null);
     const [sunsetModal, setSunsetModal] = useState<{ type: 'daily' | 'monthly'; open: boolean }>({ type: 'daily', open: false });
     const isProcessingRef = useRef(false);
+    const isMounted = useRef(false);
 
-    // ✅ NEW: Stable ref for handleStartStop to prevent dependency loops
+    // Stable ref for handleStartStop to prevent dependency loops
     const handleStartStopRef = useRef<((options?: { skipRedirect?: boolean; stopReason?: string }) => Promise<void>) | null>(null);
 
-    // ✅ NEW: Guards to prevent double stops in the same session
+    // Guards to prevent double stops in the same session
     const hasAutoStoppedRef = useRef(false);
     const hasVADStoppedRef = useRef(false);
 
@@ -72,6 +74,17 @@ export const useSessionLifecycle = () => {
         pauseMetrics
     } = speechRecognition;
 
+    // ✅ STABLE REFS for cleanup effects - defined AFTER speechRecognition
+    const isListeningRef = useRef(isListening);
+    useEffect(() => {
+        isListeningRef.current = isListening;
+    }, [isListening]);
+
+    const stopListeningRef = useRef(stopListening);
+    useEffect(() => {
+        stopListeningRef.current = stopListening;
+    }, [stopListening]);
+
     const metrics = useSessionMetrics({
         transcript: transcript.transcript,
         chunks: chunks as Chunk[],
@@ -84,11 +97,11 @@ export const useSessionLifecycle = () => {
         isProcessingRef.current = true;
 
         if (isListening) {
-            // ✅ EXPERT FIX: Immediate UI flip and lock release
+            // Immediate UI flip and lock release
             // This prevents ANY hang or service promise from delaying the button reversion.
             stopSession();
             releaseLock();
-            if (window.__E2E_CONTEXT__) {
+            if (TestFlags.IS_TEST_MODE) {
                 (window as unknown as { __lockAcquired__?: boolean }).__lockAcquired__ = false;
             }
 
@@ -131,7 +144,21 @@ export const useSessionLifecycle = () => {
                 const streakResult = updateStreak();
                 const engineType = (activeEngine === 'cloud') ? 'cloud' : 'native';
 
+                // ✅ SURGICAL FIX 4: FSM & Mount Guards
+                // Only save if FSM confirms STOPPING state and component is still mounted
+                const currentState = service?.getState();
+                if (currentState !== 'STOPPING' && currentState !== 'READY') {
+                    logger.warn(`[useSessionLifecycle] saveSession skipped — FSM in ${currentState} state (expected STOPPING/READY)`);
+                    return;
+                }
+
+                // ✅ TRACE: Log mount state for debugging
+                logger.debug({ isMounted: isMounted.current, currentState }, '[useSessionLifecycle] Proceeding to saveSession');
+
+                // We allow saveSession to proceed even if unmounted to ensure persistence,
+                // but we guard the UI state updates.
                 const result = await saveSession({
+                    id: (service as any).getSessionId() || undefined,
                     transcript: finalStats.transcript,
                     duration: elapsedTime,
                     filler_words: finalStats.filler_words as FillerCounts,
@@ -152,7 +179,23 @@ export const useSessionLifecycle = () => {
 
                     setSessionFeedbackMessage(finalMsg);
                     queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
+                    queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+                    queryClient.invalidateQueries({ queryKey: ['sessionCount'] });
                     setShowAnalyticsPrompt(true);
+
+                    // ✅ E2E SIGNAL: Stable attribute for test runners to wait for
+                    (window as any).__E2E_LAST_SAVED_SESSION__ = result.session.id;
+                    document.documentElement.setAttribute('data-session-saved', 'true');
+                    setTimeout(() => {
+                        // Clear signal after a delay to allow tests to catch it but not persist forever
+                        if (document.documentElement.getAttribute('data-session-saved') === 'true') {
+                            document.documentElement.removeAttribute('data-session-saved');
+                        }
+                    }, 10000);
+                } else {
+                    // Handle save failure if necessary, though saveSession typically throws on error
+                    logger.error({ result }, '[useSessionLifecycle] Session save did not return a session object.');
+                    setSessionFeedbackMessage('⚠️ Failed to save session.');
                 }
 
             } catch (error) {
@@ -182,7 +225,7 @@ export const useSessionLifecycle = () => {
                 const lockAcquired = acquireLock();
 
                 // ✅ Expert Diagnostic: Structured logging for state machine observability
-                if (window.__E2E_CONTEXT__) {
+                if (TestFlags.IS_TEST_MODE) {
                     logger.info({
                         isListening,
                         isProUser,
@@ -196,14 +239,14 @@ export const useSessionLifecycle = () => {
                 // Mutex is enforced for all users to prevent parallel session state corruption
                 if (!lockAcquired) {
                     setSessionFeedbackMessage('⛔ Active session in another tab. Switch to that tab to continue.');
-                    if (window.__E2E_CONTEXT__) {
+                    if (TestFlags.IS_TEST_MODE) {
                         (window as { __lockAcquired__?: boolean }).__lockAcquired__ = false;
                     }
                     return;
                 }
 
                 // ✅ Lock acquired – signal to E2E
-                if (window.__E2E_CONTEXT__) {
+                if (TestFlags.IS_TEST_MODE) {
                     (window as { __lockAcquired__?: boolean }).__lockAcquired__ = true;
                 }
 
@@ -214,10 +257,18 @@ export const useSessionLifecycle = () => {
                 isProcessingRef.current = false;
             }
         }
-    }, [isListening, elapsedTime, stopListening, updateStreak, saveSession, queryClient, isProUser, usageLimit, mode, activeEngine, startListening, acquireLock, stopSession, releaseLock]);
+    }, [isListening, elapsedTime, stopListening, updateStreak, saveSession, queryClient, isProUser, usageLimit, mode, activeEngine, startListening, acquireLock, stopSession, releaseLock, service]);
 
     // ✅ Keep the stable ref up to date with the latest callback (Synchronous to avoid effect race)
     handleStartStopRef.current = handleStartStop;
+
+    // ✅ isMounted logic
+    useEffect(() => {
+        isMounted.current = true;
+        return () => {
+            isMounted.current = false;
+        };
+    }, []);
 
     // ✅ Reset guards when starting a new session
     useEffect(() => {
@@ -314,12 +365,15 @@ export const useSessionLifecycle = () => {
         return () => clearInterval(checkInactivity);
     }, [isListening, transcript.transcript]); // Removed handleStartStop dependency
 
-    // Ensure lock is released on unmount or when listening stops
+    // Ensure lock is released on unmount
     useEffect(() => {
+        const currentLockRelease = releaseLock;
         return () => {
-            if (isListening) releaseLock();
+            // Note: handleStartStop handles releaseLock for normal stops.
+            // This is only for the "unmount while listening" case.
+            if (isListeningRef.current) currentLockRelease();
         };
-    }, [isListening, releaseLock]);
+    }, [releaseLock]); // releaseLock is stable from useActiveSessionLock
 
     // Mode sync: Ensure UI and Engine mode stay aligned
     useEffect(() => {
@@ -335,6 +389,20 @@ export const useSessionLifecycle = () => {
             service.warmUp('private');
         }
     }, [mode, service, isListening]);
+
+    // Cleanup on unmount - TRULY only on unmount
+    useEffect(() => {
+        // Reset save signal on mount to ensure we don't catch a previous session's signal
+        document.documentElement.removeAttribute('data-session-saved');
+
+        return () => {
+            logger.debug('[useSessionLifecycle] Component unmounting - Cleanup running');
+            if (isListeningRef.current) {
+                logger.debug('[useSessionLifecycle] Session active on unmount - forcing save');
+                stopListeningRef.current(); 
+            }
+        };
+    }, []); // Empty dependencies! Truly only on unmount.
 
     return {
         isListening,
