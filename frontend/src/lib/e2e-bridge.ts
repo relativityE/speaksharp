@@ -39,6 +39,7 @@ import { MOCK_SESSION } from '@shared/test-fixtures';
 import { TranscriptionModeOptions, Transcript } from '@/services/transcription/modes/types';
 import { TestFlags } from '@/config/TestFlags';
 import { getE2EConfig } from '../../../tests/types/e2eConfig';
+import { useReadinessStore } from '@/stores/useReadinessStore';
 
 /**
  * E2E Window interface - extends Window with all E2E-specific properties.
@@ -89,6 +90,7 @@ export const initializeE2EEnvironment = async (): Promise<void> => {
         setupSpeechRecognitionMock();
 
         window.mswReady = true;
+        useReadinessStore.getState().setReady('msw');
         dispatchE2EEvent('e2e:msw-ready');
     } catch (error) {
         logger.error({ error }, '[E2E Bridge] Failed to initialize E2E environment');

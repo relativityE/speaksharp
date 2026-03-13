@@ -15,6 +15,7 @@ import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
 import App from './App';
 import { IS_TEST_ENVIRONMENT } from '@/config/env';
 import { initE2EConfig } from '../../tests/types/e2eConfig';
+import { useReadinessStore } from './stores/useReadinessStore';
 
 const REQUIRED_ENV_VARS: string[] = [
   'VITE_SUPABASE_URL',
@@ -130,7 +131,7 @@ const renderApp = async (initialSession: Session | null = null) => {
         });
 
       // Get initial session (mock if in E2E mode)
-      let sessionToUse = initialSession;
+      const sessionToUse = initialSession;
       if (IS_TEST_ENVIRONMENT) {
         // Non-blocking bridge import - use window flag for session if available
         import('@/lib/e2e-bridge').then(m => {
@@ -170,69 +171,67 @@ const renderApp = async (initialSession: Session | null = null) => {
   }
 };
 
-const initialize = async () => {
+// 🚀 PHASE 8: Deterministic Readiness Contract (Initialized in useReadinessStore)
+
+const startInitializing = async () => {
   logger.info('[main.tsx] 🏁 Initialize started');
 
+  // Defer heavy WASM initialization to avoid competing with React hydration
+  const warmUpSTT = () => {
+    import('@/services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
+      speechRuntimeController.initialize()
+        .then(() => {
+          useReadinessStore.getState().setReady('stt');
+        })
+        .catch(err => {
+          logger.error({ err }, '[main.tsx] ❌ SpeechRuntimeController failed');
+        });
+    });
+  };
+
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(() => warmUpSTT(), { timeout: 5000 });
+  } else {
+    setTimeout(warmUpSTT, 100);
+  }
+
   if (IS_TEST_ENVIRONMENT) {
+    const { initE2EConfig } = await import('../../tests/types/e2eConfig');
     initE2EConfig({});
-    // CRITICAL: Ensure bridge is initialized so MockPrivateWhisper is available
-    import('@/lib/e2e-bridge').then(m => m.initializeE2EEnvironment());
-  }
-  logger.info({ buildId: typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'unknown' }, '[BUILD] Build ID');
 
-  // 🔧 ServiceWorker registration with timeout to prevent indefinite hangs
-  // Fire-and-forget pattern - app continues loading in parallel
-  /* 🔧 Disabled for debugging post-load hang
-  if ('serviceWorker' in navigator) {
-    const swRegistration = navigator.serviceWorker.register('/sw.js');
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`SW registration timeout (${SW_TIMEOUT_MS}ms)`)), SW_TIMEOUT_MS)
-    );
+    const { initializeE2EEnvironment } = await import('./lib/e2e-bridge');
+    await initializeE2EEnvironment();
+    
+    // Analytics is handled by initializeE2EEnvironment or manually here if needed
+    useReadinessStore.getState().setReady('analytics');
 
-    Promise.race([swRegistration, timeout])
-      .then(registration => {
-        if (registration && 'scope' in registration) {
-          logger.info({ scope: registration.scope }, '[ServiceWorker] ✅ Registered');
-        }
-      })
-      .catch(error => {
-        // Log with our enhanced logger so it goes to Sentry
-        logger.error({ error }, '[ServiceWorker] ❌ Registration failed or timed out');
-      });
-  }
-  */
-
-  if (IS_TEST_ENVIRONMENT) {
-    logger.info({
-      skipMSW: import.meta.env.VITE_SKIP_MSW === 'true',
-      useLiveDb: import.meta.env.VITE_USE_LIVE_DB === 'true'
-    }, '[main.tsx] 🧪 Test environment detected');
-    // Check if we should skip MSW (using Playwright routes instead OR using Live DB)
     const skipMSW = import.meta.env.VITE_SKIP_MSW === 'true' || import.meta.env.VITE_USE_LIVE_DB === 'true';
-
     if (skipMSW) {
-      logger.info('[E2E] VITE_SKIP_MSW=true, skipping MSW initialization');
-
-      // Fire and forget bridge setup
-      import('@/lib/e2e-bridge').then(m => m.setupSpeechRecognitionMock()).catch(() => { });
-
-      // Set mswReady immediately since we're not using MSW
       Object.assign(window, { mswReady: true });
       window.dispatchEvent(new CustomEvent('e2e:msw-ready'));
-
-      renderApp();
-    } else {
-      // Original MSW-based initialization - still fire and forget to avoid deadlocks
-      import('@/lib/e2e-bridge').then(async m => {
-        await m.initializeE2EEnvironment();
-        logger.info('[E2E] Environment ready');
-      }).catch(err => logger.error({ err }, '[E2E] Bridge setup failed'));
-
-      renderApp();
+      useReadinessStore.getState().setReady('msw');
     }
+    await renderApp();
   } else {
+    useReadinessStore.getState().setReady('analytics');
+    useReadinessStore.getState().setReady('msw'); // Always ready in production (no MSW)
     await renderApp();
   }
+
+  // ✅ SIGNAL BOOT READINESS
+  useReadinessStore.getState().setReady('boot');
 };
 
-initialize();
+// 🛡️ The application only signals readiness to Playwright
+// AFTER all critical subsystems have confirmed they are ready.
+useReadinessStore.subscribe((state) => {
+  const { boot, layout, auth, analytics, stt, msw } = state.signals;
+  if (boot && layout && auth && analytics && stt && msw) {
+    if (document.documentElement.getAttribute('data-app-ready') !== 'true') {
+      logger.info('[main.tsx] 🚀 ALL SYSTEMS READY. Signaling Playwright.');
+      document.documentElement.setAttribute('data-app-ready', 'true');
+    }
+  }
+});
+
+startInitializing();
