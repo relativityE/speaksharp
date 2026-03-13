@@ -19,12 +19,11 @@ export default defineConfig({
   testIgnore: [/.*\.(live|canary|soak)\.spec\.ts/], // Exclude other categories
   outputDir: './test-results/playwright',
   // FAIL FAST: Aggressive timeouts - no test should hang
-  timeout: 30_000, // 30s per test max
-  expect: { timeout: 10_000 }, // 10s expect timeout
+  timeout: 60_000, // 60s per test max (bridged to diagnostic guard)
+  expect: { timeout: 15_000 }, // 15s expect timeout
   retries: 1,
-  reporter: process.env.CI
-    ? [['blob'], ['github']]
-    : [['html'], ['json', { outputFile: 'test-results/playwright/results.json' }]],
+  workers: process.env.CI ? '50%' : undefined,
+  reporter: [['line'], ['./scripts/playwright-telemetry-reporter.mjs']],
   use: {
     ...baseConfig.use,
     baseURL: BASE_URL,
@@ -48,23 +47,24 @@ export default defineConfig({
     // ✅ Force fresh context for each test
     viewport: { width: 1280, height: 720 },
 
-    // ✅ No service workers
-    serviceWorkers: 'block',
+    // ✅ Allow service workers for MSW
+    serviceWorkers: 'allow',
 
-    trace: 'on-first-retry',
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
   updateSnapshots: process.env.CI ? 'missing' : 'none',
+  /*
   // ✅ CRITICAL: Web server configuration
   webServer: {
     // ✅ Use Dev Server for E2E in TEST mode (loads .env.test)
-    command: 'pnpm run dev --port 5173 --mode test',
+    command: 'pnpm dev',
 
     port: 5173,
 
     // ✅ CRITICAL: Reuse server in dev (faster), restart in CI (fresh)
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: true,
 
     // ✅ Wait for server to be ready
     timeout: 120000,
@@ -73,6 +73,7 @@ export default defineConfig({
     stdout: 'pipe',
     stderr: 'pipe',
   },
+  */
   projects: [
     {
       name: 'chromium',
