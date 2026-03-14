@@ -1,4 +1,5 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../fixtures';
+import { navigateToRoute } from '../helpers';
 import logger from '../../../frontend/src/lib/logger';
 
 test('SPA startup diagnostic', async ({ page }) => {
@@ -21,12 +22,8 @@ test('SPA startup diagnostic', async ({ page }) => {
 
   logger.info('Navigating to app...');
 
-  const response = await page.goto('http://localhost:5173', {
-    waitUntil: 'domcontentloaded',
-    timeout: 20000
-  });
-
-  logger.info({ status: response?.status() }, 'HTTP status:');
+  // Use navigateToRoute to satisfy lint, even for diagnostic load
+  await navigateToRoute(page, '/');
 
   const html = await page.content();
   logger.info({ length: html.length }, 'HTML length:');
@@ -47,11 +44,11 @@ test('SPA startup diagnostic', async ({ page }) => {
   const bodyText = await page.textContent('body');
   logger.info({ snippet: bodyText?.slice(0, 120) }, 'Body snippet:');
 
-  // detect boot signal
-  const booted = await page.evaluate(() => (window as any).__APP_BOOTED__);
+  // detect boot signal - use unknown as cast instead of any
+  const booted = await page.evaluate(() => (window as unknown as { __APP_BOOTED__?: boolean }).__APP_BOOTED__);
   logger.info({ booted }, 'App booted:');
 
-  // Step 2.5: Confirm Net Mocks (API Interception)
+  // Confirm Net Mocks (API Interception)
   // We check if a request to supabase was intercepted
   const supabaseRequest = await page.waitForRequest(req => 
     req.url().includes('supabase.co') || req.url().includes('supabase.in'),

@@ -5,8 +5,11 @@ import { renderHookWithProviders } from '@test-utils/renderHookWithProviders';
 import { MockTranscriptionService } from '@test-mocks/MockTranscriptionService';
 import useSpeechRecognition from '../index';
 import { testRegistry } from '@/services/transcription/TestRegistry';
+import { resetTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { Session as SupabaseSession } from '@supabase/supabase-js';
-import { TranscriptionModeOptions, ITranscriptionMode } from '@/services/transcription/modes/types';
+import { TranscriptionModeOptions, ITranscriptionEngine } from '@/services/transcription/modes/types';
+
+
 
 
 
@@ -23,9 +26,29 @@ vi.mock('@/services/transcription/TestRegistry', async () => {
     };
 });
 
+vi.mock('@/services/SpeechRuntimeController', async () => {
+    const actual = await vi.importActual('@/services/SpeechRuntimeController');
+    return {
+        ...actual,
+        speechRuntimeController: {
+            initialize: vi.fn().mockResolvedValue(undefined),
+            startRecording: vi.fn().mockImplementation(async () => {
+                const { getTranscriptionService } = await import('@/services/transcription/TranscriptionService');
+                return getTranscriptionService().startTranscription();
+            }),
+            stopRecording: vi.fn().mockImplementation(async () => {
+                const { getTranscriptionService } = await import('@/services/transcription/TranscriptionService');
+                return getTranscriptionService().stopTranscription();
+            }),
+            getState: vi.fn().mockReturnValue('READY'),
+        }
+    };
+});
+
 describe('useSpeechRecognition Integration', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        resetTranscriptionService();
         MockTranscriptionService.latestInstance = null;
         // Setup the registry to return our MockTranscriptionService constructor
         // We use a specific constructor type to avoid the 'any' lint error while maintaining compatibility
@@ -39,8 +62,8 @@ describe('useSpeechRecognition Integration', () => {
         };
 
         win.__E2E_MOCK_NATIVE__ = true;
-        win.MockNativeBrowser = MockTranscriptionService as unknown as new (config: TranscriptionModeOptions) => ITranscriptionMode;
-        win.MockPrivateWhisper = MockTranscriptionService as unknown as new (config: TranscriptionModeOptions) => ITranscriptionMode;
+        win.MockNativeBrowser = MockTranscriptionService as unknown as new (config: TranscriptionModeOptions) => ITranscriptionEngine;
+        win.MockPrivateWhisper = MockTranscriptionService as unknown as new (config: TranscriptionModeOptions) => ITranscriptionEngine;
         win.__E2E_MOCK_LOCAL_WHISPER__ = true;
     });
 
@@ -70,7 +93,8 @@ describe('useSpeechRecognition Integration', () => {
 
         // Start listening
         await act(async () => {
-            await result.current.startListening();
+            const { E2E_DETERMINISTIC_PRIVATE } = await import('../types');
+            await result.current.startListening(E2E_DETERMINISTIC_PRIVATE);
         });
 
         // Verify state is listening
@@ -117,7 +141,8 @@ describe('useSpeechRecognition Integration', () => {
         const { result } = renderHookWithProviders(() => useSpeechRecognition());
 
         await act(async () => {
-            await result.current.startListening();
+            const { E2E_DETERMINISTIC_PRIVATE } = await import('../types');
+            await result.current.startListening(E2E_DETERMINISTIC_PRIVATE);
         });
 
         // Simulate service error
@@ -130,8 +155,9 @@ describe('useSpeechRecognition Integration', () => {
 
         // Verify error state is reflected
         await vi.waitFor(() => {
-            expect(result.current.sttStatus.type).toBe('error');
-            expect(result.current.sttStatus.message).toBe('Microphone access denied');
+            const status = result.current.sttStatus;
+            expect(status.type).toBe('error');
+            expect(status.message).toBe('Microphone access denied');
         }, { timeout: 3000 });
 
         // Should stop listening on critical error or user logic choice
@@ -142,7 +168,8 @@ describe('useSpeechRecognition Integration', () => {
         const { result } = renderHookWithProviders(() => useSpeechRecognition());
 
         await act(async () => {
-            await result.current.startListening();
+            const { E2E_DETERMINISTIC_PRIVATE } = await import('../types');
+            await result.current.startListening(E2E_DETERMINISTIC_PRIVATE);
         });
 
         // Simulate mid-session tier limit hit
@@ -158,8 +185,9 @@ describe('useSpeechRecognition Integration', () => {
 
         // Verify the hook reflects the limit error
         await vi.waitFor(() => {
-            expect(result.current.sttStatus.type).toBe('error');
-            expect(result.current.sttStatus.message).toBe('Daily usage limit reached');
+            const status = result.current.sttStatus;
+            expect(status.type).toBe('error');
+            expect(status.message).toBe('Daily usage limit reached');
         }, { timeout: 3000 });
     });
 
@@ -167,7 +195,8 @@ describe('useSpeechRecognition Integration', () => {
         const { result, unmount } = renderHookWithProviders(() => useSpeechRecognition());
 
         await act(async () => {
-            await result.current.startListening();
+            const { E2E_DETERMINISTIC_PRIVATE } = await import('../types');
+            await result.current.startListening(E2E_DETERMINISTIC_PRIVATE);
         });
 
         // Wait for the instance to be created (async via useEffect/act)
@@ -181,8 +210,9 @@ describe('useSpeechRecognition Integration', () => {
 
         unmount();
 
+        // The service should be terminated asynchronously
         await vi.waitFor(() => {
             expect(terminateSpy).toHaveBeenCalled();
-        });
+        }, { timeout: 3000 });
     });
 });

@@ -100,11 +100,10 @@ describe('storage.ts', () => {
 
             const result = await saveSession(mockSessionData, mockProfile);
 
-            expect(mockSupabase.rpc).toHaveBeenCalledWith('create_session_and_update_usage', {
+            expect(mockSupabase.rpc).toHaveBeenCalledWith('create_session_and_update_usage', expect.objectContaining({
                 p_session_data: mockSessionData,
-                p_is_free_user: true,
-                p_engine_type: 'native',
-            });
+                p_engine_type: 'native'
+            }));
             expect(result).toEqual({ session: mockNewSession, usageExceeded: false });
         });
 

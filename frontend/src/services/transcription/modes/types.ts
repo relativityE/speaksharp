@@ -67,13 +67,16 @@ export interface TranscriptionModeOptions {
   onAudioData?: (data: Float32Array) => void;
   onModeChange?: (mode: TranscriptionMode | null) => void;
   onStatusChange?: (status: SttStatus) => void;
+  /** Unique identifier for the engine instance (used for diagnostic tracing) */
+  instanceId?: string;
 }
 
-export interface ITranscriptionMode {
+export interface ITranscriptionEngine {
   init(): Promise<void>;
-  startTranscription(mic?: MicStream): Promise<void>; // mic is optional for native
+  startTranscription(mic?: MicStream): Promise<void>;
   stopTranscription(): Promise<string>;
-  terminate?(): Promise<void>; // Optional strict cleanup
+  terminate?(): Promise<void>;
   getTranscript(): Promise<string>;
   getEngineType(): string;
+  instanceId?: string;
 }

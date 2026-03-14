@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">68.91% </span>
+                <span class="strong">66.94% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>490/711</span>
+                <span class='fraction'>478/714</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">69.87% </span>
+                <span class="strong">64.93% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>58/83</span>
+                <span class='fraction'>50/77</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">68.91% </span>
+                <span class="strong">66.94% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>490/711</span>
+                <span class='fraction'>478/714</span>
             </div>
         
             
@@ -970,7 +970,10 @@
 <a name='L905'></a><a href='#L905'>905</a>
 <a name='L906'></a><a href='#L906'>906</a>
 <a name='L907'></a><a href='#L907'>907</a>
-<a name='L908'></a><a href='#L908'>908</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<a name='L908'></a><a href='#L908'>908</a>
+<a name='L909'></a><a href='#L909'>909</a>
+<a name='L910'></a><a href='#L910'>910</a>
+<a name='L911'></a><a href='#L911'>911</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -1340,17 +1343,17 @@
 <span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-yes">4x</span>
-<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">6x</span>
@@ -1360,17 +1363,17 @@
 <span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-yes">4x</span>
-<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1529,6 +1532,9 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -2246,14 +2252,14 @@ export const AnalyticsDashboard: React.FC&lt;AnalyticsDashboardProps&gt; = ({
     const [selectedAnalysisSlides, setSelectedAnalysisSlides] = useState&lt;string[]&gt;(() =&gt; {
         try {
             const saved = localStorage.getItem(ANALYSIS_STORAGE_KEY);
-            if (saved) {
-                const parsed = JSON.parse(saved);
+            if (saved) <span class="branch-0 cbranch-no" title="branch not covered" >{</span>
+<span class="cstat-no" title="statement not covered" >                const parsed = JSON.parse(saved);</span>
                 // Validate that saved slides still exist in options
-                const validSlides = parsed.filter((id: string) =&gt; ANALYSIS_SLIDE_OPTIONS.some(opt =&gt; opt.id === id));
-                if (validSlides.length &gt;= 1) {
-                    return validSlides;
-                }
-            }
+<span class="cstat-no" title="statement not covered" >                const validSlides = parsed.filter((id: string) =&gt; ANALYSIS_SLIDE_OPTIONS.some(opt =&gt; opt.id === id));</span>
+<span class="cstat-no" title="statement not covered" >                if (validSlides.length &gt;= 1) {</span>
+<span class="cstat-no" title="statement not covered" >                    return validSlides;</span>
+<span class="cstat-no" title="statement not covered" >                }</span>
+<span class="cstat-no" title="statement not covered" >            }</span>
 <span class="branch-0 cbranch-no" title="branch not covered" >        } catch (e) {</span>
 <span class="cstat-no" title="statement not covered" >            logger.warn('Failed to load saved analysis slide preferences');</span>
 <span class="cstat-no" title="statement not covered" >        }</span>
@@ -2266,14 +2272,14 @@ export const AnalyticsDashboard: React.FC&lt;AnalyticsDashboardProps&gt; = ({
     const [selectedStatCards, setSelectedStatCards] = useState&lt;string[]&gt;(() =&gt; {
         try {
             const saved = localStorage.getItem(STORAGE_KEY);
-            if (saved) {
-                const parsed = JSON.parse(saved);
+            if (saved) <span class="branch-0 cbranch-no" title="branch not covered" >{</span>
+<span class="cstat-no" title="statement not covered" >                const parsed = JSON.parse(saved);</span>
                 // Validate that saved cards still exist in options
-                const validCards = parsed.filter((id: string) =&gt; STAT_CARD_OPTIONS.some(opt =&gt; opt.id === id));
-                if (validCards.length &gt;= 1 &amp;&amp; validCards.length &lt;= 4) {
-                    return validCards;
-                }
-            }
+<span class="cstat-no" title="statement not covered" >                const validCards = parsed.filter((id: string) =&gt; STAT_CARD_OPTIONS.some(opt =&gt; opt.id === id));</span>
+<span class="cstat-no" title="statement not covered" >                if (validCards.length &gt;= 1 &amp;&amp; validCards.length &lt;= 4) {</span>
+<span class="cstat-no" title="statement not covered" >                    return validCards;</span>
+<span class="cstat-no" title="statement not covered" >                }</span>
+<span class="cstat-no" title="statement not covered" >            }</span>
 <span class="branch-0 cbranch-no" title="branch not covered" >        } catch (e) {</span>
 <span class="cstat-no" title="statement not covered" >            logger.warn('Failed to load saved stat card preferences');</span>
 <span class="cstat-no" title="statement not covered" >        }</span>
@@ -2442,17 +2448,20 @@ export const AnalyticsDashboard: React.FC&lt;AnalyticsDashboardProps&gt; = ({
 <span class="cstat-no" title="statement not covered" >                            label="Speaking Pace"</span>
 <span class="cstat-no" title="statement not covered" >                            value={targetSession.wpm ?? (targetSession.duration &gt; 0 &amp;&amp; targetSession.total_words ? Math.round((targetSession.total_words / targetSession.duration) * 60) : 0)}</span>
 <span class="cstat-no" title="statement not covered" >                            unit="WPM"</span>
+<span class="cstat-no" title="statement not covered" >                            testId={TEST_IDS.STAT_CARD_SPEAKING_PACE}</span>
 <span class="cstat-no" title="statement not covered" >                        /&gt;</span>
 <span class="cstat-no" title="statement not covered" >                        &lt;StatCard</span>
 <span class="cstat-no" title="statement not covered" >                            icon={&lt;Target /&gt;}</span>
 <span class="cstat-no" title="statement not covered" >                            label="Clarity Score"</span>
 <span class="cstat-no" title="statement not covered" >                            value={targetSession.clarity_score ?? (targetSession.accuracy ? (targetSession.accuracy * 100).toFixed(0) : 0)}</span>
 <span class="cstat-no" title="statement not covered" >                            unit="%"</span>
+<span class="cstat-no" title="statement not covered" >                            testId={TEST_IDS.CLARITY_SCORE_VALUE}</span>
 <span class="cstat-no" title="statement not covered" >                        /&gt;</span>
 <span class="cstat-no" title="statement not covered" >                        &lt;StatCard</span>
 <span class="cstat-no" title="statement not covered" >                            icon={&lt;TrendingUp /&gt;}</span>
 <span class="cstat-no" title="statement not covered" >                            label="Filler Words"</span>
 <span class="cstat-no" title="statement not covered" >                            value={Object.values(targetSession.filler_words || {}).reduce((sum, data) =&gt; sum + (data.count || 0), 0)}</span>
+<span class="cstat-no" title="statement not covered" >                            testId={TEST_IDS.FILLER_COUNT_VALUE}</span>
 <span class="cstat-no" title="statement not covered" >                        /&gt;</span>
 <span class="cstat-no" title="statement not covered" >                    &lt;/div&gt;</span>
 &nbsp;
@@ -2791,7 +2800,7 @@ export const AnalyticsDashboard: React.FC&lt;AnalyticsDashboardProps&gt; = ({
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-09T12:41:07.637Z
+                at 2026-03-14T21:44:45.936Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

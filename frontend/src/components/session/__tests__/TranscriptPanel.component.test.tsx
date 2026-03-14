@@ -3,13 +3,7 @@ import { render, screen, cleanup } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TranscriptPanel } from '@/components/session/TranscriptPanel';
 
-// Mock dependencies
-vi.mock('@/lib/logger', () => ({
-    default: {
-        info: vi.fn(),
-        error: vi.fn(),
-    },
-}));
+
 
 vi.mock('@/components/session/StatefulPanel', () => ({
     InitialStatePanel: () => <div data-testid="initial-state">Start speaking to see transcript</div>,

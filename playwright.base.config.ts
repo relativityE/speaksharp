@@ -42,11 +42,9 @@ export function getChromeWithMic() {
             args: [
                 '--use-fake-ui-for-media-stream',
                 '--use-fake-device-for-media-stream',
-                // SwiftShader: CPU-based GPU backend (final escape hatch)
+                // GPU features disabled unless required to reduce CPU overhead
                 '--enable-unsafe-webgpu',
                 '--disable-vulkan',
-                '--use-angle=swiftshader',
-                '--use-gl=swiftshader',
             ],
         },
     };
@@ -82,7 +80,13 @@ export function getChromeBasic() {
  * Base configuration options shared across all test types
  */
 export const baseConfig: Partial<PlaywrightTestConfig> = {
-    workers: process.env.CI ? 2 : undefined,
+  // Global timeout for each test
+  timeout: 45000,
+  expect: {
+    timeout: 10000,
+  },
+  // Tiered Workers: STT is resource-intensive, limit to 2. Others can use 4.
+  workers: process.env.STT_ENGINE ? 2 : (process.env.CI ? 4 : undefined),
     fullyParallel: true,
     use: {
         headless: true,

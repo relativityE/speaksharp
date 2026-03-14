@@ -11,5 +11,5 @@ export const useProfile = (): { profile: UserProfile; isVerified: boolean } => {
     if (context === undefined) {
         throw new Error('useProfile must be used within a ProfileProvider (via ProfileGuard)');
     }
-    return context;
+    return context as { profile: UserProfile; isVerified: boolean };
 };

@@ -1,17 +1,31 @@
-import { spawn, execSync } from 'child_process';
+import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
+import { CI_CONFIG } from './ci.config.js';
 import {
+    parseVitestResults,
     ANSI,
     renderBox,
     formatDuration,
-    aggregateShards,
-    getSQMResults,
-    parsePlaywrightResults,
     parseLighthouse,
-    parseVitestResults
+    getSQMResults
 } from './ci-telemetry-utils.mjs';
+
+// Structural Simplification - Direct Telemetry
+global.__CI_TELEMETRY__ = {
+    vitest: { passed: 0, failed: 0, total: 0 },
+    playwright: { passed: 0, failed: 0, flaky: 0, skipped: 0, shards: {} },
+    lighthouse: {
+        performance: 0,
+        accessibility: 0,
+        bestPractices: 0,
+        seo: 0
+    },
+    coverage: 0,
+    sqm: {}
+};
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,7 +37,7 @@ process.on('exit', () => {
         try {
             // Using spawnSync/execSync for synchronous exit cleanup
             spawn('pkill', ['-9', '-f', 'vite'], { stdio: 'ignore' });
-        } catch (e) {}
+        } catch (e) { }
     }
 });
 
@@ -116,7 +130,6 @@ async function runCommand(command, args, options = {}) {
         const child = spawn(command, args, {
             cwd: rootDir,
             shell: false, // Use direct spawn
-            stdio: ['inherit', 'pipe', 'pipe'], // Inherit stdio but pipe for filtering
             signal,
             maxBuffer: 10 * 1024 * 1024,
             env: {
@@ -127,6 +140,20 @@ async function runCommand(command, args, options = {}) {
                 TERM: 'xterm-256color',
                 LOG_LEVEL: logLevel,
                 DEBUG: '-pw:webserver'
+            },
+            // Enable IPC for direct telemetry emission
+            stdio: ['inherit', 'pipe', 'pipe', 'ipc']
+        });
+
+        child.on('message', (message) => {
+            if (message && message.type === 'TELEMETRY') {
+                const { tool, data } = message;
+                console.log(`[CI TELEMETRY] Caught IPC message from ${tool}`);
+                if (tool === 'vitest') {
+                    global.__CI_TELEMETRY__.vitest = data;
+                } else if (tool === 'playwright') {
+                    global.__CI_TELEMETRY__.playwright = data;
+                }
             }
         });
 
@@ -141,7 +168,7 @@ async function runCommand(command, args, options = {}) {
                 if (!line) continue;
 
                 if (label === 'E2E') {
-                    const signal = /fail|error|warn|flaky|retry|timeout|Diagnostic|🔴|\[PW\]|\[BROWSER/i;
+                    const signal = /fail|error|warn|flaky|retry|timeout|passed|summary|Diagnostic|🔴|\[PW\]|\[BROWSER/i;
                     if (signal.test(line)) {
                         throttledLog(`${ANSI.DIM}[${label}]${ANSI.RESET} ${line}`);
                     }
@@ -193,7 +220,7 @@ async function runCommand(command, args, options = {}) {
 const ciTelemetry = {
     stages: [],
     tests: {
-        vitest: { passed: 0, failed: 0 },
+        vitest: { passed: 0, failed: 0, total: 0 },
         playwright: { passed: 0, failed: 0, flaky: 0, skipped: 0 }
     },
     lighthouse: {},
@@ -240,119 +267,172 @@ async function main() {
         });
 
         // Stage 2: Quality
-        await runStage(2, "Code Quality", async () => {
-            await Promise.all([
-                runCommand('pnpm', ['lint', '--quiet'], { label: 'LINT' }),
-                runCommand('pnpm', ['typecheck'], { label: 'TYPES' })
-            ]);
-        });
+        if (!process.argv.includes('--skip-quality')) {
+            await runStage(2, "Code Quality", async () => {
+                await Promise.all([
+                    runCommand('pnpm', ['lint', '--quiet'], { label: 'LINT' }),
+                    runCommand('pnpm', ['typecheck'], { label: 'TYPES' })
+                ]);
+            });
+        }
 
         // Stage 3: Testing
-        await runStage(3, "Test Execution", async () => {
-            try {
-                const { execSync } = await import('child_process');
-                const impactOutput = execSync('node scripts/detect-impact-automation.mjs', { cwd: rootDir }).toString().trim();
-
-                // Run Unit Tests first (Independent of server)
+        if (!process.argv.includes('--skip-test')) {
+            await runStage(3, "Test Execution", async () => {
                 try {
-                    if (impactOutput === 'ALL' || process.argv.includes('ci-simulate')) {
-                        fs.mkdirSync(path.join(rootDir, 'frontend', 'coverage'), { recursive: true });
-                        // Force JSON reporter
-                        await runCommand('npx', ['vitest', 'run', '--reporter=json', '--outputFile=test-results/unit/results.json'], { label: 'UNIT' });
-                    } else if (impactOutput !== 'NONE') {
-                        const testFiles = impactOutput.split(' ').filter(Boolean);
-                        const vitestFiles = testFiles.filter(f => f.includes('.test.ts') || f.includes('.test.tsx'));
-                        if (vitestFiles.length > 0) {
+                    const { execSync } = await import('child_process');
+                    const impactOutput = execSync('node scripts/detect-impact-automation.mjs', { cwd: rootDir }).toString().trim();
+
+                    // Run Unit Tests first (Independent of server)
+                    try {
+                        if (impactOutput === 'ALL' || process.argv.includes('ci-simulate')) {
                             fs.mkdirSync(path.join(rootDir, 'frontend', 'coverage'), { recursive: true });
-                            await runCommand('npx', ['vitest', 'run', '--reporter=json', '--outputFile=test-results/unit/results.json', ...vitestFiles], { label: 'UNIT' });
-                        }
-                    }
-                } catch (err) {
-                    console.error(`${ANSI.RED}[UNIT] Unit tests failed, but proceeding to E2E...${ANSI.RESET}`);
-                    unitFailed = true;
-                }
-
-                // 2. Start Dev Server for E2E
-                console.log("[CI] Starting dev server for E2E...");
-                devServer = spawn('pnpm', ['dev'], {
-                    cwd: rootDir,
-                    shell: true,
-                    env: { ...process.env, FORCE_COLOR: '1' }
-                });
-
-                devServer.stdout.on('data', (data) => {
-                    data.toString().split('\n').forEach(line => {
-                        if (line.trim()) {
-                            const clean = line.replace(/\r/g, '');
-                            if (clean.includes('error') || clean.includes('Error') || clean.includes('Ready in')) {
-                                console.log(`${ANSI.DIM}[VITE]${ANSI.RESET} ${clean}`);
+                            // Leverage canonical package script
+                            await runCommand('pnpm', ['run', 'test:unit:local'], { label: 'UNIT' });
+                        } else if (impactOutput !== 'NONE') {
+                            const testFiles = impactOutput.split(' ').filter(Boolean);
+                            const vitestFiles = testFiles.filter(f => f.includes('.test.ts') || f.includes('.test.tsx'));
+                            if (vitestFiles.length > 0) {
+                                fs.mkdirSync(path.join(rootDir, 'frontend', 'coverage'), { recursive: true });
+                                await runCommand('pnpm', ['run', 'test:unit:local', ...vitestFiles], { label: 'UNIT' });
                             }
                         }
-                    });
-                });
 
-                devServer.stderr.on('data', (data) => {
-                    data.toString().split('\n').forEach(line => {
-                        if (line.trim()) {
-                            const clean = line.replace(/\r/g, '');
-                            console.error(`${ANSI.RED}[VITE][ERR]${ANSI.RESET} ${clean}`);
+                        // Guard: Check for unit test results
+                        if (impactOutput !== 'NONE') {
+                            const unitArtifact = path.join(rootDir, 'test-results', 'unit', 'results.json');
+                            if (!fs.existsSync(unitArtifact)) {
+                                throw new Error(`Unit test artifact not found: ${unitArtifact}`);
+                            }
                         }
+                    } catch (err) {
+                        console.error(`${ANSI.RED}[UNIT] Unit tests failed, but proceeding to E2E...${ANSI.RESET}`);
+                        unitFailed = true;
+                    }
+
+                    // Start Dev Server for E2E
+                    console.log("[CI] Starting dev server for E2E...");
+                    devServer = spawn('pnpm', ['dev'], {
+                        cwd: rootDir,
+                        shell: true,
+                        env: { ...process.env, FORCE_COLOR: '1' }
                     });
-                });
 
-                // 3. Readiness Barrier
-                await waitForHTTP('http://localhost:5173');
+                    devServer.stdout.on('data', (data) => {
+                        data.toString().split('\n').forEach(line => {
+                            if (line.trim()) {
+                                const clean = line.replace(/\r/g, '');
+                                if (clean.includes('error') || clean.includes('Error') || clean.includes('Ready in')) {
+                                    console.log(`${ANSI.DIM}[VITE]${ANSI.RESET} ${clean}`);
+                                }
+                            }
+                        });
+                    });
 
-                // 4. Run E2E Tests
-                if (impactOutput === 'ALL' || process.argv.includes('ci-simulate')) {
-                    await runCommand('npx', [
-                        'playwright', 'test', 
-                        '--reporter=./scripts/playwright-telemetry-reporter.mjs',
-                        '--workers=50%'
-                    ], { label: 'E2E' });
-                } else if (impactOutput !== 'NONE') {
-                    const testFiles = impactOutput.split(' ').filter(Boolean);
-                    const playwrightFiles = [...new Set([...testFiles.filter(f => f.includes('.spec.ts')), ...ALWAYS_RUN_SPECS])];
-                    if (playwrightFiles.length > 0) {
-                        await runCommand('npx', [
-                            'playwright', 'test', 
-                            '--reporter=./scripts/playwright-telemetry-reporter.mjs',
-                            '--workers=50%',
-                            ...playwrightFiles
+                    devServer.stderr.on('data', (data) => {
+                        data.toString().split('\n').forEach(line => {
+                            if (line.trim()) {
+                                const clean = line.replace(/\r/g, '');
+                                console.error(`${ANSI.RED}[VITE][ERR]${ANSI.RESET} ${clean}`);
+                            }
+                        });
+                    });
+
+                    // Readiness Barrier
+                    await waitForHTTP('http://localhost:5173');
+
+                    // Compute workers for E2E
+                    const workerCount = Math.min(Math.max(1, Math.floor(os.cpus().length * CI_CONFIG.WORKER_SCALING_RATIO)), CI_CONFIG.MAX_WORKERS);
+
+                    // Run E2E Tests
+                    if (impactOutput === 'ALL' || process.argv.includes('ci-simulate')) {
+                        await runCommand('pnpm', [
+                            'run', 'test:e2e:mock:headless',
+                            `--workers=${workerCount}`,
+                            '--reporter=./scripts/playwright-telemetry-reporter.mjs,json',
+                            '--output=test-results/playwright-artifacts'
                         ], { label: 'E2E' });
+                    } else if (impactOutput !== 'NONE') {
+                        const testFiles = impactOutput.split(' ').filter(Boolean);
+                        const playwrightFiles = [...new Set([...testFiles.filter(f => f.includes('.spec.ts')), ...ALWAYS_RUN_SPECS])];
+                        if (playwrightFiles.length > 0) {
+                            await runCommand('pnpm', [
+                                'run', 'test:e2e:mock:headless',
+                                `--workers=${workerCount}`,
+                                '--reporter=./scripts/playwright-telemetry-reporter.mjs,json',
+                                '--output=test-results/playwright-artifacts',
+                                ...playwrightFiles
+                            ], { label: 'E2E' });
+                        }
                     }
-                }
-            } finally {
-                // 5. Cleanup Server
-                if (devServer) {
-                    console.log("[CI] Stopping dev server...");
-                    devServer.kill('SIGTERM');
-                    devServer = null;
-                }
 
-                // Guard telemetry parsing (existence checks)
-                const pwPath = path.join(rootDir, 'test-results', 'playwright-results.json');
-                if (fs.existsSync(pwPath)) {
-                    try {
-                        ciTelemetry.tests.playwright = JSON.parse(fs.readFileSync(pwPath));
-                    } catch (e) {
-                        console.error(`[CI] Failed to parse E2E results: ${e.message}`);
+                    // Guard: Check for E2E results
+                    if (impactOutput !== 'NONE') {
+                        const pwArtifact = path.join(rootDir, 'test-results', 'playwright-results.json');
+                        if (!fs.existsSync(pwArtifact)) {
+                            throw new Error(`E2E results artifact not found: ${pwArtifact}`);
+                        }
                     }
-                }
+                } finally {
+                    // Cleanup Server
+                    if (devServer) {
+                        console.log("[CI] Stopping dev server...");
+                        devServer.kill('SIGTERM');
+                        devServer = null;
+                    }
 
-                // Parse vitest results (Vitest JSON reporter creates this)
-                const vitestPath = path.join(rootDir, 'test-results', 'unit', 'results.json');
-                if (fs.existsSync(vitestPath)) {
-                    ciTelemetry.tests.vitest = parseVitestResults(rootDir);
-                }
-            }
-        });
+                    // Aggregate Telemetry: IPC first, then Artifact fallback (Required for 'pnpm run' compatibility)
+                    if (!global.__CI_TELEMETRY__.playwright.passed && !global.__CI_TELEMETRY__.playwright.failed) {
+                        try {
+                            const pwPath = path.join(rootDir, 'test-results', 'playwright-results.json');
+                            if (fs.existsSync(pwPath)) {
+                                console.log('[CI TELEMETRY] Falling back to Playwright artifact parsing...');
+                                const data = JSON.parse(fs.readFileSync(pwPath, 'utf8'));
+                                // Simplistic mapping for the summary box
+                                global.__CI_TELEMETRY__.playwright = {
+                                    passed: data.stats?.expected || 0,
+                                    failed: data.stats?.unexpected || 0,
+                                    flaky: data.stats?.flaky || 0,
+                                    skipped: data.stats?.skipped || 0
+                                };
+                            }
+                        } catch (e) { }
+                    }
 
-        // Stage 4: Lighthouse
+                    if (!global.__CI_TELEMETRY__.vitest.passed && !global.__CI_TELEMETRY__.vitest.failed) {
+                        try {
+                            const vitestPath = path.join(rootDir, 'test-results', 'unit', 'results.json');
+                            if (fs.existsSync(vitestPath)) {
+                                console.log('[CI TELEMETRY] Falling back to Vitest artifact parsing...');
+                                const data = JSON.parse(fs.readFileSync(vitestPath, 'utf8'));
+                                global.__CI_TELEMETRY__.vitest = {
+                                    passed: data.numPassedTests || 0,
+                                    failed: data.numFailedTests || 0,
+                                    total: data.numTotalTests || 0
+                                };
+                            }
+                        } catch (e) { }
+                    }
+
+                    // Copy IPC telemetry (or fallback) to the legacy object
+                    ciTelemetry.tests.playwright = global.__CI_TELEMETRY__.playwright;
+                    ciTelemetry.tests.vitest = global.__CI_TELEMETRY__.vitest;
+                }
+            });
+        }
+
+        // Stage 4: Lighthouse (Requires Production Build)
         if (!process.argv.includes('--skip-lighthouse')) {
             await runStage(4, "Lighthouse Audit", async () => {
-                await runCommand('node', ['scripts/generate-lhci-config.js'], { label: 'LH-CFG' });
-                await runCommand('npx', ['lhci', 'autorun', '--config=lighthouserc.json'], { label: 'LH-RUN' });
+                // Ensure fresh production-ready build for accurate performance metrics
+                await runCommand('pnpm', ['build:test'], { label: 'BUILD' });
+
+                await runCommand('pnpm', ['exec', 'node', 'scripts/generate-lhci-config.js'], { label: 'LH-CFG' });
+                await runCommand('pnpm', ['exec', 'lhci', 'autorun', '--config=lighthouserc.json'], { label: 'LH-RUN' });
+                const resultsDir = path.join(rootDir, 'lighthouse-results');
+                if (!fs.existsSync(resultsDir) || fs.readdirSync(resultsDir).filter(f => f.endsWith('-report.json')).length === 0) {
+                    throw new Error(`Lighthouse audit reports not found in ${resultsDir}`);
+                }
                 await runCommand('node', ['scripts/process-lighthouse-report.js'], { label: 'LH-PRC' });
                 ciTelemetry.lighthouse = parseLighthouse(rootDir);
             });
@@ -362,6 +442,8 @@ async function main() {
         await runStage(5, "Metrics & SQM", async () => {
             if (fs.existsSync(path.join(rootDir, 'scripts/run-metrics.sh'))) {
                 await runCommand('./scripts/run-metrics.sh', [], { label: 'METRIC', env: { TOTAL_RUNTIME_SECONDS: Math.floor((Date.now() - startTime) / 1000) } });
+                const artifact = path.join(rootDir, 'test-results', 'metrics.json');
+                if (!fs.existsSync(artifact)) throw new Error(`Metrics artifact not found: ${artifact}`);
             }
             ciTelemetry.sqm = getSQMResults(rootDir, ciTelemetry);
         });
@@ -375,7 +457,7 @@ async function main() {
 
     } catch (error) {
         console.error(`\n${ANSI.RED}${ANSI.BOLD}❌ CI Pipeline Failed: ${error.message}${ANSI.RESET}`);
-        
+
         // Compute duration even on failure
         ciTelemetry.totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
 
@@ -385,10 +467,10 @@ async function main() {
             if (fs.existsSync(pwPath)) {
                 try {
                     ciTelemetry.tests.playwright = JSON.parse(fs.readFileSync(pwPath));
-                } catch (e) {}
+                } catch (e) { }
             }
         }
-        
+
         const vitestPath = path.join(rootDir, 'test-results', 'unit', 'results.json');
         if (fs.existsSync(vitestPath)) {
             ciTelemetry.tests.vitest = parseVitestResults(rootDir);
@@ -398,7 +480,7 @@ async function main() {
         const pipelineSuccess = !stagesList.some(s => s.status === 'FAILED');
         printFinalSummary(stagesList, ciTelemetry, pipelineSuccess);
         generateMarkdownReport(rootDir, ciTelemetry, pipelineSuccess);
-        
+
         process.exitCode = 1;
     } finally {
         // Write machine-readable telemetry
@@ -409,7 +491,7 @@ async function main() {
         };
         fs.writeFileSync(telemetryPath, JSON.stringify(telemetryData, null, 2));
         fs.writeFileSync(summaryPath, JSON.stringify(telemetryData, null, 2));
-        
+
         // Manual cleanup via --clean or --nuclear flag
         if (process.argv.includes('--clean') || process.argv.includes('--nuclear')) {
             cleanupArtifacts(rootDir);
@@ -433,7 +515,7 @@ function cleanupArtifacts(rootDir) {
             console.warn('⚠️ [CI] Failed to move audit report:', e.message);
         }
     }
-    
+
     const targets = [
         'test-results',
         'merged-reports',
@@ -451,7 +533,7 @@ function cleanupArtifacts(rootDir) {
         try {
             execSync('pkill -f vite || true', { stdio: 'ignore' });
             execSync('pkill -f playwright || true', { stdio: 'ignore' });
-        } catch (e) {}
+        } catch (e) { }
 
         targets.push(
             'frontend/dist',
@@ -462,7 +544,7 @@ function cleanupArtifacts(rootDir) {
     }
 
     if (DEBUG) console.log(`\n🧹 [CI] Cleaning ${isNuclear ? 'NUCLEAR' : 'simple'} artifacts...`);
-    
+
     targets.forEach(target => {
         const p = path.join(rootDir, target);
         if (fs.existsSync(p)) {
@@ -492,7 +574,7 @@ function printFinalSummary(stages, ciTelemetry, success = true) {
 
     // Unit Tests
     console.log(`${ANSI.BOLD}Unit Tests${ANSI.RESET}`);
-    console.log(`  Passed:  ${ANSI.GREEN}${v.passed}${ANSI.RESET}\n`);
+    console.log(`  Passed:  ${ANSI.GREEN}${v.passed} / ${v.total}${ANSI.RESET}\n`);
 
     // E2E Tests (Playwright)
     console.log(`${ANSI.BOLD}E2E Tests${ANSI.RESET}`);
@@ -547,10 +629,10 @@ function generateMarkdownReport(rootDir, ciTelemetry, success) {
 
 ## 🧪 Test Results
 ### Unit Tests
-- **Passed**: ${v.passed}
+- **Passed**: ${v.passed} / ${v.total}
 
 ### E2E Tests (Playwright)
-${p.shards && Object.entries(p.shards).map(([id, d]) => `- **Shard ${id}**: ${d.passed} / ${d.total}`).join('\n')}
+${p.shards && Object.keys(p.shards).length > 0 ? Object.entries(p.shards).map(([id, d]) => `- **Shard ${id}**: ${d.passed} / ${d.total}`).join('\n') : ''}
 - **TOTAL**: ${p.passed} / ${p.passed + p.failed}
 
 ## ⚡ Performance (Lighthouse)
@@ -584,19 +666,19 @@ async function runReport(startTime) {
     const telemetryPath = path.join(rootDir, 'ci-results.json');
 
     try {
-        // Step 1: Parse distributed results
+        // Parse distributed results
         console.log(`${ANSI.CYAN}📥 [CI] Parsing results from job artifacts...${ANSI.RESET}`);
-        
+
         ciTelemetry.tests.playwright = parsePlaywrightResults(rootDir);
         ciTelemetry.tests.vitest = parseVitestResults(rootDir);
         ciTelemetry.lighthouse = parseLighthouse(rootDir);
 
         // Stage 5: Metrics & SQM (Always run in CI)
         await runStage(5, "Metrics & SQM", async () => {
-             if (fs.existsSync(path.join(rootDir, 'scripts/run-metrics.sh'))) {
-                await runCommand('./scripts/run-metrics.sh', [], { 
-                    label: 'METRIC', 
-                    env: { TOTAL_RUNTIME_SECONDS: Math.floor((Date.now() - startTime) / 1000) } 
+            if (fs.existsSync(path.join(rootDir, 'scripts/run-metrics.sh'))) {
+                await runCommand('./scripts/run-metrics.sh', [], {
+                    label: 'METRIC',
+                    env: { TOTAL_RUNTIME_SECONDS: Math.floor((Date.now() - startTime) / 1000) }
                 });
             }
             ciTelemetry.sqm = getSQMResults(rootDir, ciTelemetry);
@@ -605,7 +687,7 @@ async function runReport(startTime) {
         printFinalSummary(stagesList, ciTelemetry, true);
         generateMarkdownReport(rootDir, ciTelemetry, true);
 
-        // Step 2: Write machine-readable telemetry
+        // Write machine-readable telemetry
         const telemetryData = {
             ...ciTelemetry,
             status: ciTelemetry.tests.playwright.failed === 0 ? 'success' : 'failed',

@@ -1,4 +1,5 @@
 import { Page } from '@playwright/test';
+import logger from '../../frontend/src/lib/logger';
 
 const BLOCKED_DOMAINS = [
   'sentry.io',
@@ -11,13 +12,13 @@ const BLOCKED_DOMAINS = [
 export async function stubThirdParties(page: Page) {
   for (const domain of BLOCKED_DOMAINS) {
     await page.route(`**/*.${domain}/*`, (route) => {
-      console.error(`[STUB] Blocked external request to ${domain}: ${route.request().url()}`);
+      logger.error({ url: route.request().url() }, `[STUB] Blocked external request to ${domain}`);
       return route.abort('connectionrefused');
     });
   }
 
   await page.route('**/*.stripe.com/*', (route) => {
-    console.log('[STUB] Mocked Stripe request', route.request().url());
+    logger.info({ url: route.request().url() }, '[STUB] Mocked Stripe request');
     return route.fulfill({ status: 200, contentType: 'application/javascript', body: '/* Mock Stripe.js */' });
   });
 }

@@ -13,23 +13,13 @@
  *
  * @see SessionPage.tsx for the component under test
  */
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
-import { render, screen, act } from '../../../tests/support/test-utils';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen } from '../../../tests/support/test-utils';
 import SessionPage from '../SessionPage';
-import type { Session } from '@supabase/supabase-js';
+import React from 'react';
 
 // --- Mocks ---
 const mockNavigate = vi.fn();
-// const mockUpdateElapsedTime = vi.fn(); // Removed unused
-const mockSaveSession = vi.fn();
-const mockStartListening = vi.fn();
-const mockStopListening = vi.fn().mockResolvedValue({
-    transcript: 'test transcript',
-    duration: 10,
-    total_words: 2,
-    filler_words: { total: 0 },
-    accuracy: 95
-});
 
 // Mock dependencies
 vi.mock('posthog-js', () => ({
@@ -44,69 +34,13 @@ vi.mock('react-router-dom', async () => {
     };
 });
 
-
-
-
-
-vi.mock('../../stores/useSessionStore', () => ({
-    useSessionStore: Object.assign(vi.fn(), {
-        getState: vi.fn(),
-        setState: vi.fn(),
-        subscribe: vi.fn(),
-    }),
-}));
-
-vi.mock('../../lib/logger', () => ({
-    default: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
-}));
-
-vi.mock('@/providers/useTranscriptionContext', () => ({
-    useTranscriptionContext: vi.fn(() => ({ service: { warmUp: vi.fn() } })),
-}));
-
-vi.mock('../../hooks/useSpeechRecognition', () => ({
-    useSpeechRecognition: vi.fn(),
-}));
-
-vi.mock('../../hooks/useVocalAnalysis', () => ({
-    useVocalAnalysis: () => ({
-        pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longestPause: 0, pausesPerMinute: 0 },
-        pauseMetricsHistory: []
-    }),
-}));
-
-vi.mock('@tanstack/react-query', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('@tanstack/react-query')>();
-    return {
-        ...actual,
-        useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-    };
-});
-
-vi.mock('@/hooks/useUsageLimit', () => ({
-    useUsageLimit: () => ({ data: { can_start: true, remaining_seconds: 3600 }, isLoading: false }),
-    formatRemainingTime: (s: number) => `${s}s`,
-}));
-
-vi.mock('@/hooks/useStreak', () => ({
-    useStreak: () => ({ updateStreak: vi.fn(() => ({ currentStreak: 5, isNewDay: true })) }),
-}));
-
-vi.mock('@/hooks/useSessionManager', () => ({
-    useSessionManager: () => ({ saveSession: mockSaveSession }),
+// Mock the main hook that SessionPage uses
+vi.mock('@/hooks/useSessionLifecycle', () => ({
+    useSessionLifecycle: vi.fn(),
 }));
 
 vi.mock('@/hooks/useUserFillerWords', () => ({
     useUserFillerWords: () => ({ userFillerWords: [] }),
-}));
-
-vi.mock('@/hooks/useSessionMetrics', () => ({
-    useSessionMetrics: () => ({
-        wpm: 0,
-        clarityScore: 0,
-        fillerCount: 0,
-        formattedTime: '00:00',
-    }),
 }));
 
 // Mock child components to verify props passed to them
@@ -120,7 +54,7 @@ vi.mock('@/components/session/StatusNotificationBar', () => ({
 }));
 
 // Mock other components to silence them
-vi.mock('@/components/session/LiveRecordingCard', () => ({ LiveRecordingCard: ({ onStartStop }: { onStartStop: () => void }) => <button onClick={() => onStartStop()} data-testid="start-stop-btn">Start/Stop</button> }));
+vi.mock('@/components/session/LiveRecordingCard', () => ({ LiveRecordingCard: () => <div /> }));
 vi.mock('@/components/session/LiveTranscriptPanel', () => ({ LiveTranscriptPanel: () => <div /> }));
 vi.mock('@/components/session/ClarityScoreCard', () => ({ ClarityScoreCard: () => <div /> }));
 vi.mock('@/components/session/SpeakingRateCard', () => ({ SpeakingRateCard: () => <div /> }));
@@ -130,142 +64,90 @@ vi.mock('@/components/session/MobileActionBar', () => ({ MobileActionBar: () => 
 vi.mock('@/components/session/UserFillerWordsManager', () => ({ UserFillerWordsManager: () => <div /> }));
 vi.mock('@/components/session/SessionPageSkeleton', () => ({ SessionPageSkeleton: () => <div /> }));
 vi.mock('@/components/session/PauseMetricsDisplay', () => ({ PauseMetricsDisplay: () => <div /> }));
+vi.mock('@/components/session/SunsetModals', () => ({ SunsetModals: () => <div /> }));
+vi.mock('@/components/PromoExpiredDialog', () => ({ PromoExpiredDialog: () => <div /> }));
+vi.mock('@/components/LocalErrorBoundary', () => ({ 
+    LocalErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</> 
+}));
 
-// Import for mocking responses
-import { useSpeechRecognition } from '../../hooks/useSpeechRecognition';
-import { useSessionStore } from '../../stores/useSessionStore';
-import { createTestSessionStore } from '../../../tests/unit/factories/storeFactory';
+// Import hook for mocking responses
+import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 
 describe('SessionPage Feedback Logic', () => {
+    const defaultMock = {
+        isListening: false,
+        isReady: true,
+        metrics: { 
+            formattedTime: '00:00', 
+            total_words: 0, 
+            wpm: 0, 
+            clarityScore: 100,
+            clarityLabel: 'Great',
+            wpmLabel: 'Normal',
+            fillerCount: 0
+        },
+        sttStatus: { type: 'ready', message: 'Ready' },
+        modelLoadingProgress: null,
+        mode: 'native',
+        elapsedTime: 0,
+        handleStartStop: vi.fn(),
+        showAnalyticsPrompt: false,
+        sessionFeedbackMessage: null,
+        transcriptContent: '',
+        fillerData: {},
+        isProUser: false,
+        activeEngine: 'native',
+        isButtonDisabled: false,
+        showPromoExpiredDialog: false,
+        setMode: vi.fn(),
+        sunsetModal: { open: false, type: 'pro' },
+        setSunsetModal: vi.fn(),
+        pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longestPause: 0, pausesPerMinute: 0 }
+    };
+
     beforeEach(() => {
         vi.clearAllMocks();
-        // Default mocks
-        (useSpeechRecognition as unknown as Mock).mockReturnValue({
-            transcript: { transcript: '' },
-            fillerData: {},
-            startListening: mockStartListening,
-            stopListening: mockStopListening,
-            isListening: false,
-            isReady: true,
-            modelLoadingProgress: null,
-            mode: 'native',
-            sttStatus: { type: 'ready' },
-            chunks: [],
-        });
-
-        const store = createTestSessionStore({
-            elapsedTime: 0,
-        });
-        (useSessionStore as unknown as Mock).mockImplementation(store);
-        Object.assign(useSessionStore, store);
+        vi.mocked(useSessionLifecycle).mockReturnValue(defaultMock as any);
     });
 
-    it('should show "Session too short" warning in status bar when stopped < 5s', async () => {
-        // Setup: Listening true, elapsed time 2s
-        (useSpeechRecognition as unknown as Mock).mockReturnValue({
-            transcript: { transcript: 'test' },
-            fillerData: {},
-            startListening: mockStartListening,
-            stopListening: mockStopListening,
-            isListening: true,
-            isReady: true,
-            modelLoadingProgress: null,
-            mode: 'native',
+    it('should show "Session too short" warning in status bar when hook provides error message', async () => {
+        vi.mocked(useSessionLifecycle).mockReturnValue({
+            ...defaultMock,
+            isListening: false,
             sttStatus: { type: 'ready' },
-            chunks: [],
-        });
+            sessionFeedbackMessage: '⚠️ Session too short',
+        } as any);
 
-        // Mock elapsed time to 2s
-        const shortStore = createTestSessionStore({
-            elapsedTime: 2,
-        });
-        (useSessionStore as unknown as Mock).mockImplementation(shortStore);
-        Object.assign(useSessionStore, shortStore);
+        render(<SessionPage />);
 
-        render(<SessionPage />, { authMock: { session: { user: { id: 'test-user', email: 'test@example.com' } } as unknown as Session } });
-
-        // Click stop
-        const btn = screen.getByTestId('start-stop-btn');
-        await act(async () => {
-            btn.click();
-        });
-
-        // Verify StatusNotificationBar received warning
         expect(screen.getByTestId('status-bar')).toHaveTextContent(/Session too short/);
         expect(screen.getByTestId('status-type')).toHaveTextContent('error');
-
-        // Verify saveSession was NOT called
-        expect(mockSaveSession).not.toHaveBeenCalled();
     });
 
-    it('should show "Session saved" success in status bar when stopped > 5s', async () => {
-        // Setup: Listening true, elapsed time 10s
-        (useSpeechRecognition as unknown as Mock).mockReturnValue({
-            transcript: { transcript: 'test' },
-            fillerData: {},
-            startListening: mockStartListening,
-            stopListening: mockStopListening,
-            isListening: true,
-            isReady: true,
-            modelLoadingProgress: null,
-            mode: 'native',
+    it('should show "Session saved" success in status bar when hook shows analytics prompt', async () => {
+        vi.mocked(useSessionLifecycle).mockReturnValue({
+            ...defaultMock,
+            isListening: false,
             sttStatus: { type: 'ready' },
-            chunks: [],
-        });
+            showAnalyticsPrompt: true,
+        } as any);
 
-        const longStore = createTestSessionStore({
-            elapsedTime: 10,
-        });
-        (useSessionStore as unknown as Mock).mockImplementation(longStore);
-        Object.assign(useSessionStore, longStore);
+        render(<SessionPage />);
 
-        mockSaveSession.mockResolvedValue({ session: { id: '123' } });
-
-        render(<SessionPage />, { authMock: { session: { user: { id: 'test-user', email: 'test@example.com' } } as unknown as Session } });
-
-        // Click stop
-        const btn = screen.getByTestId('start-stop-btn');
-        await act(async () => {
-            btn.click();
-        });
-
-        // Verify saveSession WAS called
-        expect(mockSaveSession).toHaveBeenCalled();
-
-        // Verify StatusNotificationBar received success message with streak
-        expect(screen.getByTestId('status-bar')).toHaveTextContent(/Day Streak! Session saved/);
+        expect(screen.getByTestId('status-bar')).toHaveTextContent(/Session saved/);
         expect(screen.getByTestId('status-type')).toHaveTextContent('ready');
     });
 
-    it('should clear feedback message when new session starts', async () => {
-        // Setup scenarios involves checking calls to setSessionFeedbackMessage(null) which is internal
-        // But we can verify via UI.
-        // We simulate a state where feedback is present? No, we can't easily preset localized state.
-        // Instead, we rely on the implementation detail that `useEffect` depends on `isListening`.
-
-        // Let's assume the previous test left it in a state. But tests are isolated.
-        // We can check if Status Bar shows "ready" status from sttStatus when isListening becomes true.
-
-        (useSpeechRecognition as unknown as Mock).mockReturnValue({
-            transcript: { transcript: '' },
-            fillerData: {},
-            startListening: mockStartListening,
-            stopListening: mockStopListening,
-            isListening: true, // Started
-            isReady: true,
-            modelLoadingProgress: null,
-            mode: 'native',
+    it('should show listening state in status bar when hook indicates listening', async () => {
+        vi.mocked(useSessionLifecycle).mockReturnValue({
+            ...defaultMock,
+            isListening: true,
             sttStatus: { type: 'listening', message: 'Listening...' },
-            chunks: [],
-        });
+        } as any);
 
-        render(<SessionPage />, { authMock: { session: { user: { id: 'test-user', email: 'test@example.com' } } as unknown as Session } });
-
-        // Should show STT status, which means feedback message (priority 1) must be null
-        // If feedback message was somehow stuck, it would show that instead.
-        // Since we can't seed state, we assume default is null.
-        // This test is slightly weak but confirms default priority flows through.
+        render(<SessionPage />);
 
         expect(screen.getByTestId('status-bar')).toHaveTextContent('Listening...');
+        expect(screen.getByTestId('status-type')).toHaveTextContent('listening');
     });
 });

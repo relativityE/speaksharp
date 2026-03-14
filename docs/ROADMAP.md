@@ -11,6 +11,19 @@ This document outlines the forward-looking development plan for SpeakSharp. Comp
 Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Remediation
 ---
 
+## 🛡️ CI Stability & Observability Hardening (Mar 2026) ✅ COMPLETE
+
+> **Goal:** Eliminate race conditions in transcription lifecycles and implement high-fidelity observability for diagnostic audits.
+
+| ID | Title | Priority | Status | Notes |
+|----|-------|----------|--------|-------|
+| **C1** | **Single-Chain Orchestration** | **CRITICAL** | ✅ Complete | Atomic `commandChain` for `TranscriptionService` lifecycle. |
+| **C2** | **Triple-Identity Tracing** | **HIGH** | ✅ Complete | `serviceId`/`runId`/`engineId` tracing hierarchy. |
+| **C3** | **Logger Standardization** | **CRITICAL** | ✅ Complete | Unified `@/lib/logger` mocks in Vitest `setup.ts`. |
+| **C4** | **CI Output Optimization** | **MEDIUM** | ✅ Complete | Defaulted to `WARN` level and `line` reporter for cleaner CI logs. |
+
+---
+
 ## 🚀 Live Recording UI & STT Stabilization (Mar 2026) ✅ COMPLETE
 
 > **Goal:** High-fidelity UI redesign for the core recording interface and stabilization of hardware-dependent STT benchmarks.
@@ -362,7 +375,7 @@ This phase is about confirming the core feature set works as expected and polish
 -  **ℹ️ CAVEAT - User Filler Words Native STT (2026-01-02):** Native STT (Web Speech API) does **NOT** support user filler words - it's entirely browser-controlled. Only Cloud STT (`word_boost` param via AssemblyAI) supports this feature. **Testing Impact:** User filler words E2E verification can only be done with Cloud STT, which requires API keys.
 - [ ] **Alpha Deployment Checklist**
     - ✅ **Set `PROMO_GEN_ADMIN_SECRET` secret in Supabase Dashboard (2026-02-08):** Finalized secure, server-side validated promo generation. Legacy ALPHA_BYPASS_CODE purged.
-    - [ ] Verify rotation via `scripts/generate-promo.ts`
+    - [ ] Verify rotation via `pnpm generate-promo`
 - [ ] **Infrastructure Cleanup**
 - ✅ **Restructure Codebase:** Reorganize the project structure for better maintainability before alpha soft launch.\
   - **Implemented Structure:**\
@@ -402,11 +415,7 @@ This phase is about confirming the core feature set works as expected and polish
   - ✅ **Task 3: Cross-Tab Mutex Lock (COMPLETE):** Resolved by enforcing a universal single-session policy and synchronous lock release.
   - ✅ **Task 4: Voice Activity Auto-Pause (COMPLETE):** Fully implemented and verified via deterministic `page.clock` E2E tests.
   - ✅ **Task 6: Graceful Session Wrap-up & Limit Modals (COMPLETE):** Implemented "Gracious Sunset" UI and status message synchronization.
-- 🔴 **Prioritize WebGPU Local Engine (Code & UX):** At $0.47/hr for Cloud STT, maximizing Pro user adoption of the Local Engine is critical to prevent losses on heavy users.
-  - **Task 1: Default Selection:** Refactor `useSpeechRecognition` and `TranscriptionService` to default to `private` mode for Pro users, instead of `cloud`.
-  - **Task 2: "Zero-Network Vault Mode" UI:** Add a visual "Vault Active" lock icon when WebGPU is selected to prove NO network requests are being made, alleviating #1 privacy fears.
-  - **Task 3: Delightful Loading States:** Add polished skeleton loaders and progress bars during the chunked WebGPU model download process.
-  - **Task 4: Secure Model Hosting (Anti-Hack):** Move the raw WebGPU model files from a public Vercel CDN into a secure Supabase Storage Bucket. The frontend must hit an Edge Function to acquire a signed, short-lived URL, which enforces RLS (`subscription_status = 'pro'`), rendering client-side React tampering useless.
+- ✅ **Prioritize WebGPU Local Engine (Code & UX):** Refactored to default Pro users to the Local Engine ($0.00/hr) to maximize gross margins.
 - ✅ **Private STT CI Stability (2026-01-01):** Resolved WASM deadlocks and flaky integration tests using Triple-Engine Architecture and MockEngine strategy.
 
 - ⚠️ **Stripe Webhook E2E Verification (2025-12-21):** End-to-end test of Pro signup flow completed via CLI simulation. Confirmed: Auth → Select Pro → Stripe Redirect → Webhook Upgrade → Success Toast. Ad-hoc fix implemented for double toasts (see Tech Debt section below).
@@ -556,6 +565,114 @@ This phase is about confirming the core feature set works as expected and polish
 | 9 | **Test Harness Config (Stale Closure)** | `useSpeechRecognition/__tests__` | P3 | ✅ FIXED - Atomic hook decomposition (`useTranscriptionCallbacks`) and `useRef`-based proxying eliminates stale closure risk. |
 | 10 | **Unified Documentation Metric Sync** | `scripts/update-prd-metrics.mjs` | P2 | Automate metric sync for `README.md` and `ARCHITECTURE.md` using markers (currently manual). |
 | 11 | **Remove Mock Timeout Bypass** | `TranscriptionService.ts` | P2 | Evolve the Optimistic Entry logic to handle mocks via a more generic "ready-on-init" flag rather than explicitly checking for mocks, reducing test-prod coupling. |
+| 12 | **E2E Timeout Standardization** | `tests/e2e/` | P2 | Standardize wait timeouts to "ideal duration + 50% buffer max" to avoid masking performance regressions or slow CI execution. |
+| 13 | **Mock-to-Schema Synchronization** | `tests/e2e/mock-routes.ts` | P2 | Implement factory-based session mocking and PostgREST header compliance to prevent regression. |
+| 14 | **Private STT First-Time Use UX** | `TranscriptionService.ts` | P2 | Design: Show download %; offer wait vs. Native transition; auto-fallback after 10s if no decision. |
+
+
+### 🛡️ Prevention Mechanisms (Choose 1 of 3)
+
+
+Three mechanisms, each catching a different category of drift at a different point in the development cycle.
+
+#### Mechanism 1 — Type-Safe Mock Factories (Catches Drift at Compile Time)
+
+This is the most powerful prevention. When your mock factory return type is derived directly from your database types, a schema change becomes a TypeScript error:
+
+```typescript
+// tests/support/factories/session.factory.ts
+import type { Database } from '@/types/database.types';
+
+// Derive the mock type directly from the generated DB types
+type SessionRow = Database['public']['Tables']['sessions']['Row'];
+
+// TypeScript will error if any required field is missing
+export function createMockSession(
+    overrides: Partial<SessionRow> = {}
+): SessionRow {
+    return {
+        id: crypto.randomUUID(),
+        user_id: 'mock-user-id',
+        status: 'completed',
+        engine: 'private',
+        // ... every field required by SessionRow
+        ...overrides,
+    };
+}
+```
+
+When the Phase 2 migration added `engine_version`, `model_name`, `device_type` — if the factory used `SessionRow` as its return type, TypeScript would have immediately shown a red underline on the factory and blocked compilation. The drift would have been caught before any test ran.
+
+The key is regenerating `database.types.ts` from the actual schema after every migration:
+
+```bash
+# Add to the migration deployment step:
+pnpm supabase gen types typescript --local > frontend/src/types/database.types.ts
+git add frontend/src/types/database.types.ts
+```
+
+Make type regeneration mandatory in `deploy-supabase-migrations.yml`.
+
+#### Mechanism 2 — Contract Tests (Catches Drift at Test Time)
+
+Type safety catches missing fields. Contract tests catch semantic drift — wrong values, wrong headers, wrong response shape even when all fields are present.
+
+Add a contract test that runs the real Supabase client against your mocks and asserts the shapes match:
+
+```typescript
+// tests/contracts/supabase-mock-parity.spec.ts
+import { createMockSession } from '../support/factories/session.factory';
+import type { Database } from '@/types/database.types';
+
+type SessionRow = Database['public']['Tables']['sessions']['Row'];
+
+describe('Mock Parity Contract', () => {
+    it('mock session contains all required DB fields', () => {
+        const mock = createMockSession();
+        
+        // These are the fields the frontend actually reads
+        // If a new field is added to the DB and read in the frontend
+        // but missing from the mock, this test catches it
+        const requiredFields: (keyof SessionRow)[] = [
+            'id', 'user_id', 'status', 'engine', 'engine_version',
+            'model_name', 'device_type', 'created_at', 'transcript',
+            'clarity_score', 'wpm', 'idempotency_key',
+        ];
+        
+        requiredFields.forEach(field => {
+            expect(mock).toHaveProperty(field);
+            expect(mock[field]).not.toBeUndefined();
+        });
+    });
+
+    it('mock response headers satisfy PostgREST single() contract', () => {
+        // Document and enforce the header contract
+        const singleHeaders = SUPABASE_SINGLE_HEADERS;
+        expect(singleHeaders['Content-Type'])
+            .toBe('application/vnd.pgrst.object+json');
+    });
+});
+```
+
+#### Mechanism 3 — Migration-Linked Mock Update Checklist (Catches Drift at PR Review)
+
+The first two mechanisms are technical. This one is process. Add to your PR template and to `AGENTS.md`:
+
+```markdown
+## Required for any Supabase migration PR
+
+- [ ] Ran: `pnpm supabase gen types typescript --local > frontend/src/types/database.types.ts`
+- [ ] Updated mock factories in `tests/support/factories/` to include new columns
+- [ ] Ran contract tests: `pnpm test -- --grep "Mock Parity"`
+- [ ] Verified mock headers match PostgREST spec for any new .single() queries
+```
+
+And add a CI lint rule that detects migration files without corresponding factory updates.
+
+#### Summary
+
+Each mechanism offers a different level of protection. While any one of these would have caught the array body bug, the schema drift, or the header mismatch, Mechanism 1 (Type-Safe Factories) is recommended as the primary defense for this project.
+
 
 ### ℹ️ Known Limitations (Accepted)
 

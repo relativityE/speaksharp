@@ -563,17 +563,20 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             label="Speaking Pace"
                             value={targetSession.wpm ?? (targetSession.duration > 0 && targetSession.total_words ? Math.round((targetSession.total_words / targetSession.duration) * 60) : 0)}
                             unit="WPM"
+                            testId={TEST_IDS.STAT_CARD_SPEAKING_PACE}
                         />
                         <StatCard
                             icon={<Target />}
                             label="Clarity Score"
                             value={targetSession.clarity_score ?? (targetSession.accuracy ? (targetSession.accuracy * 100).toFixed(0) : 0)}
                             unit="%"
+                            testId={TEST_IDS.CLARITY_SCORE_VALUE}
                         />
                         <StatCard
                             icon={<TrendingUp />}
                             label="Filler Words"
                             value={Object.values(targetSession.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0)}
+                            testId={TEST_IDS.FILLER_COUNT_VALUE}
                         />
                     </div>
 

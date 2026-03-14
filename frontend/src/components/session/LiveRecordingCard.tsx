@@ -93,8 +93,22 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             <DropdownMenuContent align="start" className="min-w-[140px]">
                                 <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
                                     <DropdownMenuRadioItem value="native" className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_NATIVE}>Native Browser</DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="private" disabled={!isProUser} className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_PRIVATE}>Private (Pro)</DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="cloud" disabled={!isProUser} className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_CLOUD}>Cloud (Pro)</DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem 
+                                        value="private" 
+                                        className="text-xs uppercase" 
+                                        data-testid={TEST_IDS.STT_MODE_PRIVATE}
+                                        disabled={!isProUser}
+                                    >
+                                        Private {!isProUser ? '(Pro)' : ''}
+                                    </DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem 
+                                        value="cloud" 
+                                        className="text-xs uppercase" 
+                                        data-testid={TEST_IDS.STT_MODE_CLOUD}
+                                        disabled={!isProUser}
+                                    >
+                                        Cloud {!isProUser ? '(Pro)' : ''}
+                                    </DropdownMenuRadioItem>
                                 </DropdownMenuRadioGroup>
                             </DropdownMenuContent>
                         </DropdownMenu>

@@ -7,14 +7,14 @@ import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { PracticeSession } from '../../frontend/src/types/session';
 
 /**
- * SpeakSharp: Analytics Behavioral Integrity (Phase 2)
+ * SpeakSharp: Analytics Behavioral Integrity
  * 📊 Objective: Every metric a user sees must be provably correct.
  */
 
 describe('Analytics Math Integrity', () => {
 
     describe('WER & Accuracy Score', () => {
-        it('should correctly invert WER to Accuracy percentage (Expert Requirement)', () => {
+        it('should correctly invert WER to Accuracy percentage (Requirement)', () => {
             const groundTruth = "This is a perfect sentence.";
             const transcript = "This is a perfect sentence.";
             const wer = calculateWordErrorRate(groundTruth, transcript);

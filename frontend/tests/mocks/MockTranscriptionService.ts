@@ -1,5 +1,6 @@
 import { SttStatus } from '@/types/transcription';
 import { TranscriptionModeOptions } from '@/services/transcription/modes/types';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 export class MockTranscriptionService {
     // Static reference for tests to access the latest instance
@@ -53,7 +54,15 @@ export class MockTranscriptionService {
         return Promise.resolve();
     }
 
-    reset(): void {
+    destroy = async (): Promise<void> => {
+        return this.terminate();
+    }
+
+    updatePolicy(): void {
+        // Mock implementation
+    }
+
+    resetEphemeralState(): void {
         this.isListening = false;
         this.error = null;
         this.sttStatus = { type: 'idle', message: 'Idle' };
@@ -87,6 +96,9 @@ export class MockTranscriptionService {
     simulateError(error: Error): void {
         this.error = error;
         this.sttStatus = { type: 'error', message: error.message };
+        
+        // Ensure store matches
+        useSessionStore.getState().setSTTStatus(this.sttStatus);
 
         // Propagate via standard error callback if available (Issue C)
         if (this.options.onError) {
@@ -104,6 +116,8 @@ export class MockTranscriptionService {
      */
     simulateStatusChange(status: SttStatus): void {
         this.sttStatus = status;
+        // Ensure store matches
+        useSessionStore.getState().setSTTStatus(status);
         if (status.type === 'error' && this.options.onError) {
             this.options.onError({
                 message: status.message,

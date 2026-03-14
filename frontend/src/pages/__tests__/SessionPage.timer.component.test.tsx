@@ -41,9 +41,7 @@ vi.mock('@/providers/TranscriptionProvider', () => ({
     TranscriptionProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
-vi.mock('@/lib/logger', () => ({
-    default: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
-}));
+
 vi.mock('@/hooks/useUserFillerWords', () => ({
     useUserFillerWords: () => ({
         userFillerWords: ['mock-word'],

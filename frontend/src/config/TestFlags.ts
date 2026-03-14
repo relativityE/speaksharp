@@ -38,19 +38,23 @@ export const TestFlags = {
      * where MSW mocks APIs and we default to fake processing.
      */
     IS_TEST_MODE:
+        (typeof window !== 'undefined' && (window.__APP_TEST_ENV__?.context === 'e2e' || window.__APP_TEST_ENV__?.isE2E === true)) ||
         getEnvVar('VITE_TEST_MODE') === 'true' ||
         (typeof window !== 'undefined' && window.TEST_MODE === true && !getEnvVar('DEV')),
 
     /**
      * Database Override: When true, use real Supabase even in test mode.
      */
-    USE_REAL_DATABASE: getEnvVar('VITE_USE_LIVE_DB') === 'true',
+    USE_REAL_DATABASE: 
+        (typeof window !== 'undefined' && window.__APP_TEST_ENV__?.exposedState?.sessionStore !== undefined) ||
+        getEnvVar('VITE_USE_LIVE_DB') === 'true',
 
     /**
      * Transcription Override: When true, use real AI models even in test mode.
      * Checks both Vite build-time env var AND runtime window flag (set by live test addInitScript).
      */
     USE_REAL_TRANSCRIPTION:
+        (typeof window !== 'undefined' && window.__APP_TEST_ENV__?.stt?.mode === 'real') ||
         getEnvVar('VITE_TEST_USE_REAL_TRANSCRIPTION') === 'true' ||
         (typeof window !== 'undefined' && window.REAL_WHISPER_TEST === true),
 
@@ -58,13 +62,16 @@ export const TestFlags = {
      * Force CPU Override: Force model execution on CPU (TransformersJS) even if WebGPU is available.
      */
     FORCE_CPU_TRANSCRIPTION:
+        (typeof window !== 'undefined' && window.__APP_TEST_ENV__?.stt?.forceOptions?.useCPU === true) ||
         getEnvVar('VITE_TEST_TRANSCRIPTION_FORCE_CPU') === 'true' ||
         (typeof window !== 'undefined' && window.__FORCE_TRANSFORMERS_JS__ === true),
 
     /**
      * Debug Switch: Exposes internal logs and bridge state for E2E runners.
      */
-    DEBUG_ENABLED: typeof window !== 'undefined' && !!window.__E2E_CONTEXT__,
+    DEBUG_ENABLED: 
+        (typeof window !== 'undefined' && window.__APP_TEST_ENV__?.debug) ||
+        (typeof window !== 'undefined' && !!window.__E2E_CONTEXT__),
 } as const;
 
 /**

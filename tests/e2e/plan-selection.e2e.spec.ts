@@ -1,8 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { goToPublicRoute } from './helpers';
 
 test.describe('Plan Selection at Signup', () => {
-    test('should display plan selection cards on signup page', async ({ page }) => {
+    test('should display plan selection cards on signup page', async ({ mockedPage: page }) => {
         // Navigate to signup page using approved helper
         await goToPublicRoute(page, '/auth/signup');
 

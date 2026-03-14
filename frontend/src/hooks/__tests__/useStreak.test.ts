@@ -2,6 +2,10 @@ import { renderHook, act } from '@testing-library/react';
 import { useStreak } from '../useStreak';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+vi.mock('../useUsageLimit', () => ({
+    useUsageLimit: vi.fn().mockReturnValue({ data: null }),
+}));
+
 describe('useStreak', () => {
     beforeEach(() => {
         localStorage.clear();

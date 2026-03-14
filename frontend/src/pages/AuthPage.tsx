@@ -25,8 +25,9 @@ const mapError = (message: string) => {
     // Handle JSON-formatted Supabase errors
     const parsed = JSON.parse(message);
     if (parsed.message) return friendlyErrors[parsed.message] || parsed.message;
-  } catch {
+  } catch (err) {
     // Not a JSON string, fall through to direct mapping.
+    logger.debug({ err, message }, '[AuthPage] Supabase error message not JSON');
   }
   return friendlyErrors[message] || 'An unexpected error occurred.';
 };
@@ -69,7 +70,7 @@ export default function AuthPage() {
             const body = await promoError.context.json();
             msg = body.error || msg;
           } catch (e) {
-            logger.debug({ e }, '[AuthPage] Could not parse promo error context');
+            logger.error({ e }, '[AuthPage] Could not parse promo error context');
           }
           throw new Error(msg);
         }

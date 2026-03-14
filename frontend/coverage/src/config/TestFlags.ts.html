@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">78.12% </span>
+                <span class="strong">82.05% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>25/32</span>
+                <span class='fraction'>32/39</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">57.14% </span>
+                <span class="strong">30.76% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>4/7</span>
+                <span class='fraction'>4/13</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">78.12% </span>
+                <span class="strong">82.05% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>25/32</span>
+                <span class='fraction'>32/39</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line medium'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -151,7 +151,14 @@
 <a name='L86'></a><a href='#L86'>86</a>
 <a name='L87'></a><a href='#L87'>87</a>
 <a name='L88'></a><a href='#L88'>88</a>
-<a name='L89'></a><a href='#L89'>89</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L89'></a><a href='#L89'>89</a>
+<a name='L90'></a><a href='#L90'>90</a>
+<a name='L91'></a><a href='#L91'>91</a>
+<a name='L92'></a><a href='#L92'>92</a>
+<a name='L93'></a><a href='#L93'>93</a>
+<a name='L94'></a><a href='#L94'>94</a>
+<a name='L95'></a><a href='#L95'>95</a>
+<a name='L96'></a><a href='#L96'>96</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -165,10 +172,10 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">184x</span>
-<span class="cline-any cline-yes">184x</span>
-<span class="cline-any cline-yes">184x</span>
-<span class="cline-any cline-yes">184x</span>
+<span class="cline-any cline-yes">188x</span>
+<span class="cline-any cline-yes">188x</span>
+<span class="cline-any cline-yes">188x</span>
+<span class="cline-any cline-yes">188x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -192,12 +199,15 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -206,6 +216,7 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -213,10 +224,13 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -279,19 +293,23 @@ export const TestFlags = {
      * where MSW mocks APIs and we default to fake processing.
      */
     IS_TEST_MODE:
+        (typeof window !== 'undefined' &amp;&amp; (window.<span class="branch-0 cbranch-no" title="branch not covered" >__APP_TEST_ENV__?.context === '</span>e2e' || window.<span class="branch-0 cbranch-no" title="branch not covered" >__APP_TEST_ENV__?.isE2E === t</span>rue)) ||
         getEnvVar('VITE_TEST_MODE') === <span class="branch-0 cbranch-no" title="branch not covered" >'true' ||</span>
 <span class="cstat-no" title="statement not covered" >        (typeof window !== 'undefined' &amp;&amp; window.TEST_MODE === true &amp;&amp; !getEnvVar('DEV')),</span>
 &nbsp;
     /**
      * Database Override: When true, use real Supabase even in test mode.
      */
-    USE_REAL_DATABASE: getEnvVar('VITE_USE_LIVE_DB') === 'true',
+    USE_REAL_DATABASE: 
+        (typeof window !== 'undefined' &amp;&amp; window.<span class="branch-0 cbranch-no" title="branch not covered" >__APP_TEST_ENV__?.exposedState?.sessionStore !== u</span>ndefined) ||
+        getEnvVar('VITE_USE_LIVE_DB') === 'true',
 &nbsp;
     /**
      * Transcription Override: When true, use real AI models even in test mode.
      * Checks both Vite build-time env var AND runtime window flag (set by live test addInitScript).
      */
     USE_REAL_TRANSCRIPTION:
+        (typeof window !== 'undefined' &amp;&amp; window.<span class="branch-0 cbranch-no" title="branch not covered" >__APP_TEST_ENV__?.stt?.mode === '</span>real') ||
         getEnvVar('VITE_TEST_USE_REAL_TRANSCRIPTION') === 'true' ||
         (typeof window !== 'undefined' &amp;&amp; window.REAL_WHISPER_TEST === true),
 &nbsp;
@@ -299,13 +317,16 @@ export const TestFlags = {
      * Force CPU Override: Force model execution on CPU (TransformersJS) even if WebGPU is available.
      */
     FORCE_CPU_TRANSCRIPTION:
+        (typeof window !== 'undefined' &amp;&amp; window.<span class="branch-0 cbranch-no" title="branch not covered" >__APP_TEST_ENV__?.stt?.forceOptions?.useCPU === t</span>rue) ||
         getEnvVar('VITE_TEST_TRANSCRIPTION_FORCE_CPU') === 'true' ||
         (typeof window !== 'undefined' &amp;&amp; window.__FORCE_TRANSFORMERS_JS__ === true),
 &nbsp;
     /**
      * Debug Switch: Exposes internal logs and bridge state for E2E runners.
      */
-    DEBUG_ENABLED: typeof window !== 'undefined' &amp;&amp; !!window.__E2E_CONTEXT__,
+    DEBUG_ENABLED: 
+        (typeof window !== 'undefined' &amp;&amp; window.<span class="branch-0 cbranch-no" title="branch not covered" >__APP_TEST_ENV__?.debug) ||</span>
+        (typeof window !== 'undefined' &amp;&amp; !!window.__E2E_CONTEXT__),
 } as const;
 &nbsp;
 /**
@@ -334,7 +355,7 @@ if (TestFlags.DEBUG_ENABLED &amp;&amp; typeof window !== 'undefined') {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-09T12:41:07.637Z
+                at 2026-03-14T21:44:45.936Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

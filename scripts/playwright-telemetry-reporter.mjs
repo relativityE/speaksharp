@@ -4,10 +4,12 @@ import path from "path";
 export default class TelemetryReporter {
   constructor() {
     this.results = {
-      passed: 0,
-      failed: 0,
-      flaky: 0,
-      skipped: 0,
+      stats: {
+        expected: 0,
+        unexpected: 0,
+        flaky: 0,
+        skipped: 0
+      },
       tests: []
     };
   }
@@ -15,7 +17,7 @@ export default class TelemetryReporter {
   onTestEnd(test, result) {
     const title = test.titlePath().join(" › ");
     const outcome = test.outcome();
-    
+
     const entry = {
       title,
       status: result.status,
@@ -28,16 +30,16 @@ export default class TelemetryReporter {
 
     switch (outcome) {
       case "expected":
-        this.results.passed++;
+        this.results.stats.expected++;
         break;
 
       case "flaky":
-        this.results.flaky++;
+        this.results.stats.flaky++;
         console.log(`[PW][FLAKY] ${title} (retry ${result.retry})`);
         break;
 
       case "unexpected":
-        this.results.failed++;
+        this.results.stats.unexpected++;
         console.log(`[PW][${result.status.toUpperCase()}] ${title}`);
         if (result.error?.message) {
           const cleanMsg = (result.error.message || '').replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
@@ -46,26 +48,41 @@ export default class TelemetryReporter {
         break;
 
       case "skipped":
-        this.results.skipped++;
+        this.results.stats.skipped++;
         break;
     }
   }
 
   onEnd() {
     const rootDir = process.cwd();
-    const telemetryPath = path.join(rootDir, "test-results", "playwright-results.json");
+    
+    // Path A: Expected by run-ci.mjs (Stage 3 Guard)
+    const resultsPathA = path.join(rootDir, "test-results", "playwright-results.json");
+    
+    // Path B: Expected by run-metrics.sh (Stage 5)
+    const resultsDirB = path.join(rootDir, "test-results", "playwright");
+    const resultsPathB = path.join(resultsDirB, "results.json");
 
-    fs.mkdirSync(path.dirname(telemetryPath), { recursive: true });
+    fs.mkdirSync(path.dirname(resultsPathA), { recursive: true });
+    fs.mkdirSync(resultsDirB, { recursive: true });
 
-    fs.writeFileSync(
-      telemetryPath,
-      JSON.stringify(this.results, null, 2)
-    );
+    const content = JSON.stringify(this.results, null, 2);
+    fs.writeFileSync(resultsPathA, content);
+    fs.writeFileSync(resultsPathB, content);
+
+    // Direct Telemetry Emission via IPC (Fix: IPC Protocol Bug)
+    if (process.send) {
+      process.send({
+        type: 'TELEMETRY',
+        tool: 'playwright',
+        data: this.results
+      });
+    }
 
     console.log(
-      `[PW] Summary: ${this.results.passed} passed, ` +
-      `${this.results.failed} failed, ` +
-      `${this.results.flaky} flaky`
+      `[PW] Summary: ${this.results.stats.expected} passed, ` +
+      `${this.results.stats.unexpected} failed, ` +
+      `${this.results.stats.flaky} flaky`
     );
   }
 }

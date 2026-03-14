@@ -24,7 +24,7 @@ test.describe('User Filler Words Canary @canary', () => {
      */
     test('should pass user words to Cloud STT engine (High Fidelity)', async ({ page }) => {
         // Use console.warn to ensure logs appear in CI stdout (debugLog is suppressed without E2E_DEBUG)
-        const logStep = (step: string) => console.warn(`[${new Date().toISOString()}] [CANARY-STEP] ${step}`);
+        const logStep = (msg: string) => console.warn(`[${new Date().toISOString()}] [PROGRESS] ${msg}`);
 
         test.setTimeout(130000); // Keeping high timeout for debugging, but logging will reveal actual times
 
@@ -79,7 +79,7 @@ test.describe('User Filler Words Canary @canary', () => {
         const response = await addWordPromise;
         const body = await response.json();
 
-        // Expert Verification: Ensure backend returned the single inserted record
+        // Verification: Ensure backend returned the single inserted record
         if (Array.isArray(body)) {
             expect(body).toHaveLength(1);
             // Verify the word matches (case-insensitive due to DB normalization)

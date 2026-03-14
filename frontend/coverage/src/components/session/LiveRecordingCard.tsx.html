@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">79.2% </span>
+                <span class="strong">80.85% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>99/125</span>
+                <span class='fraction'>114/141</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">41.17% </span>
+                <span class="strong">52.38% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>7/17</span>
+                <span class='fraction'>11/21</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">79.2% </span>
+                <span class="strong">80.85% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>99/125</span>
+                <span class='fraction'>114/141</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line medium'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -252,7 +252,23 @@
 <a name='L187'></a><a href='#L187'>187</a>
 <a name='L188'></a><a href='#L188'>188</a>
 <a name='L189'></a><a href='#L189'>189</a>
-<a name='L190'></a><a href='#L190'>190</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L190'></a><a href='#L190'>190</a>
+<a name='L191'></a><a href='#L191'>191</a>
+<a name='L192'></a><a href='#L192'>192</a>
+<a name='L193'></a><a href='#L193'>193</a>
+<a name='L194'></a><a href='#L194'>194</a>
+<a name='L195'></a><a href='#L195'>195</a>
+<a name='L196'></a><a href='#L196'>196</a>
+<a name='L197'></a><a href='#L197'>197</a>
+<a name='L198'></a><a href='#L198'>198</a>
+<a name='L199'></a><a href='#L199'>199</a>
+<a name='L200'></a><a href='#L200'>200</a>
+<a name='L201'></a><a href='#L201'>201</a>
+<a name='L202'></a><a href='#L202'>202</a>
+<a name='L203'></a><a href='#L203'>203</a>
+<a name='L204'></a><a href='#L204'>204</a>
+<a name='L205'></a><a href='#L205'>205</a>
+<a name='L206'></a><a href='#L206'>206</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -339,6 +355,20 @@
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-yes">6x</span>
@@ -371,10 +401,12 @@
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-yes">6x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -536,8 +568,22 @@ const LiveRecordingCardContent: React.FC&lt;LiveRecordingCardProps&gt; = ({
                             &lt;DropdownMenuContent align="start" className="min-w-[140px]"&gt;
                                 &lt;DropdownMenuRadioGroup value={mode} onValueChange={(v) =&gt; onModeChange(v as RecordingMode)}&gt;
                                     &lt;DropdownMenuRadioItem value="native" className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_NATIVE}&gt;Native Browser&lt;/DropdownMenuRadioItem&gt;
-                                    &lt;DropdownMenuRadioItem value="private" disabled={!isProUser} className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_PRIVATE}&gt;Private (Pro)&lt;/DropdownMenuRadioItem&gt;
-                                    &lt;DropdownMenuRadioItem value="cloud" disabled={!isProUser} className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_CLOUD}&gt;Cloud (Pro)&lt;/DropdownMenuRadioItem&gt;
+                                    &lt;DropdownMenuRadioItem 
+                                        value="private" 
+                                        className="text-xs uppercase" 
+                                        data-testid={TEST_IDS.STT_MODE_PRIVATE}
+                                        disabled={!isProUser}
+                                    &gt;
+                                        Private {!isProUser ? '(Pro)' : ''}
+                                    &lt;/DropdownMenuRadioItem&gt;
+                                    &lt;DropdownMenuRadioItem 
+                                        value="cloud" 
+                                        className="text-xs uppercase" 
+                                        data-testid={TEST_IDS.STT_MODE_CLOUD}
+                                        disabled={!isProUser}
+                                    &gt;
+                                        Cloud {!isProUser ? '(Pro)' : ''}
+                                    &lt;/DropdownMenuRadioItem&gt;
                                 &lt;/DropdownMenuRadioGroup&gt;
                             &lt;/DropdownMenuContent&gt;
                         &lt;/DropdownMenu&gt;
@@ -558,6 +604,7 @@ const LiveRecordingCardContent: React.FC&lt;LiveRecordingCardProps&gt; = ({
                                     onClick={onStartStop}
                                     disabled={isButtonDisabled}
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
+                                    data-recording={isListening}
                                     aria-label="Start Recording"
                                     className="w-11 h-11 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-elegant hover:scale-105 transition-all duration-300 p-0"
                                 &gt;
@@ -568,6 +615,7 @@ const LiveRecordingCardContent: React.FC&lt;LiveRecordingCardProps&gt; = ({
 <span class="cstat-no" title="statement not covered" >                                    onClick={onStartStop}</span>
 <span class="cstat-no" title="statement not covered" >                                    disabled={isButtonDisabled}</span>
 <span class="cstat-no" title="statement not covered" >                                    data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}</span>
+<span class="cstat-no" title="statement not covered" >                                    data-recording={isListening}</span>
 <span class="cstat-no" title="statement not covered" >                                    aria-label="Stop Recording"</span>
 <span class="cstat-no" title="statement not covered" >                                    className="w-11 h-11 rounded-full bg-primary hover:bg-primary/80 text-primary-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"</span>
                                 &gt;
@@ -637,7 +685,7 @@ export default LiveRecordingCard;
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-09T12:41:07.637Z
+                at 2026-03-14T21:44:45.936Z
             </div>
         <script src="../../../prettify.js"></script>
         <script>

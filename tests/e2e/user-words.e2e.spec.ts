@@ -1,19 +1,13 @@
-import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { test, expect } from './fixtures';
+import { navigateToRoute } from './helpers';
 
 /**
  * User Words Lifecycle E2E
- *
- * Behavioral principle: assert actions and outcomes (add→visible, remove→gone),
- * not UI copy text which can change freely.
  */
 test.describe('User Words Lifecycle', () => {
-    test.beforeEach(async ({ page }) => {
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
-        await navigateToRoute(page, '/session');
-    });
 
-    test('should add, detect, and remove a user word with UI feedback', async ({ page }) => {
+    test('should add, detect, and remove a user word with UI feedback', async ({ proPage: page }) => {
+        await navigateToRoute(page, '/session');
         const userWord = 'testword';
 
         // 1. Open user word popover

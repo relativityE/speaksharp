@@ -7,12 +7,7 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 
 // Mock dependencies
 vi.mock('@/lib/supabaseClient');
-vi.mock('@/lib/logger', () => ({
-    default: {
-        info: vi.fn(),
-        error: vi.fn(),
-    },
-}));
+
 
 const mockSupabaseClient = {
     functions: {

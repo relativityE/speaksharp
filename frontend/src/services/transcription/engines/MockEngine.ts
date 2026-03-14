@@ -1,16 +1,20 @@
 import { Result } from 'true-myth';
 import { IPrivateSTTEngine, EngineCallbacks, EngineType } from './IPrivateSTTEngine';
+import { ITranscriptionEngine, TranscriptionModeOptions } from '../modes/types';
+import { MicStream } from '../utils/types';
 import logger from '../../../lib/logger';
 
 /**
  * Industry Standard: Deterministic Mock Pattern
  * Reference: Jest, Playwright, Cypress mock patterns
  */
-export class MockEngine implements IPrivateSTTEngine {
+export class MockEngine implements ITranscriptionEngine, IPrivateSTTEngine {
     public readonly type: EngineType = 'mock';
     private transcriptTimer: NodeJS.Timeout | null = null;
     private isTranscribing = false;
     private onTranscriptCallback: ((transcript: string, isFinal: boolean) => void) | null = null;
+    private options: TranscriptionModeOptions;
+    private lastTranscript = '';
 
     // Configurable mock responses
     private readonly MOCK_TRANSCRIPT_SEQUENCE = [
@@ -20,31 +24,53 @@ export class MockEngine implements IPrivateSTTEngine {
         { transcript: 'Hello world this is a test transcript', delay: 2000, isFinal: true }
     ];
 
-    async init(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
-        await this.initialize();
-        if (callbacks.onReady) callbacks.onReady();
-        return Result.ok(undefined);
+    constructor(options?: TranscriptionModeOptions) {
+        this.options = options || {
+            onTranscriptUpdate: () => {},
+            onReady: () => {}
+        };
     }
 
-    async initialize(): Promise<void> {
+    /**
+     * Unified init implementation using overloads to satisfy:
+     * 1. ITranscriptionEngine: init(): Promise<void>
+     * 2. IPrivateSTTEngine: init(callbacks: EngineCallbacks, timeoutMs?: number): Promise<Result<void, Error>>
+     */
+    async init(): Promise<void>;
+    async init(callbacks: EngineCallbacks, timeoutMs?: number): Promise<Result<void, Error>>;
+    async init(callbacks?: EngineCallbacks, _timeoutMs?: number): Promise<Result<void, Error> | void> {
         logger.info('[MockEngine] 🎭 Initializing mock engine for E2E testing');
         // Simulate async initialization
         await this.delay(100);
         logger.info('[MockEngine] ✅ Mock engine initialized');
+        
+        if (callbacks?.onReady) callbacks.onReady();
+        if (this.options?.onReady) this.options.onReady();
+
+        if (typeof callbacks === 'object' && callbacks !== null && 'onReady' in callbacks) {
+          return Result.ok(undefined);
+        }
     }
 
+    async initialize(): Promise<void> {
+        return this.init();
+    }
+
+    /**
+     * IPrivateSTTEngine implementation
+     */
     async transcribe(_audio: Float32Array): Promise<Result<string, Error>> {
         // Return empty result as this mock uses callback-based emitter for realism
         return Result.ok('');
     }
 
-    async startTranscription(
-        onTranscript: (transcript: string, isFinal: boolean) => void
-    ): Promise<void> {
+    /**
+     * ITranscriptionEngine implementation
+     */
+    async startTranscription(_mic?: MicStream): Promise<void> {
         logger.info('[MockEngine] ▶️ Starting mock transcription');
 
         this.isTranscribing = true;
-        this.onTranscriptCallback = onTranscript;
 
         // Emit transcript sequence
         let cumulativeDelay = 0;
@@ -53,9 +79,18 @@ export class MockEngine implements IPrivateSTTEngine {
             cumulativeDelay += segment.delay;
 
             this.transcriptTimer = setTimeout(() => {
-                if (this.isTranscribing && this.onTranscriptCallback) {
-                    logger.info({ transcript: segment.transcript, final: segment.isFinal }, '[MockEngine] 📝 Emitting');
-                    this.onTranscriptCallback(segment.transcript, segment.isFinal);
+                if (this.isTranscribing) {
+                    this.lastTranscript = segment.transcript;
+                    
+                    if (this.onTranscriptCallback) {
+                        logger.info({ transcript: segment.transcript, final: segment.isFinal }, '[MockEngine] 📝 Emitting via direct callback');
+                        this.onTranscriptCallback(segment.transcript, segment.isFinal);
+                    }
+                    
+                    // Also notify via options for integration tests
+                    this.options.onTranscriptUpdate({
+                        transcript: { [segment.isFinal ? 'final' : 'partial']: segment.transcript }
+                    });
                 }
             }, cumulativeDelay);
         }
@@ -83,6 +118,18 @@ export class MockEngine implements IPrivateSTTEngine {
 
         await this.stopTranscription();
         this.onTranscriptCallback = null;
+    }
+
+    async terminate(): Promise<void> {
+        return this.destroy();
+    }
+
+    async getTranscript(): Promise<string> {
+        return this.lastTranscript;
+    }
+
+    getEngineType(): string {
+        return 'mock';
     }
 
     private delay(ms: number): Promise<void> {

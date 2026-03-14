@@ -24,13 +24,24 @@ export const EditGoalsDialog: React.FC<EditGoalsDialogProps> = ({ goals, onSave 
     const [weeklyGoal, setWeeklyGoal] = useState(goals.weeklyGoal);
     const [clarityGoal, setClarityGoal] = useState(goals.clarityGoal);
 
-    const handleSave = () => {
+    const [isSaving, setIsSaving] = useState(false);
+    const [showSuccess, setShowSuccess] = useState(false);
+
+    const handleSave = async () => {
         // Validate and clamp values
         const validWeekly = Math.min(Math.max(1, weeklyGoal), 20);
         const validClarity = Math.min(Math.max(50, clarityGoal), 100);
 
-        onSave({ weeklyGoal: validWeekly, clarityGoal: validClarity });
-        setOpen(false);
+        setIsSaving(true);
+        await onSave({ weeklyGoal: validWeekly, clarityGoal: validClarity });
+        setIsSaving(false);
+        setShowSuccess(true);
+
+        // Auto-close after success indicator is seen
+        setTimeout(() => {
+            setShowSuccess(false);
+            setOpen(false);
+        }, 1500);
     };
 
     const handleOpenChange = (isOpen: boolean) => {
@@ -94,9 +105,19 @@ export const EditGoalsDialog: React.FC<EditGoalsDialogProps> = ({ goals, onSave 
                         />
                     </div>
                 </div>
-                <DialogFooter>
-                    <Button type="submit" onClick={handleSave} data-testid="save-goals-button">
-                        Save Goals
+                <DialogFooter className="flex items-center justify-between sm:justify-between">
+                    {showSuccess ? (
+                        <span className="text-sm text-emerald-500 font-medium" data-testid="goals-save-success">
+                            ✓ Goals saved!
+                        </span>
+                    ) : <span />}
+                    <Button
+                        type="submit"
+                        onClick={handleSave}
+                        disabled={isSaving}
+                        data-testid="save-goals-button"
+                    >
+                        {isSaving ? 'Saving...' : 'Save Goals'}
                     </Button>
                 </DialogFooter>
             </DialogContent>

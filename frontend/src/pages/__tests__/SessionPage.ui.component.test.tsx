@@ -22,9 +22,7 @@ vi.mock('@/hooks/useVocalAnalysis');
 vi.mock('@/contexts/AuthProvider');
 vi.mock('@/hooks/useUserProfile');
 vi.mock('@/hooks/useUsageLimit');
-vi.mock('@/lib/logger', () => ({
-    default: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
-}));
+
 vi.mock('@/providers/useTranscriptionContext', () => ({
     useTranscriptionContext: vi.fn(() => ({ service: { warmUp: vi.fn(), destroy: vi.fn(), getState: vi.fn().mockReturnValue('IDLE') } })),
 }));

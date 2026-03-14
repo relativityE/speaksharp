@@ -62,6 +62,10 @@ export class FailureManager {
     public resetFailureCount(): void {
         this.privateFailures = { count: 0, lastFailureTime: 0 };
     }
+
+    public reset(): void {
+        this.resetFailureCount();
+    }
 }
 
 // Expose to window for E2E tests

@@ -56,6 +56,7 @@ interface E2EWindow extends Window {
     mswReady?: boolean;
     __e2eBridgeReady__?: boolean;
     __e2eProfileLoaded__?: boolean;
+    __E2E_EMPTY_SESSIONS__?: boolean;
     __E2E_ADVANCE_PROGRESS__?: (progress: number) => void;
 }
 

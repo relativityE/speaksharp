@@ -8,73 +8,68 @@
  * 4. Returns and runs a second session
  * 5. Compares sessions to see trends
  */
-import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute, debugLog } from './helpers';
+import { test, expect } from './fixtures';
+import { navigateToRoute, debugLog } from './helpers';
+import { TEST_IDS } from '../constants';
 
 test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
-    test('should complete full user journey with session and analytics', async ({ page }) => {
-        // Step 1: Login as pro user (explicitly requested)
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
+    test('should complete full user journey with session and analytics', async ({ proPage }) => {
+        // Navigate to session page and verify it loads
+        await navigateToRoute(proPage, '/session');
+        await expect(proPage.locator('[data-testid="app-main"]')).toBeVisible();
+        await expect(proPage.getByText('Practice Session')).toBeVisible();
+        debugLog('[TEST] ✅ Session page loaded');
 
-        // Step 2: Navigate to session page and verify it loads
-        await navigateToRoute(page, '/session');
-        await expect(page.locator('[data-testid="app-main"]')).toBeVisible();
-        await expect(page.getByText('Practice Session')).toBeVisible();
-        debugLog('[TEST] ✅ Step 1: Session page loaded');
-
-        // Step 3: Start a practice session
-        const startButton = page.getByTestId('session-start-stop-button').first();
+        // Start a practice session
+        const startButton = proPage.getByTestId('session-start-stop-button').first();
         await expect(startButton).toBeVisible();
         await startButton.click();
 
-        // Wait for session to start (button should show Stop Recording label)
-        await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10000 });
-        debugLog('[TEST] ✅ Step 2: Session started');
+        // Wait for session to start
+        await expect(proPage.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10000 });
+        await expect(proPage.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toHaveAttribute('data-recording', 'true');
+        debugLog('[TEST] ✅ Session started');
 
-        // Step 4: Verify Clarity Score card is displayed (core metric)
-        await expect(page.getByText('Clarity Score')).toBeVisible();
-        debugLog('[TEST] ✅ Step 3: Clarity Score metric displayed');
+        await expect(proPage.getByText('Clarity Score')).toBeVisible();
+        debugLog('[TEST] ✅ Clarity Score metric displayed');
 
-        // Wait to comply with 5s minimum session duration
-        await page.waitForTimeout(6000);
+        // Wait for 5s minimum session duration
+        await proPage.waitForTimeout(6000);
 
-        // Step 5: Stop the session
+        // Stop the session
         await startButton.click();
-        // Wait for button to return to Start state
-        await expect(page.getByLabel(/Start Recording/i)).toBeVisible({ timeout: 5000 });
-        debugLog('[TEST] ✅ Step 4: Session stopped');
+        await expect(proPage.getByLabel(/Start Recording/i)).toBeVisible({ timeout: 5000 });
+        debugLog('[TEST] ✅ Session stopped');
 
-        // Step 6: Navigate to analytics
-        await navigateToRoute(page, '/analytics');
-        await expect(page.getByTestId('dashboard-heading')).toBeVisible();
-        debugLog('[TEST] ✅ Step 5: Analytics dashboard loaded');
+        // Navigate to analytics
+        await navigateToRoute(proPage, '/analytics');
+        await expect(proPage.getByTestId('dashboard-heading')).toBeVisible();
+        debugLog('[TEST] ✅ Analytics dashboard loaded');
 
-        // Step 7: Verify session history is displayed
-        await expect(page.getByText('Export Reports')).toBeVisible();
-        debugLog('[TEST] ✅ Step 6: Session history visible');
+        // Verify session history is displayed
+        await expect(proPage.getByText('Export Reports')).toBeVisible();
+        debugLog('[TEST] ✅ Session history visible');
 
-        // Step 8: Navigate back to session for "return user" simulation
-        await navigateToRoute(page, '/session');
-        await expect(page.getByText('Practice Session')).toBeVisible();
-        debugLog('[TEST] ✅ Step 7: Return user can access session page');
+        // Navigate back to session for "return user" simulation
+        await navigateToRoute(proPage, '/session');
+        await expect(proPage.getByText('Practice Session')).toBeVisible();
+        debugLog('[TEST] ✅ Return user can access session page');
 
         debugLog('[TEST] ✅✅✅ Full user journey completed successfully');
     });
 
-    test('should allow pro users to start session with default cloud mode', async ({ page }) => {
-        // Login as pro user (explicitly requested)
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
-        await navigateToRoute(page, '/session');
-        await expect(page.locator('[data-testid="app-main"]')).toBeVisible();
+    test('should allow pro users to start session with default cloud mode', async ({ proPage }) => {
+        await navigateToRoute(proPage, '/session');
+        await expect(proPage.locator('[data-testid="app-main"]')).toBeVisible();
 
-        // Pro users should be able to start a session
-        const startButton = page.getByTestId('session-start-stop-button').first();
+        const startButton = proPage.getByTestId('session-start-stop-button').first();
         await expect(startButton).toBeVisible();
         await startButton.click();
-        await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10000 });
+        await expect(proPage.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10000 });
+        await expect(proPage.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toHaveAttribute('data-recording', 'true');
 
-        // Wait to comply with 5s minimum session duration
-        await page.waitForTimeout(6000);
+        // Wait for 5s minimum session duration
+        await proPage.waitForTimeout(6000);
         await startButton.click();
 
         debugLog('[TEST] ✅ Pro user can start session (default mode available)');
@@ -82,30 +77,14 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
 });
 
 test.describe('Free User Tier Restrictions', () => {
-    test('should only allow native browser STT for free users', async ({ page }) => {
-        // Set up free user profile override BEFORE navigation
-        await page.addInitScript(() => {
-            (window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__ = true;
-            // Override profile to free user
-            (window as unknown as { __E2E_MOCK_PROFILE__: { id: string; subscription_status: string } }).__E2E_MOCK_PROFILE__ = {
-                id: 'test-user-123',
-                subscription_status: 'free'
-            };
-        });
-
-        // Use programmaticLoginWithRoutes to set up Playwright route interception
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
-
+    test('should only allow native browser STT for free users', async ({ freePage: page }) => {
         // Navigate to session page
         await navigateToRoute(page, '/session');
         await expect(page.getByText('Practice Session')).toBeVisible();
 
-        // Free users should NOT see Cloud AI or Private as selectable options
-        // They should only see Native Browser mode is active
+        // Free users should only see Native Browser mode is active
         const nativeBrowserIndicator = page.getByText('Native Browser');
 
-        // The mode should default to Browser for free users
-        // Cloud AI and Private should not be selectable or show upgrade prompt
         if (await nativeBrowserIndicator.count() > 0) {
             debugLog('[TEST] ✅ Free user defaults to Native Browser mode');
         }
@@ -115,11 +94,12 @@ test.describe('Free User Tier Restrictions', () => {
         await expect(startButton).toBeVisible();
         await startButton.click();
         await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10000 });
+        await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toHaveAttribute('data-recording', 'true');
         debugLog('[TEST] ✅ Free user can start session with Native Browser');
 
-        // Wait to comply with 5s minimum session duration
+        // Wait for 5s minimum session duration
         await page.waitForTimeout(6000);
         await startButton.click();
-        debugLog('[TEST] ✅✅ Free user tier gating verified - only Native Browser available');
+        debugLog('[TEST] ✅✅ Free user tier gating verified');
     });
 });

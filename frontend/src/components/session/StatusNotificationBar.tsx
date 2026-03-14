@@ -108,6 +108,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             data-state={status.type}
             data-recording={status.type === 'recording' || status.type === 'fallback'}
             data-engine={activeEngine || 'none'}
+            data-session-saved={displayMessage?.includes('✓') || status.message?.includes('✓')}
         >
             {/* Primary Status Indicator */}
             <div className="flex items-center gap-3" data-testid="session-status-indicator">

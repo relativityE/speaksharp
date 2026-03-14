@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { useSessionStore } from '@/stores/useSessionStore';
+import { FailureManager } from '../FailureManager';
 import TranscriptionService from '../TranscriptionService';
 import { TranscriptionPolicy } from '../TranscriptionPolicy';
 import { MicStream } from '../utils/types';
 import { testRegistry } from '../TestRegistry';
-import { ITranscriptionMode, TranscriptionModeOptions } from '../modes/types';
+import { ITranscriptionEngine, TranscriptionModeOptions } from '../modes/types';
 
 // Mock dependencies
 const mockOnTranscriptUpdate = vi.fn();
@@ -14,7 +16,13 @@ const mockOnModeChange = vi.fn();
 const mockNavigate = vi.fn();
 const mockGetToken = vi.fn().mockResolvedValue('mock-token');
 
-class SuccessNativeEngine implements ITranscriptionMode {
+vi.mock('../../../lib/storage', () => ({
+    saveSession: vi.fn().mockResolvedValue({ session: { id: 'test-sess' }, usageExceeded: false }),
+    heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
+    completeSession: vi.fn(),
+}));
+
+class SuccessNativeEngine implements ITranscriptionEngine {
     public updateCb?: (upd: { transcript: { final: string, partial: string } }) => void;
 
     constructor(options?: TranscriptionModeOptions) {
@@ -48,7 +56,7 @@ class SuccessNativeEngine implements ITranscriptionMode {
     }
 }
 
-class FailingPrivateEngine implements ITranscriptionMode {
+class FailingPrivateEngine implements ITranscriptionEngine {
     constructor(private errorMsg: string) { }
     init = vi.fn().mockImplementation(() => Promise.reject(new Error(this.errorMsg)));
     startTranscription = vi.fn().mockResolvedValue(undefined);
@@ -74,6 +82,7 @@ describe('TranscriptionService', () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
         testRegistry.clear();
+        FailureManager.getInstance().reset();
 
         // Default success engines - factories must accept opts
         testRegistry.register('native', (opts: TranscriptionModeOptions | undefined) => new SuccessNativeEngine(opts));
@@ -103,17 +112,43 @@ describe('TranscriptionService', () => {
         vi.useRealTimers();
     });
 
-    it('should emit fallback status when implementation fails', async () => {
+    it('should emit fallback status when implementation fails (Item 7A)', async () => {
         testRegistry.register('private', () => new FailingPrivateEngine('GPU_CRASH'));
 
         await service.init();
         await service.startTranscription();
         await vi.runAllTicks();
 
-        expect(mockOnStatusChange).toHaveBeenCalledWith(expect.objectContaining({
-            type: 'fallback',
-            message: 'Falling back to Native browser mode',
-            newMode: 'native'
+        // Verify fallback happened
+        const fallbackCalls = mockOnStatusChange.mock.calls.filter(c => c[0]?.type === 'fallback');
+        expect(fallbackCalls.length).toBe(1); // ✅ Exactly once
+        expect(fallbackCalls[0][0].newMode).toBe('native');
+        expect(useSessionStore.getState().activeEngine).toBe('native');
+    });
+
+    it('should sanitize transcripts effectively through mandatory pipeline (Item 7B)', async () => {
+        // Setup a successful engine
+        let nativeEngine: SuccessNativeEngine | null = null;
+        testRegistry.register('native', (opts?: TranscriptionModeOptions) => {
+            nativeEngine = new SuccessNativeEngine(opts);
+            return nativeEngine;
+        });
+
+        await service.init();
+        await service.startTranscription({ ...basePolicy, preferredMode: 'native' });
+        
+        // Simulate hallucination
+        nativeEngine!.simulateUpdate(
+            '[BLANK_AUDIO]  Hello (applause) [SILENCE]  world [MUSIC]  ', 
+            '[MUSIC] thinking...'
+        );
+
+        // Assert
+        expect(mockOnTranscriptUpdate).toHaveBeenCalledWith(expect.objectContaining({
+            transcript: {
+                final: 'Hello world',
+                partial: 'thinking...'
+            }
         }));
     });
 
@@ -128,44 +163,48 @@ describe('TranscriptionService', () => {
         await Promise.resolve();
 
         const calls = mockOnStatusChange.mock.calls.map(c => c[0]);
-        const fallbackCall = calls.find(c =>
-            c?.type === 'fallback' &&
-            /browser stt/i.test(c?.message)
-        );
-        expect(fallbackCall).toBeDefined();
+        expect(calls.some(c => c?.type === 'fallback' && c?.newMode === 'native')).toBe(true);
+        expect(useSessionStore.getState().activeEngine).toBe('native');
         expect(calls.some(c => c?.type === 'downloading')).toBe(false);
     });
 
-    it('should sanitize transcripts effectively', async () => {
-        let engineInstance: SuccessNativeEngine | undefined;
-        testRegistry.register('native', (opts: TranscriptionModeOptions | undefined) => {
-            engineInstance = new SuccessNativeEngine(opts);
-            return engineInstance;
-        });
-
-        service.updatePolicy({
-            ...basePolicy,
-            preferredMode: 'native',
-            allowPrivate: false
-        });
-
+    it('should protect against recursive fallback loops (Item 8A)', async () => {
+        // Setup a private engine that fails
+        testRegistry.register('private', () => new FailingPrivateEngine('RECURSION_TEST'));
+        
+        // Track handleFailure calls (via status change 'fallback')
         await service.init();
         await service.startTranscription();
+        await vi.runAllTicks();
 
-        if (!engineInstance) throw new Error('Engine not created');
-
-        const rawFinal = '[BLANK_AUDIO]  Hello (applause) [SILENCE]  world [MUSIC]  ';
-        const rawPartial = '[MUSIC] thinking...';
-        engineInstance.simulateUpdate(rawFinal, rawPartial);
-
-        // Assert
-        expect(mockOnTranscriptUpdate).toHaveBeenCalledWith(expect.objectContaining({
-            transcript: {
-                final: 'Hello world',
-                partial: 'thinking...'
-            }
-        }));
+        // Verify fallback happened exactly once despite multiple potential trigger points
+        const fallbackCalls = mockOnStatusChange.mock.calls.filter(c => c[0]?.type === 'fallback');
+        expect(fallbackCalls.length).toBe(1);
     });
+
+    it('should reset initPromise on failure to allow retries (Item 8B)', async () => {
+        let callCount = 0;
+        testRegistry.register('private', () => {
+            callCount++;
+            if (callCount === 1) return new FailingPrivateEngine('FIRST_FAILURE');
+            return new SuccessNativeEngine();
+        });
+
+        // Disable fallback to verify the terminal failure path
+        service.updatePolicy({ ...basePolicy, preferredMode: 'private', allowFallback: false });
+        await service.init();
+        
+        // First attempt will fail and transition to FAILED
+        await service.startTranscription();
+        expect(service.getState()).toBe('FAILED');
+        expect(callCount).toBe(1);
+        
+        // Second attempt should generate a NEW promise and succeed
+        await service.startTranscription();
+        expect(callCount).toBe(2);
+        expect(service.getState()).not.toBe('FAILED');
+    });
+
 
     it('should release the microphone IMMEDIATELY on destroy', async () => {
         const mockMicStop = vi.fn();

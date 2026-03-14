@@ -1,25 +1,55 @@
 import React, { useEffect, useState } from 'react';
 import { getTranscriptionService } from '../services/transcription/TranscriptionService';
-import { TranscriptionPolicy } from '../services/transcription/TranscriptionPolicy'; // Import the type
+import { TranscriptionPolicy, buildPolicyForUser } from '../services/transcription/TranscriptionPolicy'; // Import the type
 import logger from '../lib/logger';
-
+import ProfileContext from '../contexts/ProfileContext';
 import { TranscriptionContext } from './TranscriptionContext';
 
 export const TranscriptionProvider: React.FC<{
     children: React.ReactNode;
     policy?: TranscriptionPolicy; // Optional policy
-}> = ({ children, policy }) => {
+}> = ({ children, policy: initialPolicy }) => {
+    const profileContext = React.useContext(ProfileContext);
+    const profile = profileContext?.profile;
+
     // 1. Singleton Acquisition (Survives Remounts)
-    const service = getTranscriptionService(policy ? { policy } : {});
+    // We initialize with a default policy, but we'll sync it in the effect below.
+    const [service] = useState(() => getTranscriptionService(initialPolicy ? { policy: initialPolicy } : {}));
     const [isReady] = useState(true);
 
-    // 2. Lifecycle Audit: We no longer destroy the service on unmount 
-    // because it is a global singleton protecting the WASM state.
+    // 2. Policy Re-Synchronization & E2E Gating
+    // Whenever the profile changes (e.g., upgraded to Pro), re-sync the service policy.
     useEffect(() => {
-        logger.info('[TranscriptionProvider] Component mounted/updated');
+        if (!profile?.id) return; // Wait for stable auth to avoid flickering
+
+        const tier = profile.subscription_status || 'free';
+        
+        logger.info({ 
+            subscriptionStatus: tier,
+            intent: 'Syncing policy and setting E2E gate' 
+        }, '[TranscriptionProvider] Syncing policy');
+        
+        const newPolicy = buildPolicyForUser(tier === 'pro');
+        service.updatePolicy(newPolicy);
+
+        // Step 5: Behavioral Gating - Set body attribute for deterministic E2E waits
+        document.body.dataset.sttPolicy = tier;
+
         return () => {
-            logger.info('[TranscriptionProvider] Component unmounting - Destroying service');
-            service.destroy().catch(err => logger.error({ err }, '[TranscriptionProvider] Failed to destroy service'));
+            // Minimal cleanup to prevent flickering during navigation
+            // We only remove it if the component is actually unmounting permanently, 
+            // and another mount isn't already happening.
+        };
+    }, [profile?.id, profile?.subscription_status, service]);
+
+    // 3. Lifecycle Audit: Singleton Persistence
+    useEffect(() => {
+        logger.info('[TranscriptionProvider] Component mounted');
+        return () => {
+             logger.info('[TranscriptionProvider] Component unmounting - Cleaning up service');
+             service.destroy().catch(err => {
+                 logger.warn({ err }, '[TranscriptionProvider] Silent failure during service cleanup');
+             });
         };
     }, [service]);
 

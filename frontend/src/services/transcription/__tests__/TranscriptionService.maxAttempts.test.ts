@@ -1,20 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
 import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
-import { ITranscriptionMode } from '../modes/types';
+import { ITranscriptionEngine } from '../modes/types';
 import { MicStream } from '../utils/types';
 import { testRegistry } from '../TestRegistry';
 import { FailureManager } from '../FailureManager';
 
-// Mock dependencies
-vi.mock('../../lib/logger', () => ({
-    default: {
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-        debug: vi.fn(),
-    },
-}));
+
 
 vi.mock('../utils/audioUtils', () => ({
     createMicStream: vi.fn().mockResolvedValue({
@@ -27,7 +19,7 @@ describe('TranscriptionService - Max Attempts', () => {
     let service: TranscriptionService;
     const onStatusChange = vi.fn();
 
-    class MockPrivateEngine implements ITranscriptionMode {
+    class MockPrivateEngine implements ITranscriptionEngine {
         init = vi.fn().mockRejectedValue(new Error('Persistent Fail'));
         startTranscription = vi.fn().mockResolvedValue(undefined);
         stopTranscription = vi.fn().mockResolvedValue('test');
@@ -36,7 +28,7 @@ describe('TranscriptionService - Max Attempts', () => {
         getEngineType = () => 'whisper-turbo' as const;
     }
 
-    class MockNativeEngine implements ITranscriptionMode {
+    class MockNativeEngine implements ITranscriptionEngine {
         init = vi.fn().mockResolvedValue(undefined);
         startTranscription = vi.fn().mockResolvedValue(undefined);
         stopTranscription = vi.fn().mockResolvedValue('test');

@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">50% </span>
+                <span class="strong">0% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>9/18</span>
+                <span class='fraction'>0/18</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/2</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/0</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">50% </span>
+                <span class="strong">0% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>9/18</span>
+                <span class='fraction'>0/18</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line medium'></div>
+    <div class='status-line low'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -92,16 +92,18 @@
 <a name='L27'></a><a href='#L27'>27</a>
 <a name='L28'></a><a href='#L28'>28</a>
 <a name='L29'></a><a href='#L29'>29</a>
-<a name='L30'></a><a href='#L30'>30</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
+<a name='L30'></a><a href='#L30'>30</a>
+<a name='L31'></a><a href='#L31'>31</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -114,23 +116,24 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">// Pino uses export = and requires esModuleInterop, which tsc sometimes misses in isolation
-import pino from 'pino';
+// Note: Vite automatically resolves this to pino/browser.js via the 'browser' field in pino/package.json
+<span class="cstat-no" title="statement not covered" >import pino from 'pino';</span>
 import { LoggerOptions } from 'pino';
 &nbsp;
-const options: LoggerOptions = {};
+<span class="cstat-no" title="statement not covered" >const options: LoggerOptions = {};</span>
 &nbsp;
 // Safely determine mode regardless of whether we are in Vite or Node context (e.g. Playwright tests)
-const mode = (typeof process !== 'undefined' &amp;&amp; process.env?.<span class="branch-0 cbranch-no" title="branch not covered" >NODE_ENV) || 'development';</span>
+<span class="cstat-no" title="statement not covered" >const mode = (typeof process !== 'undefined' &amp;&amp; process.env?.NODE_ENV) || 'development';</span>
 &nbsp;
-if (mode === 'development') <span class="branch-0 cbranch-no" title="branch not covered" >{</span>
+<span class="cstat-no" title="statement not covered" >if (mode === 'development') {</span>
   // Only use pino-pretty if we are running in Vite (browser via import.meta.env).
   // In native Node (like Playwright test runner), it struggles to map the transport module.
 <span class="cstat-no" title="statement not covered" >  const isNode = typeof process !== 'undefined' &amp;&amp; process.versions != null &amp;&amp; process.versions.node != null;</span>
@@ -143,13 +146,13 @@ if (mode === 'development') <span class="branch-0 cbranch-no" title="branch not 
 <span class="cstat-no" title="statement not covered" >      },</span>
 <span class="cstat-no" title="statement not covered" >    };</span>
 <span class="cstat-no" title="statement not covered" >  }</span>
-} else if (mode === 'test') {
-  options.level = 'info';
-}
+<span class="cstat-no" title="statement not covered" >} else if (mode === 'test') {</span>
+<span class="cstat-no" title="statement not covered" >  options.level = (typeof process !== 'undefined' &amp;&amp; process.env?.LOG_LEVEL) || 'warn';</span>
+<span class="cstat-no" title="statement not covered" >}</span>
 &nbsp;
-const logger = pino(options);
+<span class="cstat-no" title="statement not covered" >const logger = pino(options);</span>
 &nbsp;
-export default logger;
+<span class="cstat-no" title="statement not covered" >export default logger;</span>
 &nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
@@ -157,7 +160,7 @@ export default logger;
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-09T12:41:07.637Z
+                at 2026-03-14T21:44:45.936Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

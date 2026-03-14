@@ -9,7 +9,7 @@ import logger from '@/lib/logger';
 // Mock modules
 vi.mock('@/contexts/AuthProvider');
 vi.mock('@/lib/supabaseClient');
-vi.mock('@/lib/logger');
+
 
 const mockUseAuthProvider = vi.mocked(AuthProvider.useAuthProvider);
 const mockGetSupabaseClient = vi.mocked(supabaseClient.getSupabaseClient);

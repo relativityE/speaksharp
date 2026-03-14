@@ -2,7 +2,7 @@
 **Last Reviewed:** 2026-03-09
 
 # SpeakSharp
-**v3.5.6-dev** | **Last Updated: 2026-03-09**
+**v3.5.4** | **Last Updated: 2026-03-09**
 
 SpeakSharp is an AI-powered speech coaching application that helps users improve their public speaking skills. It provides real-time feedback on filler words, speaking pace, and more.
 
@@ -11,7 +11,7 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
 -   **Triple-Engine Transcription:** 
     -   **Private Mode:** High-performance on-device processing via `whisper-turbo` (WebGPU/WASM) for maximum privacy.
     -   **Cloud Mode:** High-fidelity transcription via AssemblyAI Streaming with user word boosting.
-    -   **Native Mode:** Universal compatibility using the browser's Web Speech API.
+    -   **Native Mode:** Universal compatibility using the browser's Web Speech API as a deterministic fallback.
 -   **Advanced Vocal Analytics:**
     -   **Adaptive Noise Floor:** Intelligently filters background noise to provide precision pause detection.
     -   **Rolling WPM:** Smooth, 15-second rolling window for real-time speaking pace feedback.
@@ -21,11 +21,11 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
     -   AI-powered speaking tips and clarity scores.
     -   Detailed PDF report export for every session.
 -   **Production Grade:** Full Sentry monitoring, PostHog product analytics, and Stripe payment integration.
--   **Phase 2 Hardening (Feb 2026):** 100% production-ready infrastructure featuring:
-    -   **Memory Leak Protection:** Strict Disposable pattern for all audio/ML instances.
-    -   **Race Condition Guards:** Ref-based finalization and stable callback proxies for React hooks.
-    -   **Security Hardening:** Constant-time comparison for secrets and atomic SQL increments for usage tracking.
-    -   **Failure Isolation:** Granular error boundaries and robust global rejection handlers.
+-   **Phase 2 Hardening (Mar 2026):** **3-PR Integration Baseline**.
+    -   **SQL Extraction (PR #732):** Atomic session creation and hardened usage metering in the database layer.
+    -   **Tier Limits (PR #731):** Dynamic `tier_configs` enforcement with strict concurrency protection.
+    -   **3-Layer Runtime (PR #729):** Resilient STT hierarchy (WebGPU -> WASM -> Native) with model loading progress.
+    -   **Zero-Debt Audit:** 100% pass rate in Vitest (Unit) and Playwright (E2E) suites.
 -   **Phase 3/4 Hardening (Feb 2026):** **"Zero-Debt" & Scalability Baseline**.
     -   **O(1) Live Analytics:** Infinite-duration sessions supported via incremental observer pattern.
     -   **NLP Caching:** 500x faster re-renders for multi-speaker dialog via LRU document cache.
@@ -110,11 +110,11 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     ```bash
     pnpm setup
     ```
-    > **Tip:** For a complete development setup (dependencies + Playwright browsers), you can run `./scripts/dev-init.sh`.
+    > **Tip:** For a complete development setup (dependencies + Playwright browsers), you can run `pnpm dev:init`.
     
 4.  **Verify Environment Health (Required):**
     ```bash
-    ./scripts/preflight.sh
+    pnpm preflight
     ```
     This script ensures your system meets the strict Node.js, pnpm, and dependency requirements before you start.
 
@@ -206,14 +206,14 @@ If you find yourself in a state where `node_modules` is missing and `pnpm instal
  
 1.  **Run the Stabilizer**:
     ```bash
-    ./scripts/env-stabilizer.sh
+    pnpm env:stabilize
     ```
     This script attempts to recover local links and clear corrupted caches without requiring a full re-download.
  
 2.  **The "Rebase then Setup" Rule**:
     Never run `pnpm install` immediately after a large rebase if dependencies have changed significantly.
     - `git pull --rebase`
-    - `./scripts/git-pull-fix.sh` (This script automates the cleanup and re-install)
+    - `./scripts/git-pull-fix.sh` (This script automates the cleanup and re-install, or use `pnpm git:pull-fix`)
  
 3.  **Check TIA Impact**:
     If your tests are not running, verify that your changes are captured in `test-impact-map.json`. If you added a new file, you **must** update this map or the `test:agent` command will skip it.
@@ -266,9 +266,9 @@ The test runner automatically generates a Software Quality Metrics report.
 *   When run locally (e.g., `pnpm test:all:local` or `pnpm test:health:local`), a summary is printed to your console.
 *   When run in CI, the full report is automatically generated and committed to `docs/PRD.md`.
 
-## Scripts Reference
+### Scripts Reference
 
-This project provides multiple npm scripts for different use cases. All test scripts follow `test:<level>:<env>[:<mode>]`.
+This project provides multiple pnpm scripts for different use cases. All test scripts follow `test:<level>:<env>[:<mode>]`.
 
 ### Testing & Validation
 
@@ -344,7 +344,7 @@ pnpm test:e2e:mock:debug     # Headed mode with trace
 
 **🔦 Want to run Lighthouse audits?**
 ```bash
-pnpm run lighthouse:ci
+pnpm lighthouse:ci
 ```
 
 ### Soak & Load Testing
@@ -374,18 +374,18 @@ pnpm ci:dispatch:soak:wait   # Wait for completion
 
 **📦 Want to build for production?**
 ```bash
-pnpm run build
+pnpm build
 ```
 
 **📦 Want to build for E2E testing?**
 ```bash
-pnpm run build:test
+pnpm build:test
 ```
 
 **👀 Want to preview the production build?**
 ```bash
-pnpm run preview
-pnpm run preview:test    # For test mode
+pnpm preview
+pnpm preview:test    # For test mode
 ```
 
 ### Continuous Integration (CI)

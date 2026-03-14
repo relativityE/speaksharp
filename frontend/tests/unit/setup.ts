@@ -1,6 +1,23 @@
 import { beforeEach, afterEach, vi, expect } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { WhisperEngineRegistry } from '@/services/transcription/engines/WhisperEngineRegistry';
+ 
+// Mock unified logger globally to prevent mock poisoning
+vi.mock('@/lib/logger', () => {
+    const mockLogger = {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+        child: vi.fn().mockReturnThis(),
+    };
+    // Senior Choice: explicit proxy for both default and named interop
+    return {
+        default: mockLogger,
+        logger: mockLogger,
+        __esModule: true,
+    };
+});
 
 // ============================================
 // CRITICAL: Hoist ALL mocks BEFORE any imports
@@ -88,14 +105,31 @@ vi.mock('@/components/ui/sonner', () => ({
 // ============================================
 
 if (typeof window !== 'undefined') {
-    // ResizeObserver polyfill
-    global.ResizeObserver = class ResizeObserver {
+    // IntersectionObserver — required by Embla Carousel, Radix UI tooltips
+    class MockIntersectionObserver {
+        root = null;
+        rootMargin = '';
+        thresholds: number[] = [];
         observe = vi.fn();
         unobserve = vi.fn();
         disconnect = vi.fn();
-    };
+        takeRecords = vi.fn().mockReturnValue([]);
+    }
+    global.IntersectionObserver = vi.fn().mockImplementation(
+        () => new MockIntersectionObserver()
+    ) as unknown as typeof IntersectionObserver;
 
-    // Match media (Improved for sonner/radix compatibility)
+    // ResizeObserver — required by Radix UI, Recharts
+    class MockResizeObserver {
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+    }
+    global.ResizeObserver = vi.fn().mockImplementation(
+        () => new MockResizeObserver()
+    ) as unknown as typeof ResizeObserver;
+
+    // matchMedia — required by responsive components, media queries in hooks
     Object.defineProperty(window, 'matchMedia', {
         writable: true,
         value: vi.fn().mockImplementation(query => ({
@@ -108,6 +142,14 @@ if (typeof window !== 'undefined') {
             removeEventListener: vi.fn(),
             dispatchEvent: vi.fn().mockReturnValue(true),
         })),
+    });
+
+    // scrollTo — required by Embla Carousel
+    window.scrollTo = vi.fn();
+
+    // CSS.supports — required by some Radix primitives
+    Object.defineProperty(window, 'CSS', {
+        value: { supports: vi.fn().mockReturnValue(false) }
     });
 
     // PointerEvent polyfill
@@ -137,6 +179,40 @@ if (typeof window !== 'undefined') {
         interimResults: false,
     }));
     (window as unknown as { webkitSpeechRecognition: unknown }).webkitSpeechRecognition = MockSpeechRecognition;
+
+    // Audio & Media Polyfills
+    (window as any).MediaStream = vi.fn().mockImplementation(() => ({
+        getTracks: vi.fn().mockReturnValue([]),
+        getAudioTracks: vi.fn().mockReturnValue([]),
+        getVideoTracks: vi.fn().mockReturnValue([]),
+        addTrack: vi.fn(),
+        removeTrack: vi.fn(),
+        clone: vi.fn().mockReturnThis(),
+    }));
+
+    (window as any).AudioContext = vi.fn().mockImplementation(() => ({
+        createOscillator: vi.fn(),
+        createGain: vi.fn(),
+        close: vi.fn(),
+        state: 'suspended',
+        resume: vi.fn().mockResolvedValue(undefined),
+        suspend: vi.fn().mockResolvedValue(undefined),
+    }));
+    (window as any).webkitAudioContext = (window as any).AudioContext;
+
+    // URL polyfills for PDF generation (Necessary bridge for jsdom)
+    if (typeof globalThis.URL.createObjectURL === 'undefined') {
+        Object.defineProperty(globalThis.URL, 'createObjectURL', { 
+            value: vi.fn().mockReturnValue('blob:mock'),
+            configurable: true 
+        });
+    }
+    if (typeof globalThis.URL.revokeObjectURL === 'undefined') {
+        Object.defineProperty(globalThis.URL, 'revokeObjectURL', { 
+            value: vi.fn(),
+            configurable: true 
+        });
+    }
 }
 
 // Import styles and jest-dom (safe)

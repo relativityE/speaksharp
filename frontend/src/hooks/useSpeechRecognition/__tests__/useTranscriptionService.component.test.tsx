@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useTranscriptionService } from '../useTranscriptionService';
 import { E2E_DETERMINISTIC_NATIVE } from '../types';
 import { TranscriptionProvider } from '../../../providers/TranscriptionProvider';
+import { speechRuntimeController } from '../../../services/SpeechRuntimeController';
 
 // Mock the TranscriptionService with callback support
 const mockCallbacks: Record<string, (...args: unknown[]) => void> = {};
@@ -34,12 +35,12 @@ vi.mock('../../../services/transcription/TranscriptionService', () => ({
   getTranscriptionService: vi.fn().mockImplementation(() => mockService)
 }));
 
-vi.mock('../../../lib/logger', () => ({
-  default: {
-    error: vi.fn(),
-    info: vi.fn(),
-    log: vi.fn(),
-    warn: vi.fn(),
+
+
+vi.mock('../../../services/SpeechRuntimeController', () => ({
+  speechRuntimeController: {
+    startRecording: vi.fn().mockResolvedValue(undefined),
+    stopRecording: vi.fn().mockResolvedValue({ success: true, transcript: 'mock transcript', stats: {} }),
   }
 }));
 
@@ -79,7 +80,7 @@ describe('useTranscriptionService', () => {
       await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
     });
 
-    expect(mockService.startTranscription).toHaveBeenCalled();
+    expect(speechRuntimeController.startRecording).toHaveBeenCalled();
     expect(result.current.isListening).toBe(true);
     expect(result.current.mode).toBe('native');
   });
@@ -115,12 +116,8 @@ describe('useTranscriptionService', () => {
   });
 
   it('should handle start listening errors', async () => {
-    // Simulate failure by triggering onError callback, as the real service does
-    mockService.startTranscription.mockImplementationOnce(async () => {
-      if (mockCallbacks.onError) {
-        mockCallbacks.onError(new Error('Permission denied'));
-      }
-    });
+    // Simulate failure by making the controller throw
+    vi.mocked(speechRuntimeController.startRecording).mockRejectedValueOnce(new Error('Permission denied'));
 
     const { result } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
 

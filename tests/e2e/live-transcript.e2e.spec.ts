@@ -1,12 +1,15 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { SessionPage } from '../pom';
-import { programmaticLoginWithRoutes, attachLiveTranscript, debugLog } from './helpers';
+import { attachLiveTranscript, debugLog } from './helpers';
 
 test.describe('Live Transcript Feature', () => {
-  test('should display live transcript after session starts', async ({ page }) => {
+  test('should display live transcript after session starts', async ({ userPage }) => {
     // Mock browser APIs BEFORE navigation to ensure they are available when the app loads
     // Only need to mock getUserMedia and AudioContext - SpeechRecognition is handled by e2e-bridge.ts
-    await page.addInitScript(() => {
+    // Note: Since userPage already performed navigation, we might need a reload here if the init script must run before initial load.
+    // However, programmaticLoginWithRoutes uses page.goto('/') which triggers load.
+    // I'll add the init script and then reload.
+    await userPage.addInitScript(() => {
       // Mock getUserMedia
       Object.defineProperty(navigator, 'mediaDevices', {
         value: {
@@ -84,22 +87,22 @@ test.describe('Live Transcript Feature', () => {
       });
     });
 
-    attachLiveTranscript(page);
-    await page.setViewportSize({ width: 1280, height: 720 });
-    await programmaticLoginWithRoutes(page);
+    // Reload to apply init scripts
+    await userPage.reload();
+    await userPage.waitForLoadState('networkidle');
 
-    const sessionPage = new SessionPage(page);
+    attachLiveTranscript(userPage);
+    await userPage.setViewportSize({ width: 1280, height: 720 });
+
+    const sessionPage = new SessionPage(userPage);
     debugLog('[TEST DEBUG] Navigating to session page...');
     await sessionPage.navigate(); // Uses navigateToRoute internally - preserves MSW context
 
     // Ensure E2E bridge is ready before proceeding
-    // Ensure E2E bridge is ready before proceeding
     debugLog('[TEST DEBUG] ⏳ Waiting for E2E bridge readiness...');
-    await page.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
+    await userPage.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
 
     debugLog('[TEST DEBUG] Checking start button state...');
-    // We expect the button to be enabled now that we fixed the disabled logic
-    // But it might still be disabled briefly while profile loads
     await expect(sessionPage.startButton).toBeEnabled({ timeout: 10000 });
 
     debugLog('[TEST DEBUG] Clicking start button...');
@@ -107,29 +110,28 @@ test.describe('Live Transcript Feature', () => {
 
     // Wait for speech recognition to be ready
     debugLog('[TEST DEBUG] Waiting for speech recognition to be active...');
-    await page.waitForFunction(() => {
+    await userPage.waitForFunction(() => {
       return !!(window as Window & { __activeSpeechRecognition?: unknown }).__activeSpeechRecognition;
     }, null, { timeout: 10000 });
 
     // Verify that the UI updates to show the session is active
     debugLog('[TEST DEBUG] Waiting for session status indicator...');
-    const sessionActiveIndicator = page.getByTestId('live-session-header');
+    const sessionActiveIndicator = userPage.getByTestId('live-session-header');
     await expect(sessionActiveIndicator).toHaveText(/Recording active/);
 
     // The transcript container should show that we're listening
     debugLog('[TEST DEBUG] Waiting for transcript container to show "Listening..."...');
-    const transcriptContainer = page.getByTestId('transcript-container');
+    const transcriptContainer = userPage.getByTestId('transcript-container');
     await expect(transcriptContainer).toContainText('Listening...', { timeout: 5000 });
 
     // Use the existing e2e-bridge infrastructure to dispatch a mock transcript
     debugLog('[TEST DEBUG] Dispatching mock transcript via window.dispatchMockTranscript...');
 
-    await page.waitForFunction(() => typeof (window as unknown as { dispatchMockTranscript: unknown }).dispatchMockTranscript === 'function', null, { timeout: 30000 });
+    await userPage.waitForFunction(() => typeof (window as unknown as { dispatchMockTranscript: unknown }).dispatchMockTranscript === 'function', null, { timeout: 30000 });
 
     // Robust Retry Loop: Dispatch and check for text
-    // This handles race conditions where the listener might not be bound yet
     await expect(async () => {
-      await page.evaluate(() => {
+      await userPage.evaluate(() => {
         const win = window as Window & { dispatchMockTranscript?: (text: string, isFinal: boolean) => void };
         if (win.dispatchMockTranscript) {
           win.dispatchMockTranscript('This is a mock transcript.', true);

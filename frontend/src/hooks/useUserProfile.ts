@@ -52,7 +52,8 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
         // Condition: Enabled in DEV or when explicitly in TEST_MODE/E2E_CONTEXT
         const email = session.user.email?.toLowerCase() || '';
         const isProEmail = email.includes('pro-user') || email.includes('testuser') || email === 'test@example.com';
-        const isTestMode = import.meta.env.MODE === 'test' || (typeof window !== 'undefined' && (window.__E2E_CONTEXT__ || window.TEST_MODE));
+        const config = typeof window !== 'undefined' ? (window as unknown as { __APP_TEST_ENV__?: { context?: string; testMode?: boolean } }).__APP_TEST_ENV__ : null;
+        const isTestMode = import.meta.env.MODE === 'test' || (config && (config.context === 'e2e' || config.testMode));
 
         if ((import.meta.env.DEV || isTestMode) && isProEmail) {
           // GUARD: Don't override if E2E test explicitly set subscription_status to 'free'
@@ -93,7 +94,10 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
         // Signal for E2E tests that the profile is settled and available on the window
         // NOTE: Use __E2E_CONTEXT__ directly (not IS_TEST_ENVIRONMENT) because live tests
         // don't set VITE_TEST_MODE=true, only VITE_USE_LIVE_DB=true.
-        if (typeof window !== 'undefined' && (window.__E2E_CONTEXT__ || window.TEST_MODE)) {
+        const e2eConfig = typeof window !== 'undefined' ? (window as unknown as { __APP_TEST_ENV__?: { context?: string; testMode?: boolean } }).__APP_TEST_ENV__ : null;
+        const isE2E = e2eConfig && (e2eConfig.context === 'e2e' || e2eConfig.testMode);
+
+        if (typeof window !== 'undefined' && (isE2E || import.meta.env.MODE === 'test')) {
           window.__e2eProfileLoaded__ = true;
           window.dispatchEvent(new CustomEvent('e2e:profile-loaded'));
           logger.debug('[E2E Signal] Profile loaded');

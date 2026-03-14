@@ -5,11 +5,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService, { TranscriptionServiceOptions } from '../TranscriptionService';
 import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
-import { ITranscriptionMode } from '../modes/types';
+import { ITranscriptionEngine } from '../modes/types';
 import { testRegistry } from '../TestRegistry';
 import { MicStream } from '../utils/types';
 
-class MockEngine implements ITranscriptionMode {
+class MockEngine implements ITranscriptionEngine {
     constructor(private name: string) { }
     init = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
     startTranscription = vi.fn<(mic: unknown) => Promise<void>>().mockResolvedValue(undefined);

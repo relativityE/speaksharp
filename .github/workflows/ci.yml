@@ -64,6 +64,7 @@ jobs:
         env:
           EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+          STT_ENGINE: mock
         run: pnpm ci:test ${{ matrix.shard }}
 
       - name: Upload Shard Report
@@ -187,41 +188,39 @@ jobs:
           # test-results is only in shard artifacts, not all-artifacts
           [ -d artifacts/all-artifacts/test-results ] && cp -r artifacts/all-artifacts/test-results . || echo "No test-results in all-artifacts (expected)"
 
-      - name: Restore Lighthouse Report
+      - name: Organize Canonical Artifacts (Phase 6)
         run: |
-          if [ -d "artifacts/lighthouse-report" ]; then
-            cp -r artifacts/lighthouse-report .lighthouseci
-            echo "✅ Restored .lighthouseci from lighthouse job"
-            ls -la .lighthouseci/
-          else
-            echo "⚠️ Warning: No Lighthouse report artifact found"
+          mkdir -p artifacts/coverage artifacts/playwright artifacts/lighthouse artifacts/metrics
+          
+          # 1. Restore Prepare Artifacts
+          if [ -d "artifacts/all-artifacts" ]; then
+            cp -r artifacts/all-artifacts/frontend/coverage/* artifacts/coverage/ 2>/dev/null || true
+            cp artifacts/all-artifacts/unit-metrics.json artifacts/metrics/ 2>/dev/null || true
           fi
+          
+          # 2. Organize Shard Reports
+          find artifacts -type f -name 'report-*.zip' | while read report; do
+            shard_num=$(basename "$report" .zip | sed 's/report-//')
+            mkdir -p artifacts/playwright/shard-${shard_num}
+            cp "$report" artifacts/playwright/shard-${shard_num}/
+          done
+          
+          # 3. Organize Lighthouse
+          if [ -d "artifacts/lighthouse-report" ]; then
+            cp -r artifacts/lighthouse-report/* artifacts/lighthouse/ 2>/dev/null || true
+          fi
+
+          echo "✅ Canonical artifacts organized in /artifacts"
+          ls -R artifacts/
 
       - name: Merge E2E Reports
         run: |
-          mkdir -p merged-reports
           mkdir -p test-results/playwright
-          # Copy all shard blob reports
-          # Blobs are usually named report-*.zip
-          find artifacts -type f -name 'report-*.zip' | while read report; do
-            shard_name=$(basename $(dirname "$report"))
-            cp "$report" "merged-reports/${shard_name}.zip"
-          done
-
-          # List what we found
-          echo "📄 Shard reports found:"
-          ls -la merged-reports/
-
-          # Only merge if we have reports
-          if [ "$(ls -A merged-reports 2>/dev/null)" ]; then
-            # Merge reports. 
-            # JSON to stdout -> captured to file
-            # HTML to playwright-report/ (default)
-            pnpm exec playwright merge-reports --reporter json,html merged-reports > test-results/playwright/results.json
-            
+          if [ "$(find artifacts/playwright -type f -name '*.zip' | wc -l)" -gt 0 ]; then
+            pnpm exec playwright merge-reports --reporter json,html artifacts/playwright > test-results/playwright/results.json
             echo "✅ Merged E2E report saved to test-results/playwright/results.json"
           else
-            echo "⚠️ No E2E reports to merge (tests may have been skipped)"
+            echo "⚠️ No E2E reports to merge"
           fi
 
       - name: Generate Final Report

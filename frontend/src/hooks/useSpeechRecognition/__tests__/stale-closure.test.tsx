@@ -26,16 +26,10 @@ vi.mock('../../../contexts/AuthProvider', async () => {
 });
 
 vi.mock('../../useProfile', () => ({
-    useProfile: vi.fn(() => ({ subscription_status: 'free' })),
+    useProfile: vi.fn(() => ({ profile: { subscription_status: 'free' } })),
 }));
 
-vi.mock('../../useProfile', () => ({
-    useProfile: vi.fn(() => ({ subscription_status: 'free' })),
-}));
 
-vi.mock('../../../lib/logger', () => ({
-    default: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
-}));
 
 vi.mock('@/lib/toast', () => ({
     toast: { error: vi.fn(), success: vi.fn(), dismiss: vi.fn(), info: vi.fn() },

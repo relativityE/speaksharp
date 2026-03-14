@@ -74,12 +74,12 @@ describe('TransformersJSEngine (Unit)', () => {
         expect(result.isOk).toBe(true);
         expect(mockPipeline).toHaveBeenCalledWith(
             'automatic-speech-recognition',
-            'Xenova/whisper-base.en',
+            'whisper-tiny.en',
             expect.objectContaining({ quantized: true })
         );
         expect(callbacks.onModelLoadProgress).toHaveBeenCalledWith(0);
         expect(callbacks.onReady).toHaveBeenCalled();
-        expect(mockEnv.allowLocalModels).toBe(false);
+        expect(mockEnv.allowLocalModels).toBe(true);
     });
 
     it('should process PCM audio buffer correctly', async () => {

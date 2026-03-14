@@ -23,9 +23,9 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">9.52% </span>
+                <span class="strong">9.23% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>6/63</span>
+                <span class='fraction'>6/65</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">9.52% </span>
+                <span class="strong">9.23% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>6/63</span>
+                <span class='fraction'>6/65</span>
             </div>
         
             
@@ -164,7 +164,10 @@
 <a name='L99'></a><a href='#L99'>99</a>
 <a name='L100'></a><a href='#L100'>100</a>
 <a name='L101'></a><a href='#L101'>101</a>
-<a name='L102'></a><a href='#L102'>102</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<a name='L102'></a><a href='#L102'>102</a>
+<a name='L103'></a><a href='#L103'>103</a>
+<a name='L104'></a><a href='#L104'>104</a>
+<a name='L105'></a><a href='#L105'>105</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -194,6 +197,7 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -215,17 +219,19 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -282,6 +288,7 @@ export interface UsageLimitCheck {
     remaining_seconds: number; // Legacy, kept for compatibility with existing UI
     subscription_status: string;
     is_pro: boolean;
+    streak_count: number;
     promo_just_expired?: boolean;
     error?: string;
 }
@@ -313,6 +320,7 @@ export <span class="fstat-no" title="function not covered" >function useUsageLim
 <span class="cstat-no" title="statement not covered" >                    remaining_seconds: 0,</span>
 <span class="cstat-no" title="statement not covered" >                    subscription_status: 'unknown',</span>
 <span class="cstat-no" title="statement not covered" >                    is_pro: false,</span>
+<span class="cstat-no" title="statement not covered" >                    streak_count: 0,</span>
 <span class="cstat-no" title="statement not covered" >                    error: 'Supabase client not available'</span>
 <span class="cstat-no" title="statement not covered" >                };</span>
 <span class="cstat-no" title="statement not covered" >            }</span>
@@ -336,6 +344,7 @@ export <span class="fstat-no" title="function not covered" >function useUsageLim
 <span class="cstat-no" title="statement not covered" >                    remaining_seconds: 3600,</span>
 <span class="cstat-no" title="statement not covered" >                    subscription_status: 'unknown',</span>
 <span class="cstat-no" title="statement not covered" >                    is_pro: false,</span>
+<span class="cstat-no" title="statement not covered" >                    streak_count: 0,</span>
 <span class="cstat-no" title="statement not covered" >                    error: error.message</span>
 <span class="cstat-no" title="statement not covered" >                };</span>
 <span class="cstat-no" title="statement not covered" >            }</span>
@@ -373,7 +382,7 @@ export <span class="fstat-no" title="function not covered" >function formatRemai
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-09T12:41:07.637Z
+                at 2026-03-14T21:44:45.936Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

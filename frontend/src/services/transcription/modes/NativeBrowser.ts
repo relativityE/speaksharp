@@ -1,5 +1,5 @@
 import logger from '../../../lib/logger';
-import { ITranscriptionMode, TranscriptionModeOptions, Transcript, TranscriptionError } from './types';
+import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, TranscriptionError } from './types';
 import { IS_TEST_ENVIRONMENT } from '../../../config/env';
 
 // A simplified interface for the SpeechRecognition event
@@ -33,7 +33,7 @@ interface SpeechRecognitionStatic {
   new(): SpeechRecognition;
 }
 
-export default class NativeBrowser implements ITranscriptionMode {
+export default class NativeBrowser implements ITranscriptionEngine {
   private onTranscriptUpdate: (update: { transcript: Transcript }) => void;
   private onReady: () => void;
   private onError?: (error: TranscriptionError) => void;

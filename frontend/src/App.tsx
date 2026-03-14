@@ -10,6 +10,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { TranscriptionProvider } from './providers/TranscriptionProvider';
 import { AnimatePresence } from 'framer-motion';
 import { PageTransition } from './components/ui/PageTransition';
+import { useReadinessStore } from './stores/useReadinessStore';
 
 // Lazy load pages for better performance
 const Index = React.lazy(() => import('./pages/Index'));
@@ -28,9 +29,11 @@ const PageLoader = () => (
 const App: React.FC = () => {
   const location = useLocation();
 
-
   // Deterministically hide loading spinner once React component mounts
   useEffect(() => {
+    // 🚀 PHASE 8: Signal Layout Readiness
+    useReadinessStore.getState().setReady('layout');
+
     // Use requestAnimationFrame to ensure this runs after the next paint
     requestAnimationFrame(() => {
       document.body.classList.add('app-loaded');

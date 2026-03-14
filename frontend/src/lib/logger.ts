@@ -1,4 +1,5 @@
 // Pino uses export = and requires esModuleInterop, which tsc sometimes misses in isolation
+// Note: Vite automatically resolves this to pino/browser.js via the 'browser' field in pino/package.json
 import pino from 'pino';
 import { LoggerOptions } from 'pino';
 
@@ -21,7 +22,7 @@ if (mode === 'development') {
     };
   }
 } else if (mode === 'test') {
-  options.level = 'info';
+  options.level = (typeof process !== 'undefined' && process.env?.LOG_LEVEL) || 'warn';
 }
 
 const logger = pino(options);

@@ -1,15 +1,16 @@
 import logger from '../../lib/logger';
+import { TranscriptionPolicy } from './TranscriptionPolicy';
 
 export type TranscriptionState =
     | 'IDLE'
     | 'ACTIVATING_MIC'
     | 'READY'
-    | 'INITIALIZING_ENGINE'
+    | 'ENGINE_INITIALIZING'
     | 'RECORDING'
     | 'PAUSED'
     | 'STOPPING'
     | 'CLEANING_UP'
-    | 'ERROR'
+    | 'FAILED'
     | 'TERMINATED';
 
 export type TranscriptionEvent =
@@ -23,7 +24,8 @@ export type TranscriptionEvent =
     | { type: 'STOP_COMPLETED' }
     | { type: 'RESET_REQUESTED' }
     | { type: 'ERROR_OCCURRED'; error: Error }
-    | { type: 'TERMINATE_REQUESTED' };
+    | { type: 'TERMINATE_REQUESTED' }
+    | { type: 'POLICY_UPDATED'; policy: TranscriptionPolicy };
 
 interface StateTransition {
     from: TranscriptionState;
@@ -39,16 +41,19 @@ export class TranscriptionFSM {
     private currentState: TranscriptionState = 'IDLE';
     private listeners = new Set<(state: TranscriptionState) => void>();
 
-    // START sequence: IDLE -> ACTIVATING_MIC -> READY -> INITIALIZING_ENGINE -> RECORDING
+    // START sequence: IDLE -> ACTIVATING_MIC -> READY -> ENGINE_INITIALIZING -> RECORDING
     private readonly transitions: StateTransition[] = [
         { from: 'IDLE', to: 'ACTIVATING_MIC', event: 'START_REQUESTED' },
-        { from: 'ERROR', to: 'ACTIVATING_MIC', event: 'START_REQUESTED' }, // Retry from error
+        { from: 'FAILED', to: 'ACTIVATING_MIC', event: 'START_REQUESTED' }, // Retry from error
 
         { from: 'ACTIVATING_MIC', to: 'READY', event: 'MIC_ACQUIRED' },
 
-        { from: 'READY', to: 'INITIALIZING_ENGINE', event: 'ENGINE_INIT_REQUESTED' },
+        { from: 'READY', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' },
+        { from: 'ENGINE_INITIALIZING', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' }, // Allow re-init/fallback
 
-        { from: 'INITIALIZING_ENGINE', to: 'RECORDING', event: 'ENGINE_STARTED' },
+        { from: 'ENGINE_INITIALIZING', to: 'RECORDING', event: 'ENGINE_STARTED' },
+        { from: 'ENGINE_INITIALIZING', to: 'IDLE', event: 'STOP_REQUESTED' },
+        { from: 'ENGINE_INITIALIZING', to: 'IDLE', event: 'RESET_REQUESTED' },
 
         { from: 'RECORDING', to: 'PAUSED', event: 'PAUSE_REQUESTED' },
         { from: 'PAUSED', to: 'RECORDING', event: 'RESUME_REQUESTED' },
@@ -59,31 +64,39 @@ export class TranscriptionFSM {
         { from: 'STOPPING', to: 'READY', event: 'STOP_COMPLETED' }, // Keep mic hot
         { from: 'STOPPING', to: 'IDLE', event: 'RESET_REQUESTED' },
 
-        // Error from any state
-        { from: 'IDLE', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'ACTIVATING_MIC', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'READY', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'INITIALIZING_ENGINE', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'RECORDING', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'PAUSED', to: 'ERROR', event: 'ERROR_OCCURRED' },
-        { from: 'STOPPING', to: 'ERROR', event: 'ERROR_OCCURRED' },
+        // Error Transition Map (Generic handling)
+        { from: 'IDLE', to: 'FAILED', event: 'ERROR_OCCURRED' },
+        { from: 'ACTIVATING_MIC', to: 'FAILED', event: 'ERROR_OCCURRED' },
+        { from: 'READY', to: 'FAILED', event: 'ERROR_OCCURRED' },
+        { from: 'ENGINE_INITIALIZING', to: 'FAILED', event: 'ERROR_OCCURRED' },
+        { from: 'RECORDING', to: 'FAILED', event: 'ERROR_OCCURRED' },
+        { from: 'PAUSED', to: 'FAILED', event: 'ERROR_OCCURRED' },
+        { from: 'STOPPING', to: 'FAILED', event: 'ERROR_OCCURRED' },
 
         // Terminal & Cleanup Sequence
         { from: 'IDLE', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
-        { from: 'ERROR', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
+        { from: 'FAILED', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
         { from: 'RECORDING', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'PAUSED', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'STOPPING', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'ACTIVATING_MIC', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
-        { from: 'INITIALIZING_ENGINE', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
+        { from: 'ENGINE_INITIALIZING', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'READY', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
 
         // Finalize cleanup - Strict outbound transitions per Senior Audit
         { from: 'CLEANING_UP', to: 'IDLE', event: 'RESET_REQUESTED' },
-        { from: 'CLEANING_UP', to: 'ERROR', event: 'ERROR_OCCURRED' },
+        { from: 'CLEANING_UP', to: 'FAILED', event: 'ERROR_OCCURRED' },
 
-        // Reset from Terminal
+        // Reset from Terminal or Failed
         { from: 'TERMINATED', to: 'IDLE', event: 'RESET_REQUESTED' },
+        { from: 'FAILED', to: 'IDLE', event: 'RESET_REQUESTED' },
+
+        // Dynamic Policy Updates (re-evaluates current state)
+        { from: 'IDLE', to: 'IDLE', event: 'POLICY_UPDATED' },
+        { from: 'READY', to: 'READY', event: 'POLICY_UPDATED' },
+        { from: 'RECORDING', to: 'RECORDING', event: 'POLICY_UPDATED' },
+        { from: 'PAUSED', to: 'PAUSED', event: 'POLICY_UPDATED' },
+        { from: 'FAILED', to: 'FAILED', event: 'POLICY_UPDATED' },
     ];
 
     constructor(initialState: TranscriptionState = 'IDLE') {
@@ -109,6 +122,7 @@ export class TranscriptionFSM {
         const previousState = this.currentState;
         this.currentState = validTransition.to;
 
+        console.log(`[RACE-DEBUG] ${Date.now()} FSM transition: ${previousState} -> ${this.currentState} (Event: ${event.type})`);
         logger.info({
             from: previousState,
             to: this.currentState,
@@ -130,6 +144,15 @@ export class TranscriptionFSM {
 
     getState(): TranscriptionState {
         return this.currentState;
+    }
+
+    /**
+     * ✅ EXPERT FIX: Hard reset to IDLE for test isolation.
+     */
+    reset(): void {
+        logger.info({ from: this.currentState, to: 'IDLE' }, '[FSM] Hard reset to IDLE');
+        this.currentState = 'IDLE';
+        this.notifyListeners();
     }
 
     is(state: TranscriptionState): boolean {

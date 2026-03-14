@@ -15,11 +15,7 @@ vi.mock('@/lib/toast', () => ({
     },
 }));
 
-vi.mock('../logger', () => ({
-    default: {
-        error: vi.fn(),
-    },
-}));
+
 
 interface MockPromiseRejectionEvent extends Event {
     reason: Error;

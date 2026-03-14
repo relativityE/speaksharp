@@ -13,7 +13,7 @@ import { UserProfile } from '../types/user';
  */
 
 interface ProfileContextType {
-    profile: UserProfile;
+    profile: UserProfile | null;
     isVerified: boolean;
 }
 

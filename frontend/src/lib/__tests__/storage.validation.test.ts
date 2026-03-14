@@ -9,13 +9,7 @@ vi.mock('../supabaseClient', () => ({
     getSupabaseClient: vi.fn(),
 }));
 
-vi.mock('../logger', () => ({
-    default: {
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-    },
-}));
+
 
 describe('storage.ts validation', () => {
     beforeEach(() => {

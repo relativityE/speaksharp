@@ -44,16 +44,23 @@ case $STAGE in
 
         if [ "$NUCLEAR" = true ]; then
             echo "☢️  NUCLEAR CLEAN - Wiping all caches and killing processes..."
-            pkill -f vite || true
-            pkill -f playwright || true
+            pkill -9 -f "playwright|vitest|chromium|vite" || true
             rm -rf frontend/dist frontend/node_modules/.vite frontend/.vite node_modules/.cache 2>/dev/null || true
+            # Recursive log cleanup (User Request)
+            echo "🧹 Purging all logs recursively..."
+            find . -type f -name "*.log" -delete || true
         fi
 
         echo "🧹 Cleaning CI & Test artifacts..."
-        rm -rf test-results/ merged-reports/ blob-report/ playwright-report/ 2>/dev/null || true
+        # Unified artifact & report purge
+        rm -rf artifacts/ test-results/ merged-reports/ blob-report/ playwright-report/ 2>/dev/null || true
         rm -rf lighthouse-results/ .lighthouseci/ screenshots/ coverage/ html/ 2>/dev/null || true
         rm -rf test-support/ blob-collection/ playwright-results.json/ 2>/dev/null || true
-        rm -f *-metrics.json results.json lighthouse-*.json 2>/dev/null || true
+        rm -rf .playwright/ .pytest_cache/ .vitest-reports/ 2>/dev/null || true
+        rm -f ci-audit.md ci_run.log *-metrics.json results.json lighthouse-*.json summary.json ci-results.json 2>/dev/null || true
+        # Recursive trace and debug log purge
+        find . -type f -name "debug*.log" -delete || true
+        find . -type f -name "trace.zip" -delete || true
         echo "✅ Clean complete."
         ;;
     *) 

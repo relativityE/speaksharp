@@ -14,6 +14,12 @@ vi.mock('@/components/landing/FeaturesSection', () => ({
 vi.mock('@/components/landing/LandingFooter', () => ({
     LandingFooter: () => <footer data-testid="landing-footer">LandingFooter</footer>,
 }));
+vi.mock('@/components/landing/BenefitsSection', () => ({
+    BenefitsSection: () => <div data-testid="benefits-section">BenefitsSection</div>,
+}));
+vi.mock('@/components/landing/CTASection', () => ({
+    CTASection: () => <div data-testid="cta-section">CTASection</div>,
+}));
 
 const mockUseAuthProvider = vi.mocked(AuthProvider.useAuthProvider);
 

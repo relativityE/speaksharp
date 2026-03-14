@@ -14,6 +14,7 @@ build/
 
 # --- Testing & CI Artifacts ---
 /test-results/
+/artifacts/
 /playwright-report/
 /blob-report/
 /merged-reports/
@@ -21,15 +22,17 @@ build/
 /lighthouse-results/
 /.lighthouseci/
 /screenshots/
-/coverage/
-/html/
-**/coverage/**
-**/html/**
+coverage/
+html/
 # test-impact-map.json (Essential for TIA - keep tracked)
 
 # --- Metrics & Results (Unified) ---
 *-metrics.json
 results.json
+summary.json
+ci-results.json
+ci-audit.md
+ci_run.log
 lighthouse-baseline.json
 lighthouse-final.json
 lighthouse-optimized.json
@@ -37,7 +40,7 @@ speaksharp-review.zip
 repomix-output.xml
 
 # --- Debug & Temp ---
-*.log
+*.log # Captures all log files recursively
 *.tmp
 *.bak
 *.orig

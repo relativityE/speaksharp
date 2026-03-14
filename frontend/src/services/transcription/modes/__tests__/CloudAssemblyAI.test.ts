@@ -28,15 +28,7 @@ vi.mock('@/lib/supabaseClient', () => ({
 import CloudAssemblyAI from '@/services/transcription/modes/CloudAssemblyAI';
 import { Session } from '@supabase/supabase-js';
 
-// Mock Logger
-vi.mock('@/lib/logger', () => ({
-    default: {
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-        debug: vi.fn(),
-    }
-}));
+
 
 // Mock Global WebSocket
 class MockWebSocket {

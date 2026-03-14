@@ -1,4 +1,4 @@
-import { ITranscriptionMode, TranscriptionModeOptions } from './modes/types';
+import { ITranscriptionEngine, TranscriptionModeOptions } from './modes/types';
 import { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPolicy';
 import NativeBrowser from './modes/NativeBrowser';
 import CloudAssemblyAI from './modes/CloudAssemblyAI';
@@ -17,21 +17,28 @@ export class EngineFactory {
         mode: TranscriptionMode,
         options: TranscriptionModeOptions,
         _policy: TranscriptionPolicy
-    ): Promise<ITranscriptionMode> {
-        // 1. Registry Injection (Testing/Mocking)
-        // Check if a mock implementation is registered for this mode
-        if (typeof window !== 'undefined' && 'window' in globalThis) {
-            const win = window as unknown as Record<string, unknown>;
-            if (win.__TEST_REGISTRY__) {
-                const registry = win.__TEST_REGISTRY__ as typeof testRegistry;
-                const factory = registry.get<(options: TranscriptionModeOptions) => ITranscriptionMode>(mode);
+    ): Promise<ITranscriptionEngine> {
+        // 0. Static CI/Test Guard (Expert Recommendation: Prevent CI Hangs)
+        if (typeof process !== 'undefined' && process.env?.STT_ENGINE === 'mock') {
+            logger.info('[EngineFactory] 🧪 Static override: Injecting Mock engine');
+            // We use a dynamic import for the mock to avoid bundling it in production
+            const MockModule = await import('./engines/MockEngine');
+            return new MockModule.MockEngine(options);
+        }
 
-                if (factory) {
-                    const instance = factory(options); // Pass options to factory
-                    return instance;
-                }
+        // 1. Registry Injection (Testing/Mocking) - TOP PRIORITY
+        // Expert Recommendation: Check TestRegistry before any engine construction.
+        if (typeof window !== 'undefined') {
+            const win = window as unknown as Record<string, unknown>;
+            const registry = (win.__TEST_REGISTRY__ || testRegistry) as typeof testRegistry;
+            const factory = registry.get<(opts: TranscriptionModeOptions) => ITranscriptionEngine>(mode);
+
+            if (factory) {
+                logger.info({ mode }, '[EngineFactory] 🧪 Injecting engine from Registry');
+                return factory(options);
             }
         }
+
         const normalizedMode = mode.trim().toLowerCase() as TranscriptionMode;
 
         switch (normalizedMode) {
@@ -39,7 +46,7 @@ export class EngineFactory {
                 logger.info('[EngineFactory] 🌐 Starting Native Browser mode');
 
                 // PRIORITY 1: TestRegistry
-                const nativeFactory = testRegistry.get<(opts: TranscriptionModeOptions) => ITranscriptionMode>('native');
+                const nativeFactory = testRegistry.get<(opts: TranscriptionModeOptions) => ITranscriptionEngine>('native');
                 if (nativeFactory) {
                     logger.info('[EngineFactory] 🧪 Injecting Native engine from Registry');
                     return nativeFactory(options);
@@ -52,7 +59,7 @@ export class EngineFactory {
                 logger.info('[EngineFactory] ☁️ Starting Cloud (AssemblyAI) mode');
 
                 // PRIORITY 1: TestRegistry
-                const cloudFactory = testRegistry.get<(opts: TranscriptionModeOptions) => ITranscriptionMode>('cloud');
+                const cloudFactory = testRegistry.get<(opts: TranscriptionModeOptions) => ITranscriptionEngine>('cloud');
                 if (cloudFactory) {
                     logger.info('[EngineFactory] 🧪 Injecting Cloud engine from Registry');
                     return cloudFactory(options);
@@ -63,7 +70,7 @@ export class EngineFactory {
 
             case 'private': {
                 // PRIORITY 1: TestRegistry (Most Specific Injection)
-                const factory = testRegistry.get<(options: TranscriptionModeOptions) => ITranscriptionMode>('private');
+                const factory = testRegistry.get<(options: TranscriptionModeOptions) => ITranscriptionEngine>('private');
                 if (factory) {
                     logger.info('[EngineFactory] 🧪 Injecting Private engine from Registry');
                     return factory(options);

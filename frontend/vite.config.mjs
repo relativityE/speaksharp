@@ -44,6 +44,7 @@ export default defineConfig(({ mode }) => {
         ]
       })
     ],
+    assetsInclude: ['**/*.onnx'],
     assetsInlineLimit: 0, // Prevent WASM from being base64 encoded
     worker: {
       format: 'es'

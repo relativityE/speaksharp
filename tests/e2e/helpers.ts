@@ -9,20 +9,26 @@ import {
   MOCK_TRANSCRIPTS,
 } from './fixtures/mockData';
 import { MOCK_SESSION } from '../../backend/supabase/functions/_shared/test-fixtures';
-import { TEST_IDS } from '../constants';
+import logger from '../../frontend/src/lib/logger';
 
 // 1. Unified E2E Window interface (consolidated from various files)
 declare global {
   interface Window {
-    __E2E_CONTEXT__?: boolean;
-    __E2E_MOCK_SESSION__?: boolean;
-    __e2eBridgeReady__?: boolean;
-    __e2eProfileLoaded__?: boolean;
+    // 🚀 Deterministic Test Environment (Unified Namespace)
+    __APP_TEST_ENV__?: import('../../tests/types/e2eConfig').E2EConfig;
+    
+    // Readiness state flags
+    __APP_READY_STATE__?: {
+      boot: boolean;
+      layout: boolean;
+      auth: boolean;
+      analytics: boolean;
+      stt: boolean;
+      timestamps: Record<string, number>;
+    };
     mswReady?: boolean;
+    __E2E_EMPTY_SESSIONS__?: boolean;
     dispatchMockTranscript?: (text: string, isFinal?: boolean) => void;
-    // Legacy/Retiring flags (keep for migration period if needed, or remove)
-    TEST_MODE?: boolean;
-    __E2E_PLAYWRIGHT__?: boolean;
   }
 }
 
@@ -39,665 +45,409 @@ const ANSI = {
 /**
  * Log only if E2E_DEBUG is set
  */
-export const debugLog = (...args: unknown[]) => {
+export const debugLog = (msg: string, ...args: unknown[]) => {
   if (process.env.E2E_DEBUG === 'true') {
-    console.log('[E2E]', ...args);
+    if (args.length > 0) {
+      logger.info({ args }, `[E2E] ${msg}`);
+    } else {
+      logger.info(`[E2E] ${msg}`);
+    }
   }
 };
 
 /**
  * Wrap async wait operations with debug logging.
- * Logs start, end, and duration when E2E_DEBUG=true.
- * Flags waits >5s as slow with stack trace context.
+ * Logs when a wait starts, ends, or fails with precise timing and line numbers.
  */
-export async function debugWait<T>(description: string, promise: Promise<T>): Promise<T> {
-  const debugMode = process.env.E2E_DEBUG === 'true';
-  const SLOW_THRESHOLD_MS = 30000; // 30s - align with Playwright timeout
-
-  // Capture call site for slow wait warnings
-  const stack = new Error().stack || '';
-  const callerLine = stack.split('\n')[2] || ''; // Skip Error + debugWait lines
-  const callerMatch = callerLine.match(/at.*\((.*):(\d+):\d+\)/) || callerLine.match(/at (.*):(\d+):\d+/);
-  const callerFile = callerMatch?.[1]?.split('/').pop() || 'unknown';
+export async function debugWait<T>(
+  description: string,
+  promise: Promise<T>,
+  debugMode: boolean = process.env.E2E_DEBUG === 'true'
+): Promise<T> {
+  const stack = new Error().stack;
+  const callerLine = stack?.split('\n')[2] || '';
+  const callerMatch = callerLine.match(/\/([^/]+):(\d+):\d+\)?$/);
+  const callerFile = callerMatch?.[1] || 'unknown';
   const callerLineNum = callerMatch?.[2] || '?';
 
   if (debugMode) {
-    console.log(`[WAIT START] ${description}`);
+    logger.info(`[WAIT START] ${description}`);
   }
 
   const startTime = Date.now();
   try {
     const result = await promise;
     const duration = Date.now() - startTime;
-
-    if (duration > SLOW_THRESHOLD_MS) {
-      // Always log slow waits, even without E2E_DEBUG
-      console.warn(`⚠️ [WAIT SLOW] ${description} took ${duration}ms (${callerFile}:${callerLineNum})`);
+    if (duration > 5000) {
+      logger.warn({ duration, callerFile, callerLineNum }, `⚠️ [WAIT SLOW] ${description}`);
     } else if (debugMode) {
-      console.log(`[WAIT END] ${description} resolved after ${duration}ms`);
+      logger.info(`[WAIT END] ${description} resolved after ${duration}ms`);
     }
-
     return result;
   } catch (err) {
     const duration = Date.now() - startTime;
-    console.error(`[WAIT FAIL] ${description} failed after ${duration}ms (${callerFile}:${callerLineNum}):`, err);
+    logger.error({ err, duration, callerFile, callerLineNum }, `[WAIT FAIL] ${description} failed`);
     throw err;
   }
 }
 
 /**
- * Formats an exception for logging, including a truncated stack trace.
- * @param e The exception to format
- * @param frames Number of stack frames to include (default: 2)
+ * Common delays for flaky UI transitions
  */
-export function formatException(e: unknown, frames = 2): string {
-  if (e instanceof Error) {
-    const stack = e.stack ? e.stack.split('\n').slice(0, frames + 1).join('\n') : '';
-    return `Error: ${e}\nStack: ${stack}`;
-  }
-  return `Error: ${String(e)}`;
-}
+export const DELAYS = {
+  SHORT: 500,
+  MEDIUM: 1500,
+  LONG: 3000,
+};
 
 /**
- * Stream console logs into Playwright with colorized ERROR/WARN output.
- * Controlled by E2E_DEBUG environment variable:
- * - E2E_DEBUG=true: All logs shown (ERROR, WARNING, LOG, etc.)
- * - E2E_DEBUG unset: Only ERROR logs shown for cleaner CI output
+ * Setup browser console logging for E2E tests with buffering for diagnostics
  */
-export function attachLiveTranscript(page: Page): void {
-  const debugMode = process.env.E2E_DEBUG === 'true';
+export function setupBrowserLogging(page: Page) {
+  const logs: { type: string; text: string; timestamp: number }[] = [];
+  (page as Page & { _e2e_logs: unknown })._e2e_logs = logs;
 
   page.on('console', (msg) => {
-    const type = msg.type().toUpperCase();
+    const type = msg.type();
     const text = msg.text();
+    logs.push({ type, text, timestamp: Date.now() });
+    
+    // Keep buffer manageable
+    if (logs.length > 100) logs.shift();
 
-    // Noise filter: Skip common strings that are non-actionable in E2E
-    const NOISE_PATTERNS = [
-      /Stripe\.js integrations must use HTTPS/i,
-      /The width\(-1\) and height\(-1\) of chart should be greater than 0/i,
-      /PostHog.js/i,
-      /Surveys/i,
-      /Failed to fetch/i,
-      /FeatureFlags/i
-    ];
-
-    if (NOISE_PATTERNS.some(p => p.test(text))) {
-      return;
-    }
-
-    // Always show errors and warnings, optionally show other logs
-    const isNegative = type === 'ERROR' || type === 'WARNING' || type === 'WARN';
-    if (!isNegative && !debugMode) {
-      return; // Skip non-negative logs in CI mode (Assert Positives)
-    }
-
-    // Apply color based on message type
     let prefix = '';
     let suffix = '';
 
-    if (type === 'ERROR') {
-      prefix = ANSI.RED + ANSI.BOLD;
+    if (type === 'error') {
+      prefix = ANSI.RED;
       suffix = ANSI.RESET;
-    } else if (type === 'WARNING' || type === 'WARN') {
+    } else if (type === 'warning') {
       prefix = ANSI.YELLOW;
       suffix = ANSI.RESET;
     }
 
-    console.log(`${prefix}[BROWSER ${type}] ${text}${suffix}`);
+    // Node-based logging for CI
+    const isCI = !!process.env.CI;
+    const logLevel = process.env.LOG_LEVEL || 'info';
+    
+    if (type === 'error') {
+      logger.error(`${prefix}[BROWSER ${type}] ${text}${suffix}`);
+    } else if (type === 'warning') {
+      logger.warn(`${prefix}[BROWSER ${type}] ${text}${suffix}`);
+    } else if (!isCI || logLevel === 'debug' || logLevel === 'info') {
+      logger.info(`${prefix}[BROWSER ${type}] ${text}${suffix}`);
+    }
   });
 
   page.on('pageerror', (err) => {
-    console.log(`${ANSI.RED}${ANSI.BOLD}[BROWSER PAGE ERROR] ${err.message}${ANSI.RESET}`);
+    logger.error({ err }, `${ANSI.RED}${ANSI.BOLD}[BROWSER PAGE ERROR] ${err.message}${ANSI.RESET}`);
   });
 }
 
 /**
- * Waits for a custom event dispatched by the E2E bridge
+ * Setup network activity tracking for diagnostics
  */
-export async function waitForE2EEvent(page: Page, eventName: string): Promise<void> {
-  // Special handling for msw-ready: use polling which is more robust than event listeners
-  // because it handles all race conditions (flag set before/during/after) automatically.
-  if (eventName === 'e2e:msw-ready') {
-    await page.waitForFunction(() => window.mswReady === true, undefined, { timeout: 30000 });
-    return;
-  }
+export function setupNetworkTracking(page: Page) {
+  const pendingRequests = new Set<string>();
+  (page as Page & { _pending_requests: unknown })._pending_requests = pendingRequests;
 
-  // Fallback for other events (though we mainly use this for msw-ready)
-  await page.evaluate((name) => {
-    return new Promise<void>((resolve) => {
-      window.addEventListener(name, () => resolve(), { once: true });
-    });
-  }, eventName);
-}
-
-/* ---------------------------------------------
-   Supabase Mock + Programmatic Login
----------------------------------------------- */
-
-/**
- * @deprecated Use programmaticLoginWithRoutes instead.
- * This legacy function uses page.goto which can cause issues.
- * Kept for backwards compatibility only.
- */
-export async function programmaticLogin(
-  page: Page
-): Promise<void> {
-
-  // 1. Set flag before navigation (AuthProvider checks this)
-  // Using idempotency guard to prevent script stacking from multiple calls
-  await page.addInitScript(() => {
-    // Guard against multiple script additions (addInitScript stacks cumulatively)
-    if (!(window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__) {
-      (window as unknown as { __E2E_MOCK_SESSION__: boolean }).__E2E_MOCK_SESSION__ = true;
+  page.on('request', (request) => {
+    if (request.resourceType() === 'fetch' || request.resourceType() === 'xhr') {
+      pendingRequests.add(`${request.method()} ${request.url()}`);
     }
   });
 
-  // 2. Navigate to app
-  await page.goto('/');
+  page.on('requestfinished', (_request) => {
+    pendingRequests.delete(`${_request.method()} ${_request.url()}`);
+  });
 
-  // 3. Wait for MSW to be ready (required for network mocking)
-  await debugWait('MSW Ready', waitForE2EEvent(page, 'e2e:msw-ready'));
-
-  // 4. Wait for app to initialize (app-main indicates auth is complete)
-  await debugWait(
-    'App Initialize ([data-testid="app-main"])',
-    page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 })
-  );
-
-  // 5. Wait for profile to be loaded (fixes race condition where startButton is disabled during profile loading)
-  // AuthProvider dispatches 'e2e-profile-loaded' event when profile fetch completes
-  await debugWait(
-    'Profile Loaded (__e2eProfileLoaded__)',
-    page.waitForFunction(() => {
-      return !!window.__e2eProfileLoaded__;
-    }, null, { timeout: 10000 })
-  );
+  page.on('requestfailed', (_request) => {
+    pendingRequests.delete(`${_request.method()} ${_request.url()}`);
+  });
 }
 
 /**
- * ⚠️ CRITICAL: Use this instead of page.goto() for protected routes!
- * 
- * Navigate to a protected route using client-side React Router navigation.
- * 
- * ## Why This Exists
- * After `programmaticLogin()`, using `await page.goto('/path')` causes a FULL PAGE RELOAD
- * which destroys the MSW context and mock session, causing tests to fail.
- * 
- * ## ✅ When page.goto() IS Allowed:
- * - Initial navigation BEFORE auth: `await page.goto('/')` in programmaticLogin
- * - Public routes: `await page.goto('/sign-in')`, `await page.goto('/pricing')`
- * 
- * ## ❌ When page.goto() is FORBIDDEN:
- * - AFTER programmaticLogin() for protected routes
- * 
- * ## Anti-Pattern (DO NOT USE):
- * ```typescript
- * await programmaticLogin(page);
- * await page.goto('/analytics'); // ❌ BREAKS MOCKS!
- * ```
- * 
- * ## Correct Pattern:
- * ```typescript
- * await programmaticLogin(page);
- * await navigateToRoute(page, '/analytics'); // ✅ Preserves mocks
- * ```
- * 
- * @param page - Playwright page object
- * @param route - Target route (e.g., '/analytics', '/session')
- * @see https://github.com/[repo]/docs/ARCHITECTURE.md#e2e-anti-pattern
+ * Navigate to a specific route with stability checks
  */
-export async function navigateToRoute(
-  page: Page,
-  route: string,
-  options: { waitForMocks?: boolean; forceFullReload?: boolean } = {}
-): Promise<void> {
-  const { waitForMocks = true, forceFullReload = false } = options;
+export async function goToPublicRoute(page: Page, route: string) {
+  debugLog(`Navigating to ${route}`);
+  await page.goto(route);
+  await page.waitForLoadState('networkidle');
+  // Ensure we're actually on the right page
+  await expect(page).toHaveURL(new RegExp(route));
+}
 
-  // 🧪 E2E HARDENING: Fast navigation (pushState) can race React Router hydration.
-  // If we just reloaded or are early in the lifecycle, a full page.goto is safer.
-  if (forceFullReload) {
-    debugLog(`[NAV] Performing full reload navigation to ${route}`);
-    await page.goto(route);
-  } else {
-    try {
-      debugLog(`[NAV] Attempting Fast Navigation (pushState) to ${route}`);
-      await page.evaluate((targetRoute) => {
-        window.history.pushState({}, '', targetRoute);
-        window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-      }, route);
-
-      // Verify that React Router actually picked it up
-      await page.waitForURL(`**${route}`, { timeout: 3000 });
-    } catch (err) {
-      debugLog(`[NAV] Fast Navigation failed or timed out for ${route}, falling back to page.goto`);
-      // Fallback to literal navigation if Fast Navigation fails
-      await page.goto(route);
-    }
-  }
-
-  // Final URL verification with standard Playwright timeout
-  await debugWait(
-    `Route Change (${route})`,
-    page.waitForURL(`**${route}`, { timeout: 30000 })
-  );
-
+// Keep navigateToRoute as an alias if needed, or just use one
+export async function navigateToRoute(page: Page, route: string, options: { waitForMocks?: boolean } = {}) {
+  const { waitForMocks = true } = options;
+  debugLog(`Navigating to ${route} (waitForMocks: ${waitForMocks})`);
+  await page.goto(route);
   if (waitForMocks) {
-    await debugWait(
-      'MSW Ready (Post-Navigation)',
-      page.waitForFunction(() => {
-        return !!window.mswReady;
-      }, null, { timeout: 15000 })
-    );
+    await page.waitForLoadState('networkidle');
   }
+  // Ensure we're actually on the right page
+  await expect(page).toHaveURL(new RegExp(route));
 }
 
 /**
- * User type for real authentication testing
+ * Perform a real login on production/staging infrastructure using credentials.
+ * Used exclusively by Canary tests.
  */
-export type UserType = 'free' | 'pro' | 'test';
-
-/**
- * Programmatic login with real account credentials.
- * Uses factory pattern to support different user types (Free, Pro, Admin).
- * 
- * Environment variables:
- * - E2E_FREE_EMAIL / E2E_FREE_PASSWORD
- * - E2E_PRO_EMAIL / E2E_PRO_PASSWORD
- * - E2E_TEST_EMAIL / E2E_TEST_PASSWORD
- * 
- * @param page - Playwright page object
- * @param userType - Type of user to login as ('free' | 'pro' | 'test')
- * @throws Error if credentials not configured for the specified user type
- */
-export async function programmaticLoginAs(page: Page, userType: UserType): Promise<void> {
-  // Get credentials based on user type
-  const envPrefix = userType.toUpperCase();
-  const email = process.env[`E2E_${envPrefix}_EMAIL`];
-  const password = process.env[`E2E_${envPrefix}_PASSWORD`];
-
-  // Graceful error if credentials not configured
+export async function canaryLogin(page: Page, email?: string, password?: string) {
   if (!email || !password) {
-    const errorMsg = `${userType.charAt(0).toUpperCase() + userType.slice(1)} account credentials not configured. Set E2E_${envPrefix}_EMAIL and E2E_${envPrefix}_PASSWORD environment variables.`;
-    console.warn(`⚠️  ${errorMsg}`);
-    throw new Error(errorMsg);
+    throw new Error('[CANARY] Missing credentials for canaryLogin');
   }
 
-  debugLog(`[${userType.toUpperCase()} Login] Authenticating with:`, email);
+  debugLog(`[CANARY] Performing real login for ${email}...`);
+  await page.goto('/log-in');
+  await page.getByLabel(/email/i).fill(email);
+  await page.getByLabel(/password/i).fill(password);
+  await page.getByRole('button', { name: /sign in|log in/i }).click();
 
-  // Navigate to sign-in
-  await page.goto('/auth/signin');
-  await page.waitForLoadState('domcontentloaded');
-
-  // Fill credentials
-  await page.getByTestId('email-input').fill(email);
-  await page.getByTestId('password-input').fill(password);
-
-  // Submit
-  await page.getByTestId('sign-in-button').click();
-
-  // Wait for redirect
-  await page.waitForURL('/', { timeout: 15000 });
-
-  // Verify authentication succeeded
-  await page.waitForSelector('[data-testid="app-main"]', { timeout: 10000 });
-
-  // For Pro users, verify badge appears
-  if (userType === 'pro') {
-    const badge = page.locator('[data-testid="pro-badge"]');
-    await badge.waitFor({ state: 'visible', timeout: 10000 });
-  }
-
-  debugLog(`[${userType.toUpperCase()} Login] ✅ Successfully authenticated`);
+  // Wait for the critical path readiness indicator
+  await expect(page).toHaveURL(/\/(session|analytics)/, { timeout: 30000 });
+  await page.waitForSelector('[data-app-ready]', { timeout: 30000 });
 }
 
 /**
- * Convenience wrapper for Pro user login.
- * Requires E2E_PRO_EMAIL and E2E_PRO_PASSWORD environment variables.
+ * Explicit hydration guard: wait for root and essential app state
  */
-export async function programmaticLoginPro(page: Page): Promise<void> {
-  return programmaticLoginAs(page, 'pro');
+export async function waitForApp(page: Page) {
+  await page.goto('/');
+  // Enhanced SPA hydration barrier
+  await page.waitForSelector('#root', { timeout: 15000 });
+  await page.waitForSelector('[data-app-ready]', { timeout: 30000 });
 }
 
 /**
- * Convenience wrapper for Free user login.
- * Requires E2E_FREE_EMAIL and E2E_FREE_PASSWORD environment variables.
+ * Wait for the deterministic application readiness contract
  */
-export async function programmaticLoginFree(page: Page): Promise<void> {
-  return programmaticLoginAs(page, 'free');
-}
-
-/**
- * Convenience wrapper for Test user login.
- * Requires E2E_TEST_EMAIL and E2E_TEST_PASSWORD environment variables.
- */
-export async function programmaticLoginTest(page: Page): Promise<void> {
-  return programmaticLoginAs(page, 'test');
-}
-
-/* ---------------------------------------------
- * Navigation Helpers
- * --------------------------------------------- */
-
-/* ---------------------------------------------
-   Transcript simulation (original feature)
----------------------------------------------- */
-export async function mockLiveTranscript(
-  page: Page,
-  lines: readonly string[] = MOCK_TRANSCRIPTS,
-  delayMs = 200
-): Promise<void> {
-  // Ensure E2E bridge is ready before dispatching transcripts
-  // This avoids the common "window.dispatchMockTranscript is not defined" race condition.
-  await page.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
-
-  for (const line of lines) {
-    await page.evaluate((text) => {
-      const win = window as unknown as { dispatchMockTranscript?: (t: string, f: boolean) => void };
-      if (typeof win.dispatchMockTranscript === 'function') {
-        win.dispatchMockTranscript(text, true);
-      } else {
-        console.error('[E2E Helper] window.dispatchMockTranscript is not defined!');
-      }
-    }, line);
-
-    await page.waitForTimeout(delayMs);
+export async function waitForAppReady(page: Page, options: { needsAnalytics?: boolean; needsSTT?: boolean; timeout?: number } = {}) {
+  const { needsAnalytics = false, needsSTT = false, timeout = 60000 } = options;
+  try {
+    // Primary SPA hydration barrier
+    await page.waitForSelector('[data-app-ready]', { timeout });
+    
+    await debugWait(
+      `Readiness Contract (${needsAnalytics ? 'Full + Analytics' : 'Base'}${needsSTT ? ' + STT' : ''})`,
+      page.waitForFunction((opts) => {
+        const s = window.__APP_READY_STATE__;
+        if (!s) return false;
+        const baseReady = s.boot && s.layout && s.auth;
+        const analyticsReady = opts.needsAnalytics ? s.analytics : true;
+        const sttReady = opts.needsSTT ? s.stt : true;
+        return baseReady && analyticsReady && sttReady;
+      }, { needsAnalytics, needsSTT }, { timeout })
+    );
+  } catch (err) {
+    // Diagnostic Dump
+    const state = await page.evaluate(() => ({
+      readyState: window.__APP_READY_STATE__,
+      testEnv: window.__APP_TEST_ENV__,
+      url: window.location.href,
+      localStorage: Object.keys(window.localStorage)
+    }));
+    
+    const logs = (page as Page & { _e2e_logs?: { type: string; text: string }[] })._e2e_logs || [];
+    const pendingRequests = Array.from((page as Page & { _pending_requests?: Set<string> })._pending_requests || []);
+    
+    logger.error({ 
+      state, 
+      pendingRequests,
+      recentLogs: logs.slice(-20),
+      error: err instanceof Error ? err.message : String(err) 
+    }, '🔴 [CI] Readiness contract timeout. Diagnostic dump:');
+    
+    throw err;
   }
 }
 
-/* ---------------------------------------------
-   Screenshot helper
----------------------------------------------- */
-
-export async function capturePage(
-  page: Page,
-  filename: string,
-  authState: 'unauth' | 'auth' = 'unauth'
-): Promise<void> {
-  const selector =
-    authState === 'unauth'
-      ? 'a:has-text("Sign In")'
-      : '[data-testid="nav-sign-out-button"]';
-
-  await page.waitForSelector(selector, {
-    state: authState === 'unauth' ? 'visible' : 'attached', // Sign-out may be in collapsed nav
-    timeout: 20000,
-  });
-
-  // Wait for DOM to be ready (networkidle can hang due to polling)
-  await page.waitForLoadState('domcontentloaded');
-
-  // Give extra time for CSS animations and layout rendering
-  await page.waitForTimeout(1000);
-
-  await page.screenshot({
-    path: `screenshots/${filename}`,
-    fullPage: true,
-  });
-
-  debugLog(`[E2E CAPTURE] Saved to screenshots/${filename}`);
-}
-
-/* ---------------------------------------------
-   PLAYWRIGHT ROUTE-BASED AUTHENTICATION
-   (Full MSW migration to Playwright routes)
----------------------------------------------- */
-
-import { setupE2EMocks, injectMockSession } from './mock-routes';
-
 /**
- * Login using Playwright route interception instead of MSW.
- * 
- * ## Why This Exists
- * MSW service workers are browser-global and race in parallel shards.
- * Playwright routes are per-page and eliminate this class of flakiness.
- * 
- * ## How It Works
- * 1. Sets up Playwright route interception BEFORE navigation
- * 2. Routes intercept at browser network layer (higher priority than SW)
- * 3. No dependency on service worker registration
+ * Programmatic login by injecting a session directly into localStorage.
+ * Bypasses the UI for speed and reliability.
+ * Uses Playwright route interception for network mocking.
  */
 export async function programmaticLoginWithRoutes(
   page: Page,
   options: {
-    /** Defaults to 'free'. Set to 'pro' for pro feature tests. */
-    subscriptionStatus?: 'free' | 'pro';
-    /** Start with empty session history. */
+    projectRef?: string;
+    supabaseUrl?: string;
+    userType?: 'free' | 'pro';
+    needsAnalytics?: boolean;
     emptySessions?: boolean;
   } = {}
-): Promise<void> {
+) {
+  const { projectRef: optRef, supabaseUrl: optUrl, userType = 'free', needsAnalytics = false, emptySessions = false } = options;
 
-  // 1. Setup Playwright routes BEFORE navigation
-  await setupE2EMocks(page, {
-    subscriptionStatus: options.subscriptionStatus,
-    emptySessions: options.emptySessions
-  });
+  // 1. Determine project ref
+  let projectRef = optRef || 'yxlapjuovrsvjswkwnrk'; // Default to staging
+  const supabaseUrl = optUrl || process.env.VITE_SUPABASE_URL;
 
-  // 2. Set mock session flag AND inject session atomically BEFORE navigation
-  // 🧪 EXPERT PRESCRIPTION: Exact projectRef extraction from hostname
-  const url = process.env.VITE_SUPABASE_URL || 'https://mock.supabase.co';
-  const projectRef = new URL(url).hostname.split('.')[0];
-  const storageKey = `sb-${projectRef}-auth-token`;
-
-  await page.addInitScript(({ key, session }) => {
-    window.__E2E_CONTEXT__ = true;
-    window.__E2E_MOCK_SESSION__ = true;
-    window.mswReady = true;
-
-    // 🧪 Force Test Mode flags so the app uses the test environment config
-    (window as any).TEST_MODE = true;
-    (window as any).VITE_TEST_MODE = 'true';
-    (window as any).__E2E_PLAYWRIGHT__ = true;
-
-    // Atomic injection into localStorage before app starts
-    window.localStorage.setItem(key, JSON.stringify(session));
-    console.log('[E2E-TEST] 💉 Injected session at key:', key);
-  }, { key: storageKey, session: MOCK_SESSION });
-
-  // 3. Navigate to app
-  // No reload needed because session is injected before the first byte arrives.
-  await page.goto('/');
-
-  // 4. Wait for React to mount
-  await debugWait(
-    'React Mount (#root > *)',
-    page.waitForSelector('#root > *', { timeout: 15000 })
-  );
-
-  // 7. Wait for authenticated state
-  // Note: app-main confirms auth is complete. Profile is now fetched via useUserProfile hook (C2 refactor).
-  // 7. Wait for authenticated state
-  // FIX: app-main is now present on all pages. Wait for implicit auth signal (Sign Out button)
-  await debugWait(
-    'Authenticated State (Sign Out Button)',
-    page.waitForSelector('[data-testid="nav-sign-out-button"]', { timeout: 30000 })
-  );
-
-  // 8. Wait for profile to be fully loaded (ensures hooks like useUserProfile are settled)
-  await debugWait(
-    'Profile Loaded Flag (__e2eProfileLoaded__)',
-    page.waitForFunction(() => !!window.__e2eProfileLoaded__, null, { timeout: 15000 })
-  );
-}
-
-/**
- * Performs a real login on a live environment.
- * This is exempt from the page.goto() lint rule because it's in helpers.ts.
- */
-export async function liveLogin(page: Page, email: string, password: string): Promise<void> {
-  await page.goto('/sign-in');
-  await page.getByTestId('email-input').fill(email);
-  await page.getByTestId('password-input').fill(password);
-  await page.getByTestId('sign-in-button').click();
-  await page.waitForURL('/', { timeout: 15000 });
-}
-
-/**
- * Navigate to a public route (no authentication required).
- * This is the approved pattern for E2E tests navigating to public pages
- * without triggering the no-restricted-syntax lint rule.
- * 
- * @param page - Playwright page object
- * @param route - Public route to navigate to (e.g., '/auth/signup', '/pricing')
- */
-export async function goToPublicRoute(page: Page, route: string): Promise<void> {
-  debugLog(`[E2E] Navigating to public route: ${route}`);
-  await page.goto(route);
-  await page.waitForLoadState('domcontentloaded');
-}
-
-/**
- * API-based credential verification and session injection.
- * 
- * This helper isolates "Credential Validity" from "UI Form Validity" by:
- * 1. Verifying credentials directly against Supabase Auth API (Test Runner -> API)
- * 2. Injecting the resulting session into the browser (Test Runner -> LocalStorage)
- * 3. Verifying the app accepts the session (Reload -> Dashboard)
- * 
- * @param page - Playwright Page object
- * @param email - User email
- * @param password - User password
- * @param userType - Expected user tier ('free' | 'pro') for feature verification
- */
-export async function verifyCredentialsAndInjectSession(
-  page: Page,
-  email: string,
-  password: string,
-  userType: 'free' | 'pro'
-): Promise<void> {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Supabase URL or Anon Key not defined in environment variables');
-  }
-
-  debugLog(`[API Auth] Verifying credentials for ${email}...`);
-
-  // 1. API Verification (Headless)
-  const authUrl = `${supabaseUrl}/auth/v1/token?grant_type=password`;
-
-  // Use native fetch (Node 18+)
-  const response = await fetch(authUrl, {
-    method: 'POST',
-    headers: {
-      'apikey': supabaseAnonKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ email, password }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    debugLog(`[API Auth] Failed: ${response.status} ${response.statusText} - ${errorText}`);
-    throw new Error(`Credential verification failed for ${email}: ${response.status} ${response.statusText}`);
-  }
-
-  const sessionData = await response.json();
-  const { access_token, refresh_token, user } = sessionData;
-
-  if (!access_token || !user) {
-    throw new Error('API response missing access_token or user object');
-  }
-
-  debugLog(`[API Auth] ✅ Credentials valid. User ID: ${user.id}`);
-  debugLog(`[API Auth] User Metadata:`, JSON.stringify(user.user_metadata, null, 2));
-
-  // 2. Session Injection
-  // Construct the local storage key. Default is `sb-<project_ref>-auth-token`
-  // We can derive project_ref from the URL: https://<project_ref>.supabase.co
-  let projectRef = 'unknown';
-  try {
-    const urlObj = new URL(supabaseUrl);
-    projectRef = urlObj.hostname.split('.')[0];
-  } catch {
-    console.warn('[API Auth] Could not parse Supabase URL for project ref, falling back to default injection.');
+  if (supabaseUrl && !optRef) {
+    try {
+      const urlObj = new URL(supabaseUrl);
+      projectRef = urlObj.hostname.split('.')[0];
+    } catch (err) {
+      logger.warn({ err }, '[API Auth] Could not parse Supabase URL for project ref, falling back to default injection.');
+    }
   }
 
   const localStorageKey = `sb-${projectRef}-auth-token`;
-  const sessionPayload = {
-    access_token,
-    refresh_token,
-    user,
-    token_type: 'bearer',
-    expires_in: 3600,
-    created_at: Math.floor(Date.now() / 1000),
-    ...sessionData
-  };
 
-  debugLog(`[API Auth] Injecting session into LocalStorage key: ${localStorageKey}`);
-
-  await page.addInitScript(({ key, value }) => {
-    window.localStorage.setItem(key, JSON.stringify(value));
-    // Set E2E context flag so useUserProfile emits __e2eProfileLoaded__ signal
-    window.__E2E_CONTEXT__ = true;
-  }, { key: localStorageKey, value: sessionPayload });
-
-  // 3. App Verification
-  await page.goto('/');
-  await page.waitForLoadState('domcontentloaded');
-
-  try {
-    await debugWait(
-      'Authenticated State (Dashboard)',
-      page.waitForSelector('[data-testid="app-main"]', { timeout: 15000 })
-    );
-    debugLog(`[API Auth] ✅ App accepted session. User is logged in.`);
-  } catch (e) {
-    debugLog(`[helpers.ts:verifyCredentialsAndInjectSession] [API Auth] ❌ App did not accept session. Reloading and retrying... ${formatException(e)}`);
-    await page.reload();
-    await debugWait(
-      'Authenticated State (Dashboard) - Post Reload',
-      page.waitForSelector('[data-testid="app-main"]', { timeout: 15000 })
-    );
+  // 2. Prepare mock session with correct user data
+  const session = { ...MOCK_SESSION };
+  session.user.app_metadata.subscription_status = userType;
+  if (userType === 'pro') {
+    session.user.email = 'pro@example.com';
   }
 
-  // 4. Feature Verification (Pro vs Free)
-  debugLog(`[API Auth] Verifying ${userType.toUpperCase()} features...`);
+  // 3. Setup Mocks & Inject init script
+  const { setupE2EMocks } = await import('./mock-routes');
+  await setupE2EMocks(page, { userType, emptySessions });
 
-  if (userType === 'pro') {
-    // Check for Pro Badge
-    // Wait for the profile signal first to ensure deterministic state (handles cold starts)
-    await debugWait(
-      'Profile Loaded Flag (__e2eProfileLoaded__)',
-      page.waitForFunction(() => !!window.__e2eProfileLoaded__, null, { timeout: 30000 })
-    );
+  // 4. Diagnostics & Console Guards
+  setupBrowserLogging(page);
+  setupNetworkTracking(page);
 
-    await debugWait(
-      'Pro Badge Visible',
-      page.waitForSelector('[data-testid="pro-badge"]', { timeout: 10000 })
-    );
-    debugLog('[API Auth] ✅ Pro features verified.');
+  await page.addInitScript(({ key, sessionData, emptySessions }) => {
+    window.__E2E_EMPTY_SESSIONS__ = emptySessions;
+    window.__APP_TEST_ENV__ = {
+      context: 'e2e',
+      testMode: true,
+      isE2E: true,
+      useMockSession: true,
+      emptySessions: emptySessions,
+      stt: {
+        mode: 'mock',
+        loadTimeout: 45000,
+        mocks: { private: 'auto' }
+      },
+      progress: { mode: 'auto' },
+      auth: { mode: 'mock' },
+      limits: { mode: 'mock' },
+      registry: { overrides: new Map() },
+      exposedState: {},
+      debug: true,
+      mswReady: true
+    };
+
+    // RESET READY STATE BEFORE NAVIGATION
+    window.__APP_READY_STATE__ = {
+      boot: false,
+      layout: false,
+      auth: false,
+      analytics: false,
+      stt: false,
+      timestamps: { reset: performance.now() }
+    };
+
+    // Atomic injection into localStorage before app starts
+    window.localStorage.setItem(key, JSON.stringify(sessionData));
+  }, { key: localStorageKey, sessionData: session, emptySessions });
+
+  page.on('console', msg => {
+    const text = msg.text();
+    if (msg.type() === 'error') {
+      // Fail on specific forbidden patterns
+      if (text.includes('Unexpected token <') || text.includes('Attempted to overwrite recording state')) {
+        throw new Error(`[CI GUARD] Forbidden browser error: ${text}`);
+      }
+    }
+  });
+
+  // 5. Navigate
+  await page.goto('/');
+
+  // 6. Wait for single deterministic signal
+  await waitForAppReady(page, { needsAnalytics });
+
+  return session;
+}
+
+/**
+ * Simulate audio transcription by calling the internal dispatch function
+ */
+export async function simulateTranscription(page: Page, text: string, isFinal: boolean = true) {
+  await page.evaluate(({ transcription, final }) => {
+    const win = window as unknown as { dispatchMockTranscript?: (text: string, isFinal: boolean) => void; logger?: { error: (msg: string) => void } };
+    if (typeof win.dispatchMockTranscript === 'function') {
+      win.dispatchMockTranscript(transcription, final);
+    } else {
+      // Browser-side logging
+      if (win.logger) {
+        win.logger.error('[E2E Helper] window.dispatchMockTranscript is not defined!');
+      }
+    }
+  }, { transcription: text, final: isFinal });
+}
+
+/**
+ * Attaches a listener to the page to log transcript events
+ */
+export function attachLiveTranscript(page: Page) {
+  page.on('console', msg => {
+    const text = msg.text();
+    if (text.includes('[Transcription]')) {
+      logger.info(`[LIVE TRANSCRIPT] ${text}`);
+    }
+  });
+}
+
+/**
+ * Mocks a live transcript sequence
+ */
+export async function mockLiveTranscript(page: Page, transcriptLines: string[] | keyof typeof MOCK_TRANSCRIPTS) {
+  let lines: string[];
+  if (Array.isArray(transcriptLines)) {
+    lines = transcriptLines;
   } else {
-    // Ensure Pro badge is NOT present
-    const proBadge = page.locator('[data-testid="pro-badge"]');
-    await expect(proBadge).not.toBeVisible();
-    debugLog('[API Auth] ✅ Free status verified.');
+    // Fallback for legacy usage if any
+    lines = MOCK_TRANSCRIPTS as unknown as string[];
+  }
+
+  for (const line of lines) {
+    await simulateTranscription(page, line, false);
+    await page.waitForTimeout(100);
+  }
+  await simulateTranscription(page, lines[lines.length - 1], true);
+}
+
+/**
+ * Select a specific transcription engine from the UI
+ */
+export async function selectTranscriptionEngine(page: Page, mode: 'native' | 'cloud' | 'private') {
+  const select = page.getByTestId('stt-mode-select');
+  await select.click();
+  const option = page.getByTestId(`stt-option-${mode}`);
+  await option.click();
+}
+
+/**
+ * Wait for a specific toast message to appear
+ */
+export async function waitForToast(page: Page, message: string | RegExp) {
+  const toast = page.locator('li[data-sonner-toast]');
+  if (typeof message === 'string') {
+    await expect(toast).toContainText(message);
+  } else {
+    await expect(toast).toHaveText(message);
   }
 }
 
 /**
- * Robust login helper for Canary tests.
- * 
- * DESIGN RATIONALE:
- * Uses verifyCredentialsAndInjectSession() for maximum stability in CI.
- * This bypasses UI-based sign-in form flakiness while still verifying
- * the real session can be adopted by the app.
- * 
- * @param page - Playwright Page object
- * @param email - Canary user email
- * @param password - Canary user password (from CANARY_PASSWORD secret)
+ * Wait for a specific E2E event to be dispatched by the app
  */
-export async function canaryLogin(page: Page, email: string, password: string): Promise<void> {
-  if (!password) {
-    throw new Error('canaryLogin failed: Missing CANARY_PASSWORD. Ensure the secret is passed to the test step.');
-  }
+export async function waitForE2EEvent(page: Page, eventName: string, timeout: number = 10000) {
+  await page.waitForFunction((name) => {
+    return (window as unknown as { [key: string]: boolean })['__e2e_' + name + '_fired__'] === true;
+  }, eventName, { timeout });
+}
 
-  debugLog(`[CANARY] Authenticating ${email}...`);
-
-  // Use the robust API-verification + Injection pattern
-  // Canary users are always 'pro' tier.
-  await verifyCredentialsAndInjectSession(page, email, password, 'pro');
-
-  // Extra safety: wait for hydration guard
-  await expect(page.getByTestId(TEST_IDS.NAV_SIGN_OUT_BUTTON)).toBeVisible({ timeout: 15000 });
+/**
+ * Capture a screenshot of the current page for UI state verification
+ */
+export async function capturePage(page: Page, filename: string, folder: string = 'screenshots') {
+  const path = `tests/e2e/screenshots/${folder}/${filename}`;
+  await page.screenshot({ path, fullPage: true });
+  debugLog(`Screenshot saved to ${path}`);
 }

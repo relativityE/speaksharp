@@ -4,13 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import FillerWordAnalysis from '@/components/session/FillerWordAnalysis';
 
-// Mock dependencies
-vi.mock('@/lib/logger', () => ({
-    default: {
-        info: vi.fn(),
-        error: vi.fn(),
-    },
-}));
+
 
 describe('FillerWordAnalysis Integration', () => {
     const mockAddUserWord = vi.fn();

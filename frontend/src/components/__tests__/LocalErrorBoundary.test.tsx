@@ -4,12 +4,24 @@ import { LocalErrorBoundary } from '../LocalErrorBoundary';
 import logger from '../../lib/logger';
 import * as Sentry from '@sentry/react';
 
-// Mock Logger
-vi.mock('../../lib/logger', () => ({
-    default: {
-        error: vi.fn(),
-        info: vi.fn(),
-    },
+
+
+// Mock useProfile hook
+vi.mock('@/hooks/useProfile', () => ({
+    useProfile: vi.fn(() => ({ profile: { subscription_status: 'free' } })),
+}));
+
+// Mock transcription service
+vi.mock('@/services/transcription/TranscriptionService', () => ({
+    getTranscriptionService: vi.fn(() => ({
+        updateCallbacks: vi.fn(),
+        updatePolicy: vi.fn(),
+        resetEphemeralState: vi.fn(),
+        destroy: vi.fn(() => Promise.resolve()),
+        getState: vi.fn().mockReturnValue('IDLE'),
+        getMode: vi.fn().mockReturnValue('native'),
+        fsm: { subscribe: vi.fn(() => () => { }) }
+    })),
 }));
 
 // Mock Sentry

@@ -38,13 +38,6 @@ const MockAuthProvider: React.FC<{ children: React.ReactNode; value?: Partial<Au
 
 // Mock Supabase
 vi.mock('@/lib/supabaseClient');
-vi.mock('@/lib/logger', () => ({
-    default: {
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-    },
-}));
 
 vi.mock('sonner', () => ({
     toast: {

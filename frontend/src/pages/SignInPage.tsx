@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Mail } from 'lucide-react';
+import logger from '@/lib/logger';
 
 // Sign In page – supports both password and magic link
 export default function SignInPage() {
@@ -35,6 +36,7 @@ export default function SignInPage() {
                 navigate('/session');
             }
         } catch (err: unknown) {
+            logger.error({ err }, '[SignInPage] handleSubmit failed');
             // Provide more descriptive error messages for common failure modes
             if (err instanceof TypeError && err.message === 'Failed to fetch') {
                 setError('Unable to connect to authentication server. Check your network connection and Supabase configuration.');
@@ -65,6 +67,7 @@ export default function SignInPage() {
             if (otpError) throw otpError;
             setMessage('Magic link sent! Check your email for a login link.');
         } catch (err: unknown) {
+            logger.error({ err }, '[SignInPage] handleMagicLink failed');
             setError(err instanceof Error ? err.message : 'Failed to send magic link');
         } finally {
             setIsSendingMagicLink(false);

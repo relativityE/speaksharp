@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { goalsService } from '@/services/domainServices';
 import logger from '@/lib/logger';
@@ -8,89 +9,101 @@ import type { UserGoals } from '@/types/goals';
 /**
  * Custom hook for managing user goals with Supabase sync and localStorage fallback.
  * 
- * P2-6 FIX: Uses goalsService domain service instead of direct Supabase calls.
+ * ARCHITECTURE FIX (Senior Architect): 
+ * Refactored to TanStack Query to prevent race conditions between local state 
+ * and DB re-fetches during 'Surgical Fix 5'.
  * 
- * - Authenticated users: Goals sync to Supabase `user_goals` table
- * - Unauthenticated/offline: Goals stored in localStorage only
- * - Defaults to 5 weekly sessions and 90% clarity if no goals are saved
+ * - Deterministic: Shares state across all components via Query Cache.
+ * - Robust: Implements optimistic updates and explicit invalidation.
  */
 export function useGoals() {
     const { user } = useAuthProvider();
-    const [goals, setGoalsState] = useState<UserGoals>(() => {
-        if (typeof window === 'undefined') {
-            return DEFAULT_GOALS;
-        }
-        try {
-            const stored = localStorage.getItem(GOALS_STORAGE_KEY);
-            if (stored) {
-                const parsed = JSON.parse(stored);
-                return {
-                    weeklyGoal: parsed.weeklyGoal ?? DEFAULT_GOALS.weeklyGoal,
-                    clarityGoal: parsed.clarityGoal ?? DEFAULT_GOALS.clarityGoal,
-                };
+    const queryClient = useQueryClient();
+
+    // 1. Fetcher with localStorage fallback
+    const { data: goals = DEFAULT_GOALS, isLoading } = useQuery({
+        queryKey: ['userGoals', user?.id],
+        queryFn: async () => {
+            if (!user) {
+                // Return from localStorage for unauthenticated users
+                try {
+                    const stored = localStorage.getItem(GOALS_STORAGE_KEY);
+                    if (stored) return JSON.parse(stored) as UserGoals;
+                } catch (err) {
+                    logger.debug({ err }, '[useGoals] Stale/corrupt storage encountered');
+                    // Ignore parse errors from stale/corrupt storage
+                }
+                return DEFAULT_GOALS;
             }
-        } catch {
-            // Invalid JSON, use defaults
-        }
-        return DEFAULT_GOALS;
-    });
 
-    // Fetch goals from Supabase on mount if authenticated
-    useEffect(() => {
-        if (!user) return;
-
-        const fetchGoals = async () => {
             try {
                 const data = await goalsService.get(user.id);
-
                 if (data) {
-                    setGoalsState(data);
-                    // Sync to localStorage
                     localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(data));
+                    return data;
                 }
             } catch (err) {
-                logger.error({ err }, '[useGoals] Failed to fetch goals');
-                // Keep localStorage goals on error
+                logger.error({ err }, '[useGoals] Fetch failed');
             }
-        };
 
-        fetchGoals();
-    }, [user]);
+            // DB failure or empty, fallback to localStorage then defaults
+            try {
+                const stored = localStorage.getItem(GOALS_STORAGE_KEY);
+                if (stored) return JSON.parse(stored) as UserGoals;
+            } catch (err) {
+                logger.debug({ err }, '[useGoals] Fallback storage parsing failed');
+                // Ignore parse errors from stale/corrupt storage
+            }
+            return DEFAULT_GOALS;
+        },
+        staleTime: 5 * 60 * 1000,
+    });
+
+    // 2. Mutation for updating goals
+    const mutation = useMutation({
+        mutationFn: async (newGoals: UserGoals) => {
+            // Immediate side-effect for offline/unauth support
+            localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(newGoals));
+
+            if (user) {
+                return await goalsService.upsert(user.id, newGoals);
+            }
+            return newGoals;
+        },
+        onSuccess: (updatedGoals) => {
+            // ✅ SURGICAL FIX 5: Synchronize all related caches
+            const userId = user?.id;
+            queryClient.setQueryData(['userGoals', userId], updatedGoals);
+
+            if (userId) {
+                queryClient.invalidateQueries({ queryKey: ["userProfile", userId] });
+                queryClient.invalidateQueries({ queryKey: ["sessionCount", userId] });
+                queryClient.invalidateQueries({ queryKey: ["analyticsSummary", userId] });
+            }
+        },
+        onError: (err) => {
+            logger.error({ err }, '[useGoals] Mutation failed');
+        }
+    });
 
     const setGoals = useCallback(async (newGoals: UserGoals) => {
-        setGoalsState(newGoals);
+        return await mutation.mutateAsync(newGoals);
+    }, [mutation]);
 
-        // Always save to localStorage immediately
-        try {
-            localStorage.setItem(GOALS_STORAGE_KEY, JSON.stringify(newGoals));
-        } catch {
-            // localStorage not available or full
-        }
-
-        // Sync to Supabase if authenticated
+    const resetGoals = useCallback(async () => {
+        localStorage.removeItem(GOALS_STORAGE_KEY);
         if (user) {
-            try {
-                // P2-6 FIX: Use domain service
-                await goalsService.upsert(user.id, newGoals);
-            } catch (err) {
-                logger.error({ err }, '[useGoals] Failed to sync goals');
-            }
+            await mutation.mutateAsync(DEFAULT_GOALS);
+        } else {
+            queryClient.setQueryData(['userGoals', undefined], DEFAULT_GOALS);
         }
-    }, [user]);
-
-    const resetGoals = useCallback(() => {
-        setGoalsState(DEFAULT_GOALS);
-        try {
-            localStorage.removeItem(GOALS_STORAGE_KEY);
-        } catch {
-            // Ignore errors
-        }
-    }, []);
+    }, [user, mutation, queryClient]);
 
     return {
         goals,
         setGoals,
         resetGoals,
+        isLoading,
         defaultGoals: DEFAULT_GOALS,
     };
 }

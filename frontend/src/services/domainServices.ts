@@ -83,20 +83,24 @@ export const sessionService = {
     /**
      * Create a new session
      */
-    async create(session: Partial<PracticeSession>): Promise<PracticeSession> {
-        const supabase = getClient();
-        const { data, error } = await supabase
-            .from('sessions')
-            .insert(session)
-            .select()
-            .single();
+    async create(session: Partial<PracticeSession> & { user_id: string }, idempotencyKey?: string): Promise<PracticeSession> {
+        const { saveSession } = await import('@/lib/storage');
+        const { session: newSession, usageExceeded } = await saveSession(
+            session,
+            { subscription_status: 'free' } as UserProfile, // Mock profile for now
+            session.engine || 'native',
+            idempotencyKey
+        );
 
-        if (error) {
-            logger.error({ error }, '[sessionService.create]');
-            throw error;
+        if (usageExceeded) {
+            throw new Error('Usage limit exceeded');
         }
 
-        return data as PracticeSession;
+        if (!newSession) {
+            throw new Error('Failed to create session');
+        }
+
+        return newSession;
     },
 
     /**

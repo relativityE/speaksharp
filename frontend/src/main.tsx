@@ -14,7 +14,6 @@ import * as Sentry from "@sentry/react";
 import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
 import App from './App';
 import { IS_TEST_ENVIRONMENT } from '@/config/env';
-import { initE2EConfig } from '../../tests/types/e2eConfig';
 import { useReadinessStore } from './stores/useReadinessStore';
 
 const REQUIRED_ENV_VARS: string[] = [

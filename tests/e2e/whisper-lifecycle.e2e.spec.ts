@@ -1,24 +1,33 @@
-import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute, attachLiveTranscript } from './helpers';
-import { setupE2EMocks } from './mock-routes';
+import { test, expect } from './fixtures';
+import { navigateToRoute, attachLiveTranscript } from './helpers';
 import { registerMockInE2E, enableTestRegistry } from '../helpers/testRegistry.helpers';
 
 test.describe('Whisper Lifecycle UX', () => {
-    // ✅ CI STABILITY FIX: Skip hardware-heavy tests if not on appropriate runner
-    test.skip(!!process.env.CI && !process.env.HAS_GPU, 'Whisper lifecycle requires GPU hardware/WASM SIMD support');
+    const usingMockEngine = process.env.STT_ENGINE === 'mock';
+    test.skip(!usingMockEngine && !process.env.HAS_GPU, 'Whisper lifecycle requires GPU hardware/WASM SIMD support');
 
-    test.beforeEach(async ({ page }) => {
-        await setupE2EMocks(page);
-        await enableTestRegistry(page);
+    test.afterEach(async ({ proPage: page }) => {
+        await page.evaluate(() => {
+            // 1. Reset behavioral gating signal
+            document.body.removeAttribute('data-stt-policy');
+            
+            // 2. Clear engine overrides
+            window.__TEST_REGISTRY__?.clear();
+            
+            // 3. Reset service ephemeral state
+            // @ts-ignore - Internal test hook
+            window.__TRANSCRIPTION_SERVICE__?.resetEphemeralState();
+        });
     });
 
-    test('should verify the full lifecycle: download -> cache -> instant-start', async ({ page }) => {
+    test('should verify the full lifecycle: download -> cache -> instant-start', async ({ proPage: page }) => {
+        await enableTestRegistry(page);
         attachLiveTranscript(page);
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
 
         // 1. First Attempt: Simulate Cache Miss & Download
         await registerMockInE2E(page, 'private', `(opts) => {
             let progressCb = opts?.onModelLoadProgress;
+            const log = window.logger || { info: () => {}, error: () => {} };
             return {
                 init: async () => {
                     window.__E2E_ADVANCE_PROGRESS__ = (p) => {
@@ -26,10 +35,10 @@ test.describe('Whisper Lifecycle UX', () => {
                     };
                     
                     if (!window.__MODEL_CACHED__) {
-                        console.log('[Mock] Simulating Cache Miss');
+                        log.info('[Mock] Simulating Cache Miss');
                         throw Object.assign(new Error('CACHE_MISS'), { code: 'CACHE_MISS' });
                     }
-                    console.log('[Mock] Cache Hit');
+                    log.info('[Mock] Cache Hit');
                 },
                 startTranscription: async () => { },
                 stopTranscription: async () => 'lifecycle test transcript',
@@ -49,7 +58,6 @@ test.describe('Whisper Lifecycle UX', () => {
         await page.getByTestId('session-start-stop-button').click();
 
         const indicator = page.getByTestId('background-task-indicator');
-        // Assert behavior: indicator is visible (download in progress) — not specific text content
         await expect(indicator).toBeVisible();
 
         // Advance to 42%
@@ -62,33 +70,27 @@ test.describe('Whisper Lifecycle UX', () => {
             window.__E2E_ADVANCE_PROGRESS__?.(1);
         })()`);
 
-        // Indicator should disappear eventually or show ready
         await expect(indicator).not.toBeVisible({ timeout: 5000 });
 
         // Wait for MIN_SESSION_DURATION_SECONDS=5
         await page.waitForTimeout(5100);
 
-        // Stop session — assert: session stopped (data-recording flips to 'false')
-        // Note: fastForward causes negative elapsedTime → 'too short' path, but stopListening() still runs
+        // Stop session
         await page.getByTestId('session-start-stop-button').click();
         await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'false', { timeout: 8000 });
 
         // 🔵 Lifecycle Stage 2: Cache Hit (Instant Start)
-        // Ensure no indicator appears this time
         await page.getByTestId('session-start-stop-button').click();
 
-        // It should go straight to recording without showing the download indicator
         await expect(indicator).not.toBeVisible();
-        // Assert behavior: recording started — button shows Stop (not text in status bar which shows toasts)
         await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 5000 });
 
         await page.waitForTimeout(5100);
         await page.getByTestId('session-start-stop-button').click();
     });
 
-    test('should survive and resume if download is interrupted', async ({ page }) => {
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
-
+    test('should survive and resume if download is interrupted', async ({ proPage: page }) => {
+        await enableTestRegistry(page);
         await registerMockInE2E(page, 'private', `(opts) => {
             let progressCb = opts?.onModelLoadProgress;
             return {
@@ -120,7 +122,7 @@ test.describe('Whisper Lifecycle UX', () => {
 
         await page.getByTestId('session-start-stop-button').click();
 
-        // Verify fallback notice or subsequent recording state (behavioral truth)
+        // Verify fallback notice or subsequent recording state
         await expect(page.getByTestId('live-session-header')).toHaveAttribute('data-recording', 'true');
     });
 });

@@ -158,7 +158,7 @@ export const useSessionLifecycle = () => {
                 // We allow saveSession to proceed even if unmounted to ensure persistence,
                 // but we guard the UI state updates.
                 const result = await saveSession({
-                    id: (service as any).getSessionId() || undefined,
+                    id: service?.getSessionId() || undefined,
                     transcript: finalStats.transcript,
                     duration: elapsedTime,
                     filler_words: finalStats.filler_words as FillerCounts,
@@ -184,7 +184,7 @@ export const useSessionLifecycle = () => {
                     setShowAnalyticsPrompt(true);
 
                     // ✅ E2E SIGNAL: Stable attribute for test runners to wait for
-                    (window as any).__E2E_LAST_SAVED_SESSION__ = result.session.id;
+                    (window as unknown as { __E2E_LAST_SAVED_SESSION__?: string }).__E2E_LAST_SAVED_SESSION__ = result.session.id;
                     document.documentElement.setAttribute('data-session-saved', 'true');
                     setTimeout(() => {
                         // Clear signal after a delay to allow tests to catch it but not persist forever

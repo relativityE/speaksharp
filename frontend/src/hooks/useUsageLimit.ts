@@ -15,6 +15,7 @@ export interface UsageLimitCheck {
     remaining_seconds: number; // Legacy, kept for compatibility with existing UI
     subscription_status: string;
     is_pro: boolean;
+    streak_count: number;
     promo_just_expired?: boolean;
     error?: string;
 }
@@ -46,6 +47,7 @@ export function useUsageLimit() {
                     remaining_seconds: 0,
                     subscription_status: 'unknown',
                     is_pro: false,
+                    streak_count: 0,
                     error: 'Supabase client not available'
                 };
             }
@@ -69,6 +71,7 @@ export function useUsageLimit() {
                     remaining_seconds: 3600,
                     subscription_status: 'unknown',
                     is_pro: false,
+                    streak_count: 0,
                     error: error.message
                 };
             }

@@ -83,7 +83,6 @@ export async function clearQueryCache(page: Page): Promise<void> {
     await page.evaluate(() => {
         const win = window as unknown as { queryClient?: { clear: () => void; invalidateQueries: () => void } };
         if (win.queryClient && typeof win.queryClient.clear === 'function') {
-            console.log('[E2E Help] Clearing Query Cache...');
             win.queryClient.clear();
             // Also invalidate to be sure
             if (typeof win.queryClient.invalidateQueries === 'function') {

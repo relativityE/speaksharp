@@ -1,10 +1,8 @@
-import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { test, expect } from './fixtures';
+import { navigateToRoute } from './helpers';
 
 test.describe('App Navigation', () => {
-  test('should navigate to all application routes successfully', async ({ page }) => {
-    await programmaticLoginWithRoutes(page);
-
+  test('should navigate to all application routes successfully', async ({ userPage }) => {
     // Test navigation to each route and verify URL + key element
     const routes = [
       { path: '/session', testId: 'live-recording-card' },
@@ -12,35 +10,33 @@ test.describe('App Navigation', () => {
     ];
 
     for (const route of routes) {
-      await navigateToRoute(page, route.path);
-      await expect(page).toHaveURL(route.path);
+      await navigateToRoute(userPage, route.path);
+      await expect(userPage).toHaveURL(route.path);
       // Use refined locator for headers to avoid race conditions
       const locator = route.testId === 'dashboard-heading'
         ? 'h1, h2, [data-testid="dashboard-heading"]'
         : `[data-testid="${route.testId}"]`;
-      await expect(page.locator(locator).first()).toBeVisible({ timeout: 15000 });
+      await expect(userPage.locator(locator).first()).toBeVisible({ timeout: 15000 });
     }
   });
 
-  test('should navigate using nav links', async ({ page }) => {
-    await programmaticLoginWithRoutes(page);
+  test('should navigate using nav links', async ({ userPage }) => {
     // After login, we're at /session, so use links from there
-    await navigateToRoute(page, '/session');
+    await navigateToRoute(userPage, '/session');
 
     // Click nav link to Session
-    await page.getByRole('link', { name: /session/i }).first().click();
-    await expect(page).toHaveURL('/session');
+    await userPage.getByRole('link', { name: /session/i }).first().click();
+    await expect(userPage).toHaveURL('/session');
 
     // Click nav link to Analytics
-    await page.getByRole('link', { name: /analytics/i }).first().click();
-    await expect(page).toHaveURL('/analytics', { timeout: 10000 });
+    await userPage.getByRole('link', { name: /analytics/i }).first().click();
+    await expect(userPage).toHaveURL('/analytics', { timeout: 10000 });
     // Robust heading check
-    await expect(page.locator('h1, h2, [data-testid="dashboard-heading"]').first()).toBeVisible({ timeout: 15000 });
+    await expect(userPage.locator('h1, h2, [data-testid="dashboard-heading"]').first()).toBeVisible({ timeout: 15000 });
 
     // Click nav link to Home
-    await page.getByRole('link', { name: /home/i }).first().click();
+    await userPage.getByRole('link', { name: /home/i }).first().click();
     // Behavioral Design Fix: Authenticated users are redirected to /session.
-    // We verify the Session Service rendered (Integrity check) rather than just the URL string (Transit check).
-    await expect(page.getByTestId('session-page')).toBeVisible({ timeout: 15000 });
+    await expect(userPage.getByTestId('session-page')).toBeVisible({ timeout: 15000 });
   });
 });

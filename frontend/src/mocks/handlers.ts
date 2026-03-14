@@ -2,11 +2,29 @@ import { http, HttpResponse, type RequestHandler } from 'msw';
 import logger from '@/lib/logger';
 import { createMockSession, createMockUserProfile, createMockUser } from './test-user-utils';
 import { MOCK_SESSION_HISTORY } from '@shared/test-fixtures';
-import type { PracticeSession } from '@/types/session';
+
+interface MockVocabularyWord {
+  id: string;
+  user_id: string;
+  word: string;
+  created_at: string;
+}
+
+/**
+ * Flexible session interface for mocks.
+ * Extends PracticeSession but allows extra properties in filler_words (like timestamps)
+ * to satisfy both the mock data and the application's type requirements.
+ */
+interface MockPracticeSession {
+  id: string;
+  user_id: string;
+  created_at: string;
+  [key: string]: unknown;
+}
 
 // Stateful stores with persistence
-const mockVocabularyStore: Map<string, any[]> = new Map();
-const mockSessionStore: Map<string, any[]> = new Map();
+const mockVocabularyStore: Map<string, MockVocabularyWord[]> = new Map();
+const mockSessionStore: Map<string, MockPracticeSession[]> = new Map();
 
 // IndexedDB persistence helper
 const DB_NAME = 'MSW_PERSISTENCE';
@@ -23,7 +41,7 @@ const openDB = () => {
     });
 };
 
-const saveToDB = async (key: string, value: any) => {
+const saveToDB = async (key: string, value: Record<string, unknown[]>) => {
     try {
         const db = await openDB();
         const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -42,7 +60,7 @@ const loadFromDB = async (key: string) => {
         const db = await openDB();
         const tx = db.transaction(STORE_NAME, 'readonly');
         const request = tx.objectStore(STORE_NAME).get(key);
-        return new Promise<any>((resolve, reject) => {
+        return new Promise<Record<string, unknown[]> | null>((resolve, reject) => {
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(tx.error);
         });
@@ -56,7 +74,7 @@ const loadFromDB = async (key: string) => {
 const initializeStores = async () => {
     const vocab = await loadFromDB('vocabulary');
     if (vocab) {
-        for (const [k, v] of Object.entries(vocab)) mockVocabularyStore.set(k, v as any[]);
+        for (const [k, v] of Object.entries(vocab)) mockVocabularyStore.set(k, v as MockVocabularyWord[]);
     } else {
         // Initial Seed
         mockVocabularyStore.set('test-user-123', [
@@ -72,7 +90,7 @@ const initializeStores = async () => {
 
     const sessions = await loadFromDB('sessions');
     if (sessions) {
-        for (const [k, v] of Object.entries(sessions)) mockSessionStore.set(k, v as any[]);
+        for (const [k, v] of Object.entries(sessions)) mockSessionStore.set(k, v as MockPracticeSession[]);
     } else {
         // Initial Seed
         mockSessionStore.set('test-user-123', [...MOCK_SESSION_HISTORY]);
@@ -160,7 +178,7 @@ export const handlers: RequestHandler[] = [
     return HttpResponse.json([profile]);
   }),
 
-  http.head('*/rest/v1/sessions', ({ request }) => {
+  http.head('*/rest/v1/sessions', ({ request: _request }) => {
     logger.info('[MSW DEBUG] Intercepted: HEAD /rest/v1/sessions');
     const userId = 'test-user-123';
     const sessions = mockSessionStore.get(userId) || [];
@@ -179,7 +197,7 @@ export const handlers: RequestHandler[] = [
     logger.info('[MSW DEBUG] Intercepted: GET /rest/v1/sessions');
 
     // Check window flag for empty sessions (E2E test control)
-    const windowFlag = typeof window !== 'undefined' && '__E2E_EMPTY_SESSIONS__' in window && Boolean(window['__E2E_EMPTY_SESSIONS__' as keyof typeof window]);
+    const windowFlag = typeof window !== 'undefined' && (window as unknown as { __E2E_EMPTY_SESSIONS__?: boolean }).__E2E_EMPTY_SESSIONS__;
     logger.info({ windowFlag }, '[MSW DEBUG] window.__E2E_EMPTY_SESSIONS__');
 
     // Check if test wants empty sessions via custom header
@@ -203,7 +221,7 @@ export const handlers: RequestHandler[] = [
     const url = new URL(request.url);
     const idParam = url.searchParams.get('id');
     const sessionId = idParam?.replace(/^(eq|neq|gt|gte|lt|lte|like|ilike)\./, '');
-    const body = await request.json() as Partial<PracticeSession>;
+    const body = await request.json() as Partial<MockPracticeSession>;
 
     const userId = 'test-user-123';
     const sessions = mockSessionStore.get(userId) || [];
@@ -316,8 +334,8 @@ export const handlers: RequestHandler[] = [
     const { p_session_data } = await request.json() as { p_session_data: Record<string, unknown> };
 
     const userId = 'test-user-123';
-    const new_session = {
-      ...p_session_data,
+    const new_session: MockPracticeSession = {
+      ...(p_session_data as unknown as MockPracticeSession),
       id: `session-mock-${Date.now()}`,
       user_id: userId,
       created_at: new Date().toISOString(),
@@ -403,7 +421,7 @@ export async function resetMockVocabularyStore() {
     { id: 'vocab-6', user_id: 'test-user-123', word: 'gradient descent', created_at: new Date(Date.now() - 1 * 86400000).toISOString() },
   ]);
   
-  mockSessionStore.set('test-user-123', [...MOCK_SESSION_HISTORY]);
+  mockSessionStore.set('test-user-123', [...MOCK_SESSION_HISTORY] as MockPracticeSession[]);
   
   await saveToDB('vocabulary', Object.fromEntries(mockVocabularyStore));
   await saveToDB('sessions', Object.fromEntries(mockSessionStore));

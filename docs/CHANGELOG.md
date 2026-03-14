@@ -5,7 +5,20 @@
 
 All notable changes to this project will be documented in this file.
 
-### [3.5.6] — Zero-Debt Baseline & Hardening (2026-03-09)
+### [3.5.4.1] — Documentation Audit & Hardening Alignment (2026-03-14)
+
+- **Verification: Documentation Synchronization** — Conducted a full audit of all project markdowns to ensure 1:1 alignment with the latest codebase. Replaced all abstract terminology with descriptive architectural patterns.
+- **Infrastructure: Expert CI Hardening** — Integrated advanced mitigation strategies for **Mock Poisoning**, **Over-Mocking**, and **Mock Divergence**, achieving 100% reliability in high-concurrency lifecycle tests.
+- **Verification: E2E Stability Hardening** — Stabilized the E2E test suite by enforcing **Behavioral Test Contracts** (`[data-state]` / `[data-action]`) and implementing **Programmatic Login** as the primary authentication gate.
+- **Logic: Lifecycle Synchronization** — Resolved race conditions in the Private STT fallback mechanism using **Atomic Chain Orchestration** and **Readiness Notification** strategies.
+
+### [3.5.4] — Phase 2: 3-PR Integration Strategy (2026-03-09)
+
+- **Infrastructure: SQL Extraction (#732)** — Migrated session creation and usage metering logic entirely to the database layer. Implemented `idempotency_key` and `FOR UPDATE` row-locking for atomic consistency.
+- **Infrastructure: Tier Limits (#731)** — Introduced dynamic `tier_configs` table and hardened usage guards (daily/monthly/concurrency) directly in Supabase RPCs.
+- **Architecture: 3-Layer STT Runtime (#729)** — Implemented a deterministic engine hierarchy: **WhisperTurbo (WebGPU)** → **TransformersJS (WASM)** → **Native (Web Speech)**. Added unified loading progress reporting.
+- **Verification: Zero-Debt CI Baseline** — Achieved 100% reliability across the full test suite (Lint + Unit + E2E). All 200+ pre-existing lint errors resolved.
+- **Files:** `TranscriptionService.ts`, `PrivateSTT.ts`, `20260309000000_phase2_integration.sql`, `Phase2Safeguards.test.ts`.
 
 - **Infrastructure: Zero-Debt CI Baseline** — Achieved 100% reliability across the full test suite: 557/557 Vitest (Unit/Integration) and 71/71 Playwright (E2E) passing.
 - **Infrastructure: Node.js CI Orchestrator** — Migrated the primary CI pipeline to `run-ci.mjs`, a unified Node.js orchestrator with built-in Test Impact Analysis (TIA), zombie process prevention (`AbortController`), and parallel buffered logging.
@@ -19,6 +32,24 @@ All notable changes to this project will be documented in this file.
 - **UI: LiveRecordingCard Overhaul** — Redesigned the recording interface with a vertical center-stack (Mic/Timer) and left-aligned SECURE/Selector column for high-fidelity proportionality.
 - **Maintenance: Metric Name Standardization** — Unified naming conventions by renaming `avgWpm` to `averageWPM` across all layers (DB, Hook, UI).
 - **Files:** `scripts/run-ci.mjs`, `test-audit.sh`, `useSessionLifecycle.ts`, `LiveRecordingCard.tsx`, `AnalyticsDashboard.tsx`, `analyticsUtils.ts`, `useUserProfile.ts`, `ProfileContext.tsx`, `useActiveSessionLock.ts`, `20260212000000_database_hardening.sql`
+
+### [3.5.7] — CI Stability & Logger Standardization (2026-03-12)
+
+- **Architecture: Single-Chain Promise Orchestration** — Hardened `TranscriptionService` by implementing an atomic promise chain for `start`/`stop`/`cancel` cycles, eliminating "ghost resolutions" and race conditions in rapid state transitions.
+- **Observability: Triple-Identity Tracing** — Introduced `serviceId`, `runId`, and `engineId` tracing across the transcription pipeline for high-fidelity diagnostic correlation.
+- **Verification: Logger Mock Standardization** — Standardized global `vi.mock` for `@/lib/logger` in `setup.ts`, resolving `TypeError: default.debug is not a function` across the unit test suite and eliminating redundant local mocks in 15+ files.
+- **Infrastructure: Dependency-Aware Testing** — Verified and documented the integration of `dependency-cruiser` into the `test:agent` workflow, enabling surgical test execution based on source changes (`test-impact-map.json`).
+- **Logic: Enhanced Cleanup Hooks** — Implemented more robust cleanup in `useTranscriptionService` using `useCallback` and `useRef` to stabilize the lifecycle during rapid unmounting.
+- **CI: Pipeline Noise Reduction** — Optimized CI terminal output by defaulting to `WARN` log level and switching Playwright reporters to `line` mode, while preserving full diagnostic visibility for failures.
+- **Files:** `TranscriptionService.ts`, `setup.ts`, `run-ci.mjs`, `test-audit.sh`, `useTranscriptionService.ts`, and 15+ unit test files.
+
+### [3.5.6] — STT Stabilization & Test Repair (2026-03-12)
+
+- **Infrastructure: Deterministic Readiness Contract** — Hardened `main.tsx` to preserve the `window.__APP_READY_STATE__` object if already injected by E2E helpers, resolving race conditions and readiness timeouts in CI.
+- **Architecture: Transcription Lifecycle Hardening** — Fixed `useTranscriptionService.ts` to include `setError` in its dependency array, ensuring stable error handling during session transitions.
+- **Verification: Unit & E2E Test Repair** — Resolved regressions in `integration.test.tsx` by fixing hook call syntax. Updated `diag-private-stt.e2e.spec.ts` and `whisper-lifecycle.e2e.spec.ts` for consistency with the new readiness contract and service state.
+- **Quality: Zero-Debt Maintenance** — Resolved all linting warnings (treated as errors) in the frontend and test suites.
+- **Files:** `main.tsx`, `useTranscriptionService.ts`, `integration.test.tsx`, `diag-private-stt.e2e.spec.ts`, `whisper-lifecycle.e2e.spec.ts`.
 
 ### [3.5.5] — Live UI & STT Stabilization (2026-03-07)
 
@@ -529,7 +560,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added (2025-12-31) - Analytics Restoration & Alpha Bypass
 
 - **Alpha Bypass Enhancement:** Implemented a secure, secret-driven 7-digit numeric upgrade format. Validation is now handled via Supabase Vault secrets rather than hardcoded client-side values. Added `scripts/generate-alpha-code.ts` for automated rotation and local testing orchestration.
-- **New User Documentation:** Created `docs/USER_GUIDE.md` for end-user onboarding.
+- **New User Documentation:** Created `USER_GUIDE.md` for end-user onboarding.
 - **Redirect Optimization:** Authenticated users now redirect directly to `/session` to improve startup speed.
 - **Promo Admin Mechanism (2025-12-31):** Implemented secure, secret-driven upgrade path using Supabase Vault. Replaced with `PROMO_GEN_ADMIN_SECRET` architecture in 2026-02-08.
 

@@ -17,6 +17,7 @@ interface UsageLimitResponse {
     used_seconds: number;
     subscription_status: string;
     is_pro: boolean;
+    streak_count: number;
     promo_just_expired?: boolean; // True if promo expired during this check
     error?: string;
 }

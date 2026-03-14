@@ -24,7 +24,7 @@ Most tests (except for basic Unit and E2E Mock) require real backend credentials
 
 1.  **Zero-Persistence Policy**: Never commit `.env` or `.env.development` files.
 
-    **Environment File Contract** (expert-approved):
+    **Environment File Contract** (approved):
 
     | File | Purpose | Committed? | Contains |
     | :--- | :--- | :---: | :--- |
@@ -49,7 +49,7 @@ Most tests (except for basic Unit and E2E Mock) require real backend credentials
 **Command**: `pnpm ci:full:local`
 **Description**: The primary local quality gate. Simulates the full GitHub CI pipeline locally: Lint, Type, Unit Tests, sharded E2E, and Lighthouse audits.
 
-**Steps**:
+**Actions**:
 1.  **Installs**: Syncs dependencies using the frozen lockfile.
 2.  **Builds**: Creates a fresh `build:test` bundle.
 3.  **Audits**: Runs `lint`, `typecheck`, and `vitest`.

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
 import { testRegistry } from '../TestRegistry';
-import { ITranscriptionMode } from '../modes/types';
+import { ITranscriptionEngine } from '../modes/types';
 import { TranscriptionMode } from '../TranscriptionPolicy';
 
 /**
@@ -27,7 +27,7 @@ describe('Transcription Accuracy Multi-Engine Integration', () => {
         it(`should produce accurate transcript for ${mode} mode`, async () => {
             const expectedText = `Accurate transcript from ${mode}`;
 
-            class MockEngine implements ITranscriptionMode {
+            class MockEngine implements ITranscriptionEngine {
                 onTranscriptUpdate: (data: { transcript: { final?: string; partial?: string; speaker?: string }; audioData?: Float32Array }) => void;
                 onModelLoadProgress: (progress: number | null) => void;
 

@@ -15,7 +15,10 @@ export type SubscriptionStatus = typeof SUBSCRIPTION_STATUS[keyof typeof SUBSCRI
 export const MOCK_USER = {
     id: 'test-user-123',
     email: 'test@example.com',
-    app_metadata: { provider: 'email' },
+    app_metadata: {
+        provider: 'email',
+        subscription_status: SUBSCRIPTION_STATUS.FREE as SubscriptionStatus
+    },
     user_metadata: { name: 'Test User' },
     aud: 'authenticated',
     role: 'authenticated',

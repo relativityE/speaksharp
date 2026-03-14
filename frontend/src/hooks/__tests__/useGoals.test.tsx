@@ -3,6 +3,8 @@ import { useGoals, DEFAULT_GOALS } from '../useGoals';
 import { describe, it, expect, beforeEach, vi, Mock } from 'vitest';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { goalsService } from '@/services/domainServices';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import React from 'react';
 
 // Mock dependencies
 vi.mock('@/contexts/AuthProvider', () => ({
@@ -17,23 +19,41 @@ vi.mock('@/services/domainServices', () => ({
 }));
 
 describe('useGoals', () => {
+    let queryClient: QueryClient;
+    let wrapper: React.FC<{ children: React.ReactNode }>;
+
     beforeEach(() => {
         localStorage.clear();
         vi.resetAllMocks();
         (useAuthProvider as Mock).mockReturnValue({ user: null });
+        
+        queryClient = new QueryClient({
+            defaultOptions: {
+                queries: { retry: false },
+                mutations: { retry: false }
+            },
+        });
+        
+        wrapper = ({ children }: { children: React.ReactNode }) => (
+            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        );
     });
 
-    it('initializes with default goals when no storage or user', () => {
-        const { result } = renderHook(() => useGoals());
-        expect(result.current.goals).toEqual(DEFAULT_GOALS);
+    it('initializes with default goals when no storage or user', async () => {
+        const { result } = renderHook(() => useGoals(), { wrapper });
+        await waitFor(() => {
+            expect(result.current.goals).toEqual(DEFAULT_GOALS);
+        });
     });
 
-    it('initializes from localStorage if available', () => {
+    it('initializes from localStorage if available', async () => {
         const customGoals = { weeklyGoal: 10, clarityGoal: 95 };
         localStorage.setItem('speaksharp:user-goals', JSON.stringify(customGoals));
 
-        const { result } = renderHook(() => useGoals());
-        expect(result.current.goals).toEqual(customGoals);
+        const { result } = renderHook(() => useGoals(), { wrapper });
+        await waitFor(() => {
+            expect(result.current.goals).toEqual(customGoals);
+        });
     });
 
     it('fetches goals from Supabase when user is authenticated', async () => {
@@ -42,7 +62,7 @@ describe('useGoals', () => {
         (useAuthProvider as Mock).mockReturnValue({ user });
         (goalsService.get as Mock).mockResolvedValue(domainGoals);
 
-        const { result } = renderHook(() => useGoals());
+        const { result } = renderHook(() => useGoals(), { wrapper });
 
         await waitFor(() => {
             expect(result.current.goals).toEqual({
@@ -61,28 +81,33 @@ describe('useGoals', () => {
     it('updates goals in localStorage and Supabase', async () => {
         const user = { id: 'user-123' };
         (useAuthProvider as Mock).mockReturnValue({ user });
-        const { result } = renderHook(() => useGoals());
+        const { result } = renderHook(() => useGoals(), { wrapper });
 
         const newGoals = { weeklyGoal: 3, clarityGoal: 98 };
+        (goalsService.upsert as Mock).mockResolvedValue(newGoals);
 
         await act(async () => {
             await result.current.setGoals(newGoals);
         });
 
-        expect(result.current.goals).toEqual(newGoals);
-        expect(JSON.parse(localStorage.getItem('speaksharp:user-goals')!)).toEqual(newGoals);
+        await waitFor(() => {
+            expect(result.current.goals).toEqual(newGoals);
+            expect(JSON.parse(localStorage.getItem('speaksharp:user-goals')!)).toEqual(newGoals);
+        });
         expect(goalsService.upsert).toHaveBeenCalledWith('user-123', newGoals);
     });
 
-    it('resets goals to defaults', () => {
+    it('resets goals to defaults', async () => {
         localStorage.setItem('speaksharp:user-goals', JSON.stringify({ weeklyGoal: 20, clarityGoal: 50 }));
-        const { result } = renderHook(() => useGoals());
+        const { result } = renderHook(() => useGoals(), { wrapper });
 
         act(() => {
             result.current.resetGoals();
         });
 
-        expect(result.current.goals).toEqual(DEFAULT_GOALS);
-        expect(localStorage.getItem('speaksharp:user-goals')).toBeNull();
+        await waitFor(() => {
+            expect(result.current.goals).toEqual(DEFAULT_GOALS);
+            expect(localStorage.getItem('speaksharp:user-goals')).toBeNull();
+        });
     });
 });

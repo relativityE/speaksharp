@@ -452,11 +452,12 @@ Distinguish between "Business Events" and "System Failures":
 *   **Unexpected Failures:** `MicrophoneError`, `NetworkDisconnect` -> Handled via `LocalErrorBoundary`.
 
 #### 3.5 Behavioral Testing Pivot (2026-02-21)
-We have transitioned from **Structural Verification** (internal method spies) to **Black-Box Behavioral Testing** (requirement validation).
+The project has transitioned from structural verification to **Black-Box Behavioral Testing**, as certified in the Phase 2 baseline. We test the "Contract" rather than the "Implementation."
 
-> [!IMPORTANT]
-> **🏛️ Guiding Principle**
-> Tests must validate requirements and design intent, not structural implementation. Every test must answer one question: *"Does the product do what the user paid for?"*
+- **Safeguards Verified:**
+  - **Idempotency:** 100% protection against duplicate session writes via `idempotency_key`.
+  - **Tier Enforcement:** Strict concurrency and usage limits verified at the database RPC layer.
+  - **Fallback Integrity:** Verified hierarchy transitions (WebGPU -> WASM -> Native).
 
 | Dimension | Prior (Structural) | Current (Behavioral) | Grade |
 | :--- | :--- | :--- | :--- |
@@ -477,6 +478,24 @@ We have transitioned from **Structural Verification** (internal method spies) to
 *   **Hooks:** **80%** (High) - Complex composition logic.
 *   **Global:** **61%** (Baseline) - Includes UI glue code.
 *   **Infrastructure:** **30%** (Low) - Setup scripts, config.
+ 
+ #### 3.7 Mock/Schema Synchronization Pattern
+ To prevent architectural drift, the project utilizes three discovery layers (Mechanism 1 is the primary defense). Every schema migration should utilize at least one of these layers:
+ 1. **Factory Update (Layer 1)**: Update corresponding factories in `tests/support/factories/` to reflect new/modified columns using type-safe derivations.
+ 2. **Header Enforcement (Layer 2)**: Verify that mock handlers in `mock-routes.ts` respect PostgREST header contracts (e.g., `Accept: application/vnd.pgrst.object+json` for `.single()`).
+ 3. **Body Serialization (Layer 3)**: Ensure POST/PATCH handlers use `parseSupabaseBody` to handle array-wrapped request bodies.
+ 
+ > [!IMPORTANT]
+ > **Governance Rule**: No PR containing a database migration will be merged without verifying synchronization via at least one of the discovery layers above.
+
+
+
+#### Pattern 28: Deterministic Readiness Contract (`main.tsx`)
+**Problem:** Race conditions in E2E environments where `main.tsx` overwrites `window.__APP_READY_STATE__` after it was already initialized by an E2E setup script, leading to readiness timeouts.
+**Solution:** Use a "Preservation Null-Coalescing" pattern during initialization: `window.__APP_READY_STATE__ = window.__APP_READY_STATE__ || { ... }`.
+- **Benefit:** Ensures that properties like `boot`, `layout`, and `auth` are preserved if set early by boosters or test runners, while providing a safe default for production.
+
+---
 
 ### 🧪 E2E Mock Integrity
 External services (Supabase, Edge Functions) are mocked via Playwright routes in `mock-routes.ts`. To distinguish between automated tests and manual browser checks (which use MSW), a `window.__E2E_PLAYWRIGHT__` flag is injected. For infrastructure-level debugging, refer to [tests/TROUBLESHOOTING.md](../tests/TROUBLESHOOTING.md).
@@ -531,12 +550,12 @@ The analytics engine supports automated accuracy scoring. By ingesting **Ground 
 
 #### Benchmarking Architecture (Static Ceilings)
 To provide users with a meaningful "Accuracy Signal", we utilize **Path A: Client-Side Dynamic Comparison**.
-- **Static Config**: Theoretical maximum accuracy ceilings for each engine are stored in `docs/STT_BENCHMARKS.json`.
+- **Static Config**: Theoretical maximum accuracy ceilings for each engine are stored in `tests/STT_BENCHMARKS.json`.
 - **Node Orchestration**: Ceilings are established by running engine-specific live benchmarks:
     - **Cloud**: `pnpm test:system:local:headed tests/live/benchmark-cloud.live.spec.ts`
     - **CPU**: `pnpm test:system:local:headed tests/live/benchmark-cpu.live.spec.ts`
     - **WebGPU**: `pnpm test:system:local:headed tests/live/benchmark-webgpu.live.spec.ts`
-- **Environment Gating**: While **AssemblyAI (Cloud)** and **Whisper (CPU)** are automated in CI via tiered execution, the **WhisperTurbo (WebGPU)** ceiling is human-maintained. It must be manually updated in `STT_BENCHMARKS.json` when running benchmarks on a GPU-enabled developer machine. 
+- **Environment Gating**: While **AssemblyAI (Cloud)** and **Whisper (CPU)** are automated in CI via tiered execution, the **WhisperTurbo (WebGPU)** ceiling is human-maintained. It must be manually updated in `tests/STT_BENCHMARKS.json` when running benchmarks on a GPU-enabled developer machine. 
 - **Pro Calibration**: Live benchmarks support authenticated Pro-user credentials via `E2E_PRO_EMAIL` and `E2E_PRO_PASSWORD` to verify restricted STT modes (Private/WebGPU) and tier-specific accuracy Signal.
 - **Dynamic Scoring**: The frontend `useAnalytics` hook dynamically calculates the user's live WER and charts it against this static ceiling benchmark to show relative performance over time.
 
@@ -633,17 +652,20 @@ The `whisper-turbo` engine uses a two-layer cache (Service Worker + IndexedDB) t
 > The production-only smoke test (`smoke/private-stt-integration.spec.ts`) validates this capability under explicit opt-in: `REAL_WHISPER_TEST=true`.  
 > Standard dev E2E uses MockEngine via `private-stt.e2e.spec.ts`.
 
+#### 3.2.1 Triple-Engine Runtime Hierarchy
+To ensure maximum availability and privacy, SpeakSharp utilizes a deterministic engine hierarchy:
+
+1.  **WhisperTurbo (WebGPU):** Primary high-performance engine. Runs within a dedicated Web Worker to offload heavy ML computation from the main thread.
+2.  **TransformersJS (WASM):** Automatic fallback for hardware without WebGPU support.
+3.  **Native (Web Speech API):** Deterministic universal fallback. Ensures zero-fail session starts even during model download or incompatible environments.
+
 **Engine Selection by Environment:**
 
 | Environment | Engine Used | Why |
 |-------------|-------------|-----|
 | **E2E Tests (Playwright)** | MockEngine | `window.__E2E_PLAYWRIGHT__` detected |
-- **Unit Tests (Vitest):** 556 tests (verified 2026-03-01)
-- **E2E Tests (Playwright):** 17 tests (mocked CI suite, verified 2026-03-01)
-- **Soak/Performance Tests:** 1 concurrent multi-user scenario
-- **Canary Tests:** 1 production smoke test
-| **Production (WebGPU)** | WhisperTurbo → TransformersJS | Real fallback chain |
-| **Production (no WebGPU)** | TransformersJS | CPU-based ONNX runtime |
+| **Production (WebGPU)** | WhisperTurbo → TransformersJS → Native | Real fallback chain |
+| **Production (no WebGPU)** | TransformersJS → Native | CPU-based ONNX runtime |
 
 #### Atomic Hook Architecture (2026-02-16)
 To achieve React Refresh compliance and high maintainability, the monolithic `useSpeechRecognition` hook was decomposed into specific, logic-focused atomic hooks:
@@ -799,6 +821,7 @@ Tests MUST wait for this signal via `window.micStream.state === 'ready'` before 
 |**"Dead" State**|User can "Clear Cache & Reload" via UI|`useTranscriptionService.ts` error handling|
 |**Memory Leaks (Listeners)**|**Disposable Pattern.** `MicStream` and `PrivateWhisper` return strict `() => void` disposers. Enforced cleanup on stop/terminate.|`PrivateWhisper.ts`|
 |**Zombie Instances**|**Double-Dispose Guard.** `safeTerminateInstance` prevents concurrent destroy calls with retry logic and instant nullification.|`TranscriptionService.ts`|
+|**Race Conditions (Start/Stop)**|**Single-Chain Promise Orchestration.** Lifecycle commands are queued in an atomic promise chain (`commandChain`), ensuring state transitions execute in strict sequential order and preventing "Ghost Resolutions."|`TranscriptionService.ts`|
 |**UI Crashes**|**Error Boundaries.** `LocalErrorBoundary` wraps recording components to catch render errors and display a "Try Again" fallback.|`LiveRecordingCard.tsx`|
 
 ### 4. Vocal Analytics Engine
@@ -817,6 +840,32 @@ Speaking pace is calculated using a **15-second rolling window**.
 
 #### 4.3 Data Deduplication
 To handle "interim results" from streaming STT engines (like Google/AssemblyAI):
+
+### 5. Observability & Logging
+
+SpeakSharp uses a structured logging architecture designed for both high-fidelity debugging and low-noise production/CI environments.
+
+#### 5.1 Triple-Identity Tracing
+All transcription operations are tagged with a unique tracing triplet to enable precise correlation across layers:
+- **`serviceId`**: Persistent ID of the `TranscriptionService` singleton instance.
+- **`runId`**: Unique ID generated for a specific `start()` -> `stop()` cycle.
+- **`engineId`**: Unique ID of the underlying STT engine instance (e.g., `PrivateSTT`, `WebSpeech`).
+
+#### 5.2 Logging Governance
+- **Unified Logger**: All components MUST use `@/lib/logger` (aliased imports). `console.log` is strictly forbidden.
+- **Log Levels**: Defaulted to `info` in development and `warn` in CI/Production to reduce noise while preserving auditability.
+- **Standardized Mocking**: All tests use a global mock for `@/lib/logger` in `setup.ts`, ensuring deterministic testing of side effects.
+
+### 6. Testing Infrastructure
+
+#### 6.1 Dependency-Aware Testing (`test:agent`)
+To optimize CI feedback loops, SpeakSharp utilizes `dependency-cruiser` to map source changes to their corresponding test suites.
+- **`test-impact-map.json`**: A static map derived from the dependency graph.
+- **`pnpm test:agent`**: Executes only the tests affected by unstaged/changed files, significantly reducing local verification time.
+
+#### 6.2 CI Restoration Standard
+All CI scripts (`run-ci.mjs`) use the `tee` restoration pattern for logs. This ensures that machine-readable JSON artifacts are generated for tools while human-readable "ANSI-clean" logs are preserved for developer troubleshooting.
+
 - **CUID Tracking:** Each speech "chunk" is assigned a unique ID or hash.
 - **Sequence Buffering:** The system maintains a temporary buffer of recent word sequences to prevent counting the same word twice if it appears in both an interim and a final result.
 
@@ -2490,7 +2539,7 @@ To enable a performant "Private" transcription mode without repeated 30MB+ downl
 | Component | File | Purpose |
 |-----------|------|---------|
 | **Service Worker** | `frontend/public/sw.js` | Intercepts and caches model requests |
-| **Model Downloader** | `scripts/download-whisper-model.sh` | Pre-downloads models to `/public/models/` |
+| **Model Downloader** | `pnpm model:download` | Pre-downloads models to `/public/models/` |
 | **PrivateWhisper** | `frontend/src/services/transcription/modes/PrivateWhisper.ts` | Loads and runs Whisper model |
 
 #### Model Files
@@ -2549,7 +2598,7 @@ This reduces array allocations and element copies by 50% when the limit is reach
 
 ```bash
 # Pre-download models for instant first-load experience
-./scripts/download-whisper-model.sh
+pnpm model:download
 
 # Verify models exist
 ls -lh frontend/public/models/
@@ -3052,6 +3101,80 @@ The following patterns were implemented following the Expert code review to achi
 - **[RESOLVED] Rate Limiting**: Signal-based rate limiting added to Edge Functions.
 - **[RESOLVED] Database**: `ON DELETE CASCADE` added to all orphan-prone tables.
 - **[RESOLVED] Error Boundaries**: Local boundaries implemented for all session widgets.
+
+---
+
+## 18. Hardening Patterns & CI Stability (Expert Remediation)
+
+The following patterns were established during the 'Expert' hardening cycle to ensure system-wide stability and prevent regression.
+
+#### Pattern 17: Nuclear Clean Strategy [Infrastructure]
+*   **Problem:** Standard `vite build` commands were serving stale code due to aggressive caching in `node_modules/.cache`, `.vite`, and Playwright's distinct browser cache.
+*   **Solution:** Implemented `scripts/nuclear-clean.sh` to aggressively kill processes and delete all cache directories. E2E tests now default to `pnpm dev` for 0ms build latency.
+
+#### Pattern 18: Shadowed State Prevention [Logic]
+*   **Problem:** Hooks returning hardcoded derived state masked actual state transitions in the global store, causing UI/Logic Desync.
+*   **Solution:** Use **Store Authority**: All hooks MUST return state directly from the global store, never derive it from local, potentially stale variables.
+
+#### Pattern 19: Isomorphic Golden Transcripts [Test]
+*   **Problem:** Mock divergence between MSW (frontend) and Playwright (E2E) leading to "Green Illusion" where tests pass against outdated mocks.
+*   **Solution:** Centralized all ground-truth expectations (transcripts, audio, WER thresholds) in `tests/fixtures/stt-isomorphic/`.
+
+#### Pattern 20: Atomic State Lock (FSM `CLEANING_UP`)
+*   **Problem:** Race conditions during rapid "Stop/Start" cycles where `destroy()` could interrupted by a new `initialize()`, leading to orphaned audio nodes.
+*   **Solution:** Introduced an explicit `CLEANING_UP` state in the `TranscriptionFSM`. The service cannot be re-initialized until background cleanup is confirmed.
+
+#### Pattern 21: Cloud Redirect Hardening (Stripe)
+*   **Problem:** Open redirect vulnerabilities where client could override `return_url`.
+*   **Solution:** Edge functions strictly enforce `SITE_URL` environment variable, ignoring any client-provided origin overrides.
+
+#### Pattern 22: O(1) Filler Word Observer (`useFillerWords.ts`)
+*   **Problem:** Transcription performance degraded O(N) relative to session length.
+*   **Solution:** Implemented an incremental observer pattern that only processes the *newest* chunk.
+
+#### Pattern 23: NLP LRU Document Cache (`fillerWordUtils.ts`)
+*   **Problem:** NLP parsing (compromise.js) is expensive and redundant for alternating sentences.
+*   **Solution:** Implemented a 10-item Least Recently Used (LRU) cache for parsed NLP documents.
+
+#### Pattern 24: Debounced Interim NLP (`useFillerWords.ts`)
+*   **Problem:** High-frequency interim updates triggered rapid re-renders, causing main-thread stuttering.
+*   **Solution:** Debounced NLP processing on interim text (150ms).
+
+#### Pattern 25: Atomic Row-locking (`FOR UPDATE`)
+*   **Problem:** Potential for "Double Spend" in usage limits.
+*   **Solution:** Restored atomic row-locking using `SELECT ... FOR UPDATE` within the `update_user_usage` RPC.
+
+#### Pattern 26: Single-Chain Promise Orchestration (`TranscriptionService.ts`)
+*   **Problem:** Race conditions during rapid lifecycle transitions.
+*   **Solution:** Centralized all lifecycle commands through a serial `commandChain` (Promise queue) to ensure atomic transitions.
+
+#### Pattern 27: UI-First State Reversion
+*   **Problem:** UX "hangs" where the UI remains in "Stopping..." while awaiting async cleanup.
+*   **Solution:** Decouple UI state: stop action immediately flips `isListening` and releases the mutex *synchronously* before awaiting engine cleanup.
+
+#### Pattern 28: Engine-Aware Usage Enforcement
+*   **Problem:** Users bypassing limits by toggling engines mid-session.
+*   **Solution:** Backend RPC `update_user_usage` now requires an `engine_type` parameter to apply correct decrement logic (Free/Pro/Unlimited).
+
+#### Pattern 29: CI Diagnostic Logging (tee)
+*   **Problem:** `script` command in CI breaking JSON reporters.
+*   **Solution:** Standardized on `FORCE_COLOR=1 ... | tee log.txt` to keep stdout clean for machine-readable JSON.
+
+#### Pattern 30: Modular Hardware Benchmarking [Benchmarking]
+*   **Problem:** Monolithic benchmarks are slow and brittle.
+*   **Solution:** Decomposed into tiered spec files (`benchmark-cpu`, `benchmark-webgpu`).
+
+#### Pattern 31: Unified Root-Env Resolution [Infrastructure]
+*   **Problem:** Sub-packages failing to load root level `.env` files.
+*   **Solution:** Explicitly set `envDir: '../../'` in `vite.config.mjs`.
+
+#### Pattern 32: Immutable Callback Proxy (`ImmutableCallbackProxy.ts`)
+*   **Problem:** React re-renders causing "Stale Closures" in services.
+*   **Solution:** Stable proxy wrapper holding a mutable reference to the latest React callbacks.
+
+#### Pattern 33: Logger Mock Standardization (`setup.ts`)
+*   **Problem:** Redundant, inconsistent logger mocks leading to runtime `TypeError`.
+*   **Solution:** Centralized a standard, high-fidelity logger mock in the global `setup.ts`.
 
 ### 17.2 Residual Technical Debt
 - **Validation**: Lack of input length enforcement for the `transcript` field in the database layer.

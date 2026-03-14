@@ -27,6 +27,7 @@ describe('domainServices', () => {
                 const mockData = [{ id: '1', title: 'Session 1' }, { id: '2', title: 'Session 2' }];
                 const mockClient = createSupabaseMock(mockData, null);
                 (mockClient as unknown as { limit: Mock }).limit = vi.fn().mockResolvedValue({ data: mockData, error: null });
+                (mockClient as unknown as { rpc: Mock }).rpc = vi.fn();
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
                 const result = await sessionService.getHistory('user-123');
@@ -38,6 +39,7 @@ describe('domainServices', () => {
             it('should throw on error', async () => {
                 const mockClient = createSupabaseErrorMock('DB_ERROR', 'Database connection failed');
                 (mockClient as unknown as { limit: Mock }).limit = vi.fn().mockResolvedValue({ data: null, error: { code: 'DB_ERROR', message: 'Database connection failed' } });
+                (mockClient as unknown as { rpc: Mock }).rpc = vi.fn();
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
                 await expect(sessionService.getHistory('user-123')).rejects.toEqual({ code: 'DB_ERROR', message: 'Database connection failed' });
@@ -48,14 +50,17 @@ describe('domainServices', () => {
             it('should return session on success', async () => {
                 const mockData = { id: '123', title: 'Test Session' };
                 const mockClient = createSupabaseMock(mockData, null);
+                (mockClient as unknown as { rpc: Mock }).rpc = vi.fn();
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
                 const result = await sessionService.getById('123');
+                expect(result).toEqual(mockData);
                 expect(result).toEqual(mockData);
             });
 
             it('should return null when not found', async () => {
                 const mockClient = createSupabaseNotFoundMock();
+                (mockClient as unknown as { rpc: Mock }).rpc = vi.fn();
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
                 const result = await sessionService.getById('999');
@@ -67,10 +72,15 @@ describe('domainServices', () => {
             it('should create session on success', async () => {
                 const mockData = { id: 'new-123', title: 'New Session' };
                 const mockClient = createSupabaseMock(mockData, null);
+                (mockClient as unknown as { rpc: Mock }).rpc = vi.fn().mockResolvedValue({ 
+                    data: { new_session: mockData, usage_exceeded: false }, 
+                    error: null 
+                });
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
-                const result = await sessionService.create({ title: 'New Session' });
+                const result = await sessionService.create({ title: 'New Session', user_id: 'user-123' });
                 expect(result).toEqual(mockData);
+                expect(mockClient.rpc).toHaveBeenCalledWith('create_session_and_update_usage', expect.anything());
             });
         });
 
@@ -104,6 +114,7 @@ describe('domainServices', () => {
             it('should return profile on success', async () => {
                 const mockData = { id: 'user-1', subscription_status: 'pro' };
                 const mockClient = createSupabaseMock(mockData, null);
+                (mockClient as unknown as { rpc: Mock }).rpc = vi.fn();
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
                 const result = await profileService.getById('user-1');

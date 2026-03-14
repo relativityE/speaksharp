@@ -62,6 +62,7 @@ const baseUsageLimit: UsageLimitCheck = {
     remaining_seconds: 30,
     subscription_status: 'free',
     is_pro: false,
+    streak_count: 0
 };
 
 const mockUsageLimitQuery = {
@@ -207,7 +208,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             remaining_seconds: 30,
             can_start: true,
             subscription_status: 'free',
-            is_pro: false
+            is_pro: false,
+            streak_count: 0
         };
 
         (useSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
@@ -292,7 +294,8 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 remaining_seconds: 30,
                 can_start: true,
                 subscription_status: 'free',
-                is_pro: false
+                is_pro: false,
+                streak_count: 0
             },
             isLoading: false,
             isError: false,

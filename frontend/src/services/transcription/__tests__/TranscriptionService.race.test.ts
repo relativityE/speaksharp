@@ -3,7 +3,7 @@ import TranscriptionService from '../TranscriptionService';
 import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
 import { MicStream } from '../utils/types';
 import { testRegistry } from '../TestRegistry';
-import { ITranscriptionMode } from '../modes/types';
+import { ITranscriptionEngine } from '../modes/types';
 
 // Mock dependencies
 const mockOnTranscriptUpdate = vi.fn();
@@ -14,7 +14,7 @@ const mockOnModeChange = vi.fn();
 const mockNavigate = vi.fn();
 const mockGetToken = vi.fn().mockResolvedValue('mock-token');
 
-class SuccessNativeEngine implements ITranscriptionMode {
+class SuccessNativeEngine implements ITranscriptionEngine {
     init = vi.fn().mockResolvedValue(undefined);
     startTranscription = vi.fn().mockResolvedValue(undefined);
     stopTranscription = vi.fn().mockResolvedValue('test');

@@ -105,8 +105,12 @@ export async function createMicStreamImpl(
     try {
       source.disconnect();
       node.disconnect();
-    } catch { /* best effort */ }
-    audioCtx.close().catch(() => { /* best effort */ });
+    } catch (err) {
+      logger.debug({ err }, '[audioUtils] Best-effort disconnect failed');
+    }
+    audioCtx.close().catch((err) => {
+      logger.debug({ err }, '[audioUtils] Best-effort context close failed');
+    });
     mediaStream.getTracks().forEach(t => t.stop());
   };
 

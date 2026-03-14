@@ -11,21 +11,21 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
-    environment: 'happy-dom',
+    environment: 'jsdom',
     root: path.resolve(__dirname, '..'),
     include: [
       'frontend/src/**/*.test.{js,jsx,ts,tsx}',
       'frontend/tests/**/*.test.{js,jsx,ts,tsx}',
       'tests/**/*.test.{js,jsx,ts,tsx}'
     ],
-    exclude: ['node_modules/', 'dist/', 'build/'],
+    exclude: ['node_modules/', 'dist/', 'build/', '**/*.spec.{ts,tsx}'],
     setupFiles: [
       path.resolve(__dirname, './tests/unit/setup.ts')
     ],
     testTimeout: 30000,
     hookTimeout: 10000,
     teardownTimeout: 15000,
-    reporters: ['default'],
+    reporters: ['default', path.resolve(__dirname, '../scripts/vitest-ci-reporter.mjs')],
     // Suppress console.log noise from tests in CI mode
     silent: !process.env.CI_DEBUG,
     // ─── Coverage ────────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ export default defineConfig({
     coverage: {
       enabled: true,
       provider: 'v8',
-      reportsDirectory: './frontend/coverage',
+      reportsDirectory: path.resolve(__dirname, '../frontend/coverage'),
       reporter: [
         'text',         // console table — visible in CI logs
         'json-summary', // → coverage-summary.json — consumed by run-metrics.sh

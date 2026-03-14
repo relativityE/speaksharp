@@ -83,6 +83,7 @@ describe('AnalyticsDashboard', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        localStorage.clear();
     });
 
     const renderComponent = (propsOverride = {}) => {

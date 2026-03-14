@@ -7,7 +7,7 @@ import { ResponsiveContainer, Legend, Tooltip, BarChart, Bar, CartesianGrid, XAx
 import { useParams } from 'react-router-dom';
 
 // Need to import using absolute root resolving or relative mapping.
-import benchmarkDataRaw from '../../../../docs/STT_BENCHMARKS.json';
+import benchmarkDataRaw from '../../../../tests/STT_BENCHMARKS.json';
 
 interface BenchmarkEntry {
     expectedAccuracy?: number | null;

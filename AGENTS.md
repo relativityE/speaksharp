@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-09
+**Last Reviewed:** 2026-03-14
 
 # Agent Instructions for SpeakSharp Repository
 
@@ -14,12 +14,12 @@ To address persistent environment instability, a new automated pre-flight check 
 **Your first action in every session MUST be to execute this script:**
 
 ```bash
-./scripts/preflight.sh
+pnpm preflight
 ```
 
 This script performs a fast, minimal sanity check of your environment to ensure Node.js, pnpm, and all dependencies are correctly installed.
 
-Do not proceed until this script completes successfully. If it fails, follow the "Dead Environment Trap" troubleshooting in `README.md` to stabilize your environment via `./scripts/env-stabilizer.sh`.
+Do not proceed until this script completes successfully. If it fails, follow the "Dead Environment Trap" troubleshooting in `README.md` to stabilize your environment via `pnpm env:stabilize`.
 
 ---
 
@@ -36,8 +36,11 @@ Do not proceed until this script completes successfully. If it fails, follow the
 - **Strict Linting (ADR-001)**: `eslint-disable` is banned. Fix root causes (types, dependency arrays) for long-term stability. Permanent "Zero-Debt" mandate.
 - **Decomposition over Monoliths**: Never create or expand "God Files" (e.g., `TranscriptionProvider.tsx`). Always decompose logic into atomic hooks (`useTranscriptionState`, `useTranscriptionControl`).
 - **TestRegistry for DI**: Centralized engine injection via `TestRegistry` is the only way to register STT engines. This ensures deterministic mocking.
-- **Log, Don't Suppress**: Never swallow exceptions with empty `catch` blocks. Always log the error via `logger` before falling back or re-throwing.
-- **Single Source of Truth**: Perfect alignment between local (`test-audit.sh`) and CI environments.
+- **Log, Don't Suppress (MANDATORY)**: Never swallow exceptions with empty `catch` blocks in **ANY** code (Production, Tests, or Mocks). **EVERY** `catch` block MUST log the exception via `logger.error()`, `Sentry.captureException()`, or `console.error` (if logger is unavailable in that specific context).
+    - **Principle**: If a promise can reject, it **MUST** have a `.catch()` attached in the same tick it is created to prevent unhandled rejections.
+    - **Mock Integrity**: Mocks that return rejected promises MUST follow the same logging rules if they are likely to trigger unhandled rejections in test runners.
+- **Use Logger, Not Console (STRICT)**: `console.log`, `console.warn`, `console.debug`, and `console.error` are STRICTLY FORBIDDEN in the entire codebase (Source and Tests). Use the unified `logger` utility with appropriate log levels (`info`, `debug`, `warn`, `error`).
+- **PNPM Mandate (STRICT)**: This project exclusively uses `pnpm`. `npm` and `yarn` commands are rejected via preinstall hooks and enforcement guards.
 - **CI Restoration Standard**: All CI-produced logs MUST use the `tee` restoration pattern to ensure full diagnostic visibility without polluting machine-readable artifacts.
 
 ### 🌳 Test Mock Hierarchy (The Decision Tree)
@@ -74,58 +77,68 @@ Distinguish between "Business Events" and "System Failures":
 |---------|-------------|---------|
 | **Re-throw** | Critical failures that should bubble up | Auth failures, API crashes |
 | **Log + Fallback** | Recoverable errors with graceful degradation | Network timeout → retry |
-| **Silent Catch** | Best-effort non-critical operations | Analytics tracking, prefetch |
+| **Log + Suppression** | Non-critical operations (Best-effort) | Analytics tracking, prefetch |
 
-**Code Standard:** All `catch` blocks in critical paths MUST call `Sentry.captureException()` or `logger.error()`. Empty catches (`catch {}`) are only acceptable for truly non-critical operations with a comment explaining why.
+**Code Standard:** All `catch` blocks MUST log. Empty catches (`catch {}`) are strictly forbidden. Every catch must include a descriptive log prefix explaining the context of the failure.
+
+### 🏛️ Seven Rules Governance (Architectural Integrity)
+To prevent architectural drift and ensure system-wide stability, all agents must adhere to these seven core rules:
+
+- **Isolation (UI → Service)**: UI components must **NEVER** import or call services (e.g., `TranscriptionService`) directly. All session-related commands must flow through the `SpeechRuntimeController`.
+- **Lazy Initialization**: Resource-heavy modules (like WASM-based STT engines) must not load during the application boot phase. They must initialize lazily upon the first user interaction.
+- **Deterministic Mocking**: The `TestRegistry` must be initialized exclusively via Playwright's `addInitScript` to ensure mock implementations are injected before the application code executes.
+- **Readiness Contract**: The application must provide a single, deterministic readiness signal via `window.__APP_READY_STATE__`. All E2E tests must wait for this specific contract.
+- **Automated Impact Mapping**: Test impact detection is automated via `dependency-cruiser`. Direct modification of `test-impact-map.json` is deprecated; the graph is dynamically derived from source code.
+- **Command Serialization**: The `SpeechRuntimeController` must serialize all lifecycle commands (Start/Stop/Reset) using a mutex to prevent race conditions during rapid state transitions.
+- **Unified Namespace**: All test-related configuration and metadata must reside under the unified `window.__APP_TEST_ENV__` namespace.
 
 ### 🏗️ SpeakSharp Architecture Patterns
 
-### Phase 2 Hardening Patterns (2026-02-12)
+### Hardening Patterns (2026-02-12)
 
 The remediation strategy focuses on "defense in depth," addressing vulnerabilities across the frontend, edge functions, and database layers.
 
   ┌─────────────────────────────────────────────────────────────────────────┐
-  │                      HARDENING ARCHITECTURE OVERVIEW                      │
+  │                    HARDENING ARCHITECTURE OVERVIEW (v3.5.4.1)           │
   └─────────────────────────────────────────────────────────────────────────┘
 
   ┌─────────────────────────────┐         ┌─────────────────────────────┐
   │ CLIENT LAYER (React/Zustand)│         │ LOGIC LAYER (Edge Functions)│
   │                             │         │                             │
   │  ┌───────────────────────┐  │         │  ┌───────────────────────┐  │
-  │  │ LocalErrorBoundary    │  │         │  │ safeCompare           │  │
+  │  │ LocalErrorBoundary    │  │         │  │ safeCompare (const-T) │  │
   │  └──────────┬────────────┘  │         │  └──────────┬────────────┘  │
   │             │               │         │             │               │
   │        (Isolation)          │         │        (Security)           │
   │             ▼               │         │             ▼               │
   │  ┌───────────────────────┐  │         │  ┌───────────────────────┐  │
-  │  │ Zone A: Transcription │──┼────┐    │  │ apply-promo           │  │
+  │  │ useSessionLifecycle   │──┼────┐    │  │ apply-promo (Admin)   │  │
   │  └───────────────────────┘  │    │    │  └──────────┬────────────┘  │
   │  ┌───────────────────────┐  │    │    │             │               │
-  │  │ Zone B: Session Logic │  │    │    │        (Integrity)          │
+  │  │ useTransService Hook  │  │    │    │        (Integrity)          │
   │  └───────────────────────┘  │    │    │             ▼               │
   │             │               │    │    │  ┌───────────────────────┐  │
-  │        (Isolation)          │    │    │  │ Atomic RPC            │  │
+  │        (Isolation)          │    │    │  │ update_user_usage RPC │  │
   │             ▼               │    │    │  └──────────┬────────────┘  │
   │  ┌───────────────────────┐  │    │    │             │               │
-  │  │ useTransSvc Hook      │  │    │    └─────────────┼───────────────┘
+  │  │ Single-Chain Service  │  │    │    └─────────────┼───────────────┘
   │  └──────────┬────────────┘  │    │                  │
   │             │               │    │                  │ (Atomic)
   │        (Stability)          │    │                  ▼
   │             ▼               │    │   ┌───────────────────────────────────┐
   │  ┌───────────────────────┐  │    │   │      DATA LAYER (Supabase)        │
-  │  │ Immutable Proxy       │──┼────┘   │                                   │
+  │  │ Triple-Tracing Proxy  │──┼────┘   │                                   │
   │  └───────────────────────┘  │        │  ┌─────────────────────────────┐  │
-  └─────────────────────────────┘        │  │      Sessions & Usage       │  │
+  └─────────────────────────────┘        │  │   FOR UPDATE Row Locking    │  │
                                          │  └─────────────────────────────┘  │
                                          │           ▲                       │
                                          │           │ (Cleanup)             │
                                          │  ┌─────────────────────────────┐  │
-                                         │  │     Database Hardening      │  │
-                                         │  │     (ON DELETE CASCADE)     │  │
+                                         │  │     ON DELETE CASCADE       │  │
                                          │  └─────────────────────────────┘  │
                                          └───────────────────────────────────┘
 
-These core patterns were established during the Phase 2 Hardening cycle to ensure system-wide stability and security.
+These core patterns were established during the Hardening cycle and refined in v3.5.7 to ensure system-wide stability and security.
 
 #### 1. Lately Captured State Pattern (`useTranscriptionCallbacks.ts`)
 **Problem:** Stale closures in `useEffect` or `useCallback` when passing callbacks to async services (like Transcription).
@@ -142,6 +155,11 @@ These core patterns were established during the Phase 2 Hardening cycle to ensur
 **Problem:** Race conditions in usage limit enforcement where concurrent sessions could bypass limits.
 **Solution:** Migrated from `SELECT -> UPDATE` (application logic) to atomic SQL `UPDATE ... SET usage = usage + 1 WHERE id = ... AND usage < limit`.
 - **Benefit:** Strong consistency for tier-based resource consumption.
+
+#### 4. Triple-Identity Tracing (`TranscriptionService.ts`)
+**Problem:** Non-deterministic debugging in high-concurrency environments where mapping specific logs to a "Service Lifecycle" vs a "Recording Run" was impossible.
+**Solution:** Implemented `serviceId` (Service Instance), `runId` (Specific recording session), and `engineId` (Backend driver) tagging on every log entry.
+- **Benefit:** 100% correlation between frontend user actions, service state transitions, and backend engine events.
 
 #### 5. Microtask Store Decoupling (`TranscriptionService.ts`)
 **Problem:** React 18 concurrent update errors ("Should not already be working") occurring when store updates are triggered during component unmounting or concurrent rendering cycles.
@@ -190,25 +208,25 @@ These core patterns were established during the Phase 2 Hardening cycle to ensur
 *   **Solution:** Unified heartbeat/tick logic in the store, allowing tests to use `vi.useFakeTimers()` for precise time advancement.
 *   **Result:** 100% green CI for high-frequency state updates.
 
-#### Phase 4: Expert CI Stabilization (2026-02-15)
+### CI Stabilization (2026-02-15)
 
-The following patterns were implemented following the Expert code review to achieve "Zero Tolerance" CI stability.
+The following patterns were implemented to achieve CI stability.
 
-#### Pattern 14: Advanced Mock Poisoning Mitigation [Expert 1A]
+#### Pattern 14: Advanced Mock Poisoning Mitigation
 *   **Problem:** Standard Mock Poisoning mitigation (Pattern 11) was insufficient for complex transitive dependencies in `setup.ts`.
 *   **Solution:**
     *   **Hoisted Mocks:** Use `vi.hoisted()` for shared constants and infrastructure polyfills.
     *   **Lazy Initialization:** Created `tests/unit/helpers/serviceHelper.ts` to provide `createTestTranscriptionService`, which uses dynamic `import()` to ensure mocks are applied before the service class is even loaded.
 *   **Result:** Reliable, isolated testing environment with zero cross-test interference.
 
-#### Pattern 15: Over-Mocking Regression Prevention [Expert 2A]
+#### Pattern 15: Over-Mocking Regression Prevention
 *   **Problem:** Blindly mocking large modules (like `@/services/transcription/TranscriptionService`) often breaks transitive dependencies that actually need a real implementation to function (e.g., `AudioProcessor` or utility functions).
 *   **Solution:**
     *   **Targeted Unmocking:** Explicitly call `vi.unmock()` in tests that require the real logic of a component while its parent or peer is mocked.
     *   **Conditional Mocking:** In `setup.ts`, mocks are only applied if a specific test file hasn't opted out, preventing "Global Mock Poisoning."
 *   **Result:** High-fidelity tests that exercise real logic where appropriate, reducing "Mock Divergence" risk.
 
-#### Pattern 16: Mock Divergence / Isolated Store Factory [Expert 3A]
+#### Pattern 16: Mock Divergence / Isolated Store Factory
 *   **Problem:** Manual, incomplete mocks of Zustand stores in component tests were drifting away from the real store implementation, leading to false positives or logic failures that didn't match production.
 *   **Solution:**
     *   **Shared Factory:** Created `frontend/tests/unit/factories/storeFactory.ts` which provides `createTestSessionStore`.
@@ -216,7 +234,7 @@ The following patterns were implemented following the Expert code review to achi
     *   **Isolation:** Each test receives a fresh, isolated instance of the store, preventing state leakage between tests.
 *   **Result:** Tests interact with a store that behaves exactly like production (state-wise) while allowing verification of action calls.
 
-#### Phase 5: Logic & Infrastructure Reliability (2026-02-17)
+### Logic & Infrastructure Reliability (2026-02-17)
 
 The following patterns were added to address persistent "Zombie Build" and "Shadowed State" issues.
 
@@ -269,6 +287,11 @@ The following patterns were added to address persistent "Zombie Build" and "Shad
 *   **Solution:** Restored atomic row-locking using `SELECT ... FOR UPDATE` within the `update_user_usage` Supabase RPC.
 *   **Result:** Absolute consistency for billing and tier-enforcement, accepting minor lock contention during simultaneous starts.
 
+#### Pattern 26: Single-Chain Promise Orchestration (`TranscriptionService.ts`)
+**Problem:** Race conditions during rapid "Start/Stop" transitions where multiple overlapping initialization promises could lead to duplicate engine instances or orphaned audio streams.
+**Solution:** Centralized all lifecycle commands through a serial `commandChain` (Promise queue) that ensures only one operation executes at a time and state transitions are atomic.
+- **Result:** Elimination of "Engine See-Saw" and "Orphaned Audio" bugs.
+
 #### Pattern 27: UI-First State Reversion
 *   **Problem:** User experience "hangs" or "See-Saw" failures where the UI remains in a "Stopping..." state for seconds while awaiting asynchronous engine cleanup, causing frustration and potential multi-click race conditions.
 *   **Solution:** Decouple the UI state from the engine's asynchronous lifecycle. The stop action immediately flips `isListening` to `false`, reverts the button to "Start," and releases the local mutex *synchronously* before `await`-ing the engine's `stopTranscription` call.
@@ -295,25 +318,37 @@ The following patterns were added to address persistent "Zombie Build" and "Shad
 *   **Result:** Predictable environment configuration for benchmarks, scripts, and the frontend.
 
 
+#### 32. Immutable Callback Proxy (`ImmutableCallbackProxy.ts`)
+**Problem:** React component re-renders causing "Stale Closures" in long-lived transcription services, leading to services executing logic against old/null props.
+**Solution:** A stable proxy wrapper that holds a mutable reference to the latest React callbacks, ensuring the service always executes the "Latest" version of a function without needing to re-bind.
+- **Benefit:** Guarantees component-to-service state synchronization without triggering service restarts.
+
+#### 33. Logger Mock Standardization (`setup.ts`)
+**Problem:** Redundant, inconsistent logger mocks across hundreds of test files leading to `TypeError: default.debug is not a function` and fragile test suites.
+**Solution:** Centralized a standard, high-fidelity logger mock in the global `setup.ts` using `vi.mock('@/lib/logger')` and standardized sub-tests to use `import { logger } from '@/lib/logger'`.
+- **Benefit:** Continuous CI stability and simplified test writing.
+
 ### 🚀 Development & Pipeline
 - **Cross-Env Persistence**: Explicitly propagate env vars to subprocesses in CI.
 - **Boundary Separation**: `postinstall` is for app setup; Workflows are for environment setup (browsers).
+- **Log Level Governance**: CI/Production defaults to `WARN` level to reduce noise while maintaining fail-fast diagnostic visibility.
+
 
 ---
 
 ### 2. The Local Audit Script (Single Source of Truth for Testing)
 
-The primary runner for all local validation is `./scripts/test-audit.sh`, which is accessed via `pnpm` scripts. This script is the SSOT for running lint, type-checking, and all tests.
+The primary runner for all local validation is `pnpm test:all:local` (which calls `./scripts/test-audit.sh`), which is accessed via `pnpm` scripts. This script is the SSOT for running lint, type-checking, and all tests.
 
 *   **Always use this script for validation.** Do not invent your own runners or call `pnpm test` or `pnpm lint` directly for final validation.
-*   The audit script automatically runs the `preflight.sh` check, ensuring a stable environment for the test run.
+*   The audit script automatically runs the `pnpm preflight` check, ensuring a stable environment for the test run.
 
 ### 3. Selective Use of `scripts/env-stabilizer.sh`
 
 The `./scripts/env-stabilizer.sh` script is a powerful tool for recovering a broken environment, but it should be used selectively.
 
-*   Run `preflight.sh` first.
-*   If instability persists (e.g., hanging tests, port conflicts), then run `./scripts/env-stabilizer.sh`.
+*   Run `pnpm preflight` first.
+*   If instability persists (e.g., hanging tests, port conflicts), then run `pnpm env:stabilize`.
 *   Escalate to the user **before using** `./scripts/vm-recovery.sh`.
 *   Always read `README.md` to understand setup, workflow, and scripts.
 
@@ -341,7 +376,7 @@ Always provide ≥2 solutions for any non-trivial problem (fast fix + robust fix
 Every claim must include file path and exact line numbers and a 2–5 line code snippet as evidence.
 No escalation until Diagnostic Protocol completed (see §4).
 Code MUST be tested locally AND verified via CI (or explicitly waived by user) before merging/pushing to main. Agents must not check in code that is not built or tested.
-- **PNPM Mandate**: This is a pure `pnpm` project. `package-lock.json` is banned. Any agent attempting to use `npm` or `yarn` will be blocked by the `preinstall` engine check.
+- **PNPM Mandate**: This is a pure `pnpm` project. `package-lock.json` is banned. Any agent attempting to use `npm` or `yarn` will be blocked by the `preinstall` engine check. All scripts and documentation MUST use `pnpm`.
 - **Full Health Mandate**: Every session MUST end with a 100% clean pass of `pnpm typecheck` and `pnpm lint`. No exceptions.
 
 ---
@@ -349,11 +384,12 @@ Code MUST be tested locally AND verified via CI (or explicitly waived by user) b
 ## ⚡ Code Quality Standards (Strict)
 
 - **No `eslint-disable`**: We now have a "Zero Tolerance" policy. The `check-eslint-disable.sh` script will fail the build if any `// eslint-disable` comments are found in the source code.
-- **No `any`**: Strict TypeScript usage is enforced to ensure type safety.
+- **Zero-Any Mandate**: The use of the `any` type is strictly forbidden. All variables, parameters, and return types must be explicitly typed or inferred. This is enforced via linting to ensure long-term maintainability and type safety.
 - **Testing "Gold Standard"**: Mandates that all unit tests must use proper wrappers (like `QueryClientProvider`) and avoid "green illusions" (tests that pass but test nothing).
 - **Fail Fast, Fail Hard**: Tests should never hang. Use aggressive timeouts and explicit assertions to surface failures immediately.
 - **Print/Log Negatives, Assert Positives**: Only log errors and warnings. Use assertions for success verification (no `console.log("✅ Success")` noise).
 - **ASCII Diagrams Only**: Do not use Mermaid. All architectural diagrams must use ASCII for maximum compatibility and readability across all agents and environments.
+- **No Internal Tracking IDs in Comments or Filenames**: Never add internal project identifiers like "Fix #", "Step #", "Phase #", "Expert ", or similar task-tracking metadata to code comments or filenames. These provide no value to future developers and clutter the codebase.
 - **Event-Based Waits > Timeouts**: Arbitrary timeouts are forbidden unless for failsafes or specific UX timing. Always prefer `waitForSelector`, `vi.waitUntil`, or similar event-driven checks.
 
 ___
@@ -404,7 +440,7 @@ ___
 
 ## ⚡ Quick Reference – Non-Negotiable Rules
 
-6. ✅ **Phase 2 Hardening Protocols** – All agents MUST strictly follow these new stability patterns:
+6. ✅ **Hardening Protocols** – All agents MUST strictly follow these new stability patterns:
     *   **Disposable Pattern**: Every class/hook that creates event listeners or long-lived resources MUST implement and call a `.dispose()` or `.terminate()` method. See `MicStream.ts` or `TranscriptionService.ts` for examples.
     *   **Race Condition Mitigation**: Use `useRef` to capture the "Lately Captured State" for callbacks passed to long-lived services. This prevents stale closures in async operations. See `useSpeechRecognition_prod.ts` (Lines 174-183) for the implementation.
     *   **Atomic SQL Operations**: Use single-statement atomic increments for usage counters. Avoid `SELECT` -> `UPDATE` cycles. See `20260212000000_database_hardening.sql` for the `update_user_usage` function.
@@ -415,14 +451,14 @@ ___
 5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `ci:full:local` script runs the EXACT same pipeline as GitHub CI.
 
     ```json
-     "test:all:local": "./scripts/test-audit.sh local",
-     "ci:full:local": "./scripts/test-audit.sh ci-simulate",
-     "test:health:local": "./scripts/test-audit.sh health-check",
+     "test:all:local": "pnpm run test:all:local",
+     "ci:full:local": "pnpm run ci:full:local",
+     "test:health:local": "pnpm run test:health:local",
      "test": "pnpm test:unit:local",
-     "dev": "cd frontend && vite",
-     "build": "cd frontend && vite build --mode production",
-     "pw:install": "playwright install chromium --with-deps",
-     "pw:install:all": "playwright install --with-deps"
+     "dev": "pnpm run dev",
+     "build": "pnpm run build",
+     "pw:install": "pnpm run pw:install",
+     "pw:install:all": "pnpm run pw:install:all"
     ```
     
     **Script Taxonomy:** All test scripts follow `test:<level>:<env>[:<mode>]`. See `ARCHITECTURE.md` for the full reference.
@@ -450,7 +486,7 @@ ___
 1. **Contextual Review** – Read `/docs` and `README.md` before acting.
     - **Handling Secrets**: Critical credentials (like `ASSEMBLYAI_API_KEY`) are managed via **GitHub Secrets**, not `.env` files. Run `gh secret list` to verify available secrets.
     - **Cloud Execution**: Consult `tests/TEST_PLAYBOOK.md` to understand how tests are dispatched to the GitHub Cloud via YAML scripts (e.g., `ci:dispatch:soak`).
-2. **Stabilize Environment** – Run `./scripts/env-stabilizer.sh` only if instability signs appear.
+2. **Stabilize Environment** – Run `pnpm env:stabilize` only if instability signs appear.
 3. **Grounding** – Review current workflows, scripts, and audit runners.
 4. **Codebase Deep Dive** – Inspect actual code, not assumptions.
 5. **Strategic Consultation** – Present root cause + 2–3 solution paths **before major changes**.
@@ -477,7 +513,14 @@ ___
     ```
     This runs the EXACT GitHub CI pipeline locally (frozen lockfile, sharded E2E, lighthouse). If it fails, DO NOT PUSH. Fix the issues first.
 
-3.  **Documentation (SSOT)**
+3.  **Supabase Migration Protocol**
+     Required for any PR containing a database migration:
+     - [ ] Ran: `pnpm supabase gen types typescript --local > frontend/src/types/database.types.ts`
+     - [ ] Updated mock factories in `tests/support/factories/` to include new columns
+     - [ ] Ran contract tests: `pnpm test -- --grep "Mock Parity"`
+     - [ ] Verified mock headers match PostgREST spec for any new .single() queries
+ 
+ 4.  **Documentation (SSOT)**
     *   Review and update the seven mandatory documents as per `docs/OUTLINE.md`: `README.md`, `AGENTS.md`, `docs/OUTLINE.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`.
 
 4.  **Branch & Commit Hygiene**

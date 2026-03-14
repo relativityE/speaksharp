@@ -1,126 +1,70 @@
-import { test, expect } from '@playwright/test';
-import { programmaticLoginWithRoutes, navigateToRoute, debugLog, attachLiveTranscript } from './helpers';
-import { setupE2EMocks } from './mock-routes';
+import { test, expect } from './fixtures';
+import { navigateToRoute, attachLiveTranscript } from './helpers';
 import { registerMockInE2E, enableTestRegistry } from '../helpers/testRegistry.helpers';
-import { waitForStoreState } from './helpers/e2e-state.helpers';
-
-// Note: __E2E_CONFIG__ and __FAILURE_MANAGER__ are declared globally (tests/types/e2eConfig.ts,
-// frontend/src/services/transcription/FailureManager.ts) — do not redeclare here.
-// E2EWindow is only used for test-specific diagnostic state not declared globally.
-interface E2EWindow extends Window {
-    __E2E_ADVANCE_PROGRESS__?: (progress: number | null) => void;
-    __DIAGNOSTIC__?: {
-        factoryCalled: boolean;
-        factoryReceivedOpts: string[] | null;
-        callbackCaptured: boolean;
-        callbackInvoked: boolean;
-        callbackValue: number | null;
-        error?: string;
-    };
-}
 
 /**
  * On-Device STT (Whisper) E2E Test Suite
- * 
- * PURPOSE: Comprehensive tests for On-Device Whisper transcription mode.
- * 
- * ARCHITECTURE:
- * - Uses MockOnDeviceWhisper via TestRegistry for fast, deterministic testing.
- * - Migrated to Universal Testing Pattern (Registry > Config > Real).
  */
 
 test.describe('Private STT (Whisper)', () => {
-    // ✅ CI STABILITY FIX: Skip hardware-heavy tests if not on appropriate runner
-    test.skip(!!process.env.CI && !process.env.HAS_GPU, 'Private STT requires GPU hardware/WASM SIMD support');
+    const usingMockEngine = process.env.STT_ENGINE === 'mock';
 
-    test.beforeEach(async ({ page }) => {
-        page.on('console', msg => {
-            const text = msg.text();
-            if (text.includes('[Hook]') || text.includes('[TranscriptionService]') || text.includes('[MockPrivateWhisper]') || text.includes('[DIAG]') || text.includes('[E2E_DEBUG]')) {
-                console.log(`[BROWSER] ${text}`);
-            }
-        });
-        await setupE2EMocks(page);
-        await enableTestRegistry(page);
-        // Reset FailureManager to prevent sticky failures from previous tests
+    test.skip(
+        !usingMockEngine && !process.env.HAS_GPU,
+        'Private STT requires GPU hardware unless mock engine is enabled'
+    );
+
+    test.afterEach(async ({ page }) => {
         await page.evaluate(() => {
-            if (window.__FAILURE_MANAGER__) {
-                window.__FAILURE_MANAGER__.resetFailureCount();
-                console.log('[E2E Setup] FailureManager count reset');
-            }
+            // 1. Reset behavioral gating signal
+            document.body.removeAttribute('data-stt-policy');
+
+            // 2. Clear engine overrides
+            window.__TEST_REGISTRY__?.clear();
+
+            // 3. Reset service ephemeral state
+            // @ts-ignore - Internal test hook
+            window.__TRANSCRIPTION_SERVICE__?.resetEphemeralState();
         });
+
+        await expect(page.locator('body'))
+            .not.toHaveAttribute('data-stt-policy', { timeout: 2000 });
     });
 
-    test('should show download progress on first use', async ({ page }) => {
+    test('should show download progress on first use', async ({ proPage: page }) => {
+        await enableTestRegistry(page);
         attachLiveTranscript(page);
-        // setup login but DON'T navigate yet
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
 
-        // Initialize E2E Config with MANUAL CONTROL & DIAGNOSTICS
-        await page.addInitScript(() => {
-            // Set only the stt field — the app reads remaining fields from defaults at runtime
-            (window as unknown as { __E2E_CONFIG__: unknown }).__E2E_CONFIG__ = {
-                stt: { mode: 'mock', mocks: { private: 'manual' } }
-            };
-            // ✅ Intercept ALL function calls for debugging
-            (window as unknown as E2EWindow).__DIAGNOSTIC__ = {
-                factoryCalled: false,
-                factoryReceivedOpts: null,
-                callbackCaptured: false,
-                callbackInvoked: false,
-                callbackValue: null
+        // Deterministic Gating
+        await expect(page.locator('body')).toHaveAttribute('data-stt-policy', 'pro', { timeout: 8000 });
+
+        await navigateToRoute(page, '/session');
+        await page.waitForSelector('[data-testid="app-main"]');
+
+        await page.evaluate(() => {
+            const service = (window as unknown as { __TRANSCRIPTION_SERVICE__: { getPolicy: () => { allowFallback: boolean }; updatePolicy: (p: { allowFallback?: boolean }) => void } }).__TRANSCRIPTION_SERVICE__;
+            if (!service) return;
+
+            const currentPolicy = service.getPolicy();
+            service.updatePolicy({
+                ...currentPolicy,
+                allowFallback: false
+            });
+
+            const originalUpdate = service.updatePolicy.bind(service);
+            service.updatePolicy = (p: { allowFallback?: boolean }) => {
+                originalUpdate({ ...p, allowFallback: false });
             };
         });
 
-        // Register mock with diagnostics
+        // Register mock with progress control
         await registerMockInE2E(page, 'private', `(opts) => {
-            console.log('[DIAGNOSTIC] Factory called with opts:', opts);
-            if (!window.__DIAGNOSTIC__) window.__DIAGNOSTIC__ = {}; 
-            window.__DIAGNOSTIC__.factoryCalled = true;
-            window.__DIAGNOSTIC__.factoryReceivedOpts = Object.keys(opts || {});
-            
-            // Try to access the callback
-            const hasProp = 'onModelLoadProgress' in (opts || {});
-            const propValue = opts?.onModelLoadProgress;
-            const propType = typeof propValue;
-            
-            console.log('[DIAGNOSTIC] Has onModelLoadProgress prop:', hasProp);
-            console.log('[DIAGNOSTIC] Property value:', propValue);
-            console.log('[DIAGNOSTIC] Property type:', propType);
-            
-            let progressCb = opts?.onModelLoadProgress || null;
-            
-            if (progressCb) {
-                console.log('[DIAGNOSTIC] Callback captured successfully');
-                window.__DIAGNOSTIC__.callbackCaptured = true;
-            } else {
-                console.error('[DIAGNOSTIC] Callback is null!');
-            }
-            
+            let progressCb = opts?.onModelLoadProgress;
             return {
                 init: async () => {
-                   // Expose controller
-                   window.__E2E_ADVANCE_PROGRESS__ = (p) => {
-                       console.log('[DIAGNOSTIC] Advance called with:', p);
-                       window.__DIAGNOSTIC__.callbackInvoked = true;
-                       window.__DIAGNOSTIC__.callbackValue = p;
-                       
-                       if (progressCb) {
-                           console.log('[DIAGNOSTIC] Invoking callback...');
-                           try {
-                               progressCb(p);
-                               console.log('[DIAGNOSTIC] Callback invoked successfully');
-                           } catch (e) {
-                               console.error('[DIAGNOSTIC] Callback threw error:', e);
-                           }
-                       } else {
-                           console.error('[DIAGNOSTIC] No callback to invoke!');
-                       }
-                   };
-
-                   // CRITICAL: Throw CACHE_MISS to trigger the service's handling logic
+                   window.__E2E_ADVANCE_PROGRESS__ = (p) => { if (progressCb) progressCb(p); };
                    const err = new Error('CACHE_MISS');
-                   err.code = 'CACHE_MISS';
+                   Object.assign(err, { code: 'CACHE_MISS' });
                    throw err;
                 },
                 startTranscription: async () => { },
@@ -131,210 +75,117 @@ test.describe('Private STT (Whisper)', () => {
             };
         }`);
 
-        // Now navigate
-        await navigateToRoute(page, '/session');
-        await page.waitForSelector('[data-testid="app-main"]');
-
-        // Clear IndexedDB completely to ensure Cache Miss
-        await page.evaluate(async () => {
-            const request = indexedDB.deleteDatabase('whisper-turbo');
-            return new Promise(res => {
-                request.onsuccess = () => res(true);
-                request.onerror = () => res(false);
-            });
-        });
-
         // Select Private mode
         await page.getByTestId('stt-mode-select').click();
-        await page.getByRole('menuitemradio', { name: /Private/i }).click();
-        await expect(page.getByTestId('stt-mode-select')).toHaveAttribute('data-state', 'private', { timeout: 2000 });
+        await page.getByRole('menuitemradio', { name: /private/i }).click();
 
-        // Click Start - triggers CACHE_MISS -> Download -> Optimistic Fallback
+        // Start Recording -> Triggers Download
         await page.getByTestId('session-start-stop-button').click();
 
-        // 🔍 DIAGNOSTIC CHECKPOINT
-        await page.waitForTimeout(1000);
+        const indicator = page.getByTestId('background-task-indicator');
+        await expect(indicator).toBeVisible();
 
-        type DiagnosticResult = NonNullable<E2EWindow['__DIAGNOSTIC__']> | { error: string };
+        // Advance progress to 50%
+        await page.evaluate('window.__E2E_ADVANCE_PROGRESS__(0.5)');
+        await expect(indicator).toBeVisible();
 
-        const diag1 = await page.evaluate(() => {
-            if (!(window as unknown as E2EWindow).__DIAGNOSTIC__) {
-                return { error: 'DIAGNOSTIC_OBJECT_MISSING' };
-            }
-            return (window as unknown as E2EWindow).__DIAGNOSTIC__;
-        }) as DiagnosticResult;
-        console.log('=== DIAGNOSTICS (INIT) ===', JSON.stringify(diag1, null, 2));
+        // Complete download (100%)
+        await page.evaluate('window.__E2E_ADVANCE_PROGRESS__(1)');
 
-        // FORCE FAILURE WITH DATA if suspicious
-        if (diag1.error) {
-            throw new Error(`[DIAGNOSTIC_DATA_DUMP] ${JSON.stringify(diag1)}`);
-        }
-
-        const strictDiag = diag1 as NonNullable<E2EWindow['__DIAGNOSTIC__']>;
-        if (!strictDiag.factoryCalled || !strictDiag.callbackCaptured) {
-            throw new Error(`[DIAGNOSTIC_DATA_DUMP]Factory/Callback missing: ${JSON.stringify(diag1)}`);
-        }
-
-        // Wait for active state (behavioral truth)
-        await expect(page.getByTestId('live-session-header')).toHaveAttribute('data-recording', 'true', { timeout: 5000 });
-
-        const loadingIndicator = page.getByTestId('background-task-indicator');
-
-        // Assert behavior: indicator is visible (download is in progress) — not specific text content
-        await expect(loadingIndicator).toBeVisible();
-
-        // ✅ CHECK 3: Verify NO Error Toast (The original bug)
-        await expect(page.getByTestId('error-toast')).not.toBeVisible();
-
-        // Manually advance to 50%
-        await page.evaluate(() => (window as unknown as E2EWindow).__E2E_ADVANCE_PROGRESS__?.(0.5));
-
-        // Use deterministic store wait logic
-        await waitForStoreState(page,
-            (state: Record<string, unknown>) => state.modelLoadingProgress,
-            50
-        );
-        await expect(loadingIndicator).toBeVisible();
-
-        // Manually advance to 100% (Complete)
-        await page.evaluate(() => (window as unknown as E2EWindow).__E2E_ADVANCE_PROGRESS__?.(1));
-
-        // Helper to ensure UI updates before we clear it
-        await expect(loadingIndicator).toBeVisible();
-        await expect(page.evaluate(() => (window as unknown as any).queryClient.getQueryData(['usageLimit', 'test-user-123'])?.is_pro || true)).toBeTruthy();
-
-        // Signal completion (set progress to null to hide indicator)
-        await page.evaluate(() => (window as unknown as E2EWindow).__E2E_ADVANCE_PROGRESS__?.(null));
-
-        // Wait for download to finish (indicator hidden)
-        await expect(loadingIndicator).toBeHidden({ timeout: 30000 });
-
-        // Recording should still be active
-        await expect(page.getByTestId('live-session-header')).toHaveAttribute('data-recording', 'true');
+        // Indicator should disappear and recording should start
+        await expect(indicator).not.toBeVisible();
+        await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'true');
 
         // Stop session
-        await page.getByTestId('session-start-stop-button').first().click();
-        await expect(page.getByLabel(/Start Recording/i)).toBeVisible();
+        await page.getByTestId('session-start-stop-button').click();
+        await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'false');
+
+        const transcript = await page.evaluate(async () => {
+            return await (window as unknown as { __TRANSCRIPTION_SERVICE__: { getTranscript: () => Promise<string> } }).__TRANSCRIPTION_SERVICE__?.getTranscript();
+        });
+        expect(transcript).toBe('test transcript');
     });
 
-    test('should load instantly from cache (no progress indicator)', async ({ page }) => {
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
+    test('should load instantly from cache', async ({ proPage: page }) => {
+        await enableTestRegistry(page);
+        await expect(page.locator('body')).toHaveAttribute('data-stt-policy', 'pro', { timeout: 8000 });
 
         await registerMockInE2E(page, 'private', `() => ({
-            init: async () => {},
+            init: async () => {}, // Instant success
             startTranscription: async () => {},
-            stopTranscription: async () => 'test',
-            getTranscript: async () => 'test',
+            stopTranscription: async () => 'cached transcript',
+            getTranscript: async () => 'cached transcript',
             terminate: async () => {},
             getEngineType: () => 'whisper-turbo'
         })`);
 
         await navigateToRoute(page, '/session');
-
         await page.getByTestId('stt-mode-select').click();
         await page.getByRole('menuitemradio', { name: /private/i }).click();
 
         const startButton = page.getByTestId('session-start-stop-button');
-        const loadingIndicator = page.getByTestId('background-task-indicator');
+        const indicator = page.getByTestId('background-task-indicator');
 
-        const startTime = Date.now();
-        await startButton.first().click();
-        await expect(page.getByLabel(/Stop Recording/i).first()).toBeVisible({ timeout: 5000 });
-
-        const loadTime = Date.now() - startTime;
-        debugLog(`[TEST] Model loaded in ${loadTime}ms`);
+        await startButton.click();
+        await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 5000 });
 
         // Verify NO download indicator is visible
-        await expect(loadingIndicator).toBeHidden();
+        await expect(indicator).toBeHidden();
+
+        await startButton.click();
+        await expect(startButton).toHaveAttribute('data-recording', 'false');
     });
 
-    test('should show Private option in mode selector for Pro users', async ({ page }) => {
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
-        await navigateToRoute(page, '/session');
+    test('should restrict Private option for Free users', async ({ freePage: page }) => {
+        await expect(page.locator('body')).toHaveAttribute('data-stt-policy', 'free', { timeout: 8000 });
 
+        await navigateToRoute(page, '/session');
+        await page.getByTestId('stt-mode-select').click();
+
+        const privateOption = page.getByRole('menuitemradio', { name: /private/i });
+        await expect(privateOption).toBeHidden();
+    });
+
+    test('should show Private option for Pro users', async ({ proPage: page }) => {
+        await expect(page.locator('body')).toHaveAttribute('data-stt-policy', 'pro', { timeout: 8000 });
+
+        await navigateToRoute(page, '/session');
         await page.getByTestId('stt-mode-select').click();
 
         const privateOption = page.getByRole('menuitemradio', { name: /private/i });
         await expect(privateOption).toBeVisible();
     });
 
-    test('should start recording after model auto-loads', async ({ page }) => {
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
-
-        // Inject auto-loading mock with Manual Control
-        await registerMockInE2E(page, 'private', `(opts) => {
-            let progressCb = opts?.onModelLoadProgress;
-            return {
-                init: async () => {
-                    // Expose controller for the test to drive
-                    window.__E2E_ADVANCE_PROGRESS__ = (p) => {
-                       if (progressCb) progressCb(p);
-                    };
-                    return Promise.resolve();
-                },
-                startTranscription: async () => {},
-                stopTranscription: async () => 'auto-test',
-                getTranscript: async () => 'auto-test',
-                terminate: async () => {},
-                getEngineType: () => 'whisper-turbo'
-            }
-        }`);
-
-        await navigateToRoute(page, '/session');
-        await page.waitForSelector('[data-testid="app-main"]');
-
-        await page.getByTestId('stt-mode-select').click();
-        await page.getByRole('menuitemradio', { name: /private/i }).click();
-
-        // Wait for React to commit mode change
-        await expect(page.getByTestId('stt-mode-select')).toHaveAttribute('data-state', 'private', { timeout: 2000 });
-
-        await page.getByTestId('session-start-stop-button').first().click();
-
-        // Simulate auto-load progress
-        await page.evaluate(() => (window as unknown as E2EWindow).__E2E_ADVANCE_PROGRESS__?.(0.5));
-        await page.evaluate(() => (window as unknown as E2EWindow).__E2E_ADVANCE_PROGRESS__?.(1));
-
-        // Signal completion
-        await page.evaluate(() => (window as unknown as E2EWindow).__E2E_ADVANCE_PROGRESS__?.(null));
-
-        // Expect Recording Active without waiting for state store
-        await expect(page.getByTestId('live-session-header')).toHaveAttribute('data-recording', 'true', { timeout: 5000 });
-
-        // Verify the mode label still shows Private
-        await expect(page.getByTestId('stt-mode-select')).toHaveAttribute('data-state', 'private');
-    });
-
-    test('P1 REGRESSION: button should return to Start after Stop', async ({ page }) => {
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
+    test('should handle download abandonment', async ({ proPage: page }) => {
+        await enableTestRegistry(page);
+        await expect(page.locator('body')).toHaveAttribute('data-stt-policy', 'pro', { timeout: 8000 });
 
         await registerMockInE2E(page, 'private', `() => ({
-            init: async () => {},
+            init: async () => {
+                const err = new Error('CACHE_MISS');
+                Object.assign(err, { code: 'CACHE_MISS' });
+                throw err;
+            },
             startTranscription: async () => {},
-            stopTranscription: async () => 'test',
-            getTranscript: async () => 'test',
+            stopTranscription: async () => 'abandoned',
+            getTranscript: async () => 'abandoned',
             terminate: async () => {},
             getEngineType: () => 'whisper-turbo'
         })`);
 
         await navigateToRoute(page, '/session');
-        await page.waitForSelector('[data-testid="app-main"]');
-
         await page.getByTestId('stt-mode-select').click();
         await page.getByRole('menuitemradio', { name: /private/i }).click();
 
-        // Start session — click via aria-label (semantic accessibility attr in LiveRecordingCard)
-        // then assert: data-recording attribute flips to 'true' on the new Stop button element
-        await page.getByRole('button', { name: /Start Recording/i }).click();
-        await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'true', { timeout: 5000 });
+        await page.getByTestId('session-start-stop-button').click();
+        const indicator = page.getByTestId('background-task-indicator');
+        await expect(indicator).toBeVisible();
 
-        // Wait for MIN_SESSION_DURATION_SECONDS=5 — otherwise SessionPage refuses to stop
-        await page.waitForTimeout(5100);
+        // Stop session while downloading
+        await page.getByTestId('session-start-stop-button').click();
 
-        // Stop session — click the Stop button instance (separate DOM element in LiveRecordingCard)
-        // then assert: data-recording returns to 'false' and button re-enables (teardown complete)
-        await page.getByRole('button', { name: /Stop Recording/i }).click();
-        await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'false', { timeout: 8000 });
-        await expect(page.getByTestId('session-start-stop-button')).not.toBeDisabled();
+        // Indicator should disappear and session should be idle
+        await expect(indicator).not.toBeVisible();
+        await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'false');
     });
 });

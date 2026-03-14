@@ -12,12 +12,7 @@ vi.mock('@/lib/supabaseClient', () => ({
     getSupabaseClient: () => mockSupabase,
 }));
 
-vi.mock('@/lib/logger', () => ({
-    default: {
-        error: vi.fn(),
-        info: vi.fn(),
-    },
-}));
+
 
 describe('UpgradePromptDialog', () => {
     it('does not render the dialog when open is false', () => {

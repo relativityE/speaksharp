@@ -38,16 +38,18 @@ export class PrivateSTT implements IPrivateSTT {
 
     /**
      * Initialize the best available engine.
-     * In CI: Uses MockEngine (both real engines fail in Playwright)
-     * In production: Tries WhisperTurbo, falls back to TransformersJS
+     * STRICT PRIVACY FALLBACK:
+     * 1. In CI/Playwright: Forces MockEngine (safe)
+     * 2. In production: Tries WhisperTurbo (WebGPU)
+     * 3. Fallback: TransformersJS (WASM CPU)
+     * 4. Failure: Terminates with Error (No silent Cloud/Native fallback)
      */
     async init(options: PrivateSTTInitOptions): Promise<Result<EngineType, Error>> {
-        logger.info('[PrivateSTT] 🚀 Automatic engine selection started...');
+        logger.info('[PrivateSTT] 🚀 Privacy-first engine selection started...');
 
         if (TestFlags.DEBUG_ENABLED) {
             logger.info({
                 isTestMode: TestFlags.IS_TEST_MODE,
-                useRealTranscription: TestFlags.USE_REAL_TRANSCRIPTION,
                 shouldMock: shouldUseMockTranscription(),
                 forceCPU: TestFlags.FORCE_CPU_TRANSCRIPTION
             }, '[PrivateSTT] Checking flags');
@@ -55,46 +57,42 @@ export class PrivateSTT implements IPrivateSTT {
 
         const callbacks = options;
 
-        // 1. Check for manual engine override (Testability/Deep-linking)
+        // 1. Manual engine override
         if (options.forceEngine) {
-            logger.info({ forceEngine: options.forceEngine }, '[PrivateSTT] 🎯 Forcing engine');
             if (options.forceEngine === 'whisper-turbo') return this.initFastEngine(callbacks);
             if (options.forceEngine === 'transformers-js') return this.initSafeEngine(callbacks);
             if (options.forceEngine === 'mock') return this.initMockEngine(callbacks);
         }
 
-        // 2. Force mock engine in CI/test environments unless specifically bypassed.
+        // 2. CI/Test Mock
         if (shouldUseMockTranscription()) {
-            logger.info('[PrivateSTT] 🧪 Test environment detected. Using MockEngine.');
             return this.initMockEngine(callbacks);
         }
 
-        // Try fast engine first if WebGPU is available
+        // 3. Fast Path (WebGPU)
         const forceSafe = TestFlags.FORCE_CPU_TRANSCRIPTION;
         const webGPUAvailable = hasWebGPU() && !forceSafe;
-        logger.info({ webGPUAvailable, forceSafe }, '[PrivateSTT] 🔍 WebGPU support check');
 
         if (webGPUAvailable) {
-            logger.info('[PrivateSTT] ⚡ WebGPU available. Attempting to initialize WhisperTurbo (Fast Path)...');
-            logger.info('[PrivateSTT] WebGPU available. Trying WhisperTurbo engine...');
-
+            logger.info('[PrivateSTT] ⚡ WebGPU detected. Attempting WhisperTurbo...');
             const fastResult = await this.initFastEngine(callbacks);
-            if (fastResult.isOk) {
-                logger.info('[PrivateSTT] ✅ WhisperTurbo initialized successfully.');
-                logger.info('[PrivateSTT] [DEBUG-PRIVATE] 🚀 Verified: Using Fast WhisperTurbo engine.');
-                return fastResult;
-            }
+            if (fastResult.isOk) return fastResult;
 
-            logger.warn({ err: fastResult.error }, '[PrivateSTT] ⚠️ WhisperTurbo failed to initialize. Falling back to safe engine.');
-            logger.warn({ err: fastResult.error }, '[PrivateSTT] WhisperTurbo failed. Falling back to TransformersJS...');
+            logger.warn({ err: fastResult.error }, '[PrivateSTT] ⚠️ WhisperTurbo failed. Falling back to WASM...');
         } else {
-            logger.info('[PrivateSTT] 🐌 WebGPU not available. Skipping WhisperTurbo.');
-            logger.info('[PrivateSTT] WebGPU not available. Using TransformersJS engine.');
+            logger.info('[PrivateSTT] 🐌 WebGPU not available or forced off. Skipping WhisperTurbo.');
         }
 
-        // Fallback to safe engine
+        // 4. Safe Path (WASM/CPU)
         logger.info('[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)...');
-        return this.initSafeEngine(callbacks);
+        const safeResult = await this.initSafeEngine(callbacks);
+
+        if (safeResult.isErr) {
+            logger.error({ err: safeResult.error }, '[PrivateSTT] ❌ All private engines failed.');
+            return Result.err(new Error('Private STT failed: No compatible private engine could be initialized. Please switch to Cloud Mode for transcription.'));
+        }
+
+        return safeResult;
     }
 
     /**

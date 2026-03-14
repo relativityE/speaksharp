@@ -6,6 +6,7 @@ import TranscriptionService from '../../../services/transcription/TranscriptionS
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { useSessionStore, type SessionStore } from '../../../stores/useSessionStore';
 import { type Session } from '@supabase/supabase-js';
+import { speechRuntimeController } from '../../../services/SpeechRuntimeController';
 
 // Mock dependencies
 vi.mock('@/providers/useTranscriptionContext', () => ({
@@ -20,8 +21,13 @@ vi.mock('@/lib/toast', () => ({
     toast: { success: vi.fn(), info: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('../../../lib/logger', () => ({
-    default: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
+
+
+vi.mock('../../../services/SpeechRuntimeController', () => ({
+    speechRuntimeController: {
+        startRecording: vi.fn().mockResolvedValue(undefined),
+        stopRecording: vi.fn().mockResolvedValue({ success: true, transcript: 'test', stats: {} }),
+    }
 }));
 
 // Mock TranscriptionService for the second test suite
@@ -29,11 +35,13 @@ vi.mock('../../../services/transcription/TranscriptionService', () => {
     return {
         default: vi.fn().mockImplementation(() => ({
             updateCallbacks: vi.fn(),
+            updatePolicy: vi.fn(),
             startTranscription: vi.fn(),
             destroy: vi.fn().mockResolvedValue(undefined),
         })),
         getTranscriptionService: vi.fn().mockImplementation(() => ({
             updateCallbacks: vi.fn(),
+            updatePolicy: vi.fn(),
             startTranscription: vi.fn(),
             destroy: vi.fn().mockResolvedValue(undefined),
         })),
@@ -111,7 +119,7 @@ describe('useTranscriptionService - Integrated Behavior', () => {
         renderHook(() => useTranscriptionService(options));
 
         await vi.waitFor(() => {
-            expect(mockService.startTranscription).toHaveBeenCalled();
+            expect(speechRuntimeController.startRecording).toHaveBeenCalled();
         });
     });
 });

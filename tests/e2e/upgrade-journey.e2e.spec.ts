@@ -3,44 +3,37 @@
  * 
  * Tests the monetization path for Pro user signup.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { goToPublicRoute } from './helpers';
-import { setupE2EMocks } from './mock-routes';
 
 test.describe('Upgrade Journey - Monetization Path', () => {
     /**
      * Test: Signup page displays correctly and Pro plan is selectable
      */
-    test('should display signup form with plan selection', async ({ page }) => {
-        // 1. Setup mocks
-        await setupE2EMocks(page);
-
-        // 2. Navigate to signup page
+    test('should display signup form with plan selection', async ({ mockedPage: page }) => {
+        // 1. Navigate to signup page
         await goToPublicRoute(page, '/auth/signup');
 
-        // 3. Verify signup form loads
+        // 2. Verify signup form loads
         const authForm = page.getByTestId('auth-form');
         await expect(authForm).toBeVisible({ timeout: 15000 });
 
-        // 4. Verify Pro plan option exists and is selectable
+        // 3. Verify Pro plan option exists and is selectable
         const proOption = page.getByTestId('plan-pro-option');
         await expect(proOption).toBeVisible();
         await proOption.click();
 
-        // 5. Verify Pro is selected (check for active class)
+        // 4. Verify Pro is selected (check for active class)
         await expect(proOption).toHaveClass(/border-primary/);
     });
 
     /**
      * Test: Form submission with Pro plan triggers Stripe checkout call
      */
-    test('should attempt Stripe checkout when submitting with Pro plan', async ({ page }) => {
+    test('should attempt Stripe checkout when submitting with Pro plan', async ({ mockedPage: page }) => {
         let stripeCheckoutCalled = false;
 
-        // 1. Setup BASE mocks first
-        await setupE2EMocks(page);
-
-        // 2. Setup SPECIFIC test overrides AFTER (Playwright checks routes in reverse order)
+        // 2. Setup SPECIFIC test overrides AFTER
         await page.route('**/functions/v1/stripe-checkout', async (route) => {
             stripeCheckoutCalled = true;
             // Intercepted stripe-checkout call

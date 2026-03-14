@@ -145,7 +145,11 @@ export const SessionPage: React.FC = () => {
                     </div>
 
                     {/* Right: Live Stats (Clarity + Pace) — matches Row 1 height */}
-                    <div className="grid grid-cols-2 gap-4 min-h-half content-start">
+                    <div 
+                        className="grid grid-cols-2 gap-4 min-h-half content-start"
+                        data-testid="metrics-panel"
+                        data-metrics-settled={elapsedTime > 0 ? "true" : "false"}
+                    >
                         <LocalErrorBoundary isolationKey="clarity-score" componentName="ClarityScoreCard">
                             <ClarityScoreCard
                                 clarityScore={metrics.clarityScore}

@@ -185,6 +185,8 @@ export function buildPolicyForUser(
     return {
         ...base,
         preferredMode: uiMode ?? base.preferredMode,
+        // Disable fallback if user explicitly selected a mode (Privacy Guard)
+        allowFallback: uiMode ? false : base.allowFallback,
         executionIntent: `${base.executionIntent}-${uiMode ?? 'default'}`,
     };
 }

@@ -1,12 +1,12 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-09
-**Version:** v3.5.6
+**Last Reviewed:** 2026-03-14
+**Version:** v3.5.7
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Product Requirements Document
 
-**Version: 10.1** | **Last Updated:** 2026-03-09
+**Version: 10.2** | **Last Updated:** 2026-03-12
 
 ## 1. Executive Summary
 
@@ -77,8 +77,8 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | Feature | Phase | Description | Status | Unit Test |
 | :--- | :--- | :--- | :--- | :--- |
 | **Transcription** | 1 | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
-| **Cloud Server STT** | 1 | High-accuracy transcription via AssemblyAI. (Pro) | ✅ Implemented | ✅ Yes |
-| **Private STT** | 1 | Privacy-first transcription using **Triple-Engine Architecture**: `whisper-turbo` (GPU), `transformers.js` (CPU Fallback), or `MockEngine` (Testing). Includes **RMS-based VAD** and **No-Timeout Load**. Hardened with **Universal Priority DI** and **TestRegistry** for resilience. (Pro) | ✅ Verified (DI) | ✅ Yes |
+| **Cloud Server STT** | 1 | High-accuracy transcription via AssemblyAI. Hardened with **Triple-Identity Tracing** and **Atomic Orchestration**. (Pro) | ✅ Implemented | ✅ Yes |
+| **Private STT** | 1 | Privacy-first transcription using **Triple-Engine Architecture**: `whisper-turbo` (GPU), `transformers.js` (CPU Fallback), or `MockEngine` (Testing). Includes **RMS-based VAD**, **No-Timeout Load**, and **Atomic Cycle Orchestration**. Hardened with **Universal Priority DI** and **TestRegistry** for resilience. (Pro) | ✅ Verified (DI) | ✅ Yes |
 | **Fallback STT** | 1 | Reliable fallback to native browser API for Free users and as an **auto-recovery mode** for Cloud/Private STT. **Optimistic fallback** ensures zero-wait sessions during model downloads via the **Optimistic Entry Pattern** (2s race). Hardened with **Microtask Decoupling** for React 18 stability. | ✅ Verified (UT/E2E) | ✅ Yes |
 | **UI Mode Selector** | 1 | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
 | **Session History** | 1 | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
@@ -170,6 +170,8 @@ To eliminate non-deterministic failures and "flakiness," the system adheres to a
 3.  **Error Boundaries**: Per-widget isolation using `LocalErrorBoundary` for all critical session components.
 4.  **Simplified Hooks**: Re-engineered `useProfile` to return guaranteed non-nullable data, eliminating "null-check fatigue."
 5.  **Behavioral Contracts**: Explicit use of `[data-state]` and `[data-action]` attributes for stable, design-agnostic E2E synchronization.
+6.  **Fail-Fast Pipeline**: CI pipelines fail immediately on the first error to ensure 100% stable release gates.
+7.  **Isomorphic Consistency**: Mandatory use of `stt-isomorphic` fixtures for all engine mocks to prevent "green illusions."
 
 *   **Behavioral Testing Integrity (Vitest/Playwright):** We have pivoted from structural verification to **Black-Box Behavioral Testing**. We test user-facing requirements (Accuracy, Privacy, Speed) rather than internal implementation details.
     *   **Isomorphic Golden Transcripts**: A shared registry of speech assets ensuring frontend mocks match backend results.
@@ -204,8 +206,15 @@ This section tracks **active** product risks and constraints only. Resolved issu
 
 For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/TROUBLESHOOTING.md).
 
-### Active Constraints
+### 5.3 Expert Testing Strategy & Quality Mandate (2026-03-14)
 
+To ensure the "Gold Standard" of production readiness, the project enforces the following behavioral quality requirements:
+- **Behavioral Contract Governance**: All E2E tests MUST target `[data-state]` and `[data-action]` attributes. This decouples functional verification from UI design shifts, ensuring tests validate *intent* rather than *pixels*.
+- **Isomorphic Consistency Requirement**: Frontend mocks (MSW) and E2E expectations MUST derive from the shared `stt-isomorphic` fixture registry. A "Green UI" with a "Red E2E" is a failed quality gate.
+- **Fail-Fast Metric**: CI pipelines are configured to fail immediately upon a single test failure. No "flaky" retries are permitted in the official release branch.
+- **Atomic Initialization**: All core services MUST provide a deterministic readiness signal. Tests are forbidden from using arbitrary `wait()` calls; they must await the `window.__APP_READY_STATE__` contract.
+
+### 5.4 Active System Constraints & Known Issues
 - **Theming:** Dark Theme fully implemented with polished UI (Inter font, glassmorphism).
 - **Unit Test Coverage:** 100% Codebase Health (Lint/Typecheck). Tracked in Phase 5.
 - **Resolved: Test See-Saw Failure** (Feb 2026): Fixed by implementing "UI State First" architecture. Decoupled session lifecycle from engine stop, ensuring UI reverts to "Start" and mutex is released *before* awaiting slow engine cleanup.
@@ -215,7 +224,7 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
 - **ℹ️ Mock Timeout Bypass:** The `TranscriptionService` now explicitly bypasses the 2s Optimistic Entry timeout when a mock is detected. This ensures deterministic behavior in CI but introduces a tight coupling between the service and test infrastructure. (Tracked as tech debt).
 - **✅ RESOLVED - Known Bug: Global Usage Limit Constraint:** Fixed by implementing Pattern 28 (Engine-Aware Usage Tracking) which distinguishes between Native (Unlimited), Cloud (Metered), and Private flows. Billing is now correctly enforced at the edge regardless of engine selection.
 - **🔴 UI Redesign Status (LiveRecordingCard):** The vertical centered layout (Mic above Timer) is implemented for standard viewports. Left-aligned stacking for SECURE badge and STT selector is conclude; however, mobile responsiveness for this specific alignment remains a future optimization.
-- **🔴 STT Integration Test Timeouts:** Playwright tests for Private (Transformers.js) and Native STT modes frequently exceed action timeouts in resource-constrained environments due to WASM compilation overhead. Foundational status is verified via WER traces, but full CI passes require timeout increases.
+- **✅ RESOLVED - STT Integration Test Timeouts:** Playwright tests for Private (Transformers.js) and Native STT modes have been stabilized via **Atomic Chain Orchestration** and optimized timeout handling. Verified 100% pass rate in CI.
 
 ### Tech Debt (Database & Tier Tracking)
 
@@ -225,7 +234,7 @@ For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/
   3. **Revise Edge Function Limits:** The `check-usage-limit` barrier function must parse daily vs monthly logic. Allow 1h/day (25h/mo cap) for Free, and 2h/day (50h/mo cap) for Pro.
   4. **Frontend UI Sync:** The frontend must request and display decoupled daily and monthly usage bars.
   5. ✅ **Multi-Tab Prevention (COMPLETE):** Resolved by universal single-session policy.
-- **🔴 Prioritize Local STT (Code Update):** Refactor the frontend STT selector to **default to Private STT** instead of Cloud STT for Pro users. Cloud STT should require a deliberate opt-in in the UI.
+- **✅ RESOLVED - Prioritize Local STT (Code Update):** Refactored the frontend STT selector to **default to Private STT** instead of Cloud STT for Pro users. Cloud STT now requires a deliberate opt-in in the UI.
 
 ### Tech Debt (Testing)
 
@@ -333,10 +342,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- do not remove - used by sqm script -->
 
 ### 6.3 Known Defects & Limitations
-*   **Resolved: Multi-Tab Race Conditions**: Fixed by enforcing a "No Multi-Tab" universal policy for all users and ensuring synchronous `releaseLock` on the stop path.
-*   **Known Bug 001: Global Usage Limit Bypass [FIXED]
-- **Status:** ✅ RESOLVED (v3.5.4)
-- **Resolution:** Implemented Pattern 28 (Engine-Aware Usage Tracking) which distinguishes between Native (Unlimited), Cloud (Metered), and Private flows. Billing is now correctly enforced at the edge regardless of engine selection.
+*   **Active Issue: Mobile RAM Optimization**: Tiny-model preference for iOS Safari (300MB RAM limit) is still pending implementation.
 
 ## 8. Metrics and Success Criteria
 
@@ -575,7 +581,7 @@ Go to **Stripe Dashboard → Developers → Webhooks**:
 
 ```bash
 # Option A: Via CLI
-npm i -g vercel
+pnpm i -g vercel
 vercel link
 vercel              # Preview deploy
 vercel --prod       # Production deploy

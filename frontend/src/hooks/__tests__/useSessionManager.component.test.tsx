@@ -35,15 +35,7 @@ vi.mock('../../lib/storage', () => ({
   exportData: vi.fn(),
 }));
 
-vi.mock('../../lib/logger', () => ({
-  default: {
-    info: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-    warn: vi.fn(),
-    log: vi.fn(),
-  },
-}));
+
 
 describe('useSessionManager', () => {
   beforeEach(() => {

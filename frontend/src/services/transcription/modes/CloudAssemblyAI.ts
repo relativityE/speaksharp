@@ -1,4 +1,4 @@
-import { ITranscriptionMode, TranscriptionModeOptions, Transcript, TranscriptionError } from './types';
+import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, TranscriptionError } from './types';
 import { getSupabaseClient } from '../../../lib/supabaseClient';
 import { Session } from '@supabase/supabase-js';
 import { floatToInt16Async } from '../utils/AudioProcessor';
@@ -24,7 +24,7 @@ interface AssemblyAIMessage {
 // Internal connection state tracking
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
-export default class CloudAssemblyAI implements ITranscriptionMode {
+export default class CloudAssemblyAI implements ITranscriptionEngine {
   private onTranscriptUpdate: (update: { transcript: Transcript }) => void;
   private onModelLoadProgress: (progress: number | null) => void;
   private onReady: () => void;

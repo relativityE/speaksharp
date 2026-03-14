@@ -1,7 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { setupE2EMocks } from './mock-routes';
 import { enableTestRegistry } from '../helpers/testRegistry.helpers';
-import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
+import { navigateToRoute } from './helpers';
 
 /**
  * SpeakSharp: Phase 6 - CI Drift Detection
@@ -15,16 +15,15 @@ const GET_STORE_STATE = `(() => {
 
 test.describe('Contract Preservation: CI Drift Detection', () => {
 
-    test.beforeEach(async ({ page }) => {
-        await setupE2EMocks(page);
-        await enableTestRegistry(page);
-        await programmaticLoginWithRoutes(page);
+    test.beforeEach(async ({ userPage }) => {
+        await setupE2EMocks(userPage);
+        await enableTestRegistry(userPage);
     });
 
-    test('should validate that the STT Engine signatures match expected contracts', async ({ page }) => {
-        await navigateToRoute(page, '/session');
+    test('should validate that the STT Engine signatures match expected contracts', async ({ userPage }) => {
+        await navigateToRoute(userPage, '/session');
 
-        const storeState = await page.evaluate(GET_STORE_STATE) as Record<string, unknown>;
+        const storeState = await userPage.evaluate(GET_STORE_STATE) as Record<string, unknown>;
 
         const expectedKeys = ['sttStatus', 'activeEngine', 'transcript', 'sttMode', 'fillerData'];
         expectedKeys.forEach(key => {
@@ -32,10 +31,10 @@ test.describe('Contract Preservation: CI Drift Detection', () => {
         });
     });
 
-    test('should verify that store updates are observable via E2E bridge', async ({ page }) => {
-        await navigateToRoute(page, '/session');
+    test('should verify that store updates are observable via E2E bridge', async ({ userPage }) => {
+        await navigateToRoute(userPage, '/session');
 
-        await page.evaluate(`(() => {
+        await userPage.evaluate(`(() => {
             const store = window.__SESSION_STORE_API__ || window.useSessionStore;
             if (store && store.getState().updateTranscript) {
                 store.getState().updateTranscript('Hello test world', '');
@@ -43,7 +42,7 @@ test.describe('Contract Preservation: CI Drift Detection', () => {
             }
         })()`);
 
-        const storeState = await page.evaluate(GET_STORE_STATE) as Record<string, unknown>;
+        const storeState = await userPage.evaluate(GET_STORE_STATE) as Record<string, unknown>;
         const transcript = storeState.transcript as Record<string, unknown> | undefined;
 
         expect(transcript?.transcript).toBe('Hello test world');

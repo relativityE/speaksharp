@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import logger from '../lib/logger';
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -15,6 +15,7 @@ import {
 import type { PracticeSession } from '../types/session';
 import { DASHBOARD_PAGINATION_LIMIT } from '../config/env';
 import { ANALYTICS_MOCK_SESSIONS as MOCK_SESSIONS } from '../lib/mockData';
+import { useReadinessStore } from '../stores/useReadinessStore';
 
 // Empty fallback array (defined outside hook to prevent re-creation)
 const EMPTY_SESSIONS: PracticeSession[] = [];
@@ -30,6 +31,14 @@ export const useAnalytics = () => {
 
     const { data: allSessions = EMPTY_SESSIONS, isLoading, error } = usePracticeHistory(paginationOptions);
     const { data: specificSession, isLoading: isSessionLoading } = useSession(sessionId);
+
+    // 🚀 PHASE 8: Signal Analytics Readiness (Critical Query Settlement)
+    useEffect(() => {
+        if (!isLoading) {
+            useReadinessStore.getState().setReady('analytics');
+            logger.info('[useAnalytics] ✅ Analytics Ready Signal');
+        }
+    }, [isLoading]);
 
     const { data: totalSessionsCount = 0 } = useQuery({
         queryKey: ["sessionCount", user?.id],

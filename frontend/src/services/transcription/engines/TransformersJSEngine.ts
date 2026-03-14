@@ -51,9 +51,12 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
                 throw new Error('TransformersJS environment (env) is undefined. Check import logic.');
             }
 
-            // Force use of remote models (CDN) to avoid "Unexpected token <" error (HTML returned for JSON)
-            // This is required in Vite dev environment where local model paths might be intercepted
-            env.allowLocalModels = false;
+            // Enable local models from the public directory
+            env.allowLocalModels = true;
+            env.localModelPath = '/models/';
+
+            // Disable remote models to ensure CI/Local stability without CDN reliance
+            env.allowRemoteModels = false;
 
             // Browser cache is only available in a real browser, not Happy-DOM/Node
             const isBrowser = typeof window !== 'undefined' &&
@@ -75,10 +78,10 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
                 callbacks.onModelLoadProgress(0);
             }
 
-            // Initialize the ASR pipeline with Whisper base model
+            const loadStart = performance.now();
             this.transcriber = await pipeline(
                 'automatic-speech-recognition',
-                'Xenova/whisper-base.en', // Upgraded from tiny
+                'whisper-tiny.en', // Use the local directory name in public/models/
                 {
                     // Use quantized model for faster loading
                     quantized: true,
@@ -93,7 +96,13 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
                 }
             );
 
-            logger.info('[TransformersJS] Engine initialized successfully.');
+            const loadTime = performance.now() - loadStart;
+            logger.info({
+                event: 'model_loaded',
+                model: 'whisper-tiny.en',
+                load_time_ms: Math.round(loadTime),
+                engine: 'transformersjs',
+            }, '[TransformersJS] Engine initialized successfully.');
 
             if (callbacks.onModelLoadProgress) {
                 callbacks.onModelLoadProgress(100);
@@ -123,6 +132,7 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
         }
 
         try {
+            const start = performance.now();
             // transformers.js expects audio samples at 16kHz
             // The pipeline's call signature is complex; use a typed result interface
             interface TranscriptionResult {
@@ -133,6 +143,14 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
                 stride_length_s: 5,
                 return_timestamps: false,
             });
+
+            const latency = performance.now() - start;
+            logger.info({
+                event: 'inference_complete',
+                latency_ms: Math.round(latency),
+                audio_length_s: audio.length / 16000,
+                engine: 'transformersjs'
+            }, '[TransformersJS] Transcription complete.');
 
             // Extract transcript from result
             const transcript = typeof result === 'string'

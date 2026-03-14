@@ -128,7 +128,12 @@ export function parsePlaywrightResults(rootDir) {
  */
 export function parseLighthouse(rootDir) {
     const DEBUG = process.env.LOG_LEVEL === 'debug';
-    const resultsDir = path.join(rootDir, 'artifacts', 'lighthouse');
+    
+    // Check local results first (Orchestrator mode), then artifacts (Aggregator mode)
+    let resultsDir = path.join(rootDir, 'lighthouse-results');
+    if (!fs.existsSync(resultsDir)) {
+        resultsDir = path.join(rootDir, 'artifacts', 'lighthouse');
+    }
 
     if (!fs.existsSync(resultsDir)) {
         if (DEBUG) console.log('[CI DEBUG] Lighthouse results directory missing.');
@@ -136,7 +141,7 @@ export function parseLighthouse(rootDir) {
     }
 
     try {
-        const files = fs.readdirSync(resultsDir).filter(f => f.endsWith('.report.json'));
+        const files = fs.readdirSync(resultsDir).filter(f => f.endsWith('-report.json'));
         if (files.length === 0) return {};
 
         const totals = { performance: 0, accessibility: 0, bestPractices: 0, seo: 0 };
@@ -194,7 +199,7 @@ export function aggregateShards(rootDir) {
 export function parseVitestResults(rootDir) {
     const DEBUG = process.env.LOG_LEVEL === 'debug';
     const resultsPath = path.join(rootDir, 'test-results', 'unit', 'results.json');
-    const telemetry = { passed: 0, failed: 0 };
+    const telemetry = { passed: 0, failed: 0, total: 0 };
 
     if (!fs.existsSync(resultsPath)) {
         if (DEBUG) console.log(`[CI DEBUG] Vitest results missing at: ${resultsPath}`);
@@ -205,7 +210,8 @@ export function parseVitestResults(rootDir) {
         const data = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
         return {
             passed: data.numPassedTests || 0,
-            failed: data.numFailedTests || 0
+            failed: data.numFailedTests || 0,
+            total: data.numTotalTests || 0
         };
     } catch (e) {
         console.warn('⚠️ [CI] Failed to parse Vitest results:', e.message);
@@ -218,8 +224,14 @@ export function parseVitestResults(rootDir) {
  */
 export function getSQMResults(rootDir, currentTelemetry = {}) {
     const DEBUG = process.env.LOG_LEVEL === 'debug';
-    const coveragePath = path.join(rootDir, 'artifacts', 'coverage', 'coverage-summary.json');
-    const metricsPath = path.join(rootDir, 'artifacts', 'metrics', 'unit-metrics.json');
+    
+    // Check local coverage first, then artifacts
+    let coveragePath = path.join(rootDir, 'frontend', 'coverage', 'coverage-summary.json');
+    if (!fs.existsSync(coveragePath)) {
+        coveragePath = path.join(rootDir, 'artifacts', 'coverage', 'coverage-summary.json');
+    }
+
+    let metricsPath = path.join(rootDir, 'artifacts', 'metrics', 'unit-metrics.json');
 
     const result = {
         coverage: 0,
@@ -258,9 +270,8 @@ export function getSQMResults(rootDir, currentTelemetry = {}) {
     const lhPerformance = lh.performance || 0;
     const lhContribution = Math.min(20, (lhPerformance / 90) * 20);
 
-    result.score = Math.round(passingContribution + (coverageContribution * 0.6) + (lhContribution * 0.4));
-    // Wait, the expert asked for 40/40/20. Let's do exactly that.
     result.score = Math.round(passingContribution + coverageContribution + lhContribution);
+
     // Boundary check
     if (result.score > 100) result.score = 100;
 

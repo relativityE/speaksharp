@@ -176,7 +176,7 @@ describe('SessionSidebar', () => {
         allowCloud: true,
         allowPrivate: true,
         preferredMode: 'private',
-        allowFallback: true,
+        allowFallback: false,
         executionIntent: 'prod-pro-private',
       });
     });
@@ -197,7 +197,7 @@ describe('SessionSidebar', () => {
         allowCloud: true,
         allowPrivate: true,
         preferredMode: 'cloud',
-        allowFallback: true,
+        allowFallback: false,
         executionIntent: 'prod-pro-cloud',
       });
     });

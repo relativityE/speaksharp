@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
-import { loadEnv, getChromeWithMic, baseConfig, urls } from './playwright.base.config';
+import * as os from 'os';
+import { loadEnv, getChromeWithMic, baseConfig } from './playwright.base.config';
+import { CI_CONFIG } from './scripts/ci.config.js';
 
 /**
  * Main E2E Test Configuration
@@ -22,7 +24,9 @@ export default defineConfig({
   timeout: 60_000, // 60s per test max (bridged to diagnostic guard)
   expect: { timeout: 15_000 }, // 15s expect timeout
   retries: 1,
-  workers: process.env.CI ? '50%' : undefined,
+  workers: process.env.CI 
+    ? Math.min(Math.max(1, Math.floor(os.cpus().length * CI_CONFIG.WORKER_SCALING_RATIO)), CI_CONFIG.MAX_WORKERS)
+    : undefined,
   reporter: [['line'], ['./scripts/playwright-telemetry-reporter.mjs']],
   use: {
     ...baseConfig.use,
@@ -55,7 +59,6 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   updateSnapshots: process.env.CI ? 'missing' : 'none',
-  /*
   // ✅ CRITICAL: Web server configuration
   webServer: {
     // ✅ Use Dev Server for E2E in TEST mode (loads .env.test)
@@ -73,7 +76,7 @@ export default defineConfig({
     stdout: 'pipe',
     stderr: 'pipe',
   },
-  */
+
   projects: [
     {
       name: 'chromium',
@@ -82,4 +85,7 @@ export default defineConfig({
     },
     // Soak tests run separately via: npx playwright test --config=playwright.soak.config.ts
   ],
+  // ✅ Resolve aliases from tsconfig (e.g., @shared)
+  tsconfig: './tsconfig.json',
 });
+

@@ -36,7 +36,7 @@
 import logger from '../../../lib/logger';
 import { createPrivateSTT, EngineType } from '../engines';
 import { IPrivateSTT } from '../engines/IPrivateSTT';
-import { ITranscriptionMode, TranscriptionModeOptions } from './types';
+import { ITranscriptionEngine, TranscriptionModeOptions } from './types';
 import { MicStream } from '../utils/types';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
 import { TranscriptUpdate } from '@/types/transcription';
@@ -90,7 +90,7 @@ export async function clearPrivateSTTCache(): Promise<void> {
   ]);
 }
 
-export default class PrivateWhisper implements ITranscriptionMode {
+export default class PrivateWhisper implements ITranscriptionEngine {
   private frameListenerDisposer: (() => void) | null = null;
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress?: (progress: number | null) => void;

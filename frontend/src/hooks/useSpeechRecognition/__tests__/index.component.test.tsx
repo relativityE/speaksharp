@@ -7,7 +7,7 @@ import { useTranscriptionState } from '../useTranscriptionState';
 import { useFillerWords } from '../useFillerWords';
 // Real service dependencies
 import { testRegistry } from '../../../services/transcription/TestRegistry';
-import { ITranscriptionMode } from '../../../services/transcription/modes/types';
+import { ITranscriptionEngine } from '../../../services/transcription/modes/types';
 import { TranscriptionServiceOptions } from '../../../services/transcription/TranscriptionService';
 import { Mock } from 'vitest';
 
@@ -62,7 +62,7 @@ vi.mock('../../../utils/fillerWordUtils', () => ({
 
 
 // --- Test Helper: Mock Engine ---
-class MockEngine implements ITranscriptionMode {
+class MockEngine implements ITranscriptionEngine {
   init = vi.fn().mockResolvedValue(undefined);
   startTranscription = vi.fn().mockResolvedValue(undefined);
   stopTranscription = vi.fn().mockResolvedValue({ transcript: 'test transcript', duration: 30 });

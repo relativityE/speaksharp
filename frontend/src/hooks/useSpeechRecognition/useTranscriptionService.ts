@@ -6,6 +6,7 @@ import {
 } from '../../services/transcription/TranscriptionPolicy';
 import { toast } from '@/lib/toast';
 import logger from '../../lib/logger';
+import { speechRuntimeController } from '../../services/SpeechRuntimeController';
 import { TranscriptStats } from '../../utils/fillerWordUtils';
 import { useSessionStore } from '../../stores/useSessionStore';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
@@ -118,6 +119,32 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     };
   }, [service]);
 
+  // Fix 3: Sync isListening with FSM state
+  useEffect(() => {
+    if (!service || !isServiceReady) return;
+
+    const unsubscribe = service.fsm.subscribe((state) => {
+      if (!isMountedRef.current) return;
+      
+      // If we reach a non-listening state, ensure store reflects it
+      if (state === 'IDLE' || state === 'FAILED') {
+        if (useSessionStore.getState().isListening) {
+          logger.info({ state }, '[Hook] FSM reached non-listening state, stopping session');
+          stopSession();
+        }
+      }
+      // If we are recording, ensure store reflects it
+      if (state === 'RECORDING') {
+        if (!useSessionStore.getState().isListening) {
+          logger.info('[Hook] FSM reached recording state, starting session');
+          startSession();
+        }
+      }
+    });
+
+    return unsubscribe;
+  }, [service, isServiceReady, stopSession, startSession]);
+
   useEffect(() => {
     if (!service || !isServiceReady) return;
     if (optionsRef.current.policy) {
@@ -130,9 +157,9 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
   // ============================================
   useEffect(() => {
     if (error) {
-      handleTranscriptionError(error, stopSession);
+      handleTranscriptionError(error, stopSession, setError);
     }
-  }, [error, stopSession]);
+  }, [error, stopSession, setError]);
 
   // ============================================
   // LIFECYCLE MANAGEMENT (Start/Init)
@@ -147,14 +174,14 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     const manageSession = async () => {
       isStartingRef.current = true;
       try {
-        await service.startTranscription(optionsRef.current.policy);
+        await speechRuntimeController.startRecording();
 
         if (isMountedRef.current) {
           setSTTMode(service.getMode());
         }
       } catch (err) {
         if (isMountedRef.current) {
-          handleTranscriptionError(err, stopSession);
+          handleTranscriptionError(err, stopSession, setError);
         }
       } finally {
         isStartingRef.current = false;
@@ -162,7 +189,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     };
 
     manageSession();
-  }, [service, isServiceReady, isListening, options.profileLoading, stopSession, setSTTMode]);
+  }, [service, isServiceReady, isListening, options.profileLoading, stopSession, setSTTMode, setError]);
 
   // ============================================
   // ACTIONS
@@ -178,9 +205,9 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     if (!isListening || !service) return null;
     logger.info('[Hook] stopListening called');
 
-    const result = await service.stopTranscription();
+    const result = await speechRuntimeController.stopRecording();
     stopSession();
-    return result;
+    return result as { success: boolean; transcript: string; stats: TranscriptStats } | null;
   }, [isListening, service, stopSession]);
 
   const reset = useCallback(() => {
@@ -208,7 +235,8 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
 // Error handling helper
 function handleTranscriptionError(
   err: unknown,
-  stopSession: () => void
+  stopSession: () => void,
+  setError: (err: Error | null) => void
 ) {
   let friendlyMessage: string;
   const originalError = err instanceof Error ? err : new Error(String(err));
@@ -234,5 +262,13 @@ function handleTranscriptionError(
     id: 'stt-error-toast',
     duration: 5000
   });
+
+  // Ensure hooks and store reflect the error state
+  setError(originalError);
+  useSessionStore.getState().setSTTStatus({
+    type: 'error',
+    message: friendlyMessage
+  });
+
   stopSession();
 }

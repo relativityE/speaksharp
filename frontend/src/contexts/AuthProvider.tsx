@@ -1,25 +1,17 @@
-import React, { useState, useEffect, ReactNode, useMemo, useCallback, useContext, createContext } from 'react';
+import React, { useState, useEffect, useRef, ReactNode, useMemo, useCallback, useContext, createContext } from 'react';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { Session, User } from '@supabase/supabase-js';
 import { useQueryClient } from '@tanstack/react-query';
 import logger from '../lib/logger';
 import { useSessionStore } from '../stores/useSessionStore';
+import { useReadinessStore } from '../stores/useReadinessStore';
 
 /**
  * AUTHENTICATION PROVIDER
  * 
  * Provides session management and authentication state.
- * 
- * NOTE (Gap Remediation 2026-01-05):
- * This provider has been refactored to focus exclusively on session management.
- * 
- * ARCHITECTURE NOTE (Senior Architect):
- * - V5 Auth Token Refresh: Implemented structured logging for session events.
- * - Handles INITIAL_SESSION, SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED.
- * - Captures timing metrics for session initialization and refresh events.
  */
 
-// Define the context value type right inside the provider file
 export interface AuthContextType {
   session: Session | null;
   user: User | null;
@@ -28,7 +20,6 @@ export interface AuthContextType {
   setSession: (s: Session | null) => void;
 }
 
-// Create the context here
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 interface AuthProviderProps {
@@ -38,10 +29,10 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children, initialSession = null }: AuthProviderProps) {
   const supabase = getSupabaseClient();
+  const queryClient = useQueryClient();
+  const initialCheckRef = useRef(false);
 
-  // 🧪 E2E/Expert Prescription: Initialize synchronously from localStorage 
-  // to avoid the async 'getSession' flash/hang.
-  const getInjectedSession = () => {
+  const getInjectedSession = useCallback(() => {
     if (initialSession) return initialSession;
     if (typeof window === 'undefined') return null;
 
@@ -52,27 +43,23 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       const storageKey = `sb-${projectRef}-auth-token`;
 
       const keys = Object.keys(window.localStorage);
-      console.log('[DEBUG-AUTH] Expected Key:', storageKey);
-      console.log('[DEBUG-AUTH] VITE_SUPABASE_URL:', url);
-      console.log('[DEBUG-AUTH] All LocalStorage Keys:', keys);
+      logger.debug({ storageKey, url, keys }, '[AuthProvider] Sync session sync check');
 
       const raw = window.localStorage.getItem(storageKey);
       if (raw) {
         const parsed = JSON.parse(raw);
-        // Supabase session shape check
         if (parsed?.access_token && parsed?.user) return parsed;
       }
-    } catch (err) {
+    } catch (err: unknown) {
       logger.error({ err }, '[AuthProvider] Error reading sync session');
     }
     return null;
-  };
+  }, [initialSession]);
 
   const [sessionState, setSessionState] = useState<Session | null | undefined>(getInjectedSession);
   const [loading, setLoading] = useState(!getInjectedSession());
 
   useEffect(() => {
-    // DEV BYPASS: Add ?devBypass=true to URL to skip auth for UI testing
     if (import.meta.env.DEV && window.location.search.includes('devBypass=true')) {
       logger.info('[AuthProvider] DEV BYPASS ENABLED - using mock session');
       const devUserId = '00000000-0000-0000-0000-000000000000';
@@ -103,11 +90,14 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       return;
     }
 
-    // Initialize session with explicit hardening
     const initAuth = async () => {
+      if (initialCheckRef.current) return;
+      initialCheckRef.current = true;
+
       const initStartTime = Date.now();
       try {
-        if (sessionState) {
+        // If we already have a session (from initialSession or sync), skip fetch
+        if (initialSession || getInjectedSession()) {
           setLoading(false);
           return;
         }
@@ -121,26 +111,21 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
           logger.info({ userId: session.user.id, durationMs: duration }, '[AuthProvider] getSession fallback resolved');
           setSessionState(session);
         }
-      } catch (err) {
-        logger.error({ err }, '[AuthProvider] CRITICAL: Fatal error in getSession fallback');
-        console.error("[AUTH FATAL] Could not resolve session:", err);
+      } catch (err: unknown) {
+        logger.error({ err }, '[AuthProvider] AUTH FATAL: Could not resolve session');
       } finally {
-        // ALWAYS release the render gate
         setLoading(false);
       }
     };
 
     initAuth();
 
-    // Safety timeout for loading state to prevent infinite spinner
-    // Expert 2: 3s is a safe hedge for CI stability
     const AUTH_TIMEOUT = (import.meta.env.VITE_AUTH_TIMEOUT ? parseInt(import.meta.env.VITE_AUTH_TIMEOUT) : (import.meta.env.MODE === 'test' ? 8000 : 3000));
 
     const timeoutId = setTimeout(() => {
       setLoading(currentLoading => {
         if (currentLoading) {
-          logger.warn(`[AuthProvider] Safety timeout reached (${AUTH_TIMEOUT}ms), forcing boot`);
-          console.warn(`[AUTH] Safety timeout - triggering forced boot for E2E stability (${AUTH_TIMEOUT}ms)`);
+          logger.warn({ timeout: AUTH_TIMEOUT }, '[AuthProvider] Safety timeout reached, forcing boot');
           setSessionState(prev => prev === undefined ? null : prev);
           return false;
         }
@@ -151,10 +136,6 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, newSession) => {
         const timestamp = new Date().toISOString();
-
-        // 🧪 E2E FIX: If we provided an initialSession (mock), don't let 
-        // INITIAL_SESSION event overwrite it with 'null' if Supabase 
-        // hasn't picked up the localStorage yet.
         if (event === 'INITIAL_SESSION' && initialSession && !newSession) {
           logger.debug('[AuthProvider] 🧪 E2E: Ignoring INITIAL_SESSION(null) because initialSession is present');
           return;
@@ -169,17 +150,13 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
 
         setSessionState(newSession);
 
-        // State-specific behavior
         switch (event) {
           case 'SIGNED_OUT':
             logger.info({ timestamp }, '[AuthProvider] User signed out or refresh failed, clearing state');
             setLoading(false);
             break;
           case 'TOKEN_REFRESHED':
-            logger.info({
-              expiresAt: newSession?.expires_at,
-              timestamp
-            }, '[AuthProvider] Token successfully refreshed');
+            logger.info({ expiresAt: newSession?.expires_at, timestamp }, '[AuthProvider] Token successfully refreshed');
             break;
           case 'USER_UPDATED':
             logger.info({ userId: newSession?.user?.id }, '[AuthProvider] User metadata updated');
@@ -199,28 +176,27 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       clearTimeout(timeoutId);
       subscription?.unsubscribe();
     };
-  }, [initialSession, supabase]);
+  }, [initialSession, supabase, queryClient, getInjectedSession]);
 
-  const queryClient = useQueryClient();
+  // 🚀 PHASE 8: Signal Auth Readiness (Top-level Hook)
+  useEffect(() => {
+    if (!loading) {
+      useReadinessStore.getState().setReady('auth');
+      logger.info({ userId: sessionState?.user?.id }, '[AuthProvider] ✅ Auth Ready Signal');
+    }
+  }, [loading, sessionState]);
 
   const signOut = useCallback(async () => {
     try {
-      // 1. Wipe Network Cache (Fixes Domain 1)
       queryClient.clear();
       logger.info('[AuthProvider] QueryClient cache cleared');
-
-      // 2. 🔒 SECURITY PURGE: Wipe all Local Memory constraints to prevent cross-account bleed
       useSessionStore.getState().resetSession();
       logger.info('[AuthProvider] Zustand session memory purged');
-
-      // 3. Clear LocalStorage / SessionStorage
       window.localStorage.clear();
       window.sessionStorage.clear();
       logger.info('[AuthProvider] Window storage cleared');
-
-      // 4. Kill backend session
       await supabase.auth.signOut();
-    } catch (err) {
+    } catch (err: unknown) {
       logger.error({ err }, '[AuthProvider] Error during signOut');
     }
     setSessionState(null);
@@ -234,11 +210,9 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     setSession: (s: Session | null) => setSessionState(s),
   }), [sessionState, loading, signOut]);
 
-  // Don't block app rendering while loading - landing page is PUBLIC
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-// Export the custom hook from the same file
 export const useAuthProvider = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (context === undefined) {
