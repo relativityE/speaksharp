@@ -156,7 +156,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
     test('should display all analytics metrics', async ({ proPage }) => {
         // Ensure fresh state and synchronize MSW
         // Ensure app/auth is stable after reload
-        await expect(proPage.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
+        await expect(proPage.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
         await navigateToRoute(proPage, '/analytics');
         // Double-Signal pattern for route transition
         await expect(proPage).toHaveURL(/\/analytics/, { timeout: 10000 });
@@ -180,7 +180,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
     test('should allow PDF export', async ({ proPage }) => {
         // Ensure fresh state and synchronize MSW
         // Ensure app/auth is stable after reload
-        await expect(proPage.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
+        await expect(proPage.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
         await navigateToRoute(proPage, '/analytics');
         await expect(proPage).toHaveURL(/\/analytics/, { timeout: 10000 });
         await expect(proPage.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
@@ -211,7 +211,7 @@ test.describe('Pro User Journey - Complete Lifecycle', () => {
 
         // Analytics
         // Ensure app/auth is stable after reload
-        await expect(proPage.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
+        await expect(proPage.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
 
         await navigateToRoute(proPage, '/analytics');
         await expect(proPage).toHaveURL(/\/analytics/, { timeout: 10000 });

@@ -10,7 +10,7 @@ test.describe('E2E Critical Path (Mocked)', () => {
     // Step 2: Verify App Booted Correctly (done after login to avoid double page.goto)
     await test.step('Verify App Booted Correctly', async () => {
       // Verify main app container loads
-      await expect(userPage.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
+      await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
 
       // Verify HTML structure exists
       const html = userPage.locator('html');

@@ -13,7 +13,7 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         await userPage.waitForFunction(() => window.__e2eProfileLoaded__ === true, null, { timeout: 30000 });
         await userPage.waitForFunction(() => window.__e2eBridgeReady__ === true, null, { timeout: 10000 });
 
-        await userPage.waitForSelector('[data-testid="app-main"]', { timeout: 5000 });
+        await userPage.waitForSelector('[data-testid="nav-sign-out-button"]', { timeout: 5000 });
 
         // 3. Wait for and scroll to Filler Words card
         const fillerCard = userPage.getByText('Filler Words', { exact: true }).first();

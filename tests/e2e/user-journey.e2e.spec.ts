@@ -16,7 +16,7 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
     test('should complete full user journey with session and analytics', async ({ proPage }) => {
         // Navigate to session page and verify it loads
         await navigateToRoute(proPage, '/session');
-        await expect(proPage.locator('[data-testid="app-main"]')).toBeVisible();
+        await expect(proPage.locator('[data-testid="nav-sign-out-button"]')).toBeVisible();
         await expect(proPage.getByText('Practice Session')).toBeVisible();
         debugLog('[TEST] ✅ Session page loaded');
 
@@ -60,7 +60,7 @@ test.describe('User Journey - Full Onboarding to Trend Analysis', () => {
 
     test('should allow pro users to start session with default cloud mode', async ({ proPage }) => {
         await navigateToRoute(proPage, '/session');
-        await expect(proPage.locator('[data-testid="app-main"]')).toBeVisible();
+        await expect(proPage.locator('[data-testid="nav-sign-out-button"]')).toBeVisible();
 
         const startButton = proPage.getByTestId('session-start-stop-button').first();
         await expect(startButton).toBeVisible();

@@ -109,7 +109,7 @@ test.describe('Private STT Real Audio (High Fidelity)', () => {
 
         // 2. Navigate to session page
         await navigateToRoute(page, '/session');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await page.waitForSelector('[data-testid="nav-sign-out-button"]');
 
         // 3. Select Private STT mode
         const modeButton = page.getByTestId('stt-mode-select');

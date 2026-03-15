@@ -9,7 +9,7 @@ test.describe('Analytics Page - Empty State', () => {
 
         // Navigate to analytics page using client-side navigation (NOT page.goto!)
         await navigateToRoute(emptyUserPage, '/analytics');
-        await emptyUserPage.waitForSelector('[data-testid="app-main"]');
+        await emptyUserPage.waitForSelector('[data-testid="nav-sign-out-button"]');
 
         // Wait for empty state UI to render
         const emptyStateHeading = emptyUserPage.getByRole('heading', { name: /Your Dashboard Awaits!/i });

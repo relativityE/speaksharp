@@ -15,7 +15,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
         await userPage.waitForLoadState('networkidle');
 
         await navigateToRoute(userPage, '/analytics');
-        await userPage.waitForSelector('[data-testid="app-main"]');
+        await userPage.waitForSelector('[data-testid="nav-sign-out-button"]');
 
         // Check if session history exists
         // Verify at least 2 items
@@ -65,7 +65,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
         await userPage.waitForLoadState('networkidle');
 
         await navigateToRoute(userPage, '/analytics');
-        await userPage.waitForSelector('[data-testid="app-main"]');
+        await userPage.waitForSelector('[data-testid="nav-sign-out-button"]');
 
         // Verify trend charts exist
         const wpmTrendChart = userPage.locator('[data-testid="wpm-trend-chart"]');
@@ -79,7 +79,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
 
     test('should calculate clarity score correctly in live session', async ({ userPage }) => {
         await navigateToRoute(userPage, '/session');
-        await userPage.waitForSelector('[data-testid="app-main"]');
+        await userPage.waitForSelector('[data-testid="nav-sign-out-button"]');
 
         // 2. Start Recording
         await userPage.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
