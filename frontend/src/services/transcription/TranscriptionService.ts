@@ -400,7 +400,17 @@ export default class TranscriptionService {
                   reject(new Error('Optimistic entry timeout'));
                 }
               }, 50);
-              initPromise.finally(() => clearInterval(checkTimer)).catch(() => { /* Sealed */ });
+
+              // Ensure we cancel the fallback timer immediately upon init resolving
+              initPromise.then(() => {
+                clearInterval(checkTimer);
+                if (this.fallbackTimer) {
+                  clearTimeout(this.fallbackTimer);
+                  this.fallbackTimer = null;
+                }
+              }).catch(() => {
+                clearInterval(checkTimer);
+              });
             });
 
             logger.debug({ mode }, '[TranscriptionService] Starting Promise.race');
@@ -453,15 +463,7 @@ export default class TranscriptionService {
       this.options.onModeChange?.(mode);
       useSessionStore.getState().setActiveEngine(mode);
 
-      // PHASE 2 SESSION START: Atomic RPC to create session and check usage
-      await this.initDbSession(mode);
-
-      // FSM Transition Guarding: Ensure we are still in INITIALIZING before moving to RECORDING.
-      // If a timeout or error occurred during the await above, the state will have changed.
-      if (!this.fsm.is('ENGINE_INITIALIZING')) {
-        logger.warn({ sId: this.serviceId, rId: this.runId, state: this.fsm.getState() }, '[TranscriptionService] ENGINE_STARTED rejected due to invalid state');
-        return;
-      }
+      // DB Session init has been extracted to SpeechRuntimeController
 
       this.fsm.transition({ type: 'ENGINE_STARTED' });
     } catch (error: unknown) {
@@ -492,9 +494,6 @@ export default class TranscriptionService {
     this.fsm.transition({ type: 'STOP_REQUESTED' });
 
     try {
-      // Stop heartbeats immediately
-      this.stopHeartbeat();
-
       // ✅ RESILIENCE: Race the engine stop against a timeout to prevent UI hangs
       const transcript = this.engine ? await Promise.race([
         this.engine.stopTranscription(),
@@ -505,10 +504,7 @@ export default class TranscriptionService {
 
       const duration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
 
-      // ✅ PHASE 2 SESSION COMPLETION: Finalize in DB
-      if (this.sessionId) {
-        await completeSession(this.sessionId, transcript, Math.round(duration));
-      }
+      // Note: DB operations extracted to SpeechRuntimeController
 
       const stats = calculateTranscriptStats([{ transcript }], [], '', duration);
 
@@ -516,7 +512,7 @@ export default class TranscriptionService {
       useSessionStore.getState().setActiveEngine(null);
       this.modelLoadingProgress = null;
       useSessionStore.getState().setModelLoadingProgress(null);
-      document.body.removeAttribute('data-download-progress');
+      // Note: document.body.removeAttribute('data-download-progress') extracted to UI
 
       return { success: true, transcript, stats };
     } catch (error) {
@@ -669,8 +665,6 @@ export default class TranscriptionService {
     this.fsm.reset();
 
     this.modelLoadingProgress = null;
-    document.body.removeAttribute('data-stt-policy');
-    document.body.removeAttribute('data-download-progress');
 
     if (this.downloadController) {
       this.downloadController.abort();
@@ -680,10 +674,6 @@ export default class TranscriptionService {
     // Clear engine reference (but we don't destroy it to save WASM load time)
     this.engine = null;
     this.mic = null;
-
-    if (typeof document !== 'undefined') {
-      document.body.removeAttribute('data-stt-policy');
-    }
 
     useSessionStore.getState().setModelLoadingProgress(null);
   }
@@ -697,7 +687,6 @@ export default class TranscriptionService {
     // Clear progress synchronously
     this.modelLoadingProgress = null;
     useSessionStore.getState().setModelLoadingProgress(null);
-    document.body.removeAttribute('data-download-progress');
 
     // Cancel the download if in flight
     if (this.downloadController) {
@@ -728,8 +717,15 @@ export default class TranscriptionService {
 
     const timeout = explicitTimeout ?? this.getLoadTimeout();
 
+    if (this.fallbackTimer) {
+      clearTimeout(this.fallbackTimer);
+    }
+
     logger.info(`[STT] Fallback timer started: ${timeout}ms`);
     this.fallbackTimer = setTimeout(() => {
+      // ✅ RESILIENCE: Before actually doing the fallback logic, double check
+      // if the initPromise resolved or mode changed.
+      // And we mark timerFired.
       this.timerFired = true;
       logger.warn('[STT] Private engine timeout. Falling back to Native Browser STT.');
       this.fallbackToNative();
@@ -992,64 +988,13 @@ export default class TranscriptionService {
     }
   }
 
-  /**
-   * Phase 2: DB Session Management
-   */
-  private async initDbSession(mode: string): Promise<void> {
-    if (!this.options.session?.user?.id) return;
+  public getStartTime(): number | null { return this.startTime; }
+  public getIdempotencyKey(): string | null { return this.idempotencyKey; }
+  public getMetadata() { return this.metadata; }
 
-    try {
-      const sessionData = {
-        user_id: this.options.session.user.id,
-        title: `Session ${new Date().toLocaleString()}`,
-        duration: 0,
-        transcript: ' ',
-        total_words: 0,
-        engine: mode
-      };
+  // Expose these for tests/runtime controller if needed
+  public setSessionId(id: string | null) { this.sessionId = id; }
 
-      logger.info({ userId: sessionData.user_id, idempotencyKey: this.idempotencyKey }, '[TranscriptionService] Attempting to create DB session');
-      const { session, usageExceeded } = await saveSession(
-        sessionData as Partial<PracticeSession> & { user_id: string },
-        { subscription_status: 'free' } as UserProfile,
-        mode,
-        this.idempotencyKey!,
-        this.metadata!
-      );
-
-      if (usageExceeded) {
-        throw new Error('Usage limit exceeded');
-      }
-
-      // Guard: Only start heartbeat if we haven't stopped in the meantime
-      if (session && (this.fsm.is('RECORDING') || this.fsm.is('ENGINE_INITIALIZING'))) {
-        this.sessionId = session.id;
-        logger.info({ sessionId: this.sessionId }, '[TranscriptionService] DB Session initialized successfully');
-        this.startHeartbeat();
-      } else {
-        logger.warn({ hasSession: !!session, state: this.fsm.getState() }, '[TranscriptionService] Session created but guard blocked assignment');
-      }
-    } catch (err) {
-      logger.error({ err }, '[TranscriptionService] Failed to initialize DB session');
-      this.fsm.transition({ type: 'ERROR_OCCURRED', error: err as Error });
-      throw err;
-    }
-  }
-
-  private startHeartbeat(): void {
-    this.stopHeartbeat();
-    this.heartbeatInterval = setInterval(async () => {
-      if (!this.sessionId || !this.fsm.is('RECORDING')) return;
-
-      await heartbeatSession(this.sessionId, Math.round(this.HEARTBEAT_PERIOD_MS / 1000));
-    }, this.HEARTBEAT_PERIOD_MS);
-  }
-
-  private stopHeartbeat(): void {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-  }
+  // Note: DB Session management has been extracted to SpeechRuntimeController
 }
 

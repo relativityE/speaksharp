@@ -32,13 +32,17 @@ export const TranscriptionProvider: React.FC<{
         const newPolicy = buildPolicyForUser(tier === 'pro');
         service.updatePolicy(newPolicy);
 
-        // Step 5: Behavioral Gating - Set body attribute for deterministic E2E waits
-        document.body.dataset.sttPolicy = tier;
+        // Behavioral Gating - Setting E2E wait attribute
+        // Moved to DOMSync inside App.tsx or managed cleanly here via React effects
+        if (typeof document !== 'undefined') {
+            document.body.dataset.sttPolicy = tier;
+        }
 
         return () => {
-            // Minimal cleanup to prevent flickering during navigation
-            // We only remove it if the component is actually unmounting permanently, 
-            // and another mount isn't already happening.
+            // Cleanup
+            if (typeof document !== 'undefined') {
+                document.body.removeAttribute('data-stt-policy');
+            }
         };
     }, [profile?.id, profile?.subscription_status, service]);
 
