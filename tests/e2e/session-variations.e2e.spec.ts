@@ -3,7 +3,7 @@ import { navigateToRoute } from './helpers';
 
 test.describe('Session Variations', () => {
 
-    test('Journey 4 & 5: Switch STT Modes', async ({ freePage: page }) => {
+    test('Journey 4 & 5: Switch STT Modes', async ({ proPage: page }) => {
         await navigateToRoute(page, '/session');
 
         // The mode selector is a DropdownMenu button next to "Live Recording"
@@ -16,25 +16,28 @@ test.describe('Session Variations', () => {
 
         // Open dropdown
         await modeButton.click();
+        await expect(page.getByTestId('stt-mode-cloud').first()).toBeVisible();
 
         // Switch to Cloud
-        await page.getByRole('menuitemradio', { name: /Cloud/ }).click();
+        await page.getByTestId('stt-mode-cloud').first().click();
         await expect(modeButton).toHaveAttribute('data-state', 'cloud');
 
         // Open dropdown again
         await modeButton.click();
+        await expect(page.getByTestId('stt-mode-private').first()).toBeVisible();
 
         // Switch to Private
-        await page.getByRole('menuitemradio', { name: /Private/ }).click();
+        await page.getByTestId('stt-mode-private').first().click();
         await expect(modeButton).toHaveAttribute('data-state', 'private');
 
         // Switch back to Native
         await modeButton.click();
-        await page.getByRole('menuitemradio', { name: /Native/ }).click();
+        await expect(page.getByTestId('stt-mode-native').first()).toBeVisible();
+        await page.getByTestId('stt-mode-native').first().click();
         await expect(modeButton).toHaveAttribute('data-state', 'native');
     });
 
-    test('Journey 6: User Word Management', async ({ freePage: page }) => {
+    test('Journey 6: User Word Management', async ({ proPage: page }) => {
         await navigateToRoute(page, '/session');
 
         // User Word management is now in a popover opened by the badge list action

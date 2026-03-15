@@ -87,23 +87,27 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         await userPage.keyboard.press('Escape'); // Close settings
 
         // 5. Ensure Native Mode is selected
-        const modeTrigger = userPage.getByTestId('transcription-mode-trigger');
+        const modeTrigger = userPage.getByTestId('stt-mode-select');
         if (await modeTrigger.isVisible()) {
             const currentMode = await modeTrigger.textContent();
             if (!currentMode?.includes('Native')) {
                 await modeTrigger.click();
-                await userPage.getByRole('menuitemradio', { name: /Native/i }).click();
+                await userPage.getByTestId('stt-mode-native').click();
             }
         }
 
         // 6. Start Session (Native Mode) and Wait for Bridge Ready
-        // Use Promise.all to setup listener BEFORE triggering the action that causes the event
-        await Promise.all([
-            waitForE2EEvent(userPage, 'e2e:speech-recognition-ready'),
-            userPage.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click()
-        ]);
+        // 6. Start Session (Native Mode)
+        await userPage.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON).click();
 
+        // Wait for recording to be active
         await expect(userPage.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toHaveAttribute('data-recording', 'true', { timeout: 10000 });
+
+        // Evaluate to ensure speech recognition has been registered on window by the engine
+        await userPage.waitForFunction(() => {
+            const win = window as any;
+            return win.dispatchMockTranscript !== undefined;
+        }, null, { timeout: 10000 });
 
         // 6. Inject Transcript containing the custom word "detectiontest"
         await mockLiveTranscript(userPage, ['This is a detectiontest for antigravity.']);
