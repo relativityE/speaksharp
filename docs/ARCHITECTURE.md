@@ -250,7 +250,8 @@ SpeakSharp is built on a modern, serverless technology stack designed for real-t
 *   **Third-Party Services:**
     *   **Cloud Transcription:** AssemblyAI (v3 Streaming API)
     *   **AI Coaching:** Google Gemini 3.0 Flash (via `get-ai-suggestions`)
-    *   **Payments:** Stripe
+    *   **Payments:** Stripe (Optimized: Atomic Postgres RPC `process_stripe_webhook_event` for idempotency and usage state updates).
+    *   **PDF Parsing:** optimized via `Promise.all` concurrency (~90% latency reduction).
     *   **Error Reporting:** Sentry
     *   **Product Analytics:** PostHog (New: 2025-12-07)
 

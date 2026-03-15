@@ -180,6 +180,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
 
       // ✅ EXPLICIT READINESS SIGNAL FOR TESTS
       if (typeof window !== 'undefined' && window.dispatchEvent) {
+        (window as any)['__e2e_stt-engine-ready_fired__'] = true;
         window.dispatchEvent(new CustomEvent('stt-engine-ready'));
       }
 

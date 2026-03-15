@@ -75,6 +75,7 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
             // Signal E2E even for synthetic profiles
             if (typeof window !== 'undefined' && (window.__E2E_CONTEXT__ || window.TEST_MODE)) {
               window.__e2eProfileLoaded__ = true;
+              (window as any)['__e2e_e2e:profile-loaded_fired__'] = true;
               window.dispatchEvent(new CustomEvent('e2e:profile-loaded'));
             }
 
@@ -99,6 +100,7 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
 
         if (typeof window !== 'undefined' && (isE2E || import.meta.env.MODE === 'test')) {
           window.__e2eProfileLoaded__ = true;
+          (window as any)['__e2e_e2e:profile-loaded_fired__'] = true;
           window.dispatchEvent(new CustomEvent('e2e:profile-loaded'));
           logger.debug('[E2E Signal] Profile loaded');
         }

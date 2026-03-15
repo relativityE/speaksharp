@@ -87,10 +87,10 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         await userPage.keyboard.press('Escape'); // Close settings
 
         // 5. Ensure Native Mode is selected
-        const modeTrigger = userPage.getByTestId('transcription-mode-trigger');
+        const modeTrigger = userPage.getByTestId(TEST_IDS.STT_MODE_SELECT);
         if (await modeTrigger.isVisible()) {
-            const currentMode = await modeTrigger.textContent();
-            if (!currentMode?.includes('Native')) {
+            const currentMode = await modeTrigger.getAttribute('data-state');
+            if (currentMode !== 'native') {
                 await modeTrigger.click();
                 await userPage.getByRole('menuitemradio', { name: /Native/i }).click();
             }

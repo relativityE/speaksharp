@@ -100,10 +100,17 @@ export const initializeE2EEnvironment = async (): Promise<void> => {
 };
 
 /**
- * Dispatches a custom event for E2E test synchronization
+ * Dispatches a custom event for E2E test synchronization.
+ * Also sets a global flag to allow Playwright's waitForFunction to detect the event
+ * even if it fires between poll intervals ("Sticky Flag Pattern").
  */
 export const dispatchE2EEvent = (eventName: string, detail: unknown = {}) => {
     logger.info({ eventName, detail }, '[E2E Bridge] Dispatching event');
+    
+    // Set sticky flag BEFORE dispatching — this ensures once fired, it's always detectable
+    const flagKey = `__e2e_${eventName}_fired__`;
+    (window as unknown as Record<string, boolean>)[flagKey] = true;
+    
     window.dispatchEvent(new CustomEvent(eventName, { detail }));
 };
 

@@ -173,7 +173,9 @@ export default class NativeBrowser implements ITranscriptionEngine {
 
     if (IS_TEST_ENVIRONMENT || win.dispatchMockTranscript) {
       win.__activeSpeechRecognition = this.recognition;
-      // Signal ready state for tests to avoid race conditions
+      // Signal ready state for tests to avoid race conditions via "Sticky Flag"
+      // we don't import e2e-bridge to production to keep bundles clean.
+      (win as unknown as Record<string, boolean>)['__e2e_e2e:speech-recognition-ready_fired__'] = true;
       window.dispatchEvent(new CustomEvent('e2e:speech-recognition-ready'));
     }
 

@@ -1,13 +1,17 @@
 import { test, expect } from './fixtures';
 import { navigateToRoute } from './helpers';
+import { TEST_IDS } from '../constants';
 
 test.describe('Session Variations', () => {
 
     test('Journey 4 & 5: Switch STT Modes', async ({ proPage: page }) => {
         await navigateToRoute(page, '/session');
 
+        // Wait for profile to settle to ensure Pro features (Cloud/Private) are enabled
+        await page.waitForFunction(() => (window as any).__e2eProfileLoaded__ === true, { timeout: 30000 });
+
         // The mode selector is a DropdownMenu button next to "Live Recording"
-        const modeButton = page.getByTestId('stt-mode-select');
+        const modeButton = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
 
         await modeButton.waitFor({ state: 'visible', timeout: 5000 });
 
@@ -18,19 +22,19 @@ test.describe('Session Variations', () => {
         await modeButton.click();
 
         // Switch to Cloud
-        await page.getByRole('menuitemradio', { name: /Cloud/ }).click();
+        await page.getByTestId(TEST_IDS.STT_MODE_CLOUD).click();
         await expect(modeButton).toHaveAttribute('data-state', 'cloud');
 
         // Open dropdown again
         await modeButton.click();
 
         // Switch to Private
-        await page.getByRole('menuitemradio', { name: /Private/ }).click();
+        await page.getByTestId(TEST_IDS.STT_MODE_PRIVATE).click();
         await expect(modeButton).toHaveAttribute('data-state', 'private');
 
         // Switch back to Native
         await modeButton.click();
-        await page.getByRole('menuitemradio', { name: /Native/ }).click();
+        await page.getByTestId(TEST_IDS.STT_MODE_NATIVE).click();
         await expect(modeButton).toHaveAttribute('data-state', 'native');
     });
 
