@@ -3,7 +3,7 @@ import { navigateToRoute } from './helpers';
 
 test.describe('Session Variations', () => {
 
-    test('Journey 4 & 5: Switch STT Modes', async ({ freePage: page }) => {
+    test('Journey 4 & 5: Switch STT Modes', async ({ proPage: page }) => {
         await navigateToRoute(page, '/session');
 
         // The mode selector is a DropdownMenu button next to "Live Recording"

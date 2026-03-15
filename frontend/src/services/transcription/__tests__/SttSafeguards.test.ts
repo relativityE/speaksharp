@@ -40,7 +40,7 @@ vi.mock('../EngineFactory', () => ({
 }));
 
 
-describe('Phase 2 Safeguards Unit Tests', () => {
+describe('STT Safeguards Unit Tests', () => {
     let service: TranscriptionService;
     const mockMic = { stop: vi.fn(), onFrame: () => () => { } } as unknown as MicStream;
 
