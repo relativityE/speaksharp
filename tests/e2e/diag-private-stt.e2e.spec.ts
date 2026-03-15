@@ -46,7 +46,7 @@ test.describe('Diagnostic Private STT', () => {
         }`);
 
         await navigateToRoute(page, '/session');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await page.waitForSelector('[data-testid="nav-sign-out-button"]');
 
         // Check profile state in window
         const profileState = await page.evaluate(() => {

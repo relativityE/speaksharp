@@ -39,7 +39,7 @@ test.describe('Private STT (Whisper)', () => {
         await expect(page.locator('body')).toHaveAttribute('data-stt-policy', 'pro', { timeout: 8000 });
 
         await navigateToRoute(page, '/session');
-        await page.waitForSelector('[data-testid="app-main"]');
+        await page.waitForSelector('[data-testid="nav-sign-out-button"]');
 
         await page.evaluate(() => {
             const service = (window as unknown as { __TRANSCRIPTION_SERVICE__: { getPolicy: () => { allowFallback: boolean }; updatePolicy: (p: { allowFallback?: boolean }) => void } }).__TRANSCRIPTION_SERVICE__;

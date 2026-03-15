@@ -4,7 +4,7 @@ import { navigateToRoute } from './helpers';
 test.describe('User Tier Flows', () => {
   test('should not show the upgrade banner for a pro user', async ({ proPage: page }) => {
     // Wait for the app to be fully loaded
-    await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
 
     await navigateToRoute(page, '/analytics');
     // Behavioral check

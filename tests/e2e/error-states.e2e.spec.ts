@@ -17,7 +17,7 @@ test.describe('Error State Handling', () => {
             await navigateToRoute(userPage, '/session');
 
             // App should load with session UI elements
-            await expect(userPage.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
+            await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
 
             // Start button should be present
             const startButton = userPage.getByTestId('session-start-stop-button');
@@ -29,7 +29,7 @@ test.describe('Error State Handling', () => {
         test('should remain functional after clicking start in mock mode', async ({ userPage }) => {
             await navigateToRoute(userPage, '/session');
 
-            await expect(userPage.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
+            await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
 
             // Try to start session (using mock session mode)
             const startButton = userPage.getByTestId('session-start-stop-button');
@@ -40,7 +40,7 @@ test.describe('Error State Handling', () => {
                 await userPage.waitForTimeout(2000);
 
                 // App should remain functional
-                await expect(userPage.getByTestId('app-main')).toBeVisible();
+                await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible();
             }
 
             debugLog('[TEST] ✅ Session interaction handled gracefully');
@@ -57,7 +57,7 @@ test.describe('Error State Handling', () => {
             await navigateToRoute(userPage, '/session');
 
             // App should remain functional despite token fetch failure
-            await expect(userPage.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
+            await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15000 });
 
             // Session page should still show UI
             const startButton = userPage.getByTestId('session-start-stop-button');
