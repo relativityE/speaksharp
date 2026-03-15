@@ -74,3 +74,4 @@ Thumbs.db
 # --- Media & Production ---
 video-production/README.md
 !video-production/
+frontend/coverage/
