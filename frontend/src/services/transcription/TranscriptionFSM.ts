@@ -122,7 +122,6 @@ export class TranscriptionFSM {
         const previousState = this.currentState;
         this.currentState = validTransition.to;
 
-        console.log(`[RACE-DEBUG] ${Date.now()} FSM transition: ${previousState} -> ${this.currentState} (Event: ${event.type})`);
         logger.info({
             from: previousState,
             to: this.currentState,

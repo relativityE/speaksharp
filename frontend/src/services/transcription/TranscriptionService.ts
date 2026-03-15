@@ -26,7 +26,6 @@ import {
 } from './errors';
 import { TestFlags } from '../../config/TestFlags';
 import { IS_TEST_ENVIRONMENT } from '../../config/env';
-import { saveSession, heartbeatSession, completeSession } from '../../lib/storage';
 import { getE2EConfig } from '../../../../tests/types/e2eConfig';
 
 declare global {
@@ -109,6 +108,13 @@ export default class TranscriptionService {
   private initPromise: Promise<void> | null = null;
   private privateModelReady: boolean = false;
 
+  // Handlers populated via injection
+  private dbHandlers?: {
+     initDbSession: (mode: string, idempotencyKey: string, metadata: unknown) => Promise<string | null>;
+     heartbeatSession: (sessionId: string) => Promise<void>;
+     completeSession: (sessionId: string, transcript: string, duration: number) => Promise<void>;
+  };
+
   constructor(options: Partial<TranscriptionServiceOptions> = {}) {
     this.serviceId = Math.random().toString(36).substring(7);
     this.fsm = new TranscriptionFSM();
@@ -143,6 +149,10 @@ export default class TranscriptionService {
 
     // Initialize Proxy for stable callback references in modes
     this.callbackProxy = new ImmutableCallbackProxy(this.getProxyOptions());
+  }
+
+  public setDbHandlers(handlers: TranscriptionService['dbHandlers']): void {
+      this.dbHandlers = handlers;
   }
 
   /**
@@ -214,6 +224,11 @@ export default class TranscriptionService {
           this.handleStateChange(this.fsm.getState());
         }
         this.cleanupInitResources();
+        // Clear fallback timer explicitly on success to prevent race condition
+        if (this.fallbackTimer) {
+          clearTimeout(this.fallbackTimer);
+          this.fallbackTimer = null;
+        }
         logger.info({ mode }, '[TranscriptionService] Engine init completed cleanly');
       })
       .catch((error: Error) => {
@@ -400,7 +415,14 @@ export default class TranscriptionService {
                   reject(new Error('Optimistic entry timeout'));
                 }
               }, 50);
-              initPromise.finally(() => clearInterval(checkTimer)).catch(() => { /* Sealed */ });
+              // Clean up interval when initPromise resolves or rejects
+              initPromise.finally(() => {
+                clearInterval(checkTimer);
+                if (this.fallbackTimer) {
+                   clearTimeout(this.fallbackTimer);
+                   this.fallbackTimer = null;
+                }
+              }).catch(() => { /* Sealed */ });
             });
 
             logger.debug({ mode }, '[TranscriptionService] Starting Promise.race');
@@ -453,8 +475,18 @@ export default class TranscriptionService {
       this.options.onModeChange?.(mode);
       useSessionStore.getState().setActiveEngine(mode);
 
-      // PHASE 2 SESSION START: Atomic RPC to create session and check usage
-      await this.initDbSession(mode);
+      // PHASE 2 SESSION START: Atomic RPC to create session and check usage via injected logic
+      if (this.dbHandlers && this.idempotencyKey) {
+          const newSessionId = await this.dbHandlers.initDbSession(mode, this.idempotencyKey, this.metadata);
+
+          // Guard: Only start heartbeat if we haven't stopped in the meantime
+          if (newSessionId && (this.fsm.is('RECORDING') || this.fsm.is('ENGINE_INITIALIZING'))) {
+              this.sessionId = newSessionId;
+              this.startHeartbeat();
+          } else {
+              logger.warn({ hasSession: !!newSessionId, state: this.fsm.getState() }, '[TranscriptionService] Session created but guard blocked assignment');
+          }
+      }
 
       // FSM Transition Guarding: Ensure we are still in INITIALIZING before moving to RECORDING.
       // If a timeout or error occurred during the await above, the state will have changed.
@@ -505,9 +537,9 @@ export default class TranscriptionService {
 
       const duration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
 
-      // ✅ PHASE 2 SESSION COMPLETION: Finalize in DB
-      if (this.sessionId) {
-        await completeSession(this.sessionId, transcript, Math.round(duration));
+      // ✅ PHASE 2 SESSION COMPLETION: Finalize in DB via injected logic
+      if (this.sessionId && this.dbHandlers) {
+        await this.dbHandlers.completeSession(this.sessionId, transcript, Math.round(duration));
       }
 
       const stats = calculateTranscriptStats([{ transcript }], [], '', duration);
@@ -516,7 +548,6 @@ export default class TranscriptionService {
       useSessionStore.getState().setActiveEngine(null);
       this.modelLoadingProgress = null;
       useSessionStore.getState().setModelLoadingProgress(null);
-      document.body.removeAttribute('data-download-progress');
 
       return { success: true, transcript, stats };
     } catch (error) {
@@ -669,8 +700,6 @@ export default class TranscriptionService {
     this.fsm.reset();
 
     this.modelLoadingProgress = null;
-    document.body.removeAttribute('data-stt-policy');
-    document.body.removeAttribute('data-download-progress');
 
     if (this.downloadController) {
       this.downloadController.abort();
@@ -680,10 +709,6 @@ export default class TranscriptionService {
     // Clear engine reference (but we don't destroy it to save WASM load time)
     this.engine = null;
     this.mic = null;
-
-    if (typeof document !== 'undefined') {
-      document.body.removeAttribute('data-stt-policy');
-    }
 
     useSessionStore.getState().setModelLoadingProgress(null);
   }
@@ -697,7 +722,6 @@ export default class TranscriptionService {
     // Clear progress synchronously
     this.modelLoadingProgress = null;
     useSessionStore.getState().setModelLoadingProgress(null);
-    document.body.removeAttribute('data-download-progress');
 
     // Cancel the download if in flight
     if (this.downloadController) {
@@ -992,56 +1016,13 @@ export default class TranscriptionService {
     }
   }
 
-  /**
-   * Phase 2: DB Session Management
-   */
-  private async initDbSession(mode: string): Promise<void> {
-    if (!this.options.session?.user?.id) return;
-
-    try {
-      const sessionData = {
-        user_id: this.options.session.user.id,
-        title: `Session ${new Date().toLocaleString()}`,
-        duration: 0,
-        transcript: ' ',
-        total_words: 0,
-        engine: mode
-      };
-
-      logger.info({ userId: sessionData.user_id, idempotencyKey: this.idempotencyKey }, '[TranscriptionService] Attempting to create DB session');
-      const { session, usageExceeded } = await saveSession(
-        sessionData as Partial<PracticeSession> & { user_id: string },
-        { subscription_status: 'free' } as UserProfile,
-        mode,
-        this.idempotencyKey!,
-        this.metadata!
-      );
-
-      if (usageExceeded) {
-        throw new Error('Usage limit exceeded');
-      }
-
-      // Guard: Only start heartbeat if we haven't stopped in the meantime
-      if (session && (this.fsm.is('RECORDING') || this.fsm.is('ENGINE_INITIALIZING'))) {
-        this.sessionId = session.id;
-        logger.info({ sessionId: this.sessionId }, '[TranscriptionService] DB Session initialized successfully');
-        this.startHeartbeat();
-      } else {
-        logger.warn({ hasSession: !!session, state: this.fsm.getState() }, '[TranscriptionService] Session created but guard blocked assignment');
-      }
-    } catch (err) {
-      logger.error({ err }, '[TranscriptionService] Failed to initialize DB session');
-      this.fsm.transition({ type: 'ERROR_OCCURRED', error: err as Error });
-      throw err;
-    }
-  }
-
   private startHeartbeat(): void {
     this.stopHeartbeat();
     this.heartbeatInterval = setInterval(async () => {
       if (!this.sessionId || !this.fsm.is('RECORDING')) return;
-
-      await heartbeatSession(this.sessionId, Math.round(this.HEARTBEAT_PERIOD_MS / 1000));
+      if (this.dbHandlers) {
+          await this.dbHandlers.heartbeatSession(this.sessionId);
+      }
     }, this.HEARTBEAT_PERIOD_MS);
   }
 
