@@ -40,6 +40,28 @@ const App: React.FC = () => {
     });
   }, []);
 
+  // Handle DOM synchronization for E2E testing based on global state
+  useEffect(() => {
+    const handleEngineReady = () => {
+      document.body.dataset.sttEngine = 'ready';
+    };
+
+    const handleSpeechRuntimeState = (event: Event) => {
+      const customEvent = event as CustomEvent<{ state: string }>;
+      document.body.setAttribute('data-recording-state', customEvent.detail.state.toLowerCase());
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('stt-engine-ready', handleEngineReady);
+      window.addEventListener('speech-runtime-state', handleSpeechRuntimeState);
+
+      return () => {
+        window.removeEventListener('stt-engine-ready', handleEngineReady);
+        window.removeEventListener('speech-runtime-state', handleSpeechRuntimeState);
+      };
+    }
+  }, []);
+
   // Handle Checkout Notifications (extracted hook)
   useCheckoutNotifications();
 

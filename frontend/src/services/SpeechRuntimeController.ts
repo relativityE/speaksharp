@@ -2,6 +2,9 @@
 import logger from '../lib/logger';
 import { getTranscriptionService } from './transcription/TranscriptionService';
 import { useReadinessStore } from '../stores/useReadinessStore';
+import { saveSession, completeSession, heartbeatSession } from '../lib/storage';
+import { useSessionStore } from '../stores/useSessionStore';
+import { getSupabaseClient } from '../lib/supabaseClient';
 
 export type RuntimeState =
     | 'IDLE'
@@ -22,6 +25,8 @@ class SpeechRuntimeController {
     private state: RuntimeState = 'IDLE';
     private initialized: boolean = false;
     private commandQueue: Promise<void> = Promise.resolve();
+    private heartbeatInterval: NodeJS.Timeout | null = null;
+    private readonly HEARTBEAT_PERIOD_MS = 30000;
 
     private constructor() { }
 
@@ -65,9 +70,9 @@ class SpeechRuntimeController {
         logger.info(`[SpeechRuntimeController] FSM: ${this.state} -> ${newState}`);
         this.state = newState;
         
-        // Expose to DOM for Playwright gating
-        if (typeof document !== 'undefined') {
-            document.body.setAttribute('data-recording-state', newState.toLowerCase());
+        // Broadcast custom event instead of direct DOM mutation
+        if (typeof window !== 'undefined' && window.dispatchEvent) {
+            window.dispatchEvent(new CustomEvent('speech-runtime-state', { detail: { state: newState } }));
         }
     }
 
@@ -110,12 +115,69 @@ class SpeechRuntimeController {
             this.transition('RECORDING');
             try {
                 await service.startTranscription();
+
+                // DB Session Initialization (Moved from TranscriptionService)
+                const supabase = getSupabaseClient();
+                const { data: { session } } = await supabase.auth.getSession();
+                const userId = session?.user?.id;
+
+                if (userId) {
+                    const mode = service.getMode() || 'unknown';
+                    const idempotencyKey = service.getIdempotencyKey() || crypto.randomUUID();
+                    const metadata = service.getMetadata() || { engineVersion: 'unknown', modelName: 'unknown', deviceType: 'unknown' };
+
+                    const sessionData = {
+                        user_id: userId,
+                        title: `Session ${new Date().toLocaleString()}`,
+                        duration: 0,
+                        transcript: ' ',
+                        total_words: 0,
+                        engine: mode
+                    };
+
+                    logger.info({ userId, idempotencyKey }, '[SpeechRuntimeController] Attempting to create DB session');
+                    const { session: dbSession, usageExceeded } = await saveSession(
+                        sessionData as any,
+                        { subscription_status: 'free' } as any, // TODO: Pull real profile from store if needed
+                        mode,
+                        idempotencyKey,
+                        metadata
+                    );
+
+                    if (usageExceeded) {
+                        throw new Error('Usage limit exceeded');
+                    }
+
+                    if (dbSession && (service.getState() === 'RECORDING' || service.getState() === 'ENGINE_INITIALIZING')) {
+                        service.setSessionId(dbSession.id);
+                        logger.info({ sessionId: dbSession.id }, '[SpeechRuntimeController] DB Session initialized successfully');
+                        this.startHeartbeat(dbSession.id, service);
+                    } else {
+                        logger.warn({ hasSession: !!dbSession, state: service.getState() }, '[SpeechRuntimeController] Session created but guard blocked assignment');
+                    }
+                }
             } catch (error) {
                 logger.error({ error }, '[SpeechRuntimeController] ❌ startTranscription failed');
                 this.transition('FAILED');
                 throw error;
             }
         });
+    }
+
+    private startHeartbeat(sessionId: string, service: any): void {
+        this.stopHeartbeat();
+        this.heartbeatInterval = setInterval(async () => {
+            if (!sessionId || service.getState() !== 'RECORDING') return;
+
+            await heartbeatSession(sessionId, Math.round(this.HEARTBEAT_PERIOD_MS / 1000));
+        }, this.HEARTBEAT_PERIOD_MS);
+    }
+
+    private stopHeartbeat(): void {
+        if (this.heartbeatInterval) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+        }
     }
 
     /**
@@ -130,8 +192,18 @@ class SpeechRuntimeController {
 
             this.transition('STOPPING');
             try {
+                this.stopHeartbeat();
                 const service = getTranscriptionService();
+                const sessionId = service.getSessionId();
+                const startTime = service.getStartTime();
+
                 const result = await service.stopTranscription();
+
+                if (result && result.success && sessionId) {
+                    const duration = startTime ? (Date.now() - startTime) / 1000 : 0;
+                    await completeSession(sessionId, result.transcript, Math.round(duration));
+                }
+
                 this.transition('READY');
                 return result;
             } catch (error) {

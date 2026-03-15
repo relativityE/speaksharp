@@ -133,7 +133,6 @@ export default class PrivateWhisper implements ITranscriptionEngine {
     logger.info('[PrivateWhisper] 🔄 init() START - Dual-Engine Mode');
     logger.info('[PrivateWhisper] Initializing PrivateSTT facade...');
     this.status = 'loading';
-    document.body.removeAttribute('data-stt-engine'); // Reset signal
 
     try {
       // Trigger initial progress
@@ -180,7 +179,9 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       logger.info(`[PrivateWhisper] Model ready! Using ${this.engineType === 'whisper-turbo' ? 'GPU acceleration' : 'CPU mode'}.`);
 
       // ✅ EXPLICIT READINESS SIGNAL FOR TESTS
-      document.body.dataset.sttEngine = 'ready';
+      if (typeof window !== 'undefined' && window.dispatchEvent) {
+        window.dispatchEvent(new CustomEvent('stt-engine-ready'));
+      }
 
       // Notify that the service is ready
       if (this.onReady) {

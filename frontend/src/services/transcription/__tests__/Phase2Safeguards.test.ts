@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import TranscriptionService from '../TranscriptionService';
+import { speechRuntimeController } from '../../SpeechRuntimeController';
+import TranscriptionService, { resetTranscriptionService, getTranscriptionService } from '../TranscriptionService';
 import { TranscriptionPolicy, TranscriptionMode } from '../TranscriptionPolicy';
 import { MicStream } from '../utils/types';
 import { PracticeSession } from '../../../types/session';
@@ -22,6 +23,15 @@ vi.mock('../../../lib/storage', () => ({
     heartbeatSession: vi.fn(),
     completeSession: vi.fn(),
 }));
+
+vi.mock('../../../lib/supabaseClient', () => ({
+    getSupabaseClient: vi.fn().mockReturnValue({
+        auth: {
+            getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: 'user-123' } } } })
+        }
+    })
+}));
+
 
 // Mock EngineFactory - using the factory function to avoid reference errors
 vi.mock('../EngineFactory', () => ({
@@ -49,8 +59,8 @@ describe('Phase 2 Safeguards Unit Tests', () => {
         vi.clearAllMocks();
         vi.useFakeTimers();
 
-        // Create a NEW service instance for EVERY test to prevent state pollution
-        service = new TranscriptionService({
+        resetTranscriptionService();
+        service = getTranscriptionService({
             policy: basePolicy,
             session: { user: { id: 'user-123' } } as unknown as Parameters<typeof TranscriptionService.prototype['updateCallbacks']>[0]['session'],
         });
@@ -59,8 +69,10 @@ describe('Phase 2 Safeguards Unit Tests', () => {
         (service as unknown as { mic: MicStream }).mic = mockMic;
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         vi.useRealTimers();
+        await speechRuntimeController.reset();
+        resetTranscriptionService();
     });
 
     it('should generate an idempotency key and create a session at start', async () => {
@@ -70,12 +82,13 @@ describe('Phase 2 Safeguards Unit Tests', () => {
             usageExceeded: false
         });
 
+        await speechRuntimeController.initialize();
         await service.init();
-        await service.startTranscription();
+        await speechRuntimeController.startRecording();
 
         // Wait for sessionId to be set (async RPC)
         await vi.waitFor(() => {
-            if ((service as unknown as { sessionId: string }).sessionId) return;
+            if (service.getSessionId()) return;
             throw new Error('Session not set');
         });
 
@@ -96,11 +109,12 @@ describe('Phase 2 Safeguards Unit Tests', () => {
             usageExceeded: false
         });
 
+        await speechRuntimeController.initialize();
         await service.init();
-        await service.startTranscription();
+        await speechRuntimeController.startRecording();
 
         await vi.waitFor(() => {
-            if ((service as unknown as { sessionId: string }).sessionId) return;
+            if (service.getSessionId()) return;
             throw new Error('Session not set');
         });
 
@@ -119,18 +133,19 @@ describe('Phase 2 Safeguards Unit Tests', () => {
             usageExceeded: false
         });
 
+        await speechRuntimeController.initialize();
         await service.init();
-        await service.startTranscription();
+        await speechRuntimeController.startRecording();
 
         await vi.waitFor(() => {
-            if ((service as unknown as { sessionId: string }).sessionId) return;
+            if (service.getSessionId()) return;
             throw new Error('Session not set');
         });
 
         // Wait at least MIN_RECORDING_DURATION_MS (5000ms) to allow stopping
         await vi.advanceTimersByTimeAsync(6000);
 
-        await service.stopTranscription();
+        await speechRuntimeController.stopRecording();
 
         expect(mockComplete).toHaveBeenCalledWith(
             'sess-123',
@@ -138,7 +153,7 @@ describe('Phase 2 Safeguards Unit Tests', () => {
             expect.any(Number)
         );
 
-        expect((service as unknown as { heartbeatInterval: unknown }).heartbeatInterval).toBeNull();
+        expect((speechRuntimeController as unknown as { heartbeatInterval: unknown }).heartbeatInterval).toBeNull();
     });
 
     it('should verify idempotency key is passed to storage', async () => {
@@ -148,8 +163,11 @@ describe('Phase 2 Safeguards Unit Tests', () => {
             usageExceeded: false
         });
 
-        await service.startTranscription();
-        const key = (service as unknown as { idempotencyKey: string }).idempotencyKey;
+        await speechRuntimeController.initialize();
+        await service.init();
+        await speechRuntimeController.startRecording();
+
+        const key = service.getIdempotencyKey();
 
         expect(key).toBeTruthy();
         expect(mockSaveSession).toHaveBeenCalledWith(
