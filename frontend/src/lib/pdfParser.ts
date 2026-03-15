@@ -15,16 +15,17 @@ export const extractTextFromPdf = async (file: File): Promise<string> => {
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
     const pdf = await loadingTask.promise;
 
-    let fullText = '';
-
-    for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
+    const pagePromises = Array.from({ length: pdf.numPages }, async (_, i) => {
+        const pageNum = i + 1;
+        const page = await pdf.getPage(pageNum);
         const textContent = await page.getTextContent();
-        const pageText = textContent.items
+        return textContent.items
             .map((item) => ('str' in item ? (item as { str: string }).str : ''))
             .join(' ');
-        fullText += pageText + '\n';
-    }
+    });
+
+    const pagesText = await Promise.all(pagePromises);
+    const fullText = pagesText.join('\n');
 
     return fullText.trim();
 };
