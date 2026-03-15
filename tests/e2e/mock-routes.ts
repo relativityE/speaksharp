@@ -470,8 +470,13 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
                 remaining_seconds: isPro ? -1 : 3600,
                 limit_seconds: isPro ? -1 : 3600,
                 used_seconds: 0,
-                userType: userType,
-                is_pro: isPro
+                daily_remaining: isPro ? -1 : 3600,
+                daily_limit: isPro ? -1 : 3600,
+                monthly_remaining: isPro ? -1 : 90000,
+                monthly_limit: isPro ? -1 : 90000,
+                subscription_status: userType,
+                is_pro: isPro,
+                streak_count: 0
             }),
         });
     });
