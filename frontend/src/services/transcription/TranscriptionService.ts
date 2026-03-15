@@ -26,7 +26,6 @@ import {
 } from './errors';
 import { TestFlags } from '../../config/TestFlags';
 import { IS_TEST_ENVIRONMENT } from '../../config/env';
-import { saveSession, heartbeatSession, completeSession } from '../../lib/storage';
 import { getE2EConfig } from '../../../../tests/types/e2eConfig';
 
 declare global {
@@ -109,6 +108,13 @@ export default class TranscriptionService {
   private initPromise: Promise<void> | null = null;
   private privateModelReady: boolean = false;
 
+  // Handlers populated via injection
+  private dbHandlers?: {
+     initDbSession: (mode: string, idempotencyKey: string, metadata: unknown) => Promise<string | null>;
+     heartbeatSession: (sessionId: string) => Promise<void>;
+     completeSession: (sessionId: string, transcript: string, duration: number) => Promise<void>;
+  };
+
   constructor(options: Partial<TranscriptionServiceOptions> = {}) {
     this.serviceId = Math.random().toString(36).substring(7);
     this.fsm = new TranscriptionFSM();
@@ -143,6 +149,10 @@ export default class TranscriptionService {
 
     // Initialize Proxy for stable callback references in modes
     this.callbackProxy = new ImmutableCallbackProxy(this.getProxyOptions());
+  }
+
+  public setDbHandlers(handlers: TranscriptionService['dbHandlers']): void {
+      this.dbHandlers = handlers;
   }
 
   /**
@@ -214,6 +224,11 @@ export default class TranscriptionService {
           this.handleStateChange(this.fsm.getState());
         }
         this.cleanupInitResources();
+        // Clear fallback timer explicitly on success to prevent race condition
+        if (this.fallbackTimer) {
+          clearTimeout(this.fallbackTimer);
+          this.fallbackTimer = null;
+        }
         logger.info({ mode }, '[TranscriptionService] Engine init completed cleanly');
       })
       .catch((error: Error) => {
@@ -410,6 +425,10 @@ export default class TranscriptionService {
                 }
               }).catch(() => {
                 clearInterval(checkTimer);
+                if (this.fallbackTimer) {
+                   clearTimeout(this.fallbackTimer);
+                   this.fallbackTimer = null;
+                }
               });
             });
 
@@ -463,7 +482,24 @@ export default class TranscriptionService {
       this.options.onModeChange?.(mode);
       useSessionStore.getState().setActiveEngine(mode);
 
-      // DB Session init has been extracted to SpeechRuntimeController
+      // PHASE 2 SESSION START: Atomic RPC to create session and check usage via injected logic
+      if (this.dbHandlers && this.idempotencyKey) {
+          const newSessionId = await this.dbHandlers.initDbSession(mode, this.idempotencyKey, this.metadata);
+
+          // Guard: Only start heartbeat if we haven't stopped in the meantime
+          if (newSessionId && (this.fsm.is('RECORDING') || this.fsm.is('ENGINE_INITIALIZING'))) {
+              this.sessionId = newSessionId;
+              this.startHeartbeat();
+          } else {
+              logger.warn({ hasSession: !!newSessionId, state: this.fsm.getState() }, '[TranscriptionService] Session created but guard blocked assignment');
+          }
+      }
+
+      // FSM Transition Guarding: Ensure we are still in INITIALIZING before moving to RECORDING.
+      if (!this.fsm.is('ENGINE_INITIALIZING')) {
+        logger.warn({ sId: this.serviceId, rId: this.runId, state: this.fsm.getState() }, '[TranscriptionService] ENGINE_STARTED rejected due to invalid state');
+        return;
+      }
 
       this.fsm.transition({ type: 'ENGINE_STARTED' });
     } catch (error: unknown) {
@@ -504,7 +540,10 @@ export default class TranscriptionService {
 
       const duration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
 
-      // Note: DB operations extracted to SpeechRuntimeController
+      // PHASE 2 SESSION COMPLETION: Finalize in DB via injected logic
+      if (this.sessionId && this.dbHandlers) {
+        await this.dbHandlers.completeSession(this.sessionId, transcript, Math.round(duration));
+      }
 
       const stats = calculateTranscriptStats([{ transcript }], [], '', duration);
 
@@ -995,6 +1034,21 @@ export default class TranscriptionService {
   // Expose these for tests/runtime controller if needed
   public setSessionId(id: string | null) { this.sessionId = id; }
 
-  // Note: DB Session management has been extracted to SpeechRuntimeController
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeatInterval = setInterval(async () => {
+      if (!this.sessionId || !this.fsm.is('RECORDING')) return;
+      if (this.dbHandlers) {
+          await this.dbHandlers.heartbeatSession(this.sessionId);
+      }
+    }, this.HEARTBEAT_PERIOD_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
 }
 

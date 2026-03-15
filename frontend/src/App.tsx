@@ -11,6 +11,7 @@ import { TranscriptionProvider } from './providers/TranscriptionProvider';
 import { AnimatePresence } from 'framer-motion';
 import { PageTransition } from './components/ui/PageTransition';
 import { useReadinessStore } from './stores/useReadinessStore';
+import { useSessionStore } from './stores/useSessionStore';
 
 // Lazy load pages for better performance
 const Index = React.lazy(() => import('./pages/Index'));
@@ -40,8 +41,11 @@ const App: React.FC = () => {
     });
   }, []);
 
-  // Handle DOM synchronization for E2E testing based on global state
+  // Handle DOM synchronization for E2E testing
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // 1. Unified Event Listeners (from #744)
     const handleEngineReady = () => {
       document.body.dataset.sttEngine = 'ready';
     };
@@ -51,15 +55,25 @@ const App: React.FC = () => {
       document.body.setAttribute('data-recording-state', customEvent.detail.state.toLowerCase());
     };
 
-    if (typeof window !== 'undefined') {
-      window.addEventListener('stt-engine-ready', handleEngineReady);
-      window.addEventListener('speech-runtime-state', handleSpeechRuntimeState);
+    window.addEventListener('stt-engine-ready', handleEngineReady);
+    window.addEventListener('speech-runtime-state', handleSpeechRuntimeState);
 
-      return () => {
-        window.removeEventListener('stt-engine-ready', handleEngineReady);
-        window.removeEventListener('speech-runtime-state', handleSpeechRuntimeState);
-      };
-    }
+    // 2. Reactive Store Subscription (from #742)
+    const unsub = useSessionStore.subscribe((state) => {
+      if (typeof document !== 'undefined') {
+        if (state.activeEngine) document.body.setAttribute('data-stt-policy', state.activeEngine);
+        else document.body.removeAttribute('data-stt-policy');
+
+        if (state.modelLoadingProgress !== null) document.body.setAttribute('data-download-progress', String(state.modelLoadingProgress));
+        else document.body.removeAttribute('data-download-progress');
+      }
+    });
+
+    return () => {
+      window.removeEventListener('stt-engine-ready', handleEngineReady);
+      window.removeEventListener('speech-runtime-state', handleSpeechRuntimeState);
+      unsub();
+    };
   }, []);
 
   // Handle Checkout Notifications (extracted hook)

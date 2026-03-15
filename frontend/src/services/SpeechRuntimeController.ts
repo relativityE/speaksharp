@@ -88,6 +88,48 @@ class SpeechRuntimeController {
             }
 
             const service = getTranscriptionService();
+
+            // Inject DB operations
+            service.setDbHandlers({
+                initDbSession: async (mode: string, idempotencyKey: string, metadata: unknown) => {
+                    const { data: { session } } = await getSupabaseClient().auth.getSession();
+                    if (!session?.user?.id) return null;
+
+                    const sessionData = {
+                        user_id: session.user.id,
+                        title: `Session ${new Date().toLocaleString()}`,
+                        duration: 0,
+                        transcript: ' ',
+                        total_words: 0,
+                        engine: mode
+                    };
+
+                    logger.info({ userId: sessionData.user_id, idempotencyKey }, '[SpeechRuntimeController] Attempting to create DB session');
+                    // We must bypass types for saveSession since we extracted the explicit type dependencies
+                    // from TranscriptionService to keep the runtime clean.
+                    const { session: dbSession, usageExceeded } = await saveSession(
+                        sessionData as Parameters<typeof saveSession>[0],
+                        { subscription_status: 'free' } as Parameters<typeof saveSession>[1],
+                        mode,
+                        idempotencyKey,
+                        metadata as Record<string, unknown>
+                    );
+
+                    if (usageExceeded) {
+                        throw new Error('Usage limit exceeded');
+                    }
+                    if (dbSession) {
+                        return dbSession.id;
+                    }
+                    return null;
+                },
+                heartbeatSession: async (sessionId: string) => {
+                    await heartbeatSession(sessionId, 30);
+                },
+                completeSession: async (sessionId: string, transcript: string, duration: number) => {
+                    await completeSession(sessionId, transcript, Math.round(duration));
+                }
+            });
             
             // 🚀 Lazy Initialization: Warm up only if engine not already initialized
             const isEngineReady = service.getState() === 'READY';
