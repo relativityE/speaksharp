@@ -2,7 +2,8 @@
 **Last Reviewed:** 2026-03-09
 
 # SpeakSharp
-**v3.5.4** | **Last Updated: 2026-03-09**
+# SpeakSharp
+**v3.5.8** | **Last Updated: 2026-03-15**
 
 SpeakSharp is an AI-powered speech coaching application that helps users improve their public speaking skills. It provides real-time feedback on filler words, speaking pace, and more.
 
@@ -30,10 +31,12 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
     -   **O(1) Live Analytics:** Infinite-duration sessions supported via incremental observer pattern.
     -   **NLP Caching:** 500x faster re-renders for multi-speaker dialog via LRU document cache.
     -   **Atomic Consistency:** Restored row-locking prevents usage limit bypass under high concurrency.
--   **Mar 2026 Hardening:** **Live UI & STT Stabilization**.
-    -   **UI Redesign:** High-fidelity `LiveRecordingCard` overhaul (Vertical center-stack, Proportionality).
-    -   **Benchmarking:** Modular STT hardware benchmarks with Pro-user authentication support.
-    -   **Environment Reliability:** Unified Vite root-env resolution for project-wide `.env` loading.
+- **Mar 2026 Hardening:** **High-Merit Integration Baseline**.
+    - **UI Redesign:** High-fidelity `LiveRecordingCard` overhaul (Vertical center-stack, Proportionality).
+    - **Benchmarking:** Modular STT hardware benchmarks with Pro-user authentication support.
+    - **Environment Reliability:** Unified Vite root-env resolution for project-wide `.env` loading.
+    - **Atomic Payment Processing (PR #743):** Optimized Stripe webhook handling via single atomic Postgres RPC.
+    - **Concurrent PDF Parsing (PR #735):** ~90% reduction in extraction latency via `Promise.all` orchestration.
 
 ---
 

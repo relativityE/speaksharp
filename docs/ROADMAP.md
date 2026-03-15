@@ -710,20 +710,23 @@ This phase addresses findings from the December 2025 UX Audit (`ux_audit.md`) to
 - ✅ **Visual Polish:** Resolved generic component hierarchies (gradients, hover states, mobile nav aesthetics, Pro badges) across the application.
 
 ---
-## Phase 3: Integration Safety (NEXT)
-This phase focuses on hardening the interface between frontend and backend and ensuring robust monitoring.
+## Phase 3: Stripe Webhook Optimization (Mar 2026) ✅ COMPLETE
 
-### 🎯 Must-Have
-- ✅ **Schema Canary Spec (2025-12-19):** Built a soft-fail E2E spec to detect API drift. Verifies that real/mock Supabase responses match TypeScript interfaces.
-- ✅ **Aggregation Audit (2025-12-19):** Verified behavior for aborted/empty sessions. Implemented safety guards in `SessionSidebar` and Ghost RPC to prevent zero-second usage deduction.
+> **Goal:** Optimize Stripe webhook performance and ensure atomic database operations for billing logic.
 
-### 🌱 Could-Have (Future Enhancements)
-- ✅ **Implement WebSocket reconnect logic:** Add heartbeat and exponential backoff for a more resilient connection.
-  - *Status:* ✅ Complete (2025-12-08). Implemented in `CloudAssemblyAI.ts` with exponential backoff (1s-30s), max 5 retries, 30s heartbeat, connection state callbacks.
+| ID | Title | Priority | Status | Notes |
+|----|-------|----------|--------|-------|
+| **P3.1** | **Atomic Stripe RPC** | **HIGH** | ✅ Complete | Migrated from sequential HTTP processing to atomic Postgres RPC. |
 
-### 🌱 Could-Have (Future Enhancements)
-- ✅ **Implement Stripe "Pro Mode" Flag (2025-12-12):** Completed. See P1 section above.
-  - *Status:* Partially Implemented. `UpgradePromptDialog` and `PricingPage` exist, but the backend "Pro Mode" flag and full checkout flow are incomplete.
+---
+
+## Phase 4: PDF Parsing Performance (Mar 2026) ✅ COMPLETE
+
+> **Goal:** Improve PDF extraction performance for multi-page documents.
+
+| ID | Title | Priority | Status | Notes |
+|----|-------|----------|--------|-------|
+| **P4.1** | **Concurrent PDF Parsing** | **HIGH** | ✅ Complete | Refactored serial page processing to `Promise.all` concurrency. |
 - ✅ **COMPLETED - Whisper Model Caching & Auto-Update:**
   - ✅ **Script & SW:** `download-whisper-model.sh` and `sw.js` (2025-12-10). Load time: >30s → <5s.
   - ✅ **Terminology:** Renamed "Local" to "Private" (2025-12-11).

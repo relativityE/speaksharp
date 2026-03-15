@@ -4,6 +4,14 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+### [3.5.8] — High-Merit Integration & Performance Optimization (2026-03-15)
+
+- **Infrastructure: Atomic Payment Processing (#743)** — Optimized Stripe webhook handling by migrating all billing logic and idempotency checks into a single atomic Postgres RPC `process_stripe_webhook_event`.
+- **Performance: Concurrent PDF Parsing (#735)** — Significantly reduced latency in document processing by implementing parallel page parsing using `Promise.all` in `pdfParser.ts`.
+- **Logic: STT Orchestration Hardening (#732, #731)** — Stabilized the transcription pipeline by extracting DB operations into a dedicated `TranscriptionService` and enforcing tier-based safeguards.
+- **Verification: E2E Stability Restoration** — Resolved persistent flakiness in the E2E suite by aligning test fixtures with user tier policies and hardening the readiness contract.
+- **Files:** `TranscriptionService.ts`, `pdfParser.ts`, `stripe-webhook/index.ts`, `20260310000000_stripe_webhook_rpc.sql`, `SttSafeguards.test.ts`.
+
 
 ### [3.5.4.1] — Documentation Audit & Hardening Alignment (2026-03-14)
 
