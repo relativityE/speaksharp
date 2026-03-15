@@ -15,7 +15,7 @@ export const extractTextFromPdf = async (file: File): Promise<string> => {
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
     const pdf = await loadingTask.promise;
 
-    let fullText = '';
+    const pageTexts: string[] = [];
 
     for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
@@ -23,8 +23,8 @@ export const extractTextFromPdf = async (file: File): Promise<string> => {
         const pageText = textContent.items
             .map((item) => ('str' in item ? (item as { str: string }).str : ''))
             .join(' ');
-        fullText += pageText + '\n';
+        pageTexts.push(pageText);
     }
 
-    return fullText.trim();
+    return pageTexts.join('\n').trim();
 };
