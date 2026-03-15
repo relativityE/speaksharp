@@ -973,7 +973,9 @@ export default class TranscriptionService {
       this.initPromise = null;
       this.mode = 'native';
       try {
-        await this.ensureEngineInitialized('native');
+        const engineConfig: TranscriptionModeOptions = this.getProxyOptions();
+        this.engine = await EngineFactory.create('native', engineConfig, this.policy);
+        await this.engine.init();
         await this.executeEngine('native');
       } catch (fallbackError: unknown) {
         logger.error({ error: fallbackError }, '[STT] Native Fallback failed');
@@ -1018,9 +1020,11 @@ export default class TranscriptionService {
     // We still keep the loading progress at 0 for the background download indicator
     useSessionStore.getState().setModelLoadingProgress(0);
 
-    // ✅ ARCHITECTURAL FIX: Re-use ensureEngineInitialized for fallback
     try {
-      await this.ensureEngineInitialized('native');
+      // FIX: Must create a new Native engine instance explicitly so we don't terminate the downloading Private engine
+      const engineConfig: TranscriptionModeOptions = this.getProxyOptions();
+      this.engine = await EngineFactory.create('native', engineConfig, this.policy);
+      await this.engine.init();
       await this.executeEngine('native');
     } catch (error: unknown) {
       await this.handleFailure('native', error as Error);
