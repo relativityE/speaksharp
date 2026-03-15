@@ -5,270 +5,186 @@
  * The signature verification is Stripe SDK's responsibility - we trust it.
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { handler } from "./index.ts";
 
-// ============================================================================
-// Extracted Handler Functions (for testing)
-// ============================================================================
-
-interface MockSupabase {
-    from: (table: string) => {
-        update: (data: any) => {
-            eq: (field: string, value: string) => Promise<{ error: any }>;
-        };
-    };
-}
-
-/**
- * Handle checkout.session.completed event - upgrade user to Pro
- */
-export async function handleCheckoutCompleted(
-    session: { metadata?: { userId?: string }; subscription?: string },
-    supabase: MockSupabase
-): Promise<{ success: boolean; error?: string }> {
-    const userId = session.metadata?.userId;
-    const subscriptionId = session.subscription;
-
-    if (!userId) {
-        return { success: false, error: "Missing userId metadata" };
+const mockStripe = {
+  webhooks: {
+    constructEvent: (body: string, _sig: string, _secret: string) => {
+      return JSON.parse(body);
     }
+  }
+};
 
-    const { error } = await supabase
-        .from("user_profiles")
-        .update({
-            subscription_status: "pro",
-            stripe_subscription_id: subscriptionId,
-        })
-        .eq("id", userId);
-
-    if (error) {
-        return { success: false, error: error.message };
-    }
-
-    return { success: true };
-}
-
-/**
- * Handle customer.subscription.deleted event - downgrade user to Free
- */
-export async function handleSubscriptionDeleted(
-    subscription: { id: string },
-    supabase: MockSupabase
-): Promise<{ success: boolean; error?: string }> {
-    const { error } = await supabase
-        .from("user_profiles")
-        .update({
-            subscription_status: "free",
-            stripe_subscription_id: null,
-        })
-        .eq("stripe_subscription_id", subscription.id);
-
-    if (error) {
-        return { success: false, error: error.message };
-    }
-
-    return { success: true };
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
-
-Deno.test("stripe-webhook handlers", async (t) => {
-    // Mock Supabase client that succeeds
-    const mockSuccessSupabase: MockSupabase = {
-        from: () => ({
-            update: () => ({
-                eq: () => Promise.resolve({ error: null }),
-            }),
-        }),
-    };
-
-    // Mock Supabase client that fails
-    const mockFailSupabase: MockSupabase = {
-        from: () => ({
-            update: () => ({
-                eq: () => Promise.resolve({ error: { message: "DB Error" } }),
-            }),
-        }),
-    };
-
-    await t.step("handleCheckoutCompleted - upgrades user to Pro", async () => {
-        const session = {
-            metadata: { userId: "user-123" },
-            subscription: "sub_abc123",
-        };
-
-        const result = await handleCheckoutCompleted(session, mockSuccessSupabase);
-
-        assertEquals(result.success, true);
-        assertEquals(result.error, undefined);
-    });
-
-    await t.step("handleCheckoutCompleted - fails without userId", async () => {
-        const session = {
-            metadata: {},
-            subscription: "sub_abc123",
-        };
-
-        const result = await handleCheckoutCompleted(session, mockSuccessSupabase);
-
-        assertEquals(result.success, false);
-        assertEquals(result.error, "Missing userId metadata");
-    });
-
-    await t.step("handleCheckoutCompleted - handles DB error", async () => {
-        const session = {
-            metadata: { userId: "user-123" },
-            subscription: "sub_abc123",
-        };
-
-        const result = await handleCheckoutCompleted(session, mockFailSupabase);
-
-        assertEquals(result.success, false);
-        assertEquals(result.error, "DB Error");
-    });
-
-    await t.step("handleSubscriptionDeleted - downgrades user to Free", async () => {
-        const subscription = { id: "sub_abc123" };
-
-        const result = await handleSubscriptionDeleted(subscription, mockSuccessSupabase);
-
-        assertEquals(result.success, true);
-    });
-
-    await t.step("handleSubscriptionDeleted - handles DB error", async () => {
-        const subscription = { id: "sub_abc123" };
-
-        const result = await handleSubscriptionDeleted(subscription, mockFailSupabase);
-
-        assertEquals(result.success, false);
-        assertEquals(result.error, "DB Error");
-    });
+const createMockSupabase = (rpcResult: any) => ({
+  rpc: (_fn: string, _args: any) => Promise.resolve(rpcResult)
 });
 
-// ============================================================================
-// Additional Handler Functions (for testing subscription.updated & payment_failed)
-// ============================================================================
+Deno.test("stripe-webhook handlers", async (t) => {
 
-/**
- * Handle customer.subscription.updated event - downgrade if status indicates cancellation
- */
-export async function handleSubscriptionUpdated(
-    subscription: { id: string; status: string },
-    supabase: MockSupabase
-): Promise<{ success: boolean; action?: string; error?: string }> {
-    const downgradeStatuses = ["canceled", "unpaid", "past_due"];
+  const createRequest = (event: any) => new Request("http://localhost", {
+    method: "POST",
+    headers: { "Stripe-Signature": "mock" },
+    body: JSON.stringify(event)
+  });
 
-    if (!downgradeStatuses.includes(subscription.status)) {
-        return { success: true, action: "no_action" };
-    }
-
-    const { error } = await supabase
-        .from("user_profiles")
-        .update({ subscription_status: "free" })
-        .eq("stripe_subscription_id", subscription.id);
-
-    if (error) {
-        return { success: false, error: error.message };
-    }
-
-    return { success: true, action: "downgraded" };
-}
-
-/**
- * Handle invoice.payment_failed event - downgrade after 3+ failed attempts
- */
-export async function handlePaymentFailed(
-    invoice: { subscription?: string; attempt_count?: number },
-    supabase: MockSupabase
-): Promise<{ success: boolean; action?: string; error?: string }> {
-    const attemptCount = invoice.attempt_count || 0;
-
-    if (attemptCount < 3 || !invoice.subscription) {
-        return { success: true, action: "no_action" };
-    }
-
-    const { error } = await supabase
-        .from("user_profiles")
-        .update({ subscription_status: "free" })
-        .eq("stripe_subscription_id", invoice.subscription);
-
-    if (error) {
-        return { success: false, error: error.message };
-    }
-
-    return { success: true, action: "downgraded" };
-}
-
-// ============================================================================
-// Additional Tests
-// ============================================================================
-
-Deno.test("stripe-webhook subscription.updated handlers", async (t) => {
-    const mockSuccessSupabase: MockSupabase = {
-        from: () => ({
-            update: () => ({
-                eq: () => Promise.resolve({ error: null }),
-            }),
-        }),
+  await t.step("handleCheckoutCompleted - upgrades user to Pro", async () => {
+    const event = {
+      id: "evt_1",
+      type: "checkout.session.completed",
+      data: { object: { metadata: { userId: "user_1" }, subscription: "sub_1" } }
     };
 
-    await t.step("handleSubscriptionUpdated - downgrades on canceled status", async () => {
-        const subscription = { id: "sub_abc123", status: "canceled" };
-        const result = await handleSubscriptionUpdated(subscription, mockSuccessSupabase);
-        assertEquals(result.success, true);
-        assertEquals(result.action, "downgraded");
-    });
+    let capturedArgs: any;
+    const mockSupabase = {
+      rpc: (_fn: string, args: any) => {
+        capturedArgs = args;
+        return Promise.resolve({ data: { success: true, skipped: false }, error: null });
+      }
+    };
 
-    await t.step("handleSubscriptionUpdated - downgrades on unpaid status", async () => {
-        const subscription = { id: "sub_abc123", status: "unpaid" };
-        const result = await handleSubscriptionUpdated(subscription, mockSuccessSupabase);
-        assertEquals(result.success, true);
-        assertEquals(result.action, "downgraded");
-    });
+    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
 
-    await t.step("handleSubscriptionUpdated - downgrades on past_due status", async () => {
-        const subscription = { id: "sub_abc123", status: "past_due" };
-        const result = await handleSubscriptionUpdated(subscription, mockSuccessSupabase);
-        assertEquals(result.success, true);
-        assertEquals(result.action, "downgraded");
-    });
+    assertEquals(response.status, 200);
+    assertEquals(capturedArgs.p_action, "upgrade_to_pro");
+    assertEquals(capturedArgs.p_user_id, "user_1");
+  });
 
-    await t.step("handleSubscriptionUpdated - no action on active status", async () => {
-        const subscription = { id: "sub_abc123", status: "active" };
-        const result = await handleSubscriptionUpdated(subscription, mockSuccessSupabase);
-        assertEquals(result.success, true);
-        assertEquals(result.action, "no_action");
-    });
+  await t.step("handleCheckoutCompleted - fails without userId", async () => {
+    const event = {
+      id: "evt_1",
+      type: "checkout.session.completed",
+      data: { object: { metadata: {}, subscription: "sub_1" } }
+    };
+
+    const mockSupabase = createMockSupabase({ data: { success: true }, error: null });
+    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
+
+    assertEquals(response.status, 400); // Bad request due to missing metadata
+  });
+
+  await t.step("handleSubscriptionDeleted - downgrades user to Free", async () => {
+    const event = {
+      id: "evt_1",
+      type: "customer.subscription.deleted",
+      data: { object: { id: "sub_1" } }
+    };
+
+    let capturedArgs: any;
+    const mockSupabase = {
+      rpc: (_fn: string, args: any) => {
+        capturedArgs = args;
+        return Promise.resolve({ data: { success: true, skipped: false }, error: null });
+      }
+    };
+
+    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
+
+    assertEquals(response.status, 200);
+    assertEquals(capturedArgs.p_action, "downgrade_to_free");
+  });
+
+  await t.step("handles RPC error", async () => {
+    const event = {
+      id: "evt_1",
+      type: "customer.subscription.deleted",
+      data: { object: { id: "sub_1" } }
+    };
+
+    const mockSupabase = createMockSupabase({ data: null, error: { message: "RPC Error" } });
+    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
+
+    assertEquals(response.status, 400);
+  });
+
+  await t.step("handles skipped event", async () => {
+    const event = {
+      id: "evt_1",
+      type: "customer.subscription.deleted",
+      data: { object: { id: "sub_1" } }
+    };
+
+    const mockSupabase = createMockSupabase({ data: { skipped: true }, error: null });
+    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
+
+    assertEquals(response.status, 200);
+  });
+});
+
+Deno.test("stripe-webhook subscription.updated handlers", async (t) => {
+  const createRequest = (event: any) => new Request("http://localhost", {
+    method: "POST",
+    headers: { "Stripe-Signature": "mock" },
+    body: JSON.stringify(event)
+  });
+
+  const getArgs = async (status: string) => {
+    const event = {
+      id: "evt_1",
+      type: "customer.subscription.updated",
+      data: { object: { id: "sub_1", status } }
+    };
+
+    let capturedArgs: any;
+    const mockSupabase = {
+      rpc: (_fn: string, args: any) => {
+        capturedArgs = args;
+        return Promise.resolve({ data: { success: true }, error: null });
+      }
+    };
+
+    await handler(createRequest(event), mockStripe, mockSupabase, "secret");
+    return capturedArgs.p_action;
+  };
+
+  await t.step("handleSubscriptionUpdated - downgrades on canceled status", async () => {
+    assertEquals(await getArgs("canceled"), "downgrade_to_free");
+  });
+
+  await t.step("handleSubscriptionUpdated - downgrades on unpaid status", async () => {
+    assertEquals(await getArgs("unpaid"), "downgrade_to_free");
+  });
+
+  await t.step("handleSubscriptionUpdated - downgrades on past_due status", async () => {
+    assertEquals(await getArgs("past_due"), "downgrade_to_free");
+  });
+
+  await t.step("handleSubscriptionUpdated - no action on active status", async () => {
+    assertEquals(await getArgs("active"), "none");
+  });
 });
 
 Deno.test("stripe-webhook invoice.payment_failed handlers", async (t) => {
-    const mockSuccessSupabase: MockSupabase = {
-        from: () => ({
-            update: () => ({
-                eq: () => Promise.resolve({ error: null }),
-            }),
-        }),
+  const createRequest = (event: any) => new Request("http://localhost", {
+    method: "POST",
+    headers: { "Stripe-Signature": "mock" },
+    body: JSON.stringify(event)
+  });
+
+  const getArgs = async (attempt_count: number) => {
+    const event = {
+      id: "evt_1",
+      type: "invoice.payment_failed",
+      data: { object: { subscription: "sub_1", attempt_count } }
     };
 
-    await t.step("handlePaymentFailed - no action if < 3 attempts", async () => {
-        const invoice = { subscription: "sub_abc123", attempt_count: 2 };
-        const result = await handlePaymentFailed(invoice, mockSuccessSupabase);
-        assertEquals(result.success, true);
-        assertEquals(result.action, "no_action");
-    });
+    let capturedArgs: any;
+    const mockSupabase = {
+      rpc: (_fn: string, args: any) => {
+        capturedArgs = args;
+        return Promise.resolve({ data: { success: true }, error: null });
+      }
+    };
 
-    await t.step("handlePaymentFailed - downgrades at 3+ attempts", async () => {
-        const invoice = { subscription: "sub_abc123", attempt_count: 3 };
-        const result = await handlePaymentFailed(invoice, mockSuccessSupabase);
-        assertEquals(result.success, true);
-        assertEquals(result.action, "downgraded");
-    });
+    await handler(createRequest(event), mockStripe, mockSupabase, "secret");
+    return capturedArgs.p_action;
+  };
 
-    await t.step("handlePaymentFailed - no action if no subscription", async () => {
-        const invoice = { attempt_count: 5 };
-        const result = await handlePaymentFailed(invoice, mockSuccessSupabase);
-        assertEquals(result.success, true);
-        assertEquals(result.action, "no_action");
-    });
+  await t.step("handlePaymentFailed - no action if < 3 attempts", async () => {
+    assertEquals(await getArgs(2), "none");
+  });
+
+  await t.step("handlePaymentFailed - downgrades at 3+ attempts", async () => {
+    assertEquals(await getArgs(3), "downgrade_to_free");
+  });
+
 });
