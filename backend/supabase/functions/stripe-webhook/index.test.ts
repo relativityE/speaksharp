@@ -5,17 +5,14 @@
  * The signature verification is Stripe SDK's responsibility - we trust it.
  */
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { handler } from "./index.ts";
 
 // ============================================================================
 // Extracted Handler Functions (for testing)
 // ============================================================================
 
 interface MockSupabase {
-    from: (table: string) => {
-        update: (data: any) => {
-            eq: (field: string, value: string) => Promise<{ error: any }>;
-        };
-    };
+    rpc: (name: string, args: any) => Promise<{ data: any; error: any }>;
 }
 
 /**
@@ -25,23 +22,27 @@ export async function handleCheckoutCompleted(
     session: { metadata?: { userId?: string }; subscription?: string },
     supabase: MockSupabase
 ): Promise<{ success: boolean; error?: string }> {
-    const userId = session.metadata?.userId;
-    const subscriptionId = session.subscription;
+    const userId = session.metadata?.userId || null;
+    const subscriptionId = session.subscription || null;
 
-    if (!userId) {
-        return { success: false, error: "Missing userId metadata" };
-    }
-
-    const { error } = await supabase
-        .from("user_profiles")
-        .update({
-            subscription_status: "pro",
-            stripe_subscription_id: subscriptionId,
-        })
-        .eq("id", userId);
+    const { data, error } = await supabase.rpc("process_stripe_webhook_event", {
+        p_event_id: "evt_mock",
+        p_event_type: "checkout.session.completed",
+        p_user_id: userId,
+        p_subscription_id: subscriptionId,
+        p_status: null,
+        p_attempt_count: 0,
+    });
 
     if (error) {
+        if (error.message?.includes("Missing userId")) {
+            return { success: false, error: "Missing userId metadata" };
+        }
         return { success: false, error: error.message };
+    }
+
+    if (data?.skipped) {
+        return { success: true };
     }
 
     return { success: true };
@@ -54,16 +55,21 @@ export async function handleSubscriptionDeleted(
     subscription: { id: string },
     supabase: MockSupabase
 ): Promise<{ success: boolean; error?: string }> {
-    const { error } = await supabase
-        .from("user_profiles")
-        .update({
-            subscription_status: "free",
-            stripe_subscription_id: null,
-        })
-        .eq("stripe_subscription_id", subscription.id);
+    const { data, error } = await supabase.rpc("process_stripe_webhook_event", {
+        p_event_id: "evt_mock",
+        p_event_type: "customer.subscription.deleted",
+        p_user_id: null,
+        p_subscription_id: subscription.id,
+        p_status: null,
+        p_attempt_count: 0,
+    });
 
     if (error) {
         return { success: false, error: error.message };
+    }
+
+    if (data?.skipped) {
+        return { success: true };
     }
 
     return { success: true };
@@ -76,20 +82,20 @@ export async function handleSubscriptionDeleted(
 Deno.test("stripe-webhook handlers", async (t) => {
     // Mock Supabase client that succeeds
     const mockSuccessSupabase: MockSupabase = {
-        from: () => ({
-            update: () => ({
-                eq: () => Promise.resolve({ error: null }),
-            }),
-        }),
+        rpc: (name: string, args: any) => {
+            if (name === "process_stripe_webhook_event") {
+                if (args.p_event_type === "checkout.session.completed" && !args.p_user_id) {
+                    return Promise.resolve({ data: null, error: { message: "Missing userId metadata" } });
+                }
+                return Promise.resolve({ data: { success: true, action: "processed" }, error: null });
+            }
+            return Promise.resolve({ data: null, error: null });
+        },
     };
 
     // Mock Supabase client that fails
     const mockFailSupabase: MockSupabase = {
-        from: () => ({
-            update: () => ({
-                eq: () => Promise.resolve({ error: { message: "DB Error" } }),
-            }),
-        }),
+        rpc: () => Promise.resolve({ data: null, error: { message: "DB Error" } }),
     };
 
     await t.step("handleCheckoutCompleted - upgrades user to Pro", async () => {
@@ -163,10 +169,14 @@ export async function handleSubscriptionUpdated(
         return { success: true, action: "no_action" };
     }
 
-    const { error } = await supabase
-        .from("user_profiles")
-        .update({ subscription_status: "free" })
-        .eq("stripe_subscription_id", subscription.id);
+    const { data, error } = await supabase.rpc("process_stripe_webhook_event", {
+        p_event_id: "evt_mock",
+        p_event_type: "customer.subscription.updated",
+        p_user_id: null,
+        p_subscription_id: subscription.id,
+        p_status: subscription.status,
+        p_attempt_count: 0,
+    });
 
     if (error) {
         return { success: false, error: error.message };
@@ -188,10 +198,14 @@ export async function handlePaymentFailed(
         return { success: true, action: "no_action" };
     }
 
-    const { error } = await supabase
-        .from("user_profiles")
-        .update({ subscription_status: "free" })
-        .eq("stripe_subscription_id", invoice.subscription);
+    const { data, error } = await supabase.rpc("process_stripe_webhook_event", {
+        p_event_id: "evt_mock",
+        p_event_type: "invoice.payment_failed",
+        p_user_id: null,
+        p_subscription_id: invoice.subscription,
+        p_status: null,
+        p_attempt_count: attemptCount,
+    });
 
     if (error) {
         return { success: false, error: error.message };
@@ -206,11 +220,7 @@ export async function handlePaymentFailed(
 
 Deno.test("stripe-webhook subscription.updated handlers", async (t) => {
     const mockSuccessSupabase: MockSupabase = {
-        from: () => ({
-            update: () => ({
-                eq: () => Promise.resolve({ error: null }),
-            }),
-        }),
+        rpc: () => Promise.resolve({ data: null, error: null }),
     };
 
     await t.step("handleSubscriptionUpdated - downgrades on canceled status", async () => {
@@ -244,11 +254,7 @@ Deno.test("stripe-webhook subscription.updated handlers", async (t) => {
 
 Deno.test("stripe-webhook invoice.payment_failed handlers", async (t) => {
     const mockSuccessSupabase: MockSupabase = {
-        from: () => ({
-            update: () => ({
-                eq: () => Promise.resolve({ error: null }),
-            }),
-        }),
+        rpc: () => Promise.resolve({ data: null, error: null }),
     };
 
     await t.step("handlePaymentFailed - no action if < 3 attempts", async () => {

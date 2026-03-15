@@ -25,146 +25,67 @@ export async function handler(
 
     console.log(`[Stripe Webhook] Received event: ${event.type} (${event.id})`)
 
-    // P0 FIX: Idempotency Check & Lock
-    // We try to insert first. Unique constraint on 'event_id' handles the lock.
-    const { error: insertError } = await supabase
-      .from("processed_webhook_events")
-      .insert({
-        event_id: event.id,
-        event_type: event.type,
-        processed_at: new Date().toISOString(),
-      })
+    // Extract necessary data from different events
+    let userId: string | null = null;
+    let subscriptionId: string | null = null;
+    let status: string | null = null;
+    let attemptCount = 0;
 
-    if (insertError) {
-      // 23505 is PostgreSQL unique_violation
-      if (insertError.code === "23505") {
-        console.log(`[Stripe Webhook] ⏭️ Event ${event.id} already processed or in progress, skipping`)
-        return createSuccessResponse({ received: true, skipped: true }, {})
-      }
-      console.error(`[Stripe Webhook] Failed to record idempotency key for ${event.id}:`, insertError)
-      // We still try to check if it exists just in case
-      const { data: existing } = await supabase
-        .from("processed_webhook_events")
-        .select("id")
-        .eq("event_id", event.id)
-        .single()
-
-      if (existing) {
-        return createSuccessResponse({ received: true, skipped: true }, {})
-      }
-
-      // If it's some other DB error, we might want to fail so Stripe retries
-      return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Idempotency check failed", {})
+    switch (event.type) {
+      case "checkout.session.completed":
+        userId = event.data.object.metadata?.userId || null;
+        subscriptionId = event.data.object.subscription || null;
+        break;
+      case "customer.subscription.deleted":
+        subscriptionId = event.data.object.id || null;
+        break;
+      case "customer.subscription.updated":
+        subscriptionId = event.data.object.id || null;
+        status = event.data.object.status || null;
+        break;
+      case "invoice.payment_failed":
+        subscriptionId = event.data.object.subscription || null;
+        attemptCount = event.data.object.attempt_count || 0;
+        break;
     }
 
-    // Handle checkout completion - upgrade to Pro
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object
-      const userId = session.metadata?.userId
-      const subscriptionId = session.subscription
+    // P0 FIX: Atomize Idempotency Check & User Profile Update using PostgreSQL RPC
+    const { data, error } = await supabase.rpc("process_stripe_webhook_event", {
+      p_event_id: event.id,
+      p_event_type: event.type,
+      p_user_id: userId,
+      p_subscription_id: subscriptionId,
+      p_status: status,
+      p_attempt_count: attemptCount,
+    })
 
-      if (!userId) {
-        console.error("[Stripe] Missing userId in checkout session metadata")
-        // We can't proceed without userId, but we already "locked" this event.
-        // In a real system we might want to "unlock" if it's a permanent failure, 
-        // but here it's likely a config error.
+    if (error) {
+      console.error(`[Stripe Webhook] Failed to process event ${event.id}:`, error)
+
+      if (error.message?.includes('Missing userId metadata')) {
         return createErrorResponse(
           ErrorCodes.VALIDATION_MISSING_METADATA,
           "Missing userId metadata",
           {}
         )
       }
-
-      console.log(`[Stripe] Upgrading user ${userId} to Pro (subscription: ${subscriptionId})`)
-      const { error } = await supabase
-        .from("user_profiles")
-        .update({
-          subscription_status: "pro",
-          stripe_subscription_id: subscriptionId,
-        })
-        .eq("id", userId)
-
-      if (error) {
-        console.error(`[Stripe] Failed to upgrade user ${userId}:`, error)
-        // CRITICAL: Delete the idempotency record so Stripe retries can try again!
-        await supabase.from("processed_webhook_events").delete().eq("event_id", event.id)
-
-        return createErrorResponse(
-          ErrorCodes.DATABASE_ERROR,
-          `Failed to upgrade user: ${error.message}`,
-          {}
-        )
-      } else {
-        console.log(`[Stripe] ✅ User ${userId} upgraded to Pro successfully`)
-      }
+      return createErrorResponse(
+        ErrorCodes.DATABASE_ERROR,
+        `Webhook processing failed: ${error.message}`,
+        {}
+      )
     }
 
-    // Handle subscription cancellation - downgrade to Free
-    if (event.type === "customer.subscription.deleted") {
-      const subscription = event.data.object
-      const subscriptionId = subscription.id
-
-      console.log(`[Stripe] Subscription ${subscriptionId} cancelled, downgrading user`)
-      const { error } = await supabase
-        .from("user_profiles")
-        .update({
-          subscription_status: "free",
-          stripe_subscription_id: null,
-        })
-        .eq("stripe_subscription_id", subscriptionId)
-
-      if (error) {
-        console.error(`[Stripe] Failed to downgrade subscription ${subscriptionId}:`, error)
-        // If it fails, delete lock so it can be retried
-        await supabase.from("processed_webhook_events").delete().eq("event_id", event.id)
-        return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Downgrade failed", {})
-      }
+    if (data?.skipped) {
+      console.log(`[Stripe Webhook] ⏭️ Event ${event.id} already processed or in progress, skipping`)
+      return createSuccessResponse({ received: true, skipped: true }, {})
     }
 
-    // Handle subscription updates (e.g., payment method change, plan change)
-    if (event.type === "customer.subscription.updated") {
-      const subscription = event.data.object
-      const subscriptionId = subscription.id
-      const status = subscription.status
-
-      if (status === "canceled" || status === "unpaid" || status === "past_due") {
-        console.log(`[Stripe] Subscription ${subscriptionId} status changed to ${status}, downgrading`)
-        const { error } = await supabase
-          .from("user_profiles")
-          .update({
-            subscription_status: "free",
-          })
-          .eq("stripe_subscription_id", subscriptionId)
-
-        if (error) {
-          console.error(`[Stripe] Failed to update subscription ${subscriptionId}:`, error)
-          await supabase.from("processed_webhook_events").delete().eq("event_id", event.id)
-          return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Status update failed", {})
-        }
-      }
-    }
-
-    // Handle payment failure - downgrade to Free after grace period
-    if (event.type === "invoice.payment_failed") {
-      const invoice = event.data.object
-      const subscriptionId = invoice.subscription
-      const attemptCount = invoice.attempt_count || 0
-
-      if (attemptCount >= 3 && subscriptionId) {
-        console.log(`[Stripe] Payment failed ${attemptCount} times for subscription ${subscriptionId}, downgrading`)
-        const { error } = await supabase
-          .from("user_profiles")
-          .update({
-            subscription_status: "free",
-          })
-          .eq("stripe_subscription_id", subscriptionId)
-
-        if (error) {
-          console.error(`[Stripe] Failed to downgrade after payment failure:`, error)
-          await supabase.from("processed_webhook_events").delete().eq("event_id", event.id)
-          return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Payment failure handling failed", {})
-        }
-      }
+    // Success Logs
+    if (data?.action === 'upgraded') {
+      console.log(`[Stripe] ✅ User ${userId} upgraded to Pro successfully (subscription: ${subscriptionId})`)
+    } else if (data?.action === 'downgraded') {
+      console.log(`[Stripe] Subscription ${subscriptionId} downgraded user to free`)
     }
 
     return createSuccessResponse({ received: true }, {})
