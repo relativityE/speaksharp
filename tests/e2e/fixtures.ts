@@ -21,6 +21,7 @@ type WorkerFixtures = {
 
 export const test = base.extend<TestFixtures, WorkerFixtures>({
   // Worker-scoped setup (Placeholder for shared boot/env if needed)
+  // eslint-disable-next-line no-empty-pattern
   workerAuth: [async ({ }, use) => {
     await use();
   }, { scope: 'worker' }],

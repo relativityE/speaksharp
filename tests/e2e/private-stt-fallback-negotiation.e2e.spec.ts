@@ -1,6 +1,19 @@
 import { test, expect } from './fixtures';
 import { navigateToRoute } from './helpers';
 import { registerMockInE2E, enableTestRegistry, cleanupTestRegistry } from '../helpers/testRegistry.helpers';
+import type TranscriptionService from '../../frontend/src/services/transcription/TranscriptionService';
+import type { E2EConfig } from '../types/e2eConfig';
+import type { TestRegistryClass } from '../../frontend/src/services/transcription/TestRegistry';
+
+declare global {
+    interface Window {
+        __APP_TEST_ENV__?: E2EConfig;
+        REAL_WHISPER_TEST?: boolean;
+        __FORCE_NO_WEBGPU__?: boolean;
+        __TEST_REGISTRY__?: TestRegistryClass;
+        __TRANSCRIPTION_SERVICE__?: TranscriptionService;
+    }
+}
 
 /**
  * Layer 2 & 3: Fallback Negotiation & Privacy Guarantee Tests
@@ -20,13 +33,9 @@ test.describe('Private STT Fallback Negotiation', () => {
         await page.evaluate(() => {
             document.body.removeAttribute('data-stt-policy');
             document.body.removeAttribute('data-engine-variant');
-            // @ts-ignore
             window.__TEST_REGISTRY__?.clear();
-            // @ts-ignore
             window.__TRANSCRIPTION_SERVICE__?.resetEphemeralState();
-            // @ts-ignore
             delete window.REAL_WHISPER_TEST;
-            // @ts-ignore
             delete window.__FORCE_NO_WEBGPU__;
         });
         await cleanupTestRegistry(page);
@@ -44,11 +53,11 @@ test.describe('Private STT Fallback Negotiation', () => {
 
         // Stage 1: Force "Real" mode and WebGPU unavailability
         await page.addInitScript(() => {
-            if ((window as any).__APP_TEST_ENV__?.stt) {
-                (window as any).__APP_TEST_ENV__.stt.mode = 'real';
+            if (window.__APP_TEST_ENV__?.stt) {
+                window.__APP_TEST_ENV__.stt.mode = 'real';
             }
-            (window as any).REAL_WHISPER_TEST = true; 
-            (window as any).__FORCE_NO_WEBGPU__ = true;
+            window.REAL_WHISPER_TEST = true; 
+            window.__FORCE_NO_WEBGPU__ = true;
         });
 
         // Stage 2: Navigate and verify Pro status
@@ -89,10 +98,10 @@ test.describe('Private STT Fallback Negotiation', () => {
         })`);
 
         await page.addInitScript(() => {
-            if ((window as any).__APP_TEST_ENV__?.stt) {
-                (window as any).__APP_TEST_ENV__.stt.mode = 'real';
+            if (window.__APP_TEST_ENV__?.stt) {
+                window.__APP_TEST_ENV__.stt.mode = 'real';
             }
-            (window as any).REAL_WHISPER_TEST = true;
+            window.REAL_WHISPER_TEST = true;
         });
 
         await navigateToRoute(page, '/session');
@@ -124,10 +133,10 @@ test.describe('Private STT Fallback Negotiation', () => {
         })`);
 
         await page.addInitScript(() => {
-            if ((window as any).__APP_TEST_ENV__?.stt) {
-                (window as any).__APP_TEST_ENV__.stt.mode = 'real';
+            if (window.__APP_TEST_ENV__?.stt) {
+                window.__APP_TEST_ENV__.stt.mode = 'real';
             }
-            (window as any).REAL_WHISPER_TEST = true;
+            window.REAL_WHISPER_TEST = true;
         });
 
         await navigateToRoute(page, '/session');
@@ -145,7 +154,7 @@ test.describe('Private STT Fallback Negotiation', () => {
         await expect(page.getByTestId('session-start-stop-button')).toContainText(/start/i, { timeout: 15000 });
 
         // 2. Should see the error message in the status bar (LocalErrorBoundary or sessionFeedback)
-        await expect(page.getByTestId('status-notification-bar')).toContainText(/Private STT failed/i, { timeout: 15000 });
+        await expect(page.getByTestId('live-session-header')).toContainText(/Private STT failed/i, { timeout: 15000 });
         
         // 3. IMPORTANT: It should NOT have fallen back to Native
         const tier = await page.locator('body').getAttribute('data-user-tier');

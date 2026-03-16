@@ -18,7 +18,7 @@ const createMockEngine = () => {
 
 // Mock storage
 vi.mock('../../../lib/storage', () => ({
-    saveSession: vi.fn(),
+    saveSession: vi.fn().mockResolvedValue({ session: { id: 'sess-123' }, usageExceeded: false }),
     heartbeatSession: vi.fn(),
     completeSession: vi.fn(),
 }));

@@ -53,6 +53,7 @@ declare global {
     TEST_MODE?: boolean;
     __E2E_PLAYWRIGHT__?: boolean;
     __PrivateWhisper_INT_TEST__?: PrivateWhisper;
+    __e2e_stt_engine_ready_fired__?: boolean;
   }
 }
 // Toast removed from here to centralized UI layer
@@ -99,6 +100,8 @@ export default class PrivateWhisper implements ITranscriptionEngine {
   private status: Status;
   private transcript: string;
   private privateSTT: IPrivateSTT;
+  private serviceId: string;
+  private runId: string;
   private engineType: EngineType | null = null;
   private mic: MicStream | null = null;
   private audioChunks: Float32Array[] = [];
@@ -111,6 +114,8 @@ export default class PrivateWhisper implements ITranscriptionEngine {
     this.onModelLoadProgress = options.onModelLoadProgress;
     this.onReady = options.onReady;
     this.onAudioData = options.onAudioData;
+    this.serviceId = options.serviceId || 'unknown';
+    this.runId = options.instanceId || 'unknown'; // TranscriptionService sets instanceId = runId
     this.status = 'uninitialized';
     this.transcript = '';
     this.privateSTT = privateSTT || createPrivateSTT();
@@ -118,20 +123,19 @@ export default class PrivateWhisper implements ITranscriptionEngine {
 
     // Check for test environment and expose instance for E2E verification
     if (IS_TEST_ENVIRONMENT) {
-      logger.info('[PrivateWhisper] 🧪 Exposing instance for E2E testing');
+      logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] 🧪 Exposing instance for E2E testing');
       window.__PrivateWhisper_INT_TEST__ = this;
     }
 
-    logger.info('[PrivateWhisper] Initialized (dual-engine facade).');
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] Initialized (dual-engine facade).');
   }
 
   public async init(): Promise<void> {
     if (this.status === 'idle' || this.status === 'transcribing') {
-      logger.info(`[PrivateWhisper] Already ${this.status}, skipping init.`);
+      logger.info({ sId: this.serviceId, rId: this.runId }, `[PrivateWhisper] Already ${this.status}, skipping init.`);
       return;
     }
-    logger.info('[PrivateWhisper] 🔄 init() START - Dual-Engine Mode');
-    logger.info('[PrivateWhisper] Initializing PrivateSTT facade...');
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] 🔄 init() START - Dual-Engine Mode');
     this.status = 'loading';
 
     try {
@@ -142,36 +146,28 @@ export default class PrivateWhisper implements ITranscriptionEngine {
 
       // Initialize the PrivateSTT facade (auto-selects best engine)
       const initPromise = this.privateSTT.init({
+        serviceId: this.serviceId,
+        runId: this.runId,
         onModelLoadProgress: (progress) => {
-          logger.info({ progress }, '[PrivateWhisper] 📊 Progress');
+          logger.info({ sId: this.serviceId, rId: this.runId, progress }, '[PrivateWhisper] 📊 Progress');
           if (this.onModelLoadProgress) {
             this.onModelLoadProgress(progress);
           }
         },
         onReady: () => {
-          logger.info('[PrivateWhisper] Engine ready callback triggered.');
+          logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] Engine ready callback triggered.');
         }
       });
 
-      await initPromise;
-
-      // If we fell through here, we assume success (either real or forced)
-      // Check result only if it wasn't a manual release (manual release implies success for test)
-      // Actually, if manual release is used, we might not have a valid engineType.
-      // For the resilience test, we just need the transitions to happen.
-      // safely fallback engineType if undefined
-      if (!this.engineType) this.engineType = 'whisper-turbo';
-
-      const result = await initPromise.catch(() => ({ isErr: false, value: 'whisper-turbo' as EngineType })); // safety net if manual released but promise failed
+      const result = await initPromise;
 
       if (result.isErr) {
-        // Use a type guard or explicit property access
-        throw (result as { error: Error }).error || new Error('Private STT Init Failed');
+        throw result.error;
       }
 
       this.engineType = result.value;
       this.status = 'idle';
-      logger.info({ engineType: this.engineType }, '[PrivateWhisper] ✅ Engine initialized');
+      logger.info({ sId: this.serviceId, rId: this.runId, engineType: this.engineType }, '[PrivateWhisper] ✅ Engine initialized');
 
       // ✅ EXPLICIT READINESS SIGNAL FOR TESTS (Engine Variant)
       if (typeof document !== 'undefined') {
@@ -180,11 +176,11 @@ export default class PrivateWhisper implements ITranscriptionEngine {
 
       // Show toast notification with engine type
       // REMOVED: Internal toast suppressed to prevent duplication with UI layer (Architectural Decision)
-      logger.info(`[PrivateWhisper] Model ready! Using ${this.engineType === 'whisper-turbo' ? 'GPU acceleration' : 'CPU mode'}.`);
+      logger.info({ sId: this.serviceId, rId: this.runId }, `[PrivateWhisper] Model ready! Using ${this.engineType === 'whisper-turbo' ? 'GPU acceleration' : 'CPU mode'}.`);
 
       // ✅ EXPLICIT READINESS SIGNAL FOR TESTS
       if (typeof window !== 'undefined' && window.dispatchEvent) {
-        (window as any)['__e2e_stt-engine-ready_fired__'] = true;
+        window.__e2e_stt_engine_ready_fired__ = true;
         window.dispatchEvent(new CustomEvent('stt-engine-ready'));
       }
 
@@ -194,7 +190,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       }
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
-      logger.error({ err: error }, '[PrivateWhisper] ❌ Init failed');
+      logger.error({ sId: this.serviceId, rId: this.runId, err: error }, '[PrivateWhisper] ❌ Init failed');
       this.status = 'error';
 
       throw error;
@@ -207,13 +203,13 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       throw new Error('MicStream is required for PrivateWhisper');
     }
     if (typeof mic.onFrame !== 'function') {
-      logger.error('[PrivateWhisper CRITICAL] MicStream missing onFrame method!');
+      logger.error({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper CRITICAL] MicStream missing onFrame method!');
       throw new Error('Invalid MicStream: missing onFrame method');
     }
     this.mic = mic;
-    logger.info('[PrivateWhisper] startTranscription() called.');
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] startTranscription() called.');
     if (this.status !== 'idle') {
-      logger.warn(`[PrivateWhisper] Unexpected status: ${this.status}, expected 'idle'`);
+      logger.warn({ sId: this.serviceId, rId: this.runId, status: this.status }, `[PrivateWhisper] Unexpected status: ${this.status}, expected 'idle'`);
     }
     this.status = 'transcribing';
     this.audioChunks = [];
@@ -241,7 +237,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       this.processAudio();
     }, 500);
 
-    logger.info('[PrivateWhisper] Streaming started.');
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] Streaming started.');
   }
 
   private async processAudio(): Promise<void> {
@@ -268,6 +264,8 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       if (isSilent) {
         if (concatenated.length > 500 && Math.random() > 0.9) {
           logger.debug({
+            sId: this.serviceId,
+            rId: this.runId,
             silenceDuration: this.pauseDetector.getCurrentSilenceDurationSeconds(),
             samples: concatenated.length
           }, '[PrivateWhisper] 🤫 Meaningful silence detected - skipping chunk');
@@ -276,7 +274,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
         return;
       }
 
-      logger.info({ samples: concatenated.length }, '[PrivateWhisper] 🔊 Speech detected');
+      logger.info({ sId: this.serviceId, rId: this.runId, samples: concatenated.length }, '[PrivateWhisper] 🔊 Speech detected');
 
       // CRITICAL FIX: The MicStream ALREADY downsamples to 16kHz (confirmed in audioUtils.impl.ts).
       // Double downsampling (16k -> 16k) is harmless, but if we guessed 44k -> 16k on 16k input, we'd decimate it.
@@ -286,7 +284,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       if (this.transcript.length === 0) {
         // Calculate estimated duration based on 16kHz
         const expectedDurationSec = concatenated.length / 16000;
-        logger.info({ samples: concatenated.length, expectedDurationSec }, '[PrivateWhisper] 🎤 Processing chunk');
+        logger.info({ sId: this.serviceId, rId: this.runId, samples: concatenated.length, expectedDurationSec }, '[PrivateWhisper] 🎤 Processing chunk');
 
         // If the duration is wildly different from wall clock, we have a sample rate issue
         // (This is just a heuristic for logs, not control logic)
@@ -315,7 +313,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       const newText = result.value || '';
 
       if (newText.trim()) {
-        logger.info({ newText, latencyMs: (performance.now() - tStart).toFixed(2) }, '[PrivateWhisper] ✨ Transcription success');
+        logger.info({ sId: this.serviceId, rId: this.runId, newText, latencyMs: (performance.now() - tStart).toFixed(2) }, '[PrivateWhisper] ✨ Transcription success');
         // Append with space if transcript already has content
         this.transcript = this.transcript ? `${this.transcript} ${newText}` : newText;
         this.onTranscriptUpdate({ transcript: { final: newText } });
@@ -325,14 +323,14 @@ export default class PrivateWhisper implements ITranscriptionEngine {
 
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
-      logger.error({ err: error }, '[PrivateWhisper] Transcription processing failed.');
+      logger.error({ sId: this.serviceId, rId: this.runId, err: error }, '[PrivateWhisper] Transcription processing failed.');
     } finally {
       this.isProcessing = false;
     }
   }
 
   public async stopTranscription(): Promise<string> {
-    logger.info('[PrivateWhisper] stopTranscription() called.');
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] stopTranscription() called.');
 
     if (this.processingInterval) {
       clearInterval(this.processingInterval);
@@ -357,7 +355,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
   }
 
   public async terminate(): Promise<void> {
-    logger.info('[PrivateWhisper] Terminating service...');
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] Terminating service...');
     if (this.processingInterval) {
       clearInterval(this.processingInterval);
       this.processingInterval = null;

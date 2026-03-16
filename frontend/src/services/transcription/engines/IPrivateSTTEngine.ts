@@ -22,6 +22,9 @@ export type EngineType = 'whisper-turbo' | 'transformers-js' | 'mock';
 export interface EngineCallbacks {
     onModelLoadProgress?: (progress: number) => void;
     onReady?: () => void;
+    // Correlation IDs for Triple-Identity Tracing
+    serviceId?: string;
+    runId?: string;
 }
 
 /**
@@ -53,4 +56,12 @@ export interface IPrivateSTTEngine {
      * Clean up resources
      */
     destroy(): Promise<void>;
+
+    /**
+     * Forcefully terminate engines and workers
+     */
+    terminate?(): Promise<void>;
+
+    /** Unique identifier for tracing */
+    instanceId?: string;
 }

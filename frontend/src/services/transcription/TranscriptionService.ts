@@ -1,6 +1,7 @@
 import logger from '@/lib/logger';
 import { isEqual } from 'lodash-es';
 import { createMicStream } from './utils/audioUtils';
+import * as AudioProcessor from './utils/AudioProcessor';
 import { EngineFactory } from './EngineFactory';
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
@@ -96,16 +97,21 @@ export default class TranscriptionService {
   private metadata: { engineVersion: string; modelName: string; deviceType: string } | null = null;
 
   private mode: TranscriptionMode | null = null;
-  private serviceId: string; // ✅ SYSTEMATIC: Unique ID for this service instance
-  private runId: string | null = null; // ✅ SYSTEMATIC: Unique ID for each logical start run
-  private lastEngineId: string | null = null; // ✅ SYSTEMATIC: Track engine instance transitions
+  private serviceId: string; // Unique ID for this service instance
+  private runId: string | null = null; // Unique ID for each logical start run
+  private lastEngineId: string | null = null; // Track engine instance transitions
   private lastError: Error | null = null;
+  private destroyPromise: Promise<void> | null = null;
   private readonly MIN_RECORDING_DURATION_MS = 100;
   private readonly HEARTBEAT_PERIOD_MS = 30000; // 30 seconds
   private downloadController: AbortController | null = null;
   private modelLoadingProgress: number | null = 0;
   private initPromise: Promise<void> | null = null;
   private privateModelReady: boolean = false;
+
+  public getFailureManager(): FailureManager {
+    return this.failureManager;
+  }
 
   // Handlers populated via injection
   private dbHandlers?: {
@@ -117,7 +123,7 @@ export default class TranscriptionService {
   constructor(options: Partial<TranscriptionServiceOptions> = {}) {
     this.serviceId = Math.random().toString(36).substring(7);
     this.fsm = new TranscriptionFSM();
-    this.failureManager = FailureManager.getInstance();
+    this.failureManager = new FailureManager();
     this.policy = options.policy || PROD_FREE_POLICY;
 
     // ✅ E2E HOOK: Expose instance for behavioral inspection and isolation resets
@@ -297,6 +303,11 @@ export default class TranscriptionService {
       return { success: true };
     }
 
+    if (this.fsm.is('TERMINATED')) {
+      this.fsm.transition({ type: 'RESET_REQUESTED' });
+      this.destroyPromise = null; // Reset lock to allow future destruction
+    }
+
     if (!this.fsm.is('IDLE') && !this.fsm.is('FAILED')) {
       logger.debug({ state: this.fsm.getState() }, '[TranscriptionService] init() called in unexpected state');
     }
@@ -343,7 +354,7 @@ export default class TranscriptionService {
     }
 
     // Auto-init if needed
-    if (this.fsm.is('IDLE') || this.fsm.is('FAILED')) {
+    if (this.fsm.is('IDLE') || this.fsm.is('FAILED') || this.fsm.is('TERMINATED')) {
       const ok = await this.init();
       if (!ok.success) return;
     }
@@ -571,63 +582,81 @@ export default class TranscriptionService {
   /* Cleanup status tracked via FSM state 'CLEANING_UP' */
 
   /**
-   * Cleanup resources.
+   * NUCLEAR CLEANUP: Forceful termination of all resources.
    * Idempotent and safe against concurrent calls.
    */
   public async destroy(): Promise<void> {
-    const state = this.fsm.getState();
-
-    // ✅ GUARD 1: Already cleaning up or terminated
-    if (state === 'CLEANING_UP' || state === 'TERMINATED') {
-      logger.debug(`[TranscriptionService] destroy() ignored - already in ${state}`);
-      return;
+    // Atomic lock to handle concurrent calls
+    if (this.destroyPromise) {
+      logger.debug({ sId: this.serviceId }, '[TranscriptionService] destroy() - already in progress, awaiting existing promise');
+      return this.destroyPromise;
     }
 
-    // ✅ GUARD 2: IDLE means no work to do
-    if (state === 'IDLE') {
-      return;
-    }
+    this.destroyPromise = (async () => {
+      const state = this.fsm.getState();
 
-    logger.info('[TranscriptionService] 🧹 Starting cleanup sequence');
-
-    try {
-      this.fsm.transition({ type: 'TERMINATE_REQUESTED' });
-      this.initPromise = null; // ✅ Hard Reset on termination
-
-      if (this.mic) {
-        this.mic.stop();
-        this.mic = null;
+      // ✅ GUARD: Already fully terminated
+      if (state === 'TERMINATED') {
+        return;
       }
 
-      const currentEngine = this.engine;
-      this.engine = null; // Decouple immediately
+      logger.info({ sId: this.serviceId }, '[TranscriptionService] 🧹 Starting nuclear cleanup sequence');
 
-      if (currentEngine) {
-        try {
-          // Call terminate with timeout to prevent hangs
-          const terminator = typeof currentEngine.terminate === 'function'
-            ? currentEngine.terminate()
-            : currentEngine.stopTranscription();
+      try {
+        // Transition to CLEANING_UP state via TERMINATE_REQUESTED
+        this.fsm.transition({ type: 'TERMINATE_REQUESTED' });
+        this.initPromise = null; // ✅ Hard Reset on termination
 
-          await Promise.race([
-            terminator,
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Engine terminate timeout')), 3000)
-            )
-          ]);
-        } catch (error) {
-          logger.error({ error }, '[TranscriptionService] Engine terminate failed or timed out');
+        if (this.mic) {
+          logger.debug({ sId: this.serviceId }, '[TranscriptionService] 🎤 Closing microphone stream');
+          this.mic.stop();
+          this.mic = null;
         }
+
+        const currentEngine = this.engine;
+        this.engine = null; // Decouple immediately to prevent further use during await
+
+        if (currentEngine) {
+          try {
+            logger.info({ sId: this.serviceId, eId: currentEngine.instanceId }, '[TranscriptionService] 🤖 Terminating engine worker');
+            // Call terminate with timeout to prevent hangs
+            const terminator = typeof currentEngine.terminate === 'function'
+              ? currentEngine.terminate()
+              : currentEngine.stopTranscription();
+
+            await Promise.race([
+              terminator,
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Engine terminate timeout')), 3000)
+              )
+            ]);
+          } catch (error) {
+            logger.error({ sId: this.serviceId, error }, '[TranscriptionService] Engine terminate failed or timed out');
+          }
+        }
+
+        this.initPromise = null;
+        this.runId = null;
+
+        // Nuclear purge of shared worker resources
+        try {
+          if (AudioProcessor && typeof AudioProcessor.terminateWorker === 'function') {
+            AudioProcessor.terminateWorker();
+          }
+        } catch (e) {
+          logger.warn({ sId: this.serviceId, error: e }, '[TranscriptionService] Non-critical: AudioProcessor termination failed');
+        }
+
+      } finally {
+        // Transition to IDLE marks cleanup as complete
+        this.fsm.transition({ type: 'RESET_REQUESTED' });
+        // Then force to TERMINATED to ensure service is officially "Dead"
+        this.fsm.setState('TERMINATED');
+        logger.info({ sId: this.serviceId }, '[TranscriptionService] ✅ Nuclear cleanup complete');
       }
+    })();
 
-      this.initPromise = null; 
-      this.runId = null;
-
-    } finally {
-      // ✅ Transition to IDLE marks cleanup as complete
-      this.fsm.transition({ type: 'RESET_REQUESTED' });
-      logger.info('[TranscriptionService] ✅ Cleanup complete');
-    }
+    return this.destroyPromise;
   }
 
   public isServiceDestroyed(): boolean {

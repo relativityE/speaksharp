@@ -48,6 +48,9 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
 
   private session: Session | null;
   private options: TranscriptionModeOptions;
+  private serviceId: string;
+  private runId: string;
+  public readonly instanceId: string;
 
   constructor(options: TranscriptionModeOptions) {
     this.options = options;
@@ -55,12 +58,15 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
     this.onModelLoadProgress = options.onModelLoadProgress ?? (() => { });
     this.onReady = options.onReady;
     this.onError = options.onError;
+    this.serviceId = options.serviceId || 'unknown';
+    this.runId = options.instanceId || 'unknown';
+    this.instanceId = Math.random().toString(36).substring(7);
     this.session = options.session ?? null;
   }
 
   public async init(): Promise<void> {
     // No-op for init, connection happens on startTranscription
-    logger.info('[CloudAssemblyAI] Init complete (lazy connection strategy).');
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] Init complete (lazy connection strategy).');
   }
 
   private async fetchToken(): Promise<string> {
@@ -68,7 +74,7 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
     // Pattern: Used by Stripe, Auth0, Twilio SDKs
 
     if (this.isE2EEnvironment()) {
-      logger.info('[CloudAssemblyAI] 🧪 E2E mode - bypassing auth');
+      logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] 🧪 E2E mode - bypassing auth');
       return this.getMockToken();
     }
 
@@ -94,11 +100,11 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
       return data.token;
 
     } catch (error) {
-      logger.error({ err: error }, '[CloudAssemblyAI] ❌ Auth token fetch failed');
+      logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: error }, '[CloudAssemblyAI] ❌ Auth token fetch failed');
 
       // Fallback to mock in development
       if (this.isDevelopmentEnvironment()) {
-        logger.warn('[CloudAssemblyAI] Falling back to mock token');
+        logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] Falling back to mock token');
         return this.getMockToken();
       }
 
@@ -141,13 +147,13 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
 
     try {
       this.updateConnectionState('connecting');
-      logger.info(`[CloudAssemblyAI] Connecting... (Attempt ${this.reconnectionAttempts + 1}/${this.maxReconnectionAttempts}, ID: ${currentConnectionId})`);
+      logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[CloudAssemblyAI] Connecting... (Attempt ${this.reconnectionAttempts + 1}/${this.maxReconnectionAttempts}, ID: ${currentConnectionId})`);
 
       const token = await this.fetchToken();
 
       // Guard: If connection ID changed while awaiting token, abort
       if (currentConnectionId !== this.connectionId) {
-        logger.warn(`[CloudAssemblyAI] Connection ID mismatch after token fetch. Aborting connect for ID ${currentConnectionId}`);
+        logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[CloudAssemblyAI] Connection ID mismatch after token fetch. Aborting connect for ID ${currentConnectionId}`);
         return;
       }
 
@@ -164,7 +170,7 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
       this.socket.onopen = async () => {
         // Guard: zombie socket check
         if (currentConnectionId !== this.connectionId) {
-          logger.warn(`[CloudAssemblyAI] closing zombie socket for ID ${currentConnectionId}`);
+          logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[CloudAssemblyAI] closing zombie socket for ID ${currentConnectionId}`);
           this.socket?.close();
           return;
         }
@@ -188,14 +194,14 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
             this.handleMessage(data);
           }
         } catch (err) {
-          logger.error({ err, data: event.data }, '[CloudAssemblyAI] Failed to parse message');
+          logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err, data: event.data }, '[CloudAssemblyAI] Failed to parse message');
         }
       };
 
       this.socket.onclose = (event) => {
         if (currentConnectionId !== this.connectionId) return;
 
-        logger.info({ code: event.code, reason: event.reason }, `[CloudAssemblyAI] WebSocket closed (ID: ${currentConnectionId}).`);
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, code: event.code, reason: event.reason }, `[CloudAssemblyAI] WebSocket closed (ID: ${currentConnectionId}).`);
         this.socket = null;
 
         if (this.isListening) {
@@ -207,7 +213,7 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
 
       this.socket.onerror = (event) => {
         if (currentConnectionId !== this.connectionId) return;
-        logger.error({ event }, `[CloudAssemblyAI] WebSocket error (ID: ${currentConnectionId}).`);
+        logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, event }, `[CloudAssemblyAI] WebSocket error (ID: ${currentConnectionId}).`);
 
         // 🛡️ RELIABILITY: Trigger reconnection logic on error (Fixes Domain 3)
         if (this.isListening) {
@@ -217,7 +223,7 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
 
     } catch (error) {
       if (currentConnectionId !== this.connectionId) return;
-      logger.error({ error }, '[CloudAssemblyAI] Connection failed.');
+      logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, error }, '[CloudAssemblyAI] Connection failed.');
       this.handleConnectionLoss();
     }
   }
@@ -225,7 +231,7 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
   private handleMessage(data: AssemblyAIMessage) {
     switch (data.message_type) {
       case 'SessionBegins':
-        logger.info(`[CloudAssemblyAI] Session started. ID: ${data.session_id}`);
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[CloudAssemblyAI] Session started. ID: ${data.session_id}`);
         break;
 
       case 'PartialTranscript':
@@ -250,13 +256,13 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
         break;
 
       case 'SessionTerminated':
-        logger.info('[CloudAssemblyAI] Session terminated by server.');
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] Session terminated by server.');
         this.stopTranscription();
         break;
     }
 
     if (data.error) {
-      logger.error({ error: data.error }, '[CloudAssemblyAI] API Error received');
+      logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, error: data.error }, '[CloudAssemblyAI] API Error received');
     }
   }
 
@@ -274,13 +280,13 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
       const jitter = Math.random() * 200;
       const delay = (this.baseReconnectDelay * exp) + jitter;
 
-      logger.warn(`[CloudAssemblyAI] Connection lost. Reconnecting in ${Math.round(delay)}ms...`);
+      logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[CloudAssemblyAI] Connection lost. Reconnecting in ${Math.round(delay)}ms...`);
 
       this.reconnectTimer = setTimeout(() => {
         this.connect();
       }, delay);
     } else {
-      logger.error('[CloudAssemblyAI] Max reconnection attempts reached.');
+      logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] Max reconnection attempts reached.');
       this.stopTranscription();
       if (this.onError) {
         this.onError(TranscriptionError.network('Connection lost. Unable to reconnect to transcription service.'));
@@ -289,6 +295,7 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
   }
 
   public async stopTranscription(): Promise<string> {
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] stopTranscription called');
     this.isListening = false;
 
     if (this.reconnectTimer) {
@@ -341,7 +348,7 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
         this.socket.send(JSON.stringify({ audio_data: base64 }));
       }
     } catch (err) {
-      logger.error({ err }, '[CloudAssemblyAI] Error processing audio chunk');
+      logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err }, '[CloudAssemblyAI] Error processing audio chunk');
     }
   }
 
@@ -353,7 +360,7 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
   private async _doFlush() {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
 
-    logger.info(`[CloudAssemblyAI] Flushing ${this.audioQueue.length} queued audio chunks.`);
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[CloudAssemblyAI] Flushing ${this.audioQueue.length} queued audio chunks.`);
 
     while (this.audioQueue.length > 0) {
       const chunk = this.audioQueue.shift();
@@ -373,6 +380,6 @@ export default class CloudAssemblyAI implements ITranscriptionEngine {
 
   private updateConnectionState(state: ConnectionState): void {
     this.connectionState = state;
-    logger.debug(`[CloudAssemblyAI] Connection state: ${state}`);
+    logger.debug({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[CloudAssemblyAI] Connection state: ${state}`);
   }
 }

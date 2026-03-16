@@ -146,7 +146,8 @@ test.describe('Private STT (Whisper)', () => {
         await page.getByTestId('stt-mode-select').click();
 
         const privateOption = page.getByRole('menuitemradio', { name: /private/i });
-        await expect(privateOption).toBeHidden();
+        await expect(privateOption).toBeVisible();
+        await expect(privateOption).toHaveAttribute('aria-disabled', 'true');
     });
 
     test('should show Private option for Pro users', async ({ proPage: page }) => {

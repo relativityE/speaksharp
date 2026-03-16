@@ -21,7 +21,7 @@ build/
 /test-support/
 /lighthouse-results/
 /.lighthouseci/
-/screenshots/
+**/screenshots/
 coverage/
 html/
 # test-impact-map.json (Essential for TIA - keep tracked)

@@ -216,6 +216,7 @@ To ensure the "Gold Standard" of production readiness, the project enforces the 
 - **Atomic Initialization**: All core services MUST provide a deterministic readiness signal. Tests are forbidden from using arbitrary `wait()` calls; they must await the `window.__APP_READY_STATE__` contract.
 
 ### 5.4 Active System Constraints & Known Issues
+- **Active Issue: STT Initialization Timeout in E2E:** E2E tests are currently failing due to a race condition where `useTranscriptionControl` attempts to start recording before the `TranscriptionService` singleton is fully instantiated and registered by the `SpeechRuntimeController`. The service instance resolves to `null`.
 - **Theming:** Dark Theme fully implemented with polished UI (Inter font, glassmorphism).
 - **Unit Test Coverage:** 100% Codebase Health (Lint/Typecheck). Tracked in Phase 5.
 - **Resolved: Test See-Saw Failure** (Feb 2026): Fixed by implementing "UI State First" architecture. Decoupled session lifecycle from engine stop, ensuring UI reverts to "Start" and mutex is released *before* awaiting slow engine cleanup.

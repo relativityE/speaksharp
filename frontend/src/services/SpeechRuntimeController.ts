@@ -1,10 +1,11 @@
 // src/services/SpeechRuntimeController.ts
 import logger from '../lib/logger';
-import { getTranscriptionService } from './transcription/TranscriptionService';
+import { STTServiceFactory } from './transcription/STTServiceFactory';
+import TranscriptionService from './transcription/TranscriptionService';
 import { useReadinessStore } from '../stores/useReadinessStore';
 import { saveSession, completeSession, heartbeatSession } from '../lib/storage';
-import { useSessionStore } from '../stores/useSessionStore';
 import { getSupabaseClient } from '../lib/supabaseClient';
+import { UserProfile } from '../types/user';
 
 export type RuntimeState =
     | 'IDLE'
@@ -24,6 +25,7 @@ class SpeechRuntimeController {
     private static instance: SpeechRuntimeController;
     private state: RuntimeState = 'IDLE';
     private initialized: boolean = false;
+    private service: TranscriptionService | null = null;
     private commandQueue: Promise<void> = Promise.resolve();
     private heartbeatInterval: NodeJS.Timeout | null = null;
     private readonly HEARTBEAT_PERIOD_MS = 30000;
@@ -56,6 +58,24 @@ class SpeechRuntimeController {
         });
     }
 
+    /**
+     * Pre-warms the STT engine (especially heavy WASM models).
+     * Creates a service instance if none exists.
+     */
+    public async warmUp(mode: 'private'): Promise<void> {
+        return this.enqueue(async () => {
+            if (!this.service) {
+                logger.info('[SpeechRuntimeController] 🌡️ Creating service instance for warm-up');
+                this.service = STTServiceFactory.createService();
+                // Notify provider to sync the new service
+                if (typeof window !== 'undefined' && window.dispatchEvent) {
+                    window.dispatchEvent(new CustomEvent('speech-runtime-state', { detail: { state: this.state } }));
+                }
+            }
+            await this.service.warmUp(mode);
+        });
+    }
+
     private enqueue<T>(command: () => Promise<T>): Promise<T> {
         const next = this.commandQueue.then(command);
         this.commandQueue = next.then(() => {}, () => {});
@@ -64,6 +84,10 @@ class SpeechRuntimeController {
 
     public getState(): RuntimeState {
         return this.state;
+    }
+
+    public getService(): TranscriptionService | null {
+        return this.service;
     }
 
     private transition(newState: RuntimeState) {
@@ -87,7 +111,11 @@ class SpeechRuntimeController {
                 return;
             }
 
-            const service = getTranscriptionService();
+            // ✅ SYSTEMATIC: Reuse pre-warmed service or create fresh instance
+            if (!this.service) {
+                this.service = STTServiceFactory.createService();
+            }
+            const service = this.service;
 
             // Inject DB operations
             service.setDbHandlers({
@@ -107,13 +135,16 @@ class SpeechRuntimeController {
                     logger.info({ userId: sessionData.user_id, idempotencyKey }, '[SpeechRuntimeController] Attempting to create DB session');
                     // We must bypass types for saveSession since we extracted the explicit type dependencies
                     // from TranscriptionService to keep the runtime clean.
-                    const { session: dbSession, usageExceeded } = await saveSession(
+                    const saveResult = await saveSession(
                         sessionData as Parameters<typeof saveSession>[0],
                         { subscription_status: 'free' } as Parameters<typeof saveSession>[1],
                         mode,
                         idempotencyKey,
                         metadata as Record<string, unknown>
                     );
+
+                    const dbSession = saveResult?.session;
+                    const usageExceeded = saveResult?.usageExceeded;
 
                     if (usageExceeded) {
                         throw new Error('Usage limit exceeded');
@@ -178,13 +209,23 @@ class SpeechRuntimeController {
                     };
 
                     logger.info({ userId, idempotencyKey }, '[SpeechRuntimeController] Attempting to create DB session');
-                    const { session: dbSession, usageExceeded } = await saveSession(
-                        sessionData as any,
-                        { subscription_status: 'free' } as any, // TODO: Pull real profile from store if needed
+                    const saveResult = await saveSession(
+                        sessionData,
+                        { 
+                            id: userId, 
+                            email: session?.user?.email || '',
+                            subscription_status: 'free',
+                            usage_seconds: 0,
+                            usage_reset_date: new Date().toISOString(),
+                            created_at: new Date().toISOString()
+                        } as UserProfile,
                         mode,
                         idempotencyKey,
                         metadata
                     );
+
+                    const dbSession = saveResult?.session;
+                    const usageExceeded = saveResult?.usageExceeded;
 
                     if (usageExceeded) {
                         throw new Error('Usage limit exceeded');
@@ -206,7 +247,7 @@ class SpeechRuntimeController {
         });
     }
 
-    private startHeartbeat(sessionId: string, service: any): void {
+    private startHeartbeat(sessionId: string, service: TranscriptionService): void {
         this.stopHeartbeat();
         this.heartbeatInterval = setInterval(async () => {
             if (!sessionId || service.getState() !== 'RECORDING') return;
@@ -235,7 +276,11 @@ class SpeechRuntimeController {
             this.transition('STOPPING');
             try {
                 this.stopHeartbeat();
-                const service = getTranscriptionService();
+                const service = this.service;
+                if (!service) {
+                    logger.warn('[SpeechRuntimeController] stopRecording() called but no service active');
+                    return null;
+                }
                 const sessionId = service.getSessionId();
                 const startTime = service.getStartTime();
 
@@ -245,6 +290,10 @@ class SpeechRuntimeController {
                     const duration = startTime ? (Date.now() - startTime) / 1000 : 0;
                     await completeSession(sessionId, result.transcript, Math.round(duration));
                 }
+
+                // ✅ SYSTEMATIC: Destroy the service instance after the session ends
+                await service.destroy();
+                this.service = null;
 
                 this.transition('READY');
                 return result;
@@ -265,8 +314,10 @@ class SpeechRuntimeController {
             logger.info('[SpeechRuntimeController] 🔄 Resetting to IDLE');
             this.initialized = false;
             this.transition('IDLE');
-            const service = getTranscriptionService();
-            await service.destroy(); // Ensure low-level service is also cleaned up
+            if (this.service) {
+                await this.service.destroy(); // Ensure low-level service is also cleaned up
+                this.service = null;
+            }
         });
     }
 }

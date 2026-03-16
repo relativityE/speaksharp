@@ -13,22 +13,13 @@ interface FailureRecord {
 
 /**
  * Manages failure tracking for transcription modes using a Circuit Breaker pattern.
- * Implemented as a Singleton to persist state across TranscriptionService instantiations
- * (e.g., during navigation or component remounts).
+ * Now isolation-aware: One instance per TranscriptionService.
  */
 export class FailureManager {
-    private static instance: FailureManager;
     private privateFailures: FailureRecord = { count: 0, lastFailureTime: 0 };
 
-    private constructor() {
-        // Private constructor for Singleton
-    }
-
-    public static getInstance(): FailureManager {
-        if (!FailureManager.instance) {
-            FailureManager.instance = new FailureManager();
-        }
-        return FailureManager.instance;
+    public constructor() {
+        // Now a public constructor for per-instance use
     }
 
     /**
@@ -57,7 +48,6 @@ export class FailureManager {
 
     /**
      * Resets the failure count.
-     * STRICTLY FOR TESTING PURPOSES ONLY.
      */
     public resetFailureCount(): void {
         this.privateFailures = { count: 0, lastFailureTime: 0 };
@@ -66,15 +56,4 @@ export class FailureManager {
     public reset(): void {
         this.resetFailureCount();
     }
-}
-
-// Expose to window for E2E tests
-declare global {
-    interface Window {
-        __FAILURE_MANAGER__?: FailureManager;
-    }
-}
-
-if (typeof window !== 'undefined') {
-    window.__FAILURE_MANAGER__ = FailureManager.getInstance();
 }

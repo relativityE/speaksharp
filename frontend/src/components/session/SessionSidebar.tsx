@@ -228,11 +228,11 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent className="w-56">
-                                <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
-                                    <DropdownMenuRadioItem value="cloud" disabled={!canAccessAdvancedModes}>Cloud</DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="private" disabled={!canAccessAdvancedModes}>Private</DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="native">Native</DropdownMenuRadioItem>
-                                </DropdownMenuRadioGroup>
+                                    <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
+                                        <DropdownMenuRadioItem value="cloud" disabled={!canAccessAdvancedModes}>Cloud</DropdownMenuRadioItem>
+                                        <DropdownMenuRadioItem value="private" disabled={!canAccessAdvancedModes}>Private</DropdownMenuRadioItem>
+                                        <DropdownMenuRadioItem value="native">Native</DropdownMenuRadioItem>
+                                    </DropdownMenuRadioGroup>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>

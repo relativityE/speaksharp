@@ -36,6 +36,8 @@ function hasWebGPU(): boolean {
 export class PrivateSTT implements IPrivateSTT {
     private engine: IPrivateSTTEngine | null = null;
     private engineType: EngineType | null = null;
+    private serviceId: string = 'unknown';
+    private runId: string = 'unknown';
 
     /**
      * Initialize the best available engine.
@@ -46,7 +48,10 @@ export class PrivateSTT implements IPrivateSTT {
      * 4. Failure: Terminates with Error (No silent Cloud/Native fallback)
      */
     async init(options: PrivateSTTInitOptions): Promise<Result<EngineType, Error>> {
-        logger.info('[PrivateSTT] 🚀 Privacy-first engine selection started...');
+        this.serviceId = options.serviceId || 'unknown';
+        this.runId = options.runId || 'unknown';
+
+        logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🚀 Privacy-first engine selection started...');
 
         if (TestFlags.DEBUG_ENABLED) {
             logger.info({
@@ -75,17 +80,17 @@ export class PrivateSTT implements IPrivateSTT {
         const webGPUAvailable = hasWebGPU() && !forceSafe;
 
         if (webGPUAvailable) {
-            logger.info('[PrivateSTT] ⚡ WebGPU detected. Attempting WhisperTurbo...');
+            logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] ⚡ WebGPU detected. Attempting WhisperTurbo...');
             const fastResult = await this.initFastEngine(callbacks);
             if (fastResult.isOk) return fastResult;
 
-            logger.warn({ err: fastResult.error }, '[PrivateSTT] ⚠️ WhisperTurbo failed. Falling back to WASM...');
+            logger.warn({ sId: this.serviceId, rId: this.runId, err: fastResult.error }, '[PrivateSTT] ⚠️ WhisperTurbo failed. Falling back to WASM...');
         } else {
-            logger.info('[PrivateSTT] 🐌 WebGPU not available or forced off. Skipping WhisperTurbo.');
+            logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🐌 WebGPU not available or forced off. Skipping WhisperTurbo.');
         }
 
         // 4. Safe Path (WASM/CPU)
-        logger.info('[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)...');
+        logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)...');
         const safeResult = await this.initSafeEngine(callbacks);
 
         if (safeResult.isErr) {
@@ -254,6 +259,22 @@ export class PrivateSTT implements IPrivateSTT {
     async destroy(): Promise<void> {
         if (this.engine) {
             await this.engine.destroy();
+            this.engine = null;
+            this.engineType = null;
+        }
+    }
+
+    /**
+     * Forcefully terminate engines and workers
+     */
+    async terminate(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] Forceful termination requested');
+        if (this.engine) {
+            if (typeof this.engine.terminate === 'function') {
+                await this.engine.terminate();
+            } else {
+                await this.engine.destroy();
+            }
             this.engine = null;
             this.engineType = null;
         }

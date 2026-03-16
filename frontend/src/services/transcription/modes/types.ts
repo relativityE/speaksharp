@@ -69,6 +69,8 @@ export interface TranscriptionModeOptions {
   onStatusChange?: (status: SttStatus) => void;
   /** Unique identifier for the engine instance (used for diagnostic tracing) */
   instanceId?: string;
+  /** Unique identifier for the service instance */
+  serviceId?: string;
 }
 
 export interface ITranscriptionEngine {

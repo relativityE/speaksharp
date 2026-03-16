@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useSessionStore } from '@/stores/useSessionStore';
-import { FailureManager } from '../FailureManager';
 import TranscriptionService from '../TranscriptionService';
 import { TranscriptionPolicy } from '../TranscriptionPolicy';
 import { MicStream } from '../utils/types';
@@ -82,7 +81,6 @@ describe('TranscriptionService', () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
         testRegistry.clear();
-        FailureManager.getInstance().reset();
 
         // Default success engines - factories must accept opts
         testRegistry.register('native', (opts: TranscriptionModeOptions | undefined) => new SuccessNativeEngine(opts));

@@ -119,7 +119,7 @@ async function runCommand(command, args, options = {}) {
     let timer;
 
     // Suppress noise in CI by default
-    const logLevel = process.env.LOG_LEVEL || 'warn';
+    const logLevel = process.env.LOG_LEVEL || 'error';
 
     return new Promise((resolve, reject) => {
         timer = setTimeout(() => {
@@ -168,14 +168,14 @@ async function runCommand(command, args, options = {}) {
                 if (!line) continue;
 
                 if (label === 'E2E') {
-                    const signal = /fail|error|warn|flaky|retry|timeout|passed|summary|Diagnostic|🔴|\[PW\]|\[BROWSER/i;
+                    const signal = /fail|error|flaky|retry|timeout|passed|summary|Diagnostic|🔴|\[PW\]|\[BROWSER/i;
                     if (signal.test(line)) {
                         throttledLog(`${ANSI.DIM}[${label}]${ANSI.RESET} ${line}`);
                     }
                     continue;
                 }
 
-                if (logLevel === 'warn' && (line.includes('[info]') || line.includes('"level":30'))) continue;
+                if (logLevel === 'error' && (line.includes('[info]') || line.includes('[warn]') || line.includes('"level":30') || line.includes('"level":40'))) continue;
                 throttledLog(`${ANSI.DIM}[${label}]${ANSI.RESET} ${line}`);
             }
         });

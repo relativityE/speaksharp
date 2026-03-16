@@ -34,23 +34,25 @@ interface SpeechRecognitionStatic {
 }
 
 export default class NativeBrowser implements ITranscriptionEngine {
+  private serviceId: string;
+  private runId: string;
+  public readonly instanceId: string;
   private onTranscriptUpdate: (update: { transcript: Transcript }) => void;
   private onReady: () => void;
   private onError?: (error: TranscriptionError) => void;
-  private recognition: SpeechRecognition | null;
-  private isSupported: boolean;
-  private transcript: string;
-  private isListening: boolean;
+  private recognition: SpeechRecognition | null = null;
+  private isSupported: boolean = true;
+  private transcript: string = '';
+  private isListening: boolean = false;
   private isRestarting: boolean = false;
 
   constructor(options: TranscriptionModeOptions) {
     this.onTranscriptUpdate = options.onTranscriptUpdate;
     this.onReady = options.onReady;
     this.onError = options.onError;
-    this.recognition = null;
-    this.isSupported = true; // Assume supported, check in init
-    this.transcript = '';
-    this.isListening = false;
+    this.serviceId = options.serviceId || 'unknown';
+    this.runId = options.instanceId || 'unknown';
+    this.instanceId = Math.random().toString(36).substring(7);
   }
 
   public async init(): Promise<void> {
@@ -58,6 +60,7 @@ export default class NativeBrowser implements ITranscriptionEngine {
     this.isSupported = !!SpeechRecognition;
 
     if (!this.isSupported) {
+      logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Native browser speech recognition not supported');
       throw new Error('Native browser speech recognition not supported');
     }
     this.recognition = new SpeechRecognition();
@@ -66,17 +69,17 @@ export default class NativeBrowser implements ITranscriptionEngine {
 
     this.recognition.onresult = (event: SpeechRecognitionEvent) => {
       try {
-        logger.info({ resultIndex: event.resultIndex, resultsLength: event.results?.length }, '[NativeBrowser] onresult called!');
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, resultIndex: event.resultIndex, resultsLength: event.results?.length }, '[NativeBrowser] onresult called!');
         let interimTranscript = '';
         let finalTranscript = '';
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
             finalTranscript += event.results[i][0].transcript;
-            logger.info({ finalTranscript }, '[NativeBrowser] Final transcript received');
+            logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, finalTranscript }, '[NativeBrowser] Final transcript received');
           } else {
             interimTranscript += event.results[i][0].transcript;
-            logger.info({ interimTranscript }, '[NativeBrowser] Interim transcript received');
+            logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, interimTranscript }, '[NativeBrowser] Interim transcript received');
           }
         }
 
@@ -90,22 +93,22 @@ export default class NativeBrowser implements ITranscriptionEngine {
           }
         }
       } catch (error) {
-        logger.error({ error }, "Error in NativeBrowser onresult handler:");
+        logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, error }, "Error in NativeBrowser onresult handler:");
       }
     };
 
     this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       try {
-        logger.error({ error: event.error }, `[NativeBrowser] Speech recognition error: ${event.error}`);
+        logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, error: event.error }, `[NativeBrowser] Speech recognition error: ${event.error}`);
 
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          logger.error('[NativeBrowser] Microphone permission denied by user or browser settings');
+          logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Microphone permission denied by user or browser settings');
           if (this.onError) {
             this.onError(TranscriptionError.permission('Microphone permission denied. Please allow microphone access in your browser/system settings.'));
           }
         }
       } catch (error) {
-        logger.error({ error }, "Error in NativeBrowser onerror handler:");
+        logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, error }, "Error in NativeBrowser onerror handler:");
       }
     };
 
@@ -113,7 +116,7 @@ export default class NativeBrowser implements ITranscriptionEngine {
       if (!this.isListening || this.isRestarting) return;
 
       try {
-        logger.info('[NativeBrowser] onend reached, attempting immediate restart...');
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] onend reached, attempting immediate restart...');
         this.isRestarting = true;
 
         // EVENT-BASED RESTART: Use queueMicrotask instead of arbitrary setTimeout
@@ -135,31 +138,31 @@ export default class NativeBrowser implements ITranscriptionEngine {
           }
         });
       } catch (error) {
-        logger.error({ error }, "Error in NativeBrowser onend handler:");
+        logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, error }, "Error in NativeBrowser onend handler:");
         this.isRestarting = false;
       }
     };
-    logger.info('[NativeBrowser] Init complete.');
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Init complete.');
 
     // Notify that the service is ready immediately after initialization
     if (this.onReady) {
-      logger.info('[NativeBrowser] Calling onReady callback...');
+      logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Calling onReady callback...');
       this.onReady();
     }
   }
 
   public async startTranscription(): Promise<void> {
-    logger.info('[NativeBrowser] startTranscription called');
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] startTranscription called');
     if (!this.recognition) {
       throw new Error('NativeBrowser not initialized');
     }
     if (this.isListening) {
-      logger.warn('[NativeBrowser] Already listening, returning early');
+      logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Already listening, returning early');
       return;
     }
     this.transcript = '';
     this.isListening = true;
-    logger.info('[NativeBrowser] Starting recognition.start()...');
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Starting recognition.start()...');
     this.recognition.start();
 
     // E2E Test Bridge: Expose instance for mock dispatching
@@ -180,7 +183,7 @@ export default class NativeBrowser implements ITranscriptionEngine {
       window.dispatchEvent(new CustomEvent('e2e:speech-recognition-ready'));
     }
 
-    logger.info('[NativeBrowser] recognition.start() called successfully.');
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] recognition.start() called successfully.');
   }
 
   /**
@@ -193,7 +196,7 @@ export default class NativeBrowser implements ITranscriptionEngine {
     const BASE_DELAY_MS = 100;
 
     if (attempt >= MAX_ATTEMPTS) {
-      logger.error('[NativeBrowser] Max restart attempts reached, giving up');
+      logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Max restart attempts reached, giving up');
       this.isRestarting = false;
       if (this.onError) {
         this.onError(TranscriptionError.network('Speech recognition restart failed after multiple attempts', false));
@@ -202,7 +205,7 @@ export default class NativeBrowser implements ITranscriptionEngine {
     }
 
     const delay = BASE_DELAY_MS * Math.pow(2, attempt);
-    logger.info({ attempt, delay }, '[NativeBrowser] Scheduling retry with backoff');
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, attempt, delay }, '[NativeBrowser] Scheduling retry with backoff');
 
     // Use setTimeout here because we genuinely need a delay for backoff
     // This is NOT an arbitrary wait - it's intentional exponential backoff
@@ -215,18 +218,18 @@ export default class NativeBrowser implements ITranscriptionEngine {
       try {
         this.recognition.start();
         this.isRestarting = false;
-        logger.info({ attempt }, '[NativeBrowser] Restart succeeded after backoff');
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, attempt }, '[NativeBrowser] Restart succeeded after backoff');
       } catch (err) {
-        logger.warn({ err, attempt }, '[NativeBrowser] Backoff retry failed, trying next attempt');
+        logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err, attempt }, '[NativeBrowser] Backoff retry failed, trying next attempt');
         this.retryWithBackoff(attempt + 1);
       }
     }, delay);
   }
 
   public async stopTranscription(): Promise<string> {
-    logger.info('[NativeBrowser] stopTranscription called');
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] stopTranscription called');
     if (!this.recognition || !this.isListening) {
-      logger.warn('[NativeBrowser] Not listening or recognition not initialized, returning current transcript.');
+      logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Not listening or recognition not initialized, returning current transcript.');
       return this.transcript;
     }
     this.isListening = false;

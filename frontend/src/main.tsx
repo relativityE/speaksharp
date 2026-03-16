@@ -15,6 +15,13 @@ import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
 import App from './App';
 import { IS_TEST_ENVIRONMENT } from '@/config/env';
 import { useReadinessStore } from './stores/useReadinessStore';
+ 
+ declare global {
+   interface Window {
+     _speakSharpRootInitialized?: boolean;
+     __e2e_e2e_msw_ready_fired__?: boolean;
+   }
+ }
 
 const REQUIRED_ENV_VARS: string[] = [
   'VITE_SUPABASE_URL',
@@ -207,7 +214,7 @@ const startInitializing = async () => {
     const skipMSW = import.meta.env.VITE_SKIP_MSW === 'true' || import.meta.env.VITE_USE_LIVE_DB === 'true';
     if (skipMSW) {
       Object.assign(window, { mswReady: true });
-      (window as any)['__e2e_e2e:msw-ready_fired__'] = true;
+      window.__e2e_e2e_msw_ready_fired__ = true;
       window.dispatchEvent(new CustomEvent('e2e:msw-ready'));
       useReadinessStore.getState().setReady('msw');
     }

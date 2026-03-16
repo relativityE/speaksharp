@@ -22,13 +22,21 @@ import logger from '../../../lib/logger';
 
 export class WhisperTurboEngine implements IPrivateSTTEngine {
     public readonly type: EngineType = 'whisper-turbo';
+    public readonly instanceId: string;
     private session: unknown | null = null; // Use unknown for Comlink compatibility
+    private serviceId: string = 'unknown';
+    private runId: string = 'unknown';
 
-    constructor() { }
+    constructor() {
+        this.instanceId = Math.random().toString(36).substring(7);
+    }
 
     async init(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
+        this.serviceId = callbacks.serviceId || 'unknown';
+        this.runId = callbacks.runId || 'unknown';
+
         const tStart = performance.now();
-        logger.info(`[WhisperTurbo] [PERF] Initializing engine via Registry at ${new Date().toISOString()}`);
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[WhisperTurbo] [PERF] Initializing engine via Registry at ${new Date().toISOString()}`);
 
         try {
             if (callbacks.onModelLoadProgress) {
@@ -40,7 +48,7 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
             this.session = await WhisperEngineRegistry.acquire(callbacks.onModelLoadProgress);
 
             const tTotalInit = performance.now() - tStart;
-            logger.info(`[WhisperTurbo] [PERF] Engine acquisition took ${tTotalInit.toFixed(2)}ms`);
+            logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[WhisperTurbo] [PERF] Engine acquisition took ${tTotalInit.toFixed(2)}ms`);
 
             if (callbacks.onModelLoadProgress) {
                 callbacks.onModelLoadProgress(100);
@@ -53,7 +61,7 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
             return Result.ok(undefined);
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
-            logger.error({ err: e }, '[WhisperTurbo] Failed to acquire engine from registry.');
+            logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: e }, '[WhisperTurbo] Failed to acquire engine from registry.');
             return Result.err(e);
         }
     }
@@ -75,14 +83,20 @@ export class WhisperTurboEngine implements IPrivateSTTEngine {
             return Result.ok(transcript);
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
-            logger.error({ err: e }, '[WhisperTurbo] Transcription failed.');
+            logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: e }, '[WhisperTurbo] Transcription failed.');
             return Result.err(e);
         }
     }
 
     async destroy(): Promise<void> {
-        logger.info('[WhisperTurbo] [PERF] Releasing engine back to registry...');
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[WhisperTurbo] [PERF] Releasing engine back to registry...');
         WhisperEngineRegistry.release();
+        this.session = null;
+    }
+
+    async terminate(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[WhisperTurbo] [PERF] Nuclear Termination requested. Purging registry...');
+        await WhisperEngineRegistry.purge();
         this.session = null;
     }
 }

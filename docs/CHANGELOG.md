@@ -12,7 +12,8 @@ All notable changes to this project will be documented in this file.
 - **Logic: Fallback Negotiation Tests** — Created `private-stt-fallback-negotiation.e2e.spec.ts` verifying the WebGPU → CPU → Error transition paths.
 - **Verification: Accuracy Benchmarks** — Established and logged accuracy ceilings for Private engines (93% WebGPU / 90% CPU) in `tests/STT_BENCHMARKS.json`.
 - **Quality: CI Quality Gate** — Integrated `pnpm quality-code` for unified linting, typechecking, and `eslint-disable` ban enforcement.
-- **Files:** `TranscriptionService.ts`, `PrivateWhisper.ts`, `useSessionLifecycle.ts`, `STT_BENCHMARKS.json`, `run-ci.mjs`.
+- **Quality: Zero-Debt Restoration** — Removed all `as any` type casts in Playwright `addInitScript` and `evaluate` blocks across E2E test files to strictly satisfy the zero-debt linting mandate.
+- **Files:** `TranscriptionService.ts`, `PrivateWhisper.ts`, `useSessionLifecycle.ts`, `STT_BENCHMARKS.json`, `run-ci.mjs`, E2E test files.
 
 ### [3.5.8] — High-Merit Integration & Performance Optimization (2026-03-15)
 

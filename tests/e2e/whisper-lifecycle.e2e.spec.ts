@@ -116,8 +116,7 @@ test.describe('Whisper Lifecycle UX', () => {
         }`);
 
         await navigateToRoute(page, '/session');
-        await page.getByTestId('stt-mode-select').click();
-        await page.getByRole('menuitemradio', { name: /Private/i }).click();
+        // We rely on Pro default (Private) to keep allowFallback=true
 
         // 🔴 Lifecycle Stage 3: Failure & Resumption
         await page.evaluate(`window.__SIMULATE_FAILURE__ = true`);

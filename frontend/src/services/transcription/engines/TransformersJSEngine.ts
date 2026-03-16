@@ -24,15 +24,25 @@ type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeli
 
 export class TransformersJSEngine implements IPrivateSTTEngine {
     public readonly type: EngineType = 'transformers-js';
+    public readonly instanceId: string;
     private transcriber: Pipeline | null = null;
+    private serviceId: string = 'unknown';
+    private runId: string = 'unknown';
+
+    constructor() {
+        this.instanceId = Math.random().toString(36).substring(7);
+    }
 
     async init(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
+        this.serviceId = callbacks.serviceId || 'unknown';
+        this.runId = callbacks.runId || 'unknown';
+
         if (this.transcriber) {
-            logger.info('[TransformersJS] Engine already initialized, skipping.');
+            logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Engine already initialized, skipping.');
             if (callbacks.onReady) callbacks.onReady();
             return Result.ok(undefined);
         }
-        logger.info('[TransformersJS] Initializing engine...');
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Initializing engine...');
 
         try {
             // Lazy import transformers.js
@@ -98,6 +108,9 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
 
             const loadTime = performance.now() - loadStart;
             logger.info({
+                sId: this.serviceId,
+                rId: this.runId,
+                eId: this.instanceId,
                 event: 'model_loaded',
                 model: 'whisper-tiny.en',
                 load_time_ms: Math.round(loadTime),
@@ -118,10 +131,10 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
 
             // Check for common SPA 404 error (HTML returned instead of JSON)
             if (e.message.includes("Unexpected token '<'") || e.message.includes("Unexpected token <")) {
-                logger.error('[TransformersJS] ❌ Model load failed with "Unexpected token <". This suggests a 404 error where the server returned index.html instead of the model file. Ensure env.allowLocalModels=false is set.');
+                logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] ❌ Model load failed with "Unexpected token <". This suggests a 404 error where the server returned index.html instead of the model file. Ensure env.allowLocalModels=false is set.');
             }
 
-            logger.error({ err: e }, '[TransformersJS] Failed to initialize engine.');
+            logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: e }, '[TransformersJS] Failed to initialize engine.');
             return Result.err(e);
         }
     }
@@ -146,6 +159,9 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
 
             const latency = performance.now() - start;
             logger.info({
+                sId: this.serviceId,
+                rId: this.runId,
+                eId: this.instanceId,
                 event: 'inference_complete',
                 latency_ms: Math.round(latency),
                 audio_length_s: audio.length / 16000,
@@ -160,13 +176,18 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
             return Result.ok(transcript);
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
-            logger.error({ err: e }, '[TransformersJS] Transcription failed.');
+            logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: e }, '[TransformersJS] Transcription failed.');
             return Result.err(e);
         }
     }
 
     async destroy(): Promise<void> {
-        logger.info('[TransformersJS] Destroying engine...');
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Destroying engine...');
         this.transcriber = null;
+    }
+
+    async terminate(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Terminating engine resources...');
+        await this.destroy();
     }
 }

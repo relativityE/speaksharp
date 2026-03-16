@@ -387,11 +387,13 @@ export const useSessionLifecycle = () => {
 
     // Engine Warm-up: Pre-initialize heavy engines (WASM) when mode is selected
     useEffect(() => {
-        if (mode === 'private' && service && !isListening) {
+        if (mode === 'private' && !isListening) {
             logger.info('[useSessionLifecycle] Mode set to private - triggering warm-up');
-            service.warmUp('private');
+            import('@/services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
+                speechRuntimeController.warmUp('private');
+            });
         }
-    }, [mode, service, isListening]);
+    }, [mode, isListening]);
 
     // Cleanup on unmount - TRULY only on unmount
     useEffect(() => {

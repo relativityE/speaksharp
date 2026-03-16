@@ -4,7 +4,6 @@ import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
 import { ITranscriptionEngine } from '../modes/types';
 import { MicStream } from '../utils/types';
 import { testRegistry } from '../TestRegistry';
-import { FailureManager } from '../FailureManager';
 
 
 
@@ -51,7 +50,7 @@ describe('TranscriptionService - Max Attempts', () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
         testRegistry.clear();
-        FailureManager.getInstance().resetFailureCount();
+        // FailureManager is now instance-bound to the service
 
         service = new TranscriptionService({
             onTranscriptUpdate: vi.fn(),
@@ -86,7 +85,7 @@ describe('TranscriptionService - Max Attempts', () => {
         testRegistry.register('private', () => privateEngine);
         testRegistry.register('native', () => new MockNativeEngine());
 
-        const failureManager = FailureManager.getInstance();
+        const failureManager = service.getFailureManager();
 
         // 1. Force max attempts directly to ensure clean state
         for (let i = 0; i < 3; i++) {

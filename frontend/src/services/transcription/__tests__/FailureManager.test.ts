@@ -2,28 +2,22 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { FailureManager } from '../FailureManager';
 
 describe('FailureManager', () => {
+    let manager: FailureManager;
+
     beforeEach(() => {
         vi.useFakeTimers();
-        FailureManager.getInstance().resetFailureCount();
+        manager = new FailureManager();
     });
 
     afterEach(() => {
         vi.useRealTimers();
     });
 
-    it('should be a singleton', () => {
-        const instance1 = FailureManager.getInstance();
-        const instance2 = FailureManager.getInstance();
-        expect(instance1).toBe(instance2);
-    });
-
     it('should initialize with zero failures', () => {
-        const manager = FailureManager.getInstance();
         expect(manager.getEffectiveFailureCount()).toBe(0);
     });
 
     it('should record failures', () => {
-        const manager = FailureManager.getInstance();
         manager.recordPrivateFailure();
         expect(manager.getEffectiveFailureCount()).toBe(1);
         manager.recordPrivateFailure();
@@ -31,7 +25,6 @@ describe('FailureManager', () => {
     });
 
     it('should decay failures after timeout', () => {
-        const manager = FailureManager.getInstance();
         manager.recordPrivateFailure();
         expect(manager.getEffectiveFailureCount()).toBe(1);
 
@@ -42,7 +35,6 @@ describe('FailureManager', () => {
     });
 
     it('should not decay failures before timeout', () => {
-        const manager = FailureManager.getInstance();
         manager.recordPrivateFailure();
         expect(manager.getEffectiveFailureCount()).toBe(1);
 
@@ -52,12 +44,10 @@ describe('FailureManager', () => {
         expect(manager.getEffectiveFailureCount()).toBe(1);
     });
 
-    it('should persist state across calls', () => {
-        const manager = FailureManager.getInstance();
+    it('should maintain isolation between instances', () => {
         manager.recordPrivateFailure();
-
-        // Simulate getting instance again elsewhere
-        const manager2 = FailureManager.getInstance();
-        expect(manager2.getEffectiveFailureCount()).toBe(1);
+        const manager2 = new FailureManager();
+        expect(manager2.getEffectiveFailureCount()).toBe(0);
+        expect(manager.getEffectiveFailureCount()).toBe(1);
     });
 });

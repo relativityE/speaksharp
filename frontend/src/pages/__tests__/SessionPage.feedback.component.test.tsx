@@ -107,7 +107,7 @@ describe('SessionPage Feedback Logic', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.mocked(useSessionLifecycle).mockReturnValue(defaultMock as any);
+        vi.mocked(useSessionLifecycle).mockReturnValue(defaultMock as unknown as ReturnType<typeof useSessionLifecycle>);
     });
 
     it('should show "Session too short" warning in status bar when hook provides error message', async () => {
@@ -116,7 +116,7 @@ describe('SessionPage Feedback Logic', () => {
             isListening: false,
             sttStatus: { type: 'ready' },
             sessionFeedbackMessage: '⚠️ Session too short',
-        } as any);
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
 
         render(<SessionPage />);
 
@@ -130,7 +130,7 @@ describe('SessionPage Feedback Logic', () => {
             isListening: false,
             sttStatus: { type: 'ready' },
             showAnalyticsPrompt: true,
-        } as any);
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
 
         render(<SessionPage />);
 
@@ -143,7 +143,7 @@ describe('SessionPage Feedback Logic', () => {
             ...defaultMock,
             isListening: true,
             sttStatus: { type: 'listening', message: 'Listening...' },
-        } as any);
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
 
         render(<SessionPage />);
 

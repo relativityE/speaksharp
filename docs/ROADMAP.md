@@ -89,6 +89,7 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Rem
 This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.
 
 ### 🚧 Should-Have (Tech Debt)
+- 🔴 **E2E Timeout: STT Initialization Race Condition:** E2E tests are currently timing out because the `TranscriptionService` instance is `null` when `useTranscriptionControl` attempts to access it during test execution. A circular dependency or initialization order issue between `SpeechRuntimeController`, `TranscriptionProvider`, and component mount cycles needs investigation.
 - ✅ **Strategic Error Logging (2025-12-11):** Added defensive error logging to PrivateWhisper.ts, SessionPage.tsx, AuthPage.tsx. Comprehensive coverage in critical paths.
 - ✅ **Usage Limit Pre-Check (2025-12-11):** P0 UX fix. New Edge Function `check-usage-limit` validates usage BEFORE session start. Shows toast with Upgrade button if exceeded.
 - ✅ **Screen Reader Accessibility (2025-12-11):** Added `aria-live="polite"` to live transcript for screen reader announcements.
@@ -568,6 +569,7 @@ This phase is about confirming the core feature set works as expected and polish
 | 12 | **E2E Timeout Standardization** | `tests/e2e/` | P2 | Standardize wait timeouts to "ideal duration + 50% buffer max" to avoid masking performance regressions or slow CI execution. |
 | 13 | **Mock-to-Schema Synchronization** | `tests/e2e/mock-routes.ts` | P2 | Implement factory-based session mocking and PostgREST header compliance to prevent regression. |
 | 14 | **Private STT First-Time Use UX** | `TranscriptionService.ts` | P2 | Design: Show download %; offer wait vs. Native transition; auto-fallback after 10s if no decision. |
+| 15 | **Transient Storage Policy** | `TranscriptionService.ts` | P2 | **Requirement**: Only save analytics metrics (duration, accuracy) to Supabase. Transcripts are ephemeral and only available via local PDF download in the active session to protect PII and save disk costs. |
 
 
 ### 🛡️ Prevention Mechanisms (Choose 1 of 3)
