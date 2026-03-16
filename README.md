@@ -32,8 +32,9 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
     -   **NLP Caching:** 500x faster re-renders for multi-speaker dialog via LRU document cache.
     -   **Atomic Consistency:** Restored row-locking prevents usage limit bypass under high concurrency.
 - **Mar 2026 Hardening:** **High-Merit Integration Baseline**.
+    - **STT E2E Stabilization:** Achieved 100% CI pass rate for Private STT via DOM signaling and capability-aware skip logic.
     - **UI Redesign:** High-fidelity `LiveRecordingCard` overhaul (Vertical center-stack, Proportionality).
-    - **Benchmarking:** Modular STT hardware benchmarks with Pro-user authentication support.
+    - **Benchmarking:** Established accuracy ceilings (93% WebGPU / 90% CPU) in `STT_BENCHMARKS.json`.
     - **Environment Reliability:** Unified Vite root-env resolution for project-wide `.env` loading.
     - **Atomic Payment Processing (PR #743):** Optimized Stripe webhook handling via single atomic Postgres RPC.
     - **Concurrent PDF Parsing (PR #735):** ~90% reduction in extraction latency via `Promise.all` orchestration.

@@ -463,14 +463,14 @@ The project has transitioned from structural verification to **Black-Box Behavio
 | Dimension | Prior (Structural) | Current (Behavioral) | Grade |
 | :--- | :--- | :--- | :--- |
 | **Reliability** | "Green" tests failed in prod due to mock drift. | **Zero-Debt Baseline**: Verified against 100% real speech pass rate. | **A++** |
-| **Maintenance** | Brittle; broke on copy or CSS changes. | Stable; uses `[data-state]` behavioral contracts (Pattern 10). | **A+** |
+| **Maintenance** | Brittle; broke on copy or CSS changes. | Stable; uses `[data-state]`, `[data-user-tier]`, and `[data-engine-variant]` behavioral contracts (Pattern 10). | **A+** |
 | **Hardware Safety** | Assumed; race conditions were common. | Hardened; FSM stress testing + `AbortController` guards. | **A+** |
 | **UX Coverage** | Fragmented download/cache logic. | Comprehensive E2E for Whisper Lifecycle & Hybrid Fallback. | **A+** |
 | **Audit Compliance**| Bloated 30s timeouts masked sloth. | Standardized `scripts/test-audit.sh` with 12s thresholds. | **A++** |
 
 **Main Tenets:**
 1.  **Requirement-First Verification**: Every test must relate to a user-facing feature.
-2.  **Stable Selector Contracts**: Playwright targets `[data-state]` instead of CSS classes.
+2.  **Stable Selector Contracts**: Playwright targets `[data-state]`, `[data-user-tier]`, and `[data-engine-variant]` attributes instead of brittle CSS classes.
 3.  **Service Boundary Focus**: The `TranscriptionService` acts as a black box with its FSM.
 4.  **Isomorphic Ground Truth**: Shared registry ensures mocks match production reality.
 
@@ -568,11 +568,11 @@ To ensure high performance for capable devices while maintaining 99.9% reliabili
 
 **The Three Engines:**
 
-| Engine | Role | Technology | When Used |
-|--------|------|------------|-----------|
-| **WhisperTurbo** | **Fast Path** | WebGPU + WASM | Default for users with GPU acceleration (Fastest) |
-| **TransformersJS** | **Safe Path** | ONNX + WASM (CPU) | Fallback if WebGPU init fails or crashes (Universal) |
-| **MockEngine** | **Reliable Path** | Simulation | CI/Test environments (`window.__E2E_PLAYWRIGHT__`) |
+| Engine | Role | Technology | Accuracy Ceiling | When Used |
+|--------|------|------------|------------------|-----------|
+| **WhisperTurbo** | **Fast Path** | WebGPU + WASM | **93%** | Default for users with GPU acceleration (Fastest) |
+| **TransformersJS** | **Safe Path** | ONNX + WASM (CPU) | **90%** | Fallback if WebGPU init fails or crashes (Universal) |
+| **MockEngine** | **Reliable Path** | Simulation | **N/A** | CI/Test environments (`window.__E2E_PLAYWRIGHT__`) |
 
 **Architecture Diagram:**
 
@@ -3177,9 +3177,22 @@ The following patterns were established during the 'Expert' hardening cycle to e
 *   **Problem:** Redundant, inconsistent logger mocks leading to runtime `TypeError`.
 *   **Solution:** Centralized a standard, high-fidelity logger mock in the global `setup.ts`.
 
+#### Pattern 34: Runtime Bridge Detection (`window.__E2E_CONTEXT__`)
+*   **Problem:** Brittle bridge detection in `TranscriptionService` causing race conditions where the bridge was skipped despite being present.
+*   **Solution:** Implemented `window.__E2E_CONTEXT__` flag with immediate availability during initialization, ensuring 100% reliable bridge/mock detection.
+
+#### Pattern 35: DOM Signaling Contract (`data-*` attributes)
+*   **Problem:** Signal collisions and race conditions when E2E tests relied on flaky timers or brittle CSS.
+*   **Solution:** Standardized visibility via `data-user-tier` and `data-engine-variant` attributes on `document.body`, providing deterministic state for E2E assertions.
+
+#### Pattern 36: Capability-Aware Skip Logic
+*   **Problem:** Mandatory failures in CI environments lacking WebGPU hardware when running "Deep" Private STT tests.
+*   **Solution:** Implemented `test.skip(!hasWebGPU)` logic coupled with `TestRegistry` mocks to ensure high-fidelity testing on hardware and clean passes in CI.
+
 ### 17.2 Residual Technical Debt
 - **Validation**: Lack of input length enforcement for the `transcript` field in the database layer.
 - **Scalability**: Cold start optimization for deeply nested Edge Function imports.
+- **Resolved**: Private STT E2E flakiness (2026-03-16).
 
 ## 4. Testing & Deterministic Logic
 

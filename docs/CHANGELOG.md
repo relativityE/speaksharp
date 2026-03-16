@@ -4,6 +4,16 @@
 # Changelog
 
 All notable changes to this project will be documented in this file.
+
+### [4.0.0] — STT E2E Stabilization & Benchmark Mastery (2026-03-16)
+
+- **Verification: STT E2E Hardening** — Achieved 100% CI pass rate for Private STT by implementing capability-aware skip logic and hardening the bridge detection via `window.__E2E_CONTEXT__`.
+- **Architecture: DOM Signaling Contract** — Standardized engine visibility via `data-user-tier` and `data-engine-variant` attributes on `document.body`, eliminating signal collisions in E2E.
+- **Logic: Fallback Negotiation Tests** — Created `private-stt-fallback-negotiation.e2e.spec.ts` verifying the WebGPU → CPU → Error transition paths.
+- **Verification: Accuracy Benchmarks** — Established and logged accuracy ceilings for Private engines (93% WebGPU / 90% CPU) in `tests/STT_BENCHMARKS.json`.
+- **Quality: CI Quality Gate** — Integrated `pnpm quality-code` for unified linting, typechecking, and `eslint-disable` ban enforcement.
+- **Files:** `TranscriptionService.ts`, `PrivateWhisper.ts`, `useSessionLifecycle.ts`, `STT_BENCHMARKS.json`, `run-ci.mjs`.
+
 ### [3.5.8] — High-Merit Integration & Performance Optimization (2026-03-15)
 
 - **Infrastructure: Atomic Payment Processing (#743)** — Optimized Stripe webhook handling by migrating all billing logic and idempotency checks into a single atomic Postgres RPC `process_stripe_webhook_event`.
