@@ -67,7 +67,7 @@ export const StandardMocks = {
  */
 export async function registerMockInE2E(
     page: Page,
-    mode: 'native' | 'private' | 'cloud',
+    mode: 'native' | 'private' | 'cloud' | 'whisper-turbo' | 'transformers-js' | 'mock-engine',
     mockImplementationFactoryString: string,
     options?: {
         testName?: string;

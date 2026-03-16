@@ -21,6 +21,7 @@ import { IPrivateSTTEngine, EngineCallbacks, EngineType } from './IPrivateSTTEng
 import { IPrivateSTT, PrivateSTTInitOptions } from './IPrivateSTT';
 import logger from '../../../lib/logger';
 import { TestFlags, shouldUseMockTranscription } from '../../../config/TestFlags';
+import { testRegistry } from '../TestRegistry';
 
 /**
  * Check if WebGPU is available for fast path
@@ -101,6 +102,21 @@ export class PrivateSTT implements IPrivateSTT {
     private async initMockEngine(callbacks: EngineCallbacks): Promise<Result<EngineType, Error>> {
         try {
             logger.info('[PrivateSTT] 🛠️ Loading MockEngine...');
+
+            // Registry Injection
+            const registryFactory = testRegistry.get<(opts: EngineCallbacks) => IPrivateSTTEngine>('mock-engine');
+            if (registryFactory) {
+                logger.info('[PrivateSTT] 🧪 Injecting MockEngine from Registry');
+                const engine = registryFactory(callbacks);
+                const result = await engine.init(callbacks);
+                if (result.isOk) {
+                    this.engine = engine;
+                    this.engineType = 'mock';
+                    return Result.ok('mock');
+                }
+                return Result.err(result.error);
+            }
+
             const { MockEngine } = await import('./MockEngine');
             const engine = new MockEngine();
 
@@ -129,6 +145,21 @@ export class PrivateSTT implements IPrivateSTT {
     private async initFastEngine(callbacks: EngineCallbacks): Promise<Result<EngineType, Error>> {
         try {
             logger.info('[PrivateSTT] 📥 Importing WhisperTurbo engine...');
+
+            // Registry Injection
+            const registryFactory = testRegistry.get<(opts: EngineCallbacks) => IPrivateSTTEngine>('whisper-turbo');
+            if (registryFactory) {
+                logger.info('[PrivateSTT] 🧪 Injecting WhisperTurbo from Registry');
+                const engine = registryFactory(callbacks);
+                const result = await engine.init(callbacks);
+                if (result.isOk) {
+                    this.engine = engine;
+                    this.engineType = 'whisper-turbo';
+                    return Result.ok('whisper-turbo');
+                }
+                return Result.err(result.error);
+            }
+
             // Lazy import to reduce bundle size
             const { WhisperTurboEngine } = await import('./WhisperTurboEngine');
             const engine = new WhisperTurboEngine();
@@ -158,6 +189,21 @@ export class PrivateSTT implements IPrivateSTT {
     private async initSafeEngine(callbacks: EngineCallbacks): Promise<Result<EngineType, Error>> {
         try {
             logger.info('[PrivateSTT] 📥 Importing TransformersJS engine...');
+
+            // Registry Injection
+            const registryFactory = testRegistry.get<(opts: EngineCallbacks) => IPrivateSTTEngine>('transformers-js');
+            if (registryFactory) {
+                logger.info('[PrivateSTT] 🧪 Injecting TransformersJS from Registry');
+                const engine = registryFactory(callbacks);
+                const result = await engine.init(callbacks);
+                if (result.isOk) {
+                    this.engine = engine;
+                    this.engineType = 'transformers-js';
+                    return Result.ok('transformers-js');
+                }
+                return Result.err(result.error);
+            }
+
             // Lazy import to reduce bundle size
             const { TransformersJSEngine } = await import('./TransformersJSEngine');
             const engine = new TransformersJSEngine();

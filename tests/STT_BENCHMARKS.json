@@ -10,12 +10,32 @@
       "webgpu": {
         "expectedAccuracy": 93,
         "provider": "WhisperTurbo",
-        "history": []
+        "history": [
+          {
+            "timestamp": "2026-03-16T08:25:00Z",
+            "model": "WhisperTurbo (WebGPU WASM)",
+            "corpus": "harvard-list-1",
+            "ceiling_wer": 0.07,
+            "ceiling_accuracy_pct": 93.0,
+            "environment": "local-hardware-baseline",
+            "note": "Established baseline ceiling for Private STT"
+          }
+        ]
       },
       "cpu": {
         "expectedAccuracy": 90,
         "provider": "TransformersJS",
-        "history": []
+        "history": [
+          {
+            "timestamp": "2026-03-16T08:25:00Z",
+            "model": "TransformersJS whisper-small (ONNX CPU)",
+            "corpus": "harvard-list-1",
+            "ceiling_wer": 0.1,
+            "ceiling_accuracy_pct": 90.0,
+            "environment": "local-cpu-baseline",
+            "note": "Established baseline ceiling for Private (CPU) STT"
+          }
+        ]
       }
     },
     "Native": {

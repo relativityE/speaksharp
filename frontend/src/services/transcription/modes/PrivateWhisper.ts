@@ -172,7 +172,11 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       this.engineType = result.value;
       this.status = 'idle';
       logger.info({ engineType: this.engineType }, '[PrivateWhisper] ✅ Engine initialized');
-      logger.info(`[PrivateWhisper] Engine initialized: ${this.engineType}`);
+
+      // ✅ EXPLICIT READINESS SIGNAL FOR TESTS (Engine Variant)
+      if (typeof document !== 'undefined') {
+        document.body.setAttribute('data-engine-variant', this.engineType);
+      }
 
       // Show toast notification with engine type
       // REMOVED: Internal toast suppressed to prevent duplication with UI layer (Architectural Decision)
@@ -365,6 +369,9 @@ export default class PrivateWhisper implements ITranscriptionEngine {
 
     // Strict cleanup of the underlying engine
     await this.privateSTT.destroy();
+    if (typeof document !== 'undefined') {
+      document.body.removeAttribute('data-engine-variant');
+    }
     this.status = 'stopped';
   }
 

@@ -16,6 +16,7 @@ if grep -r "eslint-disable" . \
     --exclude-dir=backend \
     --exclude-dir=docs \
     --exclude="check-eslint-disable.sh" \
+    --exclude="package.json" \
     --exclude="pnpm-lock.yaml" \
     --exclude="mockServiceWorker.js" \
     --exclude="test-audit.sh" \

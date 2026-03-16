@@ -158,7 +158,7 @@ export class MockSpeechRecognition {
     lang = 'en-US';
 
     start(): void {
-        logger.info('[MockSpeechRecognition] ▶️ start() called');
+        logger.info('[MockSpeechRecognition] ▶️ start() called (Silent by default)');
 
         if (this.isListening) {
             logger.warn('[MockSpeechRecognition] Already listening');
@@ -175,34 +175,9 @@ export class MockSpeechRecognition {
             this.emit('start', {});
         }, 10);
 
-        // Emit progressive results (realistic timing)
-        const mockResults = [
-            { transcript: 'Testing', delay: 500, isFinal: false },
-            { transcript: 'Testing one', delay: 1000, isFinal: false },
-            { transcript: 'Testing one two', delay: 1500, isFinal: false },
-            { transcript: 'Testing one two three', delay: 2000, isFinal: true }
-        ];
-
-        let cumulativeDelay = 0;
-
-        mockResults.forEach((result, index) => {
-            cumulativeDelay += result.delay;
-
-            this.resultTimer = setTimeout(() => {
-                if (!this.isListening) return;
-
-                logger.info({ transcript: result.transcript }, '[MockSpeechRecognition] 📝 Emitting result');
-
-                this.emit('result', {
-                    results: [[{
-                        transcript: result.transcript,
-                        confidence: 0.95,
-                        isFinal: result.isFinal
-                    }]],
-                    resultIndex: index
-                });
-            }, cumulativeDelay);
-        });
+        // SILENT BY DEFAULT
+        // No longer auto-emits hardcoded transcripts.
+        // Tests must call dispatchMockTranscript('transcript') explicitly.
     }
 
     stop(): void {

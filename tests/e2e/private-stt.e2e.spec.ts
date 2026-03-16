@@ -7,17 +7,18 @@ import { registerMockInE2E, enableTestRegistry } from '../helpers/testRegistry.h
  */
 
 test.describe('Private STT (Whisper)', () => {
-    const usingMockEngine = process.env.STT_ENGINE === 'mock';
 
     test.skip(
-        !usingMockEngine && !process.env.HAS_GPU,
-        'Private STT requires GPU hardware unless mock engine is enabled'
+        process.env.STT_ENGINE === 'real-hardware' && !process.env.HAS_GPU,
+        'Private STT requires real GPU hardware. Set STT_ENGINE=real-hardware locally to verify on hardware.'
     );
 
     test.afterEach(async ({ page }) => {
         await page.evaluate(() => {
             // 1. Reset behavioral gating signal
             document.body.removeAttribute('data-stt-policy');
+            document.body.removeAttribute('data-user-tier');
+            document.body.removeAttribute('data-engine-variant');
 
             // 2. Clear engine overrides
             window.__TEST_REGISTRY__?.clear();
@@ -29,6 +30,8 @@ test.describe('Private STT (Whisper)', () => {
 
         await expect(page.locator('body'))
             .not.toHaveAttribute('data-stt-policy', { timeout: 2000 });
+        await expect(page.locator('body'))
+            .not.toHaveAttribute('data-user-tier', { timeout: 2000 });
     });
 
     test('should show download progress on first use', async ({ proPage: page }) => {
@@ -36,7 +39,7 @@ test.describe('Private STT (Whisper)', () => {
         attachLiveTranscript(page);
 
         // Deterministic Gating
-        await expect(page.locator('body')).toHaveAttribute('data-stt-policy', 'pro', { timeout: 8000 });
+        await expect(page.locator('body')).toHaveAttribute('data-user-tier', 'pro', { timeout: 8000 });
 
         await navigateToRoute(page, '/session');
         await page.waitForSelector('[data-testid="nav-sign-out-button"]');
@@ -108,7 +111,7 @@ test.describe('Private STT (Whisper)', () => {
 
     test('should load instantly from cache', async ({ proPage: page }) => {
         await enableTestRegistry(page);
-        await expect(page.locator('body')).toHaveAttribute('data-stt-policy', 'pro', { timeout: 8000 });
+        await expect(page.locator('body')).toHaveAttribute('data-user-tier', 'pro', { timeout: 8000 });
 
         await registerMockInE2E(page, 'private', `() => ({
             init: async () => {}, // Instant success
@@ -137,7 +140,7 @@ test.describe('Private STT (Whisper)', () => {
     });
 
     test('should restrict Private option for Free users', async ({ freePage: page }) => {
-        await expect(page.locator('body')).toHaveAttribute('data-stt-policy', 'free', { timeout: 8000 });
+        await expect(page.locator('body')).toHaveAttribute('data-user-tier', 'free', { timeout: 8000 });
 
         await navigateToRoute(page, '/session');
         await page.getByTestId('stt-mode-select').click();
@@ -147,7 +150,7 @@ test.describe('Private STT (Whisper)', () => {
     });
 
     test('should show Private option for Pro users', async ({ proPage: page }) => {
-        await expect(page.locator('body')).toHaveAttribute('data-stt-policy', 'pro', { timeout: 8000 });
+        await expect(page.locator('body')).toHaveAttribute('data-user-tier', 'pro', { timeout: 8000 });
 
         await navigateToRoute(page, '/session');
         await page.getByTestId('stt-mode-select').click();
@@ -158,7 +161,7 @@ test.describe('Private STT (Whisper)', () => {
 
     test('should handle download abandonment', async ({ proPage: page }) => {
         await enableTestRegistry(page);
-        await expect(page.locator('body')).toHaveAttribute('data-stt-policy', 'pro', { timeout: 8000 });
+        await expect(page.locator('body')).toHaveAttribute('data-user-tier', 'pro', { timeout: 8000 });
 
         await registerMockInE2E(page, 'private', `() => ({
             init: async () => {

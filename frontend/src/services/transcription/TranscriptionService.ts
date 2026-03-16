@@ -19,8 +19,7 @@ import { TranscriptionFSM, TranscriptionState } from './TranscriptionFSM';
 import { FailureManager } from './FailureManager';
 import { STT_CONFIG } from '../../config';
 import { SttStatus, TranscriptUpdate } from '../../types/transcription';
-import { PracticeSession } from '../../types/session';
-import { UserProfile } from '../../types/user';
+
 import {
   isCacheMiss
 } from './errors';
@@ -214,7 +213,7 @@ export default class TranscriptionService {
       }
     })();
 
-    // ✅ SURGICAL FIX (3.6a): Replace .finally() with explicit .then()/.catch()
+    // Replace .finally() with explicit .then()/.catch()
     // This defuses the "Cleanup Bomb" by making it abort-aware.
     this.initPromise
       .then(() => {
@@ -241,6 +240,7 @@ export default class TranscriptionService {
         if (isAbort) {
           // Do NOT clean up - the download continues in the background
           logger.info({ mode, message: error.message }, '[TranscriptionService] Init aborted/back-channel — preserving indicators');
+          this.initPromise = null; // Reset handle but keep indicator
           return;
         }
         
@@ -274,7 +274,7 @@ export default class TranscriptionService {
       this.fallbackTimer = null;
     }
     
-    // ✅ SURGICAL FIX (3.6b): Defense-in-depth guard.
+    // Defense-in-depth guard.
     // Never clear the indicator if a background download is actively in progress.
     const store = useSessionStore.getState();
     const currentProgress = store.modelLoadingProgress;
@@ -517,12 +517,13 @@ export default class TranscriptionService {
   public async stopTranscription(): Promise<{ success: boolean; transcript: string; stats: TranscriptStats } | null> {
     if (!this.fsm.is('RECORDING') && !this.fsm.is('PAUSED') && !this.fsm.is('ENGINE_INITIALIZING')) return null;
     
-    // Fix 2: Handle early stop during initialization
+    // Handle early stop during initialization
     if (this.fsm.is('ENGINE_INITIALIZING')) {
       logger.info({ sId: this.serviceId, rId: this.runId }, '[TranscriptionService] Early stop during initialization');
       this.downloadController?.abort();
       this.downloadController = null;
-      this.modelLoadingProgress = 0;
+      this.modelLoadingProgress = null; // Clear local state
+      useSessionStore.getState().setModelLoadingProgress(null); // Clear global store
       this.fsm.transition({ type: 'STOP_REQUESTED' }); // now valid → IDLE
       return { success: true, transcript: '', stats: calculateTranscriptStats([], [], '', 0) };
     }

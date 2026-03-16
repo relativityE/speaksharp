@@ -35,13 +35,13 @@ export const TranscriptionProvider: React.FC<{
         // Behavioral Gating - Setting E2E wait attribute
         // Moved to DOMSync inside App.tsx or managed cleanly here via React effects
         if (typeof document !== 'undefined') {
-            document.body.dataset.sttPolicy = tier;
+            document.body.setAttribute('data-user-tier', tier);
         }
 
         return () => {
             // Cleanup
             if (typeof document !== 'undefined') {
-                document.body.removeAttribute('data-stt-policy');
+                document.body.removeAttribute('data-user-tier');
             }
         };
     }, [profile?.id, profile?.subscription_status, service]);

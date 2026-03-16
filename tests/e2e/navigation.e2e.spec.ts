@@ -23,19 +23,28 @@ test.describe('App Navigation', () => {
   test('should navigate using nav links', async ({ userPage }) => {
     // After login, we're at /session, so use links from there
     await navigateToRoute(userPage, '/session');
+    
+    // Wait for hydration to ensure nav links work as expected
+    await userPage.waitForFunction(() => window.__e2eProfileLoaded__ === true, { timeout: 30000 });
 
     // Click nav link to Session
-    await userPage.getByRole('link', { name: /session/i }).first().click();
+    const sessionLink = userPage.getByRole('link', { name: /session/i }).first();
+    await expect(sessionLink).toBeVisible();
+    await sessionLink.click();
     await expect(userPage).toHaveURL('/session');
 
     // Click nav link to Analytics
-    await userPage.getByRole('link', { name: /analytics/i }).first().click();
+    const analyticsLink = userPage.getByRole('link', { name: /analytics/i }).first();
+    await expect(analyticsLink).toBeVisible();
+    await analyticsLink.click();
     await expect(userPage).toHaveURL('/analytics', { timeout: 10000 });
     // Robust heading check
     await expect(userPage.locator('h1, h2, [data-testid="dashboard-heading"]').first()).toBeVisible({ timeout: 15000 });
 
     // Click nav link to Home
-    await userPage.getByRole('link', { name: /home/i }).first().click();
+    const homeLink = userPage.getByRole('link', { name: /home/i }).first();
+    await expect(homeLink).toBeVisible();
+    await homeLink.click();
     // Behavioral Design Fix: Authenticated users are redirected to /session.
     await expect(userPage.getByTestId('session-page')).toBeVisible({ timeout: 15000 });
   });

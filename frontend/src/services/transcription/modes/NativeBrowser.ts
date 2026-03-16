@@ -1,6 +1,6 @@
 import logger from '../../../lib/logger';
 import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, TranscriptionError } from './types';
-import { IS_TEST_ENVIRONMENT } from '../../../config/env';
+
 
 // A simplified interface for the SpeechRecognition event
 interface SpeechRecognitionEvent extends Event {
@@ -165,13 +165,14 @@ export default class NativeBrowser implements ITranscriptionEngine {
     // E2E Test Bridge: Expose instance for mock dispatching
     // This ensures tests can control recognition even if initialization order varies
     interface E2EWindow extends Window {
+      __E2E_CONTEXT__?: boolean;
       TEST_MODE?: boolean;
       dispatchMockTranscript?: unknown;
       __activeSpeechRecognition?: SpeechRecognition;
     }
     const win = window as unknown as E2EWindow;
 
-    if (IS_TEST_ENVIRONMENT || win.dispatchMockTranscript) {
+    if (win.__E2E_CONTEXT__ || win.TEST_MODE || win.dispatchMockTranscript) {
       win.__activeSpeechRecognition = this.recognition;
       // Signal ready state for tests to avoid race conditions via "Sticky Flag"
       // we don't import e2e-bridge to production to keep bundles clean.

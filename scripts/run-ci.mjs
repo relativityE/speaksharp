@@ -269,10 +269,22 @@ async function main() {
         // Stage 2: Quality
         if (!process.argv.includes('--skip-quality')) {
             await runStage(2, "Code Quality", async () => {
-                await Promise.all([
-                    runCommand('pnpm', ['lint', '--quiet'], { label: 'LINT' }),
-                    runCommand('pnpm', ['typecheck'], { label: 'TYPES' })
-                ]);
+                const runAll = !process.argv.includes('--lint') && 
+                             !process.argv.includes('--typecheck') && 
+                             !process.argv.includes('--ban-disable');
+                
+                const tasks = [];
+                if (runAll || process.argv.includes('--lint')) {
+                    tasks.push(runCommand('pnpm', ['lint', '--quiet'], { label: 'LINT' }));
+                }
+                if (runAll || process.argv.includes('--typecheck')) {
+                    tasks.push(runCommand('pnpm', ['typecheck'], { label: 'TYPES' }));
+                }
+                if (runAll || process.argv.includes('--ban-disable')) {
+                    tasks.push(runCommand('pnpm', ['lint:ban-disable'], { label: 'BAN-DISABLE' }));
+                }
+                
+                await Promise.all(tasks);
             });
         }
 

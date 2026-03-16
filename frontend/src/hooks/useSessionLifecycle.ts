@@ -251,6 +251,9 @@ export const useSessionLifecycle = () => {
                 }
 
                 const policy = buildPolicyForUser(isProUser, mode);
+                if (typeof document !== 'undefined') {
+                    document.body.setAttribute('data-user-tier', isProUser ? 'pro' : 'free');
+                }
                 await startListening(policy);
                 posthog.capture('session_started', { mode });
             } finally {

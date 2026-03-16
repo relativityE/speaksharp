@@ -3,8 +3,10 @@ import { navigateToRoute, attachLiveTranscript } from './helpers';
 import { registerMockInE2E, enableTestRegistry } from '../helpers/testRegistry.helpers';
 
 test.describe('Whisper Lifecycle UX', () => {
-    const usingMockEngine = process.env.STT_ENGINE === 'mock';
-    test.skip(!usingMockEngine && !process.env.HAS_GPU, 'Whisper lifecycle requires GPU hardware/WASM SIMD support');
+    test.skip(
+        process.env.STT_ENGINE === 'real-hardware' && !process.env.HAS_GPU,
+        'Whisper lifecycle requires real GPU hardware/WASM SIMD support. Set STT_ENGINE=real-hardware locally to verify.'
+    );
 
     test.afterEach(async ({ proPage: page }) => {
         await page.evaluate(() => {

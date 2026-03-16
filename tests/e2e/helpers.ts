@@ -29,6 +29,10 @@ declare global {
     mswReady?: boolean;
     __E2E_EMPTY_SESSIONS__?: boolean;
     dispatchMockTranscript?: (text: string, isFinal?: boolean) => void;
+    // 🛡️ Enhanced E2E Signals (Strictly Typed)
+    __e2eProfileLoaded__?: boolean;
+    // Allow dynamic sticky flags [__e2e_EVENT_fired__]
+    [key: `__e2e_${string}_fired__`]: boolean | undefined;
   }
 }
 
@@ -126,16 +130,23 @@ export function setupBrowserLogging(page: Page) {
       suffix = ANSI.RESET;
     }
 
-    // Node-based logging for CI
+    // Node-based logging for CI (Level mapping: 10=trace, 20=debug, 30=info, 40=warn, 50=error)
     const isCI = !!process.env.CI;
-    const logLevel = process.env.LOG_LEVEL || 'info';
+    const configLogLevel = process.env.LOG_LEVEL || 'info';
     
-    if (type === 'error') {
-      logger.error(`${prefix}[BROWSER ${type}] ${text}${suffix}`);
-    } else if (type === 'warning') {
-      logger.warn(`${prefix}[BROWSER ${type}] ${text}${suffix}`);
-    } else if (!isCI || logLevel === 'debug' || logLevel === 'info') {
-      logger.info(`${prefix}[BROWSER ${type}] ${text}${suffix}`);
+    // Simple priority map for filtering
+    const priorities: Record<string, number> = { debug: 20, info: 30, warn: 40, error: 50 };
+    const threshold = priorities[configLogLevel] || 30;
+    const currentLevel = priorities[type === 'warning' ? 'warn' : type] || 30;
+
+    if (currentLevel >= threshold) {
+      if (type === 'error') {
+        logger.error(`${prefix}[BROWSER ${type}] ${text}${suffix}`);
+      } else if (type === 'warning') {
+        logger.warn(`${prefix}[BROWSER ${type}] ${text}${suffix}`);
+      } else if (!isCI || configLogLevel === 'debug' || configLogLevel === 'info') {
+        logger.info(`${prefix}[BROWSER ${type}] ${text}${suffix}`);
+      }
     }
   });
 
@@ -439,7 +450,7 @@ export async function waitForToast(page: Page, message: string | RegExp) {
  */
 export async function waitForE2EEvent(page: Page, eventName: string, timeout: number = 10000) {
   await page.waitForFunction((name) => {
-    return (window as unknown as { [key: string]: boolean })['__e2e_' + name + '_fired__'] === true;
+    return window[`__e2e_${name}_fired__`] === true;
   }, eventName, { timeout });
 }
 

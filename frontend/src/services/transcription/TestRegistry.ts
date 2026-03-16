@@ -6,7 +6,7 @@
 
 import logger from '../../lib/logger';
 
-export type STTMode = 'native' | 'private' | 'cloud';
+export type STTMode = 'native' | 'private' | 'cloud' | 'whisper-turbo' | 'transformers-js' | 'mock-engine';
 
 export interface RegistryEntry {
     implementation: unknown;
