@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { CI_CONFIG } from './ci.config.js';
 import {
     parseVitestResults,
+    parsePlaywrightResults,
     ANSI,
     renderBox,
     formatDuration,
@@ -254,12 +255,18 @@ async function main() {
     let unitFailed = false;
 
     try {
-        if (CI_MODE === 'ci') {
+        if (CI_MODE === 'ci' && !process.argv.includes('prepare') && !process.argv.includes('--no-report')) {
             await runReport(startTime);
             return;
         }
 
         console.log(renderBox("SpeakSharp CI Orchestrator"));
+
+        if (process.argv.includes('prepare')) {
+            // Overrides for prepare only
+            process.argv.push('--skip-test');
+            process.argv.push('--skip-lighthouse');
+        }
 
         // Stage 1: Preflight
         await runStage(1, "Preflight Checks", async () => {
