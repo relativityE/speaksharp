@@ -92,7 +92,9 @@ jobs:
           path: artifacts
 
       - name: List Artifacts
-        run: ls -R artifacts
+        run: |
+          mkdir -p artifacts
+          ls -R artifacts
 
       - name: Verify Artifacts
         run: ./scripts/verify-artifacts.sh --path artifacts/all-artifacts build metrics
@@ -166,7 +168,9 @@ jobs:
           path: artifacts
 
       - name: List Artifacts
-        run: ls -R artifacts
+        run: |
+          mkdir -p artifacts
+          ls -R artifacts
 
       - name: Verify Artifacts
         run: ./scripts/verify-artifacts.sh --path artifacts/all-artifacts build metrics

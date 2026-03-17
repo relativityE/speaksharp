@@ -210,7 +210,7 @@ export async function canaryLogin(page: Page, email?: string, password?: string)
   }
 
   debugLog(`[CANARY] Performing real login for ${email}...`);
-  await page.goto('/log-in');
+  await page.goto('/auth/signin');
   await page.getByLabel(/email/i).fill(email);
   await page.getByLabel(/password/i).fill(password);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
