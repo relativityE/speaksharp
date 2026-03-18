@@ -844,16 +844,16 @@ This phase addresses findings from the December 2025 UX Audit (`ux_audit.md`) to
 | **L6** | **Live Drift Monitoring** | **MEDIUM** | 🟡 In Progress | `drift-detector.spec.ts` now runs in sharded CI. Alerting on API contract changes deferred to nightly cron trigger. |
 | **L7** | **E2E Stabilization (70/70)** | **CRITICAL** | ✅ Complete | Resolved all persistent flakiness in VAD, Mutex, and Tier Limit tests. Achieved 100% pass rate on full 70-test suite. |
 
-## 🚀 v1.4.2 Release Hardening (Mar 2026) ✅ COMPLETE
+## 🚀 v0.5.4.5 Release Hardening (Mar 2026) ✅ COMPLETE
 
-> **Goal:** Finalize the v1.4.2 production release with absolute technical synchronization and CI stabilization.
+> **Goal:** Finalize the v0.5.4.5 production release with absolute technical synchronization and CI stabilization.
 
 | ID | Title | Priority | Status | Notes |
 |----|-------|----------|--------|-------|
 | **R1** | **CI Restoration Standard** | **CRITICAL** | ✅ Complete | Migrated from `script` to `tee` for reliable TTY logging without JSON corruption. |
 | **R2** | **Engine-Aware Tracking** | **CRITICAL** | ✅ Complete | Implemented Pattern 28 for accurate tier enforcement across all STT engines. |
 | **R3** | **UI-First State Reversion** | **HIGH** | ✅ Complete | Pattern 27 implemented for sub-second UI responsiveness during engine teardown. |
-| **R4** | **Documentation Audit** | **HIGH** | ✅ Complete | Synchronized all 7 core markdown files to v1.4.2 SSOT standard. |
+| **R4** | **Documentation Audit** | **HIGH** | ✅ Complete | Synchronized all 7 core markdown files to v0.5.4.5 SSOT standard. |
 | **R5** | **70/70 E2E Success** | **CRITICAL** | ✅ Complete | Achieved 100% reliability across the full sharded Playwright suite. |
 
 ---

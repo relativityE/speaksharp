@@ -5,7 +5,7 @@
 
 All notable changes to this project will be documented in this file.
 
-### [1.5.1] — STT Clean Pipeline & Architectural Consolidation (2026-03-18)
+### [0.5.4.5] — STT Clean Pipeline & Architectural Consolidation (2026-03-18)
 
 - **Architecture: SpeechRuntimeController (SSoT)** — Centralized all STT lifecycle management into `SpeechRuntimeController.ts`, implementing a single-chain command mutex and `queueMicrotask` decoupling for 100% state reliability.
 - **Protocol: Unified Readiness Contract** — Refactored the "App Ready" signal to use the `warmUp()` command as the definitive readiness indicator, eliminating race conditions in E2E startup.

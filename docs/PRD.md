@@ -207,7 +207,7 @@ This section tracks **active** product risks and constraints only. Resolved issu
 
 For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/TROUBLESHOOTING.md).
 
-### 5.5 Known Infrastructure Defects (v1.5.1 Baseline)
+### 5.5 Known Infrastructure Defects (v0.5.4.5 Baseline)
 
 The following regressions are documented as **Active Known Issues** following the "Clean Pipeline" refactor. We follow a "Document Honestly" policy while awaiting expert stabilization for complex state desyncs:
 
