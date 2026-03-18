@@ -20,7 +20,7 @@ export default defineConfig({
     ],
     exclude: ['node_modules/', 'dist/', 'build/', '**/*.spec.{ts,tsx}'],
     setupFiles: [
-      path.resolve(__dirname, './tests/unit/setup.ts')
+      path.resolve(__dirname, './tests/setup.ts')
     ],
     testTimeout: 30000,
     hookTimeout: 10000,

@@ -1,6 +1,8 @@
-import { beforeEach, afterEach, vi, expect } from 'vitest';
+import { beforeEach, afterEach, beforeAll, afterAll, vi, expect } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { WhisperEngineRegistry } from '@/services/transcription/engines/WhisperEngineRegistry';
+import { server } from './support/mocks/server';
+import { PORTS } from '../../scripts/build.config.js';
  
 // Mock unified logger globally to prevent mock poisoning
 vi.mock('@/lib/logger', () => {
@@ -213,6 +215,39 @@ if (typeof window !== 'undefined') {
             configurable: true 
         });
     }
+
+    // Mock window.location for navigation tests (using centralized port config)
+    Object.defineProperty(window, 'location', {
+        writable: true,
+        value: {
+            ...window.location,
+            assign: vi.fn(),
+            replace: vi.fn(),
+            reload: vi.fn(),
+            href: `http://localhost:${PORTS.DEV}`,
+            origin: `http://localhost:${PORTS.DEV}`,
+            ancestorOrigins: {
+                length: 0,
+                contains: () => false,
+                item: () => null
+            },
+            hash: '',
+            host: `localhost:${PORTS.DEV}`,
+            hostname: 'localhost',
+            pathname: '/',
+            port: String(PORTS.DEV),
+            protocol: 'http:',
+            search: '',
+        },
+    });
+
+    // Mock environment variables for consistent testing
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://test.supabase.co');
+    vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'test-anon-key');
+    vi.stubEnv('VITE_STRIPE_PUBLISHABLE_KEY', 'pk_test_');
+    vi.stubEnv('VITE_DEV_PREMIUM_ACCESS', 'false');
+    vi.stubEnv('VITE_TEST_MODE', 'true');
+    (window as any).TEST_MODE = true;
 }
 
 // Import styles and jest-dom (safe)
@@ -221,6 +256,42 @@ import '@testing-library/jest-dom';
 // ============================================
 // Test Lifecycle Hooks
 // ============================================
+
+beforeAll(async () => {
+    try {
+        await server.listen({ onUnhandledRequest: 'warn' });
+    } catch (error) {
+        console.error('[MSW] Server failed to start:', error);
+    }
+});
+
+afterAll(() => {
+    server.close();
+});
+
+// Global error handling
+const originalConsoleError = console.error;
+beforeAll(() => {
+    console.error = (...args: unknown[]) => {
+        // Suppress known React warnings in test environment
+        const message = args[0];
+        if (
+            typeof message === 'string' &&
+            (
+                message.includes('Warning: ReactDOM.render') ||
+                message.includes('Warning: validateDOMNesting') ||
+                message.includes('act()')
+            )
+        ) {
+            return;
+        }
+        originalConsoleError.call(console, ...args);
+    };
+});
+
+afterAll(() => {
+    console.error = originalConsoleError;
+});
 
 beforeEach(async () => {
     vi.clearAllMocks();
@@ -239,12 +310,21 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-    // 1. Clean up React DOM
+    // 1. Clean up MSW
+    server.resetHandlers();
+
+    // 2. Clean up React DOM
     cleanup();
 
-    // 2. Clear all mock calls/state
+    // 3. Clear all mock calls/state
     vi.clearAllMocks();
     vi.clearAllTimers();
+
+    // Reset DOM state safely
+    if (typeof document !== 'undefined') {
+        document.body.innerHTML = '';
+        document.head.innerHTML = '';
+    }
 
     // ✅ NOTE: WhisperEngineRegistry.reset() and vi.resetModules() are removed.
     // Each test file runs in its own process (maxForks: 1), ensuring 100% isolation

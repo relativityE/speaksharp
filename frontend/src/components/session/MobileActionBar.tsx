@@ -8,6 +8,8 @@ interface MobileActionBarProps {
     isButtonDisabled: boolean;
     modelLoadingProgress: number | null;
     onStartStop: () => void;
+    isFrozen?: boolean;
+    onSwitchToNative?: () => void;
 }
 
 /**
@@ -19,9 +21,21 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
     isButtonDisabled,
     modelLoadingProgress,
     onStartStop,
+    isFrozen,
+    onSwitchToNative,
 }) => {
     return (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/90 backdrop-blur-lg md:hidden z-50 flex justify-center shadow-[0_-10px_30px_rgba(0,0,0,0.5)] safe-area-bottom before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-primary/50 before:to-transparent">
+        <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/90 backdrop-blur-lg md:hidden z-50 flex flex-col items-center gap-3 shadow-[0_-10px_30px_rgba(0,0,0,0.5)] safe-area-bottom before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-primary/50 before:to-transparent">
+            {isFrozen && (
+                <Button
+                    onClick={onSwitchToNative}
+                    variant="outline"
+                    className="w-full max-w-sm h-10 bg-orange-500/10 border-orange-500/50 text-orange-500 font-bold uppercase tracking-widest animate-pulse"
+                    data-action="switch-to-native-mobile"
+                >
+                    Switch to Native (Free)
+                </Button>
+            )}
             <Button
                 onClick={onStartStop}
                 size="lg"

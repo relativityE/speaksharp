@@ -50,6 +50,7 @@ export class TranscriptionFSM {
 
         { from: 'READY', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' },
         { from: 'ENGINE_INITIALIZING', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' }, // Allow re-init/fallback
+        { from: 'FAILED', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' }, // Allow fallback/retry
 
         { from: 'ENGINE_INITIALIZING', to: 'RECORDING', event: 'ENGINE_STARTED' },
         { from: 'ENGINE_INITIALIZING', to: 'IDLE', event: 'STOP_REQUESTED' },

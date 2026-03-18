@@ -58,8 +58,16 @@ const App: React.FC = () => {
     window.addEventListener('stt-engine-ready', handleEngineReady);
     window.addEventListener('speech-runtime-state', handleSpeechRuntimeState);
 
-    // 2. Reactive Store Subscription (from #742)
-    const unsub = useSessionStore.subscribe((state) => {
+    // 2. Reactive Store Subscriptions (Readiness & Session)
+    const unsubReadiness = useReadinessStore.subscribe((state) => {
+      if (typeof document !== 'undefined') {
+        document.documentElement.dataset.readyState = state.signals.appState;
+        // Also sync the legacy __APP_READY_STATE__ for older E2E helpers
+        window.__APP_READY_STATE__ = state.signals.appState;
+      }
+    });
+
+    const unsubSession = useSessionStore.subscribe((state) => {
       if (typeof document !== 'undefined') {
         if (state.activeEngine) document.body.setAttribute('data-stt-policy', state.activeEngine);
         else document.body.removeAttribute('data-stt-policy');
@@ -72,7 +80,8 @@ const App: React.FC = () => {
     return () => {
       window.removeEventListener('stt-engine-ready', handleEngineReady);
       window.removeEventListener('speech-runtime-state', handleSpeechRuntimeState);
-      unsub();
+      unsubReadiness();
+      unsubSession();
     };
   }, []);
 

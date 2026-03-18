@@ -57,6 +57,7 @@ export interface TranscriptionServiceOptions {
   onTranscriptUpdate: (update: TranscriptUpdate) => void;
   onModelLoadProgress: (progress: number | null) => void;
   onReady: () => void;
+  onHistoryUpdate?: (history: Array<{ mode: TranscriptionMode; text: string }>) => void;
   session: Session | null;
   navigate: NavigateFunction;
   getAssemblyAIToken: () => Promise<string | null>;
@@ -94,7 +95,11 @@ export default class TranscriptionService {
   private idempotencyKey: string | null = null;
   private sessionId: string | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
+  private livenessWatchdog: NodeJS.Timeout | null = null;
+  private isLivenessWarningActive: boolean = false;
+  private lastLivenessWarningTime: number = 0;
   private metadata: { engineVersion: string; modelName: string; deviceType: string } | null = null;
+  private transcriptHistory: Array<{ mode: TranscriptionMode; text: string }> = [];
 
   private mode: TranscriptionMode | null = null;
   private serviceId: string; // Unique ID for this service instance
@@ -106,7 +111,10 @@ export default class TranscriptionService {
   private readonly HEARTBEAT_PERIOD_MS = 30000; // 30 seconds
   private downloadController: AbortController | null = null;
   private modelLoadingProgress: number | null = 0;
-  private initPromise: Promise<void> | null = null;
+  private initPromise: Promise<Error | null> | null = null;
+  private engineReadyPromise: Promise<void> | null = null;
+  private resolveEngineReady: (() => void) | null = null;
+  private rejectEngineTimeout: ((reason: Error) => void) | null = null;
   private privateModelReady: boolean = false;
 
   public getFailureManager(): FailureManager {
@@ -146,6 +154,7 @@ export default class TranscriptionService {
       onStatusChange: options.onStatusChange,
       onAudioData: options.onAudioData,
       onError: options.onError,
+      onHistoryUpdate: options.onHistoryUpdate,
     };
 
     this.fsm.subscribe(state => this.handleStateChange(state));
@@ -167,14 +176,19 @@ export default class TranscriptionService {
   public async warmUp(mode: TranscriptionMode): Promise<void> {
     if (mode !== 'private') return; // Only private needs heavy warm-up
     logger.info(`[TranscriptionService] ⚡ Warming up engine for mode: ${mode}`);
-    await this.ensureEngineInitialized(mode);
+    try {
+      await this.ensureEngineInitialized(mode);
+    } catch (error) {
+      logger.warn({ mode, error }, '[TranscriptionService] Warm-up failed (expected if offline/cache-miss)');
+      // Defuse: Warm-up is non-critical and shouldn't crash the boot process
+    }
   }
 
   /**
    * Authoritative Single-Chain Initialization.
    * Ensures one init, many awaiters, and zero-leakage.
    */
-  private async ensureEngineInitialized(mode: TranscriptionMode): Promise<void> {
+  private async ensureEngineInitialized(mode: TranscriptionMode): Promise<Error | null> {
     // Synchronization: Scope initPromise to the mode. 
     // Prevents fallback to 'native' from hanging on a 'private' init that is stuck.
     if (this.initPromise && this.mode === mode) return this.initPromise;
@@ -207,22 +221,7 @@ export default class TranscriptionService {
         logger.debug({ sId: this.serviceId, rId: this.runId, eId: this.lastEngineId }, '[TranscriptionService] Calling engine.init()');
         await this.engine!.init();
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.lastEngineId }, '[TranscriptionService] Engine initialization complete');
-      } catch (error) {
-        logger.error({ sId: this.serviceId, rId: this.runId, eId: this.lastEngineId, error }, '[TranscriptionService] ensureEngineInitialized failed');
-        if (isCacheMiss(error as Error)) {
-          logger.info('[TranscriptionService] Init: Cache miss (Expected for first-time use)');
-        } else {
-          logger.error({ error }, '[TranscriptionService] Engine initialization failed');
-        }
-        this.initPromise = null; // Reset on failure to prevent stale error reuse
-        throw error; // Propagate to caller
-      }
-    })();
 
-    // Replace .finally() with explicit .then()/.catch()
-    // This defuses the "Cleanup Bomb" by making it abort-aware.
-    this.initPromise
-      .then(() => {
         // SUCCESS: Download/Init actually completed
         if (mode === 'private') {
           this.privateModelReady = true;
@@ -235,26 +234,39 @@ export default class TranscriptionService {
           this.fallbackTimer = null;
         }
         logger.info({ mode }, '[TranscriptionService] Engine init completed cleanly');
-      })
-      .catch((error: Error) => {
-        // FAILURE: Distinguish abort from genuine error
+        return null; // Success
+      } catch (error: any) {
+        logger.error({ sId: this.serviceId, rId: this.runId, eId: this.lastEngineId, error }, '[TranscriptionService] ensureEngineInitialized failed');
+        
+        // Match the logic from the previous catch block
         const isAbort = error.message?.includes('Optimistic entry timeout') || 
                         error.message?.includes('AbortError') || 
                         isCacheMiss(error);
         
+        // ✅ SIGNAL: Notify any awaiters (optimistic race) of the failure/cache miss
+        if (this.rejectEngineTimeout) {
+          this.rejectEngineTimeout(error);
+          this.rejectEngineTimeout = null;
+        }
 
         if (isAbort) {
           // Do NOT clean up - the download continues in the background
           logger.info({ mode, message: error.message }, '[TranscriptionService] Init aborted/back-channel — preserving indicators');
-          this.initPromise = null; // Reset handle but keep indicator
-          return;
+        } else {
+          // Genuine failure - clean up
+          this.cleanupInitResources();
+          this.fsm.transition({ type: 'ERROR_OCCURRED', error });
         }
         
-        // Genuine failure - clean up
-        this.cleanupInitResources();
-        logger.error({ mode, error }, '[TranscriptionService] Engine init genuinely failed');
-      });
-
+        // CRITICAL: Reset initPromise to null to allow retry on next call
+        this.initPromise = null;
+        
+        // EXPERT FIX: Internal containment to prevent unhandled rejections
+        // Returning error as value instead of throwing
+        return error; 
+      }
+    })();
+    
     return this.initPromise;
   }
 
@@ -282,8 +294,11 @@ export default class TranscriptionService {
     
     // Defense-in-depth guard.
     // Never clear the indicator if a background download is actively in progress.
-    const store = useSessionStore.getState();
-    const currentProgress = store.modelLoadingProgress;
+    // Safety check for unit tests/mock environments
+    const state = (useSessionStore as any).getState?.();
+    if (!state) return;
+
+    const currentProgress = state.modelLoadingProgress;
     const isActivelyDownloading = currentProgress !== null && currentProgress < 100;
 
     if (isActivelyDownloading) {
@@ -292,7 +307,7 @@ export default class TranscriptionService {
     }
 
     // Normal cleanup - progress is null or 100%, safe to clear
-    store.setModelLoadingProgress(null);
+    state.setModelLoadingProgress(null);
   }
 
   /**
@@ -334,6 +349,52 @@ export default class TranscriptionService {
       this.options.onError?.(e);
       return { success: false };
     }
+  }
+  
+  /**
+   * MULTI-SEGMENT HANDOFF (Task 8):
+   * Moves current work to history and switches to a fresh Native Browser session.
+   */
+  public async switchToNativeSegmented(): Promise<void> {
+    if (!this.engine || !this.mode) return;
+
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[TranscriptionService] Initiating multi-segment handoff to Native');
+
+    // 1. Capture work done so far
+    try {
+      const text = await this.engine.getTranscript();
+      if (text.trim()) {
+        this.transcriptHistory.push({ mode: this.mode, text });
+        logger.info({ sId: this.serviceId, rId: this.runId, segments: this.transcriptHistory.length }, '[TranscriptionService] Private segment committed to history');
+        this.options.onHistoryUpdate?.([...this.transcriptHistory]);
+      }
+    } catch (error) {
+      logger.error({ sId: this.serviceId, rId: this.runId, error }, '[TranscriptionService] Failed to capture transcript for handoff');
+    }
+
+    // 2. Stop and dispose current engine (Nuclear cleanup of Private)
+    await this.destroy();
+
+    // 3. Reset state for Fresh Start
+    this.fsm.transition({ type: 'RESET_REQUESTED' });
+    this.destroyPromise = null;
+
+    // 4. Force Native Mode
+    this.updatePolicy({
+      ...this.policy,
+      allowPrivate: false, // Force off the frozen engine
+      preferredMode: 'native',
+      executionIntent: 'native-recovery'
+    });
+
+    // 5. Start Fresh
+    logger.info({ sId: this.serviceId }, '[TranscriptionService] Starting fresh Native session');
+    await this.startTranscription();
+    
+    this.options.onStatusChange?.({
+      type: 'info',
+      message: 'Switched to non-private browser recognition. Previous work saved.'
+    });
   }
 
   /**
@@ -391,7 +452,12 @@ export default class TranscriptionService {
 
     this.mode = mode;
     this.startTimestamp = Date.now();
-    useSessionStore.getState().setSTTMode(mode);
+    
+    // Safety check for unit tests
+    const state = (useSessionStore as any).getState?.();
+    if (state) {
+      state.setSTTMode(mode);
+    }
 
     try {
       if (mode !== 'native' && !this.mic) throw new Error('Microphone not initialized');
@@ -405,56 +471,44 @@ export default class TranscriptionService {
 
         if (isE2E && explicitTimeout === undefined) {
           logger.info('[TranscriptionService] 🧪 E2E Mode detected: Waiting for full engine init.');
-          await this.ensureEngineInitialized(mode);
+          const err = await this.ensureEngineInitialized(mode);
+          if (err) throw err;
         } else {
           // Normal mode OR explicit E2E timeout override: Start the optimistic timeout race
-          const initPromise = this.ensureEngineInitialized(mode);
+          this.engineReadyPromise = new Promise((resolve) => {
+            this.resolveEngineReady = resolve;
+          });
+
+          const timeoutPromise = new Promise((_, reject) => {
+            this.rejectEngineTimeout = reject;
+          });
+
+          this.ensureEngineInitialized(mode); // Start in background
           this.timerFired = false;
           this.startOptimisticEntryTimer();
 
+          const initPromise = this.initPromise; // Capture the actual init promise
+
           try {
-            const timeoutPromise = new Promise((_, reject) => {
-              const checkTimer = setInterval(() => {
-                const e2eConfig = getE2EConfig();
-                const isE2E = e2eConfig.context === 'e2e' || e2eConfig.isE2E;
-                const hasExplicitTimeout = e2eConfig.stt.loadTimeout !== undefined;
-
-                // Allow timer to fire in E2E ONLY if an explicit timeout is set.
-                // Otherwise, wait for the full Playwright timeout.
-                if (this.timerFired && (!isE2E || hasExplicitTimeout)) {
-                  clearInterval(checkTimer);
-                  reject(new Error('Optimistic entry timeout'));
-                }
-              }, 50);
-
-              // Ensure we cancel the fallback timer immediately upon init resolving
-              initPromise.then(() => {
-                clearInterval(checkTimer);
-                if (this.fallbackTimer) {
-                  clearTimeout(this.fallbackTimer);
-                  this.fallbackTimer = null;
-                }
-              }).catch(() => {
-                clearInterval(checkTimer);
-                if (this.fallbackTimer) {
-                   clearTimeout(this.fallbackTimer);
-                   this.fallbackTimer = null;
-                }
-              });
-            });
-
-            logger.debug({ mode }, '[TranscriptionService] Starting Promise.race');
-            await Promise.race([initPromise, timeoutPromise]);
-            logger.debug({ mode }, '[TranscriptionService] Promise.race RESOLVED');
+            logger.debug({ mode }, '[TranscriptionService] Starting Promise.race between Signal, Init, and Timeout');
+            // We race the Signal, the Init Promise (for backward/mock compatibility), and the Timeout
+            const result = await Promise.race([this.engineReadyPromise, initPromise!, timeoutPromise]);
+            // initPromise returns Error | null. If it won the race and is non-null, throw it.
+            if (result instanceof Error) throw result;
+            logger.debug({ mode }, '[TranscriptionService] Signal or Init received - Entry successful');
           } finally {
             if (this.fallbackTimer) {
               clearTimeout(this.fallbackTimer);
               this.fallbackTimer = null;
             }
+            this.engineReadyPromise = null;
+            this.resolveEngineReady = null;
+            this.rejectEngineTimeout = null;
           }
         }
       } else {
-        await this.ensureEngineInitialized(mode);
+        const err = await this.ensureEngineInitialized(mode);
+        if (err) throw err;
       }
 
       await this.executeEngine(mode);
@@ -491,7 +545,11 @@ export default class TranscriptionService {
 
       this.startTime = Date.now();
       this.options.onModeChange?.(mode);
-      useSessionStore.getState().setActiveEngine(mode);
+      
+      const state = (useSessionStore as any).getState?.();
+      if (state) {
+        state.setActiveEngine(mode);
+      }
 
       // PHASE 2 SESSION START: Atomic RPC to create session and check usage via injected logic
       if (this.dbHandlers && this.idempotencyKey) {
@@ -500,7 +558,7 @@ export default class TranscriptionService {
           // Guard: Only start heartbeat if we haven't stopped in the meantime
           if (newSessionId && (this.fsm.is('RECORDING') || this.fsm.is('ENGINE_INITIALIZING'))) {
               this.sessionId = newSessionId;
-              this.startHeartbeat();
+              // ✅ Master Invariant: Heartbeat is now managed by SpeechRuntimeController
           } else {
               logger.warn({ hasSession: !!newSessionId, state: this.fsm.getState() }, '[TranscriptionService] Session created but guard blocked assignment');
           }
@@ -513,6 +571,7 @@ export default class TranscriptionService {
       }
 
       this.fsm.transition({ type: 'ENGINE_STARTED' });
+      this.startLivenessWatchdog();
     } catch (error: unknown) {
       if (isCacheMiss(error as Error)) {
         await this.handleCacheMiss();
@@ -534,7 +593,10 @@ export default class TranscriptionService {
       this.downloadController?.abort();
       this.downloadController = null;
       this.modelLoadingProgress = null; // Clear local state
-      useSessionStore.getState().setModelLoadingProgress(null); // Clear global store
+      const state = (useSessionStore as any).getState?.();
+      if (state) {
+        state.setModelLoadingProgress(null); // Clear global store
+      }
       this.fsm.transition({ type: 'STOP_REQUESTED' }); // now valid → IDLE
       return { success: true, transcript: '', stats: calculateTranscriptStats([], [], '', 0) };
     }
@@ -560,9 +622,11 @@ export default class TranscriptionService {
       const stats = calculateTranscriptStats([{ transcript }], [], '', duration);
 
       this.fsm.transition({ type: 'STOP_COMPLETED' });
-      useSessionStore.getState().setActiveEngine(null);
-      this.modelLoadingProgress = null;
-      useSessionStore.getState().setModelLoadingProgress(null);
+      const state = (useSessionStore as any).getState?.();
+      if (state) {
+        state.setActiveEngine(null);
+        state.setModelLoadingProgress(null);
+      }
       // Note: document.body.removeAttribute('data-download-progress') extracted to UI
 
       return { success: true, transcript, stats };
@@ -650,6 +714,7 @@ export default class TranscriptionService {
       } finally {
         // Transition to IDLE marks cleanup as complete
         this.fsm.transition({ type: 'RESET_REQUESTED' });
+        this.stopLivenessWatchdog();
         // Then force to TERMINATED to ensure service is officially "Dead"
         this.fsm.setState('TERMINATED');
         logger.info({ sId: this.serviceId }, '[TranscriptionService] ✅ Nuclear cleanup complete');
@@ -698,6 +763,7 @@ export default class TranscriptionService {
   public getState(): TranscriptionState { return this.fsm.getState(); }
   public getMode(): TranscriptionMode | null { return this.mode; }
   public getPolicy(): TranscriptionPolicy { return this.policy; }
+  public getTranscriptHistory(): Array<{ mode: TranscriptionMode; text: string }> { return this.transcriptHistory; }
 
   /**
    * ✅ E2E HOOK: Retrieves the current transcript from the engine.
@@ -729,6 +795,7 @@ export default class TranscriptionService {
     this.startTimestamp = 0;
     this.initPromise = null;
     this.runId = null;
+    this.transcriptHistory = [];
 
     // Reset FSM to IDLE
     this.fsm.reset();
@@ -744,7 +811,10 @@ export default class TranscriptionService {
     this.engine = null;
     this.mic = null;
 
-    useSessionStore.getState().setModelLoadingProgress(null);
+    const state = (useSessionStore as any).getState?.();
+    if (state) {
+      state.setModelLoadingProgress(null);
+    }
   }
 
   /**
@@ -755,7 +825,10 @@ export default class TranscriptionService {
 
     // Clear progress synchronously
     this.modelLoadingProgress = null;
-    useSessionStore.getState().setModelLoadingProgress(null);
+    const state = (useSessionStore as any).getState?.();
+    if (state) {
+      state.setModelLoadingProgress(null);
+    }
 
     // Cancel the download if in flight
     if (this.downloadController) {
@@ -792,16 +865,67 @@ export default class TranscriptionService {
 
     logger.info(`[STT] Fallback timer started: ${timeout}ms`);
     this.fallbackTimer = setTimeout(() => {
-      // ✅ RESILIENCE: Before actually doing the fallback logic, double check
-      // if the initPromise resolved or mode changed.
-      // And we mark timerFired.
       this.timerFired = true;
       logger.warn('[STT] Private engine timeout. Falling back to Native Browser STT.');
+      
+      // ✅ SIGNAL: Trigger the timeout rejection directly
+      if (this.rejectEngineTimeout) {
+        this.rejectEngineTimeout(new Error('Optimistic entry timeout'));
+        this.rejectEngineTimeout = null;
+      }
+
       this.fallbackToNative();
     }, timeout);
   }
 
+  private startLivenessWatchdog(): void {
+    this.stopLivenessWatchdog();
+    this.isLivenessWarningActive = false;
+    
+    logger.debug('[TranscriptionService] Starting liveness watchdog');
+    this.livenessWatchdog = setInterval(() => {
+      if (!this.engine || !this.fsm.is('RECORDING')) return;
+      
+      const lastHeartbeatTimestamp = this.engine.getLastHeartbeatTimestamp();
+      const delta = Date.now() - lastHeartbeatTimestamp;
+      
+      if (delta > 8000) {
+        if (!this.isLivenessWarningActive) {
+          logger.warn({ delta, mode: this.mode }, '[TranscriptionService] Liveness check FAILED - Engine frozen');
+          this.isLivenessWarningActive = true;
+          this.lastLivenessWarningTime = Date.now();
+          
+          // Emit the UX-friendly message to the UI
+          this.options.onStatusChange?.({
+            type: 'warning',
+            message: 'Speech recognition is taking a moment. You can **wait** for the private engine to catch up, or switch to **non-private browser-based** recognition.',
+            isFrozen: true
+          });
+        }
+      } else if (this.isLivenessWarningActive && delta < 2000) {
+        // Recovery: If engine comes back to life, clear the warning
+        logger.info('[TranscriptionService] Liveness recovered');
+        this.isLivenessWarningActive = false;
+        this.options.onStatusChange?.({
+          type: 'info',
+          message: 'Speech recognition recovered',
+          isFrozen: false
+        });
+      }
+    }, 2000);
+  }
+
+  private stopLivenessWatchdog(): void {
+    if (this.livenessWatchdog) {
+      clearInterval(this.livenessWatchdog);
+      this.livenessWatchdog = null;
+    }
+    this.isLivenessWarningActive = false;
+  }
+
   private fallbackToNative(): void {
+    this.stopLivenessWatchdog();
+    this.mode = 'native';
     // Privacy: Avoid silent fallback. Native STT often processes audio remotely.
     // Native STT (browser-level) often sends audio to Google/Apple servers.
     // Private STT (Whisper WASM) stays local.
@@ -820,7 +944,8 @@ export default class TranscriptionService {
     const duration = Date.now() - (this.startTimestamp || Date.now());
     logger.warn(`[STT] Private engine timeout after ${duration}ms. Falling back to Native Browser STT.`);
     if (this.mode) {
-      this.handleFailure(this.mode, new Error('Optimistic entry timeout'));
+      this.handleFailure(this.mode, new Error('Optimistic entry timeout'))
+        .catch(err => logger.error({ err }, '[STT] Fallback handleFailure leaked rejection'));
     }
   }
 
@@ -861,15 +986,19 @@ export default class TranscriptionService {
     this.options.onModelLoadProgress(progress);
     const percent = progress !== null ? Math.round(progress * 100) : null;
     this.modelLoadingProgress = percent; // Keep internal state in sync
-    useSessionStore.getState().setModelLoadingProgress(percent);
+    const state = (useSessionStore as any).getState?.();
+    if (state) {
+      state.setModelLoadingProgress(percent);
+    }
 
     if (percent === 100) {
       if (TestFlags.IS_TEST_MODE) {
-        useSessionStore.getState().setModelLoadingProgress(null);
+        if (state) state.setModelLoadingProgress(null);
       } else {
         setTimeout(() => {
-          if (useSessionStore.getState().modelLoadingProgress === 100) {
-            useSessionStore.getState().setModelLoadingProgress(null);
+          const currentState = (useSessionStore as any).getState?.();
+          if (currentState && currentState.modelLoadingProgress === 100) {
+            currentState.setModelLoadingProgress(null);
           }
         }, 1500);
       }
@@ -879,6 +1008,10 @@ export default class TranscriptionService {
   /**
    * Internal helpers
    */
+
+  public getEngine(): ITranscriptionEngine | null {
+    return this.engine;
+  }
 
   private getProxyOptions(): TranscriptionModeOptions {
     const runId = this.runId || 'no-run';
@@ -891,6 +1024,10 @@ export default class TranscriptionService {
       onTranscriptUpdate: (u) => this.processTranscript(u),
       onReady: () => {
         logger.info('[STT] Private engine ready. Transitioning to local processing.');
+        if (this.resolveEngineReady) {
+          this.resolveEngineReady();
+          this.resolveEngineReady = null;
+        }
         this.options.onReady?.();
       },
       onError: (err) => {
@@ -963,7 +1100,8 @@ export default class TranscriptionService {
       
       if (!isExpectedTransition) {
         logger.warn({ mode, currentMode: this.mode, error }, '[STT] Background engine failure -> Clearing indicator');
-        useSessionStore.getState().setModelLoadingProgress(null);
+        const state = (useSessionStore as any).getState?.();
+        if (state) state.setModelLoadingProgress(null);
       } else {
         // No log here, as per instruction
       }
@@ -997,11 +1135,13 @@ export default class TranscriptionService {
       });
       
       // ✅ EXPERT FIX: Ensure background indicator is visible during fallback
-      useSessionStore.getState().setModelLoadingProgress(0);
+      const state = (useSessionStore as any).getState?.();
+      if (state) state.setModelLoadingProgress(0);
 
       // Synchronization: Reset initPromise and mode to allow Native initialization
       this.initPromise = null;
       this.mode = 'native';
+      this.fsm.transition({ type: 'ENGINE_INIT_REQUESTED' });
       try {
         const engineConfig: TranscriptionModeOptions = this.getProxyOptions();
         this.engine = await EngineFactory.create('native', engineConfig, this.policy);
@@ -1028,7 +1168,8 @@ export default class TranscriptionService {
     }, '[TranscriptionService] Cache miss detected');
 
     // Trigger progress bar immediately
-    useSessionStore.getState().setModelLoadingProgress(0);
+    const state = (useSessionStore as any).getState?.();
+    if (state) state.setModelLoadingProgress(0);
 
     // ✅ LAZY POLICY READ: Read policy at call time, not construction time
     if (!this.policy.allowFallback) {
@@ -1048,7 +1189,7 @@ export default class TranscriptionService {
     });
 
     // We still keep the loading progress at 0 for the background download indicator
-    useSessionStore.getState().setModelLoadingProgress(0);
+    if (state) state.setModelLoadingProgress(0);
 
     try {
       // FIX: Must create a new Native engine instance explicitly so we don't terminate the downloading Private engine
@@ -1068,21 +1209,5 @@ export default class TranscriptionService {
   // Expose these for tests/runtime controller if needed
   public setSessionId(id: string | null) { this.sessionId = id; }
 
-  private startHeartbeat(): void {
-    this.stopHeartbeat();
-    this.heartbeatInterval = setInterval(async () => {
-      if (!this.sessionId || !this.fsm.is('RECORDING')) return;
-      if (this.dbHandlers) {
-          await this.dbHandlers.heartbeatSession(this.sessionId);
-      }
-    }, this.HEARTBEAT_PERIOD_MS);
-  }
-
-  private stopHeartbeat(): void {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-  }
 }
 

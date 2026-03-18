@@ -244,6 +244,13 @@ export async function waitForAppReady(page: Page, options: { needsAnalytics?: bo
       page.waitForFunction((opts) => {
         const s = window.__APP_READY_STATE__;
         if (!s) return false;
+        
+        // 🚀 Support for new Clean Pipeline string signal
+        if (s === 'READY') return true;
+        
+        // Handle legacy object-based state or intermediate booting strings
+        if (typeof s === 'string') return false; 
+        
         const baseReady = s.boot && s.layout && s.auth;
         const analyticsReady = opts.needsAnalytics ? s.analytics : true;
         const sttReady = opts.needsSTT ? s.stt : true;

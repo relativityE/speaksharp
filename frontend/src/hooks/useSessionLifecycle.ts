@@ -14,7 +14,7 @@ import { useUserFillerWords } from './useUserFillerWords';
 import { isPro } from '@/constants/subscriptionTiers';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
-import { useActiveSessionLock } from './useActiveSessionLock';
+import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import type { Chunk } from './useSpeechRecognition/types';
@@ -26,14 +26,13 @@ export const useSessionLifecycle = () => {
     const queryClient = useQueryClient();
     const tick = useSessionStore(state => state.tick);
     const elapsedTime = useSessionStore(state => state.elapsedTime);
+    const isLockHeldByOther = useSessionStore(state => state.isLockHeldByOther);
     const { data: usageLimit } = useUsageLimit();
     const { updateStreak } = useStreak();
     const { saveSession } = useSessionManager();
     const { userFillerWords } = useUserFillerWords();
-    const stopSession = useSessionStore(state => state.stopSession);
     const activeEngine = useSessionStore(state => state.activeEngine);
-    const { service } = useTranscriptionContext();
-    const { acquireLock, releaseLock } = useActiveSessionLock();
+    const { service, runtimeState } = useTranscriptionContext();
 
     const isProUser = isPro(profile?.subscription_status);
 
@@ -59,14 +58,14 @@ export const useSessionLifecycle = () => {
         profileLoading: false // Guaranteed by ProfileGuard
     }), [userFillerWords, session, profile]);
 
+    const isListening = useSessionStore(state => state.isListening);
+    const history = useSessionStore(state => state.history);
+
     const speechRecognition = useSpeechRecognition(speechConfig);
     const {
         transcript,
         chunks,
         fillerData,
-        startListening,
-        stopListening,
-        isListening,
         isReady,
         modelLoadingProgress,
         sttStatus,
@@ -80,11 +79,6 @@ export const useSessionLifecycle = () => {
         isListeningRef.current = isListening;
     }, [isListening]);
 
-    const stopListeningRef = useRef(stopListening);
-    useEffect(() => {
-        stopListeningRef.current = stopListening;
-    }, [stopListening]);
-
     const metrics = useSessionMetrics({
         transcript: transcript.transcript,
         chunks: chunks as Chunk[],
@@ -97,17 +91,12 @@ export const useSessionLifecycle = () => {
         isProcessingRef.current = true;
 
         if (isListening) {
-            // Immediate UI flip and lock release
-            // This prevents ANY hang or service promise from delaying the button reversion.
-            stopSession();
-            releaseLock();
-            if (TestFlags.IS_TEST_MODE) {
-                (window as unknown as { __lockAcquired__?: boolean }).__lockAcquired__ = false;
-            }
+            // ✅ Master Invariant: stopRecording() is now handled 
+            // by SpeechRuntimeController. It performs cleanup and DB ops.
 
             // Bypass minimum duration check if there is an external stop reason (e.g. tier limits)
             if (elapsedTime < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
-                await stopListening();
+                await speechRuntimeController.stopRecording();
                 setShowAnalyticsPrompt(false);
                 setSessionFeedbackMessage(`⚠️ Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`);
                 isProcessingRef.current = false;
@@ -115,24 +104,22 @@ export const useSessionLifecycle = () => {
             }
 
             try {
-                // stopListening() performs async engine cleanup but store state is already flipped
-                const finalStats = await stopListening();
+                // SpeechRuntimeController.stopRecording() returns the result from service.stopTranscription()
+                const finalStats = await speechRuntimeController.stopRecording() as any;
 
                 if (!finalStats) {
-                    logger.warn('[useSessionLifecycle] stopListening returned null, skipping save');
+                    logger.warn('[useSessionLifecycle] stopRecording returned null, skipping save');
                     return;
                 }
 
                 // ... (stats calculation and save logic)
-
-                // ... (rest of stats calculation and save logic)
                 const finalWpm = finalStats.duration > 0
                     ? Math.round((finalStats.total_words / finalStats.duration) * 60)
                     : 0;
 
                 const finalFillerCount = Object.entries(finalStats.filler_words)
                     .filter(([key]) => key !== 'total')
-                    .reduce((sum, [, data]) => sum + (data?.count ?? 0), 0);
+                    .reduce((sum, [, data]) => sum + ((data as any)?.count ?? 0), 0);
 
                 posthog.capture('session_ended', {
                     duration: elapsedTime,
@@ -144,19 +131,7 @@ export const useSessionLifecycle = () => {
                 const streakResult = updateStreak();
                 const engineType = (activeEngine === 'cloud') ? 'cloud' : 'native';
 
-                // ✅ SURGICAL FIX 4: FSM & Mount Guards
-                // Only save if FSM confirms STOPPING state and component is still mounted
-                const currentState = service?.getState();
-                if (currentState !== 'STOPPING' && currentState !== 'READY') {
-                    logger.warn(`[useSessionLifecycle] saveSession skipped — FSM in ${currentState} state (expected STOPPING/READY)`);
-                    return;
-                }
-
-                // ✅ TRACE: Log mount state for debugging
-                logger.debug({ isMounted: isMounted.current, currentState }, '[useSessionLifecycle] Proceeding to saveSession');
-
-                // We allow saveSession to proceed even if unmounted to ensure persistence,
-                // but we guard the UI state updates.
+                // Save if component is still mounted (SpeechRuntimeController handles FSM check internally)
                 const result = await saveSession({
                     id: service?.getSessionId() || undefined,
                     transcript: finalStats.transcript,
@@ -187,13 +162,11 @@ export const useSessionLifecycle = () => {
                     (window as unknown as { __E2E_LAST_SAVED_SESSION__?: string }).__E2E_LAST_SAVED_SESSION__ = result.session.id;
                     document.documentElement.setAttribute('data-session-saved', 'true');
                     setTimeout(() => {
-                        // Clear signal after a delay to allow tests to catch it but not persist forever
                         if (document.documentElement.getAttribute('data-session-saved') === 'true') {
                             document.documentElement.removeAttribute('data-session-saved');
                         }
                     }, 10000);
                 } else {
-                    // Handle save failure if necessary, though saveSession typically throws on error
                     logger.error({ result }, '[useSessionLifecycle] Session save did not return a session object.');
                     setSessionFeedbackMessage('⚠️ Failed to save session.');
                 }
@@ -221,48 +194,39 @@ export const useSessionLifecycle = () => {
             try {
                 setSessionFeedbackMessage(null);
 
-                // Mutex Check: Prevent multi-tab session bypass for ALL users
-                const lockAcquired = acquireLock();
+                // Mutex Check: Use the reactive store state updated by SpeechRuntimeController
+                if (isLockHeldByOther) {
+                    setSessionFeedbackMessage('⛔ Active session in another tab. Switch to that tab to continue.');
+                    return;
+                }
 
-                // ✅ Expert Diagnostic: Structured logging for state machine observability
+                // Expert Diagnostic
                 if (TestFlags.IS_TEST_MODE) {
                     logger.info({
                         isListening,
                         isProUser,
-                        lockAcquired,
+                        isLockHeldByOther,
                         remaining_seconds: usageLimit?.remaining_seconds,
-                        hasAutoStopped: hasAutoStoppedRef.current,
-                        hasVADStopped: hasVADStoppedRef.current
                     }, '[SESSION_DIAG]');
                 }
 
-                // Mutex is enforced for all users to prevent parallel session state corruption
-                if (!lockAcquired) {
-                    setSessionFeedbackMessage('⛔ Active session in another tab. Switch to that tab to continue.');
-                    if (TestFlags.IS_TEST_MODE) {
-                        (window as { __lockAcquired__?: boolean }).__lockAcquired__ = false;
-                    }
-                    return;
-                }
-
-                // ✅ Lock acquired – signal to E2E
-                if (TestFlags.IS_TEST_MODE) {
-                    (window as { __lockAcquired__?: boolean }).__lockAcquired__ = true;
-                }
-
-                const policy = buildPolicyForUser(isProUser, mode);
                 if (typeof document !== 'undefined') {
                     document.body.setAttribute('data-user-tier', isProUser ? 'pro' : 'free');
                 }
-                await startListening(policy);
+                
+                // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
+                await speechRuntimeController.startRecording();
                 posthog.capture('session_started', { mode });
+            } catch (error) {
+                logger.error({ error }, '[useSessionLifecycle] Failed to start recording');
+                setSessionFeedbackMessage('⚠️ Failed to start recording.');
             } finally {
                 isProcessingRef.current = false;
             }
         }
-    }, [isListening, elapsedTime, stopListening, updateStreak, saveSession, queryClient, isProUser, usageLimit, mode, activeEngine, startListening, acquireLock, stopSession, releaseLock, service]);
+    }, [isListening, elapsedTime, updateStreak, saveSession, queryClient, isProUser, usageLimit, mode, activeEngine, service, isLockHeldByOther]);
 
-    // ✅ Keep the stable ref up to date with the latest callback (Synchronous to avoid effect race)
+    // ✅ Keep the stable ref up to date with the latest callback
     handleStartStopRef.current = handleStartStop;
 
     // ✅ isMounted logic
@@ -292,11 +256,8 @@ export const useSessionLifecycle = () => {
     }, [isListening, tick]);
 
 
-
     // Tier enforcement: Auto-stop and 5-minute Warning
     useEffect(() => {
-        // ✅ GUARANTEE: Never enforce limits for Pro users or if unlimited flag (-1) is present.
-        // ✅ HYDRATION GUARD: Don't enforce until profile isVerified
         if (!isVerified || isProUser || (usageLimit && usageLimit.remaining_seconds === -1)) return;
 
         if (isListening && usageLimit && typeof usageLimit.remaining_seconds === 'number' && usageLimit.remaining_seconds > 0) {
@@ -311,17 +272,14 @@ export const useSessionLifecycle = () => {
                     posthog.capture('session_limit_warning', { remaining_seconds: remaining });
                 }
             } else if (remaining <= 0) {
-                // ✅ GUARD: Only auto-stop once per session
                 if (hasAutoStoppedRef.current) return;
                 hasAutoStoppedRef.current = true;
 
                 logger.warn({ elapsedTime, remaining }, '[useSessionLifecycle] ⚠️ AUTO-STOPPING: limit reached');
 
-                // Determine modal type
                 const isMonthly = usageLimit.monthly_remaining <= 0;
                 setSunsetModal({ type: isMonthly ? 'monthly' : 'daily', open: true });
 
-                // ✅ Use stable ref to prevent re-triggering the effect
                 handleStartStopRef.current?.({
                     stopReason: "⛔ Daily usage limit reached."
                 });
@@ -348,7 +306,6 @@ export const useSessionLifecycle = () => {
         const checkInactivity = setInterval(() => {
             const now = Date.now();
             if (now - lastActivityTimeRef.current > inactivityLimit) {
-                // ✅ GUARD: Only auto-stop once
                 if (hasVADStoppedRef.current) return;
                 hasVADStoppedRef.current = true;
 
@@ -358,25 +315,14 @@ export const useSessionLifecycle = () => {
                     diff: now - lastActivityTimeRef.current
                 }, '[useSessionLifecycle] 🔇 VAD AUTO-STOP: 5 minutes of silence detected');
 
-                // ✅ Use stable ref
                 handleStartStopRef.current?.({
                     stopReason: '🔇 Auto-paused due to 5 minutes of inactivity.'
                 });
             }
-        }, 1000); // Check more frequently in dev/test
+        }, 1000);
 
         return () => clearInterval(checkInactivity);
-    }, [isListening, transcript.transcript]); // Removed handleStartStop dependency
-
-    // Ensure lock is released on unmount
-    useEffect(() => {
-        const currentLockRelease = releaseLock;
-        return () => {
-            // Note: handleStartStop handles releaseLock for normal stops.
-            // This is only for the "unmount while listening" case.
-            if (isListeningRef.current) currentLockRelease();
-        };
-    }, [releaseLock]); // releaseLock is stable from useActiveSessionLock
+    }, [isListening, transcript.transcript]);
 
     // Mode sync: Ensure UI and Engine mode stay aligned
     useEffect(() => {
@@ -389,25 +335,22 @@ export const useSessionLifecycle = () => {
     useEffect(() => {
         if (mode === 'private' && !isListening) {
             logger.info('[useSessionLifecycle] Mode set to private - triggering warm-up');
-            import('@/services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
-                speechRuntimeController.warmUp('private');
-            });
+            speechRuntimeController.warmUp('private');
         }
     }, [mode, isListening]);
 
     // Cleanup on unmount - TRULY only on unmount
     useEffect(() => {
-        // Reset save signal on mount to ensure we don't catch a previous session's signal
         document.documentElement.removeAttribute('data-session-saved');
 
         return () => {
             logger.debug('[useSessionLifecycle] Component unmounting - Cleanup running');
             if (isListeningRef.current) {
-                logger.debug('[useSessionLifecycle] Session active on unmount - forcing save');
-                stopListeningRef.current(); 
+                logger.debug('[useSessionLifecycle] Session active on unmount - forcing stop');
+                speechRuntimeController.stopRecording(); 
             }
         };
-    }, []); // Empty dependencies! Truly only on unmount.
+    }, []);
 
     return {
         isListening,
@@ -431,9 +374,10 @@ export const useSessionLifecycle = () => {
         fillerData,
         isProUser,
         activeEngine,
-        isButtonDisabled: isListening && !isReady, // Only disable IF we have started (isListening) but aren't yet ready. Always allow start (when !isListening) and always allow stop (once ready or if error occurs).
+        isButtonDisabled: !['READY', 'RECORDING', 'FAILED'].includes(runtimeState), // Strictly gate by Master FSM state.
         showPromoExpiredDialog: !!usageLimit?.promo_just_expired,
         usageLimit,
+        history,
         profileLoading: false,
         profileError: null
     };

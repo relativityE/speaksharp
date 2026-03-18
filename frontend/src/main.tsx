@@ -185,7 +185,7 @@ const startInitializing = async () => {
   // Defer heavy WASM initialization to avoid competing with React hydration
   const warmUpSTT = () => {
     import('@/services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
-      speechRuntimeController.initialize()
+      speechRuntimeController.warmUp()
         .then(() => {
           useReadinessStore.getState().setReady('stt');
         })

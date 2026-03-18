@@ -5,6 +5,7 @@ import { TranscriptionPolicy } from '../TranscriptionPolicy';
 import { MicStream } from '../utils/types';
 import { testRegistry } from '../TestRegistry';
 import { ITranscriptionEngine, TranscriptionModeOptions } from '../modes/types';
+import { createMockEngine } from '../../../../tests/unit/factories/engineFactory';
 
 // Mock dependencies
 const mockOnTranscriptUpdate = vi.fn();
@@ -21,49 +22,11 @@ vi.mock('../../../lib/storage', () => ({
     completeSession: vi.fn(),
 }));
 
-class SuccessNativeEngine implements ITranscriptionEngine {
-    public updateCb?: (upd: { transcript: { final: string, partial: string } }) => void;
-
-    constructor(options?: TranscriptionModeOptions) {
-        if (options?.onTranscriptUpdate) {
-            this.updateCb = options.onTranscriptUpdate;
-        }
-    }
-
-    init = vi.fn().mockImplementation((opts) => {
-        if (opts?.onTranscriptUpdate) this.updateCb = opts.onTranscriptUpdate;
-        return Promise.resolve();
-    });
-
-    startTranscription = vi.fn().mockImplementation((opts) => {
-        if (opts?.onTranscriptUpdate) this.updateCb = opts.onTranscriptUpdate;
-        return Promise.resolve();
-    });
-
-    stopTranscription = vi.fn().mockResolvedValue('test');
-    getTranscript = vi.fn().mockResolvedValue('test');
-    terminate = vi.fn().mockResolvedValue(undefined);
-    getEngineType = () => 'native' as const;
-
-    simulateUpdate(final: string, partial: string) {
-        if (!this.updateCb) {
-            throw new Error('SUCCESS_NATIVE_ENGINE: No update callback registered!');
-        }
-        this.updateCb({
-            transcript: { final, partial }
-        });
-    }
-}
-
-class FailingPrivateEngine implements ITranscriptionEngine {
-    constructor(private errorMsg: string) { }
-    init = vi.fn().mockImplementation(() => Promise.reject(new Error(this.errorMsg)));
-    startTranscription = vi.fn().mockResolvedValue(undefined);
-    stopTranscription = vi.fn().mockResolvedValue('');
-    getTranscript = vi.fn().mockResolvedValue('');
-    terminate = vi.fn().mockResolvedValue(undefined);
-    getEngineType = () => 'whisper-turbo' as const;
-}
+// Helper for failing engines to test containment
+const createFailingEngine = (errorMsg: string) => createMockEngine({
+    init: vi.fn().mockRejectedValue(new Error(errorMsg)),
+    getEngineType: () => 'whisper-turbo' as const
+});
 
 describe('TranscriptionService', () => {
     let service: TranscriptionService;
@@ -82,9 +45,9 @@ describe('TranscriptionService', () => {
         vi.clearAllMocks();
         testRegistry.clear();
 
-        // Default success engines - factories must accept opts
-        testRegistry.register('native', (opts: TranscriptionModeOptions | undefined) => new SuccessNativeEngine(opts));
-        testRegistry.register('private', (opts: TranscriptionModeOptions | undefined) => new SuccessNativeEngine(opts));
+        // Default success engines
+        testRegistry.register('native', () => createMockEngine({ getEngineType: () => 'native' as const }));
+        testRegistry.register('private', () => createMockEngine({ getEngineType: () => 'whisper-turbo' as const }));
 
         service = new TranscriptionService({
             onTranscriptUpdate: mockOnTranscriptUpdate,
@@ -111,7 +74,7 @@ describe('TranscriptionService', () => {
     });
 
     it('should emit fallback status when implementation fails (Item 7A)', async () => {
-        testRegistry.register('private', () => new FailingPrivateEngine('GPU_CRASH'));
+        testRegistry.register('private', () => createFailingEngine('GPU_CRASH'));
 
         await service.init();
         await service.startTranscription();
@@ -126,20 +89,29 @@ describe('TranscriptionService', () => {
 
     it('should sanitize transcripts effectively through mandatory pipeline (Item 7B)', async () => {
         // Setup a successful engine
-        let nativeEngine: SuccessNativeEngine | null = null;
+        let nativeEngine: any = null;
         testRegistry.register('native', (opts?: TranscriptionModeOptions) => {
-            nativeEngine = new SuccessNativeEngine(opts);
+            nativeEngine = createMockEngine({ 
+                getEngineType: () => 'native' as const,
+                ...opts 
+            });
             return nativeEngine;
         });
 
         await service.init();
         await service.startTranscription({ ...basePolicy, preferredMode: 'native' });
         
-        // Simulate hallucination
-        nativeEngine!.simulateUpdate(
-            '[BLANK_AUDIO]  Hello (applause) [SILENCE]  world [MUSIC]  ', 
-            '[MUSIC] thinking...'
-        );
+        // Simulate hallucination via the internal updates
+        // We need to trigger the callback that was passed into the engine
+        const onTranscriptUpdate = nativeEngine.onTranscriptUpdate; 
+        if (onTranscriptUpdate) {
+            onTranscriptUpdate({
+                transcript: {
+                    final: '[BLANK_AUDIO]  Hello (applause) [SILENCE]  world [MUSIC]  ',
+                    partial: '[MUSIC] thinking...'
+                }
+            });
+        }
 
         // Assert
         expect(mockOnTranscriptUpdate).toHaveBeenCalledWith(expect.objectContaining({
@@ -151,7 +123,7 @@ describe('TranscriptionService', () => {
     });
 
     it('should provide honest status message on cache miss fallback', async () => {
-        testRegistry.register('private', () => new FailingPrivateEngine('CACHE_MISS'));
+        testRegistry.register('private', () => createFailingEngine('CACHE_MISS'));
 
         await service.init();
         await service.startTranscription();
@@ -168,7 +140,7 @@ describe('TranscriptionService', () => {
 
     it('should protect against recursive fallback loops (Item 8A)', async () => {
         // Setup a private engine that fails
-        testRegistry.register('private', () => new FailingPrivateEngine('RECURSION_TEST'));
+        testRegistry.register('private', () => createFailingEngine('RECURSION_TEST'));
         
         // Track handleFailure calls (via status change 'fallback')
         await service.init();
@@ -184,8 +156,8 @@ describe('TranscriptionService', () => {
         let callCount = 0;
         testRegistry.register('private', () => {
             callCount++;
-            if (callCount === 1) return new FailingPrivateEngine('FIRST_FAILURE');
-            return new SuccessNativeEngine();
+            if (callCount === 1) return createFailingEngine('FIRST_FAILURE');
+            return createMockEngine({ getEngineType: () => 'whisper-turbo' as const });
         });
 
         // Disable fallback to verify the terminal failure path

@@ -4,17 +4,7 @@ import TranscriptionService, { resetTranscriptionService, getTranscriptionServic
 import { TranscriptionPolicy, TranscriptionMode } from '../TranscriptionPolicy';
 import { MicStream } from '../utils/types';
 
-// Define the mock factory at the top level to avoid hoisting issues with classes
-const createMockEngine = () => {
-    return {
-        init: vi.fn().mockResolvedValue(undefined),
-        startTranscription: vi.fn().mockResolvedValue(undefined),
-        stopTranscription: vi.fn().mockResolvedValue('test transcript'),
-        getTranscript: vi.fn().mockResolvedValue('test transcript'),
-        terminate: vi.fn().mockResolvedValue(undefined),
-        getEngineType: () => 'private' as TranscriptionMode,
-    };
-};
+import { createMockEngine } from '../../../../tests/unit/factories/engineFactory';
 
 // Mock storage
 vi.mock('../../../lib/storage', () => ({
@@ -35,10 +25,20 @@ vi.mock('../../../lib/supabaseClient', () => ({
 // Mock EngineFactory - using the factory function to avoid reference errors
 vi.mock('../EngineFactory', () => ({
     EngineFactory: {
-        create: vi.fn().mockImplementation(() => Promise.resolve(createMockEngine()))
+        create: vi.fn().mockImplementation(() => Promise.resolve(createMockEngine({ getEngineType: () => 'private' as TranscriptionMode })))
     }
 }));
 
+
+const { STTServiceFactory } = vi.hoisted(() => ({
+    STTServiceFactory: {
+        createService: vi.fn()
+    }
+}));
+
+vi.mock('../STTServiceFactory', () => ({
+    STTServiceFactory
+}));
 
 describe('STT Safeguards Unit Tests', () => {
     let service: TranscriptionService;
@@ -62,6 +62,9 @@ describe('STT Safeguards Unit Tests', () => {
             policy: basePolicy,
             session: { user: { id: 'user-123' } } as unknown as Parameters<typeof TranscriptionService.prototype['updateCallbacks']>[0]['session'],
         });
+
+        // Ensure controller uses the same instance
+        vi.mocked(STTServiceFactory.createService).mockReturnValue(service);
 
         // Inject mock db handlers
         service.setDbHandlers({
@@ -88,7 +91,7 @@ describe('STT Safeguards Unit Tests', () => {
             completeSession: async () => {}
         });
 
-        await speechRuntimeController.initialize();
+        await speechRuntimeController.warmUp();
         await service.init();
         await speechRuntimeController.startRecording();
 
@@ -113,7 +116,7 @@ describe('STT Safeguards Unit Tests', () => {
             completeSession: async () => {}
         });
 
-        await speechRuntimeController.initialize();
+        await speechRuntimeController.warmUp();
         await service.init();
         await speechRuntimeController.startRecording();
 
@@ -122,11 +125,11 @@ describe('STT Safeguards Unit Tests', () => {
             throw new Error('Session not set');
         });
 
-        // Fast forward 31 seconds (HEARTBEAT_PERIOD_MS = 30000)
-        await vi.advanceTimersByTimeAsync(31000);
-
         // Heartbeat takes (sessionId)
-        expect(heartbeatSession).toHaveBeenCalledWith('sess-123');
+        const { heartbeatSession: globalHeartbeat } = await import('../../../lib/storage');
+        await vi.waitFor(() => {
+            expect(globalHeartbeat).toHaveBeenCalledWith('sess-123', expect.any(Number));
+        });
     });
 
     it('should complete session and stop heartbeat when transcription stops', async () => {
@@ -137,7 +140,7 @@ describe('STT Safeguards Unit Tests', () => {
             completeSession
         });
 
-        await speechRuntimeController.initialize();
+        await speechRuntimeController.warmUp();
         await service.init();
         await speechRuntimeController.startRecording();
 
@@ -151,7 +154,8 @@ describe('STT Safeguards Unit Tests', () => {
 
         await speechRuntimeController.stopRecording();
 
-        expect(completeSession).toHaveBeenCalledWith(
+        const { completeSession: globalComplete } = await import('../../../lib/storage');
+        expect(globalComplete).toHaveBeenCalledWith(
             'sess-123',
             expect.any(String),
             expect.any(Number)

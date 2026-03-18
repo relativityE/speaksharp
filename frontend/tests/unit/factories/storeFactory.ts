@@ -16,6 +16,7 @@ const initialState: SessionState = {
     sttMode: null,
     modelLoadingProgress: null,
     activeEngine: null,
+    history: [],
 };
 
 /**
@@ -92,6 +93,16 @@ export function createTestSessionStore(
         setElapsedTime: vi.fn((seconds) =>
             set({
                 elapsedTime: seconds,
+            })),
+
+        addHistorySegment: vi.fn((segment) =>
+            set((state) => ({
+                history: [...state.history, segment],
+            }))),
+
+        setHistory: vi.fn((history) =>
+            set({
+                history,
             })),
 
         resetSession: vi.fn(() =>

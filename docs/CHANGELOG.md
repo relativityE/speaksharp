@@ -5,7 +5,15 @@
 
 All notable changes to this project will be documented in this file.
 
-### [4.0.0] — STT E2E Stabilization & Benchmark Mastery (2026-03-16)
+### [1.5.1] — STT Clean Pipeline & Architectural Consolidation (2026-03-18)
+
+- **Architecture: SpeechRuntimeController (SSoT)** — Centralized all STT lifecycle management into `SpeechRuntimeController.ts`, implementing a single-chain command mutex and `queueMicrotask` decoupling for 100% state reliability.
+- **Protocol: Unified Readiness Contract** — Refactored the "App Ready" signal to use the `warmUp()` command as the definitive readiness indicator, eliminating race conditions in E2E startup.
+- **Documentation: Architecture Alignment** — Updated `ARCHITECTURE.md`, `PRD.md`, and `ROADMAP.md` to reflect the "Clean Pipeline" design and document known infrastructure defects as a baseline for expert repair.
+- **Cleanup: Brain Consolidation** — Purged obsolete stabilization reports and consolidated all outstanding items into the primary `ROADMAP.md` and `task.md`.
+- **Files:** `SpeechRuntimeController.ts`, `TranscriptionProvider.tsx`, `ARCHITECTURE.md`, `PRD.md`, `ROADMAP.md`.
+
+### [1.5.0] — STT E2E Stabilization & Benchmark Mastery (2026-03-16)
 
 - **Verification: STT E2E Hardening** — Achieved 100% CI pass rate for Private STT by implementing capability-aware skip logic and hardening the bridge detection via `window.__E2E_CONTEXT__`.
 - **Architecture: DOM Signaling Contract** — Standardized engine visibility via `data-user-tier` and `data-engine-variant` attributes on `document.body`, eliminating signal collisions in E2E.
@@ -15,7 +23,7 @@ All notable changes to this project will be documented in this file.
 - **Quality: Zero-Debt Restoration** — Removed all `as any` type casts in Playwright `addInitScript` and `evaluate` blocks across E2E test files to strictly satisfy the zero-debt linting mandate.
 - **Files:** `TranscriptionService.ts`, `PrivateWhisper.ts`, `useSessionLifecycle.ts`, `STT_BENCHMARKS.json`, `run-ci.mjs`, E2E test files.
 
-### [3.5.8] — High-Merit Integration & Performance Optimization (2026-03-15)
+### [1.4.9] — High-Merit Integration & Performance Optimization (2026-03-15)
 
 - **Infrastructure: Atomic Payment Processing (#743)** — Optimized Stripe webhook handling by migrating all billing logic and idempotency checks into a single atomic Postgres RPC `process_stripe_webhook_event`.
 - **Performance: Concurrent PDF Parsing (#735)** — Significantly reduced latency in document processing by implementing parallel page parsing using `Promise.all` in `pdfParser.ts`.
@@ -24,7 +32,7 @@ All notable changes to this project will be documented in this file.
 - **Files:** `TranscriptionService.ts`, `pdfParser.ts`, `stripe-webhook/index.ts`, `20260310000000_stripe_webhook_rpc.sql`, `SttSafeguards.test.ts`.
 
 
-### [3.5.4.1] — Documentation Audit & Hardening Alignment (2026-03-14)
+### [1.4.8] — Documentation Audit & Hardening Alignment (2026-03-14)
 
 - **Verification: Documentation Synchronization** — Conducted a full audit of all project markdowns to ensure 1:1 alignment with the latest codebase. Replaced all abstract terminology with descriptive architectural patterns.
 - **Infrastructure: Expert CI Hardening** — Integrated advanced mitigation strategies for **Mock Poisoning**, **Over-Mocking**, and **Mock Divergence**, achieving 100% reliability in high-concurrency lifecycle tests.
@@ -52,7 +60,7 @@ All notable changes to this project will be documented in this file.
 - **Maintenance: Metric Name Standardization** — Unified naming conventions by renaming `avgWpm` to `averageWPM` across all layers (DB, Hook, UI).
 - **Files:** `scripts/run-ci.mjs`, `test-audit.sh`, `useSessionLifecycle.ts`, `LiveRecordingCard.tsx`, `AnalyticsDashboard.tsx`, `analyticsUtils.ts`, `useUserProfile.ts`, `ProfileContext.tsx`, `useActiveSessionLock.ts`, `20260212000000_database_hardening.sql`
 
-### [3.5.7] — CI Stability & Logger Standardization (2026-03-12)
+### [1.4.7] — CI Stability & Logger Standardization (2026-03-12)
 
 - **Architecture: Single-Chain Promise Orchestration** — Hardened `TranscriptionService` by implementing an atomic promise chain for `start`/`stop`/`cancel` cycles, eliminating "ghost resolutions" and race conditions in rapid state transitions.
 - **Observability: Triple-Identity Tracing** — Introduced `serviceId`, `runId`, and `engineId` tracing across the transcription pipeline for high-fidelity diagnostic correlation.
@@ -62,7 +70,7 @@ All notable changes to this project will be documented in this file.
 - **CI: Pipeline Noise Reduction** — Optimized CI terminal output by defaulting to `WARN` log level and switching Playwright reporters to `line` mode, while preserving full diagnostic visibility for failures.
 - **Files:** `TranscriptionService.ts`, `setup.ts`, `run-ci.mjs`, `test-audit.sh`, `useTranscriptionService.ts`, and 15+ unit test files.
 
-### [3.5.6] — STT Stabilization & Test Repair (2026-03-12)
+### [1.4.6] — STT Stabilization & Test Repair (2026-03-12)
 
 - **Infrastructure: Deterministic Readiness Contract** — Hardened `main.tsx` to preserve the `window.__APP_READY_STATE__` object if already injected by E2E helpers, resolving race conditions and readiness timeouts in CI.
 - **Architecture: Transcription Lifecycle Hardening** — Fixed `useTranscriptionService.ts` to include `setError` in its dependency array, ensuring stable error handling during session transitions.
@@ -70,7 +78,7 @@ All notable changes to this project will be documented in this file.
 - **Quality: Zero-Debt Maintenance** — Resolved all linting warnings (treated as errors) in the frontend and test suites.
 - **Files:** `main.tsx`, `useTranscriptionService.ts`, `integration.test.tsx`, `diag-private-stt.e2e.spec.ts`, `whisper-lifecycle.e2e.spec.ts`.
 
-### [3.5.5] — Live UI & STT Stabilization (2026-03-07)
+### [1.4.5] — Live UI & STT Stabilization (2026-03-07)
 
 - **Infrastructure: Vite Environment Root Alignment** — Corrected `envDir` in `vite.config.mjs` to resolve to the workspace root for reliable `.env` loading in benchmarks and scripts.
 - **Architecture: Goals Domain Service Refactor** — Enforced domain boundary separation by moving database-to-domain mapping logic from `useGoals` into `goalsService`.
@@ -149,7 +157,7 @@ All notable changes to this project will be documented in this file.
   - **Performance:** Implemented LRU cache (10 items) for NLP documents, achieving ~500x speedup for alternating speakers.
   - **Quality:** Stabilized CI pipeline with 100% pass rate on 539 tests across 86 files.
 
-## [3.5.0] - 2026-02-19
+## [1.4.0] - 2026-02-19
 
 - **CI Fixes Consolidation (Best-of-Breed):**
   - **Consolidation:** Successfully merged PR #2 (Infrastructure foundation) and cherry-picked PR #1 (Observability) into a final unified solution.

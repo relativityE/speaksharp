@@ -11,7 +11,11 @@ interface TranscriptState {
 
 // SttStatus imported from '@/types/transcription'
 
+import { RuntimeState } from '../services/SpeechRuntimeController';
+
 export interface SessionState {
+    runtimeState: RuntimeState;
+    isLockHeldByOther: boolean;
     isListening: boolean;
     isReady: boolean;
     transcript: TranscriptState;
@@ -22,9 +26,11 @@ export interface SessionState {
     sttMode: TranscriptionMode | null;
     modelLoadingProgress: number | null;
     activeEngine: TranscriptionMode | 'none' | null;
+    history: Array<{ mode: TranscriptionMode; text: string }>;
 }
 
 interface SessionActions {
+    setRuntimeState: (state: RuntimeState) => void;
     startSession: () => void;
     stopSession: () => void;
     setReady: (ready: boolean) => void;
@@ -37,12 +43,17 @@ interface SessionActions {
     setModelLoadingProgress: (progress: number | null) => void;
     tick: () => void;
     setElapsedTime: (seconds: number) => void;
+    addHistorySegment: (segment: { mode: TranscriptionMode; text: string }) => void;
+    setHistory: (history: Array<{ mode: TranscriptionMode; text: string }>) => void;
     resetSession: () => void;
+    setLockHeldByOther: (held: boolean) => void;
 }
 
 export type SessionStore = SessionState & SessionActions;
 
 const initialState: SessionState = {
+    runtimeState: 'IDLE',
+    isLockHeldByOther: false,
     isListening: false,
     isReady: false,
     transcript: {
@@ -56,10 +67,16 @@ const initialState: SessionState = {
     sttMode: null,
     modelLoadingProgress: null,
     activeEngine: null,
+    history: [],
 };
 
 export const useSessionStore = create<SessionStore>((set) => ({
     ...initialState,
+
+    setRuntimeState: (runtimeState) =>
+        set({
+            runtimeState,
+        }),
 
     startSession: () =>
         set({
@@ -137,8 +154,23 @@ export const useSessionStore = create<SessionStore>((set) => ({
             elapsedTime: seconds,
         }),
 
+    addHistorySegment: (segment) =>
+        set((state) => ({
+            history: [...state.history, segment],
+        })),
+
+    setHistory: (history) =>
+        set({
+            history,
+        }),
+
     resetSession: () =>
         set(initialState),
+
+    setLockHeldByOther: (held: boolean) =>
+        set({
+            isLockHeldByOther: held,
+        }),
 }));
 
 // Expose store to window only in test/dev for E2E diagnostics

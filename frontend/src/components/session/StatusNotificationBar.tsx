@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, Loader2, Info, AlertTriangle, Lock } from 'l
 
 import { SttStatus, SttStatusType } from '../../types/transcription';
 import { useSessionStore } from '../../stores/useSessionStore';
+import { speechRuntimeController } from '../../services/SpeechRuntimeController';
 
 interface StatusNotificationBarProps {
     status: SttStatus;
@@ -44,6 +45,11 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
         icon: AlertCircle,
         bgClass: 'bg-destructive/10 border-destructive/20 shadow-sm backdrop-blur-xl',
         textClass: 'text-destructive font-bold',
+    },
+    warning: {
+        icon: AlertTriangle,
+        bgClass: 'bg-orange-500/10 border-orange-500/20 shadow-glow-orange backdrop-blur-xl animate-pulse',
+        textClass: 'text-orange-500 font-bold',
     },
     info: {
         icon: Info,
@@ -137,6 +143,16 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                     )}
                 </div>
             </div>
+
+            {status.isFrozen && (
+                <button
+                    onClick={() => speechRuntimeController.switchToNative()}
+                    className="ml-4 px-4 py-1.5 bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-lg hover:bg-orange-600 transition-all active:scale-95 border border-white/20 animate-bounce"
+                    data-action="switch-to-native"
+                >
+                    Switch to Native (Free)
+                </button>
+            )}
 
             <div className="flex-1" />
 

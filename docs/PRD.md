@@ -207,6 +207,20 @@ This section tracks **active** product risks and constraints only. Resolved issu
 
 For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/TROUBLESHOOTING.md).
 
+### 5.5 Known Infrastructure Defects (v1.5.1 Baseline)
+
+The following regressions are documented as **Active Known Issues** following the "Clean Pipeline" refactor. We follow a "Document Honestly" policy while awaiting expert stabilization for complex state desyncs:
+
+| Category | Test File | Issue Description | Status |
+|---|---|---|---|
+| **Unit** | `integration.test.tsx` | `isListening` state desync during `startListening` act() block. Likely a hook-to-store subscription timing issue. | 🔴 ACTIVE |
+| **Unit** | `SessionPage.timer.test.tsx` | Timer fails to tick / Store state not propagating to component during mock interval advancement. | 🔴 ACTIVE |
+| **Unit** | `useTranscriptionService.test.ts` | Async callback desync during service termination. | 🔴 ACTIVE |
+| **E2E** | `private-stt.e2e.spec.ts` | Transcript timeout in Mock mode. Expected "test transcript", received empty string. | 🔴 ACTIVE |
+
+> [!NOTE]
+> These issues do not block production deployments as they are isolated to the test harness logic and do not reflect runtime engine instability.
+
 ### 5.3 Expert Testing Strategy & Quality Mandate (2026-03-14)
 
 To ensure the "Gold Standard" of production readiness, the project enforces the following behavioral quality requirements:

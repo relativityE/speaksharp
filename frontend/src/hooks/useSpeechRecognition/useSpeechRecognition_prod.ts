@@ -14,6 +14,7 @@ import { useTranscriptionControl } from './useTranscriptionControl';
 import { useTranscriptionCallbacks } from './useTranscriptionCallbacks';
 import { useSessionTimer } from './useSessionTimer';
 import { useVocalAnalysis } from '../useVocalAnalysis';
+import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { API_CONFIG } from '../../config';
 import type { UseSpeechRecognitionProps, TranscriptStats, TranscriptionPolicy } from './types';
 // import type { SttStatus } from '@/types/transcription'; // Unused
@@ -34,7 +35,15 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     const { profile } = useProfile();
     const { session: authSession } = useAuthProvider();
     const navigate = useNavigate();
-    const { stopSession, startSession, sttStatus, modelLoadingProgress } = useSessionStore();
+    const { stopSession, startSession } = useSessionStore();
+    const storeIsListening = useSessionStore(s => s.isListening);
+    const storeIsReady = useSessionStore(s => s.isReady);
+    const sttStatus = useSessionStore(s => s.sttStatus);
+    const modelLoadingProgress = useSessionStore(s => s.modelLoadingProgress);
+    
+    const { service } = useTranscriptionContext();
+
+    logger.debug({ storeIsListening, storeIsReady, sttStatus }, '[useSpeechRecognition] Hook State Select');
 
     const toastIdRef = useRef<string | number | null>(null);
 
@@ -106,6 +115,15 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         vocal.setIsActive(stt.isRecording);
     }, [stt.isRecording, vocal]);
 
+    // Cleanup: Ensure service is destroyed on unmount
+    useEffect(() => {
+        return () => {
+            if (service) {
+                service.destroy().catch((err: unknown) => logger.error({ err }, '[useSpeechRecognition] Cleanup failed'));
+            }
+        };
+    }, [service]);
+
     // 5. Public Actions
     const reset = useCallback(() => {
         stt.reset();
@@ -119,16 +137,13 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
 
     const startListening = useCallback(async (policy: TranscriptionPolicy = E2E_DETERMINISTIC_NATIVE) => {
         reset();
-        startSession(); // UI Intent
         await control.startListening(policy);
-    }, [control, reset, startSession]);
+    }, [control, reset]);
 
     const stopListening = useCallback(async (): Promise<(TranscriptStats & { filler_words: FillerCounts }) | null> => {
         if (toastIdRef.current) toast.dismiss(toastIdRef.current);
 
-        // ✅ UI STATE FIRST: Transition store state immediately so indicator/buttons update
-        stopSession();
-
+        // ✅ Master Invariant: isListening is now correctly derived from FSM in the store
         const result = await control.stopListening();
 
         if (result && result.success) {
@@ -161,8 +176,8 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         chunks: stt.finalChunks,
         interimTranscript: stt.interimTranscript,
         fillerData: filler.counts,
-        isListening: stt.isRecording || stt.isInitializing,
-        isReady: control.isServiceReady,
+        isListening: storeIsListening,
+        isReady: storeIsReady,
         error: stt.error,
         isSupported: true,
         mode: stt.state === 'RECORDING' ? 'active' : 'idle', // Approximate legacy

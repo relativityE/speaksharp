@@ -81,15 +81,13 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
     const onTranscriptUpdate = vi.fn();
     const onReady = vi.fn();
     const onError = vi.fn();
-    let originalWebSocket: unknown;
 
     beforeEach(() => {
         vi.useFakeTimers();
         vi.resetAllMocks();
 
-        // Setup WebSocket Mock
-        originalWebSocket = global.WebSocket;
-        global.WebSocket = MockWebSocket as unknown as typeof WebSocket;
+        // Setup WebSocket Mock using Vitest global stubbing
+        vi.stubGlobal('WebSocket', MockWebSocket);
         MockWebSocket.instances = [];
 
         // Setup Supabase Mock
@@ -116,7 +114,7 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
     });
 
     afterEach(() => {
-        global.WebSocket = originalWebSocket as typeof WebSocket;
+        vi.unstubAllGlobals();
         vi.useRealTimers();
     });
 

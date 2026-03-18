@@ -8,12 +8,14 @@ export interface ReadinessState {
   analytics: boolean;
   stt: boolean;
   msw: boolean;
+  appState: 'BOOTING' | 'SERVICE_READY' | 'ENGINE_READY' | 'READY';
   timestamps: Record<string, number>;
 }
 
 interface ReadinessStore {
   signals: ReadinessState;
-  setReady: (key: keyof Omit<ReadinessState, 'timestamps'>) => void;
+  setReady: (key: keyof Omit<ReadinessState, 'timestamps' | 'appState'>) => void;
+  setAppState: (state: ReadinessState['appState']) => void;
   reset: () => void;
 }
 
@@ -24,6 +26,7 @@ const INITIAL_STATE: ReadinessState = {
   analytics: false,
   stt: false,
   msw: false,
+  appState: 'BOOTING',
   timestamps: {}
 };
 
@@ -61,7 +64,31 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
 
       // 🚀 Sync to Global Window for Playwright visibility
       if (typeof window !== 'undefined') {
-        window.__APP_READY_STATE__ = newSignals;
+        window.__APP_READY_STATE__ = newSignals.appState;
+      }
+
+      return { signals: newSignals };
+    });
+  },
+
+  setAppState: (appState) => {
+    const current = get().signals.appState;
+    if (current === appState) return;
+
+    logger.info(`[ReadinessStore] 🚀 App State Transition: ${current} -> ${appState}`);
+
+    set((state) => {
+      const newSignals = {
+        ...state.signals,
+        appState,
+        timestamps: {
+          ...state.signals.timestamps,
+          [`appState_${appState}`]: performance.now()
+        }
+      };
+
+      if (typeof window !== 'undefined') {
+        window.__APP_READY_STATE__ = appState;
       }
 
       return { signals: newSignals };
@@ -73,12 +100,12 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
     set({ signals: { ...INITIAL_STATE, timestamps: { reset: performance.now() } } });
     
     if (typeof window !== 'undefined') {
-      window.__APP_READY_STATE__ = get().signals;
+      window.__APP_READY_STATE__ = get().signals.appState;
     }
   }
 }));
 
 // Initialize window object immediately if it doesn't exist
 if (typeof window !== 'undefined' && !window.__APP_READY_STATE__) {
-  window.__APP_READY_STATE__ = useReadinessStore.getState().signals;
+  window.__APP_READY_STATE__ = useReadinessStore.getState().signals.appState;
 }

@@ -77,8 +77,18 @@ export interface ITranscriptionEngine {
   init(): Promise<void>;
   startTranscription(mic?: MicStream): Promise<void>;
   stopTranscription(): Promise<string>;
-  terminate?(): Promise<void>;
+  dispose(): void;
   getTranscript(): Promise<string>;
   getEngineType(): string;
+
+  /**
+   * Returns the timestamp (ms) of the last successful activity (e.g., frame processed).
+   * Used for 8s heartbeat watchdog.
+   * NEW — must be required
+   */
+  getLastHeartbeatTimestamp(): number;
+  
+  onReady?: () => void;
   instanceId?: string;
+  terminate?(): Promise<void>;
 }

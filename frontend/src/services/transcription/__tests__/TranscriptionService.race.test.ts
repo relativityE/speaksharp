@@ -21,6 +21,7 @@ class SuccessNativeEngine implements ITranscriptionEngine {
     getTranscript = vi.fn().mockReturnValue('test');
     terminate = vi.fn().mockImplementation(() => new Promise(res => setTimeout(res, 50)));
     getEngineType = () => 'native' as const;
+    getLastHeartbeatTimestamp = () => Date.now();
 }
 
 describe('TranscriptionService - Race Conditions', () => {

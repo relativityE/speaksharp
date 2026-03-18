@@ -568,8 +568,9 @@ This phase is about confirming the core feature set works as expected and polish
 | 11 | **Remove Mock Timeout Bypass** | `TranscriptionService.ts` | P2 | Evolve the Optimistic Entry logic to handle mocks via a more generic "ready-on-init" flag rather than explicitly checking for mocks, reducing test-prod coupling. |
 | 12 | **E2E Timeout Standardization** | `tests/e2e/` | P2 | Standardize wait timeouts to "ideal duration + 50% buffer max" to avoid masking performance regressions or slow CI execution. |
 | 13 | **Mock-to-Schema Synchronization** | `tests/e2e/mock-routes.ts` | P2 | Implement factory-based session mocking and PostgREST header compliance to prevent regression. |
-| 14 | **Private STT First-Time Use UX** | `TranscriptionService.ts` | P2 | Design: Show download %; offer wait vs. Native transition; auto-fallback after 10s if no decision. |
-| 15 | **Transient Storage Policy** | `TranscriptionService.ts` | P2 | **Requirement**: Only save analytics metrics (duration, accuracy) to Supabase. Transcripts are ephemeral and only available via local PDF download in the active session to protect PII and save disk costs. |
+| 14 | **WASM Binary Cache** | `TranscriptionService.ts` | P2 | 🔴 Not Started - Implement global binary caching for $O(1)$ startup vs. current init lag. |
+| 15 | **Transient Transcript Policy** | `TranscriptionService.ts` | P2 | 🔴 Not Started - Ephemeral local storage for transcripts to protect PII and save disk costs. |
+| 16 | **Free-Tier Private Gating** | `SessionPage.tsx` | P3 | 🔴 Not Started - User-tier gating in DOM for Free users to reduce asset load noise. |
 
 
 ### 🛡️ Prevention Mechanisms (Choose 1 of 3)
@@ -843,16 +844,16 @@ This phase addresses findings from the December 2025 UX Audit (`ux_audit.md`) to
 | **L6** | **Live Drift Monitoring** | **MEDIUM** | 🟡 In Progress | `drift-detector.spec.ts` now runs in sharded CI. Alerting on API contract changes deferred to nightly cron trigger. |
 | **L7** | **E2E Stabilization (70/70)** | **CRITICAL** | ✅ Complete | Resolved all persistent flakiness in VAD, Mutex, and Tier Limit tests. Achieved 100% pass rate on full 70-test suite. |
 
-## 🚀 v3.5.4 Release Hardening (Mar 2026) ✅ COMPLETE
+## 🚀 v1.4.2 Release Hardening (Mar 2026) ✅ COMPLETE
 
-> **Goal:** Finalize the v3.5.4 production release with absolute technical synchronization and CI stabilization.
+> **Goal:** Finalize the v1.4.2 production release with absolute technical synchronization and CI stabilization.
 
 | ID | Title | Priority | Status | Notes |
 |----|-------|----------|--------|-------|
 | **R1** | **CI Restoration Standard** | **CRITICAL** | ✅ Complete | Migrated from `script` to `tee` for reliable TTY logging without JSON corruption. |
 | **R2** | **Engine-Aware Tracking** | **CRITICAL** | ✅ Complete | Implemented Pattern 28 for accurate tier enforcement across all STT engines. |
 | **R3** | **UI-First State Reversion** | **HIGH** | ✅ Complete | Pattern 27 implemented for sub-second UI responsiveness during engine teardown. |
-| **R4** | **Documentation Audit** | **HIGH** | ✅ Complete | Synchronized all 7 core markdown files to v3.5.4 SSOT standard. |
+| **R4** | **Documentation Audit** | **HIGH** | ✅ Complete | Synchronized all 7 core markdown files to v1.4.2 SSOT standard. |
 | **R5** | **70/70 E2E Success** | **CRITICAL** | ✅ Complete | Achieved 100% reliability across the full sharded Playwright suite. |
 
 ---

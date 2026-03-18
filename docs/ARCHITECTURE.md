@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 7.1** | **Last Updated: 2026-03-09**
+**Version 1.5.1** | **Last Updated: 2026-03-18**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -2785,6 +2785,13 @@ The service uses a **Policy-Driven Strategy Pattern** to separate environment/ti
 │           CALLER             │
 │   SessionPage / E2E Test     │
 └──────────────┬───────────────┘
+               │ Command (Start/Stop)
+               ▼
+┌──────────────────────────────┐
+│   SPEECH RUNTIME LAYER       │
+│  SpeechRuntimeController.ts  │
+│ (Central State Mediator)     │
+└──────────────┬───────────────┘
                │ Injects Policy
                ▼
 ┌──────────────────────────────┐
@@ -2818,6 +2825,7 @@ The service uses a **Policy-Driven Strategy Pattern** to separate environment/ti
 | `E2E_DETERMINISTIC_PRIVATE` | Private only | E2E tests (Whisper validation) |
 
 **Key Files:**
+- [`SpeechRuntimeController.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/SpeechRuntimeController.ts) - Central state mediator and command serializer.
 - [`TranscriptionPolicy.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionPolicy.ts) - Policy interface and helpers
 - [`TranscriptionService.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts) - Unified service layer
 
@@ -2826,6 +2834,14 @@ The service uses a **Policy-Driven Strategy Pattern** to separate environment/ti
     *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API. This is the primary mode for Free users and a fallback for Pro users.
     *   **`PrivateWhisper`:** A private, privacy-first transcription mode for Pro users, powered by `@xenova/transformers` running a Whisper model directly in the browser.
 *   **Audio Processing:** `audioUtils.ts`, `audioUtils.impl.ts`, and `audio-processor.worklet.js` are responsible for capturing and resampling microphone input. A critical bug in the resampling logic that was degrading AI quality has been fixed.
+
+### 6.1 SpeechRuntimeController (State Mediator)
+
+The `SpeechRuntimeController` is the definitive source of truth for the STT lifecycle. It decouples the UI from the underlying services using a **Command Serialization Pattern**:
+
+1. **Command Serialization**: All lifecycle commands (`start`, `stop`, `warmUp`) are serialized via a mutex to prevent race conditions during rapid state transitions.
+2. **Unified Readiness Contract**: The application signals readiness via `window.__APP_READY_STATE__`. The STT readiness is specifically determined by the success of the `warmUp()` command, which pre-initializes the engine's capability without starting a recording.
+3. **Event Aggregation**: It aggregates status updates from transitive services (Transcription, Audio) and pushes them to the `useSessionStore` via `queueMicrotask` to avoid React concurrent rendering error.
 
 ### Private STT Implementation Details
  

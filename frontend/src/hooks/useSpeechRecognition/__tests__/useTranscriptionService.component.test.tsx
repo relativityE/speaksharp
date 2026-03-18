@@ -5,42 +5,42 @@ import { E2E_DETERMINISTIC_NATIVE } from '../types';
 import { TranscriptionProvider } from '../../../providers/TranscriptionProvider';
 import { speechRuntimeController } from '../../../services/SpeechRuntimeController';
 
-// Mock the TranscriptionService with callback support
-const mockCallbacks: Record<string, (...args: unknown[]) => void> = {};
-const mockService = {
-  init: vi.fn().mockResolvedValue({ success: true }),
-  startTranscription: vi.fn().mockImplementation(async () => {
-    // Simulate FSM transition or callback if needed for success path
-  }),
-  stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: '', stats: { transcript: '', total_words: 0, accuracy: 0, duration: 0 } }),
-  destroy: vi.fn().mockResolvedValue(undefined),
-  getMode: vi.fn().mockReturnValue('native'),
-  getEngineType: vi.fn().mockReturnValue('native'),
-  updateCallbacks: vi.fn().mockImplementation((cbs) => {
-    Object.assign(mockCallbacks, cbs);
-  }),
-  updatePolicy: vi.fn(),
-  fsm: {
-    subscribe: vi.fn((_cb) => {
-      // Simulate subscription if needed, or just return unmouter
-      return vi.fn();
-    }),
-    getState: vi.fn().mockReturnValue('IDLE')
-  },
-  getState: vi.fn().mockReturnValue('IDLE')
-};
+const { mockService, mockCallbacks } = vi.hoisted(() => {
+  const callbacks: Record<string, (...args: unknown[]) => void> = {};
+  return {
+    mockCallbacks: callbacks,
+    mockService: {
+      init: vi.fn().mockResolvedValue({ success: true }),
+      startTranscription: vi.fn().mockImplementation(async () => { }),
+      stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: '', stats: { transcript: '', total_words: 0, accuracy: 0, duration: 0 } }),
+      destroy: vi.fn().mockResolvedValue(undefined),
+      getMode: vi.fn().mockReturnValue('native'),
+      getEngineType: vi.fn().mockReturnValue('native'),
+      updateCallbacks: vi.fn().mockImplementation((cbs) => {
+        Object.assign(callbacks, cbs);
+      }),
+      updatePolicy: vi.fn(),
+      fsm: {
+        subscribe: vi.fn((_cb) => vi.fn()),
+        getState: vi.fn().mockReturnValue('IDLE')
+      },
+      getState: vi.fn().mockReturnValue('IDLE')
+    }
+  };
+});
 
 vi.mock('../../../services/transcription/TranscriptionService', () => ({
   default: vi.fn().mockImplementation(() => mockService),
   getTranscriptionService: vi.fn().mockImplementation(() => mockService)
 }));
 
-
-
 vi.mock('../../../services/SpeechRuntimeController', () => ({
   speechRuntimeController: {
+    warmUp: vi.fn().mockResolvedValue(undefined),
     startRecording: vi.fn().mockResolvedValue(undefined),
     stopRecording: vi.fn().mockResolvedValue({ success: true, transcript: 'mock transcript', stats: {} }),
+    getService: vi.fn().mockReturnValue(mockService),
+    getState: vi.fn().mockReturnValue('READY'),
   }
 }));
 

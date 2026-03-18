@@ -50,7 +50,8 @@ export const SessionPage: React.FC = () => {
         isProUser,
         activeEngine,
         isButtonDisabled,
-        showPromoExpiredDialog
+        showPromoExpiredDialog,
+        history
     } = useSessionLifecycle();
 
     // Auto-scroll transcript to bottom
@@ -172,6 +173,7 @@ export const SessionPage: React.FC = () => {
                         <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
                             <LiveTranscriptPanel
                                 transcript={transcriptContent}
+                                history={history}
                                 isListening={isListening}
                                 containerRef={transcriptContainerRef}
                                 className="min-h-double bg-background/40 border border-white/5 rounded-xl h-full"
@@ -224,6 +226,8 @@ export const SessionPage: React.FC = () => {
                 isButtonDisabled={isButtonDisabled}
                 modelLoadingProgress={modelLoadingProgress}
                 onStartStop={handleStartStop}
+                isFrozen={sttStatus.isFrozen}
+                onSwitchToNative={() => import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.switchToNative())}
             />
 
             {/* Sunset Modals */}

@@ -7,14 +7,19 @@ declare global {
     __setSupabaseSession: (session: Session) => Promise<void>;
     
     // 🚀 Readiness Contract (Deterministic CI Signaling)
-    __APP_READY_STATE__?: {
-      boot: boolean;
-      layout: boolean;
-      auth: boolean;
-      analytics: boolean;
-      stt: boolean;
-      timestamps: Record<string, number>;
-    };
+    __APP_READY_STATE__?: 
+      | 'BOOTING' 
+      | 'SERVICE_READY' 
+      | 'ENGINE_READY' 
+      | 'READY'
+      | {
+          boot: boolean;
+          layout: boolean;
+          auth: boolean;
+          analytics: boolean;
+          stt: boolean;
+          timestamps: Record<string, number>;
+        };
 
     // Legacy Readiness Signals (Scheduled for retirement)
     __APP_READY__?: boolean;

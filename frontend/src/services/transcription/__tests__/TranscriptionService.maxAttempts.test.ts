@@ -25,6 +25,7 @@ describe('TranscriptionService - Max Attempts', () => {
         getTranscript = vi.fn().mockResolvedValue('test');
         terminate = vi.fn().mockResolvedValue(undefined);
         getEngineType = () => 'whisper-turbo' as const;
+        getLastHeartbeatTimestamp = () => Date.now();
     }
 
     class MockNativeEngine implements ITranscriptionEngine {
@@ -34,6 +35,7 @@ describe('TranscriptionService - Max Attempts', () => {
         getTranscript = vi.fn().mockResolvedValue('test');
         terminate = vi.fn().mockResolvedValue(undefined);
         getEngineType = () => 'native' as const;
+        getLastHeartbeatTimestamp = () => Date.now();
     }
 
     const privatePolicy: TranscriptionPolicy = {

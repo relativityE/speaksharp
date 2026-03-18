@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { speechRuntimeController } from '../services/SpeechRuntimeController';
+import { speechRuntimeController, RuntimeState } from '../services/SpeechRuntimeController';
 import { TranscriptionPolicy, buildPolicyForUser } from '../services/transcription/TranscriptionPolicy';
 import TranscriptionService from '../services/transcription/TranscriptionService';
+import { createContext } from 'react';
 import logger from '../lib/logger';
 import ProfileContext from '../contexts/ProfileContext';
 import { TranscriptionContext } from './TranscriptionContext';
@@ -16,14 +17,24 @@ export const TranscriptionProvider: React.FC<{
     // 1. Controller-Bound Instance (Managed by SpeechRuntimeController)
     // The service is now transient and provided by the controller.
     const [service, setService] = useState<TranscriptionService | null>(() => speechRuntimeController.getService());
-    const [isReady] = useState(true);
+    const [runtimeState, setRuntimeState] = useState<RuntimeState>(() => speechRuntimeController.getState());
+    const [ready, setReady] = useState(false);
 
-    // Sync service instance whenever the runtime state changes (e.g. Session Start/Stop)
+    // Sync service instance and readiness whenever the runtime state changes
     useEffect(() => {
         const handleStateChange = () => {
              setService(speechRuntimeController.getService());
+             setRuntimeState(speechRuntimeController.getState());
         };
         window.addEventListener('speech-runtime-state', handleStateChange as EventListener);
+        
+        // Ensure engine is warming up on mount (Clean Pipeline Entry)
+        speechRuntimeController.warmUp().then(() => {
+            setReady(true);
+        }).catch(err => {
+            logger.error({ err }, '[TranscriptionProvider] Warm-up failed');
+        });
+
         return () => window.removeEventListener('speech-runtime-state', handleStateChange as EventListener);
     }, []);
 
@@ -43,7 +54,6 @@ export const TranscriptionProvider: React.FC<{
         service.updatePolicy(newPolicy);
 
         // Behavioral Gating - Setting E2E wait attribute
-        // Moved to DOMSync inside App.tsx or managed cleanly here via React effects
         if (typeof document !== 'undefined') {
             document.body.setAttribute('data-user-tier', tier);
         }
@@ -62,7 +72,7 @@ export const TranscriptionProvider: React.FC<{
     }, []);
 
     return (
-        <TranscriptionContext.Provider value={{ service, isReady }}>
+        <TranscriptionContext.Provider value={{ service, isReady: ready, runtimeState }}>
             {children}
         </TranscriptionContext.Provider>
     );

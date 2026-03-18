@@ -1,6 +1,6 @@
 // src/test/mocks/server.ts - For unit tests
 import { setupServer } from 'msw/node';
-import { handlers } from './handlers';
+import { handlers } from '../../../src/mocks/handlers';
 
 // Set up the server with our handlers
 export const server = setupServer(...handlers);

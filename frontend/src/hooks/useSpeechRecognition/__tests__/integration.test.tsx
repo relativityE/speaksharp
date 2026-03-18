@@ -1,18 +1,19 @@
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, waitFor } from '../../../../tests/support/test-utils';
-import { renderHookWithProviders } from '@test-utils/renderHookWithProviders';
-import { MockTranscriptionService } from '@test-mocks/MockTranscriptionService';
-import useSpeechRecognition from '../index';
-import { testRegistry } from '@/services/transcription/TestRegistry';
-import { resetTranscriptionService } from '@/services/transcription/TranscriptionService';
-import type { Session as SupabaseSession } from '@supabase/supabase-js';
-import { TranscriptionModeOptions, ITranscriptionEngine } from '@/services/transcription/modes/types';
 
-
-
-
-
+// Senior Choice: Formal module mock to prevent real TranscriptionService from loading
+// Moving to top to ensure it's applied before any component/hook imports
+vi.mock('@/services/transcription/TranscriptionService', async () => {
+    const { MockTranscriptionService } = await import('../../../../tests/mocks/MockTranscriptionService');
+    
+    // Provide a valid substitute for the class with static methods
+    return {
+        default: MockTranscriptionService,
+        resetTranscriptionService: vi.fn(),
+        getTranscriptionService: vi.fn(() => MockTranscriptionService.latestInstance),
+        // Add static subscribe if hook uses it
+        subscribe: vi.fn(() => ({ unsubscribe: vi.fn() })),
+    };
+});
 
 // Mock the TestRegistry to ensure we can register our mock
 vi.mock('@/services/transcription/TestRegistry', async () => {
@@ -26,45 +27,63 @@ vi.mock('@/services/transcription/TestRegistry', async () => {
     };
 });
 
-vi.mock('@/services/SpeechRuntimeController', async () => {
-    const actual = await vi.importActual('@/services/SpeechRuntimeController');
-    return {
-        ...actual,
-        speechRuntimeController: {
-            initialize: vi.fn().mockResolvedValue(undefined),
-            startRecording: vi.fn().mockImplementation(async () => {
-                const { getTranscriptionService } = await import('@/services/transcription/TranscriptionService');
-                return getTranscriptionService().startTranscription();
-            }),
-            stopRecording: vi.fn().mockImplementation(async () => {
-                const { getTranscriptionService } = await import('@/services/transcription/TranscriptionService');
-                return getTranscriptionService().stopTranscription();
-            }),
-            getState: vi.fn().mockReturnValue('READY'),
-        }
-    };
-});
+import { act, waitFor } from '../../../../tests/support/test-utils';
+import { renderHookWithProviders } from '@test-utils/renderHookWithProviders';
+import useSpeechRecognition from '../index';
+import { testRegistry } from '@/services/transcription/TestRegistry';
+import { resetTranscriptionService, getTranscriptionService } from '@/services/transcription/TranscriptionService';
+import { TranscriptionPolicy, E2E_DETERMINISTIC_PRIVATE } from '@/services/transcription/TranscriptionPolicy';
+import TranscriptionService from '@/services/transcription/TranscriptionService';
+import type { Session as SupabaseSession } from '@supabase/supabase-js';
+import { TranscriptionModeOptions, ITranscriptionEngine } from '@/services/transcription/modes/types';
+import { MockTranscriptionService } from '../../../../tests/mocks/MockTranscriptionService';
+import { speechRuntimeController } from '@/services/SpeechRuntimeController';
+
+// Hoist STTServiceFactory mock
+const { STTServiceFactory } = vi.hoisted(() => ({
+    STTServiceFactory: {
+        createService: vi.fn()
+    }
+}));
+
+vi.mock('@/services/transcription/STTServiceFactory', () => ({
+    STTServiceFactory
+}));
+
+// We are NOT mocking SpeechRuntimeController anymore to allow REAL state flow to the REAL store
+
 
 describe('useSpeechRecognition Integration', () => {
-    beforeEach(() => {
+    let service: MockTranscriptionService;
+    const basePolicy = E2E_DETERMINISTIC_PRIVATE;
+
+    beforeEach(async () => {
         vi.clearAllMocks();
-        resetTranscriptionService();
-        MockTranscriptionService.latestInstance = null;
+        await speechRuntimeController.reset();
+        
+        // Enforce singleton initialization for the mock
+        const s = new MockTranscriptionService({
+            onTranscriptUpdate: vi.fn(),
+            onModelLoadProgress: vi.fn(),
+            onReady: vi.fn(),
+            onError: vi.fn(),
+        });
+        MockTranscriptionService.latestInstance = s;
+        service = s;
+
         // Setup the registry to return our MockTranscriptionService constructor
-        // We use a specific constructor type to avoid the 'any' lint error while maintaining compatibility
-        vi.mocked(testRegistry.get).mockReturnValue((opts: TranscriptionModeOptions) => new MockTranscriptionService(opts));
+        vi.mocked(STTServiceFactory.createService).mockReturnValue(service as any);
+        vi.mocked(testRegistry.get).mockReturnValue((opts: TranscriptionModeOptions) => {
+            const newS = new MockTranscriptionService(opts);
+            MockTranscriptionService.latestInstance = newS;
+            return newS;
+        });
 
-        const win = window as unknown as Window & {
-            __E2E_MOCK_NATIVE__?: boolean;
-            __E2E_MOCK_LOCAL_WHISPER__?: boolean;
-            MockNativeBrowser?: unknown;
-            MockPrivateWhisper?: unknown;
-        };
-
-        win.__E2E_MOCK_NATIVE__ = true;
-        win.MockNativeBrowser = MockTranscriptionService as unknown as new (config: TranscriptionModeOptions) => ITranscriptionEngine;
-        win.MockPrivateWhisper = MockTranscriptionService as unknown as new (config: TranscriptionModeOptions) => ITranscriptionEngine;
-        win.__E2E_MOCK_LOCAL_WHISPER__ = true;
+        // Use global stubbing for cleaner window mocking
+        vi.stubGlobal('__E2E_MOCK_NATIVE__', true);
+        vi.stubGlobal('__E2E_MOCK_LOCAL_WHISPER__', true);
+        vi.stubGlobal('MockNativeBrowser', MockTranscriptionService);
+        vi.stubGlobal('MockPrivateWhisper', MockTranscriptionService);
     });
 
     it('should prevent stale closure on stop by capturing latest transcript state', async () => {
@@ -100,9 +119,9 @@ describe('useSpeechRecognition Integration', () => {
         // Verify state is listening
         expect(result.current.isListening).toBe(true);
 
-        let service: MockTranscriptionService | null = null;
+        // let service: MockTranscriptionService | null = null; // Removed, now defined in beforeEach
         await vi.waitFor(() => {
-            service = MockTranscriptionService.latestInstance;
+            // service = MockTranscriptionService.latestInstance; // Removed, now defined in beforeEach
             expect(service).toBeTruthy();
         });
 
@@ -203,6 +222,7 @@ describe('useSpeechRecognition Integration', () => {
         let service: MockTranscriptionService | null = null;
         await vi.waitFor(() => {
             service = MockTranscriptionService.latestInstance;
+            console.log('[DEBUG TEST] latestInstance:', service ? 'FOUND' : 'NULL');
             expect(service).toBeTruthy();
         });
 

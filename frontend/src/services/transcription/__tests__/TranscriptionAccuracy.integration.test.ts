@@ -48,6 +48,7 @@ describe('Transcription Accuracy Multi-Engine Integration', () => {
                 getTranscript = vi.fn().mockResolvedValue(expectedText);
                 terminate = vi.fn().mockResolvedValue(undefined);
                 getEngineType = () => mode as TranscriptionMode;
+                getLastHeartbeatTimestamp = () => Date.now();
             }
 
             testRegistry.register(mode, (opts: unknown) => new MockEngine(opts as {

@@ -91,17 +91,26 @@ export async function clearPrivateSTTCache(): Promise<void> {
   ]);
 }
 
+/**
+ * ARCHITECTURE (Senior Architect):
+ * TranscriptionService generates a runId (e.g., abc-123) every time you click record. 
+ * This identifies the current recording session.
+ * The service then creates an engine and passes this runId into the engine's constructor 
+ * via the options.instanceId field.
+ * Inside the Engine, this ID is stored as this.instanceId.
+ */
 export default class PrivateWhisper implements ITranscriptionEngine {
   private frameListenerDisposer: (() => void) | null = null;
   private onTranscriptUpdate: (update: TranscriptUpdate) => void;
   private onModelLoadProgress?: (progress: number | null) => void;
-  private onReady?: () => void;
+  public onReady?: () => void;
   private onAudioData?: (data: Float32Array) => void;
   private status: Status;
   private transcript: string;
   private privateSTT: IPrivateSTT;
   private serviceId: string;
-  private runId: string;
+  public readonly instanceId: string;
+  private lastHeartbeatTimestamp: number = Date.now();
   private engineType: EngineType | null = null;
   private mic: MicStream | null = null;
   private audioChunks: Float32Array[] = [];
@@ -115,28 +124,33 @@ export default class PrivateWhisper implements ITranscriptionEngine {
     this.onReady = options.onReady;
     this.onAudioData = options.onAudioData;
     this.serviceId = options.serviceId || 'unknown';
-    this.runId = options.instanceId || 'unknown'; // TranscriptionService sets instanceId = runId
+    this.instanceId = options.instanceId || 'unknown'; // TranscriptionService sets instanceId = runId
     this.status = 'uninitialized';
     this.transcript = '';
     this.privateSTT = privateSTT || createPrivateSTT();
     this.pauseDetector = new PauseDetector();
+    this.lastHeartbeatTimestamp = Date.now();
 
     // Check for test environment and expose instance for E2E verification
     if (IS_TEST_ENVIRONMENT) {
-      logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] 🧪 Exposing instance for E2E testing');
+      logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] 🧪 Exposing instance for E2E testing');
       window.__PrivateWhisper_INT_TEST__ = this;
     }
 
-    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] Initialized (dual-engine facade).');
+    logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] Initialized (dual-engine facade).');
   }
 
   public async init(): Promise<void> {
     if (this.status === 'idle' || this.status === 'transcribing') {
-      logger.info({ sId: this.serviceId, rId: this.runId }, `[PrivateWhisper] Already ${this.status}, skipping init.`);
+      logger.info({ sId: this.serviceId, rId: this.instanceId }, `[PrivateWhisper] Already ${this.status}, skipping init.`);
+      if (this.onReady) {
+        this.onReady();
+      }
       return;
     }
-    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] 🔄 init() START - Dual-Engine Mode');
+    logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] 🔄 init() START - Dual-Engine Mode');
     this.status = 'loading';
+    this.lastHeartbeatTimestamp = Date.now();
 
     try {
       // Trigger initial progress
@@ -147,15 +161,15 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       // Initialize the PrivateSTT facade (auto-selects best engine)
       const initPromise = this.privateSTT.init({
         serviceId: this.serviceId,
-        runId: this.runId,
+        runId: this.instanceId,
         onModelLoadProgress: (progress) => {
-          logger.info({ sId: this.serviceId, rId: this.runId, progress }, '[PrivateWhisper] 📊 Progress');
+          logger.info({ sId: this.serviceId, rId: this.instanceId, progress }, '[PrivateWhisper] 📊 Progress');
           if (this.onModelLoadProgress) {
             this.onModelLoadProgress(progress);
           }
         },
         onReady: () => {
-          logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] Engine ready callback triggered.');
+          logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] Engine ready callback triggered.');
         }
       });
 
@@ -167,7 +181,8 @@ export default class PrivateWhisper implements ITranscriptionEngine {
 
       this.engineType = result.value;
       this.status = 'idle';
-      logger.info({ sId: this.serviceId, rId: this.runId, engineType: this.engineType }, '[PrivateWhisper] ✅ Engine initialized');
+      this.lastHeartbeatTimestamp = Date.now();
+      logger.info({ sId: this.serviceId, rId: this.instanceId, engineType: this.engineType }, '[PrivateWhisper] ✅ Engine initialized');
 
       // ✅ EXPLICIT READINESS SIGNAL FOR TESTS (Engine Variant)
       if (typeof document !== 'undefined') {
@@ -176,7 +191,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
 
       // Show toast notification with engine type
       // REMOVED: Internal toast suppressed to prevent duplication with UI layer (Architectural Decision)
-      logger.info({ sId: this.serviceId, rId: this.runId }, `[PrivateWhisper] Model ready! Using ${this.engineType === 'whisper-turbo' ? 'GPU acceleration' : 'CPU mode'}.`);
+      logger.info({ sId: this.serviceId, rId: this.instanceId }, `[PrivateWhisper] Model ready! Using ${this.engineType === 'whisper-turbo' ? 'GPU acceleration' : 'CPU mode'}.`);
 
       // ✅ EXPLICIT READINESS SIGNAL FOR TESTS
       if (typeof window !== 'undefined' && window.dispatchEvent) {
@@ -190,7 +205,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       }
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
-      logger.error({ sId: this.serviceId, rId: this.runId, err: error }, '[PrivateWhisper] ❌ Init failed');
+      logger.error({ sId: this.serviceId, rId: this.instanceId, err: error }, '[PrivateWhisper] ❌ Init failed');
       this.status = 'error';
 
       throw error;
@@ -203,17 +218,18 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       throw new Error('MicStream is required for PrivateWhisper');
     }
     if (typeof mic.onFrame !== 'function') {
-      logger.error({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper CRITICAL] MicStream missing onFrame method!');
+      logger.error({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper CRITICAL] MicStream missing onFrame method!');
       throw new Error('Invalid MicStream: missing onFrame method');
     }
     this.mic = mic;
-    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] startTranscription() called.');
+    logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] startTranscription() called.');
     if (this.status !== 'idle') {
-      logger.warn({ sId: this.serviceId, rId: this.runId, status: this.status }, `[PrivateWhisper] Unexpected status: ${this.status}, expected 'idle'`);
+      logger.warn({ sId: this.serviceId, rId: this.instanceId, status: this.status }, `[PrivateWhisper] Unexpected status: ${this.status}, expected 'idle'`);
     }
     this.status = 'transcribing';
     this.audioChunks = [];
     this.transcript = '';
+    this.lastHeartbeatTimestamp = Date.now();
 
     // Subscribe to microphone frames
     this.cleanupFrameListener(); // CRITICAL: Clean up previous listener before adding new one
@@ -237,10 +253,11 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       this.processAudio();
     }, 500);
 
-    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] Streaming started.');
+    logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] Streaming started.');
   }
 
   private async processAudio(): Promise<void> {
+    this.lastHeartbeatTimestamp = Date.now();
     if (this.isProcessing) {
       return; // Already processing, skip
     }
@@ -265,7 +282,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
         if (concatenated.length > 500 && Math.random() > 0.9) {
           logger.debug({
             sId: this.serviceId,
-            rId: this.runId,
+            rId: this.instanceId,
             silenceDuration: this.pauseDetector.getCurrentSilenceDurationSeconds(),
             samples: concatenated.length
           }, '[PrivateWhisper] 🤫 Meaningful silence detected - skipping chunk');
@@ -274,7 +291,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
         return;
       }
 
-      logger.info({ sId: this.serviceId, rId: this.runId, samples: concatenated.length }, '[PrivateWhisper] 🔊 Speech detected');
+      logger.info({ sId: this.serviceId, rId: this.instanceId, samples: concatenated.length }, '[PrivateWhisper] 🔊 Speech detected');
 
       // CRITICAL FIX: The MicStream ALREADY downsamples to 16kHz (confirmed in audioUtils.impl.ts).
       // Double downsampling (16k -> 16k) is harmless, but if we guessed 44k -> 16k on 16k input, we'd decimate it.
@@ -284,7 +301,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       if (this.transcript.length === 0) {
         // Calculate estimated duration based on 16kHz
         const expectedDurationSec = concatenated.length / 16000;
-        logger.info({ sId: this.serviceId, rId: this.runId, samples: concatenated.length, expectedDurationSec }, '[PrivateWhisper] 🎤 Processing chunk');
+        logger.info({ sId: this.serviceId, rId: this.instanceId, samples: concatenated.length, expectedDurationSec }, '[PrivateWhisper] 🎤 Processing chunk');
 
         // If the duration is wildly different from wall clock, we have a sample rate issue
         // (This is just a heuristic for logs, not control logic)
@@ -313,7 +330,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
       const newText = result.value || '';
 
       if (newText.trim()) {
-        logger.info({ sId: this.serviceId, rId: this.runId, newText, latencyMs: (performance.now() - tStart).toFixed(2) }, '[PrivateWhisper] ✨ Transcription success');
+        logger.info({ sId: this.serviceId, rId: this.instanceId, newText, latencyMs: (performance.now() - tStart).toFixed(2) }, '[PrivateWhisper] ✨ Transcription success');
         // Append with space if transcript already has content
         this.transcript = this.transcript ? `${this.transcript} ${newText}` : newText;
         this.onTranscriptUpdate({ transcript: { final: newText } });
@@ -323,14 +340,14 @@ export default class PrivateWhisper implements ITranscriptionEngine {
 
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
-      logger.error({ sId: this.serviceId, rId: this.runId, err: error }, '[PrivateWhisper] Transcription processing failed.');
+      logger.error({ sId: this.serviceId, rId: this.instanceId, err: error }, '[PrivateWhisper] Transcription processing failed.');
     } finally {
       this.isProcessing = false;
     }
   }
 
   public async stopTranscription(): Promise<string> {
-    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] stopTranscription() called.');
+    logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] stopTranscription() called.');
 
     if (this.processingInterval) {
       clearInterval(this.processingInterval);
@@ -355,7 +372,7 @@ export default class PrivateWhisper implements ITranscriptionEngine {
   }
 
   public async terminate(): Promise<void> {
-    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] Terminating service...');
+    logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] Terminating service...');
     if (this.processingInterval) {
       clearInterval(this.processingInterval);
       this.processingInterval = null;
@@ -382,5 +399,9 @@ export default class PrivateWhisper implements ITranscriptionEngine {
 
   public getEngineType(): string {
     return this.privateSTT.getEngineType() || 'whisper-turbo'; // Default to turbo for identification
+  }
+
+  public getLastHeartbeatTimestamp(): number {
+    return this.lastHeartbeatTimestamp;
   }
 }

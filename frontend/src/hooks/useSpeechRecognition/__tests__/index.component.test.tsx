@@ -14,6 +14,7 @@ import { Mock } from 'vitest';
 vi.mock('../useTranscriptionState');
 vi.mock('../useFillerWords');
 vi.mock('@/providers/useTranscriptionContext');
+vi.mock('../../../stores/useSessionStore');
 // REMOVED: vi.mock('../useTranscriptionService'); -- We want the real one!
 
 vi.mock('../../useVocalAnalysis', () => ({
@@ -69,6 +70,7 @@ class MockEngine implements ITranscriptionEngine {
   getTranscript = vi.fn().mockReturnValue({ transcript: 'test transcript' });
   terminate = vi.fn().mockResolvedValue(undefined);
   getEngineType = () => 'native' as const;
+  getLastHeartbeatTimestamp = () => Date.now();
 }
 
 function wrapper({ children }: { children: React.ReactNode }): React.ReactElement {
@@ -125,9 +127,29 @@ describe('useSpeechRecognition', () => {
     testRegistry.enable(); // Important!
     testRegistry.register('native', () => mockEngine);
 
-    vi.mocked(useTranscriptionState).mockReturnValue(mockUseTranscriptionState as unknown as ReturnType<typeof useTranscriptionState>); // Cast to avoid strict type checks on mock
+    vi.mocked(useTranscriptionState).mockReturnValue(mockUseTranscriptionState as unknown as ReturnType<typeof useTranscriptionState>);
     vi.mocked(useFillerWords).mockReturnValue(mockUseFillerWords);
     vi.mocked(useTranscriptionContext).mockReturnValue(mockUseTranscriptionContext);
+    
+    // ✅ Align with actual implementation: mock useSessionStore
+    const { useSessionStore } = await import('../../../stores/useSessionStore');
+    vi.mocked(useSessionStore).mockReturnValue({
+        runtimeState: 'IDLE',
+        isLockHeldByOther: false,
+        isListening: mockUseTranscriptionState.isRecording || mockUseTranscriptionState.isInitializing,
+        isReady: false,
+        transcript: { transcript: '', partial: '' },
+        fillerData: {},
+        elapsedTime: 0,
+        startTime: null,
+        sttStatus: { type: 'idle', message: 'Ready to record' },
+        sttMode: null,
+        modelLoadingProgress: null,
+        activeEngine: null,
+        history: [],
+        stopSession: vi.fn(),
+        startSession: vi.fn(),
+    } as any);
   });
 
   afterEach(() => {

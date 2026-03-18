@@ -1,7 +1,7 @@
 {
   "name": "speaksharp",
   "private": true,
-  "version": "3.5.4",
+  "version": "1.5.1",
   "type": "module",
   "engines": {
     "node": ">=22.12.0",

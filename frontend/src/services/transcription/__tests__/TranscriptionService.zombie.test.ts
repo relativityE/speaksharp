@@ -17,6 +17,7 @@ class MockEngine implements ITranscriptionEngine {
     getTranscript = vi.fn<() => Promise<string>>().mockResolvedValue('');
     terminate = vi.fn().mockResolvedValue(undefined);
     getEngineType = () => this.name;
+    getLastHeartbeatTimestamp = () => Date.now();
 }
 
 // Testable subclass to expose protected methods if needed

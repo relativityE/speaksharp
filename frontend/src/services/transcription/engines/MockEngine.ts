@@ -132,6 +132,10 @@ export class MockEngine implements ITranscriptionEngine, IPrivateSTTEngine {
         return 'mock';
     }
 
+    public getLastHeartbeatTimestamp(): number {
+        return Date.now();
+    }
+
     private delay(ms: number): Promise<void> {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
