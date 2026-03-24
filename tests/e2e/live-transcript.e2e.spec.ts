@@ -89,7 +89,7 @@ test.describe('Live Transcript Feature', () => {
 
     // Reload to apply init scripts
     await userPage.reload();
-    await userPage.waitForLoadState('networkidle');
+    
 
     attachLiveTranscript(userPage);
     await userPage.setViewportSize({ width: 1280, height: 720 });

@@ -12,17 +12,9 @@ export const getEnvVar = (key: string): string | undefined => {
 
 export const SUPABASE_URL = getEnvVar('VITE_SUPABASE_URL');
 export const SUPABASE_ANON_KEY = getEnvVar('VITE_SUPABASE_ANON_KEY');
-// E2E Flag Constants (Consolidated here to avoid magic strings)
-export const E2E_CONTEXT_FLAG = '__E2E_CONTEXT__';
-export const E2E_MOCK_SESSION_FLAG = '__E2E_MOCK_SESSION__';
-export const E2E_BRIDGE_READY_FLAG = '__e2eBridgeReady__';
-export const E2E_PROFILE_LOADED_FLAG = '__e2eProfileLoaded__';
-export const E2E_SESSION_DATA_LOADED_FLAG = '__e2eSessionDataLoaded__';
-export const E2E_MSW_READY_FLAG = 'mswReady'; // Legacy compat
-
 import { TestFlags } from './TestFlags';
 
-export const IS_TEST_ENVIRONMENT = TestFlags.IS_TEST_MODE;
+export const IS_TEST_ENVIRONMENT = () => TestFlags.IS_E2E;
 
 // ServiceWorker registration timeout (in milliseconds)
 export const SW_TIMEOUT_MS = 2000;

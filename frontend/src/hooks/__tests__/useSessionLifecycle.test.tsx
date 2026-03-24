@@ -51,6 +51,21 @@ import { createTestSessionStore } from '../../../tests/unit/factories/storeFacto
 vi.mock('@/stores/useSessionStore', () => ({
     useSessionStore: vi.fn(),
 }));
+vi.mock('@/services/SpeechRuntimeController', () => ({
+    speechRuntimeController: {
+        startRecording: vi.fn(),
+        stopRecording: vi.fn(async () => ({ 
+            transcript: '', 
+            total_words: 0, 
+            accuracy: 100, 
+            duration: 0 
+        } as TranscriptStats)),
+        reset: vi.fn(),
+        warmUp: vi.fn(),
+    },
+}));
+
+import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 
 // Global mock for useUsageLimit
 const baseUsageLimit: UsageLimitCheck = {
@@ -185,7 +200,10 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         vi.clearAllMocks();
 
         // Use factory for a fresh store each test
-        (useSessionStore as unknown as Mock).mockImplementation(createTestSessionStore());
+        const mockStore = createTestSessionStore();
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
 
         // Ensure default is free for auto-stop tests
         vi.mocked(useProfile).mockReturnValue({
@@ -212,11 +230,14 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             streak_count: 0
         };
 
-        (useSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
+        const mockStore = createTestSessionStore({
             isListening: true, // AUTO-STOP logic requires isListening to be true
             elapsedTime: mockElapsedTime,
             startTime: Date.now() - (mockElapsedTime * 1000),
-        }));
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
 
         vi.mocked(useSpeechRecognition).mockReturnValue({
             transcript: baseTranscript,
@@ -256,16 +277,19 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
 
         await waitFor(() => {
-            expect(mockStopListening).toHaveBeenCalled();
+            expect(speechRuntimeController.stopRecording).toHaveBeenCalled();
         }, { timeout: 2000 });
     });
 
     it('should NOT trigger stop when time remains', () => {
-        (useSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
+        const mockStore = createTestSessionStore({
             elapsedTime: 25,
             isListening: true,
             startTime: Date.now() - 25000,
-        }));
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
 
         vi.mocked(useSpeechRecognition).mockReturnValue({
             transcript: baseTranscript,
@@ -311,6 +335,6 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             )
         });
 
-        expect(mockStopListening).not.toHaveBeenCalled();
+        expect(speechRuntimeController.stopRecording).not.toHaveBeenCalled();
     });
 });

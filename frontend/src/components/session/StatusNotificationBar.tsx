@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, Loader2, Info, AlertTriangle, Lock } from 'l
 
 import { SttStatus, SttStatusType } from '../../types/transcription';
 import { useSessionStore } from '../../stores/useSessionStore';
+import { speechRuntimeController } from '../../services/SpeechRuntimeController';
 
 interface StatusNotificationBarProps {
     status: SttStatus;
@@ -35,6 +36,11 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
         bgClass: 'bg-secondary/10 border-secondary/20 shadow-yellow-glow backdrop-blur-xl animate-pulse',
         textClass: 'text-secondary font-bold',
     },
+    paused: {
+        icon: Info,
+        bgClass: 'bg-amber-500/10 border-amber-500/20 shadow-sm backdrop-blur-xl',
+        textClass: 'text-amber-500 font-bold',
+    },
     fallback: {
         icon: AlertTriangle,
         bgClass: 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-xl',
@@ -44,6 +50,16 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
         icon: AlertCircle,
         bgClass: 'bg-destructive/10 border-destructive/20 shadow-sm backdrop-blur-xl',
         textClass: 'text-destructive font-bold',
+    },
+    'download-required': {
+        icon: AlertCircle,
+        bgClass: 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-xl',
+        textClass: 'text-orange-500 font-bold',
+    },
+    warning: {
+        icon: AlertTriangle,
+        bgClass: 'bg-orange-500/10 border-orange-500/20 shadow-glow-orange backdrop-blur-xl animate-pulse',
+        textClass: 'text-orange-500 font-bold',
     },
     info: {
         icon: Info,
@@ -64,11 +80,12 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     const isAnimated = status.type === 'initializing' || status.type === 'downloading';
 
     // Secondary Status (Background Download) - Read directly from store to persist across mode changes
+    const isListening = useSessionStore((s) => s.isListening);
     const activeEngine = useSessionStore((s) => s.activeEngine);
     const modelLoadingProgress = useSessionStore((s) => s.modelLoadingProgress);
     const hasSecondary = modelLoadingProgress !== null;
 
-    // ✅ FIX: Explicit defaults for display message
+    // Explicit defaults for status display message
     let displayMessage = status.message?.replace(/^(?:⛔|⚠️|🚫)\s*/u, '').trim();
 
     if (!displayMessage) {
@@ -85,6 +102,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 break;
             case 'error':
                 displayMessage = 'Error occurred';
+                break;
+            case 'download-required':
+                displayMessage = 'Model Download Required';
                 break;
             case 'downloading':
                 displayMessage = 'Downloading...';
@@ -106,7 +126,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             aria-live="polite"
             data-testid="live-session-header"
             data-state={status.type}
-            data-recording={status.type === 'recording' || status.type === 'fallback'}
+            data-recording={isListening}
             data-engine={activeEngine || 'none'}
             data-session-saved={displayMessage?.includes('✓') || status.message?.includes('✓')}
         >
@@ -137,6 +157,16 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                     )}
                 </div>
             </div>
+
+            {status.isFrozen && (
+                <button
+                    onClick={() => { void speechRuntimeController.switchToNative(); }}
+                    className="ml-4 px-4 py-1.5 bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-lg hover:bg-orange-600 transition-all active:scale-95 border border-white/20 animate-bounce"
+                    data-action="switch-to-native"
+                >
+                    Switch to Native (Free)
+                </button>
+            )}
 
             <div className="flex-1" />
 

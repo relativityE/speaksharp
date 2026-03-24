@@ -32,7 +32,7 @@ export const useAnalytics = () => {
     const { data: allSessions = EMPTY_SESSIONS, isLoading, error } = usePracticeHistory(paginationOptions);
     const { data: specificSession, isLoading: isSessionLoading } = useSession(sessionId);
 
-    // 🚀 PHASE 8: Signal Analytics Readiness (Critical Query Settlement)
+    // Signal Analytics Readiness (Critical Query Settlement)
     useEffect(() => {
         if (!isLoading) {
             useReadinessStore.getState().setReady('analytics');

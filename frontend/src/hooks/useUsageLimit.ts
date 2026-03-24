@@ -85,6 +85,36 @@ export function useUsageLimit() {
 }
 
 /**
+ * Optimistic usage update to prevent Tier + DB race conditions (E15, E17).
+ * Updates the react-query cache immediately before DB sync.
+ */
+export function updateLocalUsage(userId: string, additionalSeconds: number) {
+    // Use direct dynamic import for better compatibility with test environment
+    const win = window as unknown as { 
+        queryClientAPI?: { getQueryClient: () => unknown };
+        queryClient?: unknown;
+    };
+    const { getQueryClient } = win.queryClientAPI || { getQueryClient: () => win.queryClient };
+    const queryClient = (getQueryClient?.() || win.queryClient) as { 
+        setQueryData: (key: unknown[], updater: (old: UsageLimitCheck | undefined) => UsageLimitCheck | undefined) => void 
+    };
+    
+    if (!queryClient) {
+        logger.warn('[updateLocalUsage] QueryClient not found, skipping optimistic update');
+        return;
+    }
+
+    queryClient.setQueryData(['usageLimit', userId], (old: UsageLimitCheck | undefined) => {
+        if (!old) return old;
+        return {
+            ...old,
+            daily_remaining: Math.max(0, old.daily_remaining - additionalSeconds),
+            remaining_seconds: Math.max(0, old.remaining_seconds - additionalSeconds),
+        };
+    });
+}
+
+/**
  * Format remaining seconds as human-readable string
  */
 export function formatRemainingTime(seconds: number): string {

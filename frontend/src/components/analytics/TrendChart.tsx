@@ -39,7 +39,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
                         <p className="text-sm">Complete at least 2 sessions to see your {config.label.toLowerCase()} trend.</p>
                     </div>
                 ) : (
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                         <AreaChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.1} />
                             <XAxis

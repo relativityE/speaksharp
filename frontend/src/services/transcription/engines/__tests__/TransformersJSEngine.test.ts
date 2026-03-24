@@ -13,16 +13,21 @@ const { mockPipeline, mockEnv } = vi.hoisted(() => ({
     mockEnv: { allowLocalModels: false, useBrowserCache: true },
 }));
 
-// Mock the flagging system - enable debug by default for coverage
+// Mock the flagging system - aligned with window.__SS_E2E__
 vi.mock('@/config/TestFlags', () => ({
-    TestFlags: {
+    isE2E: () => true,
+    FLAGS: {
         DEBUG_ENABLED: true,
-        IS_TEST_MODE: true,
-        USE_REAL_TRANSCRIPTION: false,
-        FORCE_CPU_TRANSCRIPTION: false
+        DISABLE_WASM: false,
+        BYPASS_MUTEX: true,
+        FAST_TIMERS: true
     },
-    shouldUseMockTranscription: vi.fn(),
-    shouldEnableMocks: vi.fn()
+    TestFlags: {
+        IS_E2E: true,
+        ENGINE_TYPE: 'system',
+        USE_REAL_DATABASE: false,
+        DEBUG_ENABLED: true
+    }
 }));
 
 // Mock the module globally
@@ -37,9 +42,15 @@ describe('TransformersJSEngine (Unit)', () => {
     let engine: TransformersJSEngine;
 
     beforeEach(() => {
-        vi.useFakeTimers();
-        engine = new TransformersJSEngine();
         vi.clearAllMocks();
+        
+        // Align with SSOT Manifest
+        window.__SS_E2E__ = {
+            isActive: true,
+            engineType: 'system'
+        };
+
+        engine = new TransformersJSEngine();
 
         // Reset defaults
         mockPipeline.mockReset();
@@ -90,17 +101,17 @@ describe('TransformersJSEngine (Unit)', () => {
         const result = await engine.transcribe(pcmBuffer);
 
         expect(result.isOk).toBe(true);
-        // Cast to success type to access .value strictly
-        const successResult = result as unknown as { isOk: true; value: string };
-        expect(successResult.value).toBeTruthy();
+        // Cast to success type to access .data strictly
+        const successResult = result as unknown as { isOk: true; data: string };
+        expect(successResult.data).toBeTruthy();
     });
 
     it('should fail if transcriber is not initialized', async () => {
         const pcmBuffer = new Float32Array(16000);
         const result = await engine.transcribe(pcmBuffer);
 
-        expect(result.isErr).toBe(true);
-        const errorResult = result as { isErr: true; error: Error };
+        expect(result.isOk === false).toBe(true);
+        const errorResult = result as { isOk: false; error: Error };
         expect(errorResult.error.message).toContain('not initialized');
     });
 
@@ -109,8 +120,8 @@ describe('TransformersJSEngine (Unit)', () => {
 
         const result = await engine.init({});
 
-        expect(result.isErr).toBe(true);
-        const errorResult = result as { isErr: true; error: Error };
+        expect(result.isOk === false).toBe(true);
+        const errorResult = result as { isOk: false; error: Error };
         expect(errorResult.error.message).toContain('Network failure');
     });
 
@@ -124,7 +135,7 @@ describe('TransformersJSEngine (Unit)', () => {
         await engine.init({});
 
         const result = await engine.transcribe(new Float32Array(16000));
-        expect(result.isErr).toBe(true);
+        expect(result.isOk === false).toBe(true);
     });
 
     it('should exercise destroy method', async () => {
@@ -150,7 +161,7 @@ describe('TransformersJSEngine (Unit)', () => {
         mockPipeline.mockRejectedValueOnce(new Error("Unexpected token < at position 0"));
 
         const result = await engine.init({});
-        expect(result.isErr).toBe(true);
+        expect(result.isOk === false).toBe(true);
     });
 
     it('should trigger progress callback from transformers.js', async () => {
@@ -170,6 +181,6 @@ describe('TransformersJSEngine (Unit)', () => {
     it('should handle non-Error catch during init', async () => {
         mockPipeline.mockImplementationOnce(() => { throw "string error"; });
         const result = await engine.init({});
-        expect(result.isErr).toBe(true);
+        expect(result.isOk === false).toBe(true);
     });
 });

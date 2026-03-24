@@ -2,6 +2,16 @@ import { test, expect } from './fixtures';
 import { programmaticLoginWithRoutes, navigateToRoute } from './helpers';
 import { enableTestRegistry, registerMockInE2E } from '../helpers/testRegistry.helpers';
 
+test.afterEach(async ({ page }) => {
+    await page.evaluate(() => {
+        document.body.removeAttribute('data-stt-policy');
+        document.body.removeAttribute('data-recording-state');
+        document.body.removeAttribute('data-engine-variant');
+        document.body.removeAttribute('data-download-progress');
+        localStorage.removeItem('speaksharp_session_lock');
+    });
+});
+
 test.describe('Inversion Safety: Priority 2 Features', () => {
 
     test('Cross-Tab Mutex: Prevents Tab B from starting if Tab A is active', async ({ freePage: pageA, context }) => {
@@ -10,11 +20,12 @@ test.describe('Inversion Safety: Priority 2 Features', () => {
         // 1. Setup Tab A (Authenticated via freePage fixture)
         await enableTestRegistry(pageA);
         await registerMockInE2E(pageA, 'native', `() => ({
-             init: async () => {},
+             init: async () => ({ variant: 'Ok', value: undefined }),
              startTranscription: async () => {},
              stopTranscription: async () => 'test',
              getTranscript: async () => 'test',
              terminate: async () => {},
+             getLastHeartbeatTimestamp: () => Date.now(),
              getEngineType: () => 'mock-native'
         })`);
 
@@ -37,7 +48,8 @@ test.describe('Inversion Safety: Priority 2 Features', () => {
         const statusIndicator = pageB.getByTestId('session-status-indicator');
         await expect(statusIndicator).toContainText(/Active session in another tab/i, { timeout: 10000 });
 
-        // Verify Tab B signal is false
+        // Verify Tab B signal is false (Wait for it to be set by SRC)
+        await pageB.waitForFunction(() => typeof (window as unknown as { __lockAcquired__?: boolean }).__lockAcquired__ !== 'undefined', { timeout: 10000 });
         const lockStateB = await pageB.evaluate(() => (window as unknown as { __lockAcquired__?: boolean }).__lockAcquired__);
         expect(lockStateB).toBe(false);
 
@@ -50,11 +62,12 @@ test.describe('Inversion Safety: Priority 2 Features', () => {
 
         // Mock engine that produces NO transcripts
         await registerMockInE2E(page, 'native', `() => ({
-             init: async () => {},
+             init: async () => ({ variant: 'Ok', value: undefined }),
              startTranscription: async () => {},
              stopTranscription: async () => '',
              getTranscript: async () => '',
              terminate: async () => {},
+             getLastHeartbeatTimestamp: () => Date.now(),
              getEngineType: () => 'mock-silent'
         })`);
 

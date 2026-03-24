@@ -15,7 +15,7 @@ export default class VitestCIReporter {
             return acc;
         }, { passed: 0, failed: 0, total: 0 });
 
-        // Fix: Another Small Telemetry Bug (IPC Discriminator)
+        // Ensure correct IPC discriminator handling
         if (process.send) {
             process.send({
                 type: 'TELEMETRY',

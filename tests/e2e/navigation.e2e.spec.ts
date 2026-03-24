@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { navigateToRoute } from './helpers';
+import { navigateToRoute, waitForAppReady } from './helpers';
 
 test.describe('App Navigation', () => {
   test('should navigate to all application routes successfully', async ({ userPage }) => {
@@ -25,7 +25,7 @@ test.describe('App Navigation', () => {
     await navigateToRoute(userPage, '/session');
     
     // Wait for hydration to ensure nav links work as expected
-    await userPage.waitForFunction(() => window.__e2eProfileLoaded__ === true, { timeout: 30000 });
+    await waitForAppReady(userPage);
 
     // Click nav link to Session
     const sessionLink = userPage.getByRole('link', { name: /session/i }).first();
@@ -45,7 +45,7 @@ test.describe('App Navigation', () => {
     const homeLink = userPage.getByRole('link', { name: /home/i }).first();
     await expect(homeLink).toBeVisible();
     await homeLink.click();
-    // Behavioral Design Fix: Authenticated users are redirected to /session.
+    // Authenticated users are redirected to /session.
     await expect(userPage.getByTestId('session-page')).toBeVisible({ timeout: 15000 });
   });
 });

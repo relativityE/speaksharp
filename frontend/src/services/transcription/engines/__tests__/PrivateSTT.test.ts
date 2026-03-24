@@ -10,106 +10,131 @@
  */
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Result } from 'true-myth';
+import { Result } from '@/services/transcription/modes/types';
 import { createPrivateSTT } from '../PrivateSTT';
-import { WhisperTurboEngine } from '../WhisperTurboEngine';
-import { TransformersJSEngine } from '../TransformersJSEngine';
-import { MockEngine } from '../MockEngine';
-
-// No longer need to mock config/env as we handle it via forceEngine in tests
-
-// Mock the engine classes with explicit init behavior
-const mockWTEInit = vi.fn().mockResolvedValue(Result.ok(undefined));
-vi.mock('../WhisperTurboEngine', () => {
-    const MockWTE = vi.fn().mockImplementation(() => ({
-        init: mockWTEInit,
-        transcribe: vi.fn(),
-        type: 'whisper-turbo'
-    }));
-    return { WhisperTurboEngine: MockWTE };
-});
-
-const mockTJInit = vi.fn().mockResolvedValue(Result.ok(undefined));
-vi.mock('../TransformersJSEngine', () => {
-    const MockTJ = vi.fn().mockImplementation(() => ({
-        init: mockTJInit,
-        transcribe: vi.fn(),
-        type: 'transformers-js'
-    }));
-    return { TransformersJSEngine: MockTJ };
-});
-
-vi.mock('../MockEngine', () => {
-    const MockE = vi.fn().mockImplementation(() => ({
-        init: vi.fn().mockResolvedValue(Result.ok('mock')),
-        transcribe: vi.fn(),
-        destroy: vi.fn().mockResolvedValue(undefined)
-    }));
-    return { MockEngine: MockE };
-});
+import { STTEngine } from '@/contracts/STTEngine';
 
 // Mock underlying libraries to avoid resolution errors
 vi.mock('whisper-turbo', () => ({}));
 vi.mock('@xenova/transformers', () => ({}));
 
+// Top-level mocks for control in tests
+const mockWTEInit = vi.fn().mockResolvedValue(Result.ok(undefined));
+const mockTJInit = vi.fn().mockResolvedValue(Result.ok(undefined));
+const mockEInit = vi.fn().mockResolvedValue(Result.ok(undefined));
+
+class StubWTE extends STTEngine {
+    type = 'whisper-turbo' as const;
+    onInit = mockWTEInit;
+    onStart = vi.fn().mockResolvedValue(undefined);
+    onStop = vi.fn().mockResolvedValue(undefined);
+    onDestroy = vi.fn().mockResolvedValue(undefined);
+    transcribe = vi.fn();
+}
+
+class StubTJ extends STTEngine {
+    type = 'transformers-js' as const;
+    onInit = mockTJInit;
+    onStart = vi.fn().mockResolvedValue(undefined);
+    onStop = vi.fn().mockResolvedValue(undefined);
+    onDestroy = vi.fn().mockResolvedValue(undefined);
+    transcribe = vi.fn();
+}
+
+class StubE extends STTEngine {
+    type = 'mock' as const;
+    onInit = mockEInit;
+    onStart = vi.fn().mockResolvedValue(undefined);
+    onStop = vi.fn().mockResolvedValue(undefined);
+    onDestroy = vi.fn().mockResolvedValue(undefined);
+    transcribe = vi.fn();
+}
+
+vi.mock('../WhisperTurboEngine', () => ({
+    WhisperTurboEngine: vi.fn().mockImplementation(() => new StubWTE())
+}));
+
+vi.mock('../TransformersJSEngine', () => ({
+    TransformersJSEngine: vi.fn().mockImplementation(() => new StubTJ())
+}));
+
+vi.mock('../MockEngine', () => ({
+    MockEngine: vi.fn().mockImplementation(() => new StubE())
+}));
+
 describe('PrivateSTT (Routing Logic)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        // Reset window flags - properties are now typed via PrivateWhisper.ts declare global
-        delete window.__E2E_CONTEXT__;
-        delete window.TEST_MODE;
+        // Reset window manifest (SSOT)
+        window.__SS_E2E__ = {
+            isActive: true,
+            engineType: 'mock',
+            registry: {
+                'mock-engine': () => new StubE(),
+                'whisper-turbo': () => new StubWTE(),
+                'transformers-js': () => new StubTJ()
+            }
+        };
 
         // Reset navigator.gpu
         // @ts-expect-error - delete readonly property for test mock
         delete navigator.gpu;
     });
 
-    it('selects MockEngine when window.__E2E_CONTEXT__ is true', async () => {
-        window.__E2E_CONTEXT__ = true;
+    it('selects MockEngine when manifest engineType is mock', async () => {
+        if (window.__SS_E2E__) window.__SS_E2E__.engineType = 'mock';
 
         const pstt = createPrivateSTT();
-        await pstt.init({});
-        expect(MockEngine).toHaveBeenCalled();
-        expect(WhisperTurboEngine).not.toHaveBeenCalled();
-        expect(TransformersJSEngine).not.toHaveBeenCalled();
+        await pstt.init({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        
+        // Note: Real MockEngine import is now bypassed by registry injection in PrivateSTT.ts
+        expect(pstt.getEngineType()).toBe('mock');
     });
 
-    it('selects MockEngine when window.TEST_MODE is true', async () => {
-        window.TEST_MODE = true;
+    it('selects WhisperTurboEngine (Fast Path) when WebGPU is available', async () => {
+        if (window.__SS_E2E__) window.__SS_E2E__.engineType = 'real';
+        // @ts-expect-error - mock navigator.gpu
+        navigator.gpu = {};
 
         const pstt = createPrivateSTT();
-        await pstt.init({ onReady: vi.fn() });
-        expect(MockEngine).toHaveBeenCalled();
+        await pstt.init({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        
+        expect(pstt.getEngineType()).toBe('whisper-turbo');
+    });
+
+    it('selects TransformersJSEngine (Safe Path) when WebGPU is missing', async () => {
+        if (window.__SS_E2E__) window.__SS_E2E__.engineType = 'real';
+        // delete navigator.gpu handled in beforeEach
+
+        const pstt = createPrivateSTT();
+        await pstt.init({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        
+        expect(pstt.getEngineType()).toBe('transformers-js');
     });
 
     it('selects WhisperTurboEngine (Fast Path) when forced', async () => {
         const pstt = createPrivateSTT();
-        await pstt.init({ forceEngine: 'whisper-turbo' });
+        await pstt.init({ forceEngine: 'whisper-turbo', onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
 
-        expect(WhisperTurboEngine).toHaveBeenCalled();
-        expect(TransformersJSEngine).not.toHaveBeenCalled();
+        expect(pstt.getEngineType()).toBe('whisper-turbo');
     });
 
-    // Forced engine tests above provide sufficient coverage for routing logic 
-    // without being blocked by CI/Test environment detection.
     it('waits for slow engine initialization (No-Timeout validation)', async () => {
-        // Use fake timers to advance time if needed, OR just mock a resolved promise with delay
         vi.useFakeTimers();
 
-        // Mock a slow successfully initializing engine (2 seconds)
+        // Target the stub's initialization
         mockTJInit.mockImplementationOnce(() => new Promise((resolve) => {
             setTimeout(() => resolve(Result.ok(undefined)), 2000);
         }));
 
         const pstt = createPrivateSTT();
-        const initPromise = pstt.init({ forceEngine: 'transformers-js' });
+        const initPromise = pstt.init({ forceEngine: 'transformers-js', onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
 
-        // Fast forward 3 seconds
         await vi.advanceTimersByTimeAsync(3000);
 
         const result = await initPromise;
         expect(result.isOk).toBe(true);
-        expect(TransformersJSEngine).toHaveBeenCalled();
+        expect(pstt.getEngineType()).toBe('transformers-js');
 
         vi.useRealTimers();
     });

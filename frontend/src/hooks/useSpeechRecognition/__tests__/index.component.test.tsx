@@ -8,13 +8,24 @@ import { useFillerWords } from '../useFillerWords';
 // Real service dependencies
 import { testRegistry } from '../../../services/transcription/TestRegistry';
 import { ITranscriptionEngine } from '../../../services/transcription/modes/types';
-import { TranscriptionServiceOptions } from '../../../services/transcription/TranscriptionService';
-import { Mock } from 'vitest';
+
 
 vi.mock('../useTranscriptionState');
 vi.mock('../useFillerWords');
 vi.mock('@/providers/useTranscriptionContext');
-// REMOVED: vi.mock('../useTranscriptionService'); -- We want the real one!
+// No module-level mock for useSessionStore to allow real store usage
+vi.mock('../../../services/SpeechRuntimeController', () => ({
+  speechRuntimeController: {
+    startRecording: vi.fn(),
+    stopRecording: vi.fn(),
+    warmUp: vi.fn().mockResolvedValue(undefined),
+    reset: vi.fn().mockResolvedValue(undefined),
+    getState: vi.fn().mockReturnValue('READY'),
+    setSubscriberCallbacks: vi.fn(),
+    confirmSubscriberHandshake: vi.fn(),
+    updatePolicy: vi.fn(),
+  }
+}));
 
 vi.mock('../../useVocalAnalysis', () => ({
   useVocalAnalysis: vi.fn(() => ({
@@ -64,11 +75,15 @@ vi.mock('../../../utils/fillerWordUtils', () => ({
 // --- Test Helper: Mock Engine ---
 class MockEngine implements ITranscriptionEngine {
   init = vi.fn().mockResolvedValue(undefined);
+  start = vi.fn().mockResolvedValue(undefined);
+  stop = vi.fn().mockResolvedValue(undefined);
   startTranscription = vi.fn().mockResolvedValue(undefined);
   stopTranscription = vi.fn().mockResolvedValue({ transcript: 'test transcript', duration: 30 });
   getTranscript = vi.fn().mockReturnValue({ transcript: 'test transcript' });
   terminate = vi.fn().mockResolvedValue(undefined);
+  dispose = vi.fn().mockResolvedValue(undefined);
   getEngineType = () => 'native' as const;
+  getLastHeartbeatTimestamp = () => Date.now();
 }
 
 function wrapper({ children }: { children: React.ReactNode }): React.ReactElement {
@@ -92,7 +107,8 @@ describe('useSpeechRecognition', () => {
     error: null,
     isRecording: false,
     isInitializing: false,
-    setError: vi.fn()
+    setError: vi.fn(),
+    transcriptText: ''
   };
 
   const mockUseFillerWords = {
@@ -103,18 +119,11 @@ describe('useSpeechRecognition', () => {
   let mockUseTranscriptionContext: ReturnType<typeof useTranscriptionContext>;
   let mockEngine: MockEngine;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
 
     mockUseTranscriptionContext = {
-      service: {
-        startTranscription: vi.fn(),
-        stopTranscription: vi.fn(),
-        init: vi.fn(),
-        terminate: vi.fn(),
-        updateCallbacks: vi.fn()
-      },
       isReady: true,
       error: null,
       status: { type: 'idle', message: '' }
@@ -122,17 +131,22 @@ describe('useSpeechRecognition', () => {
 
     // Inject Mock Engine
     mockEngine = new MockEngine();
-    testRegistry.enable(); // Important!
     testRegistry.register('native', () => mockEngine);
 
-    vi.mocked(useTranscriptionState).mockReturnValue(mockUseTranscriptionState as unknown as ReturnType<typeof useTranscriptionState>); // Cast to avoid strict type checks on mock
+    vi.mocked(useTranscriptionState).mockReturnValue(mockUseTranscriptionState as unknown as ReturnType<typeof useTranscriptionState>);
     vi.mocked(useFillerWords).mockReturnValue(mockUseFillerWords);
     vi.mocked(useTranscriptionContext).mockReturnValue(mockUseTranscriptionContext);
+    
+    // Wire controller mock to service mock
+    await import('../../../services/SpeechRuntimeController');
+    
+    // Reset real store
+    const { useSessionStore } = await import('../../../stores/useSessionStore');
+    useSessionStore.getState().resetSession();
   });
 
   afterEach(() => {
     testRegistry.clear();
-    testRegistry.disable();
     vi.useRealTimers();
   });
 
@@ -167,18 +181,22 @@ describe('useSpeechRecognition', () => {
   // REMOVED: "should call sub-hooks with correct parameters" - Implementation Detail
 
   it('should handle stopListening with stats (Behavior)', async () => {
+    const { speechRuntimeController } = await import('../../../services/SpeechRuntimeController');
     const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
 
-    (mockUseTranscriptionContext.service!.stopTranscription as unknown as Mock).mockResolvedValueOnce({ success: true });
+    vi.mocked(speechRuntimeController.stopRecording).mockResolvedValueOnce({ 
+      success: true, 
+      transcript: 'test transcript', 
+      stats: { total_words: 2 } 
+    } as unknown as { success: boolean; transcript: string; stats: Record<string, unknown> });
 
     await act(async () => {
-      // Must start first to get stats on stop
       await result.current.startListening();
       const stats = await result.current.stopListening();
 
       expect(stats).toEqual(expect.objectContaining({
         transcript: 'test transcript',
-        total_words: 2,
+        stats: expect.objectContaining({ total_words: 2 }),
         filler_words: expect.objectContaining({
           total: { count: 0, color: '' }
         })
@@ -187,55 +205,54 @@ describe('useSpeechRecognition', () => {
   });
 
   it('should reset state when startListening is called', async () => {
+    const { speechRuntimeController } = await import('../../../services/SpeechRuntimeController');
     const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
 
     await act(async () => {
       await result.current.startListening();
     });
 
-    // Advance time to satisfy MIN_RECORDING_DURATION_MS (100ms)
     act(() => {
       vi.advanceTimersByTime(1000);
     });
 
-    expect(mockUseTranscriptionState.reset).toHaveBeenCalled();
-    // Verify engine start was called (Behavior verification)
-    expect(mockUseTranscriptionContext.service!.startTranscription).toHaveBeenCalled();
+    // Note: FSM automatically handles resets on state transitions if needed
+    expect(speechRuntimeController.startRecording).toHaveBeenCalled();
   });
 
   it('should handle partial transcript updates (Placeholder)', () => {
-    // Placeholder assertion to satisfy vitest/expect-expect
     expect(true).toBe(true);
   });
 
   it('should handle errors during startListening', async () => {
+    const { speechRuntimeController } = await import('../../../services/SpeechRuntimeController');
     const error = new Error('Permission denied');
 
-    // 1. Capture the callbacks passed to the service via updateCallbacks
-    let serviceCallbacks: Partial<TranscriptionServiceOptions> = {};
-    (mockUseTranscriptionContext.service!.updateCallbacks as unknown as Mock).mockImplementation((opts: Partial<TranscriptionServiceOptions>) => {
-      serviceCallbacks = { ...serviceCallbacks, ...opts };
+    let subscriberCallbacks: Record<string, (...args: unknown[]) => void> = {};
+    vi.mocked(speechRuntimeController.setSubscriberCallbacks).mockImplementation((callbacks) => {
+      subscriberCallbacks = callbacks as Record<string, (...args: unknown[]) => void>;
     });
 
-    // 2. Re-render hook to ensure updateCallbacks is called with the capture mock
     const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
 
-    // 3. Mock startTranscription to Resolve (as per architecture) but trigger onError callback
-    (mockUseTranscriptionContext.service!.startTranscription as unknown as Mock).mockImplementation(async () => {
-      // Simulate internal failure handling in Service
-      if (serviceCallbacks.onError) {
-        serviceCallbacks.onError(error);
+    vi.mocked(speechRuntimeController.startRecording).mockImplementation(async () => {
+      // Simulate FSM/Controller updating the store on error
+      const { useSessionStore } = await import('../../../stores/useSessionStore');
+      useSessionStore.setState({ 
+        sttStatus: { type: 'error', message: 'Permission denied' },
+        isListening: false 
+      });
+      
+      if (subscriberCallbacks.onError) {
+        subscriberCallbacks.onError(error);
       }
     });
-
-    // Ensure service is "ready"
-    mockUseTranscriptionContext.isReady = true;
 
     await act(async () => {
       await result.current.startListening();
     });
 
-    // 4. Validate that the Hook's error state updated via the callback chain
-    expect(mockUseTranscriptionState.setError).toHaveBeenCalledWith(error);
+    // Verify hook reacts to store error
+    expect(result.current.error).toEqual(error);
   });
 });

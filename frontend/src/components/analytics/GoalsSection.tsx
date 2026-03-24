@@ -78,7 +78,7 @@ export const GoalsSection: React.FC = () => {
                     </div>
                     <CardTitle className="text-lg font-semibold text-foreground">Current Goals</CardTitle>
                 </div>
-                <EditGoalsDialog goals={goals} onSave={setGoals} />
+                <EditGoalsDialog goals={goals} onSave={(g) => { void setGoals(g); }} />
             </div>
 
             <div className="space-y-6">

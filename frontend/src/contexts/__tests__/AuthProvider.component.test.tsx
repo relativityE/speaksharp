@@ -24,7 +24,7 @@ const TestConsumer = () => {
     return (
         <div>
             <div data-testid="user-id">{context.session.user.id}</div>
-            <button onClick={() => context.signOut()}>Sign Out</button>
+            <button onClick={() => { void context.signOut(); }}>Sign Out</button>
         </div>
     );
 };

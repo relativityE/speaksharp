@@ -6,7 +6,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'playwright-report/', 'test-results/', 'html/', 'public/', 'backend/supabase/migrations/', 'backend/supabase/.temp/', 'tests/global-teardown.js'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', 'playwright-report/', 'test-results/', 'html/', '**/public/**', 'backend/supabase/migrations/', 'backend/supabase/.temp/', 'tests/global-teardown.js'] },
 
   // Base configs
   js.configs.recommended,
@@ -25,6 +25,8 @@ export default tseslint.config(
       },
       parserOptions: {
         ecmaFeatures: { jsx: true },
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
       },
     },
     rules: {
@@ -34,8 +36,10 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-empty-object-type': 'error',
       '@typescript-eslint/no-require-imports': 'error',
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
       'no-empty': 'error',
-      'no-console': ['error', { allow: ['warn', 'info', 'debug'] }], // Enforce structured logger, allow warn/info for now but error is forbidden
+      'no-console': ['error', { allow: ['warn', 'info', 'debug', 'error'] }], // Enforce structured logger, but allow raw errors for Global Escalation
       'react-refresh/only-export-components': [
         'warn',  // Downgrade to warning - this is a dev-time optimization hint, not a critical error
         {
@@ -45,6 +49,7 @@ export default tseslint.config(
         },
       ],
     },
+
   },
 
   // Config for Mocks
@@ -145,9 +150,8 @@ export default tseslint.config(
     }
   },
 
-  // Config for project-level config files
   {
-    files: ['*.{js,cjs,mjs,ts}'],
+    files: ['*.{js,cjs,mjs,ts}', '**/*.config.{js,mjs,ts}'],
     languageOptions: {
       globals: {
         ...globals.node,

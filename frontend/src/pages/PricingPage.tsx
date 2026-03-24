@@ -81,7 +81,7 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
         </ul>
       </CardContent>
       <div className="p-6">
-        <Button onClick={handleUpgrade} className="w-full" disabled={tier.name === 'Free'}>
+        <Button onClick={() => { void handleUpgrade(); }} className="w-full" disabled={tier.name === 'Free'}>
           {tier.cta}
         </Button>
       </div>

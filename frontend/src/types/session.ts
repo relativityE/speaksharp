@@ -1,6 +1,7 @@
 export interface PracticeSession {
   id: string;
   user_id: string;
+  status?: 'active' | 'completed' | 'failed' | null;
   created_at: string;
   duration: number;
   title?: string;

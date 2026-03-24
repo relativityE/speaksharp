@@ -47,9 +47,11 @@ export function formatDuration(ms) {
  */
 export function parsePlaywrightResults(rootDir) {
     const DEBUG = process.env.LOG_LEVEL === 'debug';
-    const resultsPath = path.join(rootDir, 'artifacts', 'playwright', 'results.json');
+    // Standardized Path
+    const resultsPath = path.join(rootDir, 'test-results', 'playwright', 'results.json');
+    const telemetry = { passed: 0, failed: 0, flaky: 0, skipped: 0, total: 0, shards: {} };
 
-    const telemetry = { passed: 0, failed: 0, flaky: 0, skipped: 0, shards: {} };
+    if (!fs.existsSync(resultsPath)) return telemetry;
 
     // 1. Check for Shards
     const shardsDir = path.join(rootDir, 'artifacts', 'playwright');
@@ -104,16 +106,9 @@ export function parsePlaywrightResults(rootDir) {
             data.suites.forEach(walk);
         }
 
-        // 2. Extract Shard Metadata if available
+        // 2. Preserve Shard Metadata (informational only, don't add to counts)
         if (data.metadata?.shards || data.shards) {
-            const shardData = data.metadata?.shards || data.shards;
-            telemetry.shards = shardData;
-
-            // Aggregate shard counts into global telemetry
-            Object.values(shardData).forEach(s => {
-                telemetry.passed += s.passed || 0;
-                telemetry.failed += (s.total || 0) - (s.passed || 0);
-            });
+            telemetry.shards = data.metadata?.shards || data.shards;
         }
 
         return telemetry;

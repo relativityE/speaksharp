@@ -76,9 +76,9 @@ export function useGoals() {
             queryClient.setQueryData(['userGoals', userId], updatedGoals);
 
             if (userId) {
-                queryClient.invalidateQueries({ queryKey: ["userProfile", userId] });
-                queryClient.invalidateQueries({ queryKey: ["sessionCount", userId] });
-                queryClient.invalidateQueries({ queryKey: ["analyticsSummary", userId] });
+                void queryClient.invalidateQueries({ queryKey: ["userProfile", userId] });
+                void queryClient.invalidateQueries({ queryKey: ["sessionCount", userId] });
+                void queryClient.invalidateQueries({ queryKey: ["analyticsSummary", userId] });
             }
         },
         onError: (err) => {

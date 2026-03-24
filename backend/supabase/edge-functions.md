@@ -15,6 +15,14 @@ This project includes multiple Edge Functions to handle server-side logic:
 - `stripe-checkout`: Initiate Stripe checkout sessions.
 - `stripe-webhook`: Handle Stripe webhooks.
 
+### Database RPCs (Core Runtime Logic)
+
+While most logic resides in Edge Functions, the **Deterministic Speech Runtime** relies on atomic Database RPCs for session integrity:
+
+- `create_session_and_update_usage`: Atomic lock + usage increment + session creation.
+- `heartbeat_session`: Incremental usage sync and session expiry extension.
+- `complete_session`: Finalizes session with `completed` or `failed` status and reasons.
+
 ### Example: `create-user` (Synchronized Auth)
 
 This function provisions users in both Supabase Auth and the `user_profiles` table. It uses a **2-Stage Key** pattern to clear the Supabase API Gateway (Kong) while maintaining function security.

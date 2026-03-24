@@ -3,7 +3,8 @@ import TranscriptionService from '../TranscriptionService';
 import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
 import { MicStream } from '../utils/types';
 import { testRegistry } from '../TestRegistry';
-import { ITranscriptionEngine } from '../modes/types';
+import { STTEngine } from '@/contracts/STTEngine';
+import { Result } from '../modes/types';
 
 // Mock dependencies
 const mockOnTranscriptUpdate = vi.fn();
@@ -14,13 +15,19 @@ const mockOnModeChange = vi.fn();
 const mockNavigate = vi.fn();
 const mockGetToken = vi.fn().mockResolvedValue('mock-token');
 
-class SuccessNativeEngine implements ITranscriptionEngine {
-    init = vi.fn().mockResolvedValue(undefined);
-    startTranscription = vi.fn().mockResolvedValue(undefined);
-    stopTranscription = vi.fn().mockResolvedValue('test');
-    getTranscript = vi.fn().mockReturnValue('test');
+class SuccessNativeEngine extends STTEngine {
+    public readonly type = 'native' as const;
+    
+    protected async onInit() { return Result.ok(undefined); }
+    protected async onStart() {}
+    protected async onStop() {}
+    protected async onDestroy() {}
+    async transcribe() { return Result.ok('test'); }
+
+    // Race Test: Simulate slow termination
     terminate = vi.fn().mockImplementation(() => new Promise(res => setTimeout(res, 50)));
-    getEngineType = () => 'native' as const;
+
+    public override async getTranscript() { return 'test'; }
 }
 
 describe('TranscriptionService - Race Conditions', () => {
@@ -104,7 +111,7 @@ describe('TranscriptionService - Race Conditions', () => {
         // Arrange: Start a new service where init takes a while
         const engine = new SuccessNativeEngine();
         const initPromiseResolves = new Promise(resolve => setTimeout(resolve, 50));
-        engine.init.mockImplementation(() => initPromiseResolves);
+        vi.spyOn(engine, 'init').mockImplementation(() => initPromiseResolves as Promise<Result<void, Error>>);
         testRegistry.register('native', () => engine);
 
         const freshService = new TranscriptionService({

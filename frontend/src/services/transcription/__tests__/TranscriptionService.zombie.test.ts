@@ -5,18 +5,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService, { TranscriptionServiceOptions } from '../TranscriptionService';
 import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
-import { ITranscriptionEngine } from '../modes/types';
+import { STTEngine } from '@/contracts/STTEngine';
+import { Result } from '../modes/types';
+import { EngineType } from '@/contracts/IPrivateSTTEngine';
 import { testRegistry } from '../TestRegistry';
 import { MicStream } from '../utils/types';
 
-class MockEngine implements ITranscriptionEngine {
-    constructor(private name: string) { }
-    init = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
-    startTranscription = vi.fn<(mic: unknown) => Promise<void>>().mockResolvedValue(undefined);
-    stopTranscription = vi.fn<() => Promise<string>>().mockResolvedValue('');
-    getTranscript = vi.fn<() => Promise<string>>().mockResolvedValue('');
+class MockEngine extends STTEngine {
+    constructor(private name: string) {
+        super();
+    }
+    public get type(): EngineType { return this.name as EngineType; }
+
+    onInit = vi.fn().mockResolvedValue(Result.ok(undefined));
+    onStart = vi.fn().mockResolvedValue(undefined);
+    onStop = vi.fn().mockResolvedValue(undefined);
+    onDestroy = vi.fn().mockResolvedValue(undefined);
+    transcribe = vi.fn().mockResolvedValue(Result.ok(''));
+
     terminate = vi.fn().mockResolvedValue(undefined);
-    getEngineType = () => this.name;
 }
 
 // Testable subclass to expose protected methods if needed

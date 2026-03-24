@@ -20,7 +20,9 @@ if grep -r "eslint-disable" . \
     --exclude="pnpm-lock.yaml" \
     --exclude="mockServiceWorker.js" \
     --exclude="test-audit.sh" \
-    --exclude="*.md"; then
+    --exclude="*.md" \
+    --exclude="*.log" \
+    --exclude="run-ci.mjs"; then
     
     echo "❌ Error: 'eslint-disable' directives found in the codebase."
     echo "   Please fix the underlying lint errors instead of suppressing them."

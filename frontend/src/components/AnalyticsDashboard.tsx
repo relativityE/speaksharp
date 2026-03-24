@@ -279,11 +279,11 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                         variant="secondary"
                         size="sm"
                         className="gap-2 hover:bg-primary hover:text-primary-foreground transition-all shadow-sm"
-                        onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            generateSessionPdf(session, profileName);
-                        }}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                void generateSessionPdf(session, profileName);
+                            }}
                         title="Download Session PDF"
                         data-testid={`download-pdf-btn-${session.id}`}
                     >
@@ -300,7 +300,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                     onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        generateSessionPdf(session, profileName);
+                        void generateSessionPdf(session, profileName);
                     }}
                     data-testid={`download-pdf-btn-mobile-${session.id}`}
                 >
@@ -595,7 +595,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                                 type="file"
                                                 ref={fileInputRef}
                                                 accept=".pdf"
-                                                onChange={handleFileUpload}
+                                                onChange={(e) => { void handleFileUpload(e); }}
                                                 className="hidden"
                                             />
                                             <Button
@@ -612,7 +612,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                onClick={() => generateSessionPdf(targetSession, profile?.email || 'User')}
+                                                onClick={() => { void generateSessionPdf(targetSession, profile?.email || 'User'); }}
                                                 className="gap-2"
                                             >
                                                 <Download className="h-4 w-4" />
@@ -805,7 +805,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                                     <CardContent className="pl-2">
                                                         {overallStats.chartData.length > 1 ? (
                                                             <div className="h-[300px] w-full">
-                                                                <ResponsiveContainer width="100%" height="100%">
+                                                                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                                                                     <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                                                         <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
                                                                         <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />

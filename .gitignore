@@ -13,15 +13,16 @@ build/
 .turbo/
 
 # --- Testing & CI Artifacts ---
-/test-results/
+**/test-results/
 /artifacts/
-/playwright-report/
+**/playwright-report/
 /blob-report/
 /merged-reports/
 /test-support/
 /lighthouse-results/
 /.lighthouseci/
-/screenshots/
+**/screenshots
+**/*.spec.ts-snapshots/
 coverage/
 html/
 # test-impact-map.json (Essential for TIA - keep tracked)

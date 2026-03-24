@@ -1,5 +1,4 @@
 import { useMemo, useCallback, useRef, useEffect } from 'react';
-import { useAuthProvider } from '../../contexts/AuthProvider';
 import { useNavigate } from 'react-router-dom';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { calculateTranscriptStats } from '../../utils/fillerWordUtils';
@@ -12,14 +11,20 @@ import { useTranscriptionState } from './useTranscriptionState';
 import { useFillerWords } from './useFillerWords';
 import { useTranscriptionControl } from './useTranscriptionControl';
 import { useTranscriptionCallbacks } from './useTranscriptionCallbacks';
-import { useSessionTimer } from './useSessionTimer';
 import { useVocalAnalysis } from '../useVocalAnalysis';
 import { API_CONFIG } from '../../config';
-import type { UseSpeechRecognitionProps, TranscriptStats, TranscriptionPolicy } from './types';
-// import type { SttStatus } from '@/types/transcription'; // Unused
+import type { UseSpeechRecognitionProps, TranscriptStats, TranscriptionPolicy, Chunk } from './types';
+import type { SttStatus } from '@/types/transcription';
 import { E2E_DETERMINISTIC_NATIVE, buildPolicyForUser } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { useSessionStore } from '../../stores/useSessionStore';
+import { speechRuntimeController } from '../../services/SpeechRuntimeController';
+
+// Error handling helper
+function handleTranscriptionError(err: Error) {
+    logger.error({ err }, 'Transcription Error');
+    toast.error(err.message, { id: 'stt-error-toast', duration: 5000 });
+}
 
 /**
  * Orchestrator Hook: useSpeechRecognition (Production)
@@ -32,20 +37,37 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     const userVocabulary = useMemo(() => props.userVocabulary || [], [props.userVocabulary]);
     const { session } = props;
     const { profile } = useProfile();
-    const { session: authSession } = useAuthProvider();
     const navigate = useNavigate();
-    const { stopSession, startSession, sttStatus, modelLoadingProgress } = useSessionStore();
-
+    
+    // Select strictly from store (Read-Only)
+    const store = useSessionStore();
     const toastIdRef = useRef<string | number | null>(null);
 
-    // 1. Core Service Hooks
-    const stt = useTranscriptionState();
-    const control = useTranscriptionControl();
-    const filler = useFillerWords(stt.finalChunks, stt.interimTranscript, userWords);
-    const vocal = useVocalAnalysis();
-    const timer = useSessionTimer(stt.isRecording);
+    // 1. Core Service Hooks (Projections)
+    const stt = useTranscriptionState(); // Already refactored to read from store
+    const { 
+        isRecording: storeIsListening, 
+        interimTranscript: storeInterim,
+        finalChunks,
+        state: runtimeState
+    } = stt;
 
-    // 2. Specialized Callbacks
+    // Mapping for backward compatibility within this hook
+    const storeTranscript = { partial: storeInterim };
+
+    // Additional store access for specialized fields not in stt hook
+    const { 
+        isReady: storeIsReady, 
+        sttStatus, 
+        modelLoadingProgress, 
+        elapsedTime,
+    } = store;
+    useTranscriptionControl();
+    const filler = useFillerWords(finalChunks as unknown as Chunk[], storeTranscript.partial, userWords);
+    const vocal = useVocalAnalysis();
+    // timer logic is centralized in useSessionStore.tick (driven by useSessionLifecycle)
+
+    // 2. Specialized Callbacks (Controller Auth)
     const getAssemblyAIToken = useCallback(async (): Promise<string | null> => {
         const rateCheck = checkRateLimit('ASSEMBLYAI_TOKEN');
         if (!rateCheck.allowed && rateCheck.retryAfterMs && rateCheck.retryAfterMs > 0) {
@@ -56,8 +78,6 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
 
         try {
             const supabase = getSupabaseClient();
-            if (!supabase || !authSession) throw new Error("Auth session missing");
-
             const { data, error } = await supabase.functions.invoke(API_CONFIG.ASSEMBLYAI_TOKEN_ENDPOINT, { body: {} });
             if (error) throw new Error(`Token function error: ${error.message}`);
             return data.token;
@@ -66,19 +86,13 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
             toast.error("Cloud STT Service Unavailable. Check connection or switch modes.");
             return null;
         }
-    }, [authSession]);
+    }, []);
 
-    // 3. Callback Synchronization
+    // 3. Callback Synchronization with Authoritative Controller
     useTranscriptionCallbacks({
-        onTranscriptUpdate: (data) => {
-            if (data.transcript?.partial && !data.transcript.partial.startsWith('Downloading model')) {
-                stt.setInterimTranscript(data.transcript.partial);
-            }
-            if (data.transcript?.final) {
-                // Pass speaker if available (Speaker ID support)
-                stt.addChunk(data.transcript.final, data.transcript.speaker);
-                stt.setInterimTranscript('');
-            }
+        onTranscriptUpdate: () => {
+            // Master Invariant: SpeechRuntimeController pushes to store directly.
+            // This hook and the UI it serves will react via useSessionStore reactivity.
         },
         onAudioData: vocal.processAudioFrame,
         getAssemblyAIToken,
@@ -87,97 +101,85 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         userWords: userVocabulary,
         policy: buildPolicyForUser(profile?.subscription_status === 'pro', null),
         onReady: () => {
-            logger.info('[useSpeechRecognition] Service ready');
-            useSessionStore.getState().setReady(true);
+            logger.info('[useSpeechRecognition] Service ready signal received');
         },
-        onError: (err) => stt.setError(err),
-        onModelLoadProgress: (_progress) => {
-            // TranscriptionService handles store updates for progress (percentages)
-            // No action needed here to avoid Decimal-vs-Percentage conflicts
-        },
-        onStatusChange: (status) => {
-            if (status.type === 'error') handleTranscriptionError(new Error(status.message), stopSession);
+        onStatusChange: (status: SttStatus) => {
+            if (status.type === 'error') handleTranscriptionError(new Error(status.message));
             if (status.type === 'info') toast.info(status.message);
-        }
+        },
+        onError: handleTranscriptionError
     });
 
     // 4. Lifecycle Sync (Source of Truth for Vocal)
     useEffect(() => {
-        vocal.setIsActive(stt.isRecording);
-    }, [stt.isRecording, vocal]);
+        vocal.setIsActive(storeIsListening);
+    }, [storeIsListening, vocal]);
 
-    // 5. Public Actions
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            // Signal the controller that this specific subscriber is gone.
+            // The controller decides whether to reset based on active session state.
+            speechRuntimeController.reset('subscriber_unmount').catch(err => {
+                logger.error({ err }, '[useSpeechRecognition] Cleanup reset failed');
+            });
+        };
+    }, []);
+
+    // 5. Public Actions (Controller Triggers)
     const reset = useCallback(() => {
-        stt.reset();
-        timer.reset();
-        stopSession();
+        speechRuntimeController.reset('manual_reset').catch(err => {
+            logger.error({ err }, '[useSpeechRecognition] Manual reset failed');
+        });
         if (toastIdRef.current) {
             toast.dismiss(toastIdRef.current);
             toastIdRef.current = null;
         }
-    }, [stt, timer, stopSession]);
+    }, []);
 
     const startListening = useCallback(async (policy: TranscriptionPolicy = E2E_DETERMINISTIC_NATIVE) => {
-        reset();
-        startSession(); // UI Intent
-        await control.startListening(policy);
-    }, [control, reset, startSession]);
+        await speechRuntimeController.startRecording(policy);
+    }, []);
 
     const stopListening = useCallback(async (): Promise<(TranscriptStats & { filler_words: FillerCounts }) | null> => {
         if (toastIdRef.current) toast.dismiss(toastIdRef.current);
 
-        // ✅ UI STATE FIRST: Transition store state immediately so indicator/buttons update
-        stopSession();
+        const result = (await speechRuntimeController.stopRecording()) as TranscriptStats | null;
 
-        const result = await control.stopListening();
-
-        if (result && result.success) {
-            const stats = calculateTranscriptStats(
-                stt.finalChunks,
-                [],
-                stt.interimTranscript,
-                timer.duration
-            );
+        if (result) {
             return {
-                ...stats,
+                ...result,
                 filler_words: filler.counts,
             };
         }
         return null;
-    }, [control, stt, timer, filler, stopSession]);
+    }, [filler]);
 
-    // 6. Derived Props
+    // 6. Derived Props (Pure Projection)
     const transcriptStats = useMemo(() => {
         return calculateTranscriptStats(
-            stt.finalChunks,
-            [],
-            stt.interimTranscript,
-            timer.duration
+            finalChunks as unknown as Array<{ transcript: string }>,
+            [], // wordConfidences expected as WordConfidence[]
+            storeTranscript.partial,
+            elapsedTime
         );
-    }, [stt.finalChunks, stt.interimTranscript, timer.duration]);
+    }, [finalChunks, storeTranscript.partial, elapsedTime]);
 
     return {
         transcript: transcriptStats,
-        chunks: stt.finalChunks,
-        interimTranscript: stt.interimTranscript,
+        chunks: finalChunks,
+        interimTranscript: storeTranscript.partial,
         fillerData: filler.counts,
-        isListening: stt.isRecording || stt.isInitializing,
-        isReady: control.isServiceReady,
-        error: stt.error,
+        isListening: storeIsListening,
+        isReady: storeIsReady,
+        error: sttStatus.type === 'error' ? new Error(sttStatus.message) : null,
         isSupported: true,
-        mode: stt.state === 'RECORDING' ? 'active' : 'idle', // Approximate legacy
-        sttStatus: sttStatus, // ✅ FIXED: Return legitimate store state (recording/downloading/etc)
-        modelLoadingProgress: modelLoadingProgress, // ✅ FIXED: Return legitimate download progress
+        mode: runtimeState === 'RECORDING' ? 'active' : 'idle',
+        sttStatus: sttStatus,
+        modelLoadingProgress: modelLoadingProgress,
         startListening,
         stopListening,
         reset,
         pauseMetrics: vocal.pauseMetrics,
     };
 };
-
-// Error handling helper
-function handleTranscriptionError(err: Error, stopSession: () => void) {
-    logger.error({ err }, 'Transcription Error');
-    toast.error(err.message, { id: 'stt-error-toast', duration: 5000 });
-    stopSession();
-}

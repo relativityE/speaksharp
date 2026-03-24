@@ -1,138 +1,115 @@
-import { Result } from 'true-myth';
-import { IPrivateSTTEngine, EngineCallbacks, EngineType } from './IPrivateSTTEngine';
-import { ITranscriptionEngine, TranscriptionModeOptions } from '../modes/types';
-import { MicStream } from '../utils/types';
-import logger from '../../../lib/logger';
+import { Result } from '../modes/types';
+import { EngineCallbacks, EngineType } from '@/contracts/IPrivateSTTEngine';
+
+import logger from '@/lib/logger';
+import { STTEngine } from '@/contracts/STTEngine';
+import { TranscriptionModeOptions } from '../modes/types';
 
 /**
  * Industry Standard: Deterministic Mock Pattern
- * Reference: Jest, Playwright, Cypress mock patterns
+ * 
+ * DESIGN RATIONALE:
+ * This mock is essential for E2E stability. It provides:
+ * 1. Monotonic timing (no flaky network waits).
+ * 2. Predictable transcripts via correlation IDs.
+ * 3. Heartbeat simulation to satisfy the STTEngine contract.
  */
-export class MockEngine implements ITranscriptionEngine, IPrivateSTTEngine {
+export class MockEngine extends STTEngine {
     public readonly type: EngineType = 'mock';
-    private transcriptTimer: NodeJS.Timeout | null = null;
-    private isTranscribing = false;
-    private onTranscriptCallback: ((transcript: string, isFinal: boolean) => void) | null = null;
-    private options: TranscriptionModeOptions;
-    private lastTranscript = '';
 
-    // Configurable mock responses
-    private readonly MOCK_TRANSCRIPT_SEQUENCE = [
-        { transcript: 'Hello', delay: 500, isFinal: false },
-        { transcript: 'Hello world', delay: 1000, isFinal: false },
-        { transcript: 'Hello world this is a test', delay: 1500, isFinal: false },
-        { transcript: 'Hello world this is a test transcript', delay: 2000, isFinal: true }
-    ];
-
-    constructor(options?: TranscriptionModeOptions) {
-        this.options = options || {
-            onTranscriptUpdate: () => {},
-            onReady: () => {}
-        };
+    constructor(_options?: TranscriptionModeOptions) {
+        super();
     }
 
     /**
-     * Unified init implementation using overloads to satisfy:
-     * 1. ITranscriptionEngine: init(): Promise<void>
-     * 2. IPrivateSTTEngine: init(callbacks: EngineCallbacks, timeoutMs?: number): Promise<Result<void, Error>>
+     * IPrivateSTTEngine implementation via STTEngine hooks
      */
-    async init(): Promise<void>;
-    async init(callbacks: EngineCallbacks, timeoutMs?: number): Promise<Result<void, Error>>;
-    async init(callbacks?: EngineCallbacks, _timeoutMs?: number): Promise<Result<void, Error> | void> {
-        logger.info('[MockEngine] 🎭 Initializing mock engine for E2E testing');
-        // Simulate async initialization
-        await this.delay(100);
-        logger.info('[MockEngine] ✅ Mock engine initialized');
-        
-        if (callbacks?.onReady) callbacks.onReady();
-        if (this.options?.onReady) this.options.onReady();
+    protected async onInit(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[MockEngine] Initializing...');
 
-        if (typeof callbacks === 'object' && callbacks !== null && 'onReady' in callbacks) {
-          return Result.ok(undefined);
+        if (callbacks.onModelLoadProgress) {
+            callbacks.onModelLoadProgress(0);
+            await new Promise(r => setTimeout(r, 100)); // Simulate minimal load time
+            callbacks.onModelLoadProgress(100);
         }
+
+        if (callbacks.onReady) {
+            callbacks.onReady();
+        }
+
+        return { isOk: true, data: undefined };
     }
 
-    async initialize(): Promise<void> {
-        return this.init();
+    protected async onStart(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[MockEngine] Start Hook called.');
     }
 
-    /**
-     * IPrivateSTTEngine implementation
-     */
+    protected async onStop(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[MockEngine] Stop Hook called.');
+    }
+
+    protected async onDestroy(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[MockEngine] Destroy Hook called.');
+    }
+
     async transcribe(_audio: Float32Array): Promise<Result<string, Error>> {
-        // Return empty result as this mock uses callback-based emitter for realism
-        return Result.ok('');
+        if (!this.isInitialized) {
+            return { isOk: false, error: new Error('MockEngine not initialized.') };
+        }
+
+        this.updateHeartbeat();
+
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[MockEngine] Transcribing dummy audio block...');
+        
+        // Return a deterministic transcript based on serviceId for test validation
+        const transcript = `[MOCK] Translated segment for ${this.serviceId}`;
+        
+        this.updateHeartbeat();
+        return { isOk: true, data: transcript };
     }
 
     /**
-     * ITranscriptionEngine implementation
+     * Legacy Interface compatibility (to satisfy ITranscriptionEngine)
      */
-    async startTranscription(_mic?: MicStream): Promise<void> {
-        logger.info('[MockEngine] ▶️ Starting mock transcription');
-
-        this.isTranscribing = true;
-
-        // Emit transcript sequence
-        let cumulativeDelay = 0;
-
-        for (const segment of this.MOCK_TRANSCRIPT_SEQUENCE) {
-            cumulativeDelay += segment.delay;
-
-            this.transcriptTimer = setTimeout(() => {
-                if (this.isTranscribing) {
-                    this.lastTranscript = segment.transcript;
-                    
-                    if (this.onTranscriptCallback) {
-                        logger.info({ transcript: segment.transcript, final: segment.isFinal }, '[MockEngine] 📝 Emitting via direct callback');
-                        this.onTranscriptCallback(segment.transcript, segment.isFinal);
-                    }
-                    
-                    // Also notify via options for integration tests
-                    this.options.onTranscriptUpdate({
-                        transcript: { [segment.isFinal ? 'final' : 'partial']: segment.transcript }
-                    });
-                }
-            }, cumulativeDelay);
+    public override async init(callbacks: EngineCallbacks, timeoutMs?: number): Promise<Result<void, Error>>;
+    public async init(): Promise<void>;
+    public override async init(callbacks?: EngineCallbacks, timeoutMs?: number): Promise<Result<void, Error> | void> {
+        if (callbacks && typeof callbacks === 'object' && 'onReady' in callbacks) {
+            return super.init(callbacks, timeoutMs);
         }
+        this.isInitialized = true;
+    }
+
+    async startTranscription(_mic?: unknown): Promise<void> {
+        await this.start();
     }
 
     async stopTranscription(): Promise<string> {
-        logger.info('[MockEngine] ⏸️ Stopping mock transcription');
-
-        this.isTranscribing = false;
-
-        if (this.transcriptTimer) {
-            clearTimeout(this.transcriptTimer);
-            this.transcriptTimer = null;
-        }
-
-        const finalTranscript = this.MOCK_TRANSCRIPT_SEQUENCE[
-            this.MOCK_TRANSCRIPT_SEQUENCE.length - 1
-        ].transcript;
-
-        return finalTranscript;
+        await this.stop();
+        return `[MOCK] Final transcript for ${this.serviceId}`;
     }
 
-    async destroy(): Promise<void> {
-        logger.info('[MockEngine] 🗑️ Destroying mock engine');
-
-        await this.stopTranscription();
-        this.onTranscriptCallback = null;
-    }
-
-    async terminate(): Promise<void> {
-        return this.destroy();
+    dispose(): void {
+        void this.destroy();
     }
 
     async getTranscript(): Promise<string> {
-        return this.lastTranscript;
+        return `[MOCK] Current transcript for ${this.serviceId}`;
     }
 
     getEngineType(): string {
-        return 'mock';
+        return this.type;
     }
 
-    private delay(ms: number): Promise<void> {
-        return new Promise(resolve => setTimeout(resolve, ms));
+    async pause(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId }, '[MockEngine] Pause requested');
+    }
+
+    async resume(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId }, '[MockEngine] Resume requested');
+    }
+
+    async terminate(): Promise<void> {
+        await this.destroy();
     }
 }

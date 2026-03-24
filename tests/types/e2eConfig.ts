@@ -4,7 +4,7 @@
  */
 
 export interface E2EConfig {
-    context: 'e2e' | 'unit' | 'integration' | 'production';
+    mode: 'e2e' | 'unit' | 'integration' | 'production';
     testMode: boolean;
 
     stt: {
@@ -65,7 +65,7 @@ export interface E2EConfig {
 }
 
 export const DEFAULT_E2E_CONFIG: E2EConfig = {
-    context: 'production',
+    mode: 'production',
     testMode: false,
     stt: { mode: 'real', mocks: {} },
     progress: { mode: 'auto' },
@@ -77,34 +77,48 @@ export const DEFAULT_E2E_CONFIG: E2EConfig = {
 
 export function getE2EConfig(): E2EConfig {
     if (typeof window === 'undefined') return DEFAULT_E2E_CONFIG;
-    // Unified namespace for all test environment flags
-    return window.__APP_TEST_ENV__ || DEFAULT_E2E_CONFIG;
+    
+    // Bridge: Derive E2EConfig from the modern __SS_E2E__ manifest
+    if (window.__SS_E2E__) {
+        const manifest = window.__SS_E2E__;
+        return {
+            ...DEFAULT_E2E_CONFIG,
+            mode: manifest.isActive ? 'e2e' : 'production',
+            isE2E: manifest.isActive,
+            stt: {
+                mode: manifest.engineType === 'mock' ? 'mock' : 'real',
+                mocks: {}
+            },
+            registry: {
+                overrides: new Map(Object.entries(manifest.registry || {}))
+            },
+            debug: manifest.debug
+        };
+    }
+    
+    return DEFAULT_E2E_CONFIG;
 }
 
 export function initE2EConfig(config: Partial<E2EConfig>): void {
     if (typeof window === 'undefined') return;
     
-    const merged = {
-        ...DEFAULT_E2E_CONFIG,
-        ...config,
-        stt: { ...DEFAULT_E2E_CONFIG.stt, ...config.stt },
-        progress: { ...DEFAULT_E2E_CONFIG.progress, ...config.progress },
-        auth: { ...DEFAULT_E2E_CONFIG.auth, ...config.auth },
-        limits: { ...DEFAULT_E2E_CONFIG.limits, ...config.limits },
-        registry: { ...DEFAULT_E2E_CONFIG.registry, ...config.registry },
-        exposedState: { ...DEFAULT_E2E_CONFIG.exposedState, ...config.exposedState }
+    // 🚀 Strict Zero Alignment: Initialize the modern manifest directly
+    window.__SS_E2E__ = {
+        isActive: !!(config.mode === 'e2e' || config.isE2E),
+        engineType: config.stt?.mode === 'mock' ? 'mock' : 'real',
+        registry: config.registry?.overrides ? Object.fromEntries(config.registry.overrides.entries()) : {},
+        debug: config.debug,
+        flags: {
+            bypassMutex: config.mode === 'e2e', // Optional: preserve some logic if helpful
+            fastTimers: config.mode === 'e2e'
+        }
     };
 
-    window.__APP_TEST_ENV__ = merged;
-    
-    // Maintain legacy pointers if necessary, but transition to __APP_TEST_ENV__
-    window.__E2E_CONFIG__ = merged;
+    // Note: Legacy pointers (__APP_TEST_ENV__, TEST_MODE) are DELETED per mandate.
 }
 
 declare global {
     interface Window {
-        __APP_TEST_ENV__?: E2EConfig;
-        __E2E_CONFIG__?: E2EConfig; // Legacy pointer
         __E2E_EMPTY_SESSIONS__?: boolean;
     }
 }

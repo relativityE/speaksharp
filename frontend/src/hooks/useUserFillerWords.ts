@@ -68,7 +68,7 @@ export const useUserFillerWords = () => {
 
             if (!session?.user?.id) throw new Error('No user session');
 
-            // Expert Fix: Use .select() to return the inserted data immediately
+            // Use .select() to return the inserted data immediately
             // This bypasses Vercel/CDN cache on the subsequent GET request
             const { data, error } = await supabase
                 .from('user_filler_words')
@@ -80,7 +80,7 @@ export const useUserFillerWords = () => {
             return data;
         },
         onSuccess: (newItem) => {
-            // Expert Fix: Manually update cache with authoritative data from DB
+            // Manually update cache with authoritative data from DB
             queryClient.setQueryData(['user-filler-words', session?.user?.id], (old: UserWord[] = []) => {
                 return [...old, newItem];
             });
@@ -103,7 +103,7 @@ export const useUserFillerWords = () => {
         },
         onSuccess: (_, id) => {
             const removedWord = userFillerWords.find(w => w.id === id)?.word;
-            queryClient.invalidateQueries({ queryKey: ['user-filler-words', session?.user?.id] });
+            void queryClient.invalidateQueries({ queryKey: ['user-filler-words', session?.user?.id] });
             toast.success('Word removed');
 
             if (removedWord) {

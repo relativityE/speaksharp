@@ -13,6 +13,22 @@ export class MockTranscriptionService {
     public isSupported = true;
     public mode = 'native';
     public sttStatus: SttStatus = { type: 'idle', message: 'Idle' };
+    public state: string = 'IDLE';
+    private sessionId: string = 'mock-session-id';
+    private startTime: number = Date.now();
+    private fsmSubscribers: Set<(state: string) => void> = new Set();
+    public fsm = {
+        subscribe: (cb: (state: string) => void) => {
+            this.fsmSubscribers.add(cb);
+            return () => this.fsmSubscribers.delete(cb);
+        },
+        getState: () => this.state,
+        is: (state: string) => this.state === state,
+    };
+
+    private notifySubscribers() {
+        this.fsmSubscribers.forEach(cb => cb(this.state));
+    }
 
     // Callbacks provided by the hook
     private options: TranscriptionModeOptions;
@@ -25,28 +41,47 @@ export class MockTranscriptionService {
         MockTranscriptionService.latestInstance = this;
     }
 
+    getState = () => this.state;
+    updateCallbacks = (options: Partial<TranscriptionModeOptions>) => {
+        this.options = { ...this.options, ...options };
+    };
+
     // --- ITranscriptionService Interface Implementation ---
 
     init = async (): Promise<void> => {
         this.isReady = true;
+        this.state = 'READY';
+        this.notifySubscribers();
         this.options.onReady?.();
+    }
+
+    warmUp = async (mode: string): Promise<void> => {
         return Promise.resolve();
     }
 
-    startTranscription = async (): Promise<void> => {
+    startTranscription = async (policy?: any): Promise<void> => {
         this.isListening = true;
+        this.state = 'RECORDING';
+        this.notifySubscribers();
         this.sttStatus = { type: 'ready', message: 'Recording active' };
         return Promise.resolve();
     }
 
-    stopTranscription = async (): Promise<{ transcript: string; duration: number }> => {
+    stopTranscription = async (): Promise<string> => {
         this.isListening = false;
+        this.state = 'READY';
+        this.notifySubscribers();
 
-        // Return snapshot (solves stale closure)
-        return {
-            transcript: 'Test transcript final',
-            duration: 120,
-        };
+        // Return transcript string (solves contract mismatch)
+        return 'Test transcript final';
+    }
+
+    start = async (): Promise<void> => {
+        await this.startTranscription();
+    }
+
+    stop = async (): Promise<void> => {
+        await this.stopTranscription();
     }
 
     terminate = async (): Promise<void> => {
@@ -58,9 +93,7 @@ export class MockTranscriptionService {
         return this.terminate();
     }
 
-    updatePolicy(): void {
-        // Mock implementation
-    }
+    updatePolicy = vi.fn();
 
     resetEphemeralState(): void {
         this.isListening = false;
@@ -70,6 +103,33 @@ export class MockTranscriptionService {
 
     getMode = () => this.mode;
     getEngineType = () => this.mode === 'private' ? 'whisper-turbo' : this.mode;
+
+    getEngine = (): any => {
+        return {
+            getLastHeartbeatTimestamp: () => Date.now(),
+            terminate: async () => {},
+            getTranscript: async () => 'Test transcript',
+            getEngineType: () => this.mode,
+            start: async () => {},
+            stop: async () => {}
+        };
+    }
+
+    dispose = (): void => {
+        void this.terminate();
+    }
+
+    getLastHeartbeatTimestamp = (): number => {
+        return Date.now();
+    }
+
+    getStartTime = () => this.startTime;
+    setSessionId = (id: string) => { 
+        this.sessionId = id;
+        console.log('[DEBUG Mock] setSessionId:', id); 
+    };
+    getSessionId = () => this.sessionId;
+    getMetadata = () => ({ engineVersion: '1.0.0', modelName: 'mock-model', deviceType: 'test' });
 
     getTranscript = async (): Promise<string> => {
         return "Current transcript";

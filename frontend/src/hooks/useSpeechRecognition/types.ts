@@ -2,7 +2,7 @@ import type { Session as SupabaseSession } from '@supabase/supabase-js';
 
 export interface Chunk {
   transcript: string;
-  id: number;
+  id?: number;
   timestamp: number;
   speaker?: string;
 }
@@ -24,6 +24,7 @@ export interface TranscriptStats {
   total_words: number;
   accuracy: number;
   duration: number;
+  filler_words?: Record<string, { count: number }>;
 }
 
 // Re-export policy types

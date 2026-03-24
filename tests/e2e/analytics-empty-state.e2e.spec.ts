@@ -5,7 +5,7 @@ test.describe('Analytics Page - Empty State', () => {
     test('should display empty state when user has no session history', async ({ emptyUserPage }) => {
         // Ensure fresh state and synchronize MSW
         await emptyUserPage.reload();
-        await emptyUserPage.waitForLoadState('networkidle');
+        
 
         // Navigate to analytics page using client-side navigation (NOT page.goto!)
         await navigateToRoute(emptyUserPage, '/analytics');

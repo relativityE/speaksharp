@@ -1,18 +1,20 @@
-
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, waitFor } from '../../../../tests/support/test-utils';
-import { renderHookWithProviders } from '@test-utils/renderHookWithProviders';
-import { MockTranscriptionService } from '@test-mocks/MockTranscriptionService';
-import useSpeechRecognition from '../index';
-import { testRegistry } from '@/services/transcription/TestRegistry';
-import { resetTranscriptionService } from '@/services/transcription/TranscriptionService';
-import type { Session as SupabaseSession } from '@supabase/supabase-js';
-import { TranscriptionModeOptions, ITranscriptionEngine } from '@/services/transcription/modes/types';
+import logger from '@/lib/logger';
 
-
-
-
-
+// Senior Choice: Formal module mock to prevent real TranscriptionService from loading
+// Moving to top to ensure it's applied before any component/hook imports
+vi.mock('@/services/transcription/TranscriptionService', async () => {
+    const { MockTranscriptionService } = await import('../../../../tests/mocks/MockTranscriptionService');
+    
+    // Provide a valid substitute for the class with static methods
+    return {
+        default: MockTranscriptionService,
+        resetTranscriptionService: vi.fn(),
+        getTranscriptionService: vi.fn(() => MockTranscriptionService.latestInstance),
+        // Add static subscribe if hook uses it
+        subscribe: vi.fn(() => ({ unsubscribe: vi.fn() })),
+    };
+});
 
 // Mock the TestRegistry to ensure we can register our mock
 vi.mock('@/services/transcription/TestRegistry', async () => {
@@ -26,45 +28,66 @@ vi.mock('@/services/transcription/TestRegistry', async () => {
     };
 });
 
-vi.mock('@/services/SpeechRuntimeController', async () => {
-    const actual = await vi.importActual('@/services/SpeechRuntimeController');
-    return {
-        ...actual,
-        speechRuntimeController: {
-            initialize: vi.fn().mockResolvedValue(undefined),
-            startRecording: vi.fn().mockImplementation(async () => {
-                const { getTranscriptionService } = await import('@/services/transcription/TranscriptionService');
-                return getTranscriptionService().startTranscription();
-            }),
-            stopRecording: vi.fn().mockImplementation(async () => {
-                const { getTranscriptionService } = await import('@/services/transcription/TranscriptionService');
-                return getTranscriptionService().stopTranscription();
-            }),
-            getState: vi.fn().mockReturnValue('READY'),
-        }
-    };
-});
+import { act, waitFor } from '../../../../tests/support/test-utils';
+import { renderHookWithProviders } from '@test-utils/renderHookWithProviders';
+import useSpeechRecognition from '../index';
+import { testRegistry } from '@/services/transcription/TestRegistry';
+import TranscriptionService from '@/services/transcription/TranscriptionService';
+import type { Session as SupabaseSession } from '@supabase/supabase-js';
+import { ITranscriptionEngine, TranscriptionModeOptions } from '@/services/transcription/modes/types';
+import { MockTranscriptionService } from '../../../../tests/mocks/MockTranscriptionService';
+import { speechRuntimeController } from '@/services/SpeechRuntimeController';
+import { useSessionStore } from '@/stores/useSessionStore';
+
+// Hoist STTServiceFactory mock
+const { STTServiceFactory } = vi.hoisted(() => ({
+    STTServiceFactory: {
+        createService: vi.fn()
+    }
+}));
+
+vi.mock('@/services/transcription/STTServiceFactory', () => ({
+    STTServiceFactory
+}));
+
+// We are NOT mocking SpeechRuntimeController anymore to allow REAL state flow to the REAL store
+
 
 describe('useSpeechRecognition Integration', () => {
-    beforeEach(() => {
+    let service: MockTranscriptionService;
+
+    beforeEach(async () => {
         vi.clearAllMocks();
-        resetTranscriptionService();
-        MockTranscriptionService.latestInstance = null;
-        // Setup the registry to return our MockTranscriptionService constructor
-        // We use a specific constructor type to avoid the 'any' lint error while maintaining compatibility
-        vi.mocked(testRegistry.get).mockReturnValue((opts: TranscriptionModeOptions) => new MockTranscriptionService(opts));
+        await speechRuntimeController.reset();
+        useSessionStore.getState().resetSession();
+        await speechRuntimeController.reset();
+        
+        // Enforce singleton initialization for the mock
+        const s = new MockTranscriptionService({
+            onTranscriptUpdate: vi.fn(),
+            onModelLoadProgress: vi.fn(),
+            onReady: vi.fn(),
+            onError: vi.fn(),
+        });
+        MockTranscriptionService.latestInstance = s;
+        service = s;
 
-        const win = window as unknown as Window & {
-            __E2E_MOCK_NATIVE__?: boolean;
-            __E2E_MOCK_LOCAL_WHISPER__?: boolean;
-            MockNativeBrowser?: unknown;
-            MockPrivateWhisper?: unknown;
-        };
+        // Setup the factory to return our singleton mock but with the NEW callbacks from the controller
+        vi.mocked(STTServiceFactory.createService).mockImplementation((opts) => {
+            service.updateCallbacks(opts);
+            return service as unknown as TranscriptionService;
+        });
+        
+        vi.mocked(testRegistry.get).mockReturnValue((opts: TranscriptionModeOptions) => {
+            service.updateCallbacks(opts);
+            return service as unknown as ITranscriptionEngine;
+        });
 
-        win.__E2E_MOCK_NATIVE__ = true;
-        win.MockNativeBrowser = MockTranscriptionService as unknown as new (config: TranscriptionModeOptions) => ITranscriptionEngine;
-        win.MockPrivateWhisper = MockTranscriptionService as unknown as new (config: TranscriptionModeOptions) => ITranscriptionEngine;
-        win.__E2E_MOCK_LOCAL_WHISPER__ = true;
+        // Use global stubbing for cleaner window mocking
+        vi.stubGlobal('__E2E_MOCK_NATIVE__', true);
+        vi.stubGlobal('__E2E_MOCK_LOCAL_WHISPER__', true);
+        vi.stubGlobal('MockNativeBrowser', MockTranscriptionService);
+        vi.stubGlobal('MockPrivateWhisper', MockTranscriptionService);
     });
 
     it('should prevent stale closure on stop by capturing latest transcript state', async () => {
@@ -98,11 +121,13 @@ describe('useSpeechRecognition Integration', () => {
         });
 
         // Verify state is listening
-        expect(result.current.isListening).toBe(true);
-
-        let service: MockTranscriptionService | null = null;
         await vi.waitFor(() => {
-            service = MockTranscriptionService.latestInstance;
+            expect(result.current.isListening).toBe(true);
+        }, { timeout: 3000 });
+
+        // let service: MockTranscriptionService | null = null; // Removed, now defined in beforeEach
+        await vi.waitFor(() => {
+            // service = MockTranscriptionService.latestInstance; // Removed, now defined in beforeEach
             expect(service).toBeTruthy();
         });
 
@@ -111,7 +136,9 @@ describe('useSpeechRecognition Integration', () => {
             service!.simulateTranscript('Hello world', true);
         });
 
-        expect(result.current.chunks[0].transcript).toBe('Hello world');
+        await vi.waitFor(() => {
+            expect(result.current.chunks[0]?.transcript).toBe('Hello world');
+        });
 
         // Simulate last-second update (race condition scenario)
         // We start the stop process...
@@ -202,17 +229,92 @@ describe('useSpeechRecognition Integration', () => {
         // Wait for the instance to be created (async via useEffect/act)
         let service: MockTranscriptionService | null = null;
         await vi.waitFor(() => {
+            const store = useSessionStore.getState();
             service = MockTranscriptionService.latestInstance;
+            logger.debug({ latestInstance: service ? 'FOUND' : 'NULL' }, '[IntegrationTest] latestInstance');
+            logger.debug({ runtimeState: store.runtimeState }, '[IntegrationTest] store.runtimeState');
+            logger.debug({ storeIsListening: store.isListening }, '[IntegrationTest] store.isListening');
+            logger.debug({ hookIsListening: result.current.isListening }, '[IntegrationTest] result.current.isListening');
+            
             expect(service).toBeTruthy();
-        });
+            // Also ensure the hook has transitioned to listening
+            expect(result.current.isListening).toBe(true);
+        }, { timeout: 3000 });
 
         const terminateSpy = vi.spyOn(service!, 'terminate');
 
-        unmount();
+        // The service should be terminated synchronously via useEffect cleanup
+        // wrapping in act for good measure
+        await act(async () => {
+            unmount();
+        });
 
         // The service should be terminated asynchronously
         await vi.waitFor(() => {
             expect(terminateSpy).toHaveBeenCalled();
-        }, { timeout: 3000 });
+        }, { timeout: 5000 });
+    });
+
+    it('should buffer and flush early transcripts (Zero-Loss UX)', async () => {
+        // 1. Setup mock BEFORE renderHook to avoid race conditions with TranscriptionProvider effect
+        vi.spyOn(speechRuntimeController, 'confirmSubscriberHandshake').mockImplementation(() => { });
+
+        // 2. Render hook
+        const { result } = renderHookWithProviders(() => useSpeechRecognition());
+
+        // Verify initial state
+        expect(speechRuntimeController.getState()).toBe('READY');
+
+        // 3. Initiate recording
+        await act(async () => {
+            await speechRuntimeController.startRecording();
+        });
+
+        // 4. Force "Not Ready" state for subscriber to trigger buffering
+        // We use (as any) because it's a private invariant
+        (speechRuntimeController as unknown as { isSubscriberReady: boolean }).isSubscriberReady = false;
+
+        // 5. Emit early transcript
+        act(() => {
+            service!.simulateTranscript('Early message', true);
+        });
+
+        // 6. Verify hook/store has NO chunks yet (Buffering)
+        expect(result.current.chunks.length).toBe(0);
+
+        // 7. Confirm handshake (UI signals readiness)
+        await act(async () => {
+             // We restore the mock to call the REAL implementation
+            vi.mocked(speechRuntimeController.confirmSubscriberHandshake).mockRestore();
+            speechRuntimeController.confirmSubscriberHandshake();
+        });
+
+        // 8. Verify buffered transcript was flushed to the store/hook
+        expect(result.current.chunks.length).toBe(1);
+        expect(result.current.chunks[0].transcript).toBe('Early message');
+    });
+
+    it('should reclaim resources after 5 minutes of inactivity', async () => {
+        vi.useFakeTimers();
+        const resetSpy = vi.spyOn(speechRuntimeController, 'reset');
+
+        // 1. Force state to IDLE first to ensure a clean start
+        void speechRuntimeController.reset();
+        expect(speechRuntimeController.getState()).toBe('IDLE');
+
+        // 2. Perform warmUp to reach READY state
+        await act(async () => {
+            await speechRuntimeController.warmUp();
+        });
+        
+        // 3. Advance time
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1000);
+        });
+
+        // 4. Verify reset was called
+        expect(resetSpy).toHaveBeenCalled();
+        
+        vi.useRealTimers();
     });
 });

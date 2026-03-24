@@ -1,31 +1,40 @@
 import { create } from 'zustand';
 import logger from '../lib/logger';
 
-export interface ReadinessState {
-  boot: boolean;
-  layout: boolean;
-  auth: boolean;
-  analytics: boolean;
-  stt: boolean;
-  msw: boolean;
-  timestamps: Record<string, number>;
-}
+export const REQUIRED_GLOBAL = ['boot', 'layout', 'auth', 'stt', 'msw'] as const;
 
-interface ReadinessStore {
-  signals: ReadinessState;
-  setReady: (key: keyof Omit<ReadinessState, 'timestamps'>) => void;
+export const checkGlobalReadiness = (signals: Record<string, boolean | Record<string, number>>) => {
+  return REQUIRED_GLOBAL.every(k => !!signals[k]);
+};
+
+export const OPTIONAL_FEATURES = ['analytics', 'profile', 'route'] as const;
+
+export type ReadinessSignal = (typeof REQUIRED_GLOBAL)[number] | (typeof OPTIONAL_FEATURES)[number];
+export type ReadinessAppState = 'BOOTING' | 'SERVICE_READY' | 'ENGINE_READY' | 'SUBSCRIBER_READY' | 'READY';
+
+export type ReadinessSignals = Record<ReadinessSignal, boolean>;
+
+export interface ReadinessStore {
+  signals: ReadinessSignals;
+  appState: ReadinessAppState;
+  timestamps: Record<string, number>;
+  setReady: (key: ReadinessSignal) => void;
+  setAppState: (state: ReadinessAppState) => void;
+  resetRouteReady: () => void;
   reset: () => void;
 }
 
-const INITIAL_STATE: ReadinessState = {
+const INITIAL_SIGNALS: ReadinessSignals = {
   boot: false,
   layout: false,
   auth: false,
+  profile: false,
   analytics: false,
   stt: false,
   msw: false,
-  timestamps: {}
+  route: false,
 };
+
 
 /**
  * UNIFIED READINESS STORE
@@ -34,51 +43,97 @@ const INITIAL_STATE: ReadinessState = {
  * Enforces "Write-Once" and "No-Regression" rules for deterministic CI.
  */
 export const useReadinessStore = create<ReadinessStore>((set, get) => ({
-  signals: { ...INITIAL_STATE },
+  signals: { ...INITIAL_SIGNALS },
+  appState: 'BOOTING',
+  timestamps: {},
 
   setReady: (key) => {
-    const current = get().signals;
-    
-    // 🛡️ Rule 1: No Regression (true -> false is forbidden)
-    // 🛡️ Rule 2: Write-Once (ignore subsequent sets once true)
-    if (current[key]) {
-      logger.debug(`[ReadinessStore] Ignoring redundant signal: ${key}`);
-      return;
-    }
-
-    const timestamp = performance.now();
-    logger.info(`[ReadinessStore] ✅ Signal set: ${key} at ${Math.round(timestamp)}ms`);
-
     set((state) => {
       const newSignals = {
         ...state.signals,
         [key]: true,
-        timestamps: {
-          ...state.signals.timestamps,
-          [key]: timestamp
-        }
+      };
+      const newTimestamps = {
+        ...state.timestamps,
+        [key]: performance.now()
       };
 
-      // 🚀 Sync to Global Window for Playwright visibility
+      // Synchronize PURE signal map + traceability to window
       if (typeof window !== 'undefined') {
-        window.__APP_READY_STATE__ = newSignals;
+        window.__APP_READY_STATE__ = {
+          ...newSignals,
+          _timestamps: newTimestamps
+        };
       }
 
-      return { signals: newSignals };
+      return {
+        signals: newSignals,
+        timestamps: newTimestamps
+      };
+    });
+
+    logger.info(`[useReadinessStore] Signal set: ${key}`);
+  },
+
+  setAppState: (appState) => {
+    const current = get().appState;
+    if (current === appState) return;
+
+    logger.info(`[ReadinessStore] App State Transition: ${current} -> ${appState}`);
+
+    set((state) => {
+      const newTimestamps = {
+        ...state.timestamps,
+        [`appState_${appState}`]: performance.now()
+      };
+
+      if (typeof window !== 'undefined') {
+        window.__APP_READY_STATE__ = {
+          ...state.signals,
+          _timestamps: newTimestamps
+        };
+      }
+
+      return {
+        appState,
+        timestamps: newTimestamps
+      };
     });
   },
 
+  resetRouteReady: () => {
+    set((state) => {
+      const newSignals = { ...state.signals, route: false };
+      // We don't remove the timestamp, we just set the signal to false
+      // to ensure the next "true" is picked up.
+      return { signals: newSignals };
+    });
+    logger.info('[useReadinessStore] Route readiness reset (navigation initiated)');
+  },
+
   reset: () => {
-    logger.info('[ReadinessStore] 🧪 Resetting readiness signals');
-    set({ signals: { ...INITIAL_STATE, timestamps: { reset: performance.now() } } });
-    
+    logger.info('[ReadinessStore] Resetting readiness signals');
+    const resetTimestamps = { reset: performance.now() };
+    set({
+      signals: { ...INITIAL_SIGNALS },
+      appState: 'BOOTING',
+      timestamps: resetTimestamps
+    });
+
     if (typeof window !== 'undefined') {
-      window.__APP_READY_STATE__ = get().signals;
+      window.__APP_READY_STATE__ = {
+        ...INITIAL_SIGNALS,
+        _timestamps: resetTimestamps
+      };
     }
   }
 }));
 
-// Initialize window object immediately if it doesn't exist
-if (typeof window !== 'undefined' && !window.__APP_READY_STATE__) {
-  window.__APP_READY_STATE__ = useReadinessStore.getState().signals;
+// Initialize window object with PURE signals map + debug metadata
+if (typeof window !== 'undefined' && (!window.__APP_READY_STATE__ || typeof window.__APP_READY_STATE__ === 'string')) {
+  const state = useReadinessStore.getState();
+  window.__APP_READY_STATE__ = {
+    ...state.signals,
+    _timestamps: state.timestamps
+  };
 }

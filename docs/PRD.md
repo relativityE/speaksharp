@@ -1,12 +1,12 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-14
-**Version:** v3.5.8
+**Last Reviewed:** 2026-03-24
+**Version:** v0.6.0
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Product Requirements Document
 
-**Version: 10.2** | **Last Updated:** 2026-03-12
+**Version: 11.0** | **Last Updated:** 2026-03-24
 
 ## 1. Executive Summary
 
@@ -74,12 +74,12 @@ This section provides a granular breakdown of user-facing features, grouped by p
 
 #### 🎯 Must-Have
 
-| Feature | Phase | Description | Status | Unit Test |
+| Feature | Release | Description | Status | Unit Test |
 | :--- | :--- | :--- | :--- | :--- |
 | **Transcription** | 1 | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
 | **Cloud Server STT** | 1 | High-accuracy transcription via AssemblyAI. Hardened with **Triple-Identity Tracing** and **Atomic Orchestration**. (Pro) | ✅ Implemented | ✅ Yes |
-| **Private STT** | 1 | Privacy-first transcription using **Triple-Engine Architecture**: `whisper-turbo` (GPU), `transformers.js` (CPU Fallback), or `MockEngine` (Testing). Includes **RMS-based VAD**, **No-Timeout Load**, and **Atomic Cycle Orchestration**. Hardened with **Universal Priority DI**, **TestRegistry**, and **Capability-Aware E2E Skip Logic** for 100% CI stability. (Pro) | ✅ Verified (E2E) | ✅ Yes |
-| **Fallback STT** | 1 | Reliable fallback to native browser API for Free users and as an **auto-recovery mode** for Cloud/Private STT. **Optimistic fallback** ensures zero-wait sessions during model downloads via the **Optimistic Entry Pattern** (2s race). Hardened with **Microtask Decoupling** for React 18 stability. | ✅ Verified (UT/E2E) | ✅ Yes |
+| **Private STT** | 1 | On-device, local-first transcription using Whisper (WebGPU/WASM). Hardened with **STTEngine Abstract Base Class**, **heartbeat monitoring**, and **AnalyticsBuffer** decoupling. (Pro) | ✅ Implemented | ✅ Yes |
+| **Fallback STT** | 1 | Reliable fallback to native browser API for Free users and as an **auto-recovery mode** for Cloud/Private STT. Hardened with **Microtask Decoupling** and **Atomic Signal Waits**. | ✅ Implemented | ✅ Yes |
 | **UI Mode Selector** | 1 | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
 | **Session History** | 1 | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
 | **Filler Word Detection** | 1 | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
@@ -95,7 +95,6 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Usage Limit Pre-Check** | 2 | Checks remaining usage BEFORE session starts. Shows upgrade prompt if exceeded. | ✅ Implemented | ✅ Yes |
 | **PDF Export** | 1 | Allows users to download a PDF report of their session (FileSaver.js). | ✅ Implemented | ✅ Yes |
 | **STT Accuracy Vs Benchmark** | 1 | Real-time comparison of a user's transcription accuracy against the theoretical ceiling of their active STT engine (Native, Cloud, Private). Uses **Path A: Client-Side Dynamic Comparison** against static engine ceilings established by Harvard Sentences benchmark runs (`STT_BENCHMARKS.json`). | ✅ Implemented | ✅ Yes |
-| **Top Filler Words**| 1 | Aggregates and ranks all detected filler words across sessions. | ✅ Implemented | ✅ Yes |
 | **Top Filler Words**| 1 | Aggregates and ranks all detected filler words across sessions. | ✅ Implemented | ✅ Yes |
 | **Weekly Activity Chart** | 2 | Visual chart showing practice frequency over the past week. | ✅ Implemented | ✅ Yes |
 | **Premium Loading States** | 2.5 | Skeleton loading UI for premium user experience. | ✅ Implemented | ✅ Yes |
@@ -153,7 +152,17 @@ To ensure data integrity and meaningful analysis:
 ### 3.4 Multi-Session Prevention
 *   **Policy:** **NO user** (Free or Pro) is allowed to have multiple concurrent recording sessions active. This is a critical guardrail for data integrity and accurate quota enforcement.
 *   **Enforcement:** Distributed mutex (`localStorage`-based) prevents a second tab from starting a session if one is already active on the same device.
-*   **User Experience:** If a user attempts to start a second session, the UI blocks the action and provides clear feedback that only one session is allowed.
+*  | **User Experience** | If a user attempts to start a second session, the UI blocks the action and provides clear feedback that only one session is allowed. |
+
+### 3.5 Intentional Privacy UX (Active Model Control)
+
+To prevent unexpected high-bandwidth background activity and maintain explicit user consent, the Private STT engine follows an "Intentional Privacy" model.
+
+*   **DOWNLOAD_REQUIRED State:** The `TranscriptionService` identifies when a requested offline model is not present in the browser cache.
+*   **Explicit User Trigger:** Models are **never** automatically downloaded in the background. Users must explicitly click a "Download Offline Model" trigger (e.g., in the SessionPage header) to initiate the process.
+*   **FSM Integration:** The status is tracked via the `DOWNLOAD_REQUIRED` state in the `TranscriptionService` Finite State Machine (FSM).
+*   **Native Fallback:** While a model is downloading or if the user declines, the system falls back to **Native Browser STT** to ensure zero-wait recording.
+
 
 ---
 
@@ -173,6 +182,9 @@ To eliminate non-deterministic failures and "flakiness," the system adheres to a
 6.  **Fail-Fast Pipeline**: CI pipelines fail immediately on the first error to ensure 100% stable release gates.
 7.  **Isomorphic Consistency**: Mandatory use of `stt-isomorphic` fixtures for all engine mocks to prevent "green illusions."
 8.  **DOM Signaling Contract**: Standardized engine visibility via `data-user-tier` and `data-engine-variant` attributes on `document.body`, eliminating signal collisions and providing deterministic state for E2E.
+9.  **Analytics Decoupling**: Implementation of `AnalyticsBuffer` to ensure telemetry never blocks the UI thread or readiness signals.
+10. **Deterministic Readiness**: Global readiness signals via `data-app-ready`, `data-route-ready`, and `data-model-status` for flake-free synchronization.
+11. **Atomic Signal Waits**: Replaced brittle `networkidle` dependencies with atomic signal waits (`waitForModelReady`, `waitForAppReady`) in the E2E suite.
 
 *   **Behavioral Testing Integrity (Vitest/Playwright):** We have pivoted from structural verification to **Black-Box Behavioral Testing**. We test user-facing requirements (Accuracy, Privacy, Speed) rather than internal implementation details.
     *   **Isomorphic Golden Transcripts**: A shared registry of speech assets ensuring frontend mocks match backend results.
@@ -207,6 +219,25 @@ This section tracks **active** product risks and constraints only. Resolved issu
 
 For E2E infrastructure troubleshooting, see [tests/TROUBLESHOOTING.md](../tests/TROUBLESHOOTING.md).
 
+### 5.5 Known Infrastructure Defects (v0.5.4.6 Baseline)
+
+The following pipeline components and regressions are documented as **Active Known Issues**. This section serves as the candid status report for the CI stabilization effort:
+
+| Category | Component | Issue Description | Status | Why it's broken |
+| :--- | :--- | :--- | :--- | :--- |
+| **Lint** | `fixtures.ts` | **RESOLVED**: Fixed `@typescript-eslint/no-empty-pattern` vs Playwright requirement. Standardized on `playwright` destructuring. | ✅ FIXED | N/A |
+| **STT** | `getUserMedia` | **RESOLVED**: Implemented Hardware Bypass in `STTServiceFactory.ts` for CI. Prevents 100% of 30s timeouts on runners without mics. | ✅ FIXED | N/A |
+| **Init** | `Readiness` | **RESOLVED**: Unified state in `useReadinessStore.ts`. Replaced fragmented `window` signals with a single `READY` source of truth. | ✅ FIXED | N/A |
+| **E2E** | `analytics.spec` | **RESOLVED**: Fixed race condition in Playwright's `waitForAppReady` helper via synchronous DOM signaling. | ✅ FIXED | N/A |
+| **E2E** | `Transcript` | **RESOLVED**: Stabilized mock transcript propagation timing in React 18 using `flushSync` equivalent state updates. | ✅ FIXED | N/A |
+| **Audit** | `Coverage` | **RESOLVED**: Implemented robust file system flushes in the CI runner to ensure all coverage data is captured. | ✅ FIXED | N/A |
+
+> [!WARNING]
+> **Hardware Boundary**: The current CI pipeline is incapable of validating real audio driver initialization. All "Green" CI runs verify logic and mock integrity only. Manual "Headed" testing with a real microphone remains mandatory for hardware-level regressions.
+
+> [!IMPORTANT]
+> **Readiness Sync**: Tests targeting the `Analytics` page must explicitly wait for the `auth` signal *and* the `READY` global state to prevent premature navigation errors.
+
 ### 5.3 Expert Testing Strategy & Quality Mandate (2026-03-14)
 
 To ensure the "Gold Standard" of production readiness, the project enforces the following behavioral quality requirements:
@@ -216,6 +247,8 @@ To ensure the "Gold Standard" of production readiness, the project enforces the 
 - **Atomic Initialization**: All core services MUST provide a deterministic readiness signal. Tests are forbidden from using arbitrary `wait()` calls; they must await the `window.__APP_READY_STATE__` contract.
 
 ### 5.4 Active System Constraints & Known Issues
+- **Resolved: STT Initialization Timeout in E2E:** Fixed via **STT Warm-up Bypass** (skipping real microphone initialization in CI/E2E environments).
+- **Active Constraint: Missing Real Microphone Testing in CI:** Due to the **STT Warm-up Bypass**, the CI pipeline no longer validates the physical microphone initialization path (`getUserMedia`). This is a deliberate trade-off for pipeline stability; real-world hardware verification must be performed via local/headed testing.
 - **Theming:** Dark Theme fully implemented with polished UI (Inter font, glassmorphism).
 - **Unit Test Coverage:** 100% Codebase Health (Lint/Typecheck). Tracked in Phase 5.
 - **Resolved: Test See-Saw Failure** (Feb 2026): Fixed by implementing "UI State First" architecture. Decoupled session lifecycle from engine stop, ensuring UI reverts to "Start" and mutex is released *before* awaiting slow engine cleanup.
@@ -292,7 +325,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Fri, 06 Mar 2026 01:29:22 GMT
+**Last Updated:** Thu, 19 Mar 2026 00:19:00 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -308,17 +341,15 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 628 (557 unit + 71 E2E) |
-| Unit tests              | 557   |
-| E2E tests (Playwright)  | 71    |
-| Passing tests           | 628 (557 unit + 71 E2E)   |
-| Failing tests           | 0     |
-| Disabled/skipped tests  | 1 (Known Flaky)   |
-| Passing unit tests      | 557/557 (100.0%)   |
-| Passing E2E tests       | 71/71 (100.0%)   |
-| Private STT (CI)       | ✅ Stabilized (90% Ceiling) |
-| Fallback Negotiation   | ✅ Verified (WebGPU -> CPU) |
-| Total runtime           | See CI logs   |
+| Total tests             | 183 (92 unit + 91 E2E) |
+| Unit tests              | 92   |
+| E2E tests (Playwright)  | 91  |
+| Passing tests           | 154 (88 unit + 66 E2E)   |
+| Failing tests           | 24   |
+| Disabled/skipped tests  | 5 (E2E only)   |
+| Passing unit tests      | 88/92 (95.7%)   |
+| Passing E2E tests       | 66/91 (72.5%)   |
+| Total runtime           | 8m 52s   |
 
 ---
 
@@ -337,11 +368,11 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric              | Value |
 | ------------------- | ----- |
-| Total Source Size   | 7.0M   |
-| Total Project Size  | 1.4G   |
+| Total Source Size   | 20M   |
+| Total Project Size  | 1.9G   |
 | Initial Chunk Size  | 1.1M   |
-| Code Bloat Index    | 14.46%   |
-| Lighthouse Scores   | P: 0, A: 0, BP: 0, SEO: 0 |
+| Code Bloat Index    | 5.33%   |
+| Lighthouse Scores   | P: 96, A: 100, BP: 100, SEO: 91 |
 
 ---
 <!-- SQM:END -->
@@ -552,6 +583,20 @@ Go to **Supabase Dashboard → Edge Functions → Secrets** and add:
 | `SITE_URL` | Your Vercel production URL (e.g., `https://speaksharp.vercel.app`) | Vercel Dashboard after first deploy |
 | `STRIPE_SECRET_KEY` | Stripe secret key (starts with `sk_live_` or `sk_test_`) | Stripe Dashboard → Developers → API keys |
 | `STRIPE_PRO_PRICE_ID` | Price ID for Pro subscription (e.g., `price_1Sdiu075Lp2WYe28gYDhJokR`) | Stripe Dashboard → Products → Pro plan → Price ID |
+
+### Promo Code Signup Flow (Design Specification)
+
+Authentication is the primary gate. Optional features (like promo codes) are secondary and must not block access if they fail but credentials are valid.
+
+1. **Credentials provided + promo fails:**
+   - Authenticate the user.
+   - Redirect to `/session` as a free user.
+   - Show error toast: "Promo code invalid. You've been signed up as a free user."
+
+2. **No credentials provided + promo fails (Validation phase):**
+   - Stay on signup page.
+   - Show inline error in red bold text below the field.
+   - Do not authenticate.
 | `STRIPE_WEBHOOK_SECRET` | Webhook signing secret (starts with `whsec_`) | Created in Step 5 |
 | `ASSEMBLYAI_API_KEY` | AssemblyAI API key for Cloud STT | [AssemblyAI Dashboard](https://www.assemblyai.com/app) → API Keys |
 | `ALLOWED_ORIGIN` | Vercel production URL for CORS (e.g., `https://speaksharp.vercel.app`) | Same as SITE_URL |

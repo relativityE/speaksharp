@@ -7,6 +7,7 @@ vi.mock('@/config/env', () => ({
 }));
 
 import NativeBrowser from '../NativeBrowser';
+import { TranscriptionModeOptions } from '../types';
 
 // Move SpeechRecognition mock outside to share instance control
 const mockRecognition = {
@@ -48,20 +49,20 @@ describe('NativeBrowser Transcription Mode', () => {
 
   describe('Lifecycle Management', () => {
     it('should initialize and set up recognition properties', async () => {
-      await nativeBrowser.init();
+      await nativeBrowser.init({ onTranscriptUpdate, onReady } as unknown as TranscriptionModeOptions);
       expect(mockSpeechRecognitionStatic).toHaveBeenCalled();
       expect(mockRecognition.continuous).toBe(true);
       expect(mockRecognition.interimResults).toBe(true);
     });
 
     it('should call start on the recognition object when startTranscription is called', async () => {
-      await nativeBrowser.init();
+      await nativeBrowser.init({ onTranscriptUpdate, onReady } as unknown as TranscriptionModeOptions);
       await nativeBrowser.startTranscription();
       expect(mockRecognition.start).toHaveBeenCalledTimes(1);
     });
 
     it('should call stop on the recognition object when stopTranscription is called', async () => {
-      await nativeBrowser.init();
+      await nativeBrowser.init({ onTranscriptUpdate, onReady } as unknown as TranscriptionModeOptions);
       await nativeBrowser.startTranscription();
       await nativeBrowser.stopTranscription();
       expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
@@ -70,7 +71,7 @@ describe('NativeBrowser Transcription Mode', () => {
 
   describe('Result Handling', () => {
     it('should handle final transcript results correctly', async () => {
-      await nativeBrowser.init();
+      await nativeBrowser.init({ onTranscriptUpdate, onReady } as unknown as TranscriptionModeOptions);
       const event = {
         results: [[{ transcript: 'hello world', confidence: 0.9 }]],
         resultIndex: 0,
@@ -89,7 +90,7 @@ describe('NativeBrowser Transcription Mode', () => {
     });
 
     it('should handle interim transcript results correctly', async () => {
-      await nativeBrowser.init();
+      await nativeBrowser.init({ onTranscriptUpdate, onReady } as unknown as TranscriptionModeOptions);
       const event = {
         results: [[{ transcript: 'hello', confidence: 0.8 }]],
         resultIndex: 0,
@@ -107,7 +108,7 @@ describe('NativeBrowser Transcription Mode', () => {
       });
     });
     it('REGRESSION: should handle rapid onend events without redundant starts', async () => {
-      await nativeBrowser.init();
+      await nativeBrowser.init({ onTranscriptUpdate, onReady } as unknown as TranscriptionModeOptions);
       await nativeBrowser.startTranscription();
 
       vi.useFakeTimers();

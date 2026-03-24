@@ -168,23 +168,37 @@ export const heartbeatSession = async (
 };
 
 /**
- * Marks a session as completed.
+ * Marks a session as completed or failed with final metrics.
  */
 export const completeSession = async (
   sessionId: string,
-  finalTranscript?: string,
-  finalDuration?: number
+  options: {
+    status?: 'completed' | 'failed';
+    transcript?: string;
+    duration?: number;
+    reason?: string;
+  } = {}
 ): Promise<{ success: boolean }> => {
   const supabase = getSupabaseClient();
+  const { status = 'completed', transcript, duration } = options;
+
+  // 1. Run the existing finalization logic via RPC (Finalizes durations/usage)
   const { data, error } = await supabase.rpc('complete_session', {
     p_session_id: sessionId,
-    p_final_transcript: finalTranscript,
-    p_final_duration: finalDuration
+    p_status: status,
+    p_final_transcript: transcript,
+    p_final_duration: duration,
+    p_reason: options.reason
   });
 
   if (error) {
-    logger.error({ error, sessionId }, '[Supabase DB] 🏁 Session completion failed');
+    logger.error({ error, sessionId }, '[Supabase DB] 🏁 Session completion RPC failed');
     return { success: false };
+  }
+
+  // 2. Explicitly set the status if it's 'failed' (Defense in depth)
+  if (status === 'failed') {
+      await updateSession(sessionId, { status: 'failed' });
   }
 
   const result = data as { success: boolean } | null;

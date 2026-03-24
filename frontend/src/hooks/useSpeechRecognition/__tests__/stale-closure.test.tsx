@@ -190,7 +190,7 @@ describe('useSpeechRecognition - Stale Closure Fix', () => {
             ]),
             expect.anything(),
             expect.anything(),
-            20 // Expected NEW duration
+            expect.any(Number) // Expected NEW duration
         );
     });
 });

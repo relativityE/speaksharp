@@ -1,3 +1,4 @@
+/* eslint-env node */
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -12,12 +13,8 @@ const __dirname = path.dirname(__filename);
 export default defineConfig(({ mode }) => {
   // __dirname is frontend/, so we need to go up one level to find .env files
   const env = loadEnv(mode, path.resolve(__dirname, '..'), '');
-  const isTestMode = mode === 'test' || env.VITE_TEST_MODE === 'true';
-
-  console.log(`[Vite] Mode: ${mode}, REAL_WHISPER_TEST: ${process.env.REAL_WHISPER_TEST}`);
-  if (process.env.REAL_WHISPER_TEST === 'true') {
-    console.log('[Vite] enabling COOP/COEP headers');
-  }
+  const isTestMode = mode === 'test';
+  console.log(`[Vite] Mode: ${mode}`);
 
   return {
     envDir: path.resolve(__dirname, '..'),
@@ -63,7 +60,7 @@ export default defineConfig(({ mode }) => {
           'docs/PRD.md'
         ]
       },
-      headers: (process.env.REAL_WHISPER_TEST === 'true' || isTestMode) ? {
+      headers: isTestMode ? {
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'require-corp',
       } : undefined
@@ -114,7 +111,6 @@ export default defineConfig(({ mode }) => {
       // We only need to override specific values here
 
       'global': 'globalThis',
-      'import.meta.env.VITE_TEST_MODE': JSON.stringify(String(isTestMode)),
       '__BUILD_ID__': JSON.stringify(process.env.BUILD_ID ?? new Date().toISOString()),
     },
     optimizeDeps: {

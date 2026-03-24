@@ -33,7 +33,7 @@ test.describe('Upgrade Flow Payload Verification', () => {
 
         // 3. Trigger Upgrade
         // Wait for page to fully load and render the upgrade banner/button
-        await page.waitForLoadState('networkidle');
+        
 
         // The Upgrade button can be in two places:
         // 1. Dashboard with sessions: Inside a Card with testid "analytics-dashboard-upgrade-button"

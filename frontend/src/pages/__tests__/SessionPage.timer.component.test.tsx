@@ -125,7 +125,9 @@ describe('useSessionLifecycle Timer Logic', () => {
         };
         mockUseSpeechRecognition.mockReturnValue(defaultSpeechMock as unknown as ReturnType<typeof SpeechRecognitionHook.useSpeechRecognition>);
 
-        (mockUseSessionStore as unknown as Mock).mockImplementation((selector: unknown) => ((store as unknown as { getState: () => unknown }).getState() as (s: unknown) => unknown)(selector));
+        mockUseSessionStore.mockImplementation(store as unknown as typeof SessionStore.useSessionStore);
+        (mockUseSessionStore as unknown as { getState: typeof store.getState }).getState = store.getState;
+        (mockUseSessionStore as unknown as { setState: typeof store.setState }).setState = store.setState;
 
         mockUseVocalAnalysis.mockReturnValue({
             pauseMetrics: {
@@ -158,9 +160,12 @@ describe('useSessionLifecycle Timer Logic', () => {
         vi.useRealTimers();
     });
 
-    it('should update elapsed time when listening', () => {
+    it('should update elapsed time when listening', async () => {
         // Bypass hook complexity - just return state
-        (mockUseSessionStore as unknown as Mock).mockImplementation((selector: unknown) => (selector as (s: unknown) => unknown)((store as unknown as { getState: () => unknown }).getState()));
+        // Use the store hook directly to support subscriptions and re-renders
+        mockUseSessionStore.mockImplementation(store as unknown as typeof SessionStore.useSessionStore);
+        (mockUseSessionStore as unknown as { getState: typeof store.getState }).getState = store.getState;
+        (mockUseSessionStore as unknown as { setState: typeof store.setState }).setState = store.setState;
 
         mockUseSpeechRecognition.mockReturnValue({
             transcript: { transcript: '', confidence: 0, isFinal: false },
@@ -192,19 +197,25 @@ describe('useSessionLifecycle Timer Logic', () => {
         });
 
         // Enable listening in store
-        (store as unknown as { setState: (s: unknown) => void }).setState({ isListening: true, startTime: Date.now() });
+        await act(async () => {
+            (store as unknown as { setState: (s: unknown) => void }).setState({ isListening: true, startTime: Date.now() });
+        });
 
-        // Advance time by 1 second
-        act(() => {
-            vi.advanceTimersByTime(1000);
+        // Advance time by 1.5 seconds to ensure at least one tick triggers
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(1500);
         });
 
         // Verify state update (tick logic)
-        expect((store as unknown as { getState: () => { tick: Mock } }).getState().tick).toHaveBeenCalled();
+        expect(store.getState().tick).toHaveBeenCalled();
+        expect(store.getState().elapsedTime).toBeGreaterThanOrEqual(1);
     });
 
     it('should reset elapsed time when stopped (on mount)', () => {
-        (mockUseSessionStore as unknown as Mock).mockImplementation((selector: unknown) => (selector as (s: unknown) => unknown)((store as unknown as { getState: () => unknown }).getState()));
+        // Use the store hook directly to support subscriptions and re-renders
+        mockUseSessionStore.mockImplementation(store as unknown as typeof SessionStore.useSessionStore);
+        (mockUseSessionStore as unknown as { getState: typeof store.getState }).getState = store.getState;
+        (mockUseSessionStore as unknown as { setState: typeof store.setState }).setState = store.setState;
 
         mockUseSpeechRecognition.mockReturnValue({
             transcript: { transcript: '', confidence: 0, isFinal: false },

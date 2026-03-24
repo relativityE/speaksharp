@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithAllProviders as render } from '../../../tests/support/test-utils/render';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -90,9 +90,12 @@ describe('SessionPage - STT Mode Selection UI', () => {
 
         mockUseSessionLifecycle.mockReturnValue(DEFAULT_LIFECYCLE_MOCK as unknown as ReturnType<typeof useSessionLifecycle>);
 
-        (mockUseSessionStore as unknown as Mock).mockImplementation(createTestSessionStore({
+        const mockStore = createTestSessionStore({
             elapsedTime: 0,
-        }));
+        });
+        mockUseSessionStore.mockImplementation(mockStore as unknown as typeof SessionStore.useSessionStore);
+        (mockUseSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (mockUseSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
 
         mockUseVocalAnalysis.mockReturnValue({
             pauseMetrics: { totalPauses: 0, averagePauseDuration: 0, longPauses: 0, pauseRate: 0 },

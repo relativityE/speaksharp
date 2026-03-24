@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-07
+**Last Reviewed:** 2026-03-24
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 7.1** | **Last Updated: 2026-03-09**
+**Version 0.6.0** | **Last Updated: 2026-03-24**
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -113,28 +113,30 @@ This section contains a high-level block diagram of the SpeakSharp full-stack ar
 │  └──────────┬─────────────┘  │  │  │   3RD PARTY SERVICES    │
 │             │                │  │  │                         │
 │             ▼                │  └──┼─▶ AssemblyAI (STT)      │
-│  ┌────────────────────────┐  │     │   Stripe (Payments)     │
-│  │TranscriptionService    │──┼─────┼─▶ Sentry (Errors)       │
-│  │ (via EngineFactory)    │  │     │   PostHog (Analytics)   │
-│  │ ├─ NativeBrowser       │  │     │                         │
-│  │ ├─ CloudAssemblyAI     │  │     └─────────────────────────┘
-│  │ └─ PrivateWhisper      │  │
-│  └────────────────────────┘  │
-│             │                │
-│             ▼                │
-│  ┌────────────────────────┐  │
-│  │   Microphone Input     │  │
-│  └────────────────────────┘  │
+│  ┌────────────────────────┐  │     ┌───────────────────┐
+│  │TranscriptionService    │──┼────▶│  AnalyticsBuffer  │
+│  │ (via EngineFactory)    │  │  │  └──────────┬────────┘
+│  │ ├─ [STTEngine (Base)]  │  │  │            │
+│  │ ├─ NativeBrowser       │  │  │            ▼
+│  │ ├─ CloudAssemblyAI     │  │  │     PostHog / Sentry
+│  │ └─ PrivateWhisper      │──┼──┤
+│  └────────────────────────┘  │  │  ┌─────────────────────────┐
+│             │                │  │  │   3RD PARTY SERVICES    │
+│             ▼                │  │  │                         │
+│  ┌────────────────────────┐  │  └─▶│ AssemblyAI (STT)      │
+│  │   Microphone Input     │  │     │ Stripe (Payments)       │
+│  └────────────────────────┘  │     └─────────────────────────┘
 │                              │
 └──────────────────────────────┘
 
 Data Flow:
-  Browser → Components → Composite Hooks → Atomic Hooks → TranscriptionContext → TranscriptionService → EngineFactory → STT Engine
+  Browser → Components → Composite Hooks → Atomic Hooks → TranscriptionContext → TranscriptionService → EngineFactory → STT Engine (STTEngine Base)
   Hooks ↔ Supabase DB (RPC)
   Edge Functions ↔ Stripe (Webhooks)
   CLI (generate-promo) → apply-promo/generate → promo_codes TABLE
   AuthPage → apply-promo → promo_redemptions / user_profiles
   SessionPage → check-usage-limit → Expiry Modal (if promo expired)
+  TranscriptionService FSM: IDLE → ENGINE_INITIALIZING → DOWNLOAD_REQUIRED (Optional) → READY → RECORDING → STOPPING → FAILED
 ```
 
 ### 🏗️ SpeakSharp Architecture Patterns
@@ -388,6 +390,16 @@ All test scripts follow `test:<level>:<env>[:<mode>]` and CI orchestration scrip
 | `ci:dispatch:deploy` | — | — | — | Dispatch deploy smoke to GH Actions |
 | `ci:dispatch:soak` | — | — | — | Dispatch soak test to GH Actions |
 
+#### 3.1 Global Readiness Signals (E2E Contract)
+
+To eliminate non-deterministic race conditions (flakiness) in E2E tests, the application provides explicit global readiness signals via DOM attributes.
+
+*   **data-app-ready:** Set to `'true'` when the core application shell and auth are initialized.
+*   **data-route-ready:** Set to `'true'` when the current route is fully hydrated and ready for interaction.
+*   **data-model-status:** Tracks the STT model state (`'idle'`, `'loading'`, `'ready'`, `'download-required'`).
+
+E2E tests must use the `waitForAppReady()`, `waitForRouteReady()`, and `waitForModelReady()` helpers to synchronize with these signals.
+
 **Secrets by Environment:**
 
 | Environment | Required Secrets |
@@ -453,7 +465,7 @@ Distinguish between "Business Events" and "System Failures":
 *   **Unexpected Failures:** `MicrophoneError`, `NetworkDisconnect` -> Handled via `LocalErrorBoundary`.
 
 #### 3.5 Behavioral Testing Pivot (2026-02-21)
-The project has transitioned from structural verification to **Black-Box Behavioral Testing**, as certified in the Phase 2 baseline. We test the "Contract" rather than the "Implementation."
+The project has transitioned from structural verification to **Black-Box Behavioral Testing**, as certified in the Integration & Metering baseline. We test the "Contract" rather than the "Implementation."
 
 - **Safeguards Verified:**
   - **Idempotency:** 100% protection against duplicate session writes via `idempotency_key`.
@@ -462,7 +474,7 @@ The project has transitioned from structural verification to **Black-Box Behavio
 
 | Dimension | Prior (Structural) | Current (Behavioral) | Grade |
 | :--- | :--- | :--- | :--- |
-| **Reliability** | "Green" tests failed in prod due to mock drift. | **Zero-Debt Baseline**: Verified against 100% real speech pass rate. | **A++** |
+- **Reliability** | "Green" tests failed in prod due to mock drift. | **Zero-Debt Baseline**: Verified against 100% real speech pass rate. | **A++** |
 | **Maintenance** | Brittle; broke on copy or CSS changes. | Stable; uses `[data-state]`, `[data-user-tier]`, and `[data-engine-variant]` behavioral contracts (Pattern 10). | **A+** |
 | **Hardware Safety** | Assumed; race conditions were common. | Hardened; FSM stress testing + `AbortController` guards. | **A+** |
 | **UX Coverage** | Fragmented download/cache logic. | Comprehensive E2E for Whisper Lifecycle & Hybrid Fallback. | **A+** |
@@ -481,11 +493,40 @@ The project has transitioned from structural verification to **Black-Box Behavio
 *   **Infrastructure:** **30%** (Low) - Setup scripts, config.
  
  #### 3.7 Mock/Schema Synchronization Pattern
+To prevent architectural drift, the project utilizes three discovery layers (Mechanism 1 is the primary defense). Every schema migration should utilize at least one of these layers:
+1. **Factory Update (Layer 1)**: Update corresponding factories in `tests/support/factories/` to reflect new/modified columns using type-safe derivations.
+2. **Header Enforcement (Layer 2)**: Verify that mock handlers in `mock-routes.ts` respect PostgREST header contracts (e.g., `Accept: application/vnd.pgrst.object+json` for `.single()`).
+3. **Body Serialization (Layer 3)**: Ensure POST/PATCH handlers use `parseSupabaseBody` to handle array-wrapped request bodies.
+
+> [!IMPORTANT]
+> **Governance Rule**: No PR containing a database migration will be merged without verifying synchronization via at least one of the discovery layers above.
+
+#### 3.8 Trimodal Console Classification (CI Hard-Gate)
+
+To ensure CI reliability and prevent "sloth" or "noise" from masking regressions, SpeakSharp enforces a **Trimodal Console Classification** policy within Playwright fixtures. This system distinguishes between expected operational noise and genuine application crashes.
+
+| Mode | Classification | CI Treatment | Description |
+| :--- | :--- | :--- | :--- |
+| **1. LOG** | Informational | **Pass-through** | Standard application logs, `logger.info`, and trace data. |
+| **2. NON-FATAL** | Expected Errors | **Warning** | Expected failures (e.g., 404s/500s in negative tests) are suppressed to avoid false-positive test crashes. |
+| **3. FATAL** | Unexpected Errors | **Hard Fail** | Unmatched console errors or `pageerror` (uncaught exceptions) trigger an immediate test failure. |
+
+**NON-FATAL Error Inventory (Allowed Patterns):**
+- `NET::ERR_` (Chromium network layer)
+- `404`, `500`, `FETCH` (HTTP status/requests)
+- `TRANSCRIPTION ERROR`, `TRANSCRIPTIONSERVICE` (STT service failures)
+- `ABORT`, `NETWORK_TIMEOUT` (Expected cancellations)
+- `RPC`, `PROMO` (Supabase Edge Function failures during negative tests)
+
+> [!IMPORTANT]
+> **Governance Rule**: Any new "Expected" error pattern must be explicitly added to the `isNetworkError` filter in `tests/e2e/fixtures.ts`. All other console errors are considered FATAL regressions.
+
+---
  To prevent architectural drift, the project utilizes three discovery layers (Mechanism 1 is the primary defense). Every schema migration should utilize at least one of these layers:
  1. **Factory Update (Layer 1)**: Update corresponding factories in `tests/support/factories/` to reflect new/modified columns using type-safe derivations.
  2. **Header Enforcement (Layer 2)**: Verify that mock handlers in `mock-routes.ts` respect PostgREST header contracts (e.g., `Accept: application/vnd.pgrst.object+json` for `.single()`).
  3. **Body Serialization (Layer 3)**: Ensure POST/PATCH handlers use `parseSupabaseBody` to handle array-wrapped request bodies.
- 
+
  > [!IMPORTANT]
  > **Governance Rule**: No PR containing a database migration will be merged without verifying synchronization via at least one of the discovery layers above.
 
@@ -495,6 +536,11 @@ The project has transitioned from structural verification to **Black-Box Behavio
 **Problem:** Race conditions in E2E environments where `main.tsx` overwrites `window.__APP_READY_STATE__` after it was already initialized by an E2E setup script, leading to readiness timeouts.
 **Solution:** Use a "Preservation Null-Coalescing" pattern during initialization: `window.__APP_READY_STATE__ = window.__APP_READY_STATE__ || { ... }`.
 - **Benefit:** Ensures that properties like `boot`, `layout`, and `auth` are preserved if set early by boosters or test runners, while providing a safe default for production.
+
+#### Pattern 29: Analytics Decoupling (`AnalyticsBuffer.ts`)
+**Problem:** Telemetry events blocking the UI thread or delaying the `AppReady` signal.
+**Solution:** Implement `AnalyticsBuffer` to queue events and flush them asynchronously.
+- **Benefit:** Guarantees that diagnostic tracking never interferes with application readiness or responsiveness.
 
 ---
 
@@ -528,12 +574,16 @@ External services (Supabase, Edge Functions) are mocked via Playwright routes in
 > | CI | GitHub Secrets → .env.development |
 > | Local Dev | Code fallback (`price_mock_default`) |
 
-> **Note for Reviewers:** These features were implemented as part of Phase 2 hardening. If conducting a code review, please verify against the file references above before flagging as missing.
+> **Note for Reviewers:** These features were implemented as part of the Integration & Metering hardening. If conducting a code review, please verify against the file references above before flagging as missing.
 
 #### Private STT (Dual-Engine Facade & Triple-Engine Strategy)
 
-**`PrivateSTT`** is a facade that manages two local engines:
+**`PrivateSTT`** is a facade that manages two local engines. All engines in the system (PrivateSTT, NativeBrowser, CloudAssemblyAI) now strictly adhere to the **`STTEngine` abstract base class**, which enforces:
+1. **Lifecycle Determinism**: Standardized `onInit()`, `onStart()`, `onStop()`, and `onDestroy()` hooks with monotonic state transitions.
+2. **Heartbeat Resilience**: Mandatory `getLastHeartbeatTimestamp()` for health monitoring, ensuring the orchestration layer can detect and recover from silent engine crashes.
+3. **Telemetry Integration**: Automated event recording via the `AnalyticsBuffer` (Pattern 29).
 
+**Capability Detection**:
 1.  **WhisperTurbo:** Fast, WebGPU-accelerated engine (primary).
 2.  **TransformersJS:** Slower, CPU-based fallback (safe).
 
@@ -689,14 +739,14 @@ To allow E2E tests to simulate complex resilience scenarios and ensure determini
 
 The `TranscriptionService` resolves the engine instance using `resolveSTTImplementation`, which follows this hierarchy:
 
-1.  **`TestRegistry` (Selection Container):** Priority 100. A singleton-based lookup. Injected mocks (e.g., `StandardMocks.Failure`) take absolute precedence.
+1.  **`TestRegistry` (Selection Container):** Priority 100. A synchronous lookup container. Injected mocks take absolute precedence.
     *   **Partnership with Facade DI:** The `TestRegistry` provides the *source* of the dependency. The injection itself happens via **Facade DI**: the `PrivateWhisper` wrapper accepts an optional `injectedSTT` engine (`IPrivateSTT`) in its constructor (`injectedSTT || new PrivateSTT()`).
-    *   **Queue Hydration:** E2E tests can push factories to `window.__TEST_REGISTRY_QUEUE__` *before* the app bootstraps to ensure immediate availability during service initialization.
-2.  **`E2EConfig` (Environment Mocks):** Priority 50. Injected via `initializeE2EEnvironment`. These are the standard "Fast Mocks" (`MockPrivateWhisper`, etc.) used in CI.
+    *   **Strict Zero Manifest:** E2E tests inject engine factories via `window.__SS_E2E__.registry` using Playwright's `addInitScript`. This ensures all mocks are available at **$T=0$** (the first microtask), eliminating asynchronous race conditions.
+2.  **`E2EConfig` (Environment Mocks):** Priority 50. Derived from the `__SS_E2E__` manifest. These are the standard "Fast Mocks" used in CI.
 3.  **Real Implementation:** Priority 0. The default production engines (OpenAI, TransformersJS, Web Speech API).
 
 **Mechanics:**
-- **Diagnostic Introspection:** `TestRegistry.getInfo()` returns the current state and priority of all registered engines, accessible via `window.__TEST_REGISTRY__.getInfo()` in the browser console.
+- **Diagnostic Introspection:** `TestRegistry.getInfo()` returns the merged state of manifest and local registrations, accessible via `window.__TEST_REGISTRY__.getInfo()`.
 - **Standard Mocks:** Shared mock behaviors (`failure`, `slow-load`, `controlled-progress`) are defined in `tests/helpers/testRegistry.helpers.ts`.
 
 **Architecture Flow:**
@@ -1948,6 +1998,17 @@ We inject a global "Bridge" into the application window during tests (`initializ
 - **Synchronize State:** Dispatch events (e.g., `e2e:speech-recognition-ready`) to ensure the test runner waits for the application to be fully hydrated and ready.
 - **Inject Data:** Programmatically set user sessions or filler word data without going through the UI.
 
+#### 2. Strict Zero Manifest (`window.__SS_E2E__`)
+As of v0.6.0, the application utilizes a **Strict Zero Manifest** pattern to eliminate race conditions during bootstrap:
+- **Authoritative Source:** `window.__SS_E2E__` is the unified, synchronous source of truth for all E2E configuration, injected at $T=0$.
+- **Registry Synchronization:** Replaces asynchronous hydration with a synchronous POJO registry, ensuring engine factories are available immediately upon service instantiation.
+- **Legacy Removal:** All legacy pointers (`__APP_TEST_ENV__`, `__E2E_CONFIG__`) have been purged to enforce the single source of truth.
+
+#### 3. Failure Observability (`status_reason`)
+To enhance diagnostic fidelity, recorded sessions now persist a `status_reason` column:
+- **Metadata Capture:** Captures specific failure signatures (e.g., "STT_ENGINE_MISSING", "MIC_PERMISSION_DENIED") in the database.
+- **Automated Recovery:** Enables the backend to trigger specific recovery or notification flows based on the codified failure reason.
+
 #### 2. Secure User Provisioning (Edge Function)
 Instead of relying on unstable UI-based registration flows, we use a dedicated Supabase Edge Function (`create-user`) to provision test users.
 - **Deterministic State:** Creates fresh users with specific roles ('free' or 'pro') for each test run.
@@ -2785,6 +2846,13 @@ The service uses a **Policy-Driven Strategy Pattern** to separate environment/ti
 │           CALLER             │
 │   SessionPage / E2E Test     │
 └──────────────┬───────────────┘
+               │ Command (Start/Stop)
+               ▼
+┌──────────────────────────────┐
+│   SPEECH RUNTIME LAYER       │
+│  SpeechRuntimeController.ts  │
+│ (Central State Mediator)     │
+└──────────────┬───────────────┘
                │ Injects Policy
                ▼
 ┌──────────────────────────────┐
@@ -2818,6 +2886,7 @@ The service uses a **Policy-Driven Strategy Pattern** to separate environment/ti
 | `E2E_DETERMINISTIC_PRIVATE` | Private only | E2E tests (Whisper validation) |
 
 **Key Files:**
+- [`SpeechRuntimeController.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/SpeechRuntimeController.ts) - Central state mediator and command serializer.
 - [`TranscriptionPolicy.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionPolicy.ts) - Policy interface and helpers
 - [`TranscriptionService.ts`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts) - Unified service layer
 
@@ -2826,6 +2895,14 @@ The service uses a **Policy-Driven Strategy Pattern** to separate environment/ti
     *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API. This is the primary mode for Free users and a fallback for Pro users.
     *   **`PrivateWhisper`:** A private, privacy-first transcription mode for Pro users, powered by `@xenova/transformers` running a Whisper model directly in the browser.
 *   **Audio Processing:** `audioUtils.ts`, `audioUtils.impl.ts`, and `audio-processor.worklet.js` are responsible for capturing and resampling microphone input. A critical bug in the resampling logic that was degrading AI quality has been fixed.
+
+### 6.1 SpeechRuntimeController (State Mediator)
+
+The `SpeechRuntimeController` is the definitive source of truth for the STT lifecycle. It decouples the UI from the underlying services using a **Command Serialization Pattern**:
+
+1. **Command Serialization**: All lifecycle commands (`start`, `stop`, `warmUp`) are serialized via a mutex to prevent race conditions during rapid state transitions.
+2. **Unified Readiness Contract**: The application signals readiness via `window.__APP_READY_STATE__`. The STT readiness is specifically determined by the success of the `warmUp()` command, which pre-initializes the engine's capability without starting a recording.
+3. **Event Aggregation**: It aggregates status updates from transitive services (Transcription, Audio) and pushes them to the `useSessionStore` via `queueMicrotask` to avoid React concurrent rendering error.
 
 ### Private STT Implementation Details
  

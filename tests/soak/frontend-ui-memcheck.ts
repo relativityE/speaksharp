@@ -41,7 +41,7 @@ export async function setupAuthenticatedUser(page: Page, userIndex: number): Pro
     // Navigate to session page if not already there
     // ProtectedRoute might show a loader initially
     if (!page.url().includes(ROUTES.SESSION)) {
-        await page.goto(ROUTES.SESSION, { waitUntil: 'networkidle' });
+        await page.goto(ROUTES.SESSION);
     }
 
     // Verify application auth state

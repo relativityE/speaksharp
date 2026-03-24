@@ -87,7 +87,7 @@ export const STTAccuracyVsBenchmark: React.FC = () => {
                     <CardTitle>Session Accuracy vs {engine} Benchmark</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <ResponsiveContainer width="100%" height={180}>
+                    <ResponsiveContainer width="100%" height={180} minWidth={1} minHeight={1}>
                         <BarChart data={data} layout="vertical" margin={{ top: 20, right: 30, left: 60, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" horizontal={false} strokeOpacity={0.2} />
                             <XAxis type="number" domain={[0, 100]} hide />
@@ -118,7 +118,7 @@ export const STTAccuracyVsBenchmark: React.FC = () => {
             <CardHeader><CardTitle>Dynamic STT Accuracy vs Ceiling</CardTitle></CardHeader>
             <CardContent>
                 {enrichedData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={250}>
+                    <ResponsiveContainer width="100%" height={250} minWidth={1} minHeight={1}>
                         <BarChart data={enrichedData} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} vertical={false} />
                             <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.75rem" tickLine={false} axisLine={false} />

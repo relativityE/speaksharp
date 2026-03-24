@@ -51,7 +51,7 @@ export const UpgradePromptDialog: React.FC<UpgradePromptDialogProps> = ({ open, 
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Maybe Later</AlertDialogCancel>
-          <AlertDialogAction onClick={handleUpgrade} data-testid="upgrade-prompt-dialog-upgrade-button">View Plans</AlertDialogAction>
+          <AlertDialogAction onClick={() => { void handleUpgrade(); }} data-testid="upgrade-prompt-dialog-upgrade-button">View Plans</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

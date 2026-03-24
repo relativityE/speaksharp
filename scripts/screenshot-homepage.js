@@ -23,7 +23,7 @@ const BASE64_LOG_FILE = `${LOG_DIR}/homepage-base64.log`;
 
   try {
     const baseUrl = process.env.VITE_BASE_URL || `http://localhost:${PORTS.DEV}`;
-    await page.goto(baseUrl, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.goto(baseUrl, { timeout: 30000 });
 
     // Capture screenshot
     const screenshotBuffer = await page.screenshot({ fullPage: true });

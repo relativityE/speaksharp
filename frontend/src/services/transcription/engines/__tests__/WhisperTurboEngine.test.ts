@@ -47,6 +47,17 @@ describe('WhisperTurboEngine (Fast Path)', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         vi.clearAllMocks();
+        
+        // Setup window manifest (SSOT)
+        window.__SS_E2E__ = {
+            isActive: true,
+            engineType: 'real', // Allow mocked WASM in unit tests via 'real' logic
+            registry: {},
+            flags: {
+                fastTimers: true
+            }
+        };
+
         engine = new WhisperTurboEngine();
 
         // Setup successful acquire mock
@@ -56,8 +67,8 @@ describe('WhisperTurboEngine (Fast Path)', () => {
 
         // Setup successful transcription mock
         mocks.transcribe.mockResolvedValue({
-            isErr: false,
-            value: { text: "Hello WebGPU" }
+            isOk: true,
+            data: { text: "Hello WebGPU" }
         });
     });
 
@@ -79,14 +90,21 @@ describe('WhisperTurboEngine (Fast Path)', () => {
         expect(mocks.acquire).toHaveBeenCalled();
     });
 
+    it('handles WASM disabling in CI correctly', async () => {
+        if (window.__SS_E2E__) window.__SS_E2E__.engineType = 'mock'; // mock engineType forces DISABLE_WASM = true
+
+        const result = await engine.init({});
+        expect(result.isOk).toBe(false);
+        expect((result as { isOk: false; error: Error }).error.message).toBe('WASM_DISABLED_IN_CI');
+    });
+
     it('handles initialization failure gracefully', async () => {
         const error = new Error('Hardware failure');
         mocks.acquire.mockRejectedValue(error);
 
         const result = await engine.init({});
-        expect(result.isErr).toBe(true);
-        // Cast to { error: Error } to avoid 'any' while satisfying linter
-        expect((result as unknown as { error: Error }).error).toBe(error);
+        expect(result.isOk).toBe(false);
+        expect((result as { isOk: false; error: Error }).error).toBe(error);
     });
 
     it('transcribes audio correctly', async () => {
@@ -95,7 +113,7 @@ describe('WhisperTurboEngine (Fast Path)', () => {
         const result = await engine.transcribe(float32Audio);
 
         expect(result.isOk).toBe(true);
-        expect((result as unknown as { value: string }).value).toBe("Hello WebGPU");
+        expect((result as unknown as { isOk: true; data: string }).data).toBe("Hello WebGPU");
         expect(mocks.transcribe).toHaveBeenCalled();
     });
 
@@ -103,15 +121,15 @@ describe('WhisperTurboEngine (Fast Path)', () => {
         await engine.init({});
         const engineError = new Error('Inference timeout');
         mocks.transcribe.mockResolvedValue({
-            isErr: true,
+            isOk: false,
             error: engineError
         });
 
         const float32Audio = new Float32Array(16000);
         const result = await engine.transcribe(float32Audio);
 
-        expect(result.isErr).toBe(true);
-        expect((result as unknown as { error: Error }).error).toBe(engineError);
+        expect(result.isOk === false).toBe(true);
+        expect((result as unknown as { isOk: false; error: Error }).error).toBe(engineError);
     });
 
     it('handles unexpected transcription throws', async () => {
@@ -122,16 +140,16 @@ describe('WhisperTurboEngine (Fast Path)', () => {
         const float32Audio = new Float32Array(16000);
         const result = await engine.transcribe(float32Audio);
 
-        expect(result.isErr).toBe(true);
-        expect((result as unknown as { error: Error }).error).toBe(panicError);
+        expect(result.isOk === false).toBe(true);
+        expect((result as unknown as { isOk: false; error: Error }).error).toBe(panicError);
     });
 
     it('fails transcription if not initialized', async () => {
         const float32Audio = new Float32Array(16000);
         const result = await engine.transcribe(float32Audio);
 
-        expect(result.isErr).toBe(true);
-        expect((result as unknown as { error: Error }).error.message).toContain('not initialized');
+        expect(result.isOk).toBe(false);
+        expect((result as { isOk: false; error: Error }).error.message).toContain('not initialized');
     });
 
     it('releases resources back to registry on destroy', async () => {

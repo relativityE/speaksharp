@@ -102,7 +102,7 @@ describe('useGoals', () => {
         const { result } = renderHook(() => useGoals(), { wrapper });
 
         act(() => {
-            result.current.resetGoals();
+            void result.current.resetGoals();
         });
 
         await waitFor(() => {

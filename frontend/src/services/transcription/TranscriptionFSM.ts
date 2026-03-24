@@ -10,6 +10,7 @@ export type TranscriptionState =
     | 'PAUSED'
     | 'STOPPING'
     | 'CLEANING_UP'
+    | 'DOWNLOAD_REQUIRED'
     | 'FAILED'
     | 'TERMINATED';
 
@@ -24,7 +25,9 @@ export type TranscriptionEvent =
     | { type: 'STOP_COMPLETED' }
     | { type: 'RESET_REQUESTED' }
     | { type: 'ERROR_OCCURRED'; error: Error }
+    | { type: 'DOWNLOAD_REQUIRED' }
     | { type: 'TERMINATE_REQUESTED' }
+    | { type: 'TERMINATE_COMPLETED' }
     | { type: 'POLICY_UPDATED'; policy: TranscriptionPolicy };
 
 interface StateTransition {
@@ -50,10 +53,16 @@ export class TranscriptionFSM {
 
         { from: 'READY', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' },
         { from: 'ENGINE_INITIALIZING', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' }, // Allow re-init/fallback
+        { from: 'FAILED', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' }, // Allow fallback/retry
 
         { from: 'ENGINE_INITIALIZING', to: 'RECORDING', event: 'ENGINE_STARTED' },
         { from: 'ENGINE_INITIALIZING', to: 'IDLE', event: 'STOP_REQUESTED' },
         { from: 'ENGINE_INITIALIZING', to: 'IDLE', event: 'RESET_REQUESTED' },
+        { from: 'ENGINE_INITIALIZING', to: 'DOWNLOAD_REQUIRED', event: 'DOWNLOAD_REQUIRED' },
+
+        { from: 'DOWNLOAD_REQUIRED', to: 'IDLE', event: 'RESET_REQUESTED' },
+        { from: 'DOWNLOAD_REQUIRED', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' },
+        { from: 'DOWNLOAD_REQUIRED', to: 'FAILED', event: 'ERROR_OCCURRED' },
 
         { from: 'RECORDING', to: 'PAUSED', event: 'PAUSE_REQUESTED' },
         { from: 'PAUSED', to: 'RECORDING', event: 'RESUME_REQUESTED' },
@@ -82,9 +91,9 @@ export class TranscriptionFSM {
         { from: 'ACTIVATING_MIC', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'ENGINE_INITIALIZING', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'READY', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
+        { from: 'CLEANING_UP', to: 'TERMINATED', event: 'TERMINATE_COMPLETED' },
 
         // Finalize cleanup - Strict outbound transitions per Senior Audit
-        { from: 'CLEANING_UP', to: 'IDLE', event: 'RESET_REQUESTED' },
         { from: 'CLEANING_UP', to: 'FAILED', event: 'ERROR_OCCURRED' },
 
         // Reset from Terminal or Failed

@@ -11,7 +11,31 @@ import { TranscriptionProvider } from './providers/TranscriptionProvider';
 import { AnimatePresence } from 'framer-motion';
 import { PageTransition } from './components/ui/PageTransition';
 import { useReadinessStore } from './stores/useReadinessStore';
-import { useSessionStore } from './stores/useSessionStore';
+import { useCriticalQueries } from './hooks/useCriticalQueries';
+import { useE2EAttributes } from './hooks/useE2EAttributes';
+
+/**
+ * ARCHITECTURE:
+ * RouteReadinessManager handles the final signal for E2E determinism.
+ * It monitors critical queries (Auth, Profile) and sets the store state.
+ */
+const RouteReadinessManager: React.FC = () => {
+  const { isResolved } = useCriticalQueries();
+  const setReady = useReadinessStore(s => s.setReady);
+  const location = useLocation();
+
+  useEffect(() => {
+    if (isResolved) {
+      // Wrap in requestAnimationFrame to ensure the DOM is painted 
+      // before signaling route readiness to E2E tests.
+      requestAnimationFrame(() => {
+        setReady('route');
+      });
+    }
+  }, [isResolved, setReady, location.pathname]);
+
+  return null;
+};
 
 // Lazy load pages for better performance
 const Index = React.lazy(() => import('./pages/Index'));
@@ -30,51 +54,19 @@ const PageLoader = () => (
 const App: React.FC = () => {
   const location = useLocation();
 
-  // Deterministically hide loading spinner once React component mounts
+  // --- E2E AUTHORITATIVE SIGNALING ---
+  useE2EAttributes();
+
+  // 0. Layout Readiness
   useEffect(() => {
-    // 🚀 PHASE 8: Signal Layout Readiness
     useReadinessStore.getState().setReady('layout');
-
-    // Use requestAnimationFrame to ensure this runs after the next paint
-    requestAnimationFrame(() => {
-      document.body.classList.add('app-loaded');
-    });
+    document.body.classList.add('app-loaded');
   }, []);
 
-  // Handle DOM synchronization for E2E testing
+  // 1. Reset route readiness on navigation
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    // 1. Unified Event Listeners (from #744)
-    const handleEngineReady = () => {
-      document.body.dataset.sttEngine = 'ready';
-    };
-
-    const handleSpeechRuntimeState = (event: Event) => {
-      const customEvent = event as CustomEvent<{ state: string }>;
-      document.body.setAttribute('data-recording-state', customEvent.detail.state.toLowerCase());
-    };
-
-    window.addEventListener('stt-engine-ready', handleEngineReady);
-    window.addEventListener('speech-runtime-state', handleSpeechRuntimeState);
-
-    // 2. Reactive Store Subscription (from #742)
-    const unsub = useSessionStore.subscribe((state) => {
-      if (typeof document !== 'undefined') {
-        if (state.activeEngine) document.body.setAttribute('data-stt-policy', state.activeEngine);
-        else document.body.removeAttribute('data-stt-policy');
-
-        if (state.modelLoadingProgress !== null) document.body.setAttribute('data-download-progress', String(state.modelLoadingProgress));
-        else document.body.removeAttribute('data-download-progress');
-      }
-    });
-
-    return () => {
-      window.removeEventListener('stt-engine-ready', handleEngineReady);
-      window.removeEventListener('speech-runtime-state', handleSpeechRuntimeState);
-      unsub();
-    };
-  }, []);
+    useReadinessStore.getState().resetRouteReady();
+  }, [location.pathname]);
 
   // Handle Checkout Notifications (extracted hook)
   useCheckoutNotifications();
@@ -89,9 +81,13 @@ const App: React.FC = () => {
         offset="25vh"
       />
       <ProfileGuard>
+        <RouteReadinessManager />
         <TranscriptionProvider>
           <Navigation />
-          <main data-testid="app-main" className="relative z-10">
+          <main
+            data-testid="app-main"
+            className="relative z-10"
+          >
             <ErrorBoundary>
               <Suspense fallback={<PageLoader />}>
                 <AnimatePresence mode="wait">

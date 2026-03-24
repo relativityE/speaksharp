@@ -113,7 +113,7 @@ export const EditGoalsDialog: React.FC<EditGoalsDialogProps> = ({ goals, onSave 
                     ) : <span />}
                     <Button
                         type="submit"
-                        onClick={handleSave}
+                        onClick={() => { void handleSave(); }}
                         disabled={isSaving}
                         data-testid="save-goals-button"
                     >

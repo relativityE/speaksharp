@@ -16,6 +16,24 @@ import App from './App';
 import { IS_TEST_ENVIRONMENT } from '@/config/env';
 import { useReadinessStore } from './stores/useReadinessStore';
 
+declare global {
+  interface Window {
+    _speakSharpRootInitialized?: boolean;
+    __e2e_e2e_msw_ready_fired__?: boolean;
+  }
+}
+
+// Deterministic Mock Data (CI/E2E)
+if (IS_TEST_ENVIRONMENT()) {
+  // Simple LCG for deterministic Math.random() in CI/E2E
+  let seed = 42;
+  Math.random = () => {
+    seed = (seed * 16807) % 2147483647;
+    return (seed - 1) / 2147483646;
+  };
+  logger.info('[main.tsx] Seeded random initialized for CI/E2E');
+}
+
 const REQUIRED_ENV_VARS: string[] = [
   'VITE_SUPABASE_URL',
   'VITE_SUPABASE_ANON_KEY',
@@ -45,14 +63,20 @@ const queryClient = new QueryClient({
     },
   },
 });
-if (IS_TEST_ENVIRONMENT) {
+if (IS_TEST_ENVIRONMENT()) {
   (window as unknown as { queryClient: typeof queryClient }).queryClient = queryClient;
 }
 logger.info('[React Query] ✅ QueryClient initialized');
 
-// 🔴 CRITICAL: Initialize Sentry FIRST before any async operations
+// CRITICAL: Initialize Sentry FIRST before any async operations
 // This ensures errors during initialization are captured
-if (!IS_TEST_ENVIRONMENT && import.meta.env.VITE_SENTRY_DSN) {
+const sentryDSN = import.meta.env.VITE_SENTRY_DSN;
+const isTestMode = IS_TEST_ENVIRONMENT() || import.meta.env.VITE_TEST_MODE === 'true';
+const skipSentry = isTestMode || !sentryDSN || sentryDSN.includes('example.invalid');
+
+logger.info({ isTestMode, sentryDSN, skipSentry }, '[main.tsx] Sentry Initialization Check');
+
+if (!skipSentry) {
   try {
     Sentry.init({
       dsn: import.meta.env.VITE_SENTRY_DSN,
@@ -71,32 +95,32 @@ if (!IS_TEST_ENVIRONMENT && import.meta.env.VITE_SENTRY_DSN) {
       replaysOnErrorSampleRate: 1.0,
       sendDefaultPii: true,
     });
-    logger.info('[Sentry] ✅ Initialized successfully (early init)');
+    logger.info('[Sentry] Initialized successfully (early init)');
   } catch (err) {
     logger.warn({ err }, '[Sentry] ⚠️ Failed to initialize');
   }
-} else if (IS_TEST_ENVIRONMENT) {
-  logger.info('[Sentry] ⏭️ Skipped in test environment');
-  logger.warn('[Sentry] ⚠️ No DSN provided (expected in test mode)');
+} else if (isTestMode) {
+  logger.info('[Sentry] Skipped in test environment');
+  logger.warn('[Sentry] No DSN provided (expected in test mode)');
 } else {
-  logger.warn('[Sentry] ⚠️ No DSN provided - error tracking disabled');
+  logger.warn('[Sentry] No DSN provided - error tracking disabled');
 }
 
 import { setupGlobalErrorHandlers } from './lib/globalErrorHandlers';
 
-// 🌍 Global Error Handlers (Safety Net)
+// Global Error Handlers (Safety Net)
 setupGlobalErrorHandlers();
 
 const renderApp = async (initialSession: Session | null = null) => {
   if (rootElement && !window._speakSharpRootInitialized) {
     window._speakSharpRootInitialized = true;
-    logger.info('[main.tsx] 🚀 Starting app render...');
+    logger.info('[main.tsx] Starting app render...');
 
     if (areEnvVarsPresent()) {
       logger.info({ appExists: !!App }, '[E2E DIAGNOSTIC] ./App imported successfully');
 
       // 🛑 Skip ALL analytics in test mode (Sentry already initialized above)
-      if (!IS_TEST_ENVIRONMENT) {
+      if (!isTestMode) {
         // Defer PostHog initialization
         if (import.meta.env.VITE_POSTHOG_KEY && import.meta.env.VITE_POSTHOG_HOST) {
           setTimeout(() => {
@@ -106,7 +130,7 @@ const renderApp = async (initialSession: Session | null = null) => {
                 capture_exceptions: true,
                 debug: import.meta.env.MODE === 'development',
               });
-              logger.info('[PostHog] ✅ Initialized successfully');
+              logger.info('[PostHog] Initialized successfully');
             } catch (error) {
               logger.warn({ error }, "PostHog failed to initialize:");
             }
@@ -119,19 +143,19 @@ const renderApp = async (initialSession: Session | null = null) => {
       // Defer Stripe loading - create promise but don't await it
       // Stripe will be loaded when Elements component mounts
       // Skip Stripe in test mode to avoid iframe interference with automated testing
-      const stripePromise = IS_TEST_ENVIRONMENT
+      const stripePromise = IS_TEST_ENVIRONMENT()
         ? Promise.resolve(null)
         : import('@stripe/stripe-js').then(({ loadStripe }) =>
           loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!)
         ).catch((error) => {
           // Gracefully handle ad-blocker blocking Stripe CDN
-          logger.warn({ error }, '[Stripe] ⚠️ Failed to load (possibly blocked by ad-blocker)');
+          logger.warn({ error }, '[Stripe] Failed to load (possibly blocked by ad-blocker)');
           return null;
         });
 
       // Get initial session (mock if in E2E mode)
       const sessionToUse = initialSession;
-      if (IS_TEST_ENVIRONMENT) {
+      if (IS_TEST_ENVIRONMENT()) {
         // Non-blocking bridge import - use window flag for session if available
         import('@/lib/e2e-bridge').then(m => {
           const session = m.getInitialSession(initialSession);
@@ -140,7 +164,9 @@ const renderApp = async (initialSession: Session | null = null) => {
             // via localStorage is the primary source of truth.
             logger.info('[E2E] Bridge session resolved asynchronously');
           }
-        }).catch(() => { });
+        }).catch((err) => { 
+          logger.error({ err }, '[E2E] Failed to initialize e2e-bridge');
+        });
       }
 
       root.render(
@@ -170,68 +196,53 @@ const renderApp = async (initialSession: Session | null = null) => {
   }
 };
 
-// 🚀 PHASE 8: Deterministic Readiness Contract (Initialized in useReadinessStore)
+// Readiness contract initialization
 
 const startInitializing = async () => {
-  logger.info('[main.tsx] 🏁 Initialize started');
+  logger.info('[main.tsx] Initialize started');
 
   // Defer heavy WASM initialization to avoid competing with React hydration
-  const warmUpSTT = () => {
-    import('@/services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
-      speechRuntimeController.initialize()
+  const initSTT = () => {
+    // Lazy import of SpeechRuntimeController
+    void import('./services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
+      speechRuntimeController.warmUp()
         .then(() => {
-          useReadinessStore.getState().setReady('stt');
+          logger.info('[main.tsx] STT Infrastructure Ready');
         })
         .catch(err => {
           logger.error({ err }, '[main.tsx] ❌ SpeechRuntimeController failed');
         });
     });
+
   };
 
-  if ('requestIdleCallback' in window) {
-    window.requestIdleCallback(() => warmUpSTT(), { timeout: 5000 });
-  } else {
-    setTimeout(warmUpSTT, 100);
-  }
-
-  if (IS_TEST_ENVIRONMENT) {
+  if (isTestMode) {
     const { initE2EConfig } = await import('../../tests/types/e2eConfig');
     initE2EConfig({});
 
+    // Start STT infrastructure after E2E config is ready
+    initSTT();
+
     const { initializeE2EEnvironment } = await import('./lib/e2e-bridge');
     await initializeE2EEnvironment();
-    
-    // Analytics is handled by initializeE2EEnvironment or manually here if needed
-    useReadinessStore.getState().setReady('analytics');
 
     const skipMSW = import.meta.env.VITE_SKIP_MSW === 'true' || import.meta.env.VITE_USE_LIVE_DB === 'true';
     if (skipMSW) {
       Object.assign(window, { mswReady: true });
-      (window as any)['__e2e_e2e:msw-ready_fired__'] = true;
+      window.__e2e_e2e_msw_ready_fired__ = true;
       window.dispatchEvent(new CustomEvent('e2e:msw-ready'));
       useReadinessStore.getState().setReady('msw');
     }
     await renderApp();
   } else {
-    useReadinessStore.getState().setReady('analytics');
+    // Standard Production Path
+    initSTT();
     useReadinessStore.getState().setReady('msw'); // Always ready in production (no MSW)
     await renderApp();
   }
 
-  // ✅ SIGNAL BOOT READINESS
+  // SIGNAL BOOT READINESS
   useReadinessStore.getState().setReady('boot');
 };
-
-// 🛡️ The application only signals readiness to Playwright
-// AFTER all critical subsystems have confirmed they are ready.
-useReadinessStore.subscribe((state) => {
-  const { boot, layout, auth, analytics, stt, msw } = state.signals;
-  if (boot && layout && auth && analytics && stt && msw) {
-    if (document.documentElement.getAttribute('data-app-ready') !== 'true') {
-      logger.info('[main.tsx] 🚀 ALL SYSTEMS READY. Signaling Playwright.');
-      document.documentElement.setAttribute('data-app-ready', 'true');
-    }
-  }
-});
-
-startInitializing();
+// Subscriptions handled in App.tsx for consolidated signaling
+void startInitializing();

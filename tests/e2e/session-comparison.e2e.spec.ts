@@ -12,7 +12,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
     test('should display session history with metrics', async ({ userPage }) => {
         // Ensure fresh state and synchronize MSW
         await userPage.reload();
-        await userPage.waitForLoadState('networkidle');
+        
 
         await navigateToRoute(userPage, '/analytics');
         await userPage.waitForSelector('[data-testid="nav-sign-out-button"]');
@@ -40,10 +40,10 @@ test.describe('Session Comparison & Progress Tracking', () => {
     test('should display session history list for trend analysis', async ({ userPage }) => {
         // Ensure fresh state and synchronize MSW
         await userPage.reload();
-        await userPage.waitForLoadState('networkidle');
+        
 
         await navigateToRoute(userPage, '/analytics');
-        await userPage.waitForLoadState('networkidle');
+        
         await expect(userPage.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
 
         // Verify sessions are displayed
@@ -62,7 +62,7 @@ test.describe('Session Comparison & Progress Tracking', () => {
     test('should show progress trends over time', async ({ userPage }) => {
         // Ensure fresh state and synchronize MSW
         await userPage.reload();
-        await userPage.waitForLoadState('networkidle');
+        
 
         await navigateToRoute(userPage, '/analytics');
         await userPage.waitForSelector('[data-testid="nav-sign-out-button"]');

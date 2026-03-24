@@ -52,6 +52,7 @@ export default function AuthPage() {
   const [promoCode, setPromoCode] = useState('');
   const [showPromoField, setShowPromoField] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
 
   const handleProUpgrade = async (currentSession: Session): Promise<boolean | void> => {
     // 1. Priority Check: Handle Promo Bypass Code if provided
@@ -134,8 +135,12 @@ export default function AuthPage() {
       }
 
       if (password.length < 6 && view !== 'forgot_password') {
-        logger.info('[AuthPage] Password too short, rejecting');
-        setError(friendlyErrors['Password should be at least 6 characters']);
+        const msg = friendlyErrors['Password should be at least 6 characters'];
+        if (view === 'sign_up') {
+          setInlineError(msg);
+        } else {
+          setError(msg);
+        }
         setIsSubmitting(false);
         return;
       }
@@ -146,6 +151,7 @@ export default function AuthPage() {
         authResult = await supabase.auth.signInWithPassword({ email, password });
       } else if (view === 'sign_up') {
         logger.info({ email, selectedPlan }, '[AuthPage] Attempting sign_up');
+        
         const { error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -158,25 +164,40 @@ export default function AuthPage() {
 
         if (signUpError) {
           logger.error({ err: signUpError }, '[AuthPage] Sign-up error');
-          throw signUpError;
+          // Credentials failed — stay on page, show inline error (red bold)
+          setInlineError(mapError(signUpError.message));
+          setIsSubmitting(false);
+          return;
         }
 
-        // 1. Log the user in to get a session
+        // Credentials succeeded — user is authenticated from this point
+        // Promo is now optional, not a gate
+        setInlineError(null);
+
+        // Post-signup sign-in to get the session (Supabase quirk)
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
         if (signInError) {
           logger.error({ err: signInError }, '[AuthPage] Post-signup sign-in failed');
-          throw signInError;
+          setInlineError(mapError(signInError.message));
+          setIsSubmitting(false);
+          return;
         }
 
         authResult = { data: signInData, error: null };
 
-        // 2. If Pro was selected...
+        // Handle Optional Promo/Upgrade
         if (selectedPlan === 'pro' && signInData.session) {
-          const upgradeSuccess = await handleProUpgrade(signInData.session);
-          // If handleProUpgrade returns true, it was a promo bypass - continue to setSession
-          // If it returns undefined (Stripe redirect), we stop here
-          if (!upgradeSuccess) {
-            return;
+          const promoResult = await handleProUpgrade(signInData.session);
+
+          if (promoResult === undefined) {
+             // Stripe redirect in progress
+             return;
+          }
+
+          if (!promoResult && promoCode.trim()) {
+            // Promo failed but user is authenticated — notify and continue
+            toast.error("Promo code invalid. You've been signed up as a free user.");
+            // We proceed to setSession below
           }
         }
       } else { // forgot_password
@@ -260,7 +281,7 @@ export default function AuthPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} data-testid={view === 'forgot_password' ? 'reset-password-form' : 'auth-form'} className="space-y-4">
+            <form onSubmit={(e) => { void handleSubmit(e); }} data-testid={view === 'forgot_password' ? 'reset-password-form' : 'auth-form'} className="space-y-4">
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
@@ -269,7 +290,6 @@ export default function AuthPage() {
                     id="email"
                     type="email"
                     placeholder="name@example.com"
-                    required
                     value={email}
                     onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
                     className="h-11"
@@ -295,7 +315,6 @@ export default function AuthPage() {
                       data-testid="password-input"
                       id="password"
                       type="password"
-                      required
                       value={password}
                       onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                       className="h-11"
@@ -355,8 +374,17 @@ export default function AuthPage() {
                               }
                             }}
                             className="h-9 text-sm"
-                            data-testid="promo-code-input"
+                             data-testid="promo-code-input"
                           />
+                          {inlineError && (
+                            <p
+                              className="text-red-600 font-bold text-xs mt-1 animate-in fade-in-50"
+                              data-testid="signup-inline-error"
+                              role="alert"
+                            >
+                              {inlineError}
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>

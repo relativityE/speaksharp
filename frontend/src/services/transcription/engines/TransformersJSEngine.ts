@@ -14,32 +14,38 @@
  * @see docs/ARCHITECTURE.md - "Dual-Engine Private STT"
  */
 
-import { Result } from 'true-myth';
-import { IPrivateSTTEngine, EngineCallbacks, EngineType } from './IPrivateSTTEngine';
-import { TestFlags } from '../../../config/TestFlags';
-import logger from '../../../lib/logger';
+import { Result } from '@/services/transcription/modes/types';
+import { EngineCallbacks, EngineType } from '@/contracts/IPrivateSTTEngine';
+
+import { TestFlags } from '@/config/TestFlags';
+import logger from '@/lib/logger';
+import { STTEngine } from '@/contracts/STTEngine';
 
 // Lazy-load transformers.js to avoid bundle bloat
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
 
-export class TransformersJSEngine implements IPrivateSTTEngine {
+export class TransformersJSEngine extends STTEngine {
     public readonly type: EngineType = 'transformers-js';
     private transcriber: Pipeline | null = null;
 
-    async init(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
+    constructor() {
+        super();
+    }
+
+    protected async onInit(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
         if (this.transcriber) {
-            logger.info('[TransformersJS] Engine already initialized, skipping.');
+            logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Engine already initialized, skipping.');
             if (callbacks.onReady) callbacks.onReady();
-            return Result.ok(undefined);
+            return { isOk: true, data: undefined };
         }
-        logger.info('[TransformersJS] Initializing engine...');
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Initializing engine...');
 
         try {
             // Lazy import transformers.js
             const transformers = await import('@xenova/transformers');
             const { pipeline, env } = transformers;
 
-            if (TestFlags.DEBUG_ENABLED) {
+            if (TestFlags.FLAGS.DEBUG_ENABLED) {
                 logger.debug({
                     hasPipeline: !!pipeline,
                     hasEnv: !!env,
@@ -63,9 +69,9 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
                 typeof window.document !== 'undefined' &&
                 !navigator.userAgent.includes('HappyDOM');
 
-            env.useBrowserCache = isBrowser && !TestFlags.IS_TEST_MODE;
+            env.useBrowserCache = isBrowser && !TestFlags.IS_E2E;
 
-            if (TestFlags.DEBUG_ENABLED) {
+            if (TestFlags.FLAGS.DEBUG_ENABLED) {
                 logger.debug({
                     isBrowser,
                     cacheEnabled: env.useBrowserCache,
@@ -98,6 +104,9 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
 
             const loadTime = performance.now() - loadStart;
             logger.info({
+                sId: this.serviceId,
+                rId: this.runId,
+                eId: this.instanceId,
                 event: 'model_loaded',
                 model: 'whisper-tiny.en',
                 load_time_ms: Math.round(loadTime),
@@ -118,23 +127,36 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
 
             // Check for common SPA 404 error (HTML returned instead of JSON)
             if (e.message.includes("Unexpected token '<'") || e.message.includes("Unexpected token <")) {
-                logger.error('[TransformersJS] ❌ Model load failed with "Unexpected token <". This suggests a 404 error where the server returned index.html instead of the model file. Ensure env.allowLocalModels=false is set.');
+                logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] ❌ Model load failed with "Unexpected token <". This suggests a 404 error where the server returned index.html instead of the model file.');
             }
 
-            logger.error({ err: e }, '[TransformersJS] Failed to initialize engine.');
+            logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: e }, '[TransformersJS] Failed to initialize engine.');
             return Result.err(e);
         }
     }
 
+    protected async onStart(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[TransformersJS] Engine started at ${new Date().toISOString()}`);
+    }
+
+    protected async onStop(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Stopping engine...');
+    }
+
+    protected async onDestroy(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Destroying engine resources...');
+        this.transcriber = null;
+    }
+
     async transcribe(audio: Float32Array): Promise<Result<string, Error>> {
         if (!this.transcriber) {
-            return Result.err(new Error('TransformersJS engine not initialized. Call init() first.'));
+            return { isOk: false, error: new Error('TransformersJS engine not initialized. Call init() first.') };
         }
+
+        this.updateHeartbeat(); // Standard contract: update heartbeat on activity
 
         try {
             const start = performance.now();
-            // transformers.js expects audio samples at 16kHz
-            // The pipeline's call signature is complex; use a typed result interface
             interface TranscriptionResult {
                 transcript?: string;
             }
@@ -146,6 +168,9 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
 
             const latency = performance.now() - start;
             logger.info({
+                sId: this.serviceId,
+                rId: this.runId,
+                eId: this.instanceId,
                 event: 'inference_complete',
                 latency_ms: Math.round(latency),
                 audio_length_s: audio.length / 16000,
@@ -157,16 +182,17 @@ export class TransformersJSEngine implements IPrivateSTTEngine {
                 ? result
                 : (result as TranscriptionResult).transcript ?? '';
 
-            return Result.ok(transcript);
+            this.currentTranscript = transcript; // Sync with orchestrator buffer
+            this.updateHeartbeat();
+            return { isOk: true, data: transcript };
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
-            logger.error({ err: e }, '[TransformersJS] Transcription failed.');
-            return Result.err(e);
+            logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: e }, '[TransformersJS] Transcription failed.');
+            return { isOk: false, error: e };
         }
     }
 
-    async destroy(): Promise<void> {
-        logger.info('[TransformersJS] Destroying engine...');
-        this.transcriber = null;
+    async terminate(): Promise<void> {
+        await this.destroy();
     }
 }

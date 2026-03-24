@@ -12,6 +12,10 @@ Run the following command from your terminal:
 gh workflow run deploy-supabase-migrations.yml -f confirm=DEPLOY
 ```
 
+> [!IMPORTANT]
+> **CRITICAL: GITHUB-FIRST RULE**
+> **Any new migration files MUST be committed and pushed to the GitHub repository BEFORE running any deployment commands below.** The GitHub Action runner pulls code directly from the repository; if your local migrations are not yet pushed to the remote `main` branch, the deployment workflow will FAIL to see them.
+
 ### 2. Monitor Progress
 You can watch the execution in real-time:
 ```bash

@@ -16,6 +16,13 @@ const initialState: SessionState = {
     sttMode: null,
     modelLoadingProgress: null,
     activeEngine: null,
+    isInitiating: false,
+    runtimeState: 'IDLE',
+    isLockHeldByOther: false,
+    history: [],
+    chunks: [],
+    sessionSaved: false,
+    sunsetModal: { type: 'daily', open: false },
 };
 
 /**
@@ -94,7 +101,47 @@ export function createTestSessionStore(
                 elapsedTime: seconds,
             })),
 
+        addHistorySegment: vi.fn((segment) =>
+            set((state) => ({
+                history: [...state.history, segment],
+            }))),
+
+        setHistory: vi.fn((history) =>
+            set({
+                history,
+            })),
+
+        setRuntimeState: vi.fn((state) =>
+            set({
+                runtimeState: state,
+            })),
+
+        setStartTime: vi.fn((time) =>
+            set({
+                startTime: time,
+            })),
+
+        setLockHeldByOther: vi.fn((held) =>
+            set({
+                isLockHeldByOther: held,
+            })),
+
+        setSessionSaved: vi.fn((saved) =>
+            set({
+                sessionSaved: saved,
+            })),
+
+        setSunsetModal: vi.fn((sunsetModal) =>
+            set({
+                sunsetModal,
+            })),
+
         resetSession: vi.fn(() =>
             set(initialState)),
+
+        addChunk: vi.fn((chunk) =>
+            set((state: any) => ({
+                chunks: [...state.chunks, chunk],
+            }))),
     }));
 }

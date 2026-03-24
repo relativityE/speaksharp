@@ -4,6 +4,7 @@ import { testRegistry } from '../TestRegistry';
 import NativeBrowser from '../modes/NativeBrowser';
 import CloudAssemblyAI from '../modes/CloudAssemblyAI';
 import { PROD_FREE_POLICY } from '../TranscriptionPolicy';
+import type { ITranscriptionEngine } from '../modes/types';
 
 // Mock dependencies
 vi.mock('../modes/NativeBrowser');
@@ -32,8 +33,18 @@ describe('EngineFactory', () => {
         });
 
         it('should inject Native engine from Registry if present', async () => {
-            const mockNative = { getEngineType: () => 'mock-native' };
-            testRegistry.register('native', () => mockNative);
+            const mockNative = { 
+                getEngineType: () => 'mock-native',
+                init: async () => {},
+                start: async () => {},
+                stop: async () => {},
+                startTranscription: async () => {},
+                stopTranscription: async () => 'test',
+                getTranscript: async () => 'test',
+                dispose: () => {},
+                getLastHeartbeatTimestamp: () => Date.now()
+            };
+            testRegistry.register('native', () => mockNative as unknown as ITranscriptionEngine);
 
             const engine = await EngineFactory.create('native', mockConfig, PROD_FREE_POLICY);
             expect(engine).toBe(mockNative);
@@ -46,8 +57,18 @@ describe('EngineFactory', () => {
         });
 
         it('should inject Cloud engine from Registry if present', async () => {
-            const mockCloud = { getEngineType: () => 'mock-cloud' };
-            testRegistry.register('cloud', () => mockCloud);
+            const mockCloud = { 
+                getEngineType: () => 'mock-cloud',
+                init: async () => {},
+                start: async () => {},
+                stop: async () => {},
+                startTranscription: async () => {},
+                stopTranscription: async () => 'test',
+                getTranscript: async () => 'test',
+                dispose: () => {},
+                getLastHeartbeatTimestamp: () => Date.now()
+            };
+            testRegistry.register('cloud', () => mockCloud as unknown as ITranscriptionEngine);
 
             const engine = await EngineFactory.create('cloud', mockConfig, PROD_FREE_POLICY);
             expect(engine).toBe(mockCloud);

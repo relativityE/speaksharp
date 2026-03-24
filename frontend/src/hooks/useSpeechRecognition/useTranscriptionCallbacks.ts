@@ -1,13 +1,34 @@
 import { useEffect, useRef } from 'react';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
-import { TranscriptionServiceOptions } from '../../services/transcription/TranscriptionService';
+import { speechRuntimeController } from '../../services/SpeechRuntimeController';
+import { TranscriptUpdate, SttStatus } from '@/types/transcription';
+import type { Session } from '@supabase/supabase-js';
+import type { NavigateFunction } from 'react-router-dom';
 
 /**
  * Atomic Hook: Callback Synchronization.
- * Responsibility: Re-hydrating the TranscriptionService singleton with fresh React callbacks.
+ * Responsibility: Registering UI callbacks with the SpeechRuntimeController.
+ * This ensures they are proxied correctly and play nice with the Segmented Emission Queue.
  */
-export function useTranscriptionCallbacks(callbacks: Partial<TranscriptionServiceOptions>) {
-    const { service, isReady } = useTranscriptionContext();
+import { TranscriptionPolicy, TranscriptionMode } from '../../services/transcription/TranscriptionPolicy';
+
+interface TranscriptionCallbacks {
+    onTranscriptUpdate?: (data: TranscriptUpdate) => void;
+    onAudioData?: (data: Float32Array) => void;
+    getAssemblyAIToken?: () => Promise<string | null>;
+    session?: Session | null; 
+    navigate?: NavigateFunction;
+    userWords?: string[];
+    policy?: TranscriptionPolicy;
+    onReady?: () => void;
+    onError?: (err: Error) => void;
+    onModelLoadProgress?: (p: number | null) => void;
+    onStatusChange?: (s: SttStatus) => void;
+    onModeChange?: (m: TranscriptionMode | null) => void;
+}
+
+export function useTranscriptionCallbacks(callbacks: TranscriptionCallbacks) {
+    const { isReady } = useTranscriptionContext();
     const callbacksRef = useRef(callbacks);
 
     // Keep latest callbacks in ref to avoid stale closures
@@ -16,14 +37,9 @@ export function useTranscriptionCallbacks(callbacks: Partial<TranscriptionServic
     });
 
     useEffect(() => {
-        if (!service || !isReady) return;
+        if (!isReady) return;
 
-        // Note: we use arrow functions that point to the ref
-        // so that the service doesn't need to be updated on every render.
-        // HOWEVER, TranscriptionService Facade has an updateCallbacks method
-        // which we can call explicitly to ensure it has the latest.
-
-        service.updateCallbacks({
+        speechRuntimeController.setSubscriberCallbacks({
             onTranscriptUpdate: (update) => callbacksRef.current.onTranscriptUpdate?.(update),
             onModelLoadProgress: (progress) => callbacksRef.current.onModelLoadProgress?.(progress),
             onReady: () => callbacksRef.current.onReady?.(),
@@ -31,11 +47,11 @@ export function useTranscriptionCallbacks(callbacks: Partial<TranscriptionServic
             onStatusChange: (status) => callbacksRef.current.onStatusChange?.(status),
             onAudioData: (data) => callbacksRef.current.onAudioData?.(data),
             onError: (err) => callbacksRef.current.onError?.(err),
-            session: callbacksRef.current.session,
-            navigate: callbacksRef.current.navigate,
+            session: callbacksRef.current.session ?? undefined,
+            navigate: callbacksRef.current.navigate as unknown as NavigateFunction,
             getAssemblyAIToken: callbacksRef.current.getAssemblyAIToken,
             userWords: callbacksRef.current.userWords,
         });
 
-    }, [service, isReady]);
+    }, [isReady]);
 }

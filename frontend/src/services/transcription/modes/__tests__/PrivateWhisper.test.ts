@@ -13,8 +13,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.unmock('../PrivateWhisper');
 
 import PrivateWhisper from '../PrivateWhisper';
-import { Result } from 'true-myth';
+import { Result } from '../types';
 import { MicStream } from '../../utils/types';
+import { TranscriptionModeOptions } from '../types';
 
 // Global mocks to prevent resolution errors
 vi.mock('whisper-turbo', () => ({}));
@@ -43,6 +44,7 @@ vi.mock('../../engines/PrivateSTT', () => {
     const MockPrivateSTT = vi.fn().mockImplementation(() => ({
         init: mocks.init,
         transcribe: mocks.transcribe,
+        getEngineType: vi.fn().mockReturnValue('whisper-turbo')
     }));
     return {
         PrivateSTT: MockPrivateSTT,
@@ -71,7 +73,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
     });
 
     it('initializes by delegating to PrivateSTT', async () => {
-        await privateWhisper.init();
+        await privateWhisper.init(mockCallbacks as unknown as TranscriptionModeOptions);
         expect(mocks.init).toHaveBeenCalled();
         // Check if callbacks are passed? 
         // PrivateWhisper likely passes its own internal callbacks or the ones provided.
@@ -79,7 +81,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
     it('buffers audio and transcribes periodically', async () => {
         vi.useFakeTimers();
-        await privateWhisper.init();
+        await privateWhisper.init(mockCallbacks as unknown as TranscriptionModeOptions);
 
         let frameCallback: ((frame: Float32Array) => void) | undefined;
         // Mock the mic stream to capture the callback
@@ -118,7 +120,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
     it('RMS VAD: drops silent chunks (RMS < 0.01)', async () => {
         vi.useFakeTimers();
-        await privateWhisper.init();
+        await privateWhisper.init(mockCallbacks as unknown as TranscriptionModeOptions);
 
         const mockMic: MicStream = {
             state: 'ready',
@@ -147,7 +149,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
     it('RMS VAD: processes audio chunks (RMS >= 0.01)', async () => {
         vi.useFakeTimers();
-        await privateWhisper.init();
+        await privateWhisper.init(mockCallbacks as unknown as TranscriptionModeOptions);
 
         let frameCallback: ((frame: Float32Array) => void) | undefined;
         const mockMic: MicStream = {
@@ -179,7 +181,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
     });
     it('REGRESSION: preserves audio chunks arriving during inference', async () => {
         vi.useFakeTimers();
-        await privateWhisper.init();
+        await privateWhisper.init(mockCallbacks as unknown as TranscriptionModeOptions);
 
         let frameCallback: ((frame: Float32Array) => void) | undefined;
         const mockMic: MicStream = {

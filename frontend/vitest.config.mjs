@@ -1,3 +1,4 @@
+/* eslint-env node */
 // vitest.config.mjs
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
@@ -20,7 +21,7 @@ export default defineConfig({
     ],
     exclude: ['node_modules/', 'dist/', 'build/', '**/*.spec.{ts,tsx}'],
     setupFiles: [
-      path.resolve(__dirname, './tests/unit/setup.ts')
+      path.resolve(__dirname, './tests/setup.ts')
     ],
     testTimeout: 30000,
     hookTimeout: 10000,
@@ -88,7 +89,6 @@ export default defineConfig({
     // Memory management
     watch: false,
     env: {
-      VITE_TEST_MODE: 'true',
       NODE_ENV: 'test',
     },
     // Fix deprecation: "deps.inline" -> "server.deps.inline"
@@ -111,9 +111,7 @@ export default defineConfig({
       "whisper-webgpu": path.resolve(__dirname, "./tests/mocks/whisper-turbo.ts"),
     },
   },
-  define: {
-    TEST_MODE: JSON.stringify(process.env.VITE_TEST_MODE === 'true'),
-  },
+  define: {},
   optimizeDeps: {
     exclude: ['whisper-turbo', 'whisper-webgpu']
   }

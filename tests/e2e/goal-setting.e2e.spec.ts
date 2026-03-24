@@ -13,7 +13,7 @@ test.describe('Goal Setting', () => {
     test('should display goals section in analytics', async ({ userPage }) => {
         // Ensure fresh state and synchronize MSW
         await userPage.reload();
-        await userPage.waitForLoadState('networkidle');
+        
 
         // 1. Robust Navigation
         await navigateToRoute(userPage, '/analytics');
@@ -29,7 +29,7 @@ test.describe('Goal Setting', () => {
     test('should show actual session progress, not hardcoded values', async ({ userPage }) => {
         // Ensure fresh state and synchronize MSW
         await userPage.reload();
-        await userPage.waitForLoadState('networkidle');
+        
 
         // 1. Use dynamic mock helper to inject 5 sessions with fresh timestamps
         await mockRecentSessions(userPage, { count: 5, daysBack: 7 });
@@ -54,7 +54,7 @@ test.describe('Goal Setting', () => {
     test('should allow users to set custom goals', async ({ userPage }) => {
         // Ensure fresh state and synchronize MSW
         await userPage.reload();
-        await userPage.waitForLoadState('networkidle');
+        
 
         await navigateToRoute(userPage, '/analytics');
 

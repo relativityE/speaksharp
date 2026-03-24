@@ -1,9 +1,12 @@
 import { test, expect } from './fixtures';
-import { navigateToRoute, debugLog } from './helpers';
+import { navigateToRoute, debugLog, waitForFeature } from './helpers';
 
 test.describe('Analytics Details', () => {
     test('Journey 8: Session Detail View', async ({ userPage }) => {
         await navigateToRoute(userPage, '/analytics');
+        
+        // 🛡️ Architectural Readiness
+        await waitForFeature(userPage, 'analytics');
 
         // Check if there are sessions (mocked data usually has some)
         const sessionLink = userPage.locator('a[href^="/analytics/"]').first();
@@ -28,6 +31,9 @@ test.describe('Analytics Details', () => {
     test('Journey 8.3: Invalid Session ID', async ({ userPage }) => {
         // Use navigateToRoute to preserve auth context
         await navigateToRoute(userPage, '/analytics/invalid-session-id');
+        
+        // 🛡️ Architectural Readiness
+        await waitForFeature(userPage, 'analytics');
 
         // Wait for the "Session Not Found" heading to appear
         await expect(userPage.getByTestId('session-not-found-heading')).toBeVisible({ timeout: 15000 });

@@ -62,7 +62,20 @@ export const STT_CONFIG = {
   ASSEMBLYAI_MAX_PACKET_MS: 1000,
   ASSEMBLYAI_MIN_SAMPLES: 800,   // 50ms at 16kHz
   ASSEMBLYAI_MAX_SAMPLES: 16000, // 1000ms at 16kHz
+  HEARTBEAT_TIMEOUT_MS: {
+    CI: 200,
+    PROD: 5000
+  },
+  FAILURE_HOLD_DURATION_MS: {
+    CI: 50,
+    PROD: 1500
+  },
+  VISIBLE_HOLD_DURATION_MS: {
+    CI: 200,
+    PROD: 2500
+  },
 } as const;
+
 
 export const UI_CONFIG = {
   MIN_TOAST_LENGTH_SECS: 5,

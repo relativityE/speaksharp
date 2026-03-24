@@ -1,7 +1,8 @@
 import { useCallback } from 'react';
-import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { TranscriptionPolicy } from '../../services/transcription/TranscriptionPolicy';
 import logger from '../../lib/logger';
+import { speechRuntimeController } from '../../services/SpeechRuntimeController';
+import { useSessionStore } from '../../stores/useSessionStore';
 
 /**
  * Atomic Hook: Controls the transcription lifecycle.
@@ -10,22 +11,18 @@ import logger from '../../lib/logger';
  * Industry Pattern: Controller Pattern (React version)
  */
 export const useTranscriptionControl = () => {
-    const { service, isReady } = useTranscriptionContext();
+    const isReady = useSessionStore(s => s.isReady);
 
     const startListening = useCallback(async (policy?: TranscriptionPolicy) => {
-        if (!service || !isReady) {
-            logger.warn('[useTranscriptionControl] Attempted to start before service was ready');
-            return;
-        }
-        logger.info('[useTranscriptionControl] Starting transcription');
-        await service.startTranscription(policy);
-    }, [service, isReady]);
+        logger.debug('[useTranscriptionControl] startListening triggered (Zero-Wait UX)');
+        logger.info('[useTranscriptionControl] Starting transcription via Controller');
+        await speechRuntimeController.startRecording(policy);
+    }, []);
 
     const stopListening = useCallback(async () => {
-        if (!service) return;
-        logger.info('[useTranscriptionControl] Stopping transcription');
-        return await service.stopTranscription();
-    }, [service]);
+        logger.info('[useTranscriptionControl] Stopping transcription via Controller');
+        return await speechRuntimeController.stopRecording();
+    }, []);
 
     return {
         startListening,

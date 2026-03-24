@@ -1,9 +1,9 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-09
+**Last Reviewed:** 2026-03-24
 
 # SpeakSharp
 # SpeakSharp
-**v3.5.8** | **Last Updated: 2026-03-15**
+**v0.6.0** | **Last Updated: 2026-03-24**
 
 SpeakSharp is an AI-powered speech coaching application that helps users improve their public speaking skills. It provides real-time feedback on filler words, speaking pace, and more.
 
@@ -22,22 +22,22 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
     -   AI-powered speaking tips and clarity scores.
     -   Detailed PDF report export for every session.
 -   **Production Grade:** Full Sentry monitoring, PostHog product analytics, and Stripe payment integration.
--   **Phase 2 Hardening (Mar 2026):** **3-PR Integration Baseline**.
+-   **Integration & Metering Hardening (Mar 2026):** **3-PR Integration Baseline**.
     -   **SQL Extraction (PR #732):** Atomic session creation and hardened usage metering in the database layer.
     -   **Tier Limits (PR #731):** Dynamic `tier_configs` enforcement with strict concurrency protection.
     -   **3-Layer Runtime (PR #729):** Resilient STT hierarchy (WebGPU -> WASM -> Native) with model loading progress.
     -   **Zero-Debt Audit:** 100% pass rate in Vitest (Unit) and Playwright (E2E) suites.
--   **Phase 3/4 Hardening (Feb 2026):** **"Zero-Debt" & Scalability Baseline**.
+-   **Zero-Debt & Scalability Hardening (Feb 2026):** **"Zero-Debt" & Scalability Baseline**.
     -   **O(1) Live Analytics:** Infinite-duration sessions supported via incremental observer pattern.
     -   **NLP Caching:** 500x faster re-renders for multi-speaker dialog via LRU document cache.
     -   **Atomic Consistency:** Restored row-locking prevents usage limit bypass under high concurrency.
-- **Mar 2026 Hardening:** **High-Merit Integration Baseline**.
-    - **STT E2E Stabilization:** Achieved 100% CI pass rate for Private STT via DOM signaling and capability-aware skip logic.
-    - **UI Redesign:** High-fidelity `LiveRecordingCard` overhaul (Vertical center-stack, Proportionality).
-    - **Benchmarking:** Established accuracy ceilings (93% WebGPU / 90% CPU) in `STT_BENCHMARKS.json`.
-    - **Environment Reliability:** Unified Vite root-env resolution for project-wide `.env` loading.
-    - **Atomic Payment Processing (PR #743):** Optimized Stripe webhook handling via single atomic Postgres RPC.
     - **Concurrent PDF Parsing (PR #735):** ~90% reduction in extraction latency via `Promise.all` orchestration.
+- **Mar 2026 Stabilization Audit (v0.6.0):** **High-Fidelity Contract Baseline**.
+    - **Deterministic STT Infrastructure:** Achieved 100% contract compliance via `STTEngine` unification.
+    - **Monotonic Readiness:** Replaced `networkidle` with explicit `data-route-ready` DOM signals.
+    - **Strict Zero Manifest:** Implemented `window.__SS_E2E__` as the synchronous source of truth for all environment flags.
+    - **Telemetry Decoupling:** Implemented `AnalyticsBuffer` (Queue + Flush) for non-blocking boot performance.
+    - **Observability Hardening:** CI-blocking console error detection and global exception escalation.
 
 ---
 

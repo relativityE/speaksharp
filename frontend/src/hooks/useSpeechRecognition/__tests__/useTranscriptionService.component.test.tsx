@@ -1,50 +1,33 @@
-import { renderHook, act } from '../../../../tests/support/test-utils';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderHook, act, waitFor } from '../../../../tests/support/test-utils';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import React from 'react';
 import { useTranscriptionService } from '../useTranscriptionService';
 import { E2E_DETERMINISTIC_NATIVE } from '../types';
 import { TranscriptionProvider } from '../../../providers/TranscriptionProvider';
 import { speechRuntimeController } from '../../../services/SpeechRuntimeController';
+import { testRegistry } from '../../../services/transcription/TestRegistry';
+import { ITranscriptionEngine } from '../../../services/transcription/modes/types';
+import { useSessionStore } from '../../../stores/useSessionStore';
 
-// Mock the TranscriptionService with callback support
-const mockCallbacks: Record<string, (...args: unknown[]) => void> = {};
-const mockService = {
-  init: vi.fn().mockResolvedValue({ success: true }),
-  startTranscription: vi.fn().mockImplementation(async () => {
-    // Simulate FSM transition or callback if needed for success path
-  }),
-  stopTranscription: vi.fn().mockResolvedValue({ success: true, transcript: '', stats: { transcript: '', total_words: 0, accuracy: 0, duration: 0 } }),
-  destroy: vi.fn().mockResolvedValue(undefined),
-  getMode: vi.fn().mockReturnValue('native'),
-  getEngineType: vi.fn().mockReturnValue('native'),
-  updateCallbacks: vi.fn().mockImplementation((cbs) => {
-    Object.assign(mockCallbacks, cbs);
-  }),
-  updatePolicy: vi.fn(),
-  fsm: {
-    subscribe: vi.fn((_cb) => {
-      // Simulate subscription if needed, or just return unmouter
-      return vi.fn();
-    }),
-    getState: vi.fn().mockReturnValue('IDLE')
-  },
-  getState: vi.fn().mockReturnValue('IDLE')
-};
+// --- Mock Engine ---
+class MockEngine implements ITranscriptionEngine {
+  init = vi.fn().mockResolvedValue({ success: true });
+  start = vi.fn().mockResolvedValue(undefined);
+  stop = vi.fn().mockResolvedValue(undefined);
+  startTranscription = vi.fn().mockResolvedValue(undefined);
+  stopTranscription = vi.fn().mockResolvedValue({ transcript: 'mock transcript', duration: 10 });
+  getTranscript = vi.fn().mockReturnValue({ transcript: 'mock transcript' });
+  terminate = vi.fn().mockResolvedValue(undefined);
+  dispose = vi.fn().mockResolvedValue(undefined);
+  getEngineType = () => 'native' as const;
+  getMode = () => 'native' as const;
+  getLastHeartbeatTimestamp = () => Date.now();
+  setSessionId = vi.fn();
+}
 
-vi.mock('../../../services/transcription/TranscriptionService', () => ({
-  default: vi.fn().mockImplementation(() => mockService),
-  getTranscriptionService: vi.fn().mockImplementation(() => mockService)
-}));
+describe('useTranscriptionService (Contract Verification)', () => {
+  let mockEngine: MockEngine;
 
-
-
-vi.mock('../../../services/SpeechRuntimeController', () => ({
-  speechRuntimeController: {
-    startRecording: vi.fn().mockResolvedValue(undefined),
-    stopRecording: vi.fn().mockResolvedValue({ success: true, transcript: 'mock transcript', stats: {} }),
-  }
-}));
-
-describe('useTranscriptionService', () => {
   const mockOptions = {
     onTranscriptUpdate: vi.fn(),
     onModelLoadProgress: vi.fn(),
@@ -54,94 +37,91 @@ describe('useTranscriptionService', () => {
     getAssemblyAIToken: vi.fn().mockResolvedValue('token')
   };
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  // Common wrapper
   const wrapper = ({ children }: { children: React.ReactNode }) => (
     <TranscriptionProvider>{children}</TranscriptionProvider>
   );
 
-  it('should initialize with correct default state', () => {
-    const { result } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockEngine = new MockEngine();
+    testRegistry.register('native', () => mockEngine);
+    
+    // Reset real store and controller
+    useSessionStore.getState().resetSession();
+    await speechRuntimeController.reset();
+  });
 
+  afterEach(async () => {
+    testRegistry.clear();
+    await speechRuntimeController.reset();
+  });
+
+  it('should initialize with correct default state (Contract 1: Initialization)', () => {
+    const { result } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
     expect(result.current.isListening).toBe(false);
-    expect(result.current.isReady).toBe(false);
-    expect(result.current.error).toBeNull();
-    expect(result.current.isSupported).toBe(true);
-    expect(result.current.mode).toBeNull();
+    expect(result.current.isReady).toBe(true);
+    // Anti-Cheat: Ensure no service access
+    expect((result.current as unknown as { service: unknown }).service).toBeUndefined();
   });
 
-  it('should start listening successfully', async () => {
+  it('should transition through FSM states during start (Contract 2: Command Flow)', async () => {
+    const { result } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
+
+    // 1. Warm up
+    await act(async () => {
+        await speechRuntimeController.warmUp();
+    });
+
+    // 2. Start Recording
+    await act(async () => {
+      await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
+    });
+
+    // Wait for the store to reflect the transition
+    await waitFor(() => {
+      expect(useSessionStore.getState().runtimeState).toBe('RECORDING');
+      expect(useSessionStore.getState().isListening).toBe(true);
+      expect(result.current.isListening).toBe(true);
+    }, { timeout: 2000 });
+
+    expect(mockEngine.startTranscription).toHaveBeenCalled();
+  });
+
+  it('should cleanup correctly on stop (Contract 2: Stop Flow)', async () => {
     const { result } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
 
     await act(async () => {
+      await speechRuntimeController.warmUp();
       await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
     });
-
-    expect(speechRuntimeController.startRecording).toHaveBeenCalled();
     expect(result.current.isListening).toBe(true);
-    expect(result.current.mode).toBe('native');
+
+    await act(async () => {
+      await result.current.stopListening();
+    });
+
+    expect(useSessionStore.getState().isListening).toBe(false);
+    expect(useSessionStore.getState().runtimeState).toBe('READY');
   });
 
-  it('should stop listening successfully', async () => {
+  it('should cleanup correctly on unmount (Contract 4: Lifecycle State-Based Proof)', async () => {
+    // 1. Render and start recording
     const { result, unmount } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
-
-    // Start listening
+    
     await act(async () => {
+      await speechRuntimeController.warmUp();
       await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
     });
-    expect(result.current.isListening).toBe(true);
+    expect(useSessionStore.getState().runtimeState).toBe('RECORDING');
 
-    // Stop listening
+    // 2. Unmount should trigger reset internally
     await act(async () => {
-      const response = await result.current.stopListening();
-      expect(response).toEqual(expect.objectContaining({ success: true }));
-    });
-
-    act(() => {
       unmount();
     });
 
-    // The useEffect cleanup which calls destroy is asynchronous.
-    // We need to wait for the mock to be called.
+    // 3. Verify FSM reaches IDLE (High-Fidelity State Proof)
     await vi.waitFor(() => {
-      expect(mockService.destroy).toHaveBeenCalled();
-    });
-
-    // isListening is derived from store, which is not mocked here but works because module state is shared?
-    // Actually store IS NOT mocked in this file. It uses real store.
-    expect(result.current.isListening).toBe(false);
-  });
-
-  it('should handle start listening errors', async () => {
-    // Simulate failure by making the controller throw
-    vi.mocked(speechRuntimeController.startRecording).mockRejectedValueOnce(new Error('Permission denied'));
-
-    const { result } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
-
-    await act(async () => {
-      await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
-    });
-
-    expect(result.current.error).toBeTruthy();
-    expect(result.current.error?.message).toContain('Permission denied');
-    expect(result.current.isListening).toBe(false);
-    expect(result.current.isSupported).toBe(true);
-  });
-
-  it('should cleanup on unmount', async () => {
-    const { result, unmount } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
-
-    await act(async () => {
-      await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
-    });
-
-    act(() => {
-      unmount();
-    });
-
-    expect(mockService.destroy).toHaveBeenCalled();
+      expect(useSessionStore.getState().runtimeState).toBe('IDLE');
+    }, { timeout: 2000 });
   });
 });

@@ -1,20 +1,72 @@
-**Owner:** [unassigned]
-**Last Reviewed:** 2026-03-09
+**v0.6.0** | **Last Updated: 2026-03-24**
+
+## [0.6.0] — CI Stabilization: Strict Zero Manifest & Synchronous Registry (2026-03-24)
+
+- **Architecture: Strict Zero Manifest** — Implemented `window.__SS_E2E__` as the unified, synchronous source of truth for all E2E environment flags and engine registries at **$T=0$**.
+- **Observability: Failure Metadata** — Introduced `status_reason` column to the sessions table and refactored `complete_session` RPC to capture failure signatures for deterministic debugging.
+- **Fix: Synchronization Entropy** — Eliminated the asynchronous `__TEST_REGISTRY_QUEUE__` and `hydrateFromManifest` logic, removing the root cause of flaky "STT_ENGINE_MISSING" errors during app bootstrap.
+- **Verification: Synchronous Registry Injection** — Updated `TestRegistry.ts` to prioritize manifest-based engine factories with immediate availability, ensuring 100% deterministic dependency injection.
+- **Tooling: Diagnostic Introspection** — Enhanced `TestRegistry.getInfo()` to provide a merged view of local and manifest-based registrations for high-fidelity debugging.
+- **Files:** `TestFlags.ts`, `TestRegistry.ts`, `e2eConfig.ts`, `helpers.ts`, `ARCHITECTURE.md`.
+
+### [3.5.9] — Last Updated: 2026-03-22
 
 # Changelog
 
 All notable changes to this project will be documented in this file.
 
-### [4.0.0] — STT E2E Stabilization & Benchmark Mastery (2026-03-16)
+### [0.5.5.1] — Hardening Finalization: Intentional Privacy & E2E Atomic Signals (2026-03-22)
+
+- **UX: Intentional Privacy Model** — Implemented the `DOWNLOAD_REQUIRED` state and explicit user-driven model downloads to prevent unexpected background bandwidth usage.
+- **Verification: Atomic E2E Signals** — Replaced all legacy `networkidle` waits with deterministic `data-app-ready`, `data-route-ready`, and `data-model-status` signal synchronization.
+- **Architecture: STTEngine Lifecycle Hooks** — Standardized on `onInit`, `onStart`, `onStop`, and `onDestroy` for all engines, ensuring consistent cleanup and heartbeat monitoring.
+- **Files:** `PRD.md`, `ARCHITECTURE.md`, `TranscriptionService.ts`, `SpeechRuntimeController.ts`.
+
+### [0.5.5.0] — CI Stability *   Deterministic Navigation (Eliminate `networkidle`) ✅
+*   STT Engine Contract Enforcement (Abstract Base Class) ✅
+*   Heartbeat Stability (Non-silent recovery) ✅
+*   Observability Hardening (CI-blocking lint & Global handlers) ✅
+*   Analytics Decoupling (Non-blocking readiness) ✅
+*   Intentional Privacy UX (Explicit Download) ✅
+c Contracts & Observability (2026-03-20)
+
+- **Architecture: STTEngine Abstract Base Class** — Implemented a rigorous `STTEngine` abstract base class to enforce common lifecycle, logging, and telemetry contracts across all transcription modes. Includes `validateEngine` runtime enforcement.
+- **Protocol: Analytics Decoupling** — Introduced `AnalyticsBuffer` to queue telemetry events, ensuring analytics never block the UI thread or the monotonic `AppReady` signal.
+- **Stability: Heartbeat Resilience** — Restored and hardened the 8s heartbeat watchdog with non-silent error recovery, verified via adversarial E2E testing.
+- **Quality: Zero-Tolerance Observability** — Implemented global error handlers and CI-blocking lint rules for `no-explicit-any`. Ensured E2E tests fail on any console errors for 100% diagnostic integrity.
+- **Typ    *   **STT Engine Contract Enforcement**: All engines MUST extend the `STTEngine` abstract base class, ensuring a deterministic lifecycle (`onInit`, `onStart`, `onStop`, `onDestroy`) and heartbeat monitoring. See `STTEngine.ts` or `PrivateSTT.ts`.
+    *   **Intentional Privacy UX**: Offline models MUST NOT download automatically. Use `data-model-status="download-required"` to signal availability.
+    *   **Analytics Decoupling**: Telemetry events MUST be buffered via `AnalyticsBuffer` to prevent blocking the UI thread or readiness signals. See `AnalyticsBuffer.ts`.
+s in `PrivateSTT.ts` and unified `STTEngine` with `ITranscriptionEngine` for a single-source-of-truth service contract.
+- **Files:** `STTEngine.ts`, `AnalyticsBuffer.ts`, `TranscriptionService.ts`, `PrivateSTT.ts`, `useReadinessStore.ts`.
+
+### [0.5.4.6] — CI Stabilization: STT Warm-up Bypass & Unified Readiness (2026-03-19)
+
+- **Fix: STT Warm-up Bypass (CI/E2E)** — Implemented a hardened guard in `STTServiceFactory.ts` to skip real microphone initialization when `context === 'e2e'`. This eliminates systemic timeouts in CI runners lacking physical audio hardware.
+- **Protocol: Unified Readiness Store** — Introduced `useReadinessStore.ts` as the single source of truth for application boot state. Standardized the readiness contract on a `READY` state triggered by Core signals (`boot`, `layout`, `auth`).
+- **Fix: E2E Fixture Integrity** — Resolved a syntax mismatch in `tests/e2e/fixtures.ts` where Playwright required object destructuring but ESLint banned empty patterns. Standardized on `playwright` built-in fixture destructuring for 100% "Zero-Debt" compliance.
+- **Maintenance: Brain Consolidation** — Consolidated 9 temporary brain artifacts into 4 manageable files for improved auditability.
+- **Files:** `STTServiceFactory.ts`, `useReadinessStore.ts`, `fixtures.ts`, `SpeechRuntimeController.ts`, `main.tsx`.
+
+### [0.5.4.5] — STT Clean Pipeline & Architectural Consolidation (2026-03-18)
+
+- **Architecture: SpeechRuntimeController (SSoT)** — Centralized all STT lifecycle management into `SpeechRuntimeController.ts`, implementing a single-chain command mutex and `queueMicrotask` decoupling for 100% state reliability.
+- **Protocol: Unified Readiness Contract** — Refactored the "App Ready" signal to use the `warmUp()` command as the definitive readiness indicator, eliminating race conditions in E2E startup.
+- **Documentation: Architecture Alignment** — Updated `ARCHITECTURE.md`, `PRD.md`, and `ROADMAP.md` to reflect the "Clean Pipeline" design and document known infrastructure defects as a baseline for expert repair.
+- **Cleanup: Brain Consolidation** — Purged obsolete stabilization reports and consolidated all outstanding items into the primary `ROADMAP.md` and `task.md`.
+- **Files:** `SpeechRuntimeController.ts`, `TranscriptionProvider.tsx`, `ARCHITECTURE.md`, `PRD.md`, `ROADMAP.md`.
+
+### [1.5.0] — STT E2E Stabilization & Benchmark Mastery (2026-03-16)
 
 - **Verification: STT E2E Hardening** — Achieved 100% CI pass rate for Private STT by implementing capability-aware skip logic and hardening the bridge detection via `window.__E2E_CONTEXT__`.
 - **Architecture: DOM Signaling Contract** — Standardized engine visibility via `data-user-tier` and `data-engine-variant` attributes on `document.body`, eliminating signal collisions in E2E.
 - **Logic: Fallback Negotiation Tests** — Created `private-stt-fallback-negotiation.e2e.spec.ts` verifying the WebGPU → CPU → Error transition paths.
 - **Verification: Accuracy Benchmarks** — Established and logged accuracy ceilings for Private engines (93% WebGPU / 90% CPU) in `tests/STT_BENCHMARKS.json`.
 - **Quality: CI Quality Gate** — Integrated `pnpm quality-code` for unified linting, typechecking, and `eslint-disable` ban enforcement.
-- **Files:** `TranscriptionService.ts`, `PrivateWhisper.ts`, `useSessionLifecycle.ts`, `STT_BENCHMARKS.json`, `run-ci.mjs`.
+- **Quality: Zero-Debt Restoration** — Removed all `as any` type casts in Playwright `addInitScript` and `evaluate` blocks across E2E test files to strictly satisfy the zero-debt linting mandate.
+- **Files:** `TranscriptionService.ts`, `PrivateWhisper.ts`, `useSessionLifecycle.ts`, `STT_BENCHMARKS.json`, `run-ci.mjs`, E2E test files.
 
-### [3.5.8] — High-Merit Integration & Performance Optimization (2026-03-15)
+### [1.4.9] — High-Merit Integration & Performance Optimization (2026-03-15)
 
 - **Infrastructure: Atomic Payment Processing (#743)** — Optimized Stripe webhook handling by migrating all billing logic and idempotency checks into a single atomic Postgres RPC `process_stripe_webhook_event`.
 - **Performance: Concurrent PDF Parsing (#735)** — Significantly reduced latency in document processing by implementing parallel page parsing using `Promise.all` in `pdfParser.ts`.
@@ -23,14 +75,14 @@ All notable changes to this project will be documented in this file.
 - **Files:** `TranscriptionService.ts`, `pdfParser.ts`, `stripe-webhook/index.ts`, `20260310000000_stripe_webhook_rpc.sql`, `SttSafeguards.test.ts`.
 
 
-### [3.5.4.1] — Documentation Audit & Hardening Alignment (2026-03-14)
+### [1.4.8] — Documentation Audit & Hardening Alignment (2026-03-14)
 
 - **Verification: Documentation Synchronization** — Conducted a full audit of all project markdowns to ensure 1:1 alignment with the latest codebase. Replaced all abstract terminology with descriptive architectural patterns.
 - **Infrastructure: Expert CI Hardening** — Integrated advanced mitigation strategies for **Mock Poisoning**, **Over-Mocking**, and **Mock Divergence**, achieving 100% reliability in high-concurrency lifecycle tests.
 - **Verification: E2E Stability Hardening** — Stabilized the E2E test suite by enforcing **Behavioral Test Contracts** (`[data-state]` / `[data-action]`) and implementing **Programmatic Login** as the primary authentication gate.
 - **Logic: Lifecycle Synchronization** — Resolved race conditions in the Private STT fallback mechanism using **Atomic Chain Orchestration** and **Readiness Notification** strategies.
 
-### [3.5.4] — Phase 2: 3-PR Integration Strategy (2026-03-09)
+### [3.5.4] — Integration & Metering: 3-PR Strategy (2026-03-09)
 
 - **Infrastructure: SQL Extraction (#732)** — Migrated session creation and usage metering logic entirely to the database layer. Implemented `idempotency_key` and `FOR UPDATE` row-locking for atomic consistency.
 - **Infrastructure: Tier Limits (#731)** — Introduced dynamic `tier_configs` table and hardened usage guards (daily/monthly/concurrency) directly in Supabase RPCs.
@@ -51,7 +103,7 @@ All notable changes to this project will be documented in this file.
 - **Maintenance: Metric Name Standardization** — Unified naming conventions by renaming `avgWpm` to `averageWPM` across all layers (DB, Hook, UI).
 - **Files:** `scripts/run-ci.mjs`, `test-audit.sh`, `useSessionLifecycle.ts`, `LiveRecordingCard.tsx`, `AnalyticsDashboard.tsx`, `analyticsUtils.ts`, `useUserProfile.ts`, `ProfileContext.tsx`, `useActiveSessionLock.ts`, `20260212000000_database_hardening.sql`
 
-### [3.5.7] — CI Stability & Logger Standardization (2026-03-12)
+### [1.4.7] — CI Stability & Logger Standardization (2026-03-12)
 
 - **Architecture: Single-Chain Promise Orchestration** — Hardened `TranscriptionService` by implementing an atomic promise chain for `start`/`stop`/`cancel` cycles, eliminating "ghost resolutions" and race conditions in rapid state transitions.
 - **Observability: Triple-Identity Tracing** — Introduced `serviceId`, `runId`, and `engineId` tracing across the transcription pipeline for high-fidelity diagnostic correlation.
@@ -61,7 +113,7 @@ All notable changes to this project will be documented in this file.
 - **CI: Pipeline Noise Reduction** — Optimized CI terminal output by defaulting to `WARN` log level and switching Playwright reporters to `line` mode, while preserving full diagnostic visibility for failures.
 - **Files:** `TranscriptionService.ts`, `setup.ts`, `run-ci.mjs`, `test-audit.sh`, `useTranscriptionService.ts`, and 15+ unit test files.
 
-### [3.5.6] — STT Stabilization & Test Repair (2026-03-12)
+### [1.4.6] — STT Stabilization & Test Repair (2026-03-12)
 
 - **Infrastructure: Deterministic Readiness Contract** — Hardened `main.tsx` to preserve the `window.__APP_READY_STATE__` object if already injected by E2E helpers, resolving race conditions and readiness timeouts in CI.
 - **Architecture: Transcription Lifecycle Hardening** — Fixed `useTranscriptionService.ts` to include `setError` in its dependency array, ensuring stable error handling during session transitions.
@@ -69,7 +121,7 @@ All notable changes to this project will be documented in this file.
 - **Quality: Zero-Debt Maintenance** — Resolved all linting warnings (treated as errors) in the frontend and test suites.
 - **Files:** `main.tsx`, `useTranscriptionService.ts`, `integration.test.tsx`, `diag-private-stt.e2e.spec.ts`, `whisper-lifecycle.e2e.spec.ts`.
 
-### [3.5.5] — Live UI & STT Stabilization (2026-03-07)
+### [1.4.5] — Live UI & STT Stabilization (2026-03-07)
 
 - **Infrastructure: Vite Environment Root Alignment** — Corrected `envDir` in `vite.config.mjs` to resolve to the workspace root for reliable `.env` loading in benchmarks and scripts.
 - **Architecture: Goals Domain Service Refactor** — Enforced domain boundary separation by moving database-to-domain mapping logic from `useGoals` into `goalsService`.
@@ -148,7 +200,7 @@ All notable changes to this project will be documented in this file.
   - **Performance:** Implemented LRU cache (10 items) for NLP documents, achieving ~500x speedup for alternating speakers.
   - **Quality:** Stabilized CI pipeline with 100% pass rate on 539 tests across 86 files.
 
-## [3.5.0] - 2026-02-19
+## [1.4.0] - 2026-02-19
 
 - **CI Fixes Consolidation (Best-of-Breed):**
   - **Consolidation:** Successfully merged PR #2 (Infrastructure foundation) and cherry-picked PR #1 (Observability) into a final unified solution.

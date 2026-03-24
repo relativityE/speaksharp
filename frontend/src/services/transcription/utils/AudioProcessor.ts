@@ -200,6 +200,17 @@ function getWorker(): Worker {
 }
 
 /**
+ * Explicitly terminates the audio worker to free resources.
+ */
+export function terminateWorker(): void {
+    if (audioWorker) {
+        audioWorker.terminate();
+        audioWorker = null;
+        workerRequestId = 0;
+    }
+}
+
+/**
  * Asynchronously downsamples audio in a background worker.
  */
 export async function downsampleAudioAsync(audio: Float32Array, inputRate: number, targetRate: number = 16000): Promise<Float32Array> {

@@ -11,10 +11,10 @@ test.describe('PDF Export', () => {
     test('should trigger PDF download and verify filename', async ({ proPage }) => {
         // Ensure fresh state and synchronize MSW
         await proPage.reload();
-        await proPage.waitForLoadState('networkidle');
+        
 
         await navigateToRoute(proPage, '/analytics');
-        await proPage.waitForLoadState('networkidle');
+        
         await expect(proPage.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
 
         // Ensure download button is visible (Pro user)
@@ -48,10 +48,10 @@ test.describe('PDF Export', () => {
     test('should download valid PDF file (E2E scope)', async ({ proPage }) => {
         // Ensure fresh state and synchronize MSW
         await proPage.reload();
-        await proPage.waitForLoadState('networkidle');
+        
 
         await navigateToRoute(proPage, '/analytics');
-        await proPage.waitForLoadState('networkidle');
+        
         await expect(proPage.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
 
         const downloadButton = proPage.getByTestId(/^download-pdf-btn-(?!mobile)/).first();
@@ -82,10 +82,10 @@ test.describe('PDF Export', () => {
     test('should have download button for each session in analytics', async ({ proPage }) => {
         // Ensure fresh state and synchronize MSW
         await proPage.reload();
-        await proPage.waitForLoadState('networkidle');
+        
 
         await navigateToRoute(proPage, '/analytics');
-        await proPage.waitForLoadState('networkidle');
+        
         await expect(proPage.getByTestId('dashboard-heading')).toBeVisible({ timeout: 15000 });
 
         // Wait for session items to load - MSW provides 5 mock sessions

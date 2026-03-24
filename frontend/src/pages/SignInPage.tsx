@@ -98,7 +98,7 @@ export default function SignInPage() {
                         <CardDescription className="text-base">Enter your credentials to access your account</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        <form onSubmit={handleSubmit} className="space-y-4" data-testid="auth-form">
+                        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4" data-testid="auth-form">
                             <div className="space-y-2">
                                 <Label htmlFor="email">Email</Label>
                                 <Input
@@ -152,7 +152,7 @@ export default function SignInPage() {
                             type="button"
                             variant="outline"
                             className="w-full h-11 text-base font-medium"
-                            onClick={handleMagicLink}
+                            onClick={() => { void handleMagicLink(); }}
                             disabled={isSendingMagicLink || !email}
                             data-testid="magic-link-button"
                         >

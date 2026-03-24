@@ -130,7 +130,7 @@ const Navigation = () => {
                 <>
                   {profile && isFreeUser && (
                     <Button
-                      onClick={handleUpgrade}
+                      onClick={() => { void handleUpgrade(); }}
                       disabled={isUpgrading}
                       size="sm"
                       className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20"
@@ -158,7 +158,7 @@ const Navigation = () => {
                   <span className="hidden md:inline text-sm text-muted-foreground">
                     {session.user?.email}
                   </span>
-                  <Button variant="ghost" size="sm" onClick={handleSignOut} data-testid={TEST_IDS.NAV_SIGN_OUT_BUTTON}>
+                  <Button variant="ghost" size="sm" onClick={() => { void handleSignOut(); }} data-testid={TEST_IDS.NAV_SIGN_OUT_BUTTON}>
                     <LogOut className="h-4 w-4 mr-2" />
                     Sign Out
                   </Button>

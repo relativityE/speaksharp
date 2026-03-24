@@ -23,11 +23,12 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
 
         // Register a mock STT engine to ensure we don't hit real backend issues
         await registerMockInE2E(userPage, 'native', `() => ({
-             init: async () => {},
+             init: async () => ({ variant: 'Ok', value: undefined }),
              startTranscription: async () => {},
              stopTranscription: async () => 'test',
              getTranscript: async () => 'test',
              terminate: async () => {},
+             getLastHeartbeatTimestamp: () => Date.now(),
              getEngineType: () => 'mock-native'
         })`);
 
@@ -189,11 +190,12 @@ test.describe('Tier Limits Enforcement (Alpha Launch)', () => {
         // 3. Setup mock STT
         await enableTestRegistry(userPage);
         await registerMockInE2E(userPage, 'native', `() => ({
-             init: async () => {},
+             init: async () => ({ variant: 'Ok', value: undefined }),
              startTranscription: async () => {},
              stopTranscription: async () => 'test',
              getTranscript: async () => 'test',
              terminate: async () => {},
+             getLastHeartbeatTimestamp: () => Date.now(),
              getEngineType: () => 'mock-native'
         })`);
 

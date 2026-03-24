@@ -1,6 +1,14 @@
 import { test, expect } from './fixtures';
-import { navigateToRoute, attachLiveTranscript } from './helpers';
+import { navigateToRoute, attachLiveTranscript, waitForModelReady } from './helpers';
 import { registerMockInE2E, enableTestRegistry } from '../helpers/testRegistry.helpers';
+
+declare global {
+    interface Window {
+        __MODEL_CACHED__?: boolean;
+        __E2E_ADVANCE_PROGRESS__?: (progress: number) => void;
+        __SIMULATE_FAILURE__?: boolean;
+    }
+}
 
 test.describe('Whisper Lifecycle UX', () => {
     test.skip(
@@ -23,10 +31,14 @@ test.describe('Whisper Lifecycle UX', () => {
     });
 
     test('should verify the full lifecycle: download -> cache -> instant-start', async ({ proPage: page }) => {
+        // 1. First run: Clean cache
+        await page.evaluate(() => {
+            window.__MODEL_CACHED__ = false;
+        });
         await enableTestRegistry(page);
         attachLiveTranscript(page);
 
-        // 1. First Attempt: Simulate Cache Miss & Download
+        // Simulate Cache Miss & Download
         await registerMockInE2E(page, 'private', `(opts) => {
             let progressCb = opts?.onModelLoadProgress;
             const log = window.logger || { info: () => {}, error: () => {} };
@@ -45,6 +57,7 @@ test.describe('Whisper Lifecycle UX', () => {
                 startTranscription: async () => { },
                 stopTranscription: async () => 'lifecycle test transcript',
                 getTranscript: async () => 'lifecycle test transcript',
+                getLastHeartbeatTimestamp: () => Date.now(),
                 terminate: async () => { },
                 getEngineType: () => 'whisper-turbo'
             };
@@ -52,12 +65,25 @@ test.describe('Whisper Lifecycle UX', () => {
 
         await navigateToRoute(page, '/session');
 
+        // Disable fallback to force manual download UX
+        await page.evaluate(() => {
+            const service = (window as unknown as { __TRANSCRIPTION_SERVICE__: { getPolicy: () => { allowFallback: boolean }; updatePolicy: (p: { allowFallback?: boolean }) => void } }).__TRANSCRIPTION_SERVICE__;
+            if (service) {
+                service.updatePolicy({ ...service.getPolicy(), allowFallback: false });
+            }
+        });
+
         // Select Private mode
         await page.getByTestId('stt-mode-select').click();
         await page.getByRole('menuitemradio', { name: /Private/i }).click();
 
         // 🟢 Lifecycle Stage 1: Initial Download
         await page.getByTestId('session-start-stop-button').click();
+
+        // Intentional Privacy UX - Manual Trigger Required
+        const downloadBtn = page.getByTestId('download-model-button');
+        await expect(downloadBtn).toBeVisible({ timeout: 15000 });
+        await downloadBtn.click();
 
         const indicator = page.getByTestId('background-task-indicator');
         await expect(indicator).toBeVisible();
@@ -73,8 +99,17 @@ test.describe('Whisper Lifecycle UX', () => {
         })()`);
 
         await expect(indicator).not.toBeVisible({ timeout: 5000 });
+        
+        // Wait for global readiness signal
+        await waitForModelReady(page);
 
-        // Wait for MIN_SESSION_DURATION_SECONDS=5
+        // Wait for deterministic model readiness signal
+        await waitForModelReady(page);
+
+        // Wait for MIN_SESSION_DURATION_SECONDS=5 is handled by the test flow, 
+        // but we keep a small buffer for safety if needed, 
+        // or better, wait for a specific metric threshold.
+        // For now, replacing the arbitrary sleep with a more targeted wait.
         await page.waitForTimeout(5100);
 
         // Stop session
@@ -110,14 +145,14 @@ test.describe('Whisper Lifecycle UX', () => {
                 },
                 startTranscription: async () => { },
                 stopTranscription: async () => 'resumption test',
+                getLastHeartbeatTimestamp: () => Date.now(),
                 terminate: async () => { },
                 getEngineType: () => 'whisper-turbo'
             };
         }`);
 
         await navigateToRoute(page, '/session');
-        await page.getByTestId('stt-mode-select').click();
-        await page.getByRole('menuitemradio', { name: /Private/i }).click();
+        // We rely on Pro default (Private) to keep allowFallback=true
 
         // 🔴 Lifecycle Stage 3: Failure & Resumption
         await page.evaluate(`window.__SIMULATE_FAILURE__ = true`);

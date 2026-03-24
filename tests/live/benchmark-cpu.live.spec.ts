@@ -54,7 +54,7 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
 
     // Navigate to the session page where the STT WASM engines actually initialize
     await page.goto('/session');
-    await page.waitForLoadState('networkidle');
+    
 
     const modeButton = page.getByTestId('stt-mode-select');
     await modeButton.click();

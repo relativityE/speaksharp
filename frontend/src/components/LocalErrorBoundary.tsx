@@ -52,7 +52,7 @@ export class LocalErrorBoundary extends Component<Props, State> {
                 scope.setTag('component', this.props.componentName);
             }
 
-            // [Fix: Missing Component Stack Context]
+            // Resolve missing component stack context
             // Sentry automatic integration captures some context, but explicit 
             // setContext ensures high-fidelity debugging for isolated UI zones.
             scope.setContext('react', {

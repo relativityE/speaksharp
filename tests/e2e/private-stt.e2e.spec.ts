@@ -17,8 +17,11 @@ test.describe('Private STT (Whisper)', () => {
         await page.evaluate(() => {
             // 1. Reset behavioral gating signal
             document.body.removeAttribute('data-stt-policy');
+            document.body.removeAttribute('data-recording-state');
+            document.body.removeAttribute('data-download-progress');
             document.body.removeAttribute('data-user-tier');
             document.body.removeAttribute('data-engine-variant');
+            localStorage.removeItem('speaksharp_session_lock');
 
             // 2. Clear engine overrides
             window.__TEST_REGISTRY__?.clear();
@@ -41,6 +44,25 @@ test.describe('Private STT (Whisper)', () => {
         // Deterministic Gating
         await expect(page.locator('body')).toHaveAttribute('data-user-tier', 'pro', { timeout: 8000 });
 
+        // Register mock with progress control BEFORE navigation
+        await registerMockInE2E(page, 'private', `(opts) => {
+            let progressCb = opts?.onModelLoadProgress;
+            return {
+                init: async () => {
+                   window.__E2E_ADVANCE_PROGRESS__ = (p) => { if (progressCb) progressCb(p); };
+                   const err = new Error('CACHE_MISS');
+                   Object.assign(err, { code: 'CACHE_MISS' });
+                   throw err;
+                },
+                startTranscription: async () => { },
+                stopTranscription: async () => 'test transcript',
+                getTranscript: async () => 'test transcript',
+                terminate: async () => { },
+                getLastHeartbeatTimestamp: () => Date.now(),
+                getEngineType: () => 'whisper-turbo'
+            };
+        }`);
+
         await navigateToRoute(page, '/session');
         await page.waitForSelector('[data-testid="nav-sign-out-button"]');
 
@@ -60,30 +82,17 @@ test.describe('Private STT (Whisper)', () => {
             };
         });
 
-        // Register mock with progress control
-        await registerMockInE2E(page, 'private', `(opts) => {
-            let progressCb = opts?.onModelLoadProgress;
-            return {
-                init: async () => {
-                   window.__E2E_ADVANCE_PROGRESS__ = (p) => { if (progressCb) progressCb(p); };
-                   const err = new Error('CACHE_MISS');
-                   Object.assign(err, { code: 'CACHE_MISS' });
-                   throw err;
-                },
-                startTranscription: async () => { },
-                stopTranscription: async () => 'test transcript',
-                getTranscript: async () => 'test transcript',
-                terminate: async () => { },
-                getEngineType: () => 'whisper-turbo'
-            };
-        }`);
-
         // Select Private mode
         await page.getByTestId('stt-mode-select').click();
         await page.getByRole('menuitemradio', { name: /private/i }).click();
 
-        // Start Recording -> Triggers Download
+        // Start Recording -> Triggers CACHE_MISS
         await page.getByTestId('session-start-stop-button').click();
+
+        // Should NOT start recording, but show manual download button
+        const downloadButton = page.getByTestId('download-model-button');
+        await expect(downloadButton).toBeVisible({ timeout: 15000 });
+        await downloadButton.click();
 
         const indicator = page.getByTestId('background-task-indicator');
         await expect(indicator).toBeVisible();
@@ -114,11 +123,12 @@ test.describe('Private STT (Whisper)', () => {
         await expect(page.locator('body')).toHaveAttribute('data-user-tier', 'pro', { timeout: 8000 });
 
         await registerMockInE2E(page, 'private', `() => ({
-            init: async () => {}, // Instant success
+            init: async () => ({ variant: 'Ok', value: undefined }), // Instant success
             startTranscription: async () => {},
             stopTranscription: async () => 'cached transcript',
             getTranscript: async () => 'cached transcript',
             terminate: async () => {},
+            getLastHeartbeatTimestamp: () => Date.now(),
             getEngineType: () => 'whisper-turbo'
         })`);
 
@@ -146,7 +156,8 @@ test.describe('Private STT (Whisper)', () => {
         await page.getByTestId('stt-mode-select').click();
 
         const privateOption = page.getByRole('menuitemradio', { name: /private/i });
-        await expect(privateOption).toBeHidden();
+        await expect(privateOption).toBeVisible();
+        await expect(privateOption).toHaveAttribute('aria-disabled', 'true');
     });
 
     test('should show Private option for Pro users', async ({ proPage: page }) => {
@@ -173,6 +184,7 @@ test.describe('Private STT (Whisper)', () => {
             stopTranscription: async () => 'abandoned',
             getTranscript: async () => 'abandoned',
             terminate: async () => {},
+            getLastHeartbeatTimestamp: () => Date.now(),
             getEngineType: () => 'whisper-turbo'
         })`);
 
@@ -181,6 +193,12 @@ test.describe('Private STT (Whisper)', () => {
         await page.getByRole('menuitemradio', { name: /private/i }).click();
 
         await page.getByTestId('session-start-stop-button').click();
+        
+        // Manual Download Trigger
+        const downloadButton = page.getByTestId('download-model-button');
+        await expect(downloadButton).toBeVisible();
+        await downloadButton.click();
+
         const indicator = page.getByTestId('background-task-indicator');
         await expect(indicator).toBeVisible();
 

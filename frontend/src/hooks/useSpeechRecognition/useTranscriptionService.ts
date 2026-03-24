@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from 'react';
+import { useCallback, useRef, useEffect, useMemo } from 'react';
 import { TranscriptionServiceOptions } from '../../services/transcription/TranscriptionService';
 import {
   TranscriptionPolicy,
@@ -8,10 +8,11 @@ import { toast } from '@/lib/toast';
 import logger from '../../lib/logger';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
 import { TranscriptStats } from '../../utils/fillerWordUtils';
+import { TranscriptUpdate } from '../../types/transcription';
 import { useSessionStore } from '../../stores/useSessionStore';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
+import { TestFlags } from '@/config/TestFlags';
 import { useTranscriptionState } from './useTranscriptionState';
-import { useTranscriptionCallbacks } from './useTranscriptionCallbacks';
 
 // Re-exporting to satisfy architectural contract and linting
 export type { TranscriptStats };
@@ -44,20 +45,16 @@ export interface UseTranscriptionServiceOptions {
 
 export const useTranscriptionService = (options: UseTranscriptionServiceOptions) => {
   // ============================================
-  // CONTEXT & STORE
+  // CONTEXT & STORE (Pure Listeners)
   // ============================================
-  const { service, isReady: isServiceReady } = useTranscriptionContext();
+  const { isReady: isContextReady } = useTranscriptionContext();
   const {
     isListening,
     isReady,
     sttStatus,
     sttMode: currentMode,
     modelLoadingProgress,
-    setReady,
-    setSTTStatus,
-    setSTTMode,
-    startSession,
-    stopSession
+    startSession // Only for UI intent, FSM handles transition
   } = useSessionStore();
 
   const isMountedRef = useRef(true);
@@ -75,98 +72,68 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
   // HOOK COMPOSITION
   // ============================================
 
-  // 1. State Management (Reactive Updates)
-  const { error, setError } = useTranscriptionState();
+  // 1. State Management (Reactive Updates from Store)
+  const { error } = useTranscriptionState();
 
-  // 2. Callback Management (Stable References)
-  // We construct the callbacks object to pass to the helper hook
-  const callbacks: Partial<TranscriptionServiceOptions> = {
-    onTranscriptUpdate: (update) => optionsRef.current.onTranscriptUpdate(update),
-    onModelLoadProgress: (progress) => optionsRef.current.onModelLoadProgress?.(progress),
+  // 2. Callback Management (Stable References for Controller)
+  const callbacks: Partial<TranscriptionServiceOptions> = useMemo(() => ({
+    onTranscriptUpdate: (update: TranscriptUpdate) => optionsRef.current.onTranscriptUpdate(update),
+    onModelLoadProgress: (progress: number | null) => optionsRef.current.onModelLoadProgress?.(progress),
     onReady: () => {
-      if (isMountedRef.current) {
-        setReady(true);
-        optionsRef.current.onReady?.();
-      }
+      // Logic removed: FSM handles setReady(true) via controller.confirmSubscriberHandshake() or transition
+      optionsRef.current.onReady?.();
     },
-    onModeChange: (mode) => {
-      if (isMountedRef.current) setSTTMode(mode);
-    },
-    onStatusChange: (status) => {
-      if (isMountedRef.current) setSTTStatus(status);
-    },
-    onAudioData: (data) => optionsRef.current.onAudioData?.(data),
-    onError: (err) => setError(err),
+    onAudioData: (data: Float32Array) => optionsRef.current.onAudioData?.(data),
     getAssemblyAIToken: () => optionsRef.current.getAssemblyAIToken(),
     session: options.session,
     navigate: options.navigate,
     userWords: options.userWords,
-  };
-
-  useTranscriptionCallbacks(callbacks);
+  }), [options.session, options.navigate, options.userWords]);
 
   // ============================================
-  // SYNC WITH SINGLETON (Policy)
+  // SYNC WITH SINGLETON (Callbacks & Policy)
   // ============================================
   useEffect(() => {
     isMountedRef.current = true;
+    
+    // Register callbacks with the authoritative controller
+    speechRuntimeController.setSubscriberCallbacks(callbacks);
+
     return () => {
       isMountedRef.current = false;
-      // In tests, we want to verify that destruction happens
-      if (service) {
-        service.destroy().catch(err => logger.error({ err }, '[Hook] Cleanup failed'));
+      // In E2E (Playwright), we let the manifest control persistence across page loads.
+      // We detect Playwright by the existence of window.__SS_E2E__.
+      // Unit tests (Vitest) should still perform deterministic teardown.
+      const isPlaywright = typeof window !== 'undefined' && !!(window as any).__SS_E2E__?.isActive;
+      
+      if (!isPlaywright) {
+        void speechRuntimeController.reset('teardown');
       }
     };
-  }, [service]);
-
-  // Fix 3: Sync isListening with FSM state
-  useEffect(() => {
-    if (!service || !isServiceReady) return;
-
-    const unsubscribe = service.fsm.subscribe((state) => {
-      if (!isMountedRef.current) return;
-      
-      // If we reach a non-listening state, ensure store reflects it
-      if (state === 'IDLE' || state === 'FAILED') {
-        if (useSessionStore.getState().isListening) {
-          logger.info({ state }, '[Hook] FSM reached non-listening state, stopping session');
-          stopSession();
-        }
-      }
-      // If we are recording, ensure store reflects it
-      if (state === 'RECORDING') {
-        if (!useSessionStore.getState().isListening) {
-          logger.info('[Hook] FSM reached recording state, starting session');
-          startSession();
-        }
-      }
-    });
-
-    return unsubscribe;
-  }, [service, isServiceReady, stopSession, startSession]);
+  }, [callbacks]);
 
   useEffect(() => {
-    if (!service || !isServiceReady) return;
+    if (!isContextReady) return;
     if (optionsRef.current.policy) {
-      service.updatePolicy(optionsRef.current.policy);
+      speechRuntimeController.updatePolicy(optionsRef.current.policy);
     }
-  }, [service, isServiceReady, options.policy]);
+  }, [isContextReady, options.policy]);
 
   // ============================================
-  // ERROR HANDLING (Side Effects from State)
+  // ERROR HANDLING (Side Effects from Service/FSM via Store)
   // ============================================
   useEffect(() => {
-    if (error) {
-      handleTranscriptionError(error, stopSession, setError);
+    if (sttStatus.type === 'error') {
+      handleTranscriptionError(sttStatus.message, options.navigate);
     }
-  }, [error, stopSession, setError]);
+  }, [sttStatus, options.navigate]);
 
   // ============================================
   // LIFECYCLE MANAGEMENT (Start/Init)
   // ============================================
   useEffect(() => {
-    // 🏎️ RACE CONDITION FIX: Prevent multiple simultaneous transcription starts (Fixes Domain 2)
-    if (!service || !isServiceReady || !isListening || isStartingRef.current) return;
+    // 🏎️ RACE CONDITION FIX: Managed by Controller's internal queue
+    if (!isContextReady || !isListening || isStartingRef.current) return;
 
     // GUARD: Profile loading
     if (optionsRef.current.profileLoading) return;
@@ -175,100 +142,59 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
       isStartingRef.current = true;
       try {
         await speechRuntimeController.startRecording();
-
-        if (isMountedRef.current) {
-          setSTTMode(service.getMode());
-        }
       } catch (err) {
-        if (isMountedRef.current) {
-          handleTranscriptionError(err, stopSession, setError);
-        }
+        // Errors handled via sttStatus listener above
       } finally {
         isStartingRef.current = false;
       }
     };
 
-    manageSession();
-  }, [service, isServiceReady, isListening, options.profileLoading, stopSession, setSTTMode, setError]);
+    void manageSession();
+  }, [isContextReady, isListening, options.profileLoading]);
 
   // ============================================
-  // ACTIONS
+  // ACTIONS (Pure Controller Triggers)
   // ============================================
   const startListening = useCallback(async (policy: TranscriptionPolicy) => {
     if (isListening) return;
-    logger.info('[Hook] startListening called');
+    logger.info('[Hook] startListening triggered via intent');
     manualPolicyRef.current = policy;
-    startSession(); // Triggers effect above
+    startSession(); // Set initial listening intent, FSM will confirm
   }, [isListening, startSession]);
 
   const stopListening = useCallback(async () => {
-    if (!isListening || !service) return null;
-    logger.info('[Hook] stopListening called');
-
-    const result = await speechRuntimeController.stopRecording();
-    stopSession();
-    return result as { success: boolean; transcript: string; stats: TranscriptStats } | null;
-  }, [isListening, service, stopSession]);
+    if (!isListening) return null;
+    logger.info('[Hook] stopListening triggered via intent');
+    return await speechRuntimeController.stopRecording();
+  }, [isListening]);
 
   const reset = useCallback(() => {
-    stopSession();
-    manualPolicyRef.current = null;
-    setSTTStatus({ type: 'idle', message: 'Ready to record' });
-  }, [stopSession, setSTTStatus]);
+    void speechRuntimeController.reset('manual_reset');
+  }, []);
 
   return {
     isListening,
     isReady,
     error,
-    isSupported: true, // Legacy prop
+    isSupported: true,
     mode: currentMode,
     sttStatus,
     modelLoadingProgress,
     startListening,
     stopListening,
     reset,
-    setReady,
-    setIsSupported: () => { }, // Deprecated
   };
 };
 
-// Error handling helper
+// Error handling helper (Refined for STTStatus)
 function handleTranscriptionError(
-  err: unknown,
-  stopSession: () => void,
-  setError: (err: Error | null) => void
+  message: string,
+  _navigate: UseTranscriptionServiceOptions['navigate']
 ) {
-  let friendlyMessage: string;
-  const originalError = err instanceof Error ? err : new Error(String(err));
-  const message = originalError.message.toLowerCase();
-
-  if (message.includes('permission denied')) {
-    friendlyMessage = 'Microphone permission denied. Please enable microphone access in your browser settings.';
-  } else if (message.includes('assemblyai token')) {
-    friendlyMessage = 'Could not connect to the cloud transcription service. Please check your internet connection and try again.';
-  } else if (message.includes('failed to load model')) {
-    friendlyMessage = 'Failed to load the Private model. Please check your internet connection or try a different transcription mode.';
-  } else if (message.includes('device not found') || message.includes('notfounderror')) {
-    friendlyMessage = 'No microphone input found. Please check your system settings or connection.';
-  } else if (message.includes('not initialized')) {
-    friendlyMessage = 'The transcription service could not be started. Please try refreshing the page.';
-  } else {
-    friendlyMessage = 'An unexpected error occurred. Please try again.';
-  }
-
-  logger.error({ err: originalError }, 'An error occurred during speech recognition setup');
+  logger.error({ message }, 'An error occurred during speech recognition');
   toast.dismiss('stt-error-toast');
-  toast.error(friendlyMessage, {
+  toast.error(message, {
     id: 'stt-error-toast',
     duration: 5000
   });
-
-  // Ensure hooks and store reflect the error state
-  setError(originalError);
-  useSessionStore.getState().setSTTStatus({
-    type: 'error',
-    message: friendlyMessage
-  });
-
-  stopSession();
 }

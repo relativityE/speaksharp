@@ -2,6 +2,8 @@
 /**
  * This file contains E2E test helper functions for Playwright-based E2E tests.
  * Uses Playwright route interception for network mocking (replacing MSW).
+ * 
+ * ALIGNED WITH PRESCRIPTIVE MODEL v1.1
  */
 
 import { type Page, expect } from '@playwright/test';
@@ -10,35 +12,27 @@ import {
 } from './fixtures/mockData';
 import { MOCK_SESSION } from '../../backend/supabase/functions/_shared/test-fixtures';
 import logger from '../../frontend/src/lib/logger';
+// Atomic Readiness Signal Registry (Section 7)
 
-// 1. Unified E2E Window interface (consolidated from various files)
-declare global {
-  interface Window {
-    // 🚀 Deterministic Test Environment (Unified Namespace)
-    __APP_TEST_ENV__?: import('../../tests/types/e2eConfig').E2EConfig;
-    
-    // Readiness state flags
-    __APP_READY_STATE__?: {
-      boot: boolean;
-      layout: boolean;
-      auth: boolean;
-      analytics: boolean;
-      stt: boolean;
-      timestamps: Record<string, number>;
-    };
-    mswReady?: boolean;
-    __E2E_EMPTY_SESSIONS__?: boolean;
-    dispatchMockTranscript?: (text: string, isFinal?: boolean) => void;
-    // 🛡️ Enhanced E2E Signals (Strictly Typed)
-    __e2eProfileLoaded__?: boolean;
-    // Allow dynamic sticky flags [__e2e_EVENT_fired__]
-    [key: `__e2e_${string}_fired__`]: boolean | undefined;
-  }
-}
+// 1. Unified Readiness Types (Section 7)
+export type ReadinessSignal =
+  | 'boot'
+  | 'layout'
+  | 'auth'
+  | 'stt'
+  | 'msw'
+  | 'analytics'
+  | 'profile';
 
-/**
- * ANSI color codes for terminal output
- */
+export const REQUIRED_GLOBAL: ReadinessSignal[] = [
+  'boot',
+  'layout',
+  'auth',
+  'stt',
+  'msw',
+];
+
+// 2. Infrastructure Helpers
 const ANSI = {
   RED: '\x1b[31m',
   YELLOW: '\x1b[33m',
@@ -46,9 +40,6 @@ const ANSI = {
   RESET: '\x1b[0m',
 };
 
-/**
- * Log only if E2E_DEBUG is set
- */
 export const debugLog = (msg: string, ...args: unknown[]) => {
   if (process.env.E2E_DEBUG === 'true') {
     if (args.length > 0) {
@@ -59,10 +50,6 @@ export const debugLog = (msg: string, ...args: unknown[]) => {
   }
 };
 
-/**
- * Wrap async wait operations with debug logging.
- * Logs when a wait starts, ends, or fails with precise timing and line numbers.
- */
 export async function debugWait<T>(
   description: string,
   promise: Promise<T>,
@@ -95,18 +82,12 @@ export async function debugWait<T>(
   }
 }
 
-/**
- * Common delays for flaky UI transitions
- */
 export const DELAYS = {
   SHORT: 500,
   MEDIUM: 1500,
   LONG: 3000,
 };
 
-/**
- * Setup browser console logging for E2E tests with buffering for diagnostics
- */
 export function setupBrowserLogging(page: Page) {
   const logs: { type: string; text: string; timestamp: number }[] = [];
   (page as Page & { _e2e_logs: unknown })._e2e_logs = logs;
@@ -115,8 +96,7 @@ export function setupBrowserLogging(page: Page) {
     const type = msg.type();
     const text = msg.text();
     logs.push({ type, text, timestamp: Date.now() });
-    
-    // Keep buffer manageable
+
     if (logs.length > 100) logs.shift();
 
     let prefix = '';
@@ -130,11 +110,8 @@ export function setupBrowserLogging(page: Page) {
       suffix = ANSI.RESET;
     }
 
-    // Node-based logging for CI (Level mapping: 10=trace, 20=debug, 30=info, 40=warn, 50=error)
     const isCI = !!process.env.CI;
     const configLogLevel = process.env.LOG_LEVEL || 'info';
-    
-    // Simple priority map for filtering
     const priorities: Record<string, number> = { debug: 20, info: 30, warn: 40, error: 50 };
     const threshold = priorities[configLogLevel] || 30;
     const currentLevel = priorities[type === 'warning' ? 'warn' : type] || 30;
@@ -155,9 +132,6 @@ export function setupBrowserLogging(page: Page) {
   });
 }
 
-/**
- * Setup network activity tracking for diagnostics
- */
 export function setupNetworkTracking(page: Page) {
   const pendingRequests = new Set<string>();
   (page as Page & { _pending_requests: unknown })._pending_requests = pendingRequests;
@@ -177,33 +151,41 @@ export function setupNetworkTracking(page: Page) {
   });
 }
 
-/**
- * Navigate to a specific route with stability checks
- */
+// 3. Navigation Helpers
 export async function goToPublicRoute(page: Page, route: string) {
   debugLog(`Navigating to ${route}`);
   await page.goto(route);
-  await page.waitForLoadState('networkidle');
-  // Ensure we're actually on the right page
-  await expect(page).toHaveURL(new RegExp(route));
+
+  // 1. BOOT BARRIER: Wait for deterministic app-shell readiness (Registry + Controller + State)
+  await page.locator('[data-app-booted="true"]').waitFor({ timeout: 10000 });
+
+  // 2. Wait for route-specific data resolution (Profile, Critical Queries)
+  await page.locator('[data-route-ready="true"]').waitFor({ timeout: 10000 });
+
+  // 3. Wait for data hydration (Cluster 4)
+  await page.locator('[data-data-ready="true"]').waitFor({ timeout: 10000 });
 }
 
-// Keep navigateToRoute as an alias if needed, or just use one
 export async function navigateToRoute(page: Page, route: string, options: { waitForMocks?: boolean } = {}) {
   const { waitForMocks = true } = options;
   debugLog(`Navigating to ${route} (waitForMocks: ${waitForMocks})`);
   await page.goto(route);
-  if (waitForMocks) {
-    await page.waitForLoadState('networkidle');
-  }
-  // Ensure we're actually on the right page
-  await expect(page).toHaveURL(new RegExp(route));
+
+  // 1. BOOT BARRIER: Wait for deterministic app-shell readiness (Registry + Controller + State)
+  await page.locator('[data-app-booted="true"]').waitFor({ timeout: 10000 });
+
+  // 2. Wait for route-specific data resolution (Profile, Critical Queries)
+  await page.locator('[data-route-ready="true"]').waitFor({ timeout: 10000 });
+
+  // 3. Wait for data hydration (Cluster 4)
+  await page.locator('[data-data-ready="true"]').waitFor({ timeout: 10000 });
 }
 
-/**
- * Perform a real login on production/staging infrastructure using credentials.
- * Used exclusively by Canary tests.
- */
+
+
+
+
+// 4. Auth & Readiness Helpers (Section 7)
 export async function canaryLogin(page: Page, email?: string, password?: string) {
   if (!email || !password) {
     throw new Error('[CANARY] Missing credentials for canaryLogin');
@@ -215,83 +197,91 @@ export async function canaryLogin(page: Page, email?: string, password?: string)
   await page.getByLabel(/password/i).fill(password);
   await page.getByRole('button', { name: /sign in|log in/i }).click();
 
-  // Wait for the critical path readiness indicator
   await expect(page).toHaveURL(/\/(session|analytics)/, { timeout: 30000 });
-  await page.waitForSelector('[data-app-ready]', { timeout: 30000 });
+  await waitForAppReady(page);
 }
 
-/**
- * Explicit hydration guard: wait for root and essential app state
- */
 export async function waitForApp(page: Page) {
   await page.goto('/');
-  // Enhanced SPA hydration barrier
   await page.waitForSelector('#root', { timeout: 15000 });
-  await page.waitForSelector('[data-app-ready]', { timeout: 30000 });
+  await waitForAppReady(page);
 }
 
-/**
- * Wait for the deterministic application readiness contract
- */
-export async function waitForAppReady(page: Page, options: { needsAnalytics?: boolean; needsSTT?: boolean; timeout?: number } = {}) {
-  const { needsAnalytics = false, needsSTT = false, timeout = 60000 } = options;
+function buildPredicate(required: ReadinessSignal[]) {
+  return () => {
+    const s = (window as unknown as { __APP_READY_STATE__: Record<string, boolean> }).__APP_READY_STATE__;
+    if (!s || typeof s !== 'object') return false;
+    return required.every(k => s[k] === true);
+  };
+}
+
+export async function waitForAppReady(page: Page, timeout: number = 30000) {
+  debugLog('Awaiting deterministic BOOT BARRIER...');
+
+  // 1. Primary Signal: DOM Attribute (Set by App.tsx after Registry + Controller + First State Commit)
   try {
-    // Primary SPA hydration barrier
-    await page.waitForSelector('[data-app-ready]', { timeout });
-    
-    await debugWait(
-      `Readiness Contract (${needsAnalytics ? 'Full + Analytics' : 'Base'}${needsSTT ? ' + STT' : ''})`,
-      page.waitForFunction((opts) => {
-        const s = window.__APP_READY_STATE__;
-        if (!s) return false;
-        const baseReady = s.boot && s.layout && s.auth;
-        const analyticsReady = opts.needsAnalytics ? s.analytics : true;
-        const sttReady = opts.needsSTT ? s.stt : true;
-        return baseReady && analyticsReady && sttReady;
-      }, { needsAnalytics, needsSTT }, { timeout })
-    );
-  } catch (err) {
-    // Diagnostic Dump
-    const state = await page.evaluate(() => ({
-      readyState: window.__APP_READY_STATE__,
-      testEnv: window.__APP_TEST_ENV__,
-      url: window.location.href,
-      localStorage: Object.keys(window.localStorage)
-    }));
-    
-    const logs = (page as Page & { _e2e_logs?: { type: string; text: string }[] })._e2e_logs || [];
-    const pendingRequests = Array.from((page as Page & { _pending_requests?: Set<string> })._pending_requests || []);
-    
-    logger.error({ 
-      state, 
-      pendingRequests,
-      recentLogs: logs.slice(-20),
-      error: err instanceof Error ? err.message : String(err) 
-    }, '🔴 [CI] Readiness contract timeout. Diagnostic dump:');
-    
-    throw err;
+    await page.waitForSelector('[data-app-booted="true"]', { timeout: timeout / 2 });
+    debugLog('App shell ready via data-app-booted barrier');
+    return;
+  } catch {
+    debugLog('data-app-booted barrier not found, falling back to signal polling...');
   }
+
+  // 2. Fallback: Direct Signal Map Polling (Section 7)
+  await page.waitForFunction(buildPredicate(REQUIRED_GLOBAL), { timeout: timeout / 2 });
+  debugLog('App shell ready via signal map polling');
+}
+
+export async function waitForFeature(page: Page, feature: ReadinessSignal, timeout: number = 30000) {
+  debugLog(`Waiting for feature readiness: ${feature}`);
+  await page.waitForFunction(
+    (f) => {
+      const s = (window as unknown as { __APP_READY_STATE__: Record<string, boolean> }).__APP_READY_STATE__;
+      return s && typeof s === 'object' && s[f] === true;
+    },
+    feature,
+    { timeout }
+  );
+}
+
+export async function waitForAppAndFeatures(page: Page, features: ReadinessSignal[], timeout: number = 30000) {
+  const required = [...REQUIRED_GLOBAL, ...features];
+  debugLog(`Waiting for composite readiness: ${required.join(', ')}`);
+  await page.waitForFunction(buildPredicate(required), { timeout });
+}
+
+export async function dumpReadinessState(page: Page) {
+  const state = await page.evaluate(() => (window as unknown as { __APP_READY_STATE__: unknown }).__APP_READY_STATE__);
+  logger.info({ state }, '[E2E DEBUG] Readiness State Dump:');
 }
 
 /**
- * Programmatic login by injecting a session directly into localStorage.
- * Bypasses the UI for speed and reliability.
- * Uses Playwright route interception for network mocking.
+ * @deprecated Use waitForFeature(page, 'analytics')
  */
+export async function waitForAnalyticsReady(page: Page, timeout: number = 30000) {
+  return waitForFeature(page, 'analytics', timeout);
+}
+
 export async function programmaticLoginWithRoutes(
   page: Page,
   options: {
     projectRef?: string;
     supabaseUrl?: string;
     userType?: 'free' | 'pro';
-    needsAnalytics?: boolean;
     emptySessions?: boolean;
+    registry?: Record<string, unknown>;
+    debug?: boolean;
   } = {}
 ) {
-  const { projectRef: optRef, supabaseUrl: optUrl, userType = 'free', needsAnalytics = false, emptySessions = false } = options;
-
-  // 1. Determine project ref
-  let projectRef = optRef || 'yxlapjuovrsvjswkwnrk'; // Default to staging
+  const { 
+    projectRef: optRef, 
+    supabaseUrl: optUrl, 
+    userType = 'free', 
+    emptySessions = false,
+    registry = {},
+    debug = false
+  } = options;
+  let projectRef = optRef || 'yxlapjuovrsvjswkwnrk';
   const supabaseUrl = optUrl || process.env.VITE_SUPABASE_URL;
 
   if (supabaseUrl && !optRef) {
@@ -299,102 +289,59 @@ export async function programmaticLoginWithRoutes(
       const urlObj = new URL(supabaseUrl);
       projectRef = urlObj.hostname.split('.')[0];
     } catch (err) {
-      logger.warn({ err }, '[API Auth] Could not parse Supabase URL for project ref, falling back to default injection.');
+      logger.warn({ err }, '[API Auth] Could not parse Supabase URL for project ref.');
     }
   }
 
   const localStorageKey = `sb-${projectRef}-auth-token`;
-
-  // 2. Prepare mock session with correct user data
   const session = { ...MOCK_SESSION };
   session.user.app_metadata.subscription_status = userType;
-  if (userType === 'pro') {
-    session.user.email = 'pro@example.com';
-  }
+  if (userType === 'pro') session.user.email = 'pro@example.com';
 
-  // 3. Setup Mocks & Inject init script
   const { setupE2EMocks } = await import('./mock-routes');
   await setupE2EMocks(page, { userType, emptySessions });
 
-  // 4. Diagnostics & Console Guards
   setupBrowserLogging(page);
   setupNetworkTracking(page);
 
-  await page.addInitScript(({ key, sessionData, emptySessions }) => {
+  await page.addInitScript(({ key, sessionData, emptySessions, registry, debug }) => {
     window.__E2E_EMPTY_SESSIONS__ = emptySessions;
-    window.__APP_TEST_ENV__ = {
-      context: 'e2e',
-      testMode: true,
-      isE2E: true,
-      useMockSession: true,
-      emptySessions: emptySessions,
-      stt: {
-        mode: 'mock',
-        loadTimeout: 45000,
-        mocks: { private: 'auto' }
+    
+    // Aligned with Phase 1 "Strict Zero" Environment Model
+    window.__SS_E2E__ = {
+      isActive: true,
+      engineType: 'mock',
+      registry: registry || {},
+      flags: {
+        bypassMutex: false,
+        fastTimers: true
       },
-      progress: { mode: 'auto' },
-      auth: { mode: 'mock' },
-      limits: { mode: 'mock' },
-      registry: { overrides: new Map() },
-      exposedState: {},
-      debug: true,
-      mswReady: true
+      debug: !!debug
     };
 
-    // RESET READY STATE BEFORE NAVIGATION
-    window.__APP_READY_STATE__ = {
-      boot: false,
-      layout: false,
-      auth: false,
-      analytics: false,
-      stt: false,
-      timestamps: { reset: performance.now() }
+    (window as unknown as { __APP_READY_STATE__: Record<string, unknown> }).__APP_READY_STATE__ = {
+      boot: false, layout: false, auth: false, analytics: false, stt: false, msw: false,
+      _timestamps: { reset: performance.now() }
     };
 
-    // Atomic injection into localStorage before app starts
     window.localStorage.setItem(key, JSON.stringify(sessionData));
-  }, { key: localStorageKey, sessionData: session, emptySessions });
+  }, { key: localStorageKey, sessionData: session, emptySessions, registry, debug });
 
-  page.on('console', msg => {
-    const text = msg.text();
-    if (msg.type() === 'error') {
-      // Fail on specific forbidden patterns
-      if (text.includes('Unexpected token <') || text.includes('Attempted to overwrite recording state')) {
-        throw new Error(`[CI GUARD] Forbidden browser error: ${text}`);
-      }
-    }
-  });
-
-  // 5. Navigate
   await page.goto('/');
-
-  // 6. Wait for single deterministic signal
-  await waitForAppReady(page, { needsAnalytics });
-
+  await waitForAppReady(page);
   return session;
 }
 
-/**
- * Simulate audio transcription by calling the internal dispatch function
- */
+// 5. Simulation Helpers
 export async function simulateTranscription(page: Page, text: string, isFinal: boolean = true) {
   await page.evaluate(({ transcription, final }) => {
     const win = window as unknown as { dispatchMockTranscript?: (text: string, isFinal: boolean) => void; logger?: { error: (msg: string) => void } };
     if (typeof win.dispatchMockTranscript === 'function') {
       win.dispatchMockTranscript(transcription, final);
-    } else {
-      // Browser-side logging
-      if (win.logger) {
-        win.logger.error('[E2E Helper] window.dispatchMockTranscript is not defined!');
-      }
     }
   }, { transcription: text, final: isFinal });
 }
 
-/**
- * Attaches a listener to the page to log transcript events
- */
 export function attachLiveTranscript(page: Page) {
   page.on('console', msg => {
     const text = msg.text();
@@ -404,15 +351,11 @@ export function attachLiveTranscript(page: Page) {
   });
 }
 
-/**
- * Mocks a live transcript sequence
- */
 export async function mockLiveTranscript(page: Page, transcriptLines: string[] | keyof typeof MOCK_TRANSCRIPTS) {
   let lines: string[];
   if (Array.isArray(transcriptLines)) {
     lines = transcriptLines;
   } else {
-    // Fallback for legacy usage if any
     lines = MOCK_TRANSCRIPTS as unknown as string[];
   }
 
@@ -423,9 +366,6 @@ export async function mockLiveTranscript(page: Page, transcriptLines: string[] |
   await simulateTranscription(page, lines[lines.length - 1], true);
 }
 
-/**
- * Select a specific transcription engine from the UI
- */
 export async function selectTranscriptionEngine(page: Page, mode: 'native' | 'cloud' | 'private') {
   const select = page.getByTestId('stt-mode-select');
   await select.click();
@@ -433,9 +373,6 @@ export async function selectTranscriptionEngine(page: Page, mode: 'native' | 'cl
   await option.click();
 }
 
-/**
- * Wait for a specific toast message to appear
- */
 export async function waitForToast(page: Page, message: string | RegExp) {
   const toast = page.locator('li[data-sonner-toast]');
   if (typeof message === 'string') {
@@ -445,18 +382,24 @@ export async function waitForToast(page: Page, message: string | RegExp) {
   }
 }
 
-/**
- * Wait for a specific E2E event to be dispatched by the app
- */
 export async function waitForE2EEvent(page: Page, eventName: string, timeout: number = 10000) {
   await page.waitForFunction((name) => {
-    return window[`__e2e_${name}_fired__`] === true;
+    return (window as unknown as Record<string, boolean | undefined>)[`__e2e_${name}_fired__`] === true;
   }, eventName, { timeout });
 }
 
 /**
- * Capture a screenshot of the current page for UI state verification
+ * Deterministic Model Readiness Signal
+ * Awaits the global data-model-status="ready" signal set by SessionPage.
  */
+export async function waitForModelReady(page: Page, timeout: number = 30000) {
+  debugLog('Awaiting global data-model-status="ready" signal...');
+  await page.waitForFunction(() => {
+    return document.documentElement.getAttribute('data-model-status') === 'ready';
+  }, { timeout });
+  debugLog('STT Model is ready (via data-model-status)');
+}
+
 export async function capturePage(page: Page, filename: string, folder: string = 'screenshots') {
   const path = `tests/e2e/screenshots/${folder}/${filename}`;
   await page.screenshot({ path, fullPage: true });

@@ -2,7 +2,8 @@ import { create } from 'zustand';
 import { FillerCounts } from '../utils/fillerWordUtils';
 import logger from '../lib/logger';
 import { TranscriptionMode } from '../services/transcription/TranscriptionPolicy';
-import { SttStatus } from '../types/transcription';
+import { SttStatus, HistorySegment } from '../types/transcription';
+import { TestFlags } from '../config/TestFlags';
 
 interface TranscriptState {
     transcript: string;
@@ -11,8 +12,13 @@ interface TranscriptState {
 
 // SttStatus imported from '@/types/transcription'
 
+import { RuntimeState } from '../services/SpeechRuntimeController';
+
 export interface SessionState {
+    runtimeState: RuntimeState;
+    isLockHeldByOther: boolean;
     isListening: boolean;
+    isInitiating: boolean;
     isReady: boolean;
     transcript: TranscriptState;
     fillerData: FillerCounts;
@@ -22,9 +28,14 @@ export interface SessionState {
     sttMode: TranscriptionMode | null;
     modelLoadingProgress: number | null;
     activeEngine: TranscriptionMode | 'none' | null;
+    history: Array<HistorySegment>;
+    chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean }>;
+    sessionSaved: boolean;
+    sunsetModal: { type: 'daily' | 'monthly'; open: boolean };
 }
 
 interface SessionActions {
+    setRuntimeState: (state: RuntimeState) => void;
     startSession: () => void;
     stopSession: () => void;
     setReady: (ready: boolean) => void;
@@ -35,15 +46,25 @@ interface SessionActions {
     setSTTMode: (mode: TranscriptionMode | null) => void;
     setActiveEngine: (engine: TranscriptionMode | 'none' | null) => void;
     setModelLoadingProgress: (progress: number | null) => void;
+    setStartTime: (time: number | null) => void;
     tick: () => void;
     setElapsedTime: (seconds: number) => void;
+    addHistorySegment: (segment: HistorySegment) => void;
+    setHistory: (history: Array<HistorySegment>) => void;
     resetSession: () => void;
+    addChunk: (chunk: { transcript: string; timestamp: number; isFinal: boolean }) => void;
+    setLockHeldByOther: (held: boolean) => void;
+    setSessionSaved: (saved: boolean) => void;
+    setSunsetModal: (modal: { type: 'daily' | 'monthly'; open: boolean }) => void;
 }
 
 export type SessionStore = SessionState & SessionActions;
 
 const initialState: SessionState = {
+    runtimeState: 'IDLE',
+    isLockHeldByOther: false,
     isListening: false,
+    isInitiating: false,
     isReady: false,
     transcript: {
         transcript: '',
@@ -56,24 +77,43 @@ const initialState: SessionState = {
     sttMode: null,
     modelLoadingProgress: null,
     activeEngine: null,
+    history: [],
+    chunks: [],
+    sessionSaved: false,
+    sunsetModal: { type: 'daily', open: false },
 };
 
 export const useSessionStore = create<SessionStore>((set) => ({
     ...initialState,
 
-    startSession: () =>
+    setRuntimeState: (runtimeState) => {
+        logger.debug({ runtimeState }, '[useSessionStore] setRuntimeState');
         set({
-            isListening: true,
-            startTime: Date.now(),
-        }),
+            runtimeState,
+            isListening: runtimeState === 'RECORDING' || runtimeState === 'ENGINE_INITIALIZING' || runtimeState === 'INITIATING',
+            isInitiating: runtimeState === 'INITIATING',
+            isReady: runtimeState === 'READY',
+        });
+    },
 
-    stopSession: () =>
+    startSession: () => {
+        // Master Invariant: startSession is a side-effect of FSM transition
+        set((state) => ({
+            isListening: true,
+            startTime: state.startTime || Date.now(),
+        }));
+    },
+
+    stopSession: () => {
+        // Master Invariant: stopSession is a side-effect of FSM transition
         set({
             isListening: false,
             startTime: null,
-            // P1 FIX: Don't reset elapsedTime here - let UI show final duration
-            // elapsedTime is reset in resetSession() when starting a new session
-        }),
+            activeEngine: null,
+            modelLoadingProgress: null,
+            sttStatus: { type: 'idle', message: 'Ready to record' },
+        });
+    },
 
     setReady: (ready) =>
         set({
@@ -101,10 +141,9 @@ export const useSessionStore = create<SessionStore>((set) => ({
     setSTTStatus: (status) => {
         set((state) => {
             // ✅ GUARD: Don't allow overwriting 'recording' with 'idle' or 'ready' silently
-            if (state.sttStatus.type === 'recording') {
-                if (status.type === 'idle' || status.type === 'ready') {
-                    logger.warn({ status }, '[Store] ⚠️ Attempted to overwrite recording state');
-                }
+            if (state.sttStatus.type === 'recording' && (status.type === 'idle' || status.type === 'ready')) {
+                logger.warn({ status, currentState: state.sttStatus.type }, '[Store] ⚠️ Attempted to overwrite recording state');
+                return state;
             }
             return { sttStatus: status };
         });
@@ -121,14 +160,18 @@ export const useSessionStore = create<SessionStore>((set) => ({
         }),
 
     setModelLoadingProgress: (progress) => {
-        logger.debug({ progress }, '[Store] setModelLoadingProgress');
         set({
             modelLoadingProgress: progress,
         });
     },
 
+    setStartTime: (startTime) =>
+        set({
+            startTime,
+        }),
+
     tick: () => set((state) => {
-        if (!state.isListening || !state.startTime) return state;
+        if (!state.startTime) return state;
         return { elapsedTime: Math.floor((Date.now() - state.startTime) / 1000) };
     }),
 
@@ -137,12 +180,42 @@ export const useSessionStore = create<SessionStore>((set) => ({
             elapsedTime: seconds,
         }),
 
+    addHistorySegment: (segment) =>
+        set((state) => ({
+            history: [...state.history, segment],
+        })),
+
+    setHistory: (history) =>
+        set({
+            history,
+        }),
+
     resetSession: () =>
         set(initialState),
+
+    addChunk: (chunk) =>
+        set((state) => ({
+            chunks: [...state.chunks, chunk],
+        })),
+
+    setLockHeldByOther: (held: boolean) =>
+        set({
+            isLockHeldByOther: held,
+        }),
+
+    setSessionSaved: (saved: boolean) =>
+        set({
+            sessionSaved: saved,
+        }),
+
+    setSunsetModal: (sunsetModal) =>
+        set({
+            sunsetModal,
+        }),
 }));
 
-// Expose store to window only in test/dev for E2E diagnostics
-if (process.env.NODE_ENV !== 'production' || (typeof window !== 'undefined' && (window as { TEST_MODE?: boolean }).TEST_MODE)) {
+// Expose store to window only in test/dev for E2E diagnostics (Strict Zero)
+if (process.env.NODE_ENV !== 'production' || TestFlags.IS_E2E) {
     if (typeof window !== 'undefined') {
         (window as unknown as { useSessionStore: unknown }).useSessionStore = useSessionStore;
         (window as unknown as { __SESSION_STORE_API__: unknown }).__SESSION_STORE_API__ = useSessionStore;

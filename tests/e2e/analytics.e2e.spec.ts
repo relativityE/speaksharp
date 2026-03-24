@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { navigateToRoute, attachLiveTranscript } from './helpers';
+import { navigateToRoute, attachLiveTranscript, waitForFeature } from './helpers';
 
 test.describe('Analytics Page - Dashboard with Data', () => {
   test('should display analytics dashboard with session data', async ({ userPage }) => {
@@ -8,7 +8,9 @@ test.describe('Analytics Page - Dashboard with Data', () => {
 
     // Navigate to analytics (client-side via route helper)
     await navigateToRoute(userPage, '/analytics');
-
+    
+    // 🛡️ Architectural Readiness: Wait for analytics data to be fully loaded
+    await waitForFeature(userPage, 'analytics');
     // Wait for loading to finish first (robustness against CI slowness)
     await expect(userPage.locator('.animate-spin')).not.toBeVisible({ timeout: 15000 });
 

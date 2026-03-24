@@ -16,19 +16,16 @@ import { test, expect } from '@playwright/test';
 import { programmaticLoginWithRoutes, navigateToRoute, goToPublicRoute, debugLog } from '../e2e/helpers';
 import { TEST_IDS, ROUTES } from '../constants';
 
-// Extend Window interface for E2E flags
 declare global {
     interface Window {
         __E2E_MOCK_LOCAL_WHISPER__?: boolean;
         __E2E_PLAYWRIGHT__?: boolean;
         TEST_MODE?: boolean;
-        __PrivateWhisper_INT_TEST__?: {
-            engineType?: string;
-            status?: string;
-            transcript?: string;
-        };
     }
 }
+
+
+
 
 // Inject E2E playwright flag BEFORE page loads
 test.beforeEach(async ({ page }) => {
@@ -56,7 +53,7 @@ test.describe('Private STT (Production Capability Smoke)', () => {
             for (const db of dbs) if (db.name) indexedDB.deleteDatabase(db.name);
         });
 
-        await page.reload({ waitUntil: 'networkidle' });
+        await page.reload();
 
         // WASM SharedArrayBuffer requires cross-origin isolation — skip if not available
         const isIsolated = await page.evaluate(() => window.crossOriginIsolated);
@@ -65,7 +62,7 @@ test.describe('Private STT (Production Capability Smoke)', () => {
             return;
         }
 
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
+        await programmaticLoginWithRoutes(page, { userType: 'pro' });
         await navigateToRoute(page, ROUTES.SESSION);
         await page.waitForSelector(`[data-testid="${TEST_IDS.APP_MAIN}"]`);
 

@@ -16,7 +16,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
     test('should verify only Browser STT is available', async ({ freePage }) => {
         // Ensure fresh state and synchronize MSW
         await freePage.reload();
-        await freePage.waitForLoadState('networkidle');
+        
 
         await navigateToRoute(freePage, '/session');
         await expect(freePage.getByText('Practice Session')).toBeVisible();
@@ -34,7 +34,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
     test('should complete session with Browser STT', async ({ freePage }) => {
         // Ensure fresh state and synchronize MSW
         await freePage.reload();
-        await freePage.waitForLoadState('networkidle');
+        
 
         await navigateToRoute(freePage, '/session');
 
@@ -58,7 +58,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
     test('should add user filler word', async ({ freePage }) => {
         // Ensure fresh state and synchronize MSW
         await freePage.reload();
-        await freePage.waitForLoadState('networkidle');
+        
 
         await navigateToRoute(freePage, '/session');
 
@@ -93,7 +93,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
     test('should display analytics after session', async ({ freePage }) => {
         // Ensure fresh state and synchronize MSW
         await freePage.reload();
-        await freePage.waitForLoadState('networkidle');
+        
 
         await navigateToRoute(freePage, '/analytics');
 
@@ -109,7 +109,7 @@ test.describe('Free User Journey - Complete Lifecycle', () => {
     test('should show upgrade prompts for free users', async ({ freePage }) => {
         // Ensure fresh state and synchronize MSW
         await freePage.reload();
-        await freePage.waitForLoadState('networkidle');
+        
 
         await navigateToRoute(freePage, '/analytics');
 

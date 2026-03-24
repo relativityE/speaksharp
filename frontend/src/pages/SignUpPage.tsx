@@ -107,7 +107,7 @@ export default function SignUpPage() {
                         <CardDescription className="text-base">Enter your email below to create your account</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <form onSubmit={handleSubmit} className="space-y-4" data-testid="auth-form">
+                        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4" data-testid="auth-form">
                             <div className="space-y-2">
                                 <Label htmlFor="email">Email</Label>
                                 <Input

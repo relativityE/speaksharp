@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as env from '../env';
 
 describe('env.ts (Environment Detection)', () => {
     const originalWindow = global.window;
@@ -14,31 +13,23 @@ describe('env.ts (Environment Detection)', () => {
         global.process = originalProcess;
     });
 
-    it('should detect test environment via VITE_TEST_MODE', async () => {
-        vi.stubEnv('VITE_TEST_MODE', 'true');
-        // We need to re-import or use the exported value
-        const { IS_TEST_ENVIRONMENT } = await import('../env');
-        expect(IS_TEST_ENVIRONMENT).toBe(true);
-        vi.unstubAllEnvs();
-    });
-
     it('should detect test environment via import.meta.env.MODE', async () => {
         // Vitest sets MODE to 'test' by default
         const { IS_TEST_ENVIRONMENT } = await import('../env');
         expect(IS_TEST_ENVIRONMENT).toBe(true);
     });
 
-    it('should detect test environment via window.TEST_MODE', async () => {
+    it('should detect test environment via window.__SS_E2E__', async () => {
         // @ts-expect-error - Mocking global window for testing
-        global.window = { TEST_MODE: true };
+        global.window = { __SS_E2E__: { isActive: true } };
         const { IS_TEST_ENVIRONMENT } = await import('../env');
         expect(IS_TEST_ENVIRONMENT).toBe(true);
     });
 
-    it('should detect test environment via E2E_CONTEXT_FLAG', async () => {
+    it('should detect false if __SS_E2E__ says inactive', async () => {
         // @ts-expect-error - Mocking global window for testing
-        global.window = { [env.E2E_CONTEXT_FLAG]: true };
+        global.window = { __SS_E2E__: { isActive: false } };
         const { IS_TEST_ENVIRONMENT } = await import('../env');
-        expect(IS_TEST_ENVIRONMENT).toBe(true);
+        expect(IS_TEST_ENVIRONMENT).toBe(false);
     });
 });

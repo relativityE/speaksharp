@@ -49,7 +49,7 @@ test('measure Native STT', async ({ page }) => {
     for (let trial = 1; trial <= TRIAL_COUNT; trial++) {
 
         await page.goto('/session');
-        await page.waitForLoadState('networkidle');
+        
 
         const modeButton = page.getByTestId('stt-mode-select');
         await modeButton.click();

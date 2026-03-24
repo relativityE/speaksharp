@@ -101,7 +101,7 @@ export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, on
                             />
                             <Button
                                 size="sm"
-                                onClick={handlePromoSubmit}
+                                onClick={() => { void handlePromoSubmit(); }}
                                 disabled={isSubmitting || !promoCode.trim()}
                             >
                                 {isSubmitting ? 'Applying...' : 'Apply'}
@@ -123,7 +123,7 @@ export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, on
                     )}
                     <div className="flex gap-2 justify-end w-full sm:w-auto">
                         <AlertDialogCancel data-testid="promo-expired-continue-free">Continue as Free</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleUpgrade} data-testid="promo-expired-upgrade-button">Upgrade to Pro</AlertDialogAction>
+                        <AlertDialogAction onClick={() => { void handleUpgrade(); }} data-testid="promo-expired-upgrade-button">Upgrade to Pro</AlertDialogAction>
                     </div>
                 </AlertDialogFooter>
             </AlertDialogContent>

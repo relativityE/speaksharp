@@ -34,7 +34,7 @@ test.describe('Hardening Safeguards', () => {
         await expect(proPage.locator('html[data-session-saved="true"]')).toBeVisible({ timeout: 20000 });
         
         // Behavioral Check: Verify service state transitioned to IDLE/READY via the service singleton
-        const serviceState = await proPage.evaluate(() => (window as any).__TRANSCRIPTION_SERVICE__?.getState());
+        const serviceState = await proPage.evaluate(() => window.__TRANSCRIPTION_SERVICE__?.getState());
         expect(['IDLE', 'READY']).toContain(serviceState);
 
         // Verify only one session was created (Network level check)
@@ -60,7 +60,7 @@ test.describe('Hardening Safeguards', () => {
         await expect(page2.locator('[data-state="error"]').first()).toBeVisible({ timeout: 10000 });
         
         // Inspection: Verify service mode is NOT recording on blocked page
-        const isRecordingOnPage2 = await page2.evaluate(() => (window as any).__TRANSCRIPTION_SERVICE__?.getState() === 'RECORDING');
+        const isRecordingOnPage2 = await page2.evaluate(() => window.__TRANSCRIPTION_SERVICE__?.getState() === 'RECORDING');
         expect(isRecordingOnPage2).toBe(false);
     });
 
@@ -81,7 +81,7 @@ test.describe('Hardening Safeguards', () => {
         await expect(page.locator('[data-state="error"]').first()).toBeVisible({ timeout: 15000 });
 
         // Inspection Check: Verify engine is NOT native (No leakage)
-        const activeMode = await page.evaluate(() => (window as any).__TRANSCRIPTION_SERVICE__?.getMode());
+        const activeMode = await page.evaluate(() => window.__TRANSCRIPTION_SERVICE__?.getMode());
         expect(activeMode).not.toBe('native');
     });
 });

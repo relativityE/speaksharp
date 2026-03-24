@@ -37,10 +37,13 @@ test.describe('Diagnostic Private STT', () => {
         // Register mock for diagnostic
         await registerMockInE2E(page, 'private', `() => {
             return {
-                init: async () => {},
-                startTranscription: async () => {},
-                stopTranscription: async () => 'diagnostic transcript',
-                getTranscript: async () => 'diagnostic transcript',
+                type: 'mock-diagnostic',
+                init: async () => ({ variant: 'Ok', value: undefined }),
+                start: async () => { },
+                stop: async () => { },
+                destroy: async () => { },
+                transcribe: async () => ({ variant: 'Ok', value: 'diagnostic transcript' }),
+                getLastHeartbeatTimestamp: () => Date.now(),
                 getEngineType: () => 'mock-diagnostic'
             };
         }`);

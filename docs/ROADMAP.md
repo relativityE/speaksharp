@@ -1,26 +1,44 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-09
+**Last Reviewed:** 2026-03-24
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp Roadmap
 *(For executive-level commentary on prioritization, see [REVIEW.md](./REVIEW.md)).*
+*(For detailed architectural insights, see [ARCHITECTURE.md](./ARCHITECTURE.md)).*
 
 This document outlines the forward-looking development plan for SpeakSharp. Completed tasks are moved to the [Changelog](./CHANGELOG.md).
 
 Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Remediation
 ---
 
-## 🛡️ CI Stability & Observability Hardening (Mar 2026) ✅ COMPLETE
+## ✅ CI Stability & Observability Hardening (Mar 2026)
+ ✅ COMPLETE
 
-> **Goal:** Eliminate race conditions in transcription lifecycles and implement high-fidelity observability for diagnostic audits.
+> **Goal:** Eliminate race conditions in transcription lifecycles, implement deterministic STT contracts, and enforce zero-tolerance observability.
 
 | ID | Title | Priority | Status | Notes |
 |----|-------|----------|--------|-------|
 | **C1** | **Single-Chain Orchestration** | **CRITICAL** | ✅ Complete | Atomic `commandChain` for `TranscriptionService` lifecycle. |
-| **C2** | **Triple-Identity Tracing** | **HIGH** | ✅ Complete | `serviceId`/`runId`/`engineId` tracing hierarchy. |
-| **C3** | **Logger Standardization** | **CRITICAL** | ✅ Complete | Unified `@/lib/logger` mocks in Vitest `setup.ts`. |
-| **C4** | **CI Output Optimization** | **MEDIUM** | ✅ Complete | Defaulted to `WARN` level and `line` reporter for cleaner CI logs. |
+| **C2** | **STTEngine Contract** | **CRITICAL** | ✅ Complete | Abstract base class with runtime validation and telemetry enforcement. |
+| **C3** | **Analytics Decoupling** | **HIGH** | ✅ Complete | Non-blocking `AnalyticsBuffer` for monotonic readiness. |
+| **C4** | **Heartbeat Stability** | **HIGH** | ✅ Complete | Hardened 8s watchdog with non-silent error recovery. |
+| **C5** | **Observability Enforcement** | **CRITICAL** | ✅ Complete | CI-blocking lint and mandatory console error failure in E2E. |
+
+---
+
+## 🟡 Quality & Reliability Sprint (Q1 2026)
+Next Target) ✅ COMPLETE
+
+> **Goal:** Close coverage gaps (target 65%), implement pre-fetching for Private STT, and polish UX micro-copy for production parity.
+
+| ID | Title | Priority | Status | Notes |
+|----|-------|----------|--------|-------|
+| **Q1** | **Coverage Push** | **HIGH** | ✅ Complete | Targeting `TranscriptPanel.tsx` and core analytical hooks. |
+| **Q2** | **Model Pre-fetching** | **HIGH** | 🔴 Planned | Background download of `whisper-turbo` upon login. |
+| **Q3** | **UX Fluidity** | **MEDIUM** | 🔴 Planned | Micro-animations for state transitions and refined loading states. |
+| **Q4** | **STT Engine Unification** | **CRITICAL** | ✅ Complete | Aligning Cloud/Native engines with `STTEngine` abstract base. |
+| **Q5** | **Intentional Privacy Model Download** | **HIGH** | ✅ Complete | Added `DOWNLOAD_REQUIRED` state and explicit user-driven download. |
 
 ---
 
@@ -89,6 +107,7 @@ Status Key: 🟡 In Progress | 🔴 Not Started | ✅ Complete | 🛡️ Gap Rem
 This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.
 
 ### 🚧 Should-Have (Tech Debt)
+- 🔴 **E2E Timeout: STT Initialization Race Condition:** E2E tests are currently timing out because the `TranscriptionService` instance is `null` when `useTranscriptionControl` attempts to access it during test execution. A circular dependency or initialization order issue between `SpeechRuntimeController`, `TranscriptionProvider`, and component mount cycles needs investigation.
 - ✅ **Strategic Error Logging (2025-12-11):** Added defensive error logging to PrivateWhisper.ts, SessionPage.tsx, AuthPage.tsx. Comprehensive coverage in critical paths.
 - ✅ **Usage Limit Pre-Check (2025-12-11):** P0 UX fix. New Edge Function `check-usage-limit` validates usage BEFORE session start. Shows toast with Upgrade button if exceeded.
 - ✅ **Screen Reader Accessibility (2025-12-11):** Added `aria-live="polite"` to live transcript for screen reader announcements.
@@ -394,7 +413,7 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Implement WebSocket Reconnect Logic:** Added heartbeat and exponential backoff (1s, 2s, 4s, 8s, max 30s) logic to `CloudAssemblyAI.ts`.
 - ✅ **Session Comparison & Progress Tracking (2025-12-06):** Users can now select 2 sessions to compare side-by-side with progress indicators (green ↑ for improvement, red ↓ for regression). Added WPM and Clarity trend charts showing progress over last 10 sessions. **Components:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`. **Status:** ✅ Complete.
 - ✅ **Implement Local STT Toast Notification:** Show user feedback when Whisper model download completes.
-- ✅ **User Filler Words Tier Limits \u0026 Conversion Nudges (2025-12-11):** Implemented tier-based limits (Free: 10 words, Pro: 100 words) with subtle upgrade nudges when free users approach limit (shown at 8/10 words). Error messages include upgrade CTA. Uses `Math.min(MAX_WORDS_PER_USER, MAX_WORDS_FREE)` pattern for free tier enforcement.
+- ✅ **User Filler Words Tier Limits & Conversion Nudges (2025-12-11):** Implemented tier-based limits (Free: 10 words, Pro: 100 words) with subtle upgrade nudges when free users approach limit (shown at 8/10 words). Error messages include upgrade CTA. Uses `Math.min(MAX_WORDS_PER_USER, MAX_WORDS_FREE)` pattern for free tier enforcement.
 - ✅ **Contract Rectification (2025-12-19):** Grounded application assumptions in the database. Added `transcript`, `engine`, `clarity_score`, and `wpm` to the `sessions` table. Implemented atomic `create_session_and_update_usage` Ghost RPC. Purged `avatar_url` and `full_name` phantoms.
 - ✅ **Analytics Integrity Fix (2025-12-19):** Resolved regression in clarity score aggregation to correctly use grounded DB fields.
 - ✅ **Plan Selection at Signup (2025-12-21):** Users choose Free or Pro plan during signup. Pro selection redirects to Stripe Checkout after account creation (as Free). Webhook upgrades to Pro on successful payment. Added persistent "Upgrade to Pro" button in Navigation for Free users.
@@ -405,6 +424,7 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **PERPETUAL - Documentation Audit (2026-02-09):** Verified PRD Known Issues, ROADMAP, and CHANGELOG match actual codebase state. Resolved CI path resolution and MSW identity issues. **Frequency:** Before each release and after major feature work.
 - ✅ **Side-by-Side Session Comparison (2025-12-06):** Implemented `SessionComparisonDialog.tsx` with `ProgressIndicator` and integrated into `AnalyticsDashboard.tsx`. Verified via `session-comparison.e2e.spec.ts`.
 - [ ] **🛡️ Private STT Hardening (Post-Alpha Tech Debt):**
+  - **Model Load Friction**: Eliminate mandatory 30s background downloads; transition to an **Intentional Privacy Model Download** button for Pro users with localized caching checks.
   - **Multi-Tab State Corruption**: Implement `SharedWorker` or Cross-Tab Broadcast Channel to strictly enforce a single WebGPU instance across tabs.
   - **WebGPU Context Loss**: Add `device-lost` event handlers to the `WhisperEngineRegistry` to trigger graceful WASM fallback mid-session.
   - **Mobile RAM Optimization**: Implement dynamic model unloading or Tiny-model preference for iOS Safari (300MB RAM limit).
@@ -567,7 +587,11 @@ This phase is about confirming the core feature set works as expected and polish
 | 11 | **Remove Mock Timeout Bypass** | `TranscriptionService.ts` | P2 | Evolve the Optimistic Entry logic to handle mocks via a more generic "ready-on-init" flag rather than explicitly checking for mocks, reducing test-prod coupling. |
 | 12 | **E2E Timeout Standardization** | `tests/e2e/` | P2 | Standardize wait timeouts to "ideal duration + 50% buffer max" to avoid masking performance regressions or slow CI execution. |
 | 13 | **Mock-to-Schema Synchronization** | `tests/e2e/mock-routes.ts` | P2 | Implement factory-based session mocking and PostgREST header compliance to prevent regression. |
-| 14 | **Private STT First-Time Use UX** | `TranscriptionService.ts` | P2 | Design: Show download %; offer wait vs. Native transition; auto-fallback after 10s if no decision. |
+| 14 | **WASM Binary Cache** | `TranscriptionService.ts` | P2 | 🔴 Not Started - Implement global binary caching for $O(1)$ startup vs. current init lag. |
+| 15 | **Transient Transcript Policy** | `TranscriptionService.ts` | P2 | 🔴 Not Started - Ephemeral local storage for transcripts to protect PII and save disk costs. |
+| 16 | **Free-Tier Private Gating** | `SessionPage.tsx` | P3 | 🔴 Not Started - User-tier gating in DOM for Free users to reduce asset load noise. |
+| 17 | Unified STT Engine Contract (Cloud/Native) | `CloudAssemblyAI.ts`, `NativeBrowser.ts` | P2 | 🟡 In Progress | Migrating Cloud/Native engines to the `STTEngine` base class to enable unified heartbeat monitoring and telemetry. |
+
 
 
 ### 🛡️ Prevention Mechanisms (Choose 1 of 3)
@@ -841,16 +865,16 @@ This phase addresses findings from the December 2025 UX Audit (`ux_audit.md`) to
 | **L6** | **Live Drift Monitoring** | **MEDIUM** | 🟡 In Progress | `drift-detector.spec.ts` now runs in sharded CI. Alerting on API contract changes deferred to nightly cron trigger. |
 | **L7** | **E2E Stabilization (70/70)** | **CRITICAL** | ✅ Complete | Resolved all persistent flakiness in VAD, Mutex, and Tier Limit tests. Achieved 100% pass rate on full 70-test suite. |
 
-## 🚀 v3.5.4 Release Hardening (Mar 2026) ✅ COMPLETE
+## 🚀 v0.5.4.5 Release Hardening (Mar 2026) ✅ COMPLETE
 
-> **Goal:** Finalize the v3.5.4 production release with absolute technical synchronization and CI stabilization.
+> **Goal:** Finalize the v0.5.4.5 production release with absolute technical synchronization and CI stabilization.
 
 | ID | Title | Priority | Status | Notes |
 |----|-------|----------|--------|-------|
 | **R1** | **CI Restoration Standard** | **CRITICAL** | ✅ Complete | Migrated from `script` to `tee` for reliable TTY logging without JSON corruption. |
 | **R2** | **Engine-Aware Tracking** | **CRITICAL** | ✅ Complete | Implemented Pattern 28 for accurate tier enforcement across all STT engines. |
 | **R3** | **UI-First State Reversion** | **HIGH** | ✅ Complete | Pattern 27 implemented for sub-second UI responsiveness during engine teardown. |
-| **R4** | **Documentation Audit** | **HIGH** | ✅ Complete | Synchronized all 7 core markdown files to v3.5.4 SSOT standard. |
+| **R4** | **Documentation Audit** | **HIGH** | ✅ Complete | Synchronized all 7 core markdown files to v0.5.4.5 SSOT standard. |
 | **R5** | **70/70 E2E Success** | **CRITICAL** | ✅ Complete | Achieved 100% reliability across the full sharded Playwright suite. |
 
 ---

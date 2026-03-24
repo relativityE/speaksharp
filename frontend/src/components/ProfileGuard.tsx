@@ -4,6 +4,7 @@ import { useAuthProvider } from '../contexts/AuthProvider';
 import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 import { ProfileProvider } from '../contexts/ProfileContext';
+import { useReadinessStore } from '../stores/useReadinessStore';
 
 interface ProfileGuardProps {
     children: React.ReactNode;
@@ -22,6 +23,18 @@ interface ProfileGuardProps {
 export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
     const { session, loading: authLoading } = useAuthProvider();
     const { data: profile, isLoading: profileLoading, error: profileError, refetch } = useUserProfile();
+    const setReady = useReadinessStore((state) => state.setReady);
+
+    // Signal Profile Readiness for E2E stability
+    React.useEffect(() => {
+        if (!profileLoading && profile) {
+            setReady('profile');
+            // Dispatch Architectural Event for E2E listeners (Gold Standard)
+            window.dispatchEvent(new CustomEvent('app-hydration-complete', { 
+                detail: { profileId: (profile as unknown as { id: string })?.id } 
+            }));
+        }
+    }, [profileLoading, profile, setReady]);
 
     // 1. Auth is still initializing (Supabase getSession)
     if (authLoading) {
@@ -69,7 +82,7 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
                         <RefreshCw className="mr-2 h-4 w-4" />
                         Refresh App
                     </Button>
-                    <Button onClick={() => refetch()}>
+                    <Button onClick={() => { void refetch(); }}>
                         Retry Sync
                     </Button>
                 </div>

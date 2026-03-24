@@ -16,7 +16,7 @@ import {
 // Structural Simplification - Direct Telemetry
 global.__CI_TELEMETRY__ = {
     vitest: { passed: 0, failed: 0, total: 0 },
-    playwright: { passed: 0, failed: 0, flaky: 0, skipped: 0, shards: {} },
+    playwright: { passed: 0, failed: 0, flaky: 0, skipped: 0, total: 0, shards: {} },
     lighthouse: {
         performance: 0,
         accessibility: 0,
@@ -24,8 +24,60 @@ global.__CI_TELEMETRY__ = {
         seo: 0
     },
     coverage: 0,
-    sqm: {}
+    sqm: { score: 0 }
 };
+
+/**
+ * Canonical audit model
+ */
+function buildAuditModel(ciTelemetry) {
+    const stages = ciTelemetry.stages || [];
+    const hasFatalFailure = stages.some(s => s.status === 'FAILED' || s.status === 'ABORTED');
+    
+    const pw = ciTelemetry.tests.playwright;
+    const vi = ciTelemetry.tests.vitest;
+
+    // Consumer-side normalization
+    pw.total = pw.total ?? (
+        (pw.passed || 0) +
+        (pw.failed || 0) +
+        (pw.flaky || 0) +
+        (pw.skipped || 0)
+    );
+
+    const unitRan = (vi?.total || 0) > 0;
+    const e2eRan = (pw?.total || 0) > 0;
+
+    // Truthful Gating
+    const unitFailed = (vi?.failed || 0) > 0;
+    const e2eFailed = (pw?.failed || 0) > 0;
+    
+    const testsRan = process.argv.includes('--skip-test') || (unitRan && e2eRan);
+    const testsPassed = !unitFailed && !e2eFailed;
+
+    const pipelineSuccess = !hasFatalFailure && testsRan && testsPassed;
+    const status = pipelineSuccess ? 'PASSED' : 'FAILED';
+
+    return {
+        status,
+        runtime: ciTelemetry.totalDuration || 0,
+        unit: {
+            passed: vi?.passed || 0,
+            failed: vi?.failed || 0,
+            total: vi?.total || 0,
+            ran: unitRan
+        },
+        e2e: {
+            passed: pw?.passed || 0,
+            failed: pw?.failed || 0,
+            total: pw?.total || 0,
+            flaky: pw?.flaky || 0,
+            ran: e2eRan
+        },
+        lighthouse: ciTelemetry.lighthouse,
+        sqm: ciTelemetry.sqm
+    };
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,7 +102,7 @@ class Stage {
     constructor(id, label) {
         this.id = id;
         this.label = label;
-        this.status = 'PENDING';
+        this.status = 'PENDING'; // PENDING, RUNNING, SUCCESS, FAILED, SKIPPED, ABORTED
         this.startTime = null;
         this.duration = 0;
         this.metrics = null;
@@ -62,12 +114,20 @@ class Stage {
         this.status = 'RUNNING';
     }
 
-    finish(success = true, metrics = null) {
-        this.duration = Date.now() - this.startTime;
-        this.status = success ? 'SUCCESS' : 'FAILED';
+    finish(status = 'SUCCESS', metrics = null) {
+        if (this.startTime) {
+            this.duration = Date.now() - this.startTime;
+        }
+        this.status = status;
         this.metrics = metrics;
-        const icon = success ? `${ANSI.GREEN}✔${ANSI.RESET}` : `${ANSI.RED}✖${ANSI.RESET}`;
-        console.log(`${icon} ${this.label} completed in ${formatDuration(this.duration)}`);
+
+        let icon = `${ANSI.GREEN}✔${ANSI.RESET}`;
+        if (status === 'FAILED') icon = `${ANSI.RED}✖${ANSI.RESET}`;
+        if (status === 'ABORTED') icon = `${ANSI.RED}🚫${ANSI.RESET}`;
+        if (status === 'SKIPPED') icon = `${ANSI.YELLOW}⏩${ANSI.RESET}`;
+
+        const timing = this.duration > 0 ? ` in ${formatDuration(this.duration)}` : '';
+        console.log(`${icon} ${this.label} ${status.toLowerCase()}${timing}`);
     }
 }
 
@@ -112,6 +172,24 @@ async function waitForHTTP(url, timeout = 120000) {
 
 export { CI_MODE };
 
+/**
+ * GitHub-specific summary renderer
+ */
+function generateGitHubSummary(auditModel) {
+    if (!process.env.GITHUB_STEP_SUMMARY) return;
+
+    const output = `
+## SpeakSharp CI Summary 🧪🏆
+- **Status**: ${auditModel.status === 'PASSED' ? '✅ PASSED' : '❌ FAILED'}
+- **SQM Score**: ${auditModel.sqm?.score || 0} / 100
+- **Unit Tests**: ${auditModel.unit.passed} / ${auditModel.unit.total}
+- **E2E Tests**: ${auditModel.e2e.passed} / ${auditModel.e2e.total}
+- **Runtime**: ${auditModel.runtime}s
+`;
+
+    fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, output);
+}
+
 async function runCommand(command, args, options = {}) {
     const { label = 'CMD', timeout = 600000, env = {} } = options;
     const controller = new AbortController();
@@ -119,7 +197,7 @@ async function runCommand(command, args, options = {}) {
     let timer;
 
     // Suppress noise in CI by default
-    const logLevel = process.env.LOG_LEVEL || 'warn';
+    const logLevel = process.env.LOG_LEVEL || 'error';
 
     return new Promise((resolve, reject) => {
         timer = setTimeout(() => {
@@ -150,9 +228,20 @@ async function runCommand(command, args, options = {}) {
                 const { tool, data } = message;
                 console.log(`[CI TELEMETRY] Caught IPC message from ${tool}`);
                 if (tool === 'vitest') {
-                    global.__CI_TELEMETRY__.vitest = data;
+                    global.__CI_TELEMETRY__.vitest = {
+                        passed: data.passed || 0,
+                        failed: data.failed || 0,
+                        total: (data.passed || 0) + (data.failed || 0)
+                    };
                 } else if (tool === 'playwright') {
-                    global.__CI_TELEMETRY__.playwright = data;
+                    const stats = data.stats || data;
+                    global.__CI_TELEMETRY__.playwright = {
+                        passed: stats.expected || stats.passed || 0,
+                        failed: stats.unexpected || stats.failed || 0,
+                        flaky: stats.flaky || 0,
+                        skipped: stats.skipped || 0,
+                        total: (stats.expected || stats.passed || 0) + (stats.unexpected || stats.failed || 0) + (stats.flaky || 0) + (stats.skipped || 0)
+                    };
                 }
             }
         });
@@ -168,14 +257,20 @@ async function runCommand(command, args, options = {}) {
                 if (!line) continue;
 
                 if (label === 'E2E') {
-                    const signal = /fail|error|warn|flaky|retry|timeout|passed|summary|Diagnostic|🔴|\[PW\]|\[BROWSER/i;
+                    const signal = /fail|error|flaky|retry|timeout|passed|summary|Diagnostic|🔴|\[PW\]|\[BROWSER/i;
                     if (signal.test(line)) {
                         throttledLog(`${ANSI.DIM}[${label}]${ANSI.RESET} ${line}`);
                     }
                     continue;
                 }
 
-                if (logLevel === 'warn' && (line.includes('[info]') || line.includes('"level":30'))) continue;
+                if (label === 'LINT') {
+                    // Never suppress OR throttle ESLint output
+                    console.log(`${ANSI.DIM}[${label}]${ANSI.RESET} ${line}`);
+                    continue;
+                }
+
+                if (logLevel === 'error' && (line.includes('[info]') || line.includes('[warn]') || line.includes('"level":30') || line.includes('"level":40'))) continue;
                 throttledLog(`${ANSI.DIM}[${label}]${ANSI.RESET} ${line}`);
             }
         });
@@ -221,28 +316,48 @@ const ciTelemetry = {
     stages: [],
     tests: {
         vitest: { passed: 0, failed: 0, total: 0 },
-        playwright: { passed: 0, failed: 0, flaky: 0, skipped: 0 }
+        playwright: { passed: 0, failed: 0, flaky: 0, skipped: 0, total: 0 }
     },
-    lighthouse: {},
-    sqm: {}
+    lighthouse: {
+        performance: 0,
+        accessibility: 0,
+        bestPractices: 0,
+        seo: 0
+    },
+    sqm: { score: 0 }
 };
 
+let pipelineAborted = false;
 let stagesList = [];
 
-// Collect status but do NOT throw.
-async function runStage(id, name, fn) {
+async function runStage(id, name, fn, { critical = false } = {}) {
     const stage = new Stage(id, name);
     stagesList.push(stage);
+
+    if (pipelineAborted) {
+        stage.finish('SKIPPED');
+        ciTelemetry.stages.push({ name, status: 'SKIPPED', duration: 0 });
+        return;
+    }
+
     stage.start();
+
     try {
         await fn();
-        stage.finish(true);
-        ciTelemetry.stages.push({ name, status: 'passed', duration: (stage.duration / 1000).toFixed(2) });
+        stage.finish('SUCCESS');
+        ciTelemetry.stages.push({ name, status: 'SUCCESS', duration: (stage.duration / 1000).toFixed(2) });
     } catch (err) {
-        stage.finish(false);
-        ciTelemetry.stages.push({ name, status: 'failed', duration: (stage.duration / 1000).toFixed(2) });
+        // Semantic Correctness
+        // Stage FAILED because it ran and errored. 
+        // Only mark ABORTED if it's a critical dependency failing.
+        stage.finish('FAILED');
+        ciTelemetry.stages.push({ name, status: 'FAILED', duration: (stage.duration / 1000).toFixed(2) });
         console.error(`${ANSI.RED}[STAGE FAIL]${ANSI.RESET} ${name}: ${err.message}`);
-        // DO NOT throw
+        
+        if (critical) {
+            pipelineAborted = true;
+            console.error(`${ANSI.BOLD}${ANSI.RED}🔴 FATAL: Critical stage '${name}' failed. Aborting pipeline.${ANSI.RESET}`);
+        }
     }
 }
 
@@ -253,20 +368,21 @@ async function main() {
     const startTime = Date.now();
     let unitFailed = false;
 
+    // Converge all paths to auditModel
     try {
-        if (CI_MODE === 'ci') {
+        if (CI_MODE === 'ci' && process.argv.includes('--only-report')) {
             await runReport(startTime);
             return;
         }
 
         console.log(renderBox("SpeakSharp CI Orchestrator"));
 
-        // Stage 1: Preflight
+        // Stage 1: Preflight (CRITICAL)
         await runStage(1, "Preflight Checks", async () => {
             await runCommand('./scripts/preflight.sh', [], { label: 'PRE' });
-        });
+        }, { critical: true });
 
-        // Stage 2: Quality
+        // Stage 2: Quality (CRITICAL)
         if (!process.argv.includes('--skip-quality')) {
             await runStage(2, "Code Quality", async () => {
                 const runAll = !process.argv.includes('--lint') && 
@@ -281,16 +397,17 @@ async function main() {
                     tasks.push(runCommand('pnpm', ['typecheck'], { label: 'TYPES' }));
                 }
                 if (runAll || process.argv.includes('--ban-disable')) {
-                    tasks.push(runCommand('pnpm', ['lint:ban-disable'], { label: 'BAN-DISABLE' }));
+                    tasks.push(runCommand('pnpm', ['eslint-disable'], { label: 'CHECK-ESLINT' }));
                 }
                 
                 await Promise.all(tasks);
-            });
+            }, { critical: true });
         }
 
         // Stage 3: Testing
         if (!process.argv.includes('--skip-test')) {
             await runStage(3, "Test Execution", async () => {
+                // ... same logic as before ...
                 try {
                     const { execSync } = await import('child_process');
                     const impactOutput = execSync('node scripts/detect-impact-automation.mjs', { cwd: rootDir }).toString().trim();
@@ -394,18 +511,19 @@ async function main() {
                     }
 
                     // Aggregate Telemetry: IPC first, then Artifact fallback (Required for 'pnpm run' compatibility)
-                    if (!global.__CI_TELEMETRY__.playwright.passed && !global.__CI_TELEMETRY__.playwright.failed) {
+                    if (global.__CI_TELEMETRY__.playwright.total === 0) {
                         try {
-                            const pwPath = path.join(rootDir, 'test-results', 'playwright-results.json');
+                            const pwPath = path.join(rootDir, 'test-results', 'playwright', 'results.json');
                             if (fs.existsSync(pwPath)) {
                                 console.log('[CI TELEMETRY] Falling back to Playwright artifact parsing...');
                                 const data = JSON.parse(fs.readFileSync(pwPath, 'utf8'));
-                                // Simplistic mapping for the summary box
                                 global.__CI_TELEMETRY__.playwright = {
-                                    passed: data.stats?.expected || 0,
-                                    failed: data.stats?.unexpected || 0,
-                                    flaky: data.stats?.flaky || 0,
-                                    skipped: data.stats?.skipped || 0
+                                    passed: data.stats.expected || 0,
+                                    failed: data.stats.unexpected || 0,
+                                    flaky: data.stats.flaky || 0,
+                                    skipped: data.stats.skipped || 0,
+                                    total: (data.stats.expected || 0) + (data.stats.unexpected || 0) + (data.stats.flaky || 0) + (data.stats.skipped || 0),
+                                    shards: data.shards || {}
                                 };
                             }
                         } catch (e) { }
@@ -463,35 +581,45 @@ async function main() {
         // Compute runtime before summary
         ciTelemetry.totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
 
-        const pipelineSuccess = !stagesList.some(s => s.status === 'FAILED');
-        printFinalSummary(stagesList, ciTelemetry, pipelineSuccess);
-        generateMarkdownReport(rootDir, ciTelemetry, pipelineSuccess);
+        // Unify rendering
+        const auditModel = buildAuditModel(ciTelemetry);
+        printFinalSummary(auditModel);
+        generateMarkdownReport(rootDir, auditModel);
+        generateGitHubSummary(auditModel);
 
     } catch (error) {
         console.error(`\n${ANSI.RED}${ANSI.BOLD}❌ CI Pipeline Failed: ${error.message}${ANSI.RESET}`);
 
         // Compute duration even on failure
         ciTelemetry.totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
-
-        // Ensure test results are parsed if we failed during Test Execution stage but before parsing
-        if (!ciTelemetry.tests.playwright.passed && !ciTelemetry.tests.playwright.failed) {
-            const pwPath = path.join(rootDir, 'test-results', 'playwright-results.json');
-            if (fs.existsSync(pwPath)) {
-                try {
-                    ciTelemetry.tests.playwright = JSON.parse(fs.readFileSync(pwPath));
-                } catch (e) { }
-            }
+        
+        // Final attempt at parsing results before summary
+        if (global.__CI_TELEMETRY__.playwright.total === 0) {
+             try {
+                const pwPath = path.join(rootDir, 'test-results', 'playwright', 'results.json');
+                if (fs.existsSync(pwPath)) {
+                    const data = JSON.parse(fs.readFileSync(pwPath));
+                    global.__CI_TELEMETRY__.playwright = {
+                        passed: data.stats.expected || 0,
+                        failed: data.stats.unexpected || 0,
+                        flaky: data.stats.flaky || 0,
+                        skipped: data.stats.skipped || 0,
+                        total: (data.stats.expected || 0) + (data.stats.unexpected || 0) + (data.stats.flaky || 0) + (data.stats.skipped || 0)
+                    };
+                    ciTelemetry.tests.playwright = global.__CI_TELEMETRY__.playwright;
+                }
+            } catch (e) {}
         }
 
-        const vitestPath = path.join(rootDir, 'test-results', 'unit', 'results.json');
-        if (fs.existsSync(vitestPath)) {
-            ciTelemetry.tests.vitest = parseVitestResults(rootDir);
-        }
-
+        // Ensure vitest is synced too
+        ciTelemetry.tests.vitest = global.__CI_TELEMETRY__.vitest;
+        
         ciTelemetry.sqm = getSQMResults(rootDir, ciTelemetry);
-        const pipelineSuccess = !stagesList.some(s => s.status === 'FAILED');
-        printFinalSummary(stagesList, ciTelemetry, pipelineSuccess);
-        generateMarkdownReport(rootDir, ciTelemetry, pipelineSuccess);
+        
+        const auditModel = buildAuditModel(ciTelemetry);
+        printFinalSummary(auditModel);
+        generateMarkdownReport(rootDir, auditModel);
+        generateGitHubSummary(auditModel);
 
         process.exitCode = 1;
     } finally {
@@ -570,32 +698,40 @@ function cleanupArtifacts(rootDir) {
     });
 }
 
-function printFinalSummary(stages, ciTelemetry, success = true) {
-    const p = ciTelemetry.tests.playwright;
-    const v = ciTelemetry.tests.vitest;
-    const lh = ciTelemetry.lighthouse;
-    const sqm = ciTelemetry.sqm;
-    const runtime = ciTelemetry.totalDuration || '0';
+function printFinalSummary(auditModel) {
+    const p = auditModel.e2e;
+    const v = auditModel.unit;
+    const lh = auditModel.lighthouse;
+    const sqm = auditModel.sqm;
+    const runtime = auditModel.runtime;
+    const success = auditModel.status === 'PASSED';
 
     console.log('\n' + renderBox("SpeakSharp CI Audit", 44));
     console.log('────────────────────────\n');
 
     // Build
-    console.log(`${ANSI.BOLD}Build${ANSI.RESET}`);
-    console.log(`  Status:  ${success ? ANSI.GREEN + 'PASS' : ANSI.RED + 'FAIL'}${ANSI.RESET}\n`);
+    console.log(`${ANSI.BOLD}Status${ANSI.RESET}`);
+    console.log(`  Value:  ${success ? ANSI.GREEN + 'PASSED' : ANSI.RED + 'FAILED'}${ANSI.RESET}\n`);
 
     // Unit Tests
     console.log(`${ANSI.BOLD}Unit Tests${ANSI.RESET}`);
-    console.log(`  Passed:  ${ANSI.GREEN}${v.passed} / ${v.total}${ANSI.RESET}\n`);
+    if (!v.ran) {
+        console.log(`  Status:  ${ANSI.YELLOW}SKIPPED${ANSI.RESET}\n`);
+    } else {
+        console.log(`  Passed:  ${ANSI.GREEN}${v.passed} / ${v.total}${ANSI.RESET}\n`);
+    }
 
     // E2E Tests (Playwright)
     console.log(`${ANSI.BOLD}E2E Tests${ANSI.RESET}`);
-    if (p.shards && Object.keys(p.shards).length > 0) {
-        Object.entries(p.shards).forEach(([id, data]) => {
-            console.log(`  Shard ${id}: ${data.passed} / ${data.total}`);
-        });
+    if (!p.ran) {
+        console.log(`  Status:  ${ANSI.YELLOW}SKIPPED${ANSI.RESET}\n`);
+    } else {
+        console.log(`  Passed:  ${ANSI.GREEN}${p.passed} / ${p.total}${ANSI.RESET}`);
+        if (p.flaky > 0) console.log(`  Flaky:   ${ANSI.YELLOW}${p.flaky}${ANSI.RESET}`);
+        console.log('');
     }
-    console.log(`  TOTAL:   ${ANSI.BOLD}${p.passed} / ${p.passed + p.failed}${ANSI.RESET}\n`);
+
+    // ... rest of the function ...
 
     // Coverage
     if (sqm && sqm.coverage !== undefined) {
@@ -621,15 +757,16 @@ function printFinalSummary(stages, ciTelemetry, success = true) {
     console.log(`${ANSI.BOLD}Pipeline${ANSI.RESET}`);
     console.log(`  Runtime:  ${runtime}s`);
 
-    console.log('\n' + renderBox(`STATUS: ${success ? 'PASSED' : 'FAILED'}`, 44));
+    console.log('\n' + renderBox(`FINAL STATUS: ${auditModel.status}`, 44));
 }
 
-function generateMarkdownReport(rootDir, ciTelemetry, success) {
+function generateMarkdownReport(rootDir, auditModel) {
     const reportPath = path.join(rootDir, 'test-results', 'ci-audit.md');
-    const p = ciTelemetry.tests.playwright;
-    const v = ciTelemetry.tests.vitest;
-    const lh = ciTelemetry.lighthouse;
-    const sqm = ciTelemetry.sqm;
+    const p = auditModel.e2e;
+    const v = auditModel.unit;
+    const lh = auditModel.lighthouse;
+    const sqm = auditModel.sqm;
+    const success = auditModel.status === 'PASSED';
 
     const content = `# SpeakSharp CI Audit
 > Generated at: ${new Date().toISOString()}
@@ -637,15 +774,15 @@ function generateMarkdownReport(rootDir, ciTelemetry, success) {
 ## 📊 Summary
 **Status**: ${success ? '✅ PASSED' : '❌ FAILED'}
 **SQM Score**: ${sqm?.score || 0} / 100
-**Pipeline Runtime**: ${ciTelemetry.totalDuration || 0}s
+**Pipeline Runtime**: ${auditModel.runtime}s
 
 ## 🧪 Test Results
 ### Unit Tests
 - **Passed**: ${v.passed} / ${v.total}
 
 ### E2E Tests (Playwright)
-${p.shards && Object.keys(p.shards).length > 0 ? Object.entries(p.shards).map(([id, d]) => `- **Shard ${id}**: ${d.passed} / ${d.total}`).join('\n') : ''}
-- **TOTAL**: ${p.passed} / ${p.passed + p.failed}
+- **Passed**: ${p.passed} / ${p.total}
+- **Flaky**: ${p.flaky}
 
 ## ⚡ Performance (Lighthouse)
 - **Performance**: ${lh.performance || 'N/A'}
@@ -696,13 +833,15 @@ async function runReport(startTime) {
             ciTelemetry.sqm = getSQMResults(rootDir, ciTelemetry);
         });
 
-        printFinalSummary(stagesList, ciTelemetry, true);
-        generateMarkdownReport(rootDir, ciTelemetry, true);
+        const auditModel = buildAuditModel(ciTelemetry);
+        printFinalSummary(auditModel);
+        generateMarkdownReport(rootDir, auditModel);
+        generateGitHubSummary(auditModel);
 
         // Write machine-readable telemetry
         const telemetryData = {
             ...ciTelemetry,
-            status: ciTelemetry.tests.playwright.failed === 0 ? 'success' : 'failed',
+            status: auditModel.status.toLowerCase(),
             totalDuration: ((Date.now() - startTime) / 1000).toFixed(2)
         };
         fs.writeFileSync(telemetryPath, JSON.stringify(telemetryData, null, 2));

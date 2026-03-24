@@ -100,7 +100,7 @@ const initializeStores = async () => {
 };
 
 // Run initialization
-initializeStores();
+void initializeStores();
 
 export const handlers: RequestHandler[] = [
   http.get('*/auth/v1/user', () => {

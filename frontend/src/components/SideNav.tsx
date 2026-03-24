@@ -10,7 +10,7 @@ export const SideNav: React.FC = () => {
     const navigate = useNavigate();
 
     const handleSignOut = () => {
-        signOut();
+        void signOut();
         navigate('/');
     };
 

@@ -228,11 +228,11 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                                 </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent className="w-56">
-                                <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
-                                    <DropdownMenuRadioItem value="cloud" disabled={!canAccessAdvancedModes}>Cloud</DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="private" disabled={!canAccessAdvancedModes}>Private</DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="native">Native</DropdownMenuRadioItem>
-                                </DropdownMenuRadioGroup>
+                                    <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
+                                        <DropdownMenuRadioItem value="cloud" disabled={!canAccessAdvancedModes}>Cloud</DropdownMenuRadioItem>
+                                        <DropdownMenuRadioItem value="private" disabled={!canAccessAdvancedModes}>Private</DropdownMenuRadioItem>
+                                        <DropdownMenuRadioItem value="native">Native</DropdownMenuRadioItem>
+                                    </DropdownMenuRadioGroup>
                             </DropdownMenuContent>
                         </DropdownMenu>
                     </div>
@@ -248,7 +248,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                                 <div className="absolute inset-0 rounded-full bg-primary/30 animate-pulse-ring pointer-events-none" />
                             )}
                             <Button
-                                onClick={handleStartStop}
+                                onClick={() => { void handleStartStop(); }}
                                 size="lg"
                                 variant={isListening ? 'destructive' : 'default'}
                                 disabled={isConnecting || (isListening ? isEndingSession : isModelLoading)}
@@ -277,7 +277,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
             <AlertDialog open={showEndSessionDialog} onOpenChange={setShowEndSessionDialog}>
                 <AlertDialogContent>
                     <AlertDialogHeader><AlertDialogTitle>Session Ended</AlertDialogTitle><AlertDialogDescription>Your session has been processed. What would you like to do next?</AlertDialogDescription></AlertDialogHeader>
-                    <AlertDialogFooter><AlertDialogCancel onClick={handleStayOnPage}>Stay on Page</AlertDialogCancel><AlertDialogAction asChild><Button onClick={handleNavigateToAnalytics}>Go to Analytics</Button></AlertDialogAction></AlertDialogFooter>
+                    <AlertDialogFooter><AlertDialogCancel onClick={() => { void handleStayOnPage(); }}>Stay on Page</AlertDialogCancel><AlertDialogAction asChild><Button onClick={() => { void handleNavigateToAnalytics(); }}>Go to Analytics</Button></AlertDialogAction></AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
         </div>

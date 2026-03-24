@@ -9,12 +9,12 @@
  * @see docs/ARCHITECTURE.md - "Dual-Engine Private STT"
  */
 
-import { Result } from 'true-myth';
+import { Result } from '@/services/transcription/modes/types';
 
 /**
  * Engine type identifier
  */
-export type EngineType = 'whisper-turbo' | 'transformers-js' | 'mock';
+export type EngineType = 'whisper-turbo' | 'transformers-js' | 'mock' | 'native' | 'cloud';
 
 /**
  * Callbacks for engine lifecycle events
@@ -22,6 +22,9 @@ export type EngineType = 'whisper-turbo' | 'transformers-js' | 'mock';
 export interface EngineCallbacks {
     onModelLoadProgress?: (progress: number) => void;
     onReady?: () => void;
+    // Correlation IDs for Triple-Identity Tracing
+    serviceId?: string;
+    runId?: string;
 }
 
 /**
@@ -41,6 +44,16 @@ export interface IPrivateSTTEngine {
      * @returns Result indicating success or failure
      */
     init(callbacks: EngineCallbacks, timeoutMs?: number): Promise<Result<void, Error>>;
+    
+    /**
+     * Start the engine (Contract Requirement)
+     */
+    start(): Promise<void>;
+
+    /**
+     * Stop the engine (Contract Requirement)
+     */
+    stop(): Promise<void>;
 
     /**
      * Transcribe audio data
@@ -53,4 +66,17 @@ export interface IPrivateSTTEngine {
      * Clean up resources
      */
     destroy(): Promise<void>;
+
+    /**
+     * Forcefully terminate engines and workers
+     */
+    terminate?(): Promise<void>;
+
+    /** Unique identifier for tracing */
+    instanceId?: string;
+
+    /**
+     * Get the last heartbeat timestamp (ms)
+     */
+    getLastHeartbeatTimestamp(): number;
 }

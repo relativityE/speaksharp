@@ -1,0 +1,416 @@
+
+ RUN  v3.2.4 /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+      Coverage enabled with v8
+
+stderr | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should prevent stale closure on stop by capturing latest transcript state
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+stdout | frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+[DEBUG TEST] latestInstance: FOUND
+[DEBUG TEST] store.runtimeState: IDLE
+[DEBUG TEST] store.isListening: [33mfalse[39m
+[DEBUG TEST] result.current.isListening: [33mfalse[39m
+
+ ❯ frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx (4 tests | 2 failed) 6062ms
+   × useSpeechRecognition Integration > should prevent stale closure on stop by capturing latest transcript state 3034ms
+     → expected false to be true // Object.is equality
+   ✓ useSpeechRecognition Integration > should handle service errors gracefully 8ms
+   ✓ useSpeechRecognition Integration > should capture usage limit exceeded state mid-session 5ms
+   × useSpeechRecognition Integration > should cleanup on unmount 3011ms
+     → expected false to be true // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should prevent stale closure on stop by capturing latest transcript state
+AssertionError: expected false to be true // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ vi.waitFor.timeout frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx:123:48
+    121|         // Verify state is listening
+    122|         await vi.waitFor(() => {
+    123|             expect(result.current.isListening).toBe(true);
+       |                                                ^
+    124|         }, { timeout: 3000 });
+    125| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx > useSpeechRecognition Integration > should cleanup on unmount
+AssertionError: expected false to be true // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- true[39m
+[31m+ false[39m
+
+ ❯ vi.waitFor.timeout frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx:237:48
+    235|             expect(service).toBeTruthy();
+    236|             // Also ensure the hook has transitioned to listening
+    237|             expect(result.current.isListening).toBe(true);
+       |                                                ^
+    238|         }, { timeout: 3000 });
+    239| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+   Start at  15:16:24
+   Duration  8.05s (transform 157ms, setup 285ms, collect 434ms, tests 6.06s, environment 506ms, prepare 41ms)
+

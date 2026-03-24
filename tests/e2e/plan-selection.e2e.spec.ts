@@ -7,7 +7,7 @@ test.describe('Plan Selection at Signup', () => {
         await goToPublicRoute(page, '/auth/signup');
 
         // Wait for page to load
-        await page.waitForLoadState('networkidle');
+        
 
         // Check for "Create Account" header in the Card title
         const createAccountHeading = page.getByRole('heading', { name: 'Create Account' });

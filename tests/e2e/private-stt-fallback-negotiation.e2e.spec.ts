@@ -1,6 +1,16 @@
 import { test, expect } from './fixtures';
 import { navigateToRoute } from './helpers';
 import { registerMockInE2E, enableTestRegistry, cleanupTestRegistry } from '../helpers/testRegistry.helpers';
+import type { SSE2EManifest } from '../../frontend/src/config/TestFlags';
+
+declare global {
+    interface Window {
+        __SS_E2E__?: SSE2EManifest;
+        __FORCE_NO_WEBGPU__?: boolean;
+        __TEST_REGISTRY__?: { clear: () => void };
+        __TRANSCRIPTION_SERVICE__?: { resetEphemeralState: () => void };
+    }
+}
 
 /**
  * Layer 2 & 3: Fallback Negotiation & Privacy Guarantee Tests
@@ -20,13 +30,9 @@ test.describe('Private STT Fallback Negotiation', () => {
         await page.evaluate(() => {
             document.body.removeAttribute('data-stt-policy');
             document.body.removeAttribute('data-engine-variant');
-            // @ts-ignore
             window.__TEST_REGISTRY__?.clear();
-            // @ts-ignore
             window.__TRANSCRIPTION_SERVICE__?.resetEphemeralState();
-            // @ts-ignore
             delete window.REAL_WHISPER_TEST;
-            // @ts-ignore
             delete window.__FORCE_NO_WEBGPU__;
         });
         await cleanupTestRegistry(page);
@@ -36,19 +42,21 @@ test.describe('Private STT Fallback Negotiation', () => {
         // Mock TransformersJS to succeed
         await registerMockInE2E(page, 'transformers-js', `(opts) => ({
             type: 'transformers-js',
-            init: async () => ({ isOk: true, value: undefined }),
-            transcribe: async (audio) => ({ isOk: true, value: 'cpu transcript' }),
+            init: async () => ({ variant: 'Ok', value: undefined }),
+            transcribe: async (audio) => ({ variant: 'Ok', value: 'cpu transcript' }),
+            getLastHeartbeatTimestamp: () => Date.now(),
             destroy: async () => {},
             getEngineType: () => 'transformers-js'
         })`);
 
         // Stage 1: Force "Real" mode and WebGPU unavailability
         await page.addInitScript(() => {
-            if ((window as any).__APP_TEST_ENV__?.stt) {
-                (window as any).__APP_TEST_ENV__.stt.mode = 'real';
+            if (window.__SS_E2E__) {
+                window.__SS_E2E__.engineType = 'real';
+                // Note: disableWasm was moved to engineType detection
             }
-            (window as any).REAL_WHISPER_TEST = true; 
-            (window as any).__FORCE_NO_WEBGPU__ = true;
+            // Note: window.__FORCE_NO_WEBGPU__ is still used by the app to simulate hardware failure
+            (window as unknown as { __FORCE_NO_WEBGPU__: boolean }).__FORCE_NO_WEBGPU__ = true;
         });
 
         // Stage 2: Navigate and verify Pro status
@@ -73,8 +81,9 @@ test.describe('Private STT Fallback Negotiation', () => {
         // Mock TransformersJS to succeed
         await registerMockInE2E(page, 'transformers-js', `(opts) => ({
             type: 'transformers-js',
-            init: async () => ({ isOk: true, value: undefined }),
-            transcribe: async (audio) => ({ isOk: true, value: 'cpu fallback transcript' }),
+            init: async () => ({ variant: 'Ok', value: undefined }),
+            transcribe: async (audio) => ({ variant: 'Ok', value: 'cpu fallback transcript' }),
+            getLastHeartbeatTimestamp: () => Date.now(),
             destroy: async () => {},
             getEngineType: () => 'transformers-js'
         })`);
@@ -82,17 +91,17 @@ test.describe('Private STT Fallback Negotiation', () => {
         // Mock WhisperTurbo to fail
         await registerMockInE2E(page, 'whisper-turbo', `(opts) => ({
             type: 'whisper-turbo',
-            init: async () => ({ isErr: true, error: new Error('WebGPU Context Lost') }),
-            transcribe: async (audio) => ({ isErr: true, error: new Error('WebGPU Missing') }),
+            init: async () => ({ variant: 'Err', error: new Error('WebGPU Context Lost') }),
+            transcribe: async (audio) => ({ variant: 'Err', error: new Error('WebGPU Missing') }),
+            getLastHeartbeatTimestamp: () => Date.now(),
             destroy: async () => {},
             getEngineType: () => 'whisper-turbo'
         })`);
 
         await page.addInitScript(() => {
-            if ((window as any).__APP_TEST_ENV__?.stt) {
-                (window as any).__APP_TEST_ENV__.stt.mode = 'real';
+            if (window.__SS_E2E__) {
+                window.__SS_E2E__.engineType = 'real';
             }
-            (window as any).REAL_WHISPER_TEST = true;
         });
 
         await navigateToRoute(page, '/session');
@@ -111,23 +120,24 @@ test.describe('Private STT Fallback Negotiation', () => {
         // Mock BOTH to fail
         await registerMockInE2E(page, 'whisper-turbo', `(opts) => ({
             type: 'whisper-turbo',
-            init: async () => ({ isErr: true, error: new Error('WebGPU Fail') }),
+            init: async () => ({ variant: 'Err', error: new Error('WebGPU Fail') }),
+            getLastHeartbeatTimestamp: () => Date.now(),
             destroy: async () => {},
             getEngineType: () => 'whisper-turbo'
         })`);
 
         await registerMockInE2E(page, 'transformers-js', `(opts) => ({
             type: 'transformers-js',
-            init: async () => ({ isErr: true, error: new Error('WASM Fail') }),
+            init: async () => ({ variant: 'Err', error: new Error('WASM Fail') }),
+            getLastHeartbeatTimestamp: () => Date.now(),
             destroy: async () => {},
             getEngineType: () => 'transformers-js'
         })`);
 
         await page.addInitScript(() => {
-            if ((window as any).__APP_TEST_ENV__?.stt) {
-                (window as any).__APP_TEST_ENV__.stt.mode = 'real';
+            if (window.__SS_E2E__) {
+                window.__SS_E2E__.engineType = 'real';
             }
-            (window as any).REAL_WHISPER_TEST = true;
         });
 
         await navigateToRoute(page, '/session');
@@ -145,7 +155,7 @@ test.describe('Private STT Fallback Negotiation', () => {
         await expect(page.getByTestId('session-start-stop-button')).toContainText(/start/i, { timeout: 15000 });
 
         // 2. Should see the error message in the status bar (LocalErrorBoundary or sessionFeedback)
-        await expect(page.getByTestId('status-notification-bar')).toContainText(/Private STT failed/i, { timeout: 15000 });
+        await expect(page.getByTestId('live-session-header')).toContainText(/Private STT failed/i, { timeout: 15000 });
         
         // 3. IMPORTANT: It should NOT have fallen back to Native
         const tier = await page.locator('body').getAttribute('data-user-tier');

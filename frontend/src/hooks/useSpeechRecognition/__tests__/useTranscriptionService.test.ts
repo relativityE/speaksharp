@@ -1,8 +1,6 @@
 import { renderHook } from '../../../../tests/support/test-utils';
 import { useTranscriptionService, type UseTranscriptionServiceOptions } from '../useTranscriptionService';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { testRegistry } from '../../../services/transcription/TestRegistry';
-import TranscriptionService from '../../../services/transcription/TranscriptionService';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { useSessionStore, type SessionStore } from '../../../stores/useSessionStore';
 import { type Session } from '@supabase/supabase-js';
@@ -27,6 +25,12 @@ vi.mock('../../../services/SpeechRuntimeController', () => ({
     speechRuntimeController: {
         startRecording: vi.fn().mockResolvedValue(undefined),
         stopRecording: vi.fn().mockResolvedValue({ success: true, transcript: 'test', stats: {} }),
+        getState: vi.fn().mockReturnValue('READY'),
+        warmUp: vi.fn().mockResolvedValue(undefined),
+        setSubscriberCallbacks: vi.fn(),
+        confirmSubscriberHandshake: vi.fn(),
+        updatePolicy: vi.fn(),
+        reset: vi.fn().mockResolvedValue(undefined),
     }
 }));
 
@@ -51,18 +55,6 @@ vi.mock('../../../services/transcription/TranscriptionService', () => {
     };
 });
 
-const mockService = {
-    startTranscription: vi.fn().mockResolvedValue(undefined),
-    stopTranscription: vi.fn().mockResolvedValue({ transcript: 'test', stats: {} }),
-    updateCallbacks: vi.fn(),
-    updatePolicy: vi.fn(),
-    getMode: vi.fn().mockReturnValue('native'),
-    getState: vi.fn().mockReturnValue('IDLE'),
-    fsm: {
-        subscribe: vi.fn().mockReturnValue(() => { }),
-    },
-    destroy: vi.fn().mockResolvedValue(undefined)
-} as unknown as TranscriptionService;
 
 const mockStore = {
     isListening: false,
@@ -83,15 +75,13 @@ describe('useTranscriptionService - Integrated Behavior', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.mocked(useTranscriptionContext).mockReturnValue({
-            service: mockService,
-            isReady: true
+            isReady: true,
+            runtimeState: 'IDLE'
         });
         vi.mocked(useSessionStore).mockReturnValue(mockStore as unknown as SessionStore);
-        testRegistry.enable();
     });
 
     afterEach(() => {
-        testRegistry.disable();
     });
 
     it('should initialize and call updateCallbacks on mount', () => {
@@ -104,7 +94,7 @@ describe('useTranscriptionService - Integrated Behavior', () => {
 
         renderHook(() => useTranscriptionService(options));
 
-        expect(mockService.updateCallbacks).toHaveBeenCalled();
+        expect(speechRuntimeController.setSubscriberCallbacks).toHaveBeenCalled();
     });
 
     it('should call startTranscription when isListening becomes true', async () => {

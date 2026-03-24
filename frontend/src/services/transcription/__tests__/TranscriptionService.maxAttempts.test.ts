@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
 import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
-import { ITranscriptionEngine } from '../modes/types';
+import { STTEngine } from '@/contracts/STTEngine';
+import { Result } from '../modes/types';
 import { MicStream } from '../utils/types';
 import { testRegistry } from '../TestRegistry';
-import { FailureManager } from '../FailureManager';
 
 
 
@@ -19,22 +19,26 @@ describe('TranscriptionService - Max Attempts', () => {
     let service: TranscriptionService;
     const onStatusChange = vi.fn();
 
-    class MockPrivateEngine implements ITranscriptionEngine {
-        init = vi.fn().mockRejectedValue(new Error('Persistent Fail'));
-        startTranscription = vi.fn().mockResolvedValue(undefined);
-        stopTranscription = vi.fn().mockResolvedValue('test');
-        getTranscript = vi.fn().mockResolvedValue('test');
-        terminate = vi.fn().mockResolvedValue(undefined);
-        getEngineType = () => 'whisper-turbo' as const;
+    class MockPrivateEngine extends STTEngine {
+        public readonly type = 'whisper-turbo' as const;
+        protected async onInit() { return Result.err(new Error('Persistent Fail')); }
+        protected async onStart() {}
+        protected async onStop() {}
+        protected async onDestroy() {}
+        async transcribe() { return Result.ok('test'); }
+
+        public override async getTranscript() { return 'test'; }
     }
 
-    class MockNativeEngine implements ITranscriptionEngine {
-        init = vi.fn().mockResolvedValue(undefined);
-        startTranscription = vi.fn().mockResolvedValue(undefined);
-        stopTranscription = vi.fn().mockResolvedValue('test');
-        getTranscript = vi.fn().mockResolvedValue('test');
-        terminate = vi.fn().mockResolvedValue(undefined);
-        getEngineType = () => 'native' as const;
+    class MockNativeEngine extends STTEngine {
+        public readonly type = 'native' as const;
+        protected async onInit() { return Result.ok(undefined); }
+        protected async onStart() {}
+        protected async onStop() {}
+        protected async onDestroy() {}
+        async transcribe() { return Result.ok('test'); }
+
+        public override async getTranscript() { return 'test'; }
     }
 
     const privatePolicy: TranscriptionPolicy = {
@@ -51,7 +55,7 @@ describe('TranscriptionService - Max Attempts', () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
         testRegistry.clear();
-        FailureManager.getInstance().resetFailureCount();
+        // FailureManager is now instance-bound to the service
 
         service = new TranscriptionService({
             onTranscriptUpdate: vi.fn(),
@@ -86,24 +90,25 @@ describe('TranscriptionService - Max Attempts', () => {
         testRegistry.register('private', () => privateEngine);
         testRegistry.register('native', () => new MockNativeEngine());
 
-        const failureManager = FailureManager.getInstance();
+        const failureManager = service.getFailureManager();
 
         // 1. Force max attempts directly to ensure clean state
         for (let i = 0; i < 3; i++) {
             failureManager.recordPrivateFailure();
         }
 
-        // Reset mocks to clear any incidental calls during setup
-        privateEngine.init.mockClear();
+        // 2. Prepare spy for validation
+        const initSpy = vi.spyOn(privateEngine, 'init');
+        initSpy.mockClear();
         onStatusChange.mockClear();
 
-        // 2. Attempt transcription - Should NOT try Private, should Force Native directly
+        // 3. Attempt transcription - Should NOT try Private, should Force Native directly
         // We re-apply the private policy to ensure mode resolution *starts* as private
         await service.startTranscription(privatePolicy);
 
         // EXPECTATIONS - Behavior-based
         // Should NOT have tried to init private engine again
-        expect(privateEngine.init).not.toHaveBeenCalled();
+        expect(initSpy).not.toHaveBeenCalled();
 
         // Should be in native mode
         expect(service.getMode()).toBe('native');

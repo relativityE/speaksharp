@@ -234,7 +234,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
             if (filteredSessions.length === 0) {
                 await route.fulfill({
                     status: 406,
-                    headers: SUPABASE_HEADERS,
+                    headers: SUPABASE_SINGLE_HEADERS,
                     body: JSON.stringify({ code: 'PGRST116', message: 'No rows returned' }),
                 });
                 return;
@@ -350,7 +350,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
             const wordId = idParam.replace('eq.', '');
 
             state.userWords = state.userWords.filter(w => w.id !== wordId);
-            await route.fulfill({ 
+            await route.fulfill({
                 status: 204,
                 headers: SUPABASE_HEADERS
             });
@@ -438,7 +438,7 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
             await route.fulfill({
                 status: 400,
                 contentType: 'application/json',
-                body: JSON.stringify({ success: false, error: 'Invalid code' }),
+                body: JSON.stringify({ success: false, error: 'Invalid promo code' }),
             });
         }
     });
@@ -460,7 +460,7 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
         const userType = state.profile.subscription_status || 'free';
         const isPro = userType === 'pro';
 
-        // Fix: Ensure free users are not blocked prematurely in E2E
+        // Access control for free users in E2E
         // Real logic allows 60 mins/day for free users.
         await route.fulfill({
             status: 200,

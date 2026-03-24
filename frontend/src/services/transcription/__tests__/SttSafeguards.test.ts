@@ -4,23 +4,27 @@ import TranscriptionService, { resetTranscriptionService, getTranscriptionServic
 import { TranscriptionPolicy, TranscriptionMode } from '../TranscriptionPolicy';
 import { MicStream } from '../utils/types';
 
-// Define the mock factory at the top level to avoid hoisting issues with classes
-const createMockEngine = () => {
-    return {
-        init: vi.fn().mockResolvedValue(undefined),
-        startTranscription: vi.fn().mockResolvedValue(undefined),
-        stopTranscription: vi.fn().mockResolvedValue('test transcript'),
-        getTranscript: vi.fn().mockResolvedValue('test transcript'),
-        terminate: vi.fn().mockResolvedValue(undefined),
-        getEngineType: () => 'private' as TranscriptionMode,
-    };
-};
+import { createMockEngine } from '../../../../tests/unit/factories/engineFactory';
 
-// Mock storage
+// Pattern 14: Use vi.hoisted for shared constants in hoisted mocks
+const { storageSpies } = vi.hoisted(() => ({
+    storageSpies: {
+        saveSession: vi.fn(),
+        heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
+        completeSession: vi.fn().mockResolvedValue({ success: true }),
+        updateSession: vi.fn().mockResolvedValue({ success: true }),
+    }
+}));
+
+// Setup default mock values
+storageSpies.saveSession.mockResolvedValue({ session: { id: 'sess-123' }, usageExceeded: false });
+// storageSpies.completeSession.mockResolvedValue({ success: true }); // This is now set in vi.hoisted
+
 vi.mock('../../../lib/storage', () => ({
-    saveSession: vi.fn(),
-    heartbeatSession: vi.fn(),
-    completeSession: vi.fn(),
+    saveSession: storageSpies.saveSession,
+    heartbeatSession: storageSpies.heartbeatSession,
+    completeSession: storageSpies.completeSession,
+    updateSession: storageSpies.updateSession,
 }));
 
 vi.mock('../../../lib/supabaseClient', () => ({
@@ -35,10 +39,20 @@ vi.mock('../../../lib/supabaseClient', () => ({
 // Mock EngineFactory - using the factory function to avoid reference errors
 vi.mock('../EngineFactory', () => ({
     EngineFactory: {
-        create: vi.fn().mockImplementation(() => Promise.resolve(createMockEngine()))
+        create: vi.fn().mockImplementation(() => Promise.resolve(createMockEngine({ getEngineType: () => 'private' as TranscriptionMode })))
     }
 }));
 
+
+const { STTServiceFactory } = vi.hoisted(() => ({
+    STTServiceFactory: {
+        createService: vi.fn()
+    }
+}));
+
+vi.mock('../STTServiceFactory', () => ({
+    STTServiceFactory
+}));
 
 describe('STT Safeguards Unit Tests', () => {
     let service: TranscriptionService;
@@ -63,12 +77,8 @@ describe('STT Safeguards Unit Tests', () => {
             session: { user: { id: 'user-123' } } as unknown as Parameters<typeof TranscriptionService.prototype['updateCallbacks']>[0]['session'],
         });
 
-        // Inject mock db handlers
-        service.setDbHandlers({
-            initDbSession: async () => 'sess-123',
-            heartbeatSession: async () => {},
-            completeSession: async () => {}
-        });
+        // Ensure controller uses the same instance
+        vi.mocked(STTServiceFactory.createService).mockReturnValue(service);
 
         // Inject mock mic
         (service as unknown as { mic: MicStream }).mic = mockMic;
@@ -81,65 +91,46 @@ describe('STT Safeguards Unit Tests', () => {
     });
 
     it('should generate an idempotency key and create a session at start', async () => {
-        const initDbSession = vi.fn().mockResolvedValue('sess-123');
-        service.setDbHandlers({
-            initDbSession,
-            heartbeatSession: async () => {},
-            completeSession: async () => {}
-        });
-
-        await speechRuntimeController.initialize();
+        await speechRuntimeController.warmUp();
         await service.init();
         await speechRuntimeController.startRecording();
 
-        // Wait for sessionId to be set (async RPC)
+        // Wait for sessionId to be set in store (handled by Controller)
         await vi.waitFor(() => {
             if (service.getSessionId()) return;
             throw new Error('Session not set');
         });
 
-        expect(initDbSession).toHaveBeenCalledWith(
-            'private',
+        expect(storageSpies.saveSession).toHaveBeenCalledWith(
+            expect.any(Object), // sessionData
+            expect.any(Object), // profile
+            'private',          // engineType
             expect.any(String), // idempotencyKey
             expect.any(Object)  // metadata
         );
     });
 
     it('should start heartbeat interval after session is created', async () => {
-        const heartbeatSession = vi.fn().mockResolvedValue(undefined);
-        service.setDbHandlers({
-            initDbSession: async () => 'sess-123',
-            heartbeatSession,
-            completeSession: async () => {}
-        });
-
-        await speechRuntimeController.initialize();
+        await speechRuntimeController.warmUp();
         await service.init();
         await speechRuntimeController.startRecording();
+        speechRuntimeController.confirmSubscriberHandshake(); // ✅ 3-Way Handshake
 
         await vi.waitFor(() => {
             if (service.getSessionId()) return;
             throw new Error('Session not set');
         });
 
-        // Fast forward 31 seconds (HEARTBEAT_PERIOD_MS = 30000)
-        await vi.advanceTimersByTimeAsync(31000);
-
-        // Heartbeat takes (sessionId)
-        expect(heartbeatSession).toHaveBeenCalledWith('sess-123');
+        await vi.waitFor(() => {
+            expect(storageSpies.heartbeatSession).toHaveBeenCalledWith('sess-123', expect.any(Number));
+        });
     });
 
     it('should complete session and stop heartbeat when transcription stops', async () => {
-        const completeSession = vi.fn().mockResolvedValue(undefined);
-        service.setDbHandlers({
-            initDbSession: async () => 'sess-123',
-            heartbeatSession: async () => {},
-            completeSession
-        });
-
-        await speechRuntimeController.initialize();
+        await speechRuntimeController.warmUp();
         await service.init();
         await speechRuntimeController.startRecording();
+        speechRuntimeController.confirmSubscriberHandshake(); // ✅ 3-Way Handshake
 
         await vi.waitFor(() => {
             if (service.getSessionId()) return;
@@ -151,10 +142,12 @@ describe('STT Safeguards Unit Tests', () => {
 
         await speechRuntimeController.stopRecording();
 
-        expect(completeSession).toHaveBeenCalledWith(
+        expect(storageSpies.completeSession).toHaveBeenCalledWith(
             'sess-123',
-            expect.any(String),
-            expect.any(Number)
+            expect.objectContaining({
+                duration: expect.any(Number),
+                transcript: expect.any(String)
+            })
         );
 
         expect((speechRuntimeController as unknown as { heartbeatInterval: unknown }).heartbeatInterval).toBeNull();

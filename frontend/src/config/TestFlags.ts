@@ -1,95 +1,69 @@
 /**
- * Test configuration flags with clear hierarchy.
+ * STRICT ZERO Manifest: Unified E2E environment orchestration.
  * 
- * HIERARCHY:
- * - VITE_TEST_ENABLE_MOCKING (master): Enables fake API/engine responses.
- *   ↳ VITE_TEST_USE_REAL_DATABASE: Override to use real Supabase.
- *   ↳ VITE_TEST_USE_REAL_TRANSCRIPTION: Override to use real AI models (TransformersJS/WhisperTurbo).
- *     ↳ VITE_TEST_TRANSCRIPTION_FORCE_CPU: Force CPU inference (TransformersJS) even if WebGPU is available.
- * - E2E_DEBUG_ENABLED: Expose internal logs to test runner.
+ * This is the SINGLE SOURCE OF TRUTH at T=0. 
+ * All legacy flags are DELETED.
  */
 
-import logger from '../lib/logger';
 
-const getEnvVar = (key: string): string | undefined => {
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
-        return (import.meta.env as Record<string, string>)[key];
-    }
-    if (typeof process !== 'undefined' && process.env) {
-        return process.env[key];
-    }
-    return undefined;
-};
 
-// Type-safe flag access for window globals
-declare global {
-    interface Window {
-        __E2E_CONTEXT__?: boolean;
-        TEST_MODE?: boolean;
-        __FORCE_TRANSFORMERS_JS__?: boolean;
-        __STT_LOAD_TIMEOUT__?: number;
-        REAL_WHISPER_TEST?: boolean;
-    }
+export interface SSE2EManifest {
+  isActive: boolean;
+  engineType?: 'mock' | 'real' | 'system';
+  debug?: boolean;
+  flags?: {
+    bypassMutex?: boolean;
+    fastTimers?: boolean;
+  };
+  registry?: Record<string, unknown>;
 }
 
-export const TestFlags = {
-    /**
-     * Master Switch: When true, the application operates in "test mode"
-     * where MSW mocks APIs and we default to fake processing.
-     */
-    IS_TEST_MODE:
-        (typeof window !== 'undefined' && (window.__APP_TEST_ENV__?.context === 'e2e' || window.__APP_TEST_ENV__?.isE2E === true)) ||
-        getEnvVar('VITE_TEST_MODE') === 'true' ||
-        (typeof window !== 'undefined' && window.TEST_MODE === true && !getEnvVar('DEV')),
+declare global {
+  interface Window {
+    __SS_E2E__?: SSE2EManifest;
+    VITE_USE_REAL_DATABASE?: string;
+  }
+}
 
-    /**
-     * Database Override: When true, use real Supabase even in test mode.
-     */
-    USE_REAL_DATABASE: 
-        (typeof window !== 'undefined' && window.__APP_TEST_ENV__?.exposedState?.sessionStore !== undefined) ||
-        getEnvVar('VITE_USE_LIVE_DB') === 'true',
+/**
+ * Primary E2E detection rule.
+ * Enforcement: window.__SS_E2E__ is the ONLY source of truth.
+ */
+export const isE2E = () => typeof window !== 'undefined' && !!window.__SS_E2E__?.isActive;
 
-    /**
-     * Transcription Override: When true, use real AI models even in test mode.
-     * Checks both Vite build-time env var AND runtime window flag (set by live test addInitScript).
-     */
-    USE_REAL_TRANSCRIPTION:
-        (typeof window !== 'undefined' && window.__APP_TEST_ENV__?.stt?.mode === 'real') ||
-        getEnvVar('VITE_TEST_USE_REAL_TRANSCRIPTION') === 'true' ||
-        (typeof window !== 'undefined' && window.REAL_WHISPER_TEST === true),
-
-    /**
-     * Force CPU Override: Force model execution on CPU (TransformersJS) even if WebGPU is available.
-     */
-    FORCE_CPU_TRANSCRIPTION:
-        (typeof window !== 'undefined' && window.__APP_TEST_ENV__?.stt?.forceOptions?.useCPU === true) ||
-        getEnvVar('VITE_TEST_TRANSCRIPTION_FORCE_CPU') === 'true' ||
-        (typeof window !== 'undefined' && window.__FORCE_TRANSFORMERS_JS__ === true),
-
-    /**
-     * Debug Switch: Exposes internal logs and bridge state for E2E runners.
-     */
-    DEBUG_ENABLED: 
-        (typeof window !== 'undefined' && window.__APP_TEST_ENV__?.debug) ||
-        (typeof window !== 'undefined' && !!window.__E2E_CONTEXT__),
+export const FLAGS = {
+    get DEBUG_ENABLED(): boolean {
+        return isE2E() && !!window.__SS_E2E__?.debug;
+    },
+    get BYPASS_MUTEX(): boolean {
+        return isE2E() && !!window.__SS_E2E__?.flags?.bypassMutex;
+    },
+    get FAST_TIMERS(): boolean {
+        return isE2E() && !!window.__SS_E2E__?.flags?.fastTimers;
+    },
+    get DISABLE_WASM(): boolean {
+        // Force disable WASM in E2E unless explicitly opting into 'real' engine
+        return isE2E() && window.__SS_E2E__?.engineType !== 'real';
+    },
 } as const;
 
-/**
- * Logic helper to determine if we should use the MockEngine for STT.
- */
-export function shouldUseMockTranscription(): boolean {
-    return TestFlags.IS_TEST_MODE && !TestFlags.USE_REAL_TRANSCRIPTION;
-}
+export const TestFlags = {
+    get IS_E2E(): boolean {
+        return isE2E();
+    },
+    get ENGINE_TYPE(): 'mock' | 'real' | 'system' {
+        return (isE2E() && window.__SS_E2E__?.engineType) || 'system';
+    },
+    /**
+     * Enforcement: USE_REAL_DATABASE is strictly controlled by environment parity.
+     */
+    get USE_REAL_DATABASE(): boolean {
+        return typeof window !== 'undefined' && window.VITE_USE_REAL_DATABASE === 'true';
+    },
+    get DEBUG_ENABLED(): boolean {
+        return FLAGS.DEBUG_ENABLED;
+    },
+    FLAGS, // Keep for backward compatibility
+} as const;
 
-/**
- * Logic helper to determine if we should use MSW.
- */
-export function shouldEnableMocks(): boolean {
-    // Disable MSW if we are explicitly using a real database (live/canary modes)
-    return TestFlags.IS_TEST_MODE && !TestFlags.USE_REAL_DATABASE;
-}
 
-// Helper to log current configuration in debug mode
-if (TestFlags.DEBUG_ENABLED && typeof window !== 'undefined') {
-    logger.debug({ flags: TestFlags }, '[TestFlags] Initialized');
-}

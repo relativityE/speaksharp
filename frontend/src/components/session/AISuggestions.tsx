@@ -88,7 +88,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
           AI-Powered Suggestions
         </CardTitle>
         <Button
-          onClick={fetchSuggestions}
+          onClick={() => { void fetchSuggestions(); }}
           disabled={isLoading || !transcript}
           size="sm"
         >

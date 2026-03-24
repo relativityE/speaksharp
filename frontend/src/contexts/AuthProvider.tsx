@@ -118,7 +118,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       }
     };
 
-    initAuth();
+    void initAuth();
 
     const AUTH_TIMEOUT = (import.meta.env.VITE_AUTH_TIMEOUT ? parseInt(import.meta.env.VITE_AUTH_TIMEOUT) : (import.meta.env.MODE === 'test' ? 8000 : 3000));
 
@@ -178,7 +178,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     };
   }, [initialSession, supabase, queryClient, getInjectedSession]);
 
-  // 🚀 PHASE 8: Signal Auth Readiness (Top-level Hook)
+  // Signal Auth Readiness (Top-level Hook)
   useEffect(() => {
     if (!loading) {
       useReadinessStore.getState().setReady('auth');

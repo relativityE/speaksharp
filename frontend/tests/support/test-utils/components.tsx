@@ -1,7 +1,7 @@
 import React, { ReactNode } from 'react';
 import { MemoryRouter, Routes, Route, Location } from 'react-router-dom';
 import { vi } from 'vitest';
-import { AuthContext, AuthContextType } from '@/contexts/AuthProvider';
+import { AuthContext, AuthContextType } from '../../../src/contexts/AuthProvider';
 import { Toaster } from '@/components/ui/sonner';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 

@@ -185,17 +185,20 @@ export class WhisperEngineRegistry {
 
     private static startHeartbeat() {
         if (this.heartbeatInterval) return;
-        this.heartbeatInterval = setInterval(async () => {
-            if (this.session) {
-                try {
-                    const s = this.session as { transcribe?: (data: Float32Array) => Promise<unknown> };
-                    await s.transcribe?.(new Float32Array(0));
-                } catch (e) {
-                    logger.error({ error: e }, '[WhisperRegistry] Heartbeat failure. Purging engine.');
-                    this.purge();
+        this.heartbeatInterval = setInterval(() => {
+            void (async () => {
+                if (this.session) {
+                    try {
+                        const s = this.session as { transcribe?: (data: Float32Array) => Promise<unknown> };
+                        await s.transcribe?.(new Float32Array(0));
+                    } catch (e) {
+                        logger.error({ error: e }, '[WhisperRegistry] Heartbeat failure. Purging engine.');
+                        void this.purge();
+                    }
                 }
-            }
+            })();
         }, 30000);
+
         // Ensure timer doesn't hang Node process in tests
         if (typeof this.heartbeatInterval?.unref === 'function') {
             this.heartbeatInterval.unref();
@@ -225,7 +228,7 @@ export class WhisperEngineRegistry {
             if (this.purgeTimeout) clearTimeout(this.purgeTimeout);
             this.purgeTimeout = setTimeout(() => {
                 if (this.refCount === 0) {
-                    this.purge();
+                    void this.purge();
                 }
             }, this.GRACE_PERIOD_MS);
 

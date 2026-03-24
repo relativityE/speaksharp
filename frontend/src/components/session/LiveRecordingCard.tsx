@@ -11,6 +11,8 @@ import {
     DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 
+import { RuntimeState } from '@/services/SpeechRuntimeController';
+
 export type RecordingMode = 'cloud' | 'native' | 'private';
 
 interface LiveRecordingCardProps {
@@ -23,7 +25,11 @@ interface LiveRecordingCardProps {
     formattedTime: string;
     elapsedSeconds: number; // Added for minimum session duration check
     isButtonDisabled: boolean;
+    isPaused?: boolean;
     activeEngine: RecordingMode | 'none' | null;
+    fsmState?: RuntimeState; // master FSM state from controller
+    sttStatusType?: string; // status type from service status
+    recordingIntent?: boolean; // explicit user intent to record
     className?: string;
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
@@ -46,11 +52,27 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     formattedTime,
     elapsedSeconds,
     isButtonDisabled,
+    isPaused = false,
     activeEngine,
+    fsmState,
+    sttStatusType,
+    recordingIntent = false,
     className = "",
     onModeChange,
     onStartStop,
 }) => {
+    // Deriving visibility and recording state from the master FSM + Intent
+    // isIndicatorVisible: Shows the waveform when the engine is active OR initializing
+    const ACTIVE_INDICATOR_STATES: RuntimeState[] = ['RECORDING', 'ENGINE_INITIALIZING', 'INITIATING', 'STOPPING'];
+    const ACTIVE_INDICATOR_TYPES = ['recording', 'initializing', 'downloading', 'download-required', 'paused'];
+
+    const isIndicatorVisible = fsmState
+        ? (ACTIVE_INDICATOR_STATES.includes(fsmState) || ACTIVE_INDICATOR_TYPES.includes(sttStatusType || '') || isPaused)
+        : (isListening || isPaused) && isReady;
+
+    // data-recording: Pure intent signal for E2E tests and accessibility
+    const isRecordingSignal = recordingIntent ? 'true' : 'false';
+
     // Check if session is too short to save
     const isTooShort = isListening && elapsedSeconds > 0 && elapsedSeconds < MIN_SESSION_DURATION_SECONDS;
     const getModeLabel = (m: RecordingMode) => {
@@ -129,7 +151,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     onClick={onStartStop}
                                     disabled={isButtonDisabled}
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
-                                    data-recording={isListening}
+                                    data-recording={isRecordingSignal}
                                     aria-label="Start Recording"
                                     className="w-11 h-11 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-elegant hover:scale-105 transition-all duration-300 p-0"
                                 >
@@ -140,7 +162,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     onClick={onStartStop}
                                     disabled={isButtonDisabled}
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
-                                    data-recording={isListening}
+                                    data-recording={isRecordingSignal}
                                     aria-label="Stop Recording"
                                     className="w-11 h-11 rounded-full bg-primary hover:bg-primary/80 text-primary-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"
                                 >
@@ -157,7 +179,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             <div className="mt-1 inline-flex items-center gap-1.5 py-0.5 px-2 rounded-full bg-muted/5 border border-muted/10 opacity-60">
                                 <div className={`h-1 w-1 rounded-full ${isListening ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/30'}`} />
                                 <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-[0.2em]" data-testid="stt-status-label">
-                                    {_statusMessage || (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Syncing") : "Engine Ready")}
+                                    {_statusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Syncing") : "Engine Ready"))}
                                 </span>
                             </div>
                         </div>
@@ -169,14 +191,19 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
                 {/* Stream Indicator (Refined) */}
                 <div className="h-4 w-full max-w-[140px] flex items-center justify-center gap-0.5 overflow-hidden opacity-30">
-                    {isListening && isReady && (
-                        <div className="flex items-center gap-0.5" data-testid="recording-indicator">
+                    {isIndicatorVisible && (
+                        <div
+                            className="flex items-center gap-0.5"
+                            data-testid="recording-indicator"
+                            data-recording={isRecordingSignal}
+                            data-paused={isPaused}
+                        >
                             {[...Array(10)].map((_, i) => (
                                 <div
                                     key={i}
-                                    className="w-0.5 rounded-full bg-primary/40"
+                                    className={`w-0.5 rounded-full ${isPaused ? 'bg-amber-500/40' : 'bg-primary/40'}`}
                                     style={{
-                                        height: `${Math.max(4, Math.random() * 14 + 4)}px`,
+                                        height: isPaused ? '4px' : `${Math.max(4, Math.random() * 14 + 4)}px`,
                                     }}
                                 />
                             ))}

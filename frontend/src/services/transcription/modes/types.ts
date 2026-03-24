@@ -1,3 +1,9 @@
+export type Result<T, E = Error> = { isOk: true; data: T } | { isOk: false; error: E };
+
+export const Result = {
+  ok: <T>(data: T): Result<T, never> => ({ isOk: true, data }),
+  err: <E>(error: E): Result<never, E> => ({ isOk: false, error })
+};
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { MicStream } from '../utils/types';
@@ -69,14 +75,29 @@ export interface TranscriptionModeOptions {
   onStatusChange?: (status: SttStatus) => void;
   /** Unique identifier for the engine instance (used for diagnostic tracing) */
   instanceId?: string;
+  /** Unique identifier for the service instance */
+  serviceId?: string;
+  runId?: string;
 }
 
 export interface ITranscriptionEngine {
-  init(): Promise<void>;
+  init(callbacks: TranscriptionModeOptions): Promise<void | Result<void, Error>>;
+  start(): Promise<void>;
+  stop(): Promise<void>;
   startTranscription(mic?: MicStream): Promise<void>;
   stopTranscription(): Promise<string>;
-  terminate?(): Promise<void>;
+  dispose(): void;
   getTranscript(): Promise<string>;
   getEngineType(): string;
+
+  /**
+   * Returns the timestamp (ms) of the last successful activity (e.g., frame processed).
+   * Used for 8s heartbeat watchdog.
+   * NEW — must be required
+   */
+  getLastHeartbeatTimestamp(): number;
+  
+  onReady?: () => void;
   instanceId?: string;
+  terminate?(): Promise<void>;
 }

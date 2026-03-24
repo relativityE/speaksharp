@@ -9,9 +9,10 @@ import { useUserProfile } from '@/hooks/useUserProfile';
 import { isPro } from '@/constants/subscriptionTiers';
 import { Button } from '@/components/ui/button';
 import { Mic, BarChart } from 'lucide-react';
-import { IS_TEST_ENVIRONMENT, E2E_SESSION_DATA_LOADED_FLAG } from '@/config/env';
 import { useQueryClient } from '@tanstack/react-query';
 import { calculateWordErrorRate } from '@/lib/wer';
+import { useReadinessStore } from '@/stores/useReadinessStore';
+
 
 /**
  * AnalyticsPage is the CONTAINER component for the analytics feature.
@@ -78,13 +79,14 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
 
+    const { setReady } = useReadinessStore();
+
     // Signal to E2E tests when session data has finished loading OR failing
     useEffect(() => {
-        if (IS_TEST_ENVIRONMENT && !loading && !isProfileLoading) {
-            const win = window as unknown as { [key: string]: boolean };
-            win[E2E_SESSION_DATA_LOADED_FLAG] = true;
+        if (!loading && !isProfileLoading) {
+            setReady('analytics');
         }
-    }, [loading, isProfileLoading]);
+    }, [loading, isProfileLoading, setReady]);
 
     const handleUpgrade = async () => {
         try {
@@ -178,7 +180,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     }
     return (
         <div>
-            <PageHeader isPro={isProUser} sessionId={sessionId} onUpgrade={handleUpgrade} />
+            <PageHeader isPro={isProUser} sessionId={sessionId} onUpgrade={() => { void handleUpgrade(); }} />
             <AnalyticsDashboard
                 profile={profile || null}
                 sessionHistory={sessionHistory || []}
@@ -186,7 +188,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                 fillerWordTrends={fillerWordTrends}
                 loading={isLoading}
                 error={error || null}
-                onUpgrade={handleUpgrade}
+                onUpgrade={() => { void handleUpgrade(); }}
                 onUpdateGroundTruth={handleUpdateGroundTruth}
                 sessionId={sessionId}
             />

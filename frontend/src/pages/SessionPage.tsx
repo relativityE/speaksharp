@@ -19,6 +19,7 @@ import { SttStatus } from '@/types/transcription';
 import { PromoExpiredDialog } from '@/components/PromoExpiredDialog';
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { SunsetModals } from '@/components/session/SunsetModals';
+import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 
 /**
  * ARCHITECTURE (Senior Architect):
@@ -28,6 +29,7 @@ import { SunsetModals } from '@/components/session/SunsetModals';
  */
 export const SessionPage: React.FC = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
 
     const {
@@ -38,6 +40,7 @@ export const SessionPage: React.FC = () => {
         modelLoadingProgress,
         mode,
         setMode,
+        recordingIntent,
         elapsedTime,
         handleStartStop,
         showAnalyticsPrompt,
@@ -50,7 +53,8 @@ export const SessionPage: React.FC = () => {
         isProUser,
         activeEngine,
         isButtonDisabled,
-        showPromoExpiredDialog
+        showPromoExpiredDialog,
+        history
     } = useSessionLifecycle();
 
     // Auto-scroll transcript to bottom
@@ -63,15 +67,28 @@ export const SessionPage: React.FC = () => {
 
     if (!metrics) return <SessionPageSkeleton />;
 
-    // EXECUTIVE PATTERN: Dual-State Status Derivation
+    // Dual-State Status Derivation (FSM + Service State)
     // We no longer choose between "Recording" OR "Downloading".
     // We pass "Recording" as the primary state, and "Downloading" as the secondary state (via progress).
 
     // 1. Determine Primary Status (Session State)
     const isActiveStt = sttStatus.type === 'initializing' || sttStatus.type === 'downloading' || sttStatus.type === 'fallback' || isListening;
 
-    // Executive Pattern: Status resolution logic
+    // Status resolution logic
     const getBaseStatus = (): SttStatus => {
+        // 1. High Priority: FSM Failure Hold (Controller Lock)
+        // If the controller is in a failure sequence, we DO NOT permit 
+        // sessionFeedbackMessage or analytics to overwrite the error.
+        if (runtimeState === 'FAILED' || runtimeState === 'FAILED_VISIBLE') {
+            return sttStatus as SttStatus;
+        }
+
+        // 2. Medium Priority: Download Required (Pre-session)
+        if (sttStatus.type === 'download-required') {
+            return sttStatus as SttStatus;
+        }
+
+        // 3. User Feedback (Transient messages like "Session saved")
         if (sessionFeedbackMessage) {
             const isError = sessionFeedbackMessage.startsWith('⚠️') || sessionFeedbackMessage.startsWith('⛔');
             return {
@@ -79,6 +96,8 @@ export const SessionPage: React.FC = () => {
                 message: sessionFeedbackMessage
             } as SttStatus;
         }
+
+        // 4. Default: Current STT state (Recording, Ready, etc.)
         if (isActiveStt && (sttStatus as SttStatus).type !== 'idle') {
             return sttStatus as SttStatus;
         }
@@ -102,9 +121,30 @@ export const SessionPage: React.FC = () => {
     return (
         <main aria-label="Practice Session" data-testid="session-page" className="min-h-screen bg-gradient-subtle pt-20">
             {/* Page Header */}
-            <div className="text-center py-4 px-6 max-w-7xl mx-auto">
+            <div className="relative text-center py-4 px-6 max-w-7xl mx-auto flex flex-col items-center">
                 <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>
                 <p className="text-xs text-muted-foreground">We'll analyze your speech patterns in real-time</p>
+
+                {/* Top-Right Action Area: Manual Download Trigger */}
+                {isProUser && mode === 'private' && sttStatus.type === 'download-required' && (
+                    <div className="absolute top-4 right-6 animate-in fade-in slide-in-from-right-4 duration-500" data-model-status="not-downloaded">
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                                void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.warmUp('private'));
+                            }}
+                            className="gap-2 h-9 px-4 text-[10px] font-black uppercase tracking-[0.2em] bg-primary/10 border-primary/30 hover:bg-primary/20 text-primary shadow-sm hover:shadow-md transition-all group"
+                            data-testid="download-model-button"
+                        >
+                            <div className="relative">
+                                <Settings className="h-3 w-3 animate-spin-slow group-hover:scale-110 transition-transform" />
+                                <div className="absolute -top-1 -right-1 h-1.5 w-1.5 bg-primary rounded-full animate-pulse" />
+                            </div>
+                            <span>Download Offline Model</span>
+                        </Button>
+                    </div>
+                )}
             </div>
 
             {/* Status Bar - Spans full width of the main content area */}
@@ -121,9 +161,13 @@ export const SessionPage: React.FC = () => {
                     <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
                         <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                             <LiveRecordingCard
-                                mode={mode}
+                                mode={mode || 'native'}
                                 isListening={isListening}
                                 isReady={isReady}
+                                isPaused={sttStatus.type === 'paused'}
+                                fsmState={runtimeState}
+                                sttStatusType={sttStatus.type}
+                                recordingIntent={recordingIntent}
                                 isProUser={isProUser}
                                 activeEngine={activeEngine}
                                 statusMessage={sttStatus.message}
@@ -131,7 +175,7 @@ export const SessionPage: React.FC = () => {
                                 elapsedSeconds={elapsedTime}
                                 isButtonDisabled={isButtonDisabled}
                                 onModeChange={setMode}
-                                onStartStop={handleStartStop}
+                                onStartStop={() => { void handleStartStop(); }}
                                 className="min-h-half"
                             />
                         </LocalErrorBoundary>
@@ -145,7 +189,7 @@ export const SessionPage: React.FC = () => {
                     </div>
 
                     {/* Right: Live Stats (Clarity + Pace) — matches Row 1 height */}
-                    <div 
+                    <div
                         className="grid grid-cols-2 gap-4 min-h-half content-start"
                         data-testid="metrics-panel"
                         data-metrics-settled={elapsedTime > 0 ? "true" : "false"}
@@ -172,6 +216,7 @@ export const SessionPage: React.FC = () => {
                         <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
                             <LiveTranscriptPanel
                                 transcript={transcriptContent}
+                                history={history}
                                 isListening={isListening}
                                 containerRef={transcriptContainerRef}
                                 className="min-h-double bg-background/40 border border-white/5 rounded-xl h-full"
@@ -223,13 +268,15 @@ export const SessionPage: React.FC = () => {
                 isListening={isListening}
                 isButtonDisabled={isButtonDisabled}
                 modelLoadingProgress={modelLoadingProgress}
-                onStartStop={handleStartStop}
+                onStartStop={() => { void handleStartStop(); }}
+                isFrozen={sttStatus.isFrozen}
+                onSwitchToNative={() => { void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.switchToNative()); }}
             />
 
             {/* Sunset Modals */}
             <SunsetModals
                 open={sunsetModal.open}
-                onOpenChange={(open) => setSunsetModal(prev => ({ ...prev, open }))}
+                onOpenChange={(open) => setSunsetModal({ ...sunsetModal, open })}
                 type={sunsetModal.type}
                 isPro={isProUser}
             />

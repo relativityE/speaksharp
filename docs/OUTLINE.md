@@ -1,4 +1,4 @@
-**Last Reviewed:** 2026-03-14
+**Last Reviewed:** 2026-03-20
 
 # 📚 SpeakSharp Documentation Outline
 
@@ -56,7 +56,7 @@ This section defines the canonical location for every type of documentation.
 *   **[`ROADMAP.md`](./ROADMAP.md)**
     *   **Content**: Forward-looking milestones, phases, features in pipeline.
     *   **Best fit for**:
-        *   Planned **testing improvements** (e.g., “Expand coverage to 90% in Phase 2”).
+        *   Planned **testing improvements** (e.g., “Expand coverage to 90% in upcoming sprints”).
         *   Planned **tech debt paydowns** tied to roadmap deliverables.
 
 *   **[`CHANGELOG.md`](./CHANGELOG.md)**

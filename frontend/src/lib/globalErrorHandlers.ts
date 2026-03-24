@@ -11,10 +11,10 @@ export const setupGlobalErrorHandlers = () => {
     window.addEventListener('unhandledrejection', (event) => {
         logger.error({ reason: event.reason }, 'Global Unhandled Rejection');
 
-        // [Fix: Sentry Reporting] Ensure background rejections are also sent to Sentry
+        // Ensure background rejections are also sent to Sentry
         Sentry.captureException(event.reason);
 
-        // [Fix: Toast Spam Risk] Add debouncing to prevent UI flooding during network outages
+        // Add debouncing to prevent UI flooding during network outages
         const now = Date.now();
         if (now - lastToastTime > TOAST_COOLDOWN_MS) {
             toast.error("A background task failed", {
@@ -23,7 +23,8 @@ export const setupGlobalErrorHandlers = () => {
             lastToastTime = now;
         }
 
-        // We don't preventDefault() so Sentry/Browser still see it
+        // Observability Hard-Gate: Ensure the runner sees it as fatal
+        throw event.reason;
     });
 
     window.addEventListener('error', (event) => {
@@ -33,8 +34,17 @@ export const setupGlobalErrorHandlers = () => {
             filename: event.filename,
             lineno: event.lineno
         }, 'Global Uncaught Error');
+
+        // Observability Hard-Gate: Ensure raw error is pushed to console for Playwright
+        if (event.error) {
+            console.error('[GlobalHardGate]', event.error);
+        }
+
+
     });
 };
+
+
 
 /** @internal - For testing use only */
 export const resetErrorState = () => {
