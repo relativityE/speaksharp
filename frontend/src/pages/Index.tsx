@@ -17,7 +17,7 @@ const Index = () => {
   useEffect(() => {
     if (!loading && session) {
       // 🧪 In test environment, redirect immediately
-      if (IS_TEST_ENVIRONMENT()) {
+      if (IS_TEST_ENVIRONMENT) {
         setShouldRedirect(true);
         return;
       }

@@ -136,8 +136,11 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Result:** All 38 E2E tests pass reliably in parallel CI.
   - **Warning:** DO NOT revert to MSW - the race conditions are fundamental architectural limitations.
 
-### ⚡ Performance Optimization & CI Stabilization (2026-02-07) ✅ COMPLETE
+### ⚡ Performance Optimization & CI Stabilization (2026-03-25) ✅ COMPLETE
 
+- ✅ **Industrial Alias Resolution**: Synced Vitest with `tsconfig.json` using `vite-tsconfig-paths`.
+- ✅ **Authoritative Bridge**: Centralized environment flags in `TestFlags.ts`.
+- ✅ **Strangler Shim**: Frozen `env.ts` as a logic-free compatibility layer.
 - ✅ **Web Worker Offloading:** Moved heavy audio processing to a dedicated Web Worker to ensure UI responsiveness.
 - ✅ **CI Stabilization:** Upgraded pnpm, increased memory limits, and tuned timeouts for 100% reliable CI runs.
 - ✅ **Regex Memoization:** Implemented content-based regex memoization in `highlightUtils.ts` to eliminate repeated compilation in render loops.

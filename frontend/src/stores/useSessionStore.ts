@@ -3,7 +3,7 @@ import { FillerCounts } from '../utils/fillerWordUtils';
 import logger from '../lib/logger';
 import { TranscriptionMode } from '../services/transcription/TranscriptionPolicy';
 import { SttStatus, HistorySegment } from '../types/transcription';
-import { TestFlags } from '../config/TestFlags';
+import { ENV } from '../config/TestFlags';
 
 interface TranscriptState {
     transcript: string;
@@ -215,7 +215,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
 }));
 
 // Expose store to window only in test/dev for E2E diagnostics (Strict Zero)
-if (process.env.NODE_ENV !== 'production' || TestFlags.IS_E2E) {
+if (process.env.NODE_ENV !== 'production' || ENV.isE2E) {
     if (typeof window !== 'undefined') {
         (window as unknown as { useSessionStore: unknown }).useSessionStore = useSessionStore;
         (window as unknown as { __SESSION_STORE_API__: unknown }).__SESSION_STORE_API__ = useSessionStore;

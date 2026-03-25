@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
+import tsconfigPaths from 'vite-tsconfig-paths';
 
 import { PORTS } from '../scripts/build.config.js';
 
@@ -19,6 +20,7 @@ export default defineConfig(({ mode }) => {
   return {
     envDir: path.resolve(__dirname, '..'),
     plugins: [
+      tsconfigPaths(),
       react(),
       viteStaticCopy({
         targets: [
@@ -99,12 +101,6 @@ export default defineConfig(({ mode }) => {
       treeshake: {
         moduleSideEffects: (id) => id.endsWith('testEnv.ts'),
       }
-    },
-    resolve: {
-      alias: {
-        "@": path.resolve(__dirname, "./src"),
-        "@shared": path.resolve(__dirname, "../backend/supabase/functions/_shared"),
-      },
     },
     define: {
       // Vite automatically exposes VITE_* prefixed env vars on import.meta.env

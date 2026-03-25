@@ -2,6 +2,7 @@
 // vitest.config.mjs
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import tsconfigPaths from 'vite-tsconfig-paths';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -9,7 +10,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    tsconfigPaths({ projects: [path.resolve(__dirname, 'tsconfig.json')] }),
+    react()
+  ],
   test: {
     globals: true,
     environment: 'jsdom',
@@ -97,19 +101,6 @@ export default defineConfig({
         inline: ["@xenova/transformers", "whisper-turbo", "whisper-webgpu"],
       }
     }
-  },
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-      "@shared": path.resolve(__dirname, "../backend/supabase/functions/_shared"),
-      "@config": path.resolve(__dirname, "../scripts"),
-      "@test-utils": path.resolve(__dirname, "./tests/support/test-utils"),
-      "@test-mocks": path.resolve(__dirname, "./tests/mocks"),
-      "sharp": path.resolve(__dirname, "./tests/support/mocks/sharp.ts"),
-      "file-saver": path.resolve(__dirname, "./tests/mocks/file-saver.ts"),
-      "whisper-turbo": path.resolve(__dirname, "./tests/mocks/whisper-turbo.ts"),
-      "whisper-webgpu": path.resolve(__dirname, "./tests/mocks/whisper-turbo.ts"),
-    },
   },
   define: {},
   optimizeDeps: {

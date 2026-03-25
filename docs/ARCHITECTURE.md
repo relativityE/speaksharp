@@ -390,6 +390,19 @@ All test scripts follow `test:<level>:<env>[:<mode>]` and CI orchestration scrip
 | `ci:dispatch:deploy` | — | — | — | Dispatch deploy smoke to GH Actions |
 | `ci:dispatch:soak` | — | — | — | Dispatch soak test to GH Actions |
 
+#### 3.1 Environmental Orchestration (The ENV Bridge)
+
+SpeakSharp utilizes a centralized **ENV Bridge** to decouple the application logic from the underlying environment (Vite, Vitest, CI, Production). This is implemented via the **Strangler Pattern** to safely transition legacy codebases.
+
+**Components:**
+1. **`TestFlags.ts` (SSOT)**: The authoritative source of all environment detections.
+2. **`env.ts` (Frozen Shim)**: A logic-free projection layer that maintains compatibility with 50+ legacy files.
+
+**Architectural Constraints:**
+*   **Frozen Shim**: `env.ts` must remain a pure value projection. No computation allowed.
+*   **SSOT-Only**: All environmental logic must derive from modern `ENV` properties.
+*   **Dynamic Correctness**: Environment properties use Getters/IIFE locals to ensure the state is evaluated correctly across shared Vitest workers.
+
 #### 3.1 Global Readiness Signals (E2E Contract)
 
 To eliminate non-deterministic race conditions (flakiness) in E2E tests, the application provides explicit global readiness signals via DOM attributes.

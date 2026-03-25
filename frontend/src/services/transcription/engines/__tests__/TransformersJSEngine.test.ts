@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TransformersJSEngine } from '../TransformersJSEngine';
+import { TestFlags } from '@/config/TestFlags';
 
 // Hoist mock factories to top of file
 const { mockPipeline, mockEnv } = vi.hoisted(() => ({
@@ -143,18 +144,17 @@ describe('TransformersJSEngine (Unit)', () => {
         expect(true).toBe(true); // Verification that it runs without error
     });
 
-    it('should exercise environmental branches (IS_TEST_MODE false)', async () => {
-        const { TestFlags } = await import('@/config/TestFlags');
-        // @ts-expect-error forcing readonly property for test coverage
-        TestFlags.IS_TEST_MODE = false;
+    it('should exercise environmental branches', async () => {
+        // Exercise logging paths by temporarily overriding the bridge state
+        const original = TestFlags.IS_TEST_MODE;
+        
+        (TestFlags as unknown as Record<string, boolean>).IS_TEST_MODE = false;
 
-        // Code will traverse logging branches because DEBUG_ENABLED=true in mock
         await engine.init({});
         expect(engine).toBeDefined();
 
         // Reset
-        // @ts-expect-error forcing readonly property for test coverage
-        TestFlags.IS_TEST_MODE = true;
+        (TestFlags as unknown as Record<string, boolean>).IS_TEST_MODE = original;
     });
 
     it('should handle "Unexpected token <" error specifically', async () => {

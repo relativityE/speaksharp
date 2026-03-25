@@ -24,7 +24,7 @@ declare global {
 }
 
 // Deterministic Mock Data (CI/E2E)
-if (IS_TEST_ENVIRONMENT()) {
+if (IS_TEST_ENVIRONMENT) {
   // Simple LCG for deterministic Math.random() in CI/E2E
   let seed = 42;
   Math.random = () => {
@@ -63,7 +63,7 @@ const queryClient = new QueryClient({
     },
   },
 });
-if (IS_TEST_ENVIRONMENT()) {
+if (IS_TEST_ENVIRONMENT) {
   (window as unknown as { queryClient: typeof queryClient }).queryClient = queryClient;
 }
 logger.info('[React Query] ✅ QueryClient initialized');
@@ -71,7 +71,7 @@ logger.info('[React Query] ✅ QueryClient initialized');
 // CRITICAL: Initialize Sentry FIRST before any async operations
 // This ensures errors during initialization are captured
 const sentryDSN = import.meta.env.VITE_SENTRY_DSN;
-const isTestMode = IS_TEST_ENVIRONMENT() || import.meta.env.VITE_TEST_MODE === 'true';
+const isTestMode = IS_TEST_ENVIRONMENT || import.meta.env.VITE_TEST_MODE === 'true';
 const skipSentry = isTestMode || !sentryDSN || sentryDSN.includes('example.invalid');
 
 logger.info({ isTestMode, sentryDSN, skipSentry }, '[main.tsx] Sentry Initialization Check');
@@ -143,7 +143,7 @@ const renderApp = async (initialSession: Session | null = null) => {
       // Defer Stripe loading - create promise but don't await it
       // Stripe will be loaded when Elements component mounts
       // Skip Stripe in test mode to avoid iframe interference with automated testing
-      const stripePromise = IS_TEST_ENVIRONMENT()
+      const stripePromise = IS_TEST_ENVIRONMENT
         ? Promise.resolve(null)
         : import('@stripe/stripe-js').then(({ loadStripe }) =>
           loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!)
@@ -155,7 +155,7 @@ const renderApp = async (initialSession: Session | null = null) => {
 
       // Get initial session (mock if in E2E mode)
       const sessionToUse = initialSession;
-      if (IS_TEST_ENVIRONMENT()) {
+      if (IS_TEST_ENVIRONMENT) {
         // Non-blocking bridge import - use window flag for session if available
         import('@/lib/e2e-bridge').then(m => {
           const session = m.getInitialSession(initialSession);

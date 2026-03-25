@@ -3,6 +3,7 @@ import { isEqual } from 'lodash-es';
 import { createMicStream } from './utils/audioUtils';
 import * as AudioProcessor from './utils/AudioProcessor';
 import { EngineFactory } from './EngineFactory';
+import { EngineSelector } from './EngineSelector';
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { ITranscriptionEngine, TranscriptionModeOptions, Transcript } from './modes/types';
@@ -25,7 +26,7 @@ import { EngineCallbacks } from '@/contracts/IPrivateSTTEngine';
 import {
   isCacheMiss
 } from './errors';
-import { TestFlags } from '../../config/TestFlags';
+import { ENV } from '../../config/TestFlags';
 import { getE2EConfig } from '../../../../tests/types/e2eConfig';
 
 declare global {
@@ -137,10 +138,7 @@ export default class TranscriptionService {
     this.failureManager = new FailureManager();
     this.policy = options.policy || PROD_FREE_POLICY;
 
-    // ✅ E2E HOOK: Expose instance for behavioral inspection and isolation resets
-    if (typeof window !== 'undefined') {
-      window.__TRANSCRIPTION_SERVICE_INTERNAL__ = this;
-    }
+    // ✅ E2E HOOK: Exposed Registry logic removed (Banned Patterns)
 
     // Default options to avoid undefined crashes
     this.options = {
@@ -489,7 +487,7 @@ export default class TranscriptionService {
       logger.info(`[TranscriptionService] Preparing engine for mode: ${mode}`);
 
       if (mode === 'private') {
-        const isE2E = TestFlags.IS_E2E;
+        const isE2E = ENV.isE2E;
         // In E2E, we wait for full engine init (short-circuit in controller handles this)
         if (isE2E) {
           logger.info('[TranscriptionService] 🧪 E2E Mode detected: Waiting for full engine init.');
@@ -954,9 +952,9 @@ export default class TranscriptionService {
   private startWatchdog(): void {
     this.stopWatchdog();
 
-    const timeout = TestFlags.IS_E2E
-      ? STT_CONFIG.HEARTBEAT_TIMEOUT_MS.CI
-      : STT_CONFIG.HEARTBEAT_TIMEOUT_MS.PROD;
+    const timeout = ENV.isE2E
+      ? STT_CONFIG.HEARTBEAT_TIMEOUT_MS
+      : STT_CONFIG.HEARTBEAT_TIMEOUT_MS;
 
     this.watchdogTimer = setInterval(() => {
       if (!this.engine) return;
@@ -980,7 +978,7 @@ export default class TranscriptionService {
           isFrozen: false
         });
       }
-    }, TestFlags.IS_E2E ? 50 : 2000);
+    }, ENV.isE2E ? 50 : 2000);
   }
 
   private stopWatchdog(): void {
@@ -998,7 +996,7 @@ export default class TranscriptionService {
     // Native STT (browser-level) often sends audio to Google/Apple servers.
     // Private STT (Whisper WASM) stays local.
     const hasConsent = typeof window !== 'undefined' && localStorage.getItem('stt_privacy_consent') === 'true';
-    const isE2E = TestFlags.IS_E2E;
+    const isE2E = ENV.isE2E;
 
     if (!hasConsent && !isE2E) {
       logger.error('[TranscriptionService] Blocked Native Fallback: Explicit user consent missing.');
@@ -1022,9 +1020,7 @@ export default class TranscriptionService {
     if (win && win.__STT_LOAD_TIMEOUT__) {
       return win.__STT_LOAD_TIMEOUT__;
     }
-    return TestFlags.IS_E2E
-      ? STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.CI
-      : STT_CONFIG.LOAD_CACHE_TIMEOUT_MS.PROD;
+    return STT_CONFIG.LOAD_CACHE_TIMEOUT_MS;
   }
 
   /**
@@ -1067,7 +1063,7 @@ export default class TranscriptionService {
     }
 
     if (percent === 100) {
-      if (TestFlags.IS_E2E) {
+      if (ENV.isE2E) {
         if (state) state.setModelLoadingProgress(null);
       } else {
         setTimeout(() => {
@@ -1234,8 +1230,10 @@ export default class TranscriptionService {
       this.fsm.transition({ type: 'ENGINE_INIT_REQUESTED' });
       try {
         const engineConfig: TranscriptionModeOptions = this.getProxyOptions();
-        this.engine = await EngineFactory.create('native', engineConfig, this.policy);
-        await this.engine.init(engineConfig);
+        this.engine = await EngineSelector.select('native', engineConfig, this.policy);
+        if (this.engine) {
+          await this.engine.init(engineConfig);
+        }
         await this.executeEngine('native');
       } catch (fallbackError: unknown) {
         logger.error({ error: fallbackError }, '[STT] Native Fallback failed');

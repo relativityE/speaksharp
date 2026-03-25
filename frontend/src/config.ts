@@ -50,30 +50,20 @@ export const SUBSCRIPTION_LIMITS = {
   FREE_MONTHLY_MINUTES: 30,
 } as const;
 
+import { ENV } from './config/TestFlags';
+
 export const STT_CONFIG = {
   MAX_PRIVATE_ATTEMPTS: 2,
-  LOAD_CACHE_TIMEOUT_MS: {
-    CI: 12000,
-    PROD: 2000
-  },
+  LOAD_CACHE_TIMEOUT_MS: ENV.fastTimers ? 12000 : 2000,
   // AssemblyAI requires audio packets between 50-1000ms
   // At 16kHz: 50ms = 800 samples, 1000ms = 16000 samples
   ASSEMBLYAI_MIN_PACKET_MS: 50,
   ASSEMBLYAI_MAX_PACKET_MS: 1000,
   ASSEMBLYAI_MIN_SAMPLES: 800,   // 50ms at 16kHz
   ASSEMBLYAI_MAX_SAMPLES: 16000, // 1000ms at 16kHz
-  HEARTBEAT_TIMEOUT_MS: {
-    CI: 200,
-    PROD: 5000
-  },
-  FAILURE_HOLD_DURATION_MS: {
-    CI: 50,
-    PROD: 1500
-  },
-  VISIBLE_HOLD_DURATION_MS: {
-    CI: 200,
-    PROD: 2500
-  },
+  HEARTBEAT_TIMEOUT_MS: ENV.fastTimers ? 200 : 30000,
+  FAILURE_HOLD_DURATION_MS: ENV.fastTimers ? 50 : 1500,
+  VISIBLE_HOLD_DURATION_MS: ENV.fastTimers ? 200 : 2500,
 } as const;
 
 

@@ -34,6 +34,8 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
     - **Concurrent PDF Parsing (PR #735):** ~90% reduction in extraction latency via `Promise.all` orchestration.
 - **Mar 2026 Stabilization Audit (v0.6.0):** **High-Fidelity Contract Baseline**.
     - **Deterministic STT Infrastructure:** Achieved 100% contract compliance via `STTEngine` unification.
+    - **Environment Bridge (Strangler Pattern):** Centralized environmental logic in `TestFlags.ts` with logic-free projection in `env.ts`.
+    - **Industrial Alias Resolution:** Synchronized Vitest with `tsconfig.json` paths via `vite-tsconfig-paths`.
     - **Monotonic Readiness:** Replaced `networkidle` with explicit `data-route-ready` DOM signals.
     - **Strict Zero Manifest:** Implemented `window.__SS_E2E__` as the synchronous source of truth for all environment flags.
     - **Telemetry Decoupling:** Implemented `AnalyticsBuffer` (Queue + Flush) for non-blocking boot performance.

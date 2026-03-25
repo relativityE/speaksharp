@@ -59,3 +59,7 @@ export const testRegistry = {
         }
     }
 };
+
+// Canonical Registration (Determinisic)
+import { createMockEngine } from './engines/mock/createMockEngine';
+testRegistry.register('mock', createMockEngine);

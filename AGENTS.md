@@ -22,6 +22,7 @@ To ensure 100% CI reliability, the following surface areas were **FROZEN** durin
 *   **STT Engines**: No new engines or logic changes to existing ones.
 *   **Routing/Layout**: No navigation changes or structural layout shifts.
 *   **Test Helpers**: No modifications to `tests/e2e/helpers.ts` except for contract alignment.
+*   **Env Bridge**: No changes to `TestFlags.ts` or `env.ts` (Frozen Strangler).
 
 ### ✅ ALLOWED Areas:
 *   **Contract Enforcement**: Transitioning to `STTEngine` abstract base and `data-route-ready`.

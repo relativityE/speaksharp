@@ -20,7 +20,7 @@ import { TranscriptionModeOptions, Result } from '@/services/transcription/modes
 import { IPrivateSTTEngine, EngineType, EngineCallbacks } from '@/contracts/IPrivateSTTEngine';
 import { IPrivateSTT, PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
 import logger from '@/lib/logger';
-import { TestFlags, FLAGS, isE2E } from '@/config/TestFlags';
+import { ENV } from '@/config/TestFlags';
 import { testRegistry } from '../TestRegistry';
 import { validateEngine } from '@/contracts/STTEngine';
 
@@ -57,9 +57,9 @@ export class PrivateSTT implements IPrivateSTT {
         logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🚀 Privacy-first engine selection started...');
 
         logger.info({
-            isE2E: isE2E(),
-            engineType: TestFlags.ENGINE_TYPE,
-            disableWasm: FLAGS.DISABLE_WASM
+            isE2E: ENV.isE2E,
+            engineType: ENV.engineType,
+            disableWasm: ENV.disableWasm
         }, '[PrivateSTT] Checking flags');
 
         const callbacks = options;
@@ -72,12 +72,12 @@ export class PrivateSTT implements IPrivateSTT {
         }
 
         // 2. CI/Test Mock (Enforcement: window.__SS_E2E__.engineType === 'mock')
-        if (isE2E() && TestFlags.ENGINE_TYPE === 'mock') {
+        if (ENV.isE2E && ENV.engineType === 'mock') {
             return this.initMockEngine(callbacks);
         }
 
         // 3. Fast Path (WebGPU)
-        const forceSafe = TestFlags.FLAGS.DISABLE_WASM;
+        const forceSafe = ENV.disableWasm;
         const webGPUAvailable = hasWebGPU() && !forceSafe;
 
         if (webGPUAvailable) {

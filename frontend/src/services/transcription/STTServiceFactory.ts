@@ -1,6 +1,6 @@
 import TranscriptionService, { TranscriptionServiceOptions } from './TranscriptionService';
 import logger from '@/lib/logger';
-import { TestFlags } from '@/config/TestFlags';
+import { ENV } from '@/config/TestFlags';
 
 /**
  * ARCHITECTURE (Senior Architect):
@@ -25,7 +25,7 @@ export class STTServiceFactory {
     // 🚀 Narrow Mic Bypass (CI/E2E)
     // We inject a mock mic handle if one isn't provided, allowing the service 
     // to complete its initialization FSM without physical hardware.
-    const isE2E = TestFlags.IS_E2E;
+    const isE2E = ENV.isE2E;
     const isCI = typeof process !== 'undefined' && (process.env.CI === 'true' || process.env.E2E === 'true');
 
     if ((isE2E || isCI) && !options.mockMic) {

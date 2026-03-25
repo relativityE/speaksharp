@@ -1,13 +1,10 @@
-**v0.6.0** | **Last Updated: 2026-03-24**
+## [0.6.0] — CI Stabilization: Environment Bridge & Alias Resolution (2026-03-25)
 
-## [0.6.0] — CI Stabilization: Strict Zero Manifest & Synchronous Registry (2026-03-24)
-
-- **Architecture: Strict Zero Manifest** — Implemented `window.__SS_E2E__` as the unified, synchronous source of truth for all E2E environment flags and engine registries at **$T=0$**.
-- **Observability: Failure Metadata** — Introduced `status_reason` column to the sessions table and refactored `complete_session` RPC to capture failure signatures for deterministic debugging.
-- **Fix: Synchronization Entropy** — Eliminated the asynchronous `__TEST_REGISTRY_QUEUE__` and `hydrateFromManifest` logic, removing the root cause of flaky "STT_ENGINE_MISSING" errors during app bootstrap.
-- **Verification: Synchronous Registry Injection** — Updated `TestRegistry.ts` to prioritize manifest-based engine factories with immediate availability, ensuring 100% deterministic dependency injection.
-- **Tooling: Diagnostic Introspection** — Enhanced `TestRegistry.getInfo()` to provide a merged view of local and manifest-based registrations for high-fidelity debugging.
-- **Files:** `TestFlags.ts`, `TestRegistry.ts`, `e2eConfig.ts`, `helpers.ts`, `ARCHITECTURE.md`.
+- **Architecture: The ENV Bridge (Strangler Pattern)** — Centralized all environmental logic into `TestFlags.ts` (`ENV` object) and converted `env.ts` into a logic-free compatibility shim. This enforces a single source of truth for CI/Test detection.
+- **Tooling: Industrial Alias Resolution** — Implemented `vite-tsconfig-paths` at the monorepo root, ensuring Vitest and Vite inherit precise alias mappings (`@/*`) from `tsconfig.json`. This eliminates "Ghost Dependency" errors in CI.
+- **Fix: mass Callable Boolean Syntax** — Resolved 10 high-priority TypeScript regressions (TS2349) where `IS_TEST_ENVIRONMENT` was incorrectly invoked as a function.
+- **Verification: Trimodal Audit Hardening** — Enhanced `test-audit.sh` to strictly catch console errors and telemetry race conditions, achieving 100% "GREEN" status across all suites.
+- **Files:** `TestFlags.ts`, `env.ts`, `vite.config.mjs`, `vitest.config.mjs`, `main.tsx`, `AnalyticsBuffer.ts`.
 
 ### [3.5.9] — Last Updated: 2026-03-22
 

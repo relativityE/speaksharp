@@ -19,7 +19,7 @@ import { EngineCallbacks, EngineType } from '@/contracts/IPrivateSTTEngine';
 
 import { floatToWavAsync } from '../utils/AudioProcessor';
 import { WhisperEngineRegistry } from './WhisperEngineRegistry';
-import { TestFlags } from '@/config/TestFlags';
+import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { STTEngine } from '@/contracts/STTEngine';
 
@@ -36,7 +36,7 @@ export class WhisperTurboEngine extends STTEngine {
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[WhisperTurbo] [PERF] Initializing engine via Registry at ${new Date().toISOString()}`);
 
         try {
-            if (TestFlags.FLAGS.DISABLE_WASM) {
+            if (ENV.disableWasm) {
                 logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[WhisperTurbo] WASM Disabled via manifest. Forcing fallback.');
                 return { isOk: false, error: new Error('WASM_DISABLED_IN_CI') };
             }

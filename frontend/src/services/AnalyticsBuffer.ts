@@ -21,7 +21,7 @@ class AnalyticsBuffer {
 
   private constructor() {
     // Prevent initialization in E2E to avoid side-effects
-    if (IS_TEST_ENVIRONMENT()) {
+    if (IS_TEST_ENVIRONMENT) {
       this.ready = true; // In tests, we don't want to buffer
       return;
     }
@@ -39,7 +39,7 @@ class AnalyticsBuffer {
    * If not ready, it queues. If ready, it sends immediately.
    */
   public push(event: string, properties?: Record<string, unknown>): void {
-    if (IS_TEST_ENVIRONMENT()) return;
+    if (IS_TEST_ENVIRONMENT) return;
 
     if (!this.ready) {
       logger.debug({ event }, '[AnalyticsBuffer] Queuing event (not ready)');
@@ -53,7 +53,7 @@ class AnalyticsBuffer {
    * Flush all queued events and mark the buffer as ready for immediate sending.
    */
   public flush(): void {
-    if (IS_TEST_ENVIRONMENT() || this.ready) return;
+    if (IS_TEST_ENVIRONMENT || this.ready) return;
 
     logger.info({ count: this.queue.length }, '[AnalyticsBuffer] Flushing queued events...');
     
@@ -83,7 +83,7 @@ class AnalyticsBuffer {
    * Typically bypasses buffer as identity is required for event mapping.
    */
   public identify(userId: string, properties?: Record<string, unknown>): void {
-    if (IS_TEST_ENVIRONMENT()) return;
+    if (IS_TEST_ENVIRONMENT) return;
 
     try {
       posthog.identify(userId, properties);

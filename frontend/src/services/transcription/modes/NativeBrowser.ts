@@ -2,7 +2,7 @@ import logger from '@/lib/logger';
 import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, TranscriptionError, Result } from './types';
 import { STTEngine } from '@/contracts/STTEngine';
 import { EngineType, EngineCallbacks } from '@/contracts/IPrivateSTTEngine';
-import { TestFlags } from '@/config/TestFlags';
+import { ENV } from '@/config/TestFlags';
 
 // A simplified interface for the SpeechRecognition event
 interface SpeechRecognitionEvent extends Event {
@@ -177,7 +177,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     }
     const win = window as unknown as E2EWindow;
 
-    if (TestFlags.IS_E2E || win.dispatchMockTranscript) {
+    if (ENV.isE2E || win.dispatchMockTranscript) {
       win.__activeSpeechRecognition = this.recognition;
       (win as unknown as Record<string, boolean>)['__e2e_e2e:speech-recognition-ready_fired__'] = true;
       window.dispatchEvent(new CustomEvent('e2e:speech-recognition-ready'));

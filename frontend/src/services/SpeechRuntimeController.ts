@@ -3,7 +3,7 @@ import logger from '../lib/logger';
 import { STTServiceFactory } from './transcription/STTServiceFactory';
 import TranscriptionService from './transcription/TranscriptionService';
 import { TranscriptionPolicy } from './transcription/TranscriptionPolicy';
-import { testRegistry } from './transcription/TestRegistry';
+import { testRegistry, TestRegistryInterface } from './transcription/TestRegistry';
 import { useReadinessStore } from '../stores/useReadinessStore';
 import { saveSession, completeSession, heartbeatSession } from '../lib/storage';
 import { useSessionStore } from '../stores/useSessionStore';
@@ -13,8 +13,8 @@ import { TranscriptUpdate, HistorySegment } from '../types/transcription';
 import { TranscriptionMode } from './transcription/TranscriptionPolicy';
 import { Result } from './transcription/modes/types';
 import { STT_CONFIG } from '../config';
+import { ENV } from '../config/TestFlags';
 import { TranscriptionServiceOptions } from './transcription/TranscriptionService';
-import { TestFlags } from '../config/TestFlags';
 import { DistributedLock } from '../lib/DistributedLock';
 import { validateEngine, STTEngine } from '../contracts/STTEngine';
 import { countFillerWords, FillerCounts } from '../utils/fillerWordUtils';
@@ -23,7 +23,7 @@ import { updateSession } from '../lib/storage';
 declare global {
   interface Window {
     __TRANSCRIPTION_SERVICE__?: SpeechRuntimeController;
-    __TEST_REGISTRY__?: typeof testRegistry;
+    __TEST_REGISTRY__?: TestRegistryInterface;
     STTEngine?: typeof STTEngine;
     Result?: typeof Result;
   }
@@ -67,17 +67,10 @@ export class SpeechRuntimeController {
     private idleTimeout: NodeJS.Timeout | null = null;
     private readonly IDLE_RECLAMATION_MS = 5 * 60 * 1000;
     private readonly WATCHDOG_PERIOD_MS = 5000;
-    private readonly HEARTBEAT_TIMEOUT_MS = TestFlags.IS_E2E
-        ? STT_CONFIG.HEARTBEAT_TIMEOUT_MS.CI
-        : STT_CONFIG.HEARTBEAT_TIMEOUT_MS.PROD;
+    private readonly HEARTBEAT_TIMEOUT_MS = STT_CONFIG.HEARTBEAT_TIMEOUT_MS;
 
-
-    private readonly FAILURE_HOLD_DURATION_MS = TestFlags.IS_E2E
-        ? STT_CONFIG.FAILURE_HOLD_DURATION_MS.CI
-        : STT_CONFIG.FAILURE_HOLD_DURATION_MS.PROD;
-    private readonly VISIBLE_HOLD_DURATION_MS = TestFlags.IS_E2E
-        ? STT_CONFIG.VISIBLE_HOLD_DURATION_MS.CI
-        : STT_CONFIG.VISIBLE_HOLD_DURATION_MS.PROD;
+    private readonly FAILURE_HOLD_DURATION_MS = STT_CONFIG.FAILURE_HOLD_DURATION_MS;
+    private readonly VISIBLE_HOLD_DURATION_MS = STT_CONFIG.VISIBLE_HOLD_DURATION_MS;
 
     private readyPromise: Promise<void> | null = null;
 
@@ -96,10 +89,9 @@ export class SpeechRuntimeController {
 
     private constructor() {
         this.lock = new DistributedLock();
-        // E2E HOOK: Expose Controller on window for behavioral inspection
+        // E2E HOOK: Exposed Registry (Sanctioned)
         if (typeof window !== 'undefined') {
-            window.__TRANSCRIPTION_SERVICE__ = this;
-            window.__TEST_REGISTRY__ = testRegistry;
+            window.__TEST_REGISTRY__ = testRegistry as unknown as TestRegistryInterface;
             window.STTEngine = STTEngine;
             window.Result = Result;
         }
@@ -129,13 +121,12 @@ export class SpeechRuntimeController {
 
         // E2E Short-circuit: Skip heavy WASM/mic probing in Playwright context
         // to avoid silent WASM crashes in sharded environments.
-        const isE2E = TestFlags.IS_E2E;
+        const isE2E = ENV.isE2E;
 
         if (isE2E) {
             logger.info('[SpeechRuntimeController] E2E Mode detected. Short-circuiting STT readiness.');
 
             // Boot-time registry validation (Expert Requirement)
-            // @ts-ignore - Internal test hook
             const registry = window.__SS_E2E__?.registry;
             if (registry) {
                 Object.keys(registry).forEach(name => {
@@ -143,7 +134,7 @@ export class SpeechRuntimeController {
                     // Structural-only validation (Duck-typing)
                     if (engine) {
                         const required = ['type', 'init', 'start', 'stop', 'destroy', 'transcribe'];
-                        const missing = required.filter(p => typeof (engine as any)[p] === 'undefined');
+                        const missing = required.filter(p => typeof (engine as Record<string, unknown>)[p] === 'undefined');
                         if (missing.length > 0) {
                             throw new Error(`REGISTRY_VALIDATION_FAILED: ${name} missing [${missing.join(', ')}]`);
                         }
@@ -438,7 +429,7 @@ export class SpeechRuntimeController {
 
             // Explicit session finalization on failure
             if (this.sessionId) {
-                completeSession(this.sessionId, {
+                void completeSession(this.sessionId, {
                     status: 'failed',
                     duration: 0,
                     reason: 'Controller transitioned to FAILED state'
@@ -653,7 +644,7 @@ export class SpeechRuntimeController {
             // 0.5 Acquire Lock (Tab Mutex) with initial state
             // THEN side effects (Cluster G: Deadlock Prevention)
             const acquired = this.lock.acquire('INITIATING');
-            if (TestFlags.IS_E2E && typeof window !== 'undefined') {
+            if (ENV.isE2E && typeof window !== 'undefined') {
                 (window as unknown as Record<string, boolean>).__lockAcquired__ = acquired;
             }
 

@@ -17,7 +17,7 @@
 import { Result } from '@/services/transcription/modes/types';
 import { EngineCallbacks, EngineType } from '@/contracts/IPrivateSTTEngine';
 
-import { TestFlags } from '@/config/TestFlags';
+import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { STTEngine } from '@/contracts/STTEngine';
 
@@ -45,7 +45,7 @@ export class TransformersJSEngine extends STTEngine {
             const transformers = await import('@xenova/transformers');
             const { pipeline, env } = transformers;
 
-            if (TestFlags.FLAGS.DEBUG_ENABLED) {
+            if (ENV.debug) {
                 logger.debug({
                     hasPipeline: !!pipeline,
                     hasEnv: !!env,
@@ -69,9 +69,9 @@ export class TransformersJSEngine extends STTEngine {
                 typeof window.document !== 'undefined' &&
                 !navigator.userAgent.includes('HappyDOM');
 
-            env.useBrowserCache = isBrowser && !TestFlags.IS_E2E;
+            env.useBrowserCache = isBrowser && !ENV.isE2E;
 
-            if (TestFlags.FLAGS.DEBUG_ENABLED) {
+            if (ENV.debug) {
                 logger.debug({
                     isBrowser,
                     cacheEnabled: env.useBrowserCache,

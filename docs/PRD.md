@@ -1,12 +1,8 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-03-24
 **Version:** v0.6.0
-
-🔗 [Back to Outline](./OUTLINE.md)
-
-# SpeakSharp Product Requirements Document
-
-**Version: 11.0** | **Last Updated:** 2026-03-24
+**Last Updated:** 2026-03-25
+**Version: 11.0** | **Last Updated:** 2026-03-25
 
 ## 1. Executive Summary
 
@@ -184,7 +180,8 @@ To eliminate non-deterministic failures and "flakiness," the system adheres to a
 8.  **DOM Signaling Contract**: Standardized engine visibility via `data-user-tier` and `data-engine-variant` attributes on `document.body`, eliminating signal collisions and providing deterministic state for E2E.
 9.  **Analytics Decoupling**: Implementation of `AnalyticsBuffer` to ensure telemetry never blocks the UI thread or readiness signals.
 10. **Deterministic Readiness**: Global readiness signals via `data-app-ready`, `data-route-ready`, and `data-model-status` for flake-free synchronization.
-11. **Atomic Signal Waits**: Replaced brittle `networkidle` dependencies with atomic signal waits (`waitForModelReady`, `waitForAppReady`) in the E2E suite.
+12. **Environment Bridge (Strangler Pattern)**: Centralized environmental logic in `TestFlags.ts` (`ENV` object) to ensure a single source of truth across all test runners.
+13. **Industrial Alias Resolution**: Precise sync between Vitest and `tsconfig.json` paths via `vite-tsconfig-paths`.
 
 *   **Behavioral Testing Integrity (Vitest/Playwright):** We have pivoted from structural verification to **Black-Box Behavioral Testing**. We test user-facing requirements (Accuracy, Privacy, Speed) rather than internal implementation details.
     *   **Isomorphic Golden Transcripts**: A shared registry of speech assets ensuring frontend mocks match backend results.
@@ -231,6 +228,9 @@ The following pipeline components and regressions are documented as **Active Kno
 | **E2E** | `analytics.spec` | **RESOLVED**: Fixed race condition in Playwright's `waitForAppReady` helper via synchronous DOM signaling. | ✅ FIXED | N/A |
 | **E2E** | `Transcript` | **RESOLVED**: Stabilized mock transcript propagation timing in React 18 using `flushSync` equivalent state updates. | ✅ FIXED | N/A |
 | **Audit** | `Coverage` | **RESOLVED**: Implemented robust file system flushes in the CI runner to ensure all coverage data is captured. | ✅ FIXED | N/A |
+| **Alias** | `@/*` Paths | **RESOLVED**: Synchronized Vitest with `tsconfig.json` using `vite-tsconfig-paths` at the monorepo root. | ✅ FIXED | N/A |
+| **Bridge** | `ENV` Bridge | **RESOLVED**: Centralized all environment flags in `TestFlags.ts` via the Strangler Pattern. | ✅ FIXED | N/A |
+| **Syntax** | `IS_TEST` | **RESOLVED**: Mass-reverted 10 "Callable Boolean" syntax regressions (TS2349). | ✅ FIXED | N/A |
 
 > [!WARNING]
 > **Hardware Boundary**: The current CI pipeline is incapable of validating real audio driver initialization. All "Green" CI runs verify logic and mock integrity only. Manual "Headed" testing with a real microphone remains mandatory for hardware-level regressions.
