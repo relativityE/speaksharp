@@ -2,9 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
 import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
 import { MicStream } from '../utils/types';
-import { testRegistry } from '../TestRegistry';
+import { EngineFactory } from '../EngineFactory';
 import { STTEngine } from '@/contracts/STTEngine';
-import { Result } from '../modes/types';
+import { Result, ITranscriptionEngine } from '../modes/types';
+import { NavigateFunction } from 'react-router-dom';
+
+/**
+ * @file TranscriptionService.race.test.ts
+ * @description Verifies handling of race conditions during service lifecycle.
+ */
 
 // Mock dependencies
 const mockOnTranscriptUpdate = vi.fn();
@@ -12,7 +18,7 @@ const mockOnModelLoadProgress = vi.fn();
 const mockOnReady = vi.fn();
 const mockOnStatusChange = vi.fn();
 const mockOnModeChange = vi.fn();
-const mockNavigate = vi.fn();
+const mockNavigate = vi.fn() as unknown as NavigateFunction;
 const mockGetToken = vi.fn().mockResolvedValue('mock-token');
 
 class SuccessNativeEngine extends STTEngine {
@@ -36,7 +42,6 @@ describe('TranscriptionService - Race Conditions', () => {
     beforeEach(async () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
-        testRegistry.clear();
 
         const policy: TranscriptionPolicy = {
             ...PROD_FREE_POLICY,
@@ -71,14 +76,14 @@ describe('TranscriptionService - Race Conditions', () => {
         if (service && !service.isServiceDestroyed()) {
             await service.destroy();
         }
-        testRegistry.clear();
         vi.useRealTimers();
+        vi.restoreAllMocks();
     });
 
     it('should handle concurrent destroy() calls gracefully (Double-Dispose Guard)', async () => {
         // Arrange
         const engine = new SuccessNativeEngine();
-        testRegistry.register('native', () => engine);
+        vi.spyOn(EngineFactory, 'create').mockResolvedValue(engine as unknown as ITranscriptionEngine);
 
         await service.startTranscription();
 
@@ -112,7 +117,7 @@ describe('TranscriptionService - Race Conditions', () => {
         const engine = new SuccessNativeEngine();
         const initPromiseResolves = new Promise(resolve => setTimeout(resolve, 50));
         vi.spyOn(engine, 'init').mockImplementation(() => initPromiseResolves as Promise<Result<void, Error>>);
-        testRegistry.register('native', () => engine);
+        vi.spyOn(EngineFactory, 'create').mockResolvedValue(engine as unknown as ITranscriptionEngine);
 
         const freshService = new TranscriptionService({
             onTranscriptUpdate: mockOnTranscriptUpdate,

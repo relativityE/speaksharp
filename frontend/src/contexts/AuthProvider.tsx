@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, ReactNode, useMemo, useCallback, us
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { Session, User } from '@supabase/supabase-js';
 import { useQueryClient } from '@tanstack/react-query';
+import { ENV } from '../config/TestFlags';
 import logger from '../lib/logger';
 import { useSessionStore } from '../stores/useSessionStore';
 import { useReadinessStore } from '../stores/useReadinessStore';
@@ -57,7 +58,9 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   }, [initialSession]);
 
   const [sessionState, setSessionState] = useState<Session | null | undefined>(getInjectedSession);
-  const [loading, setLoading] = useState(!getInjectedSession());
+  // In E2E mock mode with no real session, skip the loading state entirely.
+  const isE2EMockMode = ENV.isE2E;
+  const [loading, setLoading] = useState(!getInjectedSession() && !isE2EMockMode);
 
   useEffect(() => {
     if (import.meta.env.DEV && window.location.search.includes('devBypass=true')) {
@@ -180,6 +183,15 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
 
   // Signal Auth Readiness (Top-level Hook)
   useEffect(() => {
+    // Fast-path: In E2E mock mode with no real session, signal auth readiness immediately.
+    // The Core Probe validates infrastructure only — it does not require a real Supabase session.
+    const isE2EMockMode = ENV.isE2E;
+    if (isE2EMockMode && !sessionState) {
+      useReadinessStore.getState().setReady('auth');
+      logger.info('[AuthProvider] ✅ Auth Ready Signal (E2E Mock Mode — no session required)');
+      return;
+    }
+
     if (!loading) {
       useReadinessStore.getState().setReady('auth');
       logger.info({ userId: sessionState?.user?.id }, '[AuthProvider] ✅ Auth Ready Signal');

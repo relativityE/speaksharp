@@ -2,50 +2,49 @@ import { ITranscriptionEngine, TranscriptionModeOptions } from './modes/types';
 import { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPolicy';
 import NativeBrowser from './modes/NativeBrowser';
 import CloudAssemblyAI from './modes/CloudAssemblyAI';
-import { testRegistry } from './TestRegistry';
-import logger from '../../lib/logger';
+import { PrivateSTT } from './engines/PrivateSTT';
+import logger from '@/lib/logger';
 
 /**
- * Factory for creating transcription engines.
- * Encapsulates the logic for selecting the correct engine based on mode and configuration.
+ * EngineFactory:
+ * 
+ * Pure construction layer that instantiates real production engines.
+ * It has ZERO knowledge of test infrastructure or registries.
  */
 export class EngineFactory {
-    /**
-     * Create an engine instance based on the mode and configuration.
-     */
-    public static async create(
-        mode: TranscriptionMode,
-        options: TranscriptionModeOptions,
-        _policy: TranscriptionPolicy
-    ): Promise<ITranscriptionEngine> {
-        // 1. Registry Injection (Strict Zero) - TOP PRIORITY
-        const engineFactory = testRegistry.get(mode);
-        if (engineFactory) {
-            logger.info({ mode }, '[EngineFactory] 🧪 Injecting engine from Registry');
-            return engineFactory(options);
-        }
+  public static async create(
+    mode: TranscriptionMode,
+    options: TranscriptionModeOptions,
+    _policy: TranscriptionPolicy
+  ): Promise<ITranscriptionEngine> {
 
-        const normalizedMode = mode.trim().toLowerCase() as TranscriptionMode;
+    let engine: ITranscriptionEngine;
 
-        switch (normalizedMode) {
-            case 'native':
-                logger.info('[EngineFactory] 🌐 Starting Native Browser mode');
-                return new NativeBrowser(options);
+    logger.info({ mode }, '[EngineFactory] Constructing production engine');
 
-            case 'cloud':
-                logger.info('[EngineFactory] ☁️ Starting Cloud (AssemblyAI) mode');
-                return new CloudAssemblyAI(options);
-
-            case 'private': {
-                // Dynamic import to avoid circular dependencies if any, but also for code splitting
-                const module = await import('./modes/PrivateWhisper');
-                const instance = new module.default(options);
-                logger.info({ engine: instance.getEngineType() }, '[EngineFactory] 🔒 Private Instance created');
-                return instance;
-            }
-
-            default:
-                throw new Error(`Unknown transcription mode: "${mode}"`);
-        }
+    switch (mode) {
+      case 'native':
+        engine = new NativeBrowser(options);
+        break;
+      case 'cloud':
+        engine = new CloudAssemblyAI(options);
+        break;
+      case 'private':
+        // PrivateSTT is itself a facade that handles Whisper/TransformersJS
+        engine = new PrivateSTT();
+        break;
+      default:
+        throw new Error(`[EngineFactory] Unsupported transcription mode: ${mode}`);
     }
+
+    // Standard high-level initialization
+    const initResult = await engine.init(options);
+
+    if (initResult && 'isOk' in initResult && !initResult.isOk) {
+      logger.error({ mode, error: initResult.error }, '[EngineFactory] Engine initialization failed');
+      throw initResult.error;
+    }
+
+    return engine;
+  }
 }

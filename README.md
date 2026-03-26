@@ -210,11 +210,11 @@ If you find yourself in a state where `node_modules` is missing and `pnpm instal
  
 ### Recovery Steps:
  
-1.  **Run the Stabilizer**:
+1.  **Run the Nuclear Clean**:
     ```bash
-    pnpm env:stabilize
+    pnpm clean:nuclear
     ```
-    This script attempts to recover local links and clear corrupted caches without requiring a full re-download.
+    This kills stale processes and wipes all caches without touching your source code.
  
 2.  **The "Rebase then Setup" Rule**:
     Never run `pnpm install` immediately after a large rebase if dependencies have changed significantly.

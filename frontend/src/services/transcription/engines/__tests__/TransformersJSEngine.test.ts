@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TransformersJSEngine } from '../TransformersJSEngine';
-import { TestFlags } from '@/config/TestFlags';
+import { ENV } from '@/config/TestFlags';
 
 // Hoist mock factories to top of file
 const { mockPipeline, mockEnv } = vi.hoisted(() => ({
@@ -16,18 +16,19 @@ const { mockPipeline, mockEnv } = vi.hoisted(() => ({
 
 // Mock the flagging system - aligned with window.__SS_E2E__
 vi.mock('@/config/TestFlags', () => ({
-    isE2E: () => true,
-    FLAGS: {
-        DEBUG_ENABLED: true,
-        DISABLE_WASM: false,
-        BYPASS_MUTEX: true,
-        FAST_TIMERS: true
-    },
-    TestFlags: {
+    ENV: {
         IS_E2E: true,
+        IS_TEST_MODE: true,
         ENGINE_TYPE: 'system',
         USE_REAL_DATABASE: false,
-        DEBUG_ENABLED: true
+        DEBUG_ENABLED: true,
+        isTest: true,
+        FLAGS: {
+            DEBUG_ENABLED: true,
+            DISABLE_WASM: false,
+            BYPASS_MUTEX: true,
+            FAST_TIMERS: true
+        }
     }
 }));
 
@@ -146,15 +147,15 @@ describe('TransformersJSEngine (Unit)', () => {
 
     it('should exercise environmental branches', async () => {
         // Exercise logging paths by temporarily overriding the bridge state
-        const original = TestFlags.IS_TEST_MODE;
+        const original = ENV.IS_TEST_MODE;
         
-        (TestFlags as unknown as Record<string, boolean>).IS_TEST_MODE = false;
+        (ENV as unknown as Record<string, boolean>).IS_TEST_MODE = false;
 
         await engine.init({});
         expect(engine).toBeDefined();
 
         // Reset
-        (TestFlags as unknown as Record<string, boolean>).IS_TEST_MODE = original;
+        (ENV as unknown as Record<string, boolean>).IS_TEST_MODE = original;
     });
 
     it('should handle "Unexpected token <" error specifically', async () => {

@@ -40,7 +40,7 @@ export class MockEngine extends STTEngine {
         return { isOk: true, data: undefined };
     }
 
-    protected async onStart(): Promise<void> {
+    protected async onStart(_mic?: import('../utils/types').MicStream): Promise<void> {
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[MockEngine] Start Hook called.');
     }
 
@@ -78,15 +78,6 @@ export class MockEngine extends STTEngine {
             return super.init(callbacks, timeoutMs);
         }
         this.isInitialized = true;
-    }
-
-    async startTranscription(_mic?: unknown): Promise<void> {
-        await this.start();
-    }
-
-    async stopTranscription(): Promise<string> {
-        await this.stop();
-        return `[MOCK] Final transcript for ${this.serviceId}`;
     }
 
     dispose(): void {

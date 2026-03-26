@@ -66,7 +66,7 @@
     "ci:dispatch:soak": "echo '🚀 Dispatching soak test...' && gh workflow run soak-test.yml && echo '✅ Dispatched. Monitor: gh run list --limit 1'",
     "ci:dispatch:soak:wait": "node scripts/trigger-soak.mjs --wait",
     "test:all:local": "node scripts/pnpm-only.mjs && ./scripts/test-audit.sh local",
-    "test:health:local": "node scripts/pnpm-only.mjs && ./scripts/test-audit.sh health-check",
+    "test:core": "node scripts/pnpm-only.mjs && ./scripts/test-audit.sh core",
     "pw:install": "playwright install chromium --with-deps",
     "pw:install:all": "playwright install --with-deps",
     "// ============ Maintenance & Setup ============": "",

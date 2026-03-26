@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { TestFlags } from '../config/TestFlags';
+import { ENV } from '../config/TestFlags';
 
 const LOCK_KEY = 'speaksharp_active_session_lock';
 const HEARTBEAT_INTERVAL = 2000;
@@ -84,7 +84,7 @@ export const useActiveSessionLock = () => {
         }
         setIsLockHeldByOther(false);
         // Signal cleanup for E2E (Strict Zero)
-        if (TestFlags.IS_E2E) {
+        if (ENV.isTest) {
             (window as unknown as { __lockAcquired__?: boolean }).__lockAcquired__ = false;
         }
     }, [getLock, tabId]);

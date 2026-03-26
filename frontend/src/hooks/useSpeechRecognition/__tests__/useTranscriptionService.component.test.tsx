@@ -1,32 +1,22 @@
 import { renderHook, act, waitFor } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { useTranscriptionService } from '../useTranscriptionService';
+import type { useTranscriptionService as useTranscriptionServiceType } from '../useTranscriptionService';
 import { E2E_DETERMINISTIC_NATIVE } from '../types';
-import { TranscriptionProvider } from '../../../providers/TranscriptionProvider';
-import { speechRuntimeController } from '../../../services/SpeechRuntimeController';
-import { testRegistry } from '../../../services/transcription/TestRegistry';
-import { ITranscriptionEngine } from '../../../services/transcription/modes/types';
-import { useSessionStore } from '../../../stores/useSessionStore';
+import type { TranscriptionProvider as ProviderType } from '../../../providers/TranscriptionProvider';
+import type { SpeechRuntimeController } from '../../../services/SpeechRuntimeController';
+import type { useSessionStore as useSessionStoreType } from '../../../stores/useSessionStore';
+import { setupStrictZero } from '../../../../../tests/setupStrictZero';
 
-// --- Mock Engine ---
-class MockEngine implements ITranscriptionEngine {
-  init = vi.fn().mockResolvedValue({ success: true });
-  start = vi.fn().mockResolvedValue(undefined);
-  stop = vi.fn().mockResolvedValue(undefined);
-  startTranscription = vi.fn().mockResolvedValue(undefined);
-  stopTranscription = vi.fn().mockResolvedValue({ transcript: 'mock transcript', duration: 10 });
-  getTranscript = vi.fn().mockReturnValue({ transcript: 'mock transcript' });
-  terminate = vi.fn().mockResolvedValue(undefined);
-  dispose = vi.fn().mockResolvedValue(undefined);
-  getEngineType = () => 'native' as const;
-  getMode = () => 'native' as const;
-  getLastHeartbeatTimestamp = () => Date.now();
-  setSessionId = vi.fn();
-}
+/**
+ * @file useTranscriptionService.component.test.tsx
+ * @description Contract verification for the transcription hook lifecycle.
+ */
 
 describe('useTranscriptionService (Contract Verification)', () => {
-  let mockEngine: MockEngine;
+  let useTranscriptionService: typeof useTranscriptionServiceType;
+  let speechRuntimeController: SpeechRuntimeController;
+  let useSessionStore: typeof useSessionStoreType;
 
   const mockOptions = {
     onTranscriptUpdate: vi.fn(),
@@ -37,23 +27,41 @@ describe('useTranscriptionService (Contract Verification)', () => {
     getAssemblyAIToken: vi.fn().mockResolvedValue('token')
   };
 
+  let TranscriptionProvider: typeof ProviderType;
   const wrapper = ({ children }: { children: React.ReactNode }) => (
     <TranscriptionProvider>{children}</TranscriptionProvider>
   );
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    mockEngine = new MockEngine();
-    testRegistry.register('native', () => mockEngine);
     
+    // Step 1: Reset + Global Identity Seal at T=0
+    await setupStrictZero();
+
+    // Step 2: Dynamic Import AFTER setup to ensure instance identity parity
+    const hookModule = await import('../useTranscriptionService');
+    const srcModule = await import('../../../services/SpeechRuntimeController');
+    const storeModule = await import('../../../stores/useSessionStore');
+    const providerModule = await import('../../../providers/TranscriptionProvider');
+
+    useTranscriptionService = hookModule.useTranscriptionService;
+    speechRuntimeController = srcModule.speechRuntimeController;
+    useSessionStore = storeModule.useSessionStore;
+    TranscriptionProvider = providerModule.TranscriptionProvider;
+
     // Reset real store and controller
     useSessionStore.getState().resetSession();
     await speechRuntimeController.reset();
   });
 
   afterEach(async () => {
-    testRegistry.clear();
-    await speechRuntimeController.reset();
+    if (typeof window !== 'undefined') {
+        const win = window as unknown as Record<string, unknown>;
+        delete win.__SS_E2E__;
+    }
+    if (speechRuntimeController) {
+      await speechRuntimeController.reset();
+    }
   });
 
   it('should initialize with correct default state (Contract 1: Initialization)', () => {
@@ -83,8 +91,6 @@ describe('useTranscriptionService (Contract Verification)', () => {
       expect(useSessionStore.getState().isListening).toBe(true);
       expect(result.current.isListening).toBe(true);
     }, { timeout: 2000 });
-
-    expect(mockEngine.startTranscription).toHaveBeenCalled();
   });
 
   it('should cleanup correctly on stop (Contract 2: Stop Flow)', async () => {
@@ -105,7 +111,6 @@ describe('useTranscriptionService (Contract Verification)', () => {
   });
 
   it('should cleanup correctly on unmount (Contract 4: Lifecycle State-Based Proof)', async () => {
-    // 1. Render and start recording
     const { result, unmount } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
     
     await act(async () => {
@@ -114,12 +119,10 @@ describe('useTranscriptionService (Contract Verification)', () => {
     });
     expect(useSessionStore.getState().runtimeState).toBe('RECORDING');
 
-    // 2. Unmount should trigger reset internally
     await act(async () => {
       unmount();
     });
 
-    // 3. Verify FSM reaches IDLE (High-Fidelity State Proof)
     await vi.waitFor(() => {
       expect(useSessionStore.getState().runtimeState).toBe('IDLE');
     }, { timeout: 2000 });

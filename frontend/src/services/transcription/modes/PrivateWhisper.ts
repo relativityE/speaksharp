@@ -43,7 +43,7 @@ import { EngineCallbacks } from '@/contracts/IPrivateSTTEngine';
 import { MicStream } from '../utils/types';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
 import { TranscriptUpdate } from '@/types/transcription';
-import { TestFlags } from '../../../config/TestFlags';
+import { ENV } from '../../../config/TestFlags';
 import { PauseDetector } from '../../audio/pauseDetector';
 
 // Extend Window interface for E2E test flags
@@ -148,7 +148,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.lastHeartbeat = Date.now();
 
     // Check for E2E environment and expose instance for verification
-    if (TestFlags.IS_E2E) {
+    if (ENV.IS_E2E) {
       logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[PrivateWhisper] 🧪 Exposing instance for E2E testing');
       window.__PrivateWhisper_INT_TEST__ = this;
     }
@@ -200,7 +200,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         throw result.error;
       }
 
-      this.engineType = result.data;
+      this.engineType = this.privateSTT.getEngineType() as EngineType;
       this.status = 'idle';
       this.updateHeartbeat();
       logger.info({ sId: this.serviceId, rId: this.instanceId, engineType: this.engineType }, '[PrivateWhisper] ✅ Engine initialized');
@@ -240,22 +240,17 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
   }
 
-  public override async startTranscription(mic?: MicStream): Promise<void> {
+  protected async onStart(mic?: MicStream): Promise<void> {
     if (!mic) {
-      logger.error('[PrivateWhisper CRITICAL] startTranscription called with null/undefined mic!');
+      logger.error('[PrivateWhisper CRITICAL] onStart called with null/undefined mic!');
       throw new Error('MicStream is required for PrivateWhisper');
     }
     this.mic = mic;
-    await super.startTranscription(mic);
-  }
-
-  protected async onStart(): Promise<void> {
-    if (!this.mic) throw new Error('Mic initialized but missing.');
     if (typeof this.mic.onFrame !== 'function') {
       logger.error({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper CRITICAL] MicStream missing onFrame method!');
       throw new Error('Invalid MicStream: missing onFrame method');
     }
-    logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] startTranscription() called.');
+    logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] start() called.');
     if (this.status !== 'idle') {
       logger.warn({ sId: this.serviceId, rId: this.instanceId, status: this.status }, `[PrivateWhisper] Unexpected status: ${this.status}, expected 'idle'`);
     }

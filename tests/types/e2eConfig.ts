@@ -102,6 +102,12 @@ export function getE2EConfig(): E2EConfig {
 export function initE2EConfig(config: Partial<E2EConfig>): void {
     if (typeof window === 'undefined') return;
     
+    // 🛡️ PROTECTION: If a manifest already exists and is active (e.g. injected via playwright), 
+    // do NOT overwrite it with a default "empty" one during boot.
+    if (window.__SS_E2E__?.isActive) {
+        return;
+    }
+
     // 🚀 Strict Zero Alignment: Initialize the modern manifest directly
     window.__SS_E2E__ = {
         isActive: !!(config.mode === 'e2e' || config.isE2E),
@@ -109,7 +115,7 @@ export function initE2EConfig(config: Partial<E2EConfig>): void {
         registry: config.registry?.overrides ? Object.fromEntries(config.registry.overrides.entries()) : {},
         debug: config.debug,
         flags: {
-            bypassMutex: config.mode === 'e2e', // Optional: preserve some logic if helpful
+            bypassMutex: config.mode === 'e2e',
             fastTimers: config.mode === 'e2e'
         }
     };

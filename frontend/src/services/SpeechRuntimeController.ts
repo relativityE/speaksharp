@@ -3,7 +3,7 @@ import logger from '../lib/logger';
 import { STTServiceFactory } from './transcription/STTServiceFactory';
 import TranscriptionService from './transcription/TranscriptionService';
 import { TranscriptionPolicy } from './transcription/TranscriptionPolicy';
-import { testRegistry, TestRegistryInterface } from './transcription/TestRegistry';
+// Registry imports removed for Synchronization
 import { useReadinessStore } from '../stores/useReadinessStore';
 import { saveSession, completeSession, heartbeatSession } from '../lib/storage';
 import { useSessionStore } from '../stores/useSessionStore';
@@ -23,7 +23,6 @@ import { updateSession } from '../lib/storage';
 declare global {
   interface Window {
     __TRANSCRIPTION_SERVICE__?: SpeechRuntimeController;
-    __TEST_REGISTRY__?: TestRegistryInterface;
     STTEngine?: typeof STTEngine;
     Result?: typeof Result;
   }
@@ -89,9 +88,8 @@ export class SpeechRuntimeController {
 
     private constructor() {
         this.lock = new DistributedLock();
-        // E2E HOOK: Exposed Registry (Sanctioned)
+        // E2E HOOK: Sanctioned Mocks
         if (typeof window !== 'undefined') {
-            window.__TEST_REGISTRY__ = testRegistry as unknown as TestRegistryInterface;
             window.STTEngine = STTEngine;
             window.Result = Result;
         }
@@ -127,14 +125,18 @@ export class SpeechRuntimeController {
             logger.info('[SpeechRuntimeController] E2E Mode detected. Short-circuiting STT readiness.');
 
             // Boot-time registry validation (Expert Requirement)
-            const registry = window.__SS_E2E__?.registry;
+            const g = globalThis as unknown as Record<string, unknown>;
+            const manifest = g.__SS_E2E__ as { isActive: boolean; engineType: string; registry: Record<string, unknown> } | undefined;
+            const registry = manifest?.registry;
             if (registry) {
                 Object.keys(registry).forEach(name => {
-                    const engine = registry[name];
-                    // Structural-only validation (Duck-typing)
-                    if (engine) {
-                        const required = ['type', 'init', 'start', 'stop', 'destroy', 'transcribe'];
-                        const missing = required.filter(p => typeof (engine as Record<string, unknown>)[p] === 'undefined');
+                    const engineFactoryOrObject = registry[name];
+                    if (engineFactoryOrObject) {
+                        // Minimal structural check: E2E mock stubs must implement the lifecycle.
+                        // Full STTEngine contract enforcement happens in validateEngine() at startRecording time.
+                        const required = ['init', 'stop'];
+                        const target = typeof engineFactoryOrObject === 'function' ? (engineFactoryOrObject as unknown as () => Record<string, unknown>)() : (engineFactoryOrObject as Record<string, unknown>);
+                        const missing = required.filter(p => typeof target[p] === 'undefined');
                         if (missing.length > 0) {
                             throw new Error(`REGISTRY_VALIDATION_FAILED: ${name} missing [${missing.join(', ')}]`);
                         }
@@ -929,6 +931,7 @@ export class SpeechRuntimeController {
             this.readyPromise = null;
             this.isSubscriberReady = false;
             this.resetEphemeralState();
+            await this.transition('TERMINATED');
             await this.transition('IDLE');
         });
     }

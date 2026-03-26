@@ -21,17 +21,14 @@ vi.mock('@/services/transcription/TestRegistry', async () => {
     const actual = await vi.importActual('@/services/transcription/TestRegistry');
     return {
         ...actual,
-        testRegistry: {
-            register: vi.fn(),
-            get: vi.fn(),
-        }
+        getEngine: vi.fn(),
     };
 });
 
 import { act, waitFor } from '../../../../tests/support/test-utils';
 import { renderHookWithProviders } from '@test-utils/renderHookWithProviders';
 import useSpeechRecognition from '../index';
-import { testRegistry } from '@/services/transcription/TestRegistry';
+import { getEngine } from '@/services/transcription/TestRegistry';
 import TranscriptionService from '@/services/transcription/TranscriptionService';
 import type { Session as SupabaseSession } from '@supabase/supabase-js';
 import { ITranscriptionEngine, TranscriptionModeOptions } from '@/services/transcription/modes/types';
@@ -78,9 +75,14 @@ describe('useSpeechRecognition Integration', () => {
             return service as unknown as TranscriptionService;
         });
         
-        vi.mocked(testRegistry.get).mockReturnValue((opts: TranscriptionModeOptions) => {
-            service.updateCallbacks(opts);
-            return service as unknown as ITranscriptionEngine;
+        vi.mocked(getEngine).mockImplementation((type) => {
+            if (type === 'native' || type === 'mock-engine') {
+                return (opts: TranscriptionModeOptions) => {
+                    service.updateCallbacks(opts);
+                    return service as unknown as ITranscriptionEngine;
+                };
+            }
+            return undefined;
         });
 
         // Use global stubbing for cleaner window mocking

@@ -364,6 +364,7 @@ async function runStage(id, name, fn, { critical = false } = {}) {
 async function main() {
     const summaryPath = path.join(rootDir, 'summary.json');
     const telemetryPath = path.join(rootDir, 'ci-results.json');
+    const isCoreMode = process.argv.includes('core');
 
     const startTime = Date.now();
     let unitFailed = false;
@@ -383,7 +384,7 @@ async function main() {
         }, { critical: true });
 
         // Stage 2: Quality (CRITICAL)
-        if (!process.argv.includes('--skip-quality')) {
+        if (!isCoreMode && !process.argv.includes('--skip-quality')) {
             await runStage(2, "Code Quality", async () => {
                 const runAll = !process.argv.includes('--lint') && 
                              !process.argv.includes('--typecheck') && 
@@ -414,7 +415,9 @@ async function main() {
 
                     // Run Unit Tests first (Independent of server)
                     try {
-                        if (impactOutput === 'ALL' || process.argv.includes('ci-simulate')) {
+                        if (isCoreMode) {
+                            console.log("[CI] Core Mode: Skipping individual unit tests for fast probe...");
+                        } else if (impactOutput === 'ALL' || process.argv.includes('ci-simulate')) {
                             fs.mkdirSync(path.join(rootDir, 'frontend', 'coverage'), { recursive: true });
                             // Leverage canonical package script
                             await runCommand('pnpm', ['run', 'test:unit:local'], { label: 'UNIT' });
@@ -428,15 +431,19 @@ async function main() {
                         }
 
                         // Guard: Check for unit test results
-                        if (impactOutput !== 'NONE') {
+                        if (!isCoreMode && impactOutput !== 'NONE') {
                             const unitArtifact = path.join(rootDir, 'test-results', 'unit', 'results.json');
                             if (!fs.existsSync(unitArtifact)) {
                                 throw new Error(`Unit test artifact not found: ${unitArtifact}`);
                             }
                         }
                     } catch (err) {
-                        console.error(`${ANSI.RED}[UNIT] Unit tests failed, but proceeding to E2E...${ANSI.RESET}`);
-                        unitFailed = true;
+                        if (isCoreMode) {
+                            // In core mode, we already logged the skip, so this is just for safety.
+                        } else {
+                            console.error(`${ANSI.RED}[UNIT] Unit tests failed, but proceeding to E2E...${ANSI.RESET}`);
+                            unitFailed = true;
+                        }
                     }
 
                     // Start Dev Server for E2E
@@ -474,7 +481,14 @@ async function main() {
                     const workerCount = Math.min(Math.max(1, Math.floor(os.cpus().length * CI_CONFIG.WORKER_SCALING_RATIO)), CI_CONFIG.MAX_WORKERS);
 
                     // Run E2E Tests
-                    if (impactOutput === 'ALL' || process.argv.includes('ci-simulate')) {
+                    if (isCoreMode) {
+                        console.log("[CI] Running Core System Probe (E2E)...");
+                        await runCommand('pnpm', [
+                            'run', 'test:e2e:mock:headless',
+                            '--workers=1', // Zero flake requirement
+                            'tests/e2e/core.e2e.spec.ts'
+                        ], { label: 'CORE-PROBE' });
+                    } else if (impactOutput === 'ALL' || process.argv.includes('ci-simulate')) {
                         await runCommand('pnpm', [
                             'run', 'test:e2e:mock:headless',
                             `--workers=${workerCount}`,
@@ -552,7 +566,7 @@ async function main() {
         }
 
         // Stage 4: Lighthouse (Requires Production Build)
-        if (!process.argv.includes('--skip-lighthouse')) {
+        if (!isCoreMode && !process.argv.includes('--skip-lighthouse')) {
             await runStage(4, "Lighthouse Audit", async () => {
                 // Ensure fresh production-ready build for accurate performance metrics
                 await runCommand('pnpm', ['build:test'], { label: 'BUILD' });

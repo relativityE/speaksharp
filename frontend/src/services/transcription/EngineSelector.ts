@@ -1,32 +1,49 @@
 import { ITranscriptionEngine, TranscriptionModeOptions } from './modes/types';
-import { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPolicy';
+import { TranscriptionPolicy } from './TranscriptionPolicy';
 import { EngineFactory } from './EngineFactory';
-import { ENV } from '../../config/TestFlags';
-import { createMockEngine } from './engines/mock/createMockEngine';
+import { NegotiatedStrategy } from './STTNegotiator';
+import { getEngine } from './TestRegistry';
+import { ENV } from '@/config/TestFlags';
 
 /**
  * EngineSelector:
  * 
- * Boundary layer that enforces global resource guards (WASM isolation)
- * BEFORE any engine-specific logic or imports are triggered.
+ * Boundary layer that enforces global resource guards and resolves the final execution path.
+ * It is the ONLY layer allowed to access the TestRegistry.
  */
 export class EngineSelector {
   /**
-   * Selects and creates the designated engine.
-   * HARD GUARANTEE: In test mode, this never touches real engines.
+   * Selects and initializes the final engine instance based on the negotiated strategy.
+   * Rationale: Centralizes T=0 mock resolution and production resource guarding.
    */
-  public static select(
-    mode: TranscriptionMode,
+  public static async select(
+    strategy: NegotiatedStrategy,
     options: TranscriptionModeOptions,
     policy: TranscriptionPolicy
-  ): ITranscriptionEngine | Promise<ITranscriptionEngine> {
+  ): Promise<ITranscriptionEngine> {
 
-    // 1. DETERMINISTIC BYPASS: CI/Test Resource Guard
-    if (ENV.disableWasm) {
-      return createMockEngine(options); // Constant-time, static instantiation
+    // 1. TEST PATH (Authoritative)
+    // If the negotiator decided it's a mock path (due to environment), resolve it now.
+    if (strategy.isMock) {
+      const mockFactory = getEngine(strategy.mode);
+      if (!mockFactory) {
+        throw new Error(`[EngineSelector] Missing mock engine for mode: ${strategy.mode} at T=0`);
+      }
+      return mockFactory(options);
     }
 
-    // 2. Production Hand-off: Delegate to Negotiator (EngineFactory)
-    return EngineFactory.create(mode, options, policy);
+    // 2. RESOURCE GUARD (Production safety)
+    // If WASM is disabled (e.g. CI safety), but negotiator didn't catch it, enforce fallback here.
+    if (ENV.disableWasm) {
+      const mockFactory = getEngine('mock');
+      if (!mockFactory) {
+        throw new Error('[EngineSelector] WASM disabled but no universal mock available in registry');
+      }
+      return mockFactory(options);
+    }
+
+    // 3. PRODUCTION PATH
+    // Hand off to the pure factory for real engine construction.
+    return EngineFactory.create(strategy.mode, options, policy);
   }
 }

@@ -12,6 +12,7 @@ import { TranscriptUpdate } from '../../types/transcription';
 import { useSessionStore } from '../../stores/useSessionStore';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { useTranscriptionState } from './useTranscriptionState';
+import { ENV } from '../../config/TestFlags';
 
 // Re-exporting to satisfy architectural contract and linting
 export type { TranscriptStats };
@@ -101,9 +102,9 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     return () => {
       isMountedRef.current = false;
       // Unit tests (Vitest) should still perform deterministic teardown.
-      const isPlaywright = typeof window !== 'undefined' && !!(window as unknown as { __SS_E2E__?: { isActive: boolean } }).__SS_E2E__?.isActive;
+      const isTestEnv = ENV.isTest;
       
-      if (!isPlaywright) {
+      if (!isTestEnv) {
         void speechRuntimeController.reset('teardown');
       }
     };

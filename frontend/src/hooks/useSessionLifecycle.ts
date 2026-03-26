@@ -16,7 +16,7 @@ import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
-import { TestFlags } from '@/config/TestFlags';
+import { ENV } from '@/config/TestFlags';
 
 export const useSessionLifecycle = () => {
     const { session } = useAuthProvider();
@@ -164,7 +164,7 @@ export const useSessionLifecycle = () => {
                 }
 
                 // Expert Diagnostic
-                if (TestFlags.IS_E2E) {
+                if (ENV.isTest) {
                     logger.info({
                         isListening,
                         isProUser,

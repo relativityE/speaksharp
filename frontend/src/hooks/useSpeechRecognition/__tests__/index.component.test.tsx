@@ -6,7 +6,7 @@ import { useSpeechRecognition_prod as useSpeechRecognition } from '../index';
 import { useTranscriptionState } from '../useTranscriptionState';
 import { useFillerWords } from '../useFillerWords';
 // Real service dependencies
-import { testRegistry } from '../../../services/transcription/TestRegistry';
+// window.__SS_E2E__ used for injection
 import { ITranscriptionEngine } from '../../../services/transcription/modes/types';
 
 
@@ -129,9 +129,13 @@ describe('useSpeechRecognition', () => {
       status: { type: 'idle', message: '' }
     } as unknown as ReturnType<typeof useTranscriptionContext>;
 
-    // Inject Mock Engine
+    // Inject Mock Engine via T=0 Manifest
     mockEngine = new MockEngine();
-    testRegistry.register('native', () => mockEngine);
+    (window as unknown as Record<string, unknown>).__SS_E2E__ = {
+      registry: {
+        native: () => mockEngine
+      }
+    };
 
     vi.mocked(useTranscriptionState).mockReturnValue(mockUseTranscriptionState as unknown as ReturnType<typeof useTranscriptionState>);
     vi.mocked(useFillerWords).mockReturnValue(mockUseFillerWords);
@@ -146,7 +150,7 @@ describe('useSpeechRecognition', () => {
   });
 
   afterEach(() => {
-    testRegistry.clear();
+    delete (window as unknown as Record<string, unknown>).__SS_E2E__;
     vi.useRealTimers();
   });
 

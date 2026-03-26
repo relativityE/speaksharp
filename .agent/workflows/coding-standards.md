@@ -9,6 +9,7 @@ description: Coding Standards & Commenting Rules
 - **🔪 Targeted Documentation**: Update only specific sections affected by code changes. No unrelated restructures.
 - **Test the Contract, Not the Implementation**: Validate requirements and design intent (`[data-state]`, `[data-action]`), not brittle CSS/text.
 - **System Integrity over Developer Velocity**: Prioritize explicit contracts and robust error handling over quick check-ins.
+- **Fix the Boundary, Not the Consumer**: Enforce invariants at the composition layer (Guards/Providers) rather than polluting leaf hooks or components with fallback logic.
 - **Privacy-First**: Core differentiator. All audio stays on-device in "Private" mode.
 - **Log, Don't Suppress**: Never swallow exceptions. Every `catch` block MUST log context via unified `logger`.
 - **Zero-Debt Mandate**: `eslint-disable` and `any` types are strictly forbidden. Fix root causes.

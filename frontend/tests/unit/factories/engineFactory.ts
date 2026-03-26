@@ -12,8 +12,6 @@ export function createMockEngine(
     init: vi.fn().mockResolvedValue(undefined),
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
-    startTranscription: vi.fn().mockResolvedValue(undefined),
-    stopTranscription: vi.fn().mockResolvedValue(''),
     dispose: vi.fn(),
     getTranscript: vi.fn().mockResolvedValue(''),
     getEngineType: vi.fn().mockReturnValue('mock'),

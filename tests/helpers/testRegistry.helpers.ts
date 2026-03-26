@@ -1,15 +1,8 @@
 import type { Page } from '@playwright/test';
-import type { TestRegistryInterface } from '../../frontend/src/services/transcription/TestRegistry';
-
-declare global {
-    interface Window {
-        __TEST_REGISTRY__?: TestRegistryInterface;
-    }
-}
 
 /**
- * Standard test implementations (commonly used)
- * Note: These are factories that return an implementation object.
+ * Standard test implementations (commonly used in E2E)
+ * Returns a factory string that can be eval'd in the browser context.
  */
 export const StandardMocks = {
     /**
@@ -20,12 +13,12 @@ export const StandardMocks = {
         init: async () => {
             console.log('[FakePrivateSTT] Simulating load failure');
             await new Promise(resolve => setTimeout(resolve, 100));
-            return { variant: 'Err', error: new Error('Model failed to load') };
+            return { isOk: false, error: new Error('Model failed to load') };
         },
         start: async () => { },
         stop: async () => { },
         destroy: async () => { },
-        transcribe: async () => ({ variant: 'Err', error: new Error('Not implemented') }),
+        transcribe: async () => ({ isOk: false, error: new Error('Not implemented') }),
     }))()`,
 
     /**
@@ -36,12 +29,12 @@ export const StandardMocks = {
         init: async () => {
             console.log('[SlowPrivateSTT] Simulating slow load:', ${delayMs}, 'ms');
             await new Promise(resolve => setTimeout(resolve, ${delayMs}));
-            return { variant: 'Ok', value: undefined };
+            return { isOk: true, value: undefined };
         },
         start: async () => { },
         stop: async () => { },
         destroy: async () => { },
-        transcribe: async () => ({ variant: 'Ok', value: '' }),
+        transcribe: async () => ({ isOk: true, data: '' }),
     }))()`,
 
     /**
@@ -49,58 +42,47 @@ export const StandardMocks = {
      */
     nativeSTTWithTranscript: (transcript: string) => `(() => ({
         type: 'mock-native',
-        init: async () => ({ variant: 'Ok', value: undefined }),
+        init: async () => ({ isOk: true, value: undefined }),
         start: async () => {
             console.log('[FakeNativeSTT] Emitting transcript:', ${JSON.stringify(transcript)});
         },
         stop: async () => { },
         destroy: async () => { },
-        transcribe: async () => ({ variant: 'Ok', value: ${JSON.stringify(transcript)} }),
+        transcribe: async () => ({ isOk: true, data: ${JSON.stringify(transcript)} }),
     }))()`
 };
 
+/**
+ * Registers a mock engine in the E2E environment using the T=0 Manifest pattern.
+ */
 export async function registerMockInE2E(
     page: Page,
     mode: 'native' | 'private' | 'cloud' | 'whisper-turbo' | 'transformers-js' | 'mock-engine',
     mockImplementationFactoryString: string
 ): Promise<void> {
-    // 1. Persist for future reloads (Synchronous Manifest Pattern)
     await page.addInitScript(
         ({ mode, factoryStr }) => {
-            const key = `${mode}STT`;
-            const factory = eval(factoryStr);
-            const win = window as unknown as { 
-                __SS_E2E__?: { 
-                    isActive: boolean; 
-                    engineType?: string; 
-                    registry?: Record<string, unknown>;
-                    flags?: Record<string, unknown>;
-                } 
-            };
-
+            const win = window as unknown as Record<string, unknown>;
+            
             // Initialize manifest if missing
             if (!win.__SS_E2E__) {
-                win.__SS_E2E__ = {
+                const manifestInit = {
                     isActive: true,
                     engineType: 'mock',
                     registry: {},
                     flags: {}
                 };
+                (win as unknown as { __SS_E2E__: unknown }).__SS_E2E__ = manifestInit;
             }
 
-            // 1. Direct Injection if Registry is already live
-            const registryObj = (window as unknown as { __TEST_REGISTRY__?: { register: (m: string, f: unknown) => void } }).__TEST_REGISTRY__;
-            if (registryObj) {
-                registryObj.register(mode, factory);
-                console.log('[E2E Help] Registered mock via live registry:', mode);
-            } 
-            
-            // 2. Manifest Injection (SSOT)
-            const registry = win.__SS_E2E__.registry;
-            if (registry) {
-                registry[key] = factory;
+            // Populate registry (SSOT)
+            const factory = eval(factoryStr);
+            const manifest = win.__SS_E2E__ as { registry: Record<string, unknown> };
+            if (manifest.registry) {
+                manifest.registry[mode] = factory;
             }
-            console.log('[E2E Help] Populated __SS_E2E__.registry for:', mode);
+            
+            console.log(`[E2E Help] Populated __SS_E2E__.registry.${mode}`);
         },
         {
             mode,
@@ -110,20 +92,17 @@ export async function registerMockInE2E(
 }
 
 /**
- * Enable TestRegistry in E2E
  * @deprecated - Registry is always enabled in E2E mode now.
  */
 export async function enableTestRegistry(): Promise<void> {
-    // No-op for compatibility
+    // No-op
 }
 
-/**
- * Disable and clear TestRegistry in E2E
- */
 export async function cleanupTestRegistry(page: Page): Promise<void> {
     await page.evaluate(() => {
-        if (window.__TEST_REGISTRY__) {
-            window.__TEST_REGISTRY__.clear();
+        const win = window as unknown as Record<string, { registry?: Record<string, unknown> }>;
+        if (win.__SS_E2E__) {
+            win.__SS_E2E__.registry = {};
         }
     });
 }

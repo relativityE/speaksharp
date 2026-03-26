@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PrivateSTT } from '@/services/transcription/engines/PrivateSTT';
+import type { PrivateSTT as PrivateSTTType } from '@/services/transcription/engines/PrivateSTT';
+import { setupStrictZero } from '../../../tests/setupStrictZero';
 import { Result } from '@/services/transcription/modes/types';
 import logger from '@/lib/logger';
 
@@ -35,18 +36,19 @@ class StubMock extends STTEngine {
     protected async onDestroy(): Promise<void> { }
 }
 
+import { SSE2EManifest } from '@/config/TestFlags';
+
 describe('PrivateSTT Integration (Facade Logic)', () => {
-    let privateSTT: PrivateSTT;
     const mockCallbacks = {
         onModelLoadProgress: vi.fn(),
         onReady: vi.fn(),
         onTranscriptUpdate: vi.fn(),
     };
 
-    beforeEach(async () => {
+    async function setupTest(manifestOverrides: Partial<SSE2EManifest> = {}) {
         vi.clearAllMocks();
-        
-        // Define __SS_E2E__ on window for SSOT manifest (matching TestFlags.ts type)
+        await setupStrictZero();
+
         window.__SS_E2E__ = {
             isActive: true,
             engineType: 'system',
@@ -55,7 +57,8 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
                 bypassMutex: true,
                 fastTimers: true
             },
-            debug: false
+            debug: false,
+            ...manifestOverrides
         };
 
         // Standardize WebGPU mock
@@ -65,19 +68,20 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
             writable: true
         });
 
-        privateSTT = new PrivateSTT();
-    });
+        const mod = await import('@/services/transcription/engines/PrivateSTT');
+        return {
+            PrivateSTT: mod.PrivateSTT,
+            privateSTT: new mod.PrivateSTT()
+        };
+    }
 
     afterEach(async () => {
-        if (privateSTT) {
-            await privateSTT.destroy();
-        }
         delete (window as { __SS_E2E__?: unknown }).__SS_E2E__;
     });
 
     it('should use MockEngine when manifest indicates mocking', async () => {
+        const { privateSTT } = await setupTest({ engineType: 'mock' });
         const manifest = window.__SS_E2E__!;
-        manifest.engineType = 'mock';
 
         const mockInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
         const mockInstance = new StubMock();
@@ -89,36 +93,29 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         const result = await privateSTT.init(mockCallbacks as PrivateSTTInitOptions);
 
         expect(result.isOk).toBe(true);
-        expect(result.isOk ? result.data : null).toBe('mock');
+        expect(privateSTT.getEngineType()).toBe('mock');
         expect(mockInit).toHaveBeenCalled();
     });
 
     it('should select WhisperTurbo when WebGPU is available', async () => {
-        // Mock WebGPU presence
-        Object.defineProperty(navigator, 'gpu', { value: {}, configurable: true });
-
-        // To test selection logic, we must use 'real' engineType to bypass DISABLE_WASM flag in config/TestFlags.ts
-        window.__SS_E2E__!.engineType = 'real';
+        const { privateSTT } = await setupTest({ engineType: 'real' });
+        const manifest = window.__SS_E2E__!;
         
         const mockInstance = new StubWhisperTurbo();
-        (window.__SS_E2E__!.registry as Record<string, unknown>)['whisper-turbo'] = () => mockInstance;
+        (manifest.registry as Record<string, unknown>)['whisper-turbo'] = () => mockInstance;
         
         // Add Safe Engine to registry to prevent total failure if fallback happens
-        (window.__SS_E2E__!.registry as Record<string, unknown>)['transformers-js'] = () => new StubTransformersJS();
+        (manifest.registry as Record<string, unknown>)['transformers-js'] = () => new StubTransformersJS();
 
         const result = await privateSTT.init(mockCallbacks as PrivateSTTInitOptions);
 
         expect(result.isOk).toBe(true);
-        expect(result.isOk ? result.data : null).toBe('whisper-turbo');
+        expect(privateSTT.getEngineType()).toBe('whisper-turbo');
     });
 
     it('should fallback to TransformersJS if WhisperTurbo fails', async () => {
-        // Mock WebGPU presence
-        Object.defineProperty(navigator, 'gpu', { value: {}, configurable: true });
-
+        const { privateSTT } = await setupTest({ engineType: 'real' });
         const manifest = window.__SS_E2E__!;
-
-        window.__SS_E2E__!.engineType = 'real';
 
         // Fast engine fails
         const mockFastInstance = new StubWhisperTurbo();
@@ -132,26 +129,28 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         const result = await privateSTT.init(mockCallbacks as PrivateSTTInitOptions);
 
         expect(result.isOk).toBe(true);
-        expect(result.isOk ? result.data : null).toBe('transformers-js');
+        expect(privateSTT.getEngineType()).toBe('transformers-js');
     });
 
     it('should use TransformersJS immediately if WebGPU is unavailable', async () => {
-        // Mock WebGPU absence
+        const { privateSTT } = await setupTest({ engineType: 'real' });
+        const manifest = window.__SS_E2E__!;
+        
+        // Mock WebGPU absence after setupTest (which sets it to {})
         Object.defineProperty(navigator, 'gpu', { value: undefined, configurable: true });
-        window.__SS_E2E__!.engineType = 'real';
 
         const mockSafeInstance = new StubTransformersJS();
-        (window.__SS_E2E__!.registry as Record<string, unknown>)['transformers-js'] = () => mockSafeInstance;
+        (manifest.registry as Record<string, unknown>)['transformers-js'] = () => mockSafeInstance;
 
         const result = await privateSTT.init(mockCallbacks as PrivateSTTInitOptions);
 
         expect(result.isOk).toBe(true);
-        expect(result.isOk ? result.data : null).toBe('transformers-js');
+        expect(privateSTT.getEngineType()).toBe('transformers-js');
     });
 
     it('should delegate transcription to the active engine', async () => {
+        const { privateSTT } = await setupTest({ engineType: 'mock' });
         const manifest = window.__SS_E2E__!;
-        manifest.engineType = 'mock';
 
         const mockTranscribe = vi.fn().mockResolvedValue({ isOk: true, data: 'transcribed text' });
         const mockInstance = new StubMock();
@@ -167,8 +166,8 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
     });
 
     it('should exercise debug logging in init', async () => {
-        const manifest = window.__SS_E2E__!;
-        manifest.debug = true;
+        const { privateSTT } = await setupTest({ debug: true });
+
         const spy = vi.spyOn(logger, 'info').mockImplementation(() => { });
 
         await privateSTT.init(mockCallbacks as PrivateSTTInitOptions);
@@ -179,9 +178,7 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
     });
 
     it('should handle WhisperTurbo initialization failure', async () => {
-        // Mock WebGPU presence
-        Object.defineProperty(navigator, 'gpu', { value: {}, configurable: true });
-
+        const { privateSTT } = await setupTest({ engineType: 'real' });
         const manifest = window.__SS_E2E__!;
 
         // WhisperTurbo fails
@@ -196,6 +193,7 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         const result = await privateSTT.init(mockCallbacks as PrivateSTTInitOptions);
 
         expect(result.isOk).toBe(true);
-        expect(result.isOk ? result.data : 'none').toBe('transformers-js');
+        expect(result.isOk).toBe(true);
+        expect(privateSTT.getEngineType()).toBe('transformers-js');
     });
 });

@@ -8,6 +8,7 @@ import { BenefitsSection } from "@/components/landing/BenefitsSection";
 import { CTASection } from "@/components/landing/CTASection";
 import { LandingFooter } from "@/components/landing/LandingFooter";
 import { IS_TEST_ENVIRONMENT, LANDING_PAGE_REDIRECT_MS } from '@/config/env';
+import { ENV } from '@/config/TestFlags';
 
 const Index = () => {
   const { session, loading } = useAuthProvider();
@@ -15,9 +16,10 @@ const Index = () => {
 
   // Delayed redirect for authenticated users - show landing page first
   useEffect(() => {
-    if (!loading && session) {
-      // 🧪 In test environment, redirect immediately
-      if (IS_TEST_ENVIRONMENT) {
+    const isE2EMockMode = ENV.isE2E;
+    if (!loading && (session || isE2EMockMode)) {
+      // 🧪 In test environment or mock mode, redirect immediately
+      if (IS_TEST_ENVIRONMENT || isE2EMockMode) {
         setShouldRedirect(true);
         return;
       }

@@ -13,9 +13,9 @@ import { ImmutableCallbackProxy } from './utils/ImmutableCallbackProxy';
 import {
   TranscriptionPolicy,
   TranscriptionMode,
-  resolveMode,
   PROD_FREE_POLICY,
 } from './TranscriptionPolicy';
+import { STTNegotiator, NegotiatedStrategy } from './STTNegotiator'; // Added STTNegotiator and NegotiatedStrategy
 import { useSessionStore } from '../../stores/useSessionStore';
 import { TranscriptionFSM, TranscriptionState } from './TranscriptionFSM';
 import { FailureManager } from './FailureManager';
@@ -75,7 +75,7 @@ export interface TranscriptionServiceOptions {
 }
 
 /**
- * ARCHITECTURE (Senior Architect):
+ * ARCHITECTURE:
  * TranscriptionService serves as a Facade (GoF Pattern).
  * It orchestrates between FSM (State), Factory (Creation), and FailureManager (Resilience).
  * 
@@ -291,7 +291,11 @@ export default class TranscriptionService {
 
   private async createEngine(mode: TranscriptionMode): Promise<void> {
     const proxyOptions = this.getProxyOptions();
-    this.engine = await EngineFactory.create(mode, proxyOptions, this.policy);
+    
+    // We re-negotiate to ensure we have the correct strategy for final selection
+    const strategy = STTNegotiator.negotiate(this.policy, mode);
+    
+    this.engine = await EngineSelector.select(strategy, proxyOptions, this.policy);
   }
 
   private cleanupInitResources(): void {
@@ -343,6 +347,7 @@ export default class TranscriptionService {
     }
 
     this.fsm.transition({ type: 'START_REQUESTED' });
+    this.mode = this.policy.preferredMode || 'private';
 
     if (this.options.mockMic) {
       this.mic = this.options.mockMic;
@@ -439,7 +444,9 @@ export default class TranscriptionService {
     this.runId = Math.random().toString(36).substring(7);
     logger.info({ sId: this.serviceId, rId: this.runId }, '[TranscriptionService] startTranscription requested');
 
-    let mode = resolveMode(this.policy);
+    // 1. NEGOTIATION: Resolve the intended strategy (Intent)
+    const strategy = STTNegotiator.negotiate(this.policy, null);
+    let mode = strategy.mode;
 
     // Circuit Breaker: Fallback if too many failures
     if (mode === 'private' && this.failureManager.getEffectiveFailureCount() >= STT_CONFIG.MAX_PRIVATE_ATTEMPTS) {
@@ -561,7 +568,7 @@ export default class TranscriptionService {
       return;
     }
     try {
-      await this.engine.startTranscription(this.mic!);
+      await this.engine.start(this.mic!);
 
       this.startTime = Date.now();
       this.options.onModeChange?.(mode);
@@ -632,7 +639,10 @@ export default class TranscriptionService {
     try {
       // ✅ RESILIENCE: Race the engine stop against a timeout to prevent UI hangs
       const transcript = this.engine ? await Promise.race([
-        this.engine.stopTranscription(),
+        (async () => {
+          await this.engine!.stop();
+          return this.engine!.getTranscript();
+        })(),
         new Promise<string>((_, reject) =>
           setTimeout(() => reject(new Error('Engine stop timeout')), 3000)
         )
@@ -720,7 +730,7 @@ export default class TranscriptionService {
             // Call terminate with timeout to prevent hangs
             const terminator = typeof currentEngine.terminate === 'function'
               ? currentEngine.terminate()
-              : currentEngine.stopTranscription();
+              : currentEngine.stop();
 
             await Promise.race([
               terminator,
@@ -1230,7 +1240,8 @@ export default class TranscriptionService {
       this.fsm.transition({ type: 'ENGINE_INIT_REQUESTED' });
       try {
         const engineConfig: TranscriptionModeOptions = this.getProxyOptions();
-        this.engine = await EngineSelector.select('native', engineConfig, this.policy);
+        const fallbackStrategy: NegotiatedStrategy = { mode: 'native', isMock: false };
+        this.engine = await EngineSelector.select(fallbackStrategy, engineConfig, this.policy);
         if (this.engine) {
           await this.engine.init(engineConfig);
         }

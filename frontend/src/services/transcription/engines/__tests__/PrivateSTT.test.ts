@@ -6,12 +6,13 @@
  * - Verifies correct engine selection:
  *   - WebGPU available -> WhisperTurboEngine (Fast Path)
  *   - WebGPU missing -> TransformersJSEngine (Safe Path)
- *   - `window.__E2E_CONTEXT__` -> MockEngine (Reliable Path)
+ *   - `window.__SS_E2E__` -> MockEngine (Reliable Path)
  */
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Result } from '@/services/transcription/modes/types';
 import { createPrivateSTT } from '../PrivateSTT';
+import { ENV } from '@/config/TestFlags';
 import { STTEngine } from '@/contracts/STTEngine';
 
 // Mock underlying libraries to avoid resolution errors
@@ -19,9 +20,9 @@ vi.mock('whisper-turbo', () => ({}));
 vi.mock('@xenova/transformers', () => ({}));
 
 // Top-level mocks for control in tests
-const mockWTEInit = vi.fn().mockResolvedValue(Result.ok(undefined));
-const mockTJInit = vi.fn().mockResolvedValue(Result.ok(undefined));
-const mockEInit = vi.fn().mockResolvedValue(Result.ok(undefined));
+const mockWTEInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
+const mockTJInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
+const mockEInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 
 class StubWTE extends STTEngine {
     type = 'whisper-turbo' as const;
@@ -64,25 +65,35 @@ vi.mock('../MockEngine', () => ({
 
 describe('PrivateSTT (Routing Logic)', () => {
     beforeEach(() => {
+        globalThis.__TEST__ = true;
         vi.clearAllMocks();
-        // Reset window manifest (SSOT)
+        
+        // Final Architectural Directive: Test Harness owns mutation at T=0
         window.__SS_E2E__ = {
             isActive: true,
             engineType: 'mock',
             registry: {
-                'mock-engine': () => new StubE(),
+                'mock': () => new StubE(),
                 'whisper-turbo': () => new StubWTE(),
                 'transformers-js': () => new StubTJ()
             }
         };
 
-        // Reset navigator.gpu
-        // @ts-expect-error - delete readonly property for test mock
-        delete navigator.gpu;
+        // Reset navigator metadata
+        vi.stubGlobal('navigator', { ...navigator, gpu: undefined } as unknown as Navigator);
+    });
+
+    afterEach(() => {
+        if (typeof window !== 'undefined') {
+            const win = window as unknown as Record<string, unknown>;
+            delete win.__SS_E2E__;
+        }
     });
 
     it('selects MockEngine when manifest engineType is mock', async () => {
-        if (window.__SS_E2E__) window.__SS_E2E__.engineType = 'mock';
+        // Validation: Verify T=0 injection worked
+        expect(ENV.isTest).toBe(true);
+        expect(ENV.engineType).toBe('mock');
 
         const pstt = createPrivateSTT();
         await pstt.init({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });

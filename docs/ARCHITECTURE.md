@@ -744,45 +744,33 @@ To achieve React Refresh compliance and high maintainability, the monolithic `us
 > All automated tests use MockEngine for reliability and speed.
 > To test real engine behavior, use a production build in a real browser.
 
-### Universal TestRegistry Priority Pattern
+### 3.9 Deterministic Engine Orchestration (v0.6.0)
 
-To allow E2E tests to simulate complex resilience scenarios and ensure deterministic mocking across varying environments (Mock, Live, Canary, Driver-Dependent), SpeakSharp implements a strict **Universal Priority Pattern** for STT engine resolution.
+To ensure 100% CI reliability and eliminate non-deterministic "ping-pong" regressions, SpeakSharp enforces a strict **Negotiator → Selector → Factory** layering.
 
-**The Priority Chain:**
+#### The Orchestration Flow:
 
-The `TranscriptionService` resolves the engine instance using `resolveSTTImplementation`, which follows this hierarchy:
+1.  **STTNegotiator (Intent)**: Resolves the *intended* strategy based on policy and user preference.
+    - **Rule**: Must only use `ENV` for environment checks (`ENV.isTest && ENV.disableWasm`).
+    - **Rule**: No direct registry access.
+2.  **EngineSelector (Enforcement)**: The **authoritative boundary layer**. It enforces resource guards (WASM isolation) and resolves mocks.
+    - **Rule**: The **ONLY** layer allowed to access the `TestRegistry`.
+    - **Rule**: If `strategy.isMock` or `ENV.disableWasm`, it retrieves the engine from the registry.
+3.  **EngineFactory (Construction)**: A **pure implementer**.
+    - **Rule**: ZERO knowledge of test infrastructure, registries, or mocks.
+    - **Rule**: Only instantiates real production engines (`NativeBrowser`, `CloudAssemblyAI`, `PrivateSTT`).
 
-1.  **`TestRegistry` (Selection Container):** Priority 100. A synchronous lookup container. Injected mocks take absolute precedence.
-    *   **Partnership with Facade DI:** The `TestRegistry` provides the *source* of the dependency. The injection itself happens via **Facade DI**: the `PrivateWhisper` wrapper accepts an optional `injectedSTT` engine (`IPrivateSTT`) in its constructor (`injectedSTT || new PrivateSTT()`).
-    *   **Strict Zero Manifest:** E2E tests inject engine factories via `window.__SS_E2E__.registry` using Playwright's `addInitScript`. This ensures all mocks are available at **$T=0$** (the first microtask), eliminating asynchronous race conditions.
-2.  **`E2EConfig` (Environment Mocks):** Priority 50. Derived from the `__SS_E2E__` manifest. These are the standard "Fast Mocks" used in CI.
-3.  **Real Implementation:** Priority 0. The default production engines (OpenAI, TransformersJS, Web Speech API).
+#### Absolute Governance Rules:
 
-**Mechanics:**
-- **Diagnostic Introspection:** `TestRegistry.getInfo()` returns the merged state of manifest and local registrations, accessible via `window.__TEST_REGISTRY__.getInfo()`.
-- **Standard Mocks:** Shared mock behaviors (`failure`, `slow-load`, `controlled-progress`) are defined in `tests/helpers/testRegistry.helpers.ts`.
+| Rule | Rationale |
+| :--- | :--- |
+| **No Test Libs in Factory** | Prevents test concerns from leaking into production paths. |
+| **Kill `getEngineType()`** | Eliminates secondary sources of truth; use `ENV` exclusively. |
+| **T=0 Registry Injection** | Guarantees all mocks are available before first microtask, preventing races. |
+| **Environment-First Guard** | `ENV.disableWasm` takes precedence to prevent heavy ML loads in CI. |
 
-**Architecture Flow:**
-```ascii
-TranscriptionService.init(mode)
-       │
-       ▼
-resolveSTTImplementation(mode)
-       │
-       ▼
-TestRegistry.get(mode)? ───────────┐
-       │                           │
-    [No]                         [Yes]
-       │                           │
-       ▼                           ▼
-E2EConfig active? ─────────┐    Mock (Prio 100)
-       │                   │    (e.g. ControlledProgress)
-    [No]                 [Yes]
-       │                   │
-       ▼                   ▼
-Real Engine (Prio 0)    Standard Mock (Prio 50)
-                        (e.g. MockWhisper)
-```
+#### Dependency Flow:
+`TranscriptionService` → `STTNegotiator` (Strategy) → `EngineSelector` (Instance) → `EngineFactory` (Real) OR `TestRegistry` (Mock).
 
 ### ⚡ Optimistic Entry Pattern
 

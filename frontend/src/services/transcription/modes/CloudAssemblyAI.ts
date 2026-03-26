@@ -5,7 +5,7 @@ import { getSupabaseClient } from '../../../lib/supabaseClient';
 import { Session } from '@supabase/supabase-js';
 import { floatToInt16Async } from '../utils/AudioProcessor';
 import logger from '../../../lib/logger';
-import { TestFlags } from '../../../config/TestFlags';
+import { ENV } from '../../../config/TestFlags';
 
 // Message types for AssemblyAI WebSocket
 interface AssemblyAIMessage {
@@ -157,7 +157,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   }
 
   private isE2EEnvironment(): boolean {
-    return TestFlags.IS_E2E;
+    return ENV.IS_E2E;
   }
 
   private isDevelopmentEnvironment(): boolean {

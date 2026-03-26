@@ -48,7 +48,7 @@ pnpm preflight
 
 This script performs a fast, minimal sanity check of your environment to ensure Node.js, pnpm, and all dependencies are correctly installed.
 
-Do not proceed until this script completes successfully. If it fails, follow the "Dead Environment Trap" troubleshooting in `README.md` to stabilize your environment via `pnpm env:stabilize`.
+Do not proceed until this script completes successfully. If it fails, follow the "Dead Environment Trap" troubleshooting in `README.md` to stabilize your environment via `pnpm clean:nuclear`.
 
 ---
 
@@ -121,11 +121,12 @@ The primary runner for all local validation is `pnpm test:all:local` (which call
 
 ### 3. Selective Use of `scripts/env-stabilizer.sh`
 
-The `./scripts/env-stabilizer.sh` script is a powerful tool for recovering a broken environment, but it should be used selectively.
+The `./scripts/env-stabilizer.sh` script (via `pnpm env:stabilize`) is a powerful tool for recovering a broken environment in CI, but it is **DESTRUCTIVE** in dev mode (it runs `git restore .`).
 
 *   Run `pnpm preflight` first.
-*   If instability persists (e.g., hanging tests, port conflicts), then run `pnpm env:stabilize`.
-*   Escalate to the user **before using** `./scripts/vm-recovery.sh`.
+*   If instability persists (e.g., hanging tests, port conflicts), run **`pnpm clean:nuclear`**. This kills stale processes and wipes Vite caches without touching your code.
+*   **NEVER** run `pnpm env:stabilize` in dev mode if you have uncommitted changes.
+*   Escalate to the user **before using** `./scripts/vm-recovery.sh` or `pnpm env:stabilize ci`.
 *   Always read `README.md` to understand setup, workflow, and scripts.
 
 ### 4. Handling Silent Crashes in E2E Tests
@@ -204,7 +205,7 @@ ___
 1. **Contextual Review** – Read `/docs` and `README.md` before acting.
     - **Handling Secrets**: Critical credentials (like `ASSEMBLYAI_API_KEY`) are managed via **GitHub Secrets**, not `.env` files. Run `gh secret list` to verify available secrets.
     - **Cloud Execution**: Consult `tests/TEST_PLAYBOOK.md` to understand how tests are dispatched to the GitHub Cloud via YAML scripts (e.g., `ci:dispatch:soak`).
-2. **Stabilize Environment** – Run `pnpm env:stabilize` only if instability signs appear.
+2. **Stabilize Environment** – Run **`pnpm clean:nuclear`** if instability signs (port conflicts, hanging tests) appear. Only use `env:stabilize` if instructed by the user and you have no uncommitted work.
 3. **Grounding** – Review current workflows, scripts, and audit runners.
 4. **Codebase Deep Dive** – Inspect actual code, not assumptions.
 5. **Strategic Consultation** – Present root cause + 2–3 solution paths **before major changes**.

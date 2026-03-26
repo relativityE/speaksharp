@@ -88,15 +88,15 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   /**
    * High-level Start command (Contract Requirement)
    */
-  async start(): Promise<void> {
+  async start(mic?: MicStream): Promise<void> {
     if (!this.isInitialized) {
       throw new Error(`[STTEngine] Cannot start ${this.type} - not initialized.`);
     }
     this.updateHeartbeat();
-    await this.onStart();
+    await this.onStart(mic);
   }
 
-  protected abstract onStart(): Promise<void>;
+  protected abstract onStart(mic?: MicStream): Promise<void>;
 
   /**
    * High-level Stop command (Contract Requirement)
@@ -141,19 +141,6 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
 
   protected updateHeartbeat(): void {
     this.lastHeartbeat = Date.now();
-  }
-
-  /**
-   * Implementation of ITranscriptionEngine (Legacy Bridge)
-   */
-  public async startTranscription(_mic?: MicStream): Promise<void> {
-    // mic is managed by the service orchestrator, but we satisfy the interface
-    await this.start();
-  }
-
-  public async stopTranscription(): Promise<string> {
-    await this.stop();
-    return this.getTranscript();
   }
 
   public async getTranscript(): Promise<string> {

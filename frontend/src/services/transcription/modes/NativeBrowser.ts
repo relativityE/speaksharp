@@ -1,5 +1,6 @@
 import logger from '@/lib/logger';
 import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, TranscriptionError, Result } from './types';
+import { MicStream } from '../utils/types';
 import { STTEngine } from '@/contracts/STTEngine';
 import { EngineType, EngineCallbacks } from '@/contracts/IPrivateSTTEngine';
 import { ENV } from '@/config/TestFlags';
@@ -156,8 +157,8 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     return Result.ok(undefined);
   }
 
-  protected async onStart(): Promise<void> {
-    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] startTranscription called');
+  protected async onStart(_mic?: MicStream): Promise<void> {
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] start called');
     if (!this.recognition) {
       throw new Error('NativeBrowser not initialized');
     }

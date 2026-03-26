@@ -2,6 +2,7 @@ import React, { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { Loader2 } from 'lucide-react';
+import { ENV } from '../config/TestFlags';
 import logger from '../lib/logger';
 
 interface ProtectedRouteProps {
@@ -28,10 +29,9 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     );
   }
 
-  if (!user) {
+  // 🧪 INTEGRITY BYPASS: Allow System Probe to reach protected routes without real Auth
+  if (!user && !ENV.isE2E) {
     logger.info({ from: location.pathname }, '[ProtectedRoute] No user, redirecting to /auth');
-    // Redirect them to the /auth page, but save the current location they were
-    // trying to go to. This allows us to send them back after login.
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }
 

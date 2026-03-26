@@ -2,7 +2,7 @@ import { createContext } from 'react';
 import { UserProfile } from '../types/user';
 
 /**
- * ARCHITECTURE (Senior Architect):
+ * ARCHITECTURE:
  * ProfileContext provides a guaranteed non-null UserProfile down the tree.
  * 
  * DESIGN RATIONALE:

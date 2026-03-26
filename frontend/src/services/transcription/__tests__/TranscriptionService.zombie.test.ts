@@ -8,7 +8,7 @@ import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
 import { STTEngine } from '@/contracts/STTEngine';
 import { Result } from '../modes/types';
 import { EngineType } from '@/contracts/IPrivateSTTEngine';
-import { testRegistry } from '../TestRegistry';
+import { EngineFactory } from '../EngineFactory';
 import { MicStream } from '../utils/types';
 
 class MockEngine extends STTEngine {
@@ -65,7 +65,6 @@ describe('TranscriptionService - Zombie Prevention', () => {
     beforeEach(async () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
-        testRegistry.clear();
         service = new TestTranscriptionService(mockOptions);
         await service.init();
     });
@@ -75,7 +74,6 @@ describe('TranscriptionService - Zombie Prevention', () => {
         if (service && !service.isServiceDestroyed()) {
             await service.destroy();
         }
-        testRegistry.clear();
         vi.useRealTimers();
     });
 
@@ -83,8 +81,12 @@ describe('TranscriptionService - Zombie Prevention', () => {
         // Arrange
         const cloudEngine = new MockEngine('cloud');
         const privateEngine = new MockEngine('private');
-        testRegistry.register('cloud', () => cloudEngine);
-        testRegistry.register('private', () => privateEngine);
+        // 1. Mock the EngineFactory to return our specific mock instances
+        vi.spyOn(EngineFactory, 'create').mockImplementation(async (mode) => {
+            if (mode === 'cloud') return cloudEngine;
+            if (mode === 'private') return privateEngine;
+            throw new Error(`Unexpected mode: ${mode}`);
+        });
 
         // 1. Initialize Cloud mode
         // Note: Using a valid policy with preferredMode passed in
@@ -105,7 +107,8 @@ describe('TranscriptionService - Zombie Prevention', () => {
         const cloudEngine = new MockEngine('cloud');
         // Make terminate take some time
         cloudEngine.terminate.mockImplementation(() => new Promise(res => setTimeout(res, 50)));
-        testRegistry.register('cloud', () => cloudEngine);
+        
+        vi.spyOn(EngineFactory, 'create').mockResolvedValue(cloudEngine);
 
         await service.triggerStartTranscription({ ...mockOptions.policy!, preferredMode: 'cloud' });
         expect(service.getEngineInstance()).toBe(cloudEngine);
@@ -131,7 +134,8 @@ describe('TranscriptionService - Zombie Prevention', () => {
     it('should be idempotent: additional destroy calls are safe', async () => {
         // Arrange
         const cloudEngine = new MockEngine('cloud');
-        testRegistry.register('cloud', () => cloudEngine);
+
+        vi.spyOn(EngineFactory, 'create').mockResolvedValue(cloudEngine);
 
         await service.triggerStartTranscription({ ...mockOptions.policy!, preferredMode: 'cloud' });
         await service.destroy();

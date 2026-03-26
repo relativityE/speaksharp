@@ -3,7 +3,7 @@ import logger from '@/lib/logger';
 import { ENV } from '@/config/TestFlags';
 
 /**
- * ARCHITECTURE (Senior Architect):
+ * ARCHITECTURE:
  * STTServiceFactory enables the "Disposable Service" pattern.
  * It yields the "Universal Orchestrator" (TranscriptionService).
  * 

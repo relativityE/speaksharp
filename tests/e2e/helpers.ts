@@ -7,6 +7,7 @@
  */
 
 import { type Page, expect } from '@playwright/test';
+import { setupE2EManifest } from './helpers/setupE2EManifest';
 import {
   MOCK_TRANSCRIPTS,
 } from './fixtures/mockData';
@@ -304,28 +305,14 @@ export async function programmaticLoginWithRoutes(
   setupBrowserLogging(page);
   setupNetworkTracking(page);
 
-  await page.addInitScript(({ key, sessionData, emptySessions, registry, debug }) => {
-    window.__E2E_EMPTY_SESSIONS__ = emptySessions;
-    
-    // Aligned with Phase 1 "Strict Zero" Environment Model
-    window.__SS_E2E__ = {
-      isActive: true,
-      engineType: 'mock',
-      registry: registry || {},
-      flags: {
-        bypassMutex: false,
-        fastTimers: true
-      },
-      debug: !!debug
-    };
-
-    (window as unknown as { __APP_READY_STATE__: Record<string, unknown> }).__APP_READY_STATE__ = {
-      boot: false, layout: false, auth: false, analytics: false, stt: false, msw: false,
-      _timestamps: { reset: performance.now() }
-    };
-
-    window.localStorage.setItem(key, JSON.stringify(sessionData));
-  }, { key: localStorageKey, sessionData: session, emptySessions, registry, debug });
+  await setupE2EManifest(page, {
+    engineType: 'mock',
+    registry: registry || {},
+    debug: !!debug,
+    storage: {
+      [localStorageKey]: JSON.stringify(session)
+    }
+  });
 
   await page.goto('/');
   await waitForAppReady(page);

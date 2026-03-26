@@ -55,16 +55,16 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(mockRecognition.interimResults).toBe(true);
     });
 
-    it('should call start on the recognition object when startTranscription is called', async () => {
+    it('should call start on the recognition object when start is called', async () => {
       await nativeBrowser.init({ onTranscriptUpdate, onReady } as unknown as TranscriptionModeOptions);
-      await nativeBrowser.startTranscription();
+      await nativeBrowser.start();
       expect(mockRecognition.start).toHaveBeenCalledTimes(1);
     });
 
-    it('should call stop on the recognition object when stopTranscription is called', async () => {
+    it('should call stop on the recognition object when stop is called', async () => {
       await nativeBrowser.init({ onTranscriptUpdate, onReady } as unknown as TranscriptionModeOptions);
-      await nativeBrowser.startTranscription();
-      await nativeBrowser.stopTranscription();
+      await nativeBrowser.start();
+      await nativeBrowser.stop();
       expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
     });
   });
@@ -109,7 +109,7 @@ describe('NativeBrowser Transcription Mode', () => {
     });
     it('REGRESSION: should handle rapid onend events without redundant starts', async () => {
       await nativeBrowser.init({ onTranscriptUpdate, onReady } as unknown as TranscriptionModeOptions);
-      await nativeBrowser.startTranscription();
+      await nativeBrowser.start();
 
       vi.useFakeTimers();
 

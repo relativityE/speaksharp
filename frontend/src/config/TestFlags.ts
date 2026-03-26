@@ -67,11 +67,3 @@ export const ENV = (() => {
     }
   };
 })();
-
-/**
- * COMPATIBILITY SHIM (Strangler Pattern)
- * Following "System Integrity over Developer Velocity", we maintain this shim
- * to keep the 50+ legacy files functional while they transition to ENV.
- * @deprecated Use ENV instead.
- */
-export const TestFlags = ENV;

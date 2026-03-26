@@ -82,10 +82,8 @@ export interface TranscriptionModeOptions {
 
 export interface ITranscriptionEngine {
   init(callbacks: TranscriptionModeOptions): Promise<void | Result<void, Error>>;
-  start(): Promise<void>;
+  start(mic?: MicStream): Promise<void>;
   stop(): Promise<void>;
-  startTranscription(mic?: MicStream): Promise<void>;
-  stopTranscription(): Promise<string>;
   dispose(): void;
   getTranscript(): Promise<string>;
   getEngineType(): string;

@@ -22,7 +22,7 @@ import { SunsetModals } from '@/components/session/SunsetModals';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 
 /**
- * ARCHITECTURE (Senior Architect):
+ * ARCHITECTURE:
  * SessionPage is now a "Thin View" component.
  * All complex state orchestration, timer logic, and persistence flows 
  * have been extracted into useSessionLifecycle.

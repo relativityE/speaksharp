@@ -98,7 +98,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
             _mediaStream: new MediaStream(),
         };
 
-        await privateWhisper.startTranscription(mockMic);
+        await privateWhisper.start(mockMic);
 
         // Verify delegation
         expect(mockMic.onFrame).toHaveBeenCalled();
@@ -114,7 +114,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         expect(mocks.transcribe).toHaveBeenCalled();
 
-        await privateWhisper.stopTranscription();
+        await privateWhisper.stop();
         vi.useRealTimers();
     });
 
@@ -132,7 +132,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
             _mediaStream: new MediaStream(),
         };
 
-        await privateWhisper.startTranscription(mockMic);
+        await privateWhisper.start(mockMic);
 
         // Simulate silence in PauseDetector mock
         mocks.isMeaningfullySilent.mockReturnValue(true);
@@ -143,7 +143,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         // Verify: transcribe should NOT be called because RMS is 0 (mocked)
         expect(mocks.transcribe).not.toHaveBeenCalled();
 
-        await privateWhisper.stopTranscription();
+        await privateWhisper.stop();
         vi.useRealTimers();
     });
 
@@ -162,7 +162,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
             _mediaStream: new MediaStream(),
         };
 
-        await privateWhisper.startTranscription(mockMic);
+        await privateWhisper.start(mockMic);
 
         // Simulate audio frame (high amplitude squares)
         const audioFrame = new Float32Array(16000).fill(0.5);
@@ -176,7 +176,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         // Verify: transcribe SHOULD be called
         expect(mocks.transcribe).toHaveBeenCalled();
 
-        await privateWhisper.stopTranscription();
+        await privateWhisper.stop();
         vi.useRealTimers();
     });
     it('REGRESSION: preserves audio chunks arriving during inference', async () => {
@@ -194,7 +194,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
             _mediaStream: new MediaStream(),
         };
 
-        await privateWhisper.startTranscription(mockMic);
+        await privateWhisper.start(mockMic);
 
         // 1. Send first frame
         if (frameCallback) frameCallback(new Float32Array(8000).fill(0.5));
@@ -216,7 +216,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         expect(mocks.transcribe).toHaveBeenCalledTimes(2);
 
-        await privateWhisper.stopTranscription();
+        await privateWhisper.stop();
         vi.useRealTimers();
     });
 });
