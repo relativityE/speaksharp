@@ -25,9 +25,20 @@ export class EngineSelector {
     // 1. TEST PATH (Authoritative)
     // If the negotiator decided it's a mock path (due to environment), resolve it now.
     if (strategy.isMock) {
-      const mockFactory = getEngine(strategy.mode);
+      // 🛡️ ARCHITECTURAL GUARDRAIL: Prevent "Facade Hijack"
+      // The registry is for ENGINES only, never for orchestration layers (facades).
+      const registry = (window as unknown as { __SS_E2E__?: { registry?: Record<string, unknown> } }).__SS_E2E__?.registry || {};
+      const forbidden = ['private', 'cloud', 'native'];
+      for (const key of forbidden) {
+        if (registry[key]) {
+          throw new Error(`[EngineSelector] Fatal: Facade Hijack detected via registry key: "${key}". Mocks must be engine-level only.`);
+        }
+      }
+
+      const engineKey = strategy.variant || strategy.mode;
+      const mockFactory = getEngine(engineKey);
       if (!mockFactory) {
-        throw new Error(`[EngineSelector] Missing mock engine for mode: ${strategy.mode} at T=0`);
+        throw new Error(`[EngineSelector] Missing mock engine for key: ${engineKey} at T=0`);
       }
       return mockFactory(options);
     }

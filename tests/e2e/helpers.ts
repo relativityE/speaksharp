@@ -270,7 +270,6 @@ export async function programmaticLoginWithRoutes(
     supabaseUrl?: string;
     userType?: 'free' | 'pro';
     emptySessions?: boolean;
-    registry?: Record<string, unknown>;
     debug?: boolean;
   } = {}
 ) {
@@ -279,7 +278,6 @@ export async function programmaticLoginWithRoutes(
     supabaseUrl: optUrl, 
     userType = 'free', 
     emptySessions = false,
-    registry = {},
     debug = false
   } = options;
   let projectRef = optRef || 'yxlapjuovrsvjswkwnrk';
@@ -305,9 +303,9 @@ export async function programmaticLoginWithRoutes(
   setupBrowserLogging(page);
   setupNetworkTracking(page);
 
+  // Harden:setupE2EManifest now correctly inlines the mock registry in the browser context.
   await setupE2EManifest(page, {
-    engineType: 'mock',
-    registry: registry || {},
+    engineType: userType === 'pro' ? 'real' : 'mock',
     debug: !!debug,
     storage: {
       [localStorageKey]: JSON.stringify(session)
@@ -322,8 +320,20 @@ export async function programmaticLoginWithRoutes(
 // 5. Simulation Helpers
 export async function simulateTranscription(page: Page, text: string, isFinal: boolean = true) {
   await page.evaluate(({ transcription, final }) => {
-    const win = window as unknown as { dispatchMockTranscript?: (text: string, isFinal: boolean) => void; logger?: { error: (msg: string) => void } };
-    if (typeof win.dispatchMockTranscript === 'function') {
+    // Define bridge interface locally for type-safe access
+    interface E2EWindow extends Window {
+      __SS_E2E__: {
+        isActive: boolean;
+        engineType?: 'mock' | 'real' | 'system';
+        emitTranscript?: (text: string, isFinal?: boolean) => void;
+      };
+      dispatchMockTranscript?: (text: string, isFinal: boolean) => void;
+    }
+    const win = window as unknown as E2EWindow;
+    // Modern pattern: window.__SS_E2E__.emitTranscript
+    if (win.__SS_E2E__?.emitTranscript) {
+      win.__SS_E2E__.emitTranscript(transcription, final);
+    } else if (typeof win.dispatchMockTranscript === 'function') {
       win.dispatchMockTranscript(transcription, final);
     }
   }, { transcription: text, final: isFinal });

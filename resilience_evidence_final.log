@@ -1,0 +1,101 @@
+
+Running 1 test using 1 worker
+
+{"level":40,"time":1774611441816,"pid":40489,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\u001b[0m"}
+{"level":40,"time":1774611441831,"pid":40489,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\u001b[0m"}
+{"level":40,"time":1774611442378,"pid":40489,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\u001b[0m"}
+{"level":40,"time":1774611442395,"pid":40489,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\u001b[0m"}
+{"level":40,"time":1774611442524,"pid":40489,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] ⚠️ Hard reset triggered\u001b[0m"}
+  ✘  1 [chromium] › tests/e2e/priv-stt-mock-fallback.e2e.spec.ts:19:5 › Private STT Resilience › should start session immediately using fallback while model downloads in background (18.6s)
+{"level":40,"time":1774611460679,"pid":40504,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\u001b[0m"}
+{"level":40,"time":1774611460688,"pid":40504,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\u001b[0m"}
+{"level":40,"time":1774611461119,"pid":40504,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\u001b[0m"}
+{"level":40,"time":1774611461127,"pid":40504,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\u001b[0m"}
+{"level":40,"time":1774611461257,"pid":40504,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] ⚠️ Hard reset triggered\u001b[0m"}
+  ✘  2 [chromium] › tests/e2e/priv-stt-mock-fallback.e2e.spec.ts:19:5 › Private STT Resilience › should start session immediately using fallback while model downloads in background (retry #1) (18.6s)
+
+
+  1) [chromium] › tests/e2e/priv-stt-mock-fallback.e2e.spec.ts:19:5 › Private STT Resilience › should start session immediately using fallback while model downloads in background 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('background-task-indicator')
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 15000ms[22m
+    [2m  - waiting for getByTestId('background-task-indicator')[22m
+
+
+      117 |         // 3. VERIFY BACKGROUND DOWNLOAD
+      118 |         const backgroundIndicator = page.getByTestId('background-task-indicator');
+    > 119 |         await expect(backgroundIndicator).toBeVisible();
+          |                                           ^
+      120 |
+      121 |         // 4. SIMULATE PROGRESS
+      122 |         debugLog('[TEST] ⚡ Simulating 50% progress...');
+        at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/priv-stt-mock-fallback.e2e.spec.ts:119:43
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/playwright/priv-stt-mock-fallback.e2e-b6173-del-downloads-in-background-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/playwright/priv-stt-mock-fallback.e2e-b6173-del-downloads-in-background-chromium/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/playwright/priv-stt-mock-fallback.e2e-b6173-del-downloads-in-background-chromium/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/playwright/priv-stt-mock-fallback.e2e-b6173-del-downloads-in-background-chromium/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/playwright/priv-stt-mock-fallback.e2e-b6173-del-downloads-in-background-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('background-task-indicator')
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 15000ms[22m
+    [2m  - waiting for getByTestId('background-task-indicator')[22m
+
+
+      117 |         // 3. VERIFY BACKGROUND DOWNLOAD
+      118 |         const backgroundIndicator = page.getByTestId('background-task-indicator');
+    > 119 |         await expect(backgroundIndicator).toBeVisible();
+          |                                           ^
+      120 |
+      121 |         // 4. SIMULATE PROGRESS
+      122 |         debugLog('[TEST] ⚡ Simulating 50% progress...');
+        at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/priv-stt-mock-fallback.e2e.spec.ts:119:43
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/playwright/priv-stt-mock-fallback.e2e-b6173-del-downloads-in-background-chromium-retry1/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    attachment #2: video (video/webm) ──────────────────────────────────────────────────────────────
+    test-results/playwright/priv-stt-mock-fallback.e2e-b6173-del-downloads-in-background-chromium-retry1/video.webm
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/playwright/priv-stt-mock-fallback.e2e-b6173-del-downloads-in-background-chromium-retry1/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/playwright/priv-stt-mock-fallback.e2e-b6173-del-downloads-in-background-chromium-retry1/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/playwright/priv-stt-mock-fallback.e2e-b6173-del-downloads-in-background-chromium-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [chromium] › tests/e2e/priv-stt-mock-fallback.e2e.spec.ts:19:5 › Private STT Resilience › should start session immediately using fallback while model downloads in background 

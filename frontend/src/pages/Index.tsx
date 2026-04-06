@@ -7,44 +7,32 @@ import { BenefitsSection } from "@/components/landing/BenefitsSection";
 // import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
 import { CTASection } from "@/components/landing/CTASection";
 import { LandingFooter } from "@/components/landing/LandingFooter";
-import { IS_TEST_ENVIRONMENT, LANDING_PAGE_REDIRECT_MS } from '@/config/env';
+import { LANDING_PAGE_REDIRECT_MS } from '@/config/env';
 import { ENV } from '@/config/TestFlags';
 
 const Index = () => {
   const { session, loading } = useAuthProvider();
-  const [shouldRedirect, setShouldRedirect] = useState(false);
+  const isE2EMockMode = ENV.isE2E;
+
+  // 🧪 Sync redirect for tests to prevent first-render flicker
+  // In unit tests, we only redirect if we have a session.
+  // In E2E tests, we skip if we have a session OR if in mock mode.
+  const initialRedirect = (ENV.isE2E && isE2EMockMode && !ENV.isUnit) || !!session;
+  const [shouldRedirect, setShouldRedirect] = useState(initialRedirect);
 
   // Delayed redirect for authenticated users - show landing page first
   useEffect(() => {
-    const isE2EMockMode = ENV.isE2E;
-    if (!loading && (session || isE2EMockMode)) {
-      // 🧪 In test environment or mock mode, redirect immediately
-      if (IS_TEST_ENVIRONMENT || isE2EMockMode) {
-        setShouldRedirect(true);
-        return;
-      }
+    // Already handled by sync initial state for tests
+    if (ENV.isTest || isE2EMockMode) return;
 
-      /**
-       * ARCHITECTURE NOTE (Senior Architect):
-       * This is an INTENTIONAL UX delay, NOT a wait-for-event pattern.
-       * 
-       * Purpose: Show marketing content to authenticated returning users
-       * before auto-redirecting them to /session.
-       * 
-       * Why setTimeout is correct here:
-       * 1. There's no event to wait for - it's a designed pause
-       * 2. Value is configurable via LANDING_PAGE_REDIRECT_MS config
-       * 3. Test environment bypasses entirely (IS_TEST_ENVIRONMENT)
-       * 
-       * This follows UX best practice for "welcome back" experiences.
-       */
+    if (!loading && session) {
       const timer = setTimeout(() => {
         setShouldRedirect(true);
       }, LANDING_PAGE_REDIRECT_MS);
 
       return () => clearTimeout(timer);
     }
-  }, [session, loading]);
+  }, [session, loading, isE2EMockMode]);
 
   // Redirect after delay
   if (shouldRedirect) {

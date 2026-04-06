@@ -17,64 +17,90 @@ test.describe('Private STT Resilience', () => {
 
 
     test('should start session immediately using fallback while model downloads in background', async ({ page }) => {
-        // 1. SETUP SESSION with Synchronous Registry Injection
-        await programmaticLoginWithRoutes(page, { 
-            userType: 'pro',
-            registry: {
-                // We inject the factory directly into the manifest
-                'privateSTT': (win: Window & { 
-                    __resolvePrivateInit__?: (success: boolean) => void;
-                    __simulatePrivateProgress__?: (progress: number) => void;
-                    logger?: { info: (msg: string | object) => void };
-                }, options: { 
-                    onModelLoadProgress?: (p: number) => void;
-                    onReady?: () => void;
-                }) => {
-                    class FakePrivateSTT {
-                        private callbacks: Record<string, (...args: unknown[]) => void> = {};
-                        private _engineType = 'whisper-turbo';
+        // 1. SETUP SESSION with Synchronous Registry Injection (Modern Pattern)
+        // Correct Fix: Move mock creation INSIDE browser context
+        await page.addInitScript(() => {
+            type E2EWindow = Window & {
+                __SS_E2E__: {
+                    isActive: boolean;
+                    engineType?: 'mock' | 'real' | 'system';
+                    debug?: boolean;
+                    flags?: Record<string, unknown>;
+                    registry: Record<string, unknown>;
+                    emitTranscript?: (text: string, isFinal?: boolean) => void;
+                };
+                logger?: { info: (msg: string | object) => void };
+                __resolvePrivateInit__?: (success: boolean) => void;
+                __simulatePrivateProgress__?: (progress: number) => void;
+            };
+            const win = window as unknown as E2EWindow;
 
-                        constructor(options: Record<string, (...args: unknown[]) => void>) {
-                            if (win.logger) win.logger.info('[FakePrivateSTT] constructor called');
-                            this.callbacks = options;
-                        }
+            // Specialized factory for resilience testing (Safe Path / CPU)
+            const fakeTransformersJSFactory = (options: {
+                onModelLoadProgress?: (p: number) => void;
+                onReady?: () => void;
+            }) => {
+                return {
+                    instanceId: 'transformers-js-resilient',
+                    callbacks: options,
 
-                        async init() {
-                            if (win.logger) win.logger.info('[FakePrivateSTT] init() called');
-                            if (this.callbacks.onModelLoadProgress) this.callbacks.onModelLoadProgress(0);
+                    async init() {
+                        if (win.logger) win.logger.info('[FakeTransformersJS] init() called');
+                        // Use closure capture for callbacks since 'this' can be tricky
+                        const activeCallbacks = options; 
+                        if (activeCallbacks.onModelLoadProgress) activeCallbacks.onModelLoadProgress(0);
 
-                            return new Promise((resolve) => {
-                                win.__resolvePrivateInit__ = (success: boolean) => {
-                                    if (success) {
-                                        if (this.callbacks.onModelLoadProgress) this.callbacks.onModelLoadProgress(1.0);
-                                        if (this.callbacks.onReady) this.callbacks.onReady();
-                                        resolve({ variant: 'Ok', value: 'mock-engine' });
-                                    } else {
-                                        resolve({ variant: 'Err', error: new Error('Mock init failed') });
-                                    }
-                                };
+                        return new Promise((resolve) => {
+                            win.__resolvePrivateInit__ = (success: boolean) => {
+                                if (success) {
+                                    if (activeCallbacks.onModelLoadProgress) activeCallbacks.onModelLoadProgress(1.0);
+                                    if (activeCallbacks.onReady) activeCallbacks.onReady();
+                                    resolve({ isOk: true });
+                                } else {
+                                    resolve({ isOk: false, error: new Error('Mock init failed') });
+                                }
+                            };
 
-                                win.__simulatePrivateProgress__ = (progress: number) => {
-                                    if (this.callbacks.onModelLoadProgress) this.callbacks.onModelLoadProgress(progress);
-                                };
-                            });
-                        }
+                            win.__simulatePrivateProgress__ = (progress: number) => {
+                                if (activeCallbacks.onModelLoadProgress) activeCallbacks.onModelLoadProgress(progress);
+                            };
+                        });
+                    },
 
-                        async start() { }
-                        async stop() { return "Mock transcript"; }
-                        async transcribe(audio: Float32Array) {
-                            if (win.logger) win.logger.info({ audioLength: audio.length }, '[FakePrivateSTT] Processing audio chunk');
-                            return { variant: 'Ok', value: "Fake transcription" };
-                        }
+                    start: async () => { },
+                    stop: async () => { },
+                    dispose: () => { },
+                    getTranscript: async () => "Mock transcript",
+                    getLastHeartbeatTimestamp: () => Date.now(),
+                    getEngineType: () => 'transformers-js'
+                };
+            };
 
-                        async destroy() { }
-                        getLastHeartbeatTimestamp() { return Date.now(); }
-                        getEngineType() { return this._engineType; }
-                    }
-                    return new FakePrivateSTT(options);
-                }
-            }
+            // Injected Fail Factory (Fast Path / GPU)
+            const failFactory = () => ({
+                instanceId: 'whisper-turbo-failing',
+                init: async () => {
+                    if (win.logger) win.logger.info('[MockWhisperTurbo] Failing init for fallback test');
+                    return { isOk: false, error: new Error('GPU not available (Mock)') };
+                },
+                start: async () => { },
+                stop: async () => { },
+                dispose: () => { },
+                getTranscript: async () => '',
+                getLastHeartbeatTimestamp: () => Date.now(),
+                getEngineType: () => 'whisper-turbo'
+            });
+
+            // 🛡️ ARCHITECTURAL DECOUPLING:
+            // We mock the ENGINES, not the facade. PrivateSTT will run and find these in its internal registry lookups.
+            win.__SS_E2E__ = win.__SS_E2E__ || { isActive: true, registry: {} };
+            win.__SS_E2E__.registry['whisper-turbo'] = failFactory;
+            win.__SS_E2E__.registry['transformers-js'] = fakeTransformersJSFactory;
+            console.log('[T=0] Specialized Resilience Engine mocks injected.');
         });
+
+        await programmaticLoginWithRoutes(page, { userType: 'pro' });
+
 
         await navigateToRoute(page, '/session');
 

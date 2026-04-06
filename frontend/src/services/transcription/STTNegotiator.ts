@@ -1,5 +1,4 @@
 import { TranscriptionMode, TranscriptionPolicy, resolveMode } from './TranscriptionPolicy';
-import { ENV } from '@/config/TestFlags';
 
 /**
  * NegotiatedStrategy: 
@@ -32,15 +31,6 @@ export class STTNegotiator {
     userPreference?: TranscriptionMode | null
   ): NegotiatedStrategy {
     
-    // 1. Resource Guard / Test Override
-    if (ENV.isTest && ENV.disableWasm) {
-      const mode = userPreference || policy.preferredMode || 'native';
-      return { 
-        mode, 
-        isMock: true 
-      };
-    }
-
     // 2. Production Policy Resolution
     const resolvedMode = resolveMode(policy, userPreference);
     

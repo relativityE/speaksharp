@@ -1,5 +1,5 @@
-import { STTEngine } from '@/contracts/STTEngine';
-import { EngineType, EngineCallbacks } from '@/contracts/IPrivateSTTEngine';
+import { STTEngine, validateEngine } from '@/contracts/STTEngine';
+import { EngineType, EngineCallbacks, IPrivateSTTEngine } from '@/contracts/IPrivateSTTEngine';
 import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, TranscriptionError, Result } from './types';
 import { getSupabaseClient } from '../../../lib/supabaseClient';
 import { Session } from '@supabase/supabase-js';
@@ -37,12 +37,13 @@ type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecti
  */
 export default class CloudAssemblyAI extends STTEngine implements ITranscriptionEngine {
   public readonly type: EngineType = 'cloud';
-  
+
+  private mockEngine?: IPrivateSTTEngine;
   private onTranscriptUpdate?: (update: { transcript: Transcript }) => void;
   private onModelLoadProgress?: (progress: number | null) => void;
   public onReady?: () => void;
   private onError?: (error: TranscriptionError) => void;
-  
+
   private socket: WebSocket | null = null;
   private isListening: boolean = false;
   private audioQueue: Float32Array[] = [];
@@ -58,20 +59,63 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   private baseReconnectDelay: number = 1000;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private isReconnect: boolean = false;
-
   private session: Session | null = null;
-  private options?: TranscriptionModeOptions;
 
-  constructor(options?: TranscriptionModeOptions) {
-    super();
+  constructor(options?: TranscriptionModeOptions, mockEngine?: IPrivateSTTEngine) {
+    super(options);
+    this.mockEngine = mockEngine;
     if (options) {
-      this.options = options;
       this.session = options.session ?? null;
       this.onTranscriptUpdate = options.onTranscriptUpdate;
       this.onModelLoadProgress = options.onModelLoadProgress;
       this.onReady = options.onReady;
       this.onError = options.onError;
     }
+  }
+
+  private get modeOptions(): TranscriptionModeOptions | null {
+    return this.options as TranscriptionModeOptions;
+  }
+
+  /**
+   * STTStrategy Requirement: Probe availability and prerequisites.
+   */
+  public async checkAvailability(): Promise<import('../STTStrategy').AvailabilityResult> {
+    // Mock engine injected = availability is authoritatively declared by test harness
+    if (this.mockEngine) {
+      return { isAvailable: true };
+    }
+
+    // 1. Check for network connectivity
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return {
+        isAvailable: false,
+        reason: 'OFFLINE',
+        message: 'AssemblyAI requires an active internet connection. Please check your network and retry.'
+      };
+    }
+
+    // 2. Check for existence of Supabase session (primary auth source)
+    const supabase = getSupabaseClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session && !this.isE2EEnvironment()) {
+      return {
+        isAvailable: false,
+        reason: 'NO_API_KEY', // Semantic mapping to "Not Authenticated"
+        message: 'Cloud transcription requires authentication. Please sign in.'
+      };
+    }
+
+    return { isAvailable: true };
+  }
+
+  /**
+   * STTStrategy Requirement: Explicit Preparation phase.
+   */
+  public async prepare(): Promise<void> {
+    // For Cloud, prep is fast, but we might pre-fetch the token here
+    // However, the current engine connects on start.
+    // For now, this satisfies the contract.
   }
 
   protected async onInit(callbacks: EngineCallbacks | TranscriptionModeOptions): Promise<Result<void, Error>> {
@@ -81,19 +125,39 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     if (opts.onModelLoadProgress) this.onModelLoadProgress = opts.onModelLoadProgress;
     if (opts.onReady) this.onReady = opts.onReady;
     if (opts.onError) this.onError = opts.onError;
-    
-    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] Init complete (lazy connection strategy).');
+
+    if (this.mockEngine) {
+        logger.info('[CloudAssemblyAI] 🧪 Using injected MockEngine, initializing...');
+        if (this.mockEngine.init) {
+            await this.mockEngine.init(opts as unknown as EngineCallbacks);
+        }
+        return Result.ok(undefined);
+    }
+
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] Init complete.');
     return Result.ok(undefined);
   }
 
   protected async onStart(): Promise<void> {
     if (this.isListening) return;
 
+    // Use injected mock if available
+    if (this.mockEngine) {
+        logger.info('[CloudAssemblyAI] 🧪 Using injected MockEngine');
+        validateEngine(this.mockEngine);
+    }
+
     this.isListening = true;
     this.currentTranscript = '';
     this.reconnectionAttempts = 0;
     this.isReconnect = false;
-    await this.connect();
+    
+    // Only connect if not mocked
+    if (!this.mockEngine) {
+        await this.connect();
+    } else {
+        await this.mockEngine.start();
+    }
   }
 
   protected async onStop(): Promise<void> {
@@ -105,6 +169,18 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   protected async onDestroy(): Promise<void> {
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] 🛑 Destroying engine');
     await this.onStop();
+  }
+
+  async terminate(): Promise<void> {
+    if (this.mockEngine) {
+      if (this.mockEngine.terminate) await this.mockEngine.terminate();
+      else await this.mockEngine.destroy();
+    }
+    await super.terminate();
+  }
+
+  public getLastHeartbeatTimestamp(): number {
+    return this.mockEngine ? this.mockEngine.getLastHeartbeatTimestamp() : super.getLastHeartbeatTimestamp();
   }
 
   async transcribe(_audio: Float32Array): Promise<Result<string, Error>> {
@@ -187,7 +263,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       }
 
       // 🚀 PERFORMANCE: Add STT Word Boosting for user words (Fixes Domain 4)
-      const vocabulary = this.options?.userWords || [];
+      const vocabulary = this.modeOptions?.userWords || [];
       const keytermsParam = vocabulary.length > 0
         ? `&keyterms_prompt=${encodeURIComponent(vocabulary.join(','))}`
         : '';
@@ -333,7 +409,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
   private async closeConnection(): Promise<void> {
     this.updateHeartbeat();
-    
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

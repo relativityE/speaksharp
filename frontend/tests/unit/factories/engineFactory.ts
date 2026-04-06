@@ -9,9 +9,12 @@ export function createMockEngine(
   overrides?: Partial<ITranscriptionEngine>
 ): ITranscriptionEngine {
   return {
+    checkAvailability: vi.fn().mockResolvedValue({ isAvailable: true }),
+    prepare: vi.fn().mockResolvedValue(undefined),
     init: vi.fn().mockResolvedValue(undefined),
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
+    terminate: vi.fn().mockResolvedValue(undefined),
     dispose: vi.fn(),
     getTranscript: vi.fn().mockResolvedValue(''),
     getEngineType: vi.fn().mockReturnValue('mock'),

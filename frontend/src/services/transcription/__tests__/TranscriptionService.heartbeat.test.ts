@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
-import { EngineFactory } from '../EngineFactory';
 import { TranscriptionModeOptions, ITranscriptionEngine } from '../modes/types';
 import { NavigateFunction } from 'react-router-dom';
+import { MicStream } from '../utils/types';
+import { setupStrictZero } from '../../../../../tests/setupStrictZero';
 
 /**
  * @file TranscriptionService.heartbeat.test.ts
@@ -20,8 +21,11 @@ class MockHeartbeatEngine implements ITranscriptionEngine {
         this.onReady = callbacks.onReady;
         return { isOk: true as const, data: undefined };
     }
+    async checkAvailability() { return { isAvailable: true }; }
+    async prepare() { return Promise.resolve(); }
     async start(): Promise<void> { return Promise.resolve(); }
     async stop(): Promise<void> { return Promise.resolve(); }
+    async terminate(): Promise<void> { return Promise.resolve(); }
     async startTranscription(): Promise<void> { return Promise.resolve(); }
     async stopTranscription(): Promise<string> { return Promise.resolve('test'); }
     dispose(): void {}
@@ -35,25 +39,59 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
     let service: TranscriptionService;
     let engine: MockHeartbeatEngine;
 
-    beforeEach(() => {
+    const mockMic: MicStream = {
+        stream: {} as MediaStream,
+        stop: vi.fn(),
+        clone: vi.fn(),
+        onFrame: vi.fn().mockReturnValue(() => { }),
+    } as unknown as MicStream;
+
+    beforeEach(async () => {
         vi.useFakeTimers();
         engine = new MockHeartbeatEngine();
-        vi.spyOn(EngineFactory, 'create').mockResolvedValue(engine as unknown as ITranscriptionEngine);
+        
+        // T=0: Setup strict environment
+        await setupStrictZero();
+        
+        // Override registry with heartbeat-specific engine at all keys
+        const win = window as unknown as { __SS_E2E__: { registry: Record<string, unknown> } };
+        win.__SS_E2E__.registry = {
+            ...win.__SS_E2E__.registry,
+            'whisper-turbo': () => engine,
+            'assemblyai': () => engine,
+            'native-browser': () => engine,
+            'transformers-js': () => engine
+        };
+        // Tests instantiate their own custom service
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        if (service) {
+            await service.destroy();
+        }
         vi.useRealTimers();
         vi.restoreAllMocks();
     });
 
-    it('should trigger handoff if heartbeat stalls for >8s', async () => {
+    it('should emit isFrozen warning if heartbeat stalls for >8s without autonomous fallback', async () => {
+        const onStatusChange = vi.fn();
         service = new TranscriptionService({
             onTranscriptUpdate: vi.fn(),
             onModelLoadProgress: vi.fn(),
             onReady: vi.fn(),
+            onStatusChange,
             session: null,
             navigate: vi.fn() as unknown as NavigateFunction,
-            getAssemblyAIToken: vi.fn().mockResolvedValue('token')
+            getAssemblyAIToken: vi.fn().mockResolvedValue('token'),
+            mockMic,
+            policy: {
+                allowNative: true,
+                allowCloud: false,
+                allowPrivate: true,
+                preferredMode: 'private',
+                allowFallback: true,
+                executionIntent: 'test'
+            }
         });
 
         await service.init();
@@ -65,8 +103,14 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
         // 2. Advance watchdog (5s period)
         await vi.advanceTimersByTimeAsync(5000);
 
-        // 3. Verify handoff state
-        expect(service.getMode()).toBeDefined();
+        // 3. Verify handoff state (must NOT fallback automatically, just emit warning)
+        expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({
+            isFrozen: true,
+            type: 'warning'
+        }));
+        
+        // Ensure mode didn't drift
+        expect(service.getMode()).toBe('private');
     });
 
     it('should support segmented handoff to Native browser', async () => {
@@ -76,14 +120,23 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
             onReady: vi.fn(),
             session: null,
             navigate: vi.fn() as unknown as NavigateFunction,
-            getAssemblyAIToken: vi.fn().mockResolvedValue('token')
+            getAssemblyAIToken: vi.fn().mockResolvedValue('token'),
+            mockMic,
+            policy: {
+                allowNative: true,
+                allowCloud: false,
+                allowPrivate: true,
+                preferredMode: 'private',
+                allowFallback: true,
+                executionIntent: 'test'
+            }
         });
 
         await service.init();
-        
-        const nativeEngine = new MockHeartbeatEngine('native');
-        vi.spyOn(EngineFactory, 'create').mockResolvedValue(nativeEngine as unknown as ITranscriptionEngine);
+        await service.startTranscription();
 
+        // switchToNativeSegmented calls destroy() then startTranscription() with native policy
+        // The native-browser mock is already in the registry from setupStrictZero
         await service.switchToNativeSegmented();
         expect(service.getMode()).toBe('native');
     });

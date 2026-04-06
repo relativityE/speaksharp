@@ -382,11 +382,11 @@ All test scripts follow `test:<level>:<env>[:<mode>]` and CI orchestration scrip
 | `test:system:local:headed` | system | local | headed | Full live suite + hardware |
 | `test:deploy` | deploy | prod | — | Post-deploy smoke |
 | `test:deploy:local` | deploy | local | — | Smoke against localhost |
-| `test:health:local` | health | local | — | Fast preflight + core journey |
-| `test:all:local` | all | local | — | Full quality gate |
+| `test:core` | core | local | — | Fast preflight + core journey probe |
+| `test:full` | all | local | — | Full quality gate |
 | `test:soak:api:cloud` | soak | cloud | — | API stress test |
 | `test:soak:ui:cloud` | soak | cloud | — | Memory/stability test |
-| `ci:full:local` | — | — | — | Full CI pipeline locally |
+| `ci:full` | — | — | — | Full CI pipeline simulation |
 | `ci:dispatch:deploy` | — | — | — | Dispatch deploy smoke to GH Actions |
 | `ci:dispatch:soak` | — | — | — | Dispatch soak test to GH Actions |
 
@@ -402,6 +402,29 @@ SpeakSharp utilizes a centralized **ENV Bridge** to decouple the application log
 *   **Frozen Shim**: `env.ts` must remain a pure value projection. No computation allowed.
 *   **SSOT-Only**: All environmental logic must derive from modern `ENV` properties.
 *   **Dynamic Correctness**: Environment properties use Getters/IIFE locals to ensure the state is evaluated correctly across shared Vitest workers.
+
+#### 3.2 E2E Mocking Contract (Engine-Only Model)
+
+To prevent "Facade Hijacking" and ensure that orchestration logic (e.g., fallback, FSM transitions, UI state synchronization) is fully exercised during E2E tests, the application enforces a strict **Engine-Only Mocking Contract**.
+
+**Architectural Principles:**
+1.  **Registry is Engine-Level Only**: The E2E registry (`window.__SS_E2E__.registry`) MUST only contain keys for concrete execution engines.
+2.  **No Facade Overrides**: Registry keys for orchestration facades (e.g., `private`, `native`, `cloud`) are strictly forbidden. The `EngineSelector` will throw a fatal error if these keys are detected.
+3.  **Facade Execution Guarantee**: The real facade classes (e.g., `PrivateSTT`) MUST always execute. They are the "Smart Orchestrators" that resolve internal engines from the registry.
+4.  **T=0 Hardening**: All mock factories MUST be defined within the browser context at T=0 via `page.addInitScript()` to prevent serialization failures.
+
+**Standard Engine Keys:**
+- `whisper-turbo` (Private STT Fast Path)
+- `transformers-js` (Private STT Safe Path)
+- `assemblyai` (Cloud Mode Engine)
+- `native-browser` (Native Mode Engine)
+
+**Behavioral Scenario Modeling:**
+Deterministic scenarios (e.g., GPU Failure -> CPU Fallback) must be modeled by injecting specific behaviors into the *internal* engine slots:
+- **Fast Path Fail**: Inject a mock into `whisper-turbo` that fails `init()`.
+- **Safe Path Success**: Inject a mock into `transformers-js` that succeeds or provides progress.
+
+---
 
 #### 3.1 Global Readiness Signals (E2E Contract)
 
@@ -1086,7 +1109,7 @@ expect(text).toBe('5');
             *   `mockLiveTranscript()`: Tells the Bridge to simulate speech events.
             *   `navigateToRoute()`: Client-side navigation that preserves mock context.
 
-*   **Single Source of Truth (`pnpm test:all:local`):** A single command, `pnpm test:all:local`, is the user-facing entry point for all validation. It runs an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process both locally and in CI, guaranteeing consistency and speed.
+*   **Single Source of Truth (`pnpm test:full`):** A single command, `pnpm test:full`, is the developer-facing entry point for complete validation.
     *   **Image Processing (Test):** node-canvas (replaces Jimp/Sharp for stability)
 
 ## Testing and CI/CD
@@ -1155,7 +1178,7 @@ SpeakSharp employs a unified and resilient testing strategy designed for speed a
 
 This script is the **single source of truth** for all code validation. It is accessed via simple `pnpm` commands (e.g., `pnpm audit`) and is optimized for a 7-minute CI timeout by using aggressive parallelization.
 *   **Stage-Based Execution:** The script is designed to be called with different stages (`prepare`, `test`, `report`) that map directly to the jobs in the CI pipeline. This allows for a sophisticated, multi-stage workflow.
-*   **Local-First Mode:** When run without arguments (as with `pnpm test:all:local`), it executes a `local` stage that runs all checks sequentially, providing a comprehensive local validation experience.
+*   **Local-First Mode:** When run without arguments (as with `pnpm test:full`), it executes a `local` stage that runs all checks sequentially.
 
 ### CI Dependency Boundary (Architectural Principle)
 
@@ -1259,7 +1282,7 @@ The CI pipeline, defined in `.github/workflows/ci.yml`, is a multi-stage, parall
 
 Both the local test runner and CI use the same `test-audit.sh` script, ensuring perfect alignment between local and remote environments. However, they differ in execution strategy:
 
-**Local Test Runner (`pnpm test:all:local`):**
+**Local Test Runner (`pnpm test:full`):**
 - Runs `./test-audit.sh local` as a single process
 - Executes all 60 E2E tests serially
 - Quality checks (lint/typecheck/test) run in parallel via `concurrently`
@@ -1317,7 +1340,7 @@ The project uses a tiered testing approach to balance speed, reliability, and re
 |----------|---------|-------------|---------|
 | **1. Unit Tests** | `pnpm test:unit` | `happy-dom` | Fast, isolated logic tests. Mocks all external deps. |
 | **2. Integration Tests** | `pnpm test:unit` | `happy-dom` | Component + Provider interaction. Mocks services. |
-| **3. CI Simulation (E2E)** | `pnpm ci:full:local` | Playwright + **MSW** | **The Default.** Full app flow with **Mocked Backend**. Fast, reliable, runs on PRs. No secrets needed. |
+| **3. CI Simulation (E2E)** | `pnpm ci:full` | Playwright + **MSW** | **The Default.** Full app flow with **Mocked Backend**. Fast, reliable, runs on PRs. No secrets needed. |
 | **4. Integration** | `pnpm test:int:local` | Playwright + **Real APIs** | Validates integration with **Real Supabase/Stripe**. Non-driver-dependent subset. |
 | **4b. System** | `pnpm test:system:local:headed` | Playwright + **Real HW** | Full system suite including driver-dependent STT tests. Headed Chrome required. |
 | **5. Deploy Tests** | `pnpm test:deploy` | Real App | Production deployment validation. Runs post-deploy. |
@@ -1460,7 +1483,7 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 - Required secrets: `E2E_FREE_EMAIL`, `E2E_FREE_PASSWORD`, `SUPABASE_URL`, etc.
 
 **4. Resilience & Health Tests** (`tests/e2e/*.e2e.spec.ts`)
-- `health-check.e2e.spec.ts` performs the canonical app-wide journey.
+- `core.e2e.spec.ts` performs the canonical app-wide probe journey.
 - `priv-stt-mock-fallback.e2e.spec.ts` validates timeout and fallback under load.
 
 ##### Intentionally Skipped Tests Registry
@@ -1468,7 +1491,7 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 | Test File | Test Name | Skip Condition | Reason | CI Risk |
 |-----------|-----------|----------------|--------|---------|
 | `tier-limits.e2e.spec.ts` | Daily limit auto-stops | `process.env.CI` | Resilience test requires long timeout; not suitable for CI | ✅ None |
-| `health-check.e2e.spec.ts` | Production health check | `none` | Canonical E2E health check (was mock.smoke). | ✅ None |
+| `core.e2e.spec.ts` | Core System Probe | `none` | Deterministic, Single-Path Probe. | ✅ None |
 | `priv-stt-mock-fallback.e2e.spec.ts` | 10s timeout hang detection | `process.env.CI` | Tests 10-second timeout behavior; too slow for CI matrix | ✅ None |
 | `analytics-journey.live.spec.ts` | Full analytics journey | `!AGENT_SECRET` | Requires provisioning secret for isolated user creation | ✅ None |
 | `live-transcript.live.spec.ts` | Native STT transcription | `browserName !== 'chromium'` | Web Speech API only works in Chromium | ✅ None |
@@ -2242,7 +2265,7 @@ Our E2E testing strategy includes a **health check** (`tests/e2e/core-journey.e2
 5. **Session -> Analytics Flow:** Verifies the auto-redirect to the analytics dashboard upon stopping.
 6. **Data Persistence:** Confirms the new session appears in the history list with correct stats.
 
-**Purpose:** This test is triggered by `pnpm test:health:local`. It is optimized for speed by bypassing the full unit test suite and focusing purely on this high-level "Critical Path" verification. It provides a fast, reliable signal after every commit.
+**Purpose:** This test is triggered by `pnpm test:core`. It is optimized for speed by focusing purely on this high-level "Deterministic Probe" validation.
 
 **Visual Documentation:** A separate test (`tests/e2e/capture-states.e2e.spec.ts`) handles screenshot generation for visual documentation. This decoupled architecture ensures that purely visual changes (e.g., CSS refactors) do not break the critical functional health check.
 

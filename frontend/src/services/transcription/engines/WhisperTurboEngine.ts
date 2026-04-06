@@ -27,8 +27,8 @@ export class WhisperTurboEngine extends STTEngine {
     public readonly type: EngineType = 'whisper-turbo';
     private session: unknown | null = null; // Use unknown for Comlink compatibility
 
-    constructor() {
-        super();
+    constructor(options?: EngineCallbacks) {
+        super(options);
     }
 
     protected async onInit(callbacks: EngineCallbacks): Promise<Result<void, Error>> {

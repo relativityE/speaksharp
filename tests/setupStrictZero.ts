@@ -1,4 +1,5 @@
 import { vi } from 'vitest';
+import logger from '../frontend/src/lib/logger';
 
 /**
  * ARCHITECTURE:
@@ -27,20 +28,37 @@ const minimalistMockFactory = () => {
     updateHeartbeat: vi.fn(),
     getEngineType: () => 'mock',
     getLastHeartbeatTimestamp: () => Date.now(),
-    startTranscription: vi.fn().mockResolvedValue(undefined),
-    stopTranscription: vi.fn().mockResolvedValue('mock transcript'),
     getTranscript: () => 'mock transcript',
     dispose: vi.fn(),
     onTranscriptUpdate: null as unknown as (update: unknown) => void,
     onModelLoadProgress: null as unknown as (progress: number | null) => void,
     onReady: null as unknown as () => void,
   };
+  
+  if (typeof window !== 'undefined') {
+      const g = window as any;
+      if (g.__SS_E2E__) g.__SS_E2E__.latestMock = mockEngine;
+  }
+  
   return mockEngine;
 };
 
 export async function setupStrictZero(options: { engineType?: string } = {}) {
   // 1. Reset module graph for deterministic T=0 initialization
   vi.resetModules();
+
+  try {
+      // ARCHITECTURE: Reach into any potentially cached version to reset invariant
+      const factoryModule = await import('../frontend/src/services/transcription/STTStrategyFactory');
+      const Factory = factoryModule.STTStrategyFactory;
+      if (Factory) {
+          Factory.ACTIVE_ENGINES_COUNT = 0;
+          logger.info('[setupStrictZero] Invariant reset: ACTIVE_ENGINES_COUNT = 0');
+      }
+  } catch (e) {
+      // If import fails, we might be in a different environment, but we must not swallow critical errors
+      logger.error({ error: e }, '[setupStrictZero] Exception during STTStrategyFactory reset');
+  }
 
   // 1.5 Clear shared browser state
   if (typeof localStorage !== 'undefined') {
@@ -57,9 +75,10 @@ export async function setupStrictZero(options: { engineType?: string } = {}) {
     isActive: true,
     engineType: options.engineType || 'mock',
     registry: {
-      native: minimalistMockFactory,
-      cloud: minimalistMockFactory,
-      private: minimalistMockFactory
+      'native-browser': minimalistMockFactory,
+      'assemblyai': minimalistMockFactory,
+      'whisper-turbo': minimalistMockFactory,
+      'transformers-js': minimalistMockFactory
     }
   };
 }

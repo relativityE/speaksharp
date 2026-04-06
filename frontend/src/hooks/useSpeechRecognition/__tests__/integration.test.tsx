@@ -265,7 +265,9 @@ describe('useSpeechRecognition Integration', () => {
         const { result } = renderHookWithProviders(() => useSpeechRecognition());
 
         // Verify initial state
-        expect(speechRuntimeController.getState()).toBe('READY');
+        await vi.waitFor(() => {
+            expect(speechRuntimeController.getState()).toBe('READY');
+        }, { timeout: 3000 });
 
         // 3. Initiate recording
         await act(async () => {

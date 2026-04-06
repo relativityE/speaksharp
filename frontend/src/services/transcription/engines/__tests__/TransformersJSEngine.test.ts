@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TransformersJSEngine } from '../TransformersJSEngine';
 import { ENV } from '@/config/TestFlags';
+import { setupStrictZero } from '../../../../../../tests/setupStrictZero';
 
 // Hoist mock factories to top of file
 const { mockPipeline, mockEnv } = vi.hoisted(() => ({
@@ -43,13 +44,16 @@ vi.mock('@xenova/transformers', () => {
 describe('TransformersJSEngine (Unit)', () => {
     let engine: TransformersJSEngine;
 
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.clearAllMocks();
         
-        // Align with SSOT Manifest
+        // Final Architectural Directive: Test Harness owns mutation at T=0
+        await setupStrictZero();
+
         window.__SS_E2E__ = {
             isActive: true,
-            engineType: 'system'
+            engineType: 'system',
+            registry: {}
         };
 
         engine = new TransformersJSEngine();
@@ -68,8 +72,12 @@ describe('TransformersJSEngine (Unit)', () => {
         });
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        if (engine) {
+            await engine.destroy();
+        }
         vi.useRealTimers();
+        vi.restoreAllMocks();
     });
 
     it('should have correct engine type', () => {

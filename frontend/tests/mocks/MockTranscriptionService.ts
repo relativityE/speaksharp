@@ -1,6 +1,7 @@
 import { SttStatus } from '@/types/transcription';
 import { TranscriptionModeOptions } from '@/services/transcription/modes/types';
 import { useSessionStore } from '@/stores/useSessionStore';
+import { calculateTranscriptStats } from '@/utils/fillerWordUtils';
 
 export class MockTranscriptionService {
     // Static reference for tests to access the latest instance
@@ -56,6 +57,13 @@ export class MockTranscriptionService {
     }
 
     warmUp = async (mode: string): Promise<void> => {
+        this.mode = mode as any;
+        return Promise.resolve();
+    }
+
+    prepare = async (): Promise<void> => {
+        this.state = 'READY';
+        this.notifySubscribers();
         return Promise.resolve();
     }
 
@@ -67,13 +75,14 @@ export class MockTranscriptionService {
         return Promise.resolve();
     }
 
-    stopTranscription = async (): Promise<string> => {
+    stopTranscription = async (): Promise<any> => {
         this.isListening = false;
         this.state = 'READY';
         this.notifySubscribers();
 
-        // Return transcript string (solves contract mismatch)
-        return 'Test transcript final';
+        const transcript = 'Test transcript final';
+        const stats = calculateTranscriptStats([{ transcript }], [], '', 0);
+        return { success: true, transcript, stats };
     }
 
     start = async (): Promise<void> => {
@@ -104,14 +113,16 @@ export class MockTranscriptionService {
     getMode = () => this.mode;
     getEngineType = () => this.mode === 'private' ? 'whisper-turbo' : this.mode;
 
-    getEngine = (): any => {
+    getStrategy = (): any => {
         return {
-            getLastHeartbeatTimestamp: () => Date.now(),
-            terminate: async () => {},
+            checkAvailability: async () => ({ isAvailable: true }),
+            prepare: async () => {},
+            start: async () => { this.isListening = true; },
+            stop: async () => { this.isListening = false; },
+            terminate: async () => { this.isListening = false; },
             getTranscript: async () => 'Test transcript',
-            getEngineType: () => this.mode,
-            start: async () => {},
-            stop: async () => {}
+            getLastHeartbeatTimestamp: () => Date.now(),
+            getEngineType: () => this.mode
         };
     }
 

@@ -261,8 +261,10 @@ if (typeof window !== 'undefined') {
         });
     }
 
+    (globalThis as any).__TEST__ = true;
+
     (window as any).__SS_E2E__ = {
-        isActive: true,
+        isActive: false,
         engineType: 'mock',
         registry: {},
         flags: {

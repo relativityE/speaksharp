@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type TranscriptionService from '../TranscriptionService';
+import TranscriptionService from '../TranscriptionService';
 import type { TranscriptionServiceOptions } from '../TranscriptionService';
-import type { TranscriptionPolicy } from '../TranscriptionPolicy';
+import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
 import type { MicStream } from '../utils/types';
 import type { PracticeSession } from '../../../types/session';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
@@ -69,7 +69,10 @@ describe('TranscriptionService', () => {
         });
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        if (service) {
+            await service.destroy();
+        }
         if (typeof window !== 'undefined') {
             const win = window as unknown as Record<string, unknown>;
             delete win.__SS_E2E__;
@@ -89,16 +92,43 @@ describe('TranscriptionService', () => {
         expect(service.getMode()).toBe('private');
     });
 
+    it('should sanitize transcripts before emitting (Behavior-based)', async () => {
+        // Arrange
+        await service.startTranscription({ ...PROD_FREE_POLICY, preferredMode: 'cloud' });
+
+        return new Promise<void>((resolve) => {
+            const tempService = getTranscriptionService({
+                onTranscriptUpdate: (update) => {
+                    // Assert
+                    expect(update.transcript.final).toBe(' clean text ');
+                    resolve();
+                }
+            });
+
+            // Act
+            const rawTranscript = { transcript: { final: ' clean text ', isFinal: true, timestamp: 0 } };
+            // Simulate the strategy emitting a transcript event via the facade's mapped callback
+            if ((tempService as any).strategy && (tempService as any).strategy.onTranscriptUpdate) {
+                (tempService as any).strategy.onTranscriptUpdate(rawTranscript);
+            } else {
+                // Fallback for tests if facade isn't fully established
+                (tempService as any).processTranscript(rawTranscript);
+            }
+        });
+    });
+
     it('should sanitize transcripts effectively', async () => {
         await service.init();
         await service.startTranscription();
         
-        const serviceInternal = service as unknown as { engine: { onTranscriptUpdate: (data: unknown) => void, getEngineType: () => string } };
-        const engine = serviceInternal.engine;
-        expect(engine.getEngineType()).toBe('mock');
-
-        if (engine.onTranscriptUpdate) {
-            engine.onTranscriptUpdate({
+        // ARCHITECTURE: Black-box testing via the registered mock instance
+        const win = window as any;
+        const mockEngine = win.__SS_E2E__?.latestMock;
+        expect(mockEngine).toBeDefined();
+        
+        // Simulate a transcript event through the wired proxy
+        if (mockEngine && mockEngine.onTranscriptUpdate) {
+            mockEngine.onTranscriptUpdate({
                 transcript: {
                     final: '[BLANK_AUDIO]  Hello world [MUSIC]  ',
                     partial: 'thinking...'

@@ -594,6 +594,7 @@ This phase is about confirming the core feature set works as expected and polish
 | 15 | **Transient Transcript Policy** | `TranscriptionService.ts` | P2 | 🔴 Not Started - Ephemeral local storage for transcripts to protect PII and save disk costs. |
 | 16 | **Free-Tier Private Gating** | `SessionPage.tsx` | P3 | 🔴 Not Started - User-tier gating in DOM for Free users to reduce asset load noise. |
 | 17 | Unified STT Engine Contract (Cloud/Native) | `CloudAssemblyAI.ts`, `NativeBrowser.ts` | P2 | 🟡 In Progress | Migrating Cloud/Native engines to the `STTEngine` base class to enable unified heartbeat monitoring and telemetry. |
+| 18 | **ENV → EnvProvider Dependency Injection** | `TestFlags.ts`, test infrastructure | P2 | 🔴 Not Started | Refactor `ENV` from a frozen IIFE to an injectable `EnvProvider.get()` pattern. The current design has two competing sources of truth: `ENV` (frozen at import time via IIFE) and `window.__SS_E2E__` (runtime mutable), creating temporal inconsistency where tests mutate runtime flags but production code has already captured stale values. The right long-term pattern is Dependency Injection for environment, not global mutation. Deferred because it touches frozen infrastructure (`TestFlags.ts`) and risks cascading changes across the entire test suite. |
 
 
 

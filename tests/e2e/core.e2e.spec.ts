@@ -28,7 +28,7 @@ test.describe('Core System Validation (Deterministic)', () => {
       engineType: 'mock' | 'real' | 'system';
       registry: Record<string, unknown>;
       flags: { bypassMutex: boolean; fastTimers: boolean };
-      emitMockResult: (text: string, isFinal?: boolean) => void;
+      emitTranscript: (text: string, isFinal?: boolean) => void;
     };
     __WASM_LOADED__?: boolean;
     dispatchMockTranscript?: (text: string, isFinal: boolean) => void;
@@ -78,9 +78,9 @@ test.describe('Core System Validation (Deterministic)', () => {
         },
         flags: { bypassMutex: true, fastTimers: true },
 
-        // 2. Control Hook: Inject results into the active engine instance
-        emitMockResult: (text: string, isFinal: boolean = true) => {
-          console.log('[E2E-MOCK] Emitting result:', text);
+        // 2. Control Hook: Inject results into the active engine instance (Modernized Bridge)
+        emitTranscript: (text: string, isFinal: boolean = true) => {
+          console.log('[E2E-MOCK] Emitting transcript:', text);
           if (activeCallbacks?.onTranscriptUpdate) {
             // Use correct object shape: { transcript: { final|partial: string } }
             const transcriptObj = isFinal ? { final: text } : { partial: text };
@@ -94,6 +94,7 @@ test.describe('Core System Validation (Deterministic)', () => {
           }
         }
       };
+
 
       // 3. Inject into global scope (Strict Zero boundary)
       (window as unknown as E2EWindow).__SS_E2E__ = e2eManifest as unknown as E2EWindow['__SS_E2E__'];
@@ -165,9 +166,9 @@ test.describe('Core System Validation (Deterministic)', () => {
     await page.waitForSelector('[data-runtime-state]', { timeout: 15000 });
     await page.getByTestId('session-start-stop-button').click();
 
-    // Trigger a mock transcript via the bridge helper
+    // Trigger a mock transcript via the bridge helper (Modernized)
     await page.evaluate(() => {
-      (window as unknown as E2EWindow).__SS_E2E__.emitMockResult?.('Hello from E2E', false);
+      (window as unknown as E2EWindow).__SS_E2E__.emitTranscript?.('Hello from E2E', false);
     });
 
     // The UI should reflect the emitted transcript

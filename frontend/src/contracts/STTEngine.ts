@@ -1,5 +1,6 @@
 import { IPrivateSTTEngine, EngineType, EngineCallbacks } from './IPrivateSTTEngine';
 import { ITranscriptionEngine, TranscriptionModeOptions, Result } from '../services/transcription/modes/types';
+import { AvailabilityResult } from '../services/transcription/STTStrategy';
 import logger from '@/lib/logger';
 import { MicStream } from '../services/transcription/utils/types';
 
@@ -52,8 +53,33 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   protected runId: string = 'unknown';
   protected currentTranscript: string = '';
 
-  constructor() {
+  protected options: TranscriptionModeOptions | EngineCallbacks | null = null;
+
+  constructor(options?: TranscriptionModeOptions | EngineCallbacks) {
     this.instanceId = Math.random().toString(36).substring(7);
+    this.options = options || null;
+  }
+
+  /**
+   * STTStrategy Requirement: Probes environment for availability.
+   * Default implementation for engines.
+   */
+  public async checkAvailability(): Promise<AvailabilityResult> {
+    return { isAvailable: true };
+  }
+
+  /**
+   * STTStrategy Requirement: Explicit Preparation phase.
+   * Replaces/Wraps the legacy init().
+   */
+  public async prepare(): Promise<void> {
+    if (this.isInitialized) return;
+    
+    if (this.options) {
+      await this.init(this.options);
+    } else {
+      logger.warn({ type: this.type }, '[STTEngine] prepare() called without options; skipping initialization.');
+    }
   }
 
   /**

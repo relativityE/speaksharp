@@ -1,8 +1,8 @@
 // src/services/SpeechRuntimeController.ts
 import logger from '../lib/logger';
-import { STTServiceFactory } from './transcription/STTServiceFactory';
+import { STTStrategyFactory } from './transcription/STTStrategyFactory';
 import TranscriptionService from './transcription/TranscriptionService';
-import { TranscriptionPolicy } from './transcription/TranscriptionPolicy';
+import { TranscriptionPolicy, PROD_FREE_POLICY } from './transcription/TranscriptionPolicy';
 // Registry imports removed for Synchronization
 import { useReadinessStore } from '../stores/useReadinessStore';
 import { saveSession, completeSession, heartbeatSession } from '../lib/storage';
@@ -124,24 +124,16 @@ export class SpeechRuntimeController {
         if (isE2E) {
             logger.info('[SpeechRuntimeController] E2E Mode detected. Short-circuiting STT readiness.');
 
-            // Boot-time registry validation (Expert Requirement)
-            const g = globalThis as unknown as Record<string, unknown>;
-            const manifest = g.__SS_E2E__ as { isActive: boolean; engineType: string; registry: Record<string, unknown> } | undefined;
-            const registry = manifest?.registry;
-            if (registry) {
-                Object.keys(registry).forEach(name => {
-                    const engineFactoryOrObject = registry[name];
-                    if (engineFactoryOrObject) {
-                        // Minimal structural check: E2E mock stubs must implement the lifecycle.
-                        // Full STTEngine contract enforcement happens in validateEngine() at startRecording time.
-                        const required = ['init', 'stop'];
-                        const target = typeof engineFactoryOrObject === 'function' ? (engineFactoryOrObject as unknown as () => Record<string, unknown>)() : (engineFactoryOrObject as Record<string, unknown>);
-                        const missing = required.filter(p => typeof target[p] === 'undefined');
-                        if (missing.length > 0) {
-                            throw new Error(`REGISTRY_VALIDATION_FAILED: ${name} missing [${missing.join(', ')}]`);
-                        }
-                    }
+            // Boot-time Factory validation (Expert Requirement)
+            // Ensures all defined strategy modes are reachable through the Factory.
+            try {
+                const modes: TranscriptionMode[] = ['private', 'cloud', 'native'];
+                modes.forEach(mode => {
+                    const strategy = STTStrategyFactory.create(mode, {} as unknown as TranscriptionServiceOptions, PROD_FREE_POLICY);
+                    if (!strategy) throw new Error(`FACTORY_VALIDATION_FAILED: Strategy for ${mode} missing`);
                 });
+            } catch (error) {
+                logger.error({ error }, '[SpeechRuntimeController] Factory validation failed during E2E boot');
             }
 
             this.initialized = true;
@@ -160,9 +152,9 @@ export class SpeechRuntimeController {
 
             logger.info('[SpeechRuntimeController] \u{1F3C1} Infrastructure initialization started');
 
-            // 1. Create service eagerly (lightweight factory)
+            // 1. Create service eagerly (lightweight constructor)
             if (!this.service) {
-                this.service = STTServiceFactory.createService({
+                this.service = new TranscriptionService({
                     onTranscriptUpdate: this.handleTranscriptUpdate.bind(this),
                     onHistoryUpdate: this.handleHistoryUpdate.bind(this),
                     onError: this.handleError.bind(this),
@@ -623,9 +615,9 @@ export class SpeechRuntimeController {
                 this.resetEphemeralState();
             }
 
-            // 0.25 Ensure Service & Engine Instance Exist (Validation Gate)
+            // 0.25 Ensure Service & Strategy Instance Exist (Validation Gate)
             if (!this.service) {
-                this.service = STTServiceFactory.createService({
+                this.service = new TranscriptionService({
                     onTranscriptUpdate: (data) => this.handleTranscriptUpdate(data),
                     onHistoryUpdate: (history) => this.handleHistoryUpdate(history),
                     onError: (error) => this.handleError(error),
@@ -635,12 +627,17 @@ export class SpeechRuntimeController {
 
             // 0.3 VALIDATION FIRST \u2014 no side effects (Cluster B: Contract Alignment)
             const mode = this.policy?.preferredMode || 'private';
-            await this.service.warmUp(mode); // Ensure engine instance is created
-            const engine = this.service.getEngine();
-            if (engine) {
-                validateEngine(engine);
-            } else {
-                throw new Error('STT_ENGINE_MISSING_DURING_INIT');
+            if (this.service) {
+                await this.service.warmUp(mode); // Ensure strategy instance is created
+                const strategy = this.service.getStrategy();
+                if (strategy) {
+                    // Ensure strategy conforms to STTEngine contract (if applicable)
+                    if ('start' in strategy && 'stop' in strategy) {
+                        validateEngine(strategy as unknown as STTEngine);
+                    }
+                } else {
+                    throw new Error('STT_STRATEGY_MISSING_DURING_INIT');
+                }
             }
 
             // 0.5 Acquire Lock (Tab Mutex) with initial state
@@ -667,6 +664,7 @@ export class SpeechRuntimeController {
             useSessionStore.getState().setStartTime(Date.now());
 
             const service = this.service;
+            if (!service) throw new Error('SERVICE_MISSING_DURING_RECORDING');
 
             // 2. Transition to ENGINE_INITIALIZING (System Work Started)
             await this.transition('ENGINE_INITIALIZING');
@@ -682,8 +680,8 @@ export class SpeechRuntimeController {
                 }
 
                 // Readiness Handshake: Prevent false positive RECORDING transition on CACHE_MISS.
-                if (service.fsm?.is('DOWNLOAD_REQUIRED')) {
-                    logger.info('[SpeechRuntimeController] \u{1F4E5} Service is waiting for model download. Halting startRecording sequence.');
+                if (service && service.fsm?.is('DOWNLOAD_REQUIRED')) {
+                    logger.info('[SpeechRuntimeController] \u1F4E5 Service is waiting for model download. Halting startRecording sequence.');
                     this.isEngineReady = false;
                     return;
                 }
@@ -739,7 +737,7 @@ export class SpeechRuntimeController {
                     }
 
                     const currentState = this.getState();
-                    if (dbSession && (currentState === 'RECORDING' || currentState === 'ENGINE_INITIALIZING')) {
+                    if (dbSession && service && (currentState === 'RECORDING' || currentState === 'ENGINE_INITIALIZING')) {
                         this.sessionId = dbSession.id;
                         service.setSessionId?.(dbSession.id);
                         logger.info({ sessionId: dbSession.id }, '[SpeechRuntimeController] DB Session initialized successfully');
@@ -809,8 +807,9 @@ export class SpeechRuntimeController {
 
                         // Recursive call to schedule next heartbeat only after previous one succeeds
                         scheduleNext();
-                    } catch (error) {
-                        logger.error({ error, sessionId }, '[SpeechRuntimeController] Heartbeat failed');
+                    } catch (error: unknown) {
+                        const e = error as { message?: string };
+                        logger.error({ sessionId, message: e?.message }, '[SpeechRuntimeController] Heartbeat failed');
                         // Even on failure, we retry unless the state changed
                         scheduleNext();
                     }
@@ -840,9 +839,9 @@ export class SpeechRuntimeController {
         this.stopWatchdog();
 
         this.watchdogInterval = setInterval(() => {
-            const engine = service.getEngine();
-            if (!engine) {
-                this.handleHeartbeatFailure(new Error('STT_ENGINE_MISSING_DURING_WATCHDOG'));
+            const strategy = service.getStrategy();
+            if (!strategy) {
+                this.handleHeartbeatFailure(new Error('STT_STRATEGY_MISSING_DURING_WATCHDOG'));
                 return;
             }
             const lastHeartbeat = service.getLastHeartbeatTimestamp();

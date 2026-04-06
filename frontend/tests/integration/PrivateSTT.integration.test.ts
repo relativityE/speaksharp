@@ -88,7 +88,7 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         (mockInstance as unknown as { onInit: unknown }).onInit = mockInit;
         
         // Register the mock engine in the registry (POJO style)
-        (manifest.registry as Record<string, unknown>)['mock-engine'] = () => mockInstance;
+        (manifest.registry as Record<string, unknown>)['mock'] = () => mockInstance;
 
         const result = await privateSTT.init(mockCallbacks as PrivateSTTInitOptions);
 
@@ -155,7 +155,7 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         const mockTranscribe = vi.fn().mockResolvedValue({ isOk: true, data: 'transcribed text' });
         const mockInstance = new StubMock();
         (mockInstance as unknown as { transcribe: unknown }).transcribe = mockTranscribe;
-        (manifest.registry as Record<string, unknown>)['mock-engine'] = () => mockInstance;
+        (manifest.registry as Record<string, unknown>)['mock'] = () => mockInstance;
 
         await privateSTT.init(mockCallbacks as PrivateSTTInitOptions);
         const result = await privateSTT.transcribe(new Float32Array(10));

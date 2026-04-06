@@ -1,4 +1,7 @@
 /**
+ * 🚨 READ-ONLY: This file is part of the core test infrastructure.
+ * No modifications are allowed unless directed by User.
+ * 
  * STRICT ZERO Manifest: Unified E2E environment orchestration.
  * 
  * This is the SINGLE SOURCE OF TRUTH at T=0. 

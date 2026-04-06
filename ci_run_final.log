@@ -1,0 +1,221 @@
+
+> speaksharp@0.5.4.5 ci:full /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> node scripts/run-ci.mjs --full
+
+╔════════════════════════════════════════════════════════════╗
+║                 [1mSpeakSharp CI Orchestrator[0m                 ║
+╚════════════════════════════════════════════════════════════╝
+
+[36m[1m[1/5] Preflight Checks[0m
+[2m[PRE][0m 🔍 Running preflight checks...
+[32m✔[0m Preflight Checks success in 7ms
+
+[36m[1m[2/5] Code Quality[0m
+[2m[CHECK-ESLINT][0m > speaksharp@0.5.4.5 eslint-disable /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+[2m[LINT][0m > speaksharp@0.5.4.5 lint /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+[2m[LINT][0m > eslint 'frontend/src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' 'backend/supabase/functions/**/*.ts' --report-unused-disable-directives --max-warnings 0 --quiet
+[2m[CHECK-ESLINT][0m ✅ No 'eslint-disable' directives found.
+[32m✔[0m Code Quality success in 22.1s
+
+[36m[1m[3/5] Test Execution[0m
+[2m[UNIT][0m > speaksharp@0.5.4.5 test:unit /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+[2m[UNIT][0m [1m[46m RUN [49m[22m [36mv3.2.4 [39m[90m/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/pages/__tests__/SignUpPage.component.test.tsx [2m([22m[2m18 tests[22m[2m)[22m[33m 11495[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/pages/__tests__/SignInPage.component.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 7763[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/tests/integration/AuthPage.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 6975[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/tests/integration/SessionSidebar.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 2322[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/session/__tests__/FillerWordAnalysis.component.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 1815[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/session/__tests__/AISuggestions.component.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 1181[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/tests/integration/UserFillerWordsManager.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 1121[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 994[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/pages/__tests__/SessionPage.ui.component.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 822[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/pages/__tests__/PricingPage.component.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 484[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/__tests__/Navigation.component.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[33m 366[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/__tests__/SttSafeguards.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 360[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/tests/integration/PrivateSTT.integration.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 327[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/__tests__/useGoals.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 286[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/pages/__tests__/DesignSystemPage.component.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 210[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/__tests__/TranscriptionService.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 260[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/__tests__/UpgradePromptDialog.component.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 234[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/contexts/__tests__/AuthProvider.component.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[32m 210[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.component.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 195[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/pages/__tests__/ConfigurationNeededPage.component.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 158[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/__tests__/LocalErrorBoundary.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[32m 175[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/__tests__/AnalyticsDashboard.component.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 221[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/__tests__/useUserProfile.component.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 187[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/pages/__tests__/AnalyticsPage.component.test.tsx [2m([22m[2m14 tests[22m[2m)[22m[32m 158[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[32m 173[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/__tests__/ErrorBoundary.component.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 136[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/pages/__tests__/SessionPage.rendering.component.test.tsx [2m([22m[2m13 tests[22m[2m)[22m[32m 118[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/pages/__tests__/Index.component.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[32m 119[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/__tests__/usePracticeHistory.component.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 83[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/pages/__tests__/SessionPage.logic.component.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 42[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/session/__tests__/TranscriptPanel.component.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[32m 60[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/analytics/__tests__/SessionComparisonDialog.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 55[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/useSpeechRecognition/__tests__/useFillerWords.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 46[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/mocks/__tests__/handlers.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 50[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/session/__tests__/LiveRecordingCard.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 40[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/tests/unit/fillerWordUtils.test.ts [2m([22m[2m13 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/analytics/__tests__/STTAccuracyVsBenchmark.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 41[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/pages/__tests__/SessionPage.feedback.component.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 39[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/analytics/__tests__/WeeklyActivityChart.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/analytics/__tests__/TopFillerWords.component.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/__tests__/ErrorBoundary.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 37[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/__tests__/useAnalytics.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/useSpeechRecognition/__tests__/index.component.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[32m 27[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/pages/__tests__/MainPage.component.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/lib/__tests__/wer.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 24[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/engines/__tests__/WhisperEngineRegistry.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 26[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/lib/__tests__/analyticsUtils.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/components/session/__tests__/StatusNotificationBar.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 21[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/useSpeechRecognition/__tests__/stale-closure.test.tsx [2m([22m[2m1 test[22m[2m)[22m[32m 20[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/lib/__tests__/dateUtils.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/tests/unit/main.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m tests/analytics/math-integrity.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/__tests__/useSessionMetrics.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 22[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/__tests__/domainServices.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 19[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/useSpeechRecognition/__tests__/useTranscriptionService.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/__tests__/useSessionManager.component.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/__tests__/useVocalAnalysis.component.test.tsx [2m([22m[2m4 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/__tests__/useStreak.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/__tests__/useVocalAnalysis.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/pages/__tests__/SessionPage.timer.component.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[32m 20[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/engines/__tests__/WhisperTurboEngine.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 17[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/lib/__tests__/supabaseClient.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 28[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/lib/__tests__/storage.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/__tests__/TranscriptionService.zombie.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/lib/__tests__/utils.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/lib/__tests__/globalErrorHandlers.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/__tests__/transcription-logic.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/lib/__tests__/pdfGenerator.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/__tests__/TranscriptionAccuracy.integration.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/utils/__tests__/AudioProcessor.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 11[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/__tests__/TranscriptionService.race.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/__tests__/TranscriptionPolicy.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/utils/__tests__/fetchWithRetry.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/audio/__tests__/pauseDetector.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/constants/__tests__/subscriptionTiers.test.ts [2m([22m[2m19 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/lib/DistributedLock.test.ts [2m([22m[2m7 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/config/__tests__/env.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/__tests__/EngineFactory.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/utils/__tests__/highlightUtils.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/utils/__tests__/ImmutableCallbackProxy.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 12[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/utils/__tests__/audio-processor.worker.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/__tests__/SpeechRuntimeController.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/contracts/__tests__/STTEngine.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/__tests__/FailureManager.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/hooks/useSpeechRecognition/__tests__/utils.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/tests/unit/setup.validation.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/lib/__tests__/storage.validation.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/utils/__tests__/safeCompare.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/__tests__/TranscriptionService.maxAttempts.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 6[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/__tests__/TestRegistry.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/stores/__tests__/useSessionStore.test.ts [2m([22m[2m10 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/__tests__/TranscriptionService.heartbeat.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/config/__tests__/alias-check.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 6[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/modes/__tests__/PrivateWhisper.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/engines/__tests__/PrivateSTT.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 7[2mms[22m[39m
+[2m[UNIT][0m  [32m✓[39m frontend/src/services/transcription/modes/__tests__/NativeBrowser.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+[2m[UNIT][0m [2m Test Files [22m [1m[32m98 passed[39m[22m[90m (98)[39m
+[2m[UNIT][0m [32;1m src/providers    [0m | [32;1m  91.93[0m | [32;1m   84.21[0m | [32;1m    100[0m | [32;1m  91.93[0m | [31;1m                 [0m 
+[CI] Starting dev server for E2E...
+[CI] Waiting for http://localhost:5173 (timeout: 120s)...
+[CI] Service at http://localhost:5173 is READY
+[2m[VITE][0m > cd frontend && pnpm vite --port 5173 --mode test --logLevel error
+[CI] Stopping dev server...
+[CI TELEMETRY] Falling back to Vitest artifact parsing...
+[31m✖[0m Test Execution failed in 2m 5s
+[31m[STAGE FAIL][0m Test Execution: [E2E] Exited with code 1
+
+[36m[1m[4/5] Lighthouse Audit[0m
+[2m[BUILD][0m > speaksharp@0.5.4.5 prebuild:test /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+[2m[BUILD][0m > speaksharp@0.5.4.5 validate-env /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+[2m[BUILD][0m ✅ All required environment variables are set
+[2m[BUILD][0m [Vite] Mode: test
+[2m[BUILD][0m [36mvite v7.2.2 [32mbuilding client environment for test...[36m[39m
+[2m[BUILD][0m transforming...
+[2m[BUILD][0m [32m✓[39m 5291 modules transformed.
+[31m[BUILD][ERR][0m [33m../node_modules/onnxruntime-web/dist/ort-web.min.js (6:62546): Use of eval in "../node_modules/onnxruntime-web/dist/ort-web.min.js" is strongly discouraged as it poses security risks and may cause issues with minification.[39m
+[2m[BUILD][0m rendering chunks...
+[31m[BUILD][ERR][0m [33m[plugin vite:reporter] 
+[31m[BUILD][ERR][0m (!) /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/types/e2eConfig.ts is dynamically imported by /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx but also statically imported by /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/lib/e2e-bridge.ts, /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/transcription/TranscriptionService.ts, dynamic import will not move module into another chunk.
+[31m[BUILD][ERR][0m [39m
+[31m[BUILD][ERR][0m [33m[plugin vite:reporter] 
+[31m[BUILD][ERR][0m (!) /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/lib/storage.ts is dynamically imported by /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/domainServices.ts but also statically imported by /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useAnalytics.ts, /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/usePracticeHistory.ts, /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSession.ts, /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/SpeechRuntimeController.ts, dynamic import will not move module into another chunk.
+[31m[BUILD][ERR][0m [39m
+[31m[BUILD][ERR][0m [33m[plugin vite:reporter] 
+[31m[BUILD][ERR][0m (!) /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/services/SpeechRuntimeController.ts is dynamically imported by /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/main.tsx, /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx, /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/pages/SessionPage.tsx but also statically imported by /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/components/session/StatusNotificationBar.tsx, /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSessionLifecycle.ts, /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/useSpeechRecognition_prod.ts, /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/useTranscriptionCallbacks.ts, /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/hooks/useSpeechRecognition/useTranscriptionControl.ts, /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/src/providers/TranscriptionProvider.tsx, dynamic import will not move module into another chunk.
+[31m[BUILD][ERR][0m [39m
+[2m[BUILD][0m computing gzip size...
+[2m[BUILD][0m [36m[vite-plugin-static-copy][39m [32mCopied 9 items.[39m
+[2m[BUILD][0m [2mdist/[22m[2massets/[22m[32maudio-processor.worker-CUTH-wvm.js              [39m[1m[2m    1.68 kB[22m[1m[22m
+[31m[BUILD][ERR][0m [33m
+[31m[BUILD][ERR][0m (!) Some chunks are larger than 500 kB after minification. Consider:
+[31m[BUILD][ERR][0m - Using dynamic import() to code-split the application
+[31m[BUILD][ERR][0m - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+[31m[BUILD][ERR][0m - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+[2m[LH-CFG][0m ✅ Generated lighthouserc.json with port [33m4173[39m
+[31m[LH-RUN][ERR][0m (node:33913) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+[31m[LH-RUN][ERR][0m (Use `node --trace-deprecation ...` to show where the warning was created)
+[2m[LH-RUN][0m ✅  .lighthouseci/ directory writable
+[2m[LH-RUN][0m ✅  Chrome installation found
+[31m[LH-RUN][ERR][0m (node:33947) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+[31m[LH-RUN][ERR][0m (Use `node --trace-deprecation ...` to show where the warning was created)
+[2m[LH-RUN][0m Started a web server on port 59248...
+[2m[LH-RUN][0m Run #1...done.
+[2m[LH-RUN][0m Run #2...done.
+[2m[LH-RUN][0m Run #3...done.
+[31m[LH-RUN][ERR][0m Checking assertions against 1 URL(s), 3 total run(s)
+[31m[LH-RUN][ERR][0m All results processed!
+[31m[LH-RUN][ERR][0m (node:34121) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+[31m[LH-RUN][ERR][0m (Use `node --trace-deprecation ...` to show where the warning was created)
+[2m[LH-RUN][0m Dumping 3 reports to disk at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/lighthouse-results...
+[31m[LH-RUN][ERR][0m (node:34122) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+[31m[LH-RUN][ERR][0m (Use `node --trace-deprecation ...` to show where the warning was created)
+[2m[LH-RUN][0m Done writing reports to disk.
+[31m[LH-RUN][ERR][0m (node:33905) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+[31m[LH-RUN][ERR][0m (Use `node --trace-deprecation ...` to show where the warning was created)
+[2m[LH-PRC][0m 📊 Lighthouse Scores:
+[32m✔[0m Lighthouse Audit success in 1m 10s
+
+[36m[1m[5/5] Metrics & SQM[0m
+[31m[METRIC][ERR][0m ⚠️ WARNING: E2E results file not found. Defaulting to 0 (local skip).
+[2m[METRIC][0m ✅ Metrics written to test-results/metrics.json
+[32m✔[0m Metrics & SQM success in 1.9s
+
+╔════════════════════════════════════════════╗
+║            [1mSpeakSharp CI Audit[0m             ║
+╚════════════════════════════════════════════╝
+────────────────────────
+
+[1mStatus[0m
+  Value:  [31mFAILED[0m
+
+[1mUnit Tests[0m
+  Passed:  [32m98 / 98[0m
+
+[1mE2E Tests[0m
+  Status:  [33mSKIPPED[0m
+
+[1mCoverage[0m
+  Lines:    [36m61.29%[0m
+
+[1mLighthouse[0m
+  Performance:     90
+  Accessibility:   100
+  Best Practices:  78
+  SEO:             91
+
+[1mSQM Score[0m
+  Score:    [36m91 / 100[0m
+
+[1mPipeline[0m
+  Runtime:  218.93s
+
+╔════════════════════════════════════════════╗
+║            [1mFINAL STATUS: FAILED[0m            ║
+╚════════════════════════════════════════════╝
+
+📄 [CI] Audit report generated at: /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/test-results/ci-audit.md

@@ -64,6 +64,7 @@ export const STT_CONFIG = {
   HEARTBEAT_TIMEOUT_MS: ENV.fastTimers ? 200 : 30000,
   FAILURE_HOLD_DURATION_MS: ENV.fastTimers ? 50 : 1500,
   VISIBLE_HOLD_DURATION_MS: ENV.fastTimers ? 200 : 2500,
+  ALPHANUMERIC_RADIX: 36, // Used for random string generation (0-9, a-z)
 } as const;
 
 

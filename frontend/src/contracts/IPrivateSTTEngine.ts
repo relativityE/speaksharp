@@ -14,7 +14,7 @@ import { Result } from '@/services/transcription/modes/types';
 /**
  * Engine type identifier
  */
-export type EngineType = 'whisper-turbo' | 'transformers-js' | 'mock' | 'native' | 'cloud';
+export type EngineType = 'whisper-turbo' | 'transformers-js' | 'mock' | 'native' | 'cloud' | 'native-browser' | 'assemblyai';
 
 /**
  * Callbacks for engine lifecycle events
@@ -48,7 +48,7 @@ export interface IPrivateSTTEngine {
     /**
      * Start the engine (Contract Requirement)
      */
-    start(): Promise<void>;
+    start(mic?: import('@/services/transcription/utils/types').MicStream): Promise<void>;
 
     /**
      * Stop the engine (Contract Requirement)

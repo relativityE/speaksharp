@@ -49,7 +49,10 @@ describe('WhisperTurboEngine (Fast Path)', () => {
         } as unknown as { transcribe: (...args: unknown[]) => Promise<unknown> });
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        if (engine) {
+            await engine.terminate();
+        }
         if (typeof window !== 'undefined') {
             const win = window as unknown as Record<string, unknown>;
             delete win.__SS_E2E__;

@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
-import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
+import { TranscriptionPolicy } from '../TranscriptionPolicy';
 import { MicStream } from '../utils/types';
-import { EngineFactory } from '../EngineFactory';
 import { STTEngine } from '@/contracts/STTEngine';
-import { Result, ITranscriptionEngine } from '../modes/types';
+import { Result } from '../modes/types';
 import { NavigateFunction } from 'react-router-dom';
 
 /**
@@ -21,8 +20,8 @@ const mockOnModeChange = vi.fn();
 const mockNavigate = vi.fn() as unknown as NavigateFunction;
 const mockGetToken = vi.fn().mockResolvedValue('mock-token');
 
-class SuccessNativeEngine extends STTEngine {
-    public readonly type = 'native' as const;
+class MockRaceEngine extends STTEngine {
+    public readonly type = 'whisper-turbo' as const;
     
     protected async onInit() { return Result.ok(undefined); }
     protected async onStart() {}
@@ -36,6 +35,15 @@ class SuccessNativeEngine extends STTEngine {
     public override async getTranscript() { return 'test'; }
 }
 
+import { setupStrictZero } from '../../../../../tests/setupStrictZero';
+
+vi.mock('../ModelManager', () => ({
+    ModelManager: {
+        isModelDownloaded: vi.fn().mockResolvedValue(true),
+        getModelSizeMB: vi.fn().mockReturnValue(100)
+    }
+}));
+
 describe('TranscriptionService - Race Conditions', () => {
     let service: TranscriptionService;
 
@@ -43,11 +51,37 @@ describe('TranscriptionService - Race Conditions', () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
 
+        // 1. Setup T=0 Environment
+        await setupStrictZero();
+    });
+
+    afterEach(async () => {
+        if (service && !service.isServiceDestroyed()) {
+            const dPromise = service.destroy();
+            await vi.advanceTimersByTimeAsync(1000);
+            await dPromise;
+        }
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
+
+    it('should handle concurrent destroy() calls gracefully (Double-Dispose Guard)', async () => {
+        // Arrange
+        const engine = new MockRaceEngine();
+        
+        await setupStrictZero();
+        const win = window as unknown as { __SS_E2E__: { registry: Record<string, unknown> } };
+        win.__SS_E2E__.registry = {
+            ...win.__SS_E2E__.registry,
+            'whisper-turbo': () => engine
+        };
+
         const policy: TranscriptionPolicy = {
-            ...PROD_FREE_POLICY,
-            allowNative: true,
             allowCloud: false,
-            allowPrivate: false,
+            allowPrivate: true,
+            allowNative: false,
+            allowFallback: false,
+            preferredMode: 'private',
             executionIntent: 'test'
         };
 
@@ -70,20 +104,6 @@ describe('TranscriptionService - Race Conditions', () => {
         });
 
         await service.init();
-    });
-
-    afterEach(async () => {
-        if (service && !service.isServiceDestroyed()) {
-            await service.destroy();
-        }
-        vi.useRealTimers();
-        vi.restoreAllMocks();
-    });
-
-    it('should handle concurrent destroy() calls gracefully (Double-Dispose Guard)', async () => {
-        // Arrange
-        const engine = new SuccessNativeEngine();
-        vi.spyOn(EngineFactory, 'create').mockResolvedValue(engine as unknown as ITranscriptionEngine);
 
         await service.startTranscription();
 
@@ -96,7 +116,7 @@ describe('TranscriptionService - Race Conditions', () => {
         const p3 = service.destroy();
 
         // Advance timers to allow the interval check in destroy() to proceed and termination to complete
-        await vi.advanceTimersByTimeAsync(100);
+        vi.advanceTimersByTime(100);
 
         const results = await Promise.allSettled([p1, p2, p3]);
 
@@ -114,10 +134,22 @@ describe('TranscriptionService - Race Conditions', () => {
 
     it('should not throw if destroy called while initializing', async () => {
         // Arrange: Start a new service where init takes a while
-        const engine = new SuccessNativeEngine();
+        const engine = new MockRaceEngine();
         const initPromiseResolves = new Promise(resolve => setTimeout(resolve, 50));
         vi.spyOn(engine, 'init').mockImplementation(() => initPromiseResolves as Promise<Result<void, Error>>);
-        vi.spyOn(EngineFactory, 'create').mockResolvedValue(engine as unknown as ITranscriptionEngine);
+        
+        // 1. Inject into TestRegistry
+        await setupStrictZero();
+        const win = window as unknown as { __SS_E2E__: { registry: Record<string, unknown> } };
+        win.__SS_E2E__.registry = {
+            ...win.__SS_E2E__.registry,
+            'whisper-turbo': () => engine
+        };
+        
+        vi.stubGlobal('navigator', {
+            gpu: {},
+            permissions: { query: vi.fn().mockResolvedValue({ state: 'granted' }) }
+        });
 
         const freshService = new TranscriptionService({
             onTranscriptUpdate: mockOnTranscriptUpdate,

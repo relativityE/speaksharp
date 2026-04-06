@@ -59,7 +59,7 @@ s in `PrivateSTT.ts` and unified `STTEngine` with `ITranscriptionEngine` for a s
 - **Architecture: DOM Signaling Contract** — Standardized engine visibility via `data-user-tier` and `data-engine-variant` attributes on `document.body`, eliminating signal collisions in E2E.
 - **Logic: Fallback Negotiation Tests** — Created `private-stt-fallback-negotiation.e2e.spec.ts` verifying the WebGPU → CPU → Error transition paths.
 - **Verification: Accuracy Benchmarks** — Established and logged accuracy ceilings for Private engines (93% WebGPU / 90% CPU) in `tests/STT_BENCHMARKS.json`.
-- **Quality: CI Quality Gate** — Integrated `pnpm quality-code` for unified linting, typechecking, and `eslint-disable` ban enforcement.
+- **Quality: CI Quality Gate** — Integrated `pnpm quality` for unified linting, typechecking, and `eslint-disable` ban enforcement.
 - **Quality: Zero-Debt Restoration** — Removed all `as any` type casts in Playwright `addInitScript` and `evaluate` blocks across E2E test files to strictly satisfy the zero-debt linting mandate.
 - **Files:** `TranscriptionService.ts`, `PrivateWhisper.ts`, `useSessionLifecycle.ts`, `STT_BENCHMARKS.json`, `run-ci.mjs`, E2E test files.
 

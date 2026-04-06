@@ -1,3 +1,7 @@
+/**
+ * 🚨 READ-ONLY: This file is part of the core test infrastructure.
+ * No modifications are allowed unless directed by User.
+ */
 import { ITranscriptionEngine, TranscriptionModeOptions } from './modes/types';
 import { SSE2EManifest } from '@/config/TestFlags';
 

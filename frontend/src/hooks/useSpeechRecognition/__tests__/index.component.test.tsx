@@ -74,6 +74,8 @@ vi.mock('../../../utils/fillerWordUtils', () => ({
 
 // --- Test Helper: Mock Engine ---
 class MockEngine implements ITranscriptionEngine {
+  checkAvailability = vi.fn().mockResolvedValue({ isAvailable: true });
+  prepare = vi.fn().mockResolvedValue(undefined);
   init = vi.fn().mockResolvedValue(undefined);
   start = vi.fn().mockResolvedValue(undefined);
   stop = vi.fn().mockResolvedValue(undefined);

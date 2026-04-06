@@ -23,6 +23,7 @@ To ensure 100% CI reliability, the following surface areas were **FROZEN** durin
 *   **Routing/Layout**: No navigation changes or structural layout shifts.
 *   **Test Helpers**: No modifications to `tests/e2e/helpers.ts` except for contract alignment.
 *   **Env Bridge**: No changes to `TestFlags.ts` or `env.ts` (Frozen Strangler).
+*   **Engine Routing**: No changes to `PrivateSTT.ts` (Frozen Gate).
 
 ### ✅ ALLOWED Areas:
 *   **Contract Enforcement**: Transitioning to `STTEngine` abstract base and `data-route-ready`.
@@ -48,7 +49,7 @@ pnpm preflight
 
 This script performs a fast, minimal sanity check of your environment to ensure Node.js, pnpm, and all dependencies are correctly installed.
 
-Do not proceed until this script completes successfully. If it fails, follow the "Dead Environment Trap" troubleshooting in `README.md` to stabilize your environment via `pnpm clean:nuclear`.
+Do not proceed until this script completes successfully. If it fails, follow the "Dead Environment Trap" troubleshooting in `README.md` to stabilize your environment via `pnpm reset:clean`.
 
 ---
 
@@ -121,12 +122,12 @@ The primary runner for all local validation is `pnpm test:all:local` (which call
 
 ### 3. Selective Use of `scripts/env-stabilizer.sh`
 
-The `./scripts/env-stabilizer.sh` script (via `pnpm env:stabilize`) is a powerful tool for recovering a broken environment in CI, but it is **DESTRUCTIVE** in dev mode (it runs `git restore .`).
+The `./scripts/env-stabilizer.sh` script (via `pnpm reset:env`) is a powerful tool for recovering a broken environment in CI, but it is **DESTRUCTIVE** in dev mode (it runs `git restore .`).
 
 *   Run `pnpm preflight` first.
-*   If instability persists (e.g., hanging tests, port conflicts), run **`pnpm clean:nuclear`**. This kills stale processes and wipes Vite caches without touching your code.
-*   **NEVER** run `pnpm env:stabilize` in dev mode if you have uncommitted changes.
-*   Escalate to the user **before using** `./scripts/vm-recovery.sh` or `pnpm env:stabilize ci`.
+*   If instability persists (e.g., hanging tests, port conflicts), run **`pnpm reset:clean`**. This kills stale processes and wipes Vite caches without touching your code.
+*   **NEVER** run `pnpm reset:env` in dev mode if you have uncommitted changes.
+*   Escalate to the user **before using** `./scripts/vm-recovery.sh` or `pnpm reset:env ci`.
 *   Always read `README.md` to understand setup, workflow, and scripts.
 
 ### 4. Handling Silent Crashes in E2E Tests
@@ -167,13 +168,12 @@ ___
 2.  ✅ **Codebase Context** – Inspect `/frontend/src`, `/tests` (E2E), `/frontend/tests/integration` (Real DB), `/docs` before acting.
 3.  ❌ **No Code Reversals Without Consent** – Never undo user work.
 4.  ⏱️ **Timeout Constraint** – Every command must complete within 7 minutes.
-5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `ci:full:local` script runs the EXACT same pipeline as GitHub CI.
+5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `ci:full` script runs the EXACT same pipeline as GitHub CI.
 
     ```json
-     "test:all:local": "pnpm run test:all:local",
-     "ci:full:local": "pnpm run ci:full:local",
-     "test:health:local": "pnpm run test:health:local",
-     "test": "pnpm test:unit:local",
+     "test:full": "pnpm run test:full",
+     "ci:full": "pnpm run ci:full",
+     "test": "pnpm test:core",
      "dev": "pnpm run dev",
      "build": "pnpm run build",
      "pw:install": "pnpm run pw:install",
@@ -185,11 +185,9 @@ ___
     **Playwright Browsers:** Browser installation is NOT automatic. After `pnpm install`, run `pnpm pw:install` to install Chromium for E2E testing.
     
     **Terminology Clarification:**
-    - `test:health:local`: Runs a fast validation suite (Preflight + Unit Tests + Mock E2E).
-    - **"Healthcheck passed!"**: This log message comes from the Lighthouse CLI and refers to its internal environment check, NOT the project's health check script.
-    - **Health Check Test**: Refers specifically to `tests/e2e/health-check.e2e.spec.ts`.
+    - **Core System Probe**: Refers specifically to `tests/e2e/core.e2e.spec.ts`. This is the authoritative T=0 environment probe, performing a "Deterministic, Single-Path" validation (Preflight + 1 E2E Journey).
     
-    **CRITICAL:** `ci:full:local` is NOT a simulation - it runs the exact same commands as GitHub CI (frozen lockfile, same build, same shards). If it passes locally, CI will pass.
+    **CRITICAL:** `ci:full` is NOT a simulation - it runs the exact same commands as GitHub CI (frozen lockfile, same build, same shards). If it passes locally, CI will pass.
     
     **New Configuration Scripts (2025-11-28):**
     - `build.config.js` - Centralized port configuration (DEV: 5173, PREVIEW: 4173)
@@ -205,7 +203,7 @@ ___
 1. **Contextual Review** – Read `/docs` and `README.md` before acting.
     - **Handling Secrets**: Critical credentials (like `ASSEMBLYAI_API_KEY`) are managed via **GitHub Secrets**, not `.env` files. Run `gh secret list` to verify available secrets.
     - **Cloud Execution**: Consult `tests/TEST_PLAYBOOK.md` to understand how tests are dispatched to the GitHub Cloud via YAML scripts (e.g., `ci:dispatch:soak`).
-2. **Stabilize Environment** – Run **`pnpm clean:nuclear`** if instability signs (port conflicts, hanging tests) appear. Only use `env:stabilize` if instructed by the user and you have no uncommitted work.
+2. **Stabilize Environment** – Run **`pnpm reset:clean`** if instability signs (port conflicts, hanging tests) appear. Only use `reset:env` if instructed by the user and you have no uncommitted work.
 3. **Grounding** – Review current workflows, scripts, and audit runners.
 4. **Codebase Deep Dive** – Inspect actual code, not assumptions.
 5. **Strategic Consultation** – Present root cause + 2–3 solution paths **before major changes**.
@@ -221,14 +219,14 @@ ___
 
 1.  **Run Local Audit Script**
     ```bash
-    pnpm test:all:local
+    pnpm test:full
     ```
     Must pass lint, typecheck, all unit tests, and the full E2E suite.
 
 2.  **Mandatory Pre-Push Validation**
     Before pushing to `main`, you MUST run:
     ```bash
-    pnpm run ci:full:local
+    pnpm run ci:full
     ```
     This runs the EXACT GitHub CI pipeline locally (frozen lockfile, sharded E2E, lighthouse). If it fails, DO NOT PUSH. Fix the issues first.
 

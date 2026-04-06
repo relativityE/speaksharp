@@ -420,13 +420,13 @@ async function main() {
                         } else if (impactOutput === 'ALL' || process.argv.includes('ci-simulate')) {
                             fs.mkdirSync(path.join(rootDir, 'frontend', 'coverage'), { recursive: true });
                             // Leverage canonical package script
-                            await runCommand('pnpm', ['run', 'test:unit:local'], { label: 'UNIT' });
+                            await runCommand('pnpm', ['run', 'test:unit'], { label: 'UNIT' });
                         } else if (impactOutput !== 'NONE') {
                             const testFiles = impactOutput.split(' ').filter(Boolean);
                             const vitestFiles = testFiles.filter(f => f.includes('.test.ts') || f.includes('.test.tsx'));
                             if (vitestFiles.length > 0) {
                                 fs.mkdirSync(path.join(rootDir, 'frontend', 'coverage'), { recursive: true });
-                                await runCommand('pnpm', ['run', 'test:unit:local', ...vitestFiles], { label: 'UNIT' });
+                                await runCommand('pnpm', ['run', 'test:unit', ...vitestFiles], { label: 'UNIT' });
                             }
                         }
 
