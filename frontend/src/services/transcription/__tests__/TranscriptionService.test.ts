@@ -9,7 +9,7 @@ import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
 import { TranscriptionModeOptions } from '../modes/types';
 import { EngineType } from '../../../contracts/IPrivateSTTEngine';
-import { sttRegistry } from '../STTRegistry';
+import { sttRegistry } from '@/services/transcription/STTRegistry';
 
 /**
  * ARCHITECTURE:
@@ -99,7 +99,7 @@ describe('TranscriptionService', () => {
 
     it('should sanitize transcripts effectively', async () => {
         // 1. Setup Sticky Mock
-        const { sttRegistry } = await import('../STTRegistry');
+        const { sttRegistry } = await import('@/services/transcription/STTRegistry');
         
         class MockEngine extends STTEngine {
             public override readonly type = 'transformers-js' as EngineType;
@@ -143,7 +143,7 @@ describe('TranscriptionService', () => {
 
     it('should transition to DOWNLOAD_REQUIRED on CACHE_MISS', async () => {
         // 1. Setup Sticky Mock with CACHE_MISS
-        const { sttRegistry } = await import('../STTRegistry');
+        const { sttRegistry } = await import('@/services/transcription/STTRegistry');
         
         class CacheMissEngine extends STTEngine {
             public override readonly type = 'transformers-js' as EngineType;
@@ -178,7 +178,7 @@ describe('TranscriptionService', () => {
 
     it('should transition to FAILED and NOT switch modes on engine failure', async () => {
         // 1. Setup Sticky Mock that fails during start
-        const { sttRegistry } = await import('../STTRegistry');
+        const { sttRegistry } = await import('@/services/transcription/STTRegistry');
         
         class FailureEngine extends STTEngine {
             public override readonly type = 'transformers-js' as EngineType;
