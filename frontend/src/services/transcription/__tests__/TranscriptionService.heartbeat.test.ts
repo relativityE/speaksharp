@@ -5,7 +5,7 @@ import { EngineType } from '../../../contracts/IPrivateSTTEngine';
 import { NavigateFunction } from 'react-router-dom';
 import { MicStream } from '../utils/types';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
-import { sttRegistry } from '../STTRegistry';
+import { sttRegistry } from '@/services/transcription/STTRegistry';
 
 /**
  * @file TranscriptionService.heartbeat.test.ts
