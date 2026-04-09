@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getEngine, sttRegistry } from '../STTRegistry';
+import { getEngine, sttRegistry } from '@/services/transcription/STTRegistry';
 import { ITranscriptionEngine } from '../modes/types';
 
 describe('STTRegistry (Singleton SSOT)', () => {
