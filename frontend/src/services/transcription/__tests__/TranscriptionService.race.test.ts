@@ -5,7 +5,7 @@ import { MicStream } from '../utils/types';
 import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
 import { NavigateFunction } from 'react-router-dom';
-import { sttRegistry } from '../STTRegistry';
+import { sttRegistry } from '@/services/transcription/STTRegistry';
 
 /**
  * @file TranscriptionService.race.test.ts
