@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { SUBSCRIPTION_LIMITS } from '@/config';
 import { useStripeAvailability } from '@/utils/stripeDetection';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 
 interface Tier {
   name: string;

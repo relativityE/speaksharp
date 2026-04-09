@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import logger from '../frontend/src/lib/logger';
+import { ITranscriptionEngine, TranscriptionModeOptions } from '../frontend/src/services/transcription/modes/types';
 
 /**
  * ARCHITECTURE:
@@ -12,32 +13,46 @@ import logger from '../frontend/src/lib/logger';
  */
 
 // Local minimalist mock engine factory to avoid importing heavy WASM modules
-const minimalistMockFactory = () => {
+const minimalistMockFactory = (options: TranscriptionModeOptions) => {
   const mockEngine = {
     type: 'mock',
     instanceId: 'mock-instance-' + Math.random().toString(36).substring(7),
-    init: vi.fn().mockImplementation(async (callbacks) => {
-      Object.assign(mockEngine, callbacks);
-      return { isOk: true };
+    // ARCHITECTURE: init() no longer accepts callbacks (Step 5/6)
+    init: vi.fn().mockImplementation(async () => {
+      return { isOk: true, data: undefined };
     }),
-    start: vi.fn().mockResolvedValue(undefined),
+    checkAvailability: vi.fn().mockResolvedValue({ isAvailable: true }),
+    prepare: vi.fn().mockResolvedValue(undefined),
+    start: vi.fn().mockImplementation(async () => {
+       // Simulate immediate ready if needed
+       if (options.onReady) {
+         const onReady = options.onReady as unknown as () => void;
+         onReady();
+       }
+    }),
     stop: vi.fn().mockResolvedValue(undefined),
+    pause: vi.fn().mockResolvedValue(undefined),
+    resume: vi.fn().mockResolvedValue(undefined),
     destroy: vi.fn().mockResolvedValue(undefined),
     terminate: vi.fn().mockResolvedValue(undefined),
     transcribe: vi.fn().mockResolvedValue({ isOk: true, data: 'mock transcript' }),
     updateHeartbeat: vi.fn(),
     getEngineType: () => 'mock',
     getLastHeartbeatTimestamp: () => Date.now(),
-    getTranscript: () => 'mock transcript',
+    getTranscript: vi.fn().mockResolvedValue('mock transcript'),
     dispose: vi.fn(),
-    onTranscriptUpdate: null as unknown as (update: unknown) => void,
-    onModelLoadProgress: null as unknown as (progress: number | null) => void,
-    onReady: null as unknown as () => void,
-  };
+    // Capture callbacks from options (Step 7)
+    onTranscriptUpdate: options.onTranscriptUpdate,
+    onModelLoadProgress: options.onModelLoadProgress,
+    onReady: options.onReady,
+  } as unknown as ITranscriptionEngine;
   
   if (typeof window !== 'undefined') {
-      const g = window as any;
-      if (g.__SS_E2E__) g.__SS_E2E__.latestMock = mockEngine;
+      const g = window as unknown as Record<string, unknown>;
+      if (g.__SS_E2E__) {
+        const manifest = g.__SS_E2E__ as Record<string, unknown>;
+        manifest.latestMock = mockEngine;
+      }
   }
   
   return mockEngine;
@@ -48,16 +63,14 @@ export async function setupStrictZero(options: { engineType?: string } = {}) {
   vi.resetModules();
 
   try {
-      // ARCHITECTURE: Reach into any potentially cached version to reset invariant
-      const factoryModule = await import('../frontend/src/services/transcription/STTStrategyFactory');
-      const Factory = factoryModule.STTStrategyFactory;
-      if (Factory) {
-          Factory.ACTIVE_ENGINES_COUNT = 0;
-          logger.info('[setupStrictZero] Invariant reset: ACTIVE_ENGINES_COUNT = 0');
+      // ARCHITECTURE: Use central registry to reset invariants
+      const { sttRegistry } = await import('../frontend/src/services/transcription/STTRegistry');
+      if (sttRegistry) {
+          sttRegistry.clear();
+          logger.info('[setupStrictZero] Invariant reset: sttRegistry.clear()');
       }
   } catch (e) {
-      // If import fails, we might be in a different environment, but we must not swallow critical errors
-      logger.error({ error: e }, '[setupStrictZero] Exception during STTStrategyFactory reset');
+      logger.error({ error: e }, '[setupStrictZero] Exception during STTRegistry reset');
   }
 
   // 1.5 Clear shared browser state
@@ -81,4 +94,15 @@ export async function setupStrictZero(options: { engineType?: string } = {}) {
       'transformers-js': minimalistMockFactory
     }
   };
+
+  // Register with the new SSOT Registry
+  try {
+      const { sttRegistry } = await import('../frontend/src/services/transcription/STTRegistry');
+      sttRegistry.register('native-browser', minimalistMockFactory);
+      sttRegistry.register('assemblyai', minimalistMockFactory);
+      sttRegistry.register('whisper-turbo', minimalistMockFactory);
+      sttRegistry.register('transformers-js', minimalistMockFactory);
+  } catch (e) {
+      logger.error({ error: e }, '[setupStrictZero] Post-setup registry sync failed');
+  }
 }

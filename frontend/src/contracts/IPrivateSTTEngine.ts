@@ -38,12 +38,16 @@ export interface IPrivateSTTEngine {
     readonly type: EngineType;
 
     /**
+     * Probe availability and prerequisites (Contract Requirement)
+     */
+    checkAvailability(): Promise<import('@/services/transcription/STTStrategy').AvailabilityResult>;
+
+    /**
      * Initialize the engine (download model, compile WASM, etc.)
-     * @param callbacks - Lifecycle callbacks
      * @param timeoutMs - Maximum time to wait for initialization
      * @returns Result indicating success or failure
      */
-    init(callbacks: EngineCallbacks, timeoutMs?: number): Promise<Result<void, Error>>;
+    init(timeoutMs?: number): Promise<Result<void, Error>>;
     
     /**
      * Start the engine (Contract Requirement)
@@ -54,6 +58,16 @@ export interface IPrivateSTTEngine {
      * Stop the engine (Contract Requirement)
      */
     stop(): Promise<void>;
+
+    /**
+     * Pause the engine
+     */
+    pause(): Promise<void>;
+
+    /**
+     * Resume the engine
+     */
+    resume(): Promise<void>;
 
     /**
      * Transcribe audio data

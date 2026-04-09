@@ -3,7 +3,7 @@ import { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPolicy';
 import NativeBrowser from './modes/NativeBrowser';
 import CloudAssemblyAI from './modes/CloudAssemblyAI';
 import { PrivateSTT } from './engines/PrivateSTT';
-import logger from '@/lib/logger';
+import logger from '../../lib/logger';
 
 /**
  * EngineFactory:
@@ -35,14 +35,6 @@ export class EngineFactory {
         break;
       default:
         throw new Error(`[EngineFactory] Unsupported transcription mode: ${mode}`);
-    }
-
-    // Standard high-level initialization
-    const initResult = await engine.init(options);
-
-    if (initResult && 'isOk' in initResult && !initResult.isOk) {
-      logger.error({ mode, error: initResult.error }, '[EngineFactory] Engine initialization failed');
-      throw initResult.error;
     }
 
     return engine;

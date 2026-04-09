@@ -21,11 +21,6 @@ export interface STTStrategy {
    */
   checkAvailability(): Promise<AvailabilityResult>;
 
-  /**
-   * Prepares the engine (e.g., loading WASM, connecting to WS, initializing hardware).
-   * This corresponds to the PREPARING state in the FSM.
-   */
-  prepare(): Promise<void>;
 
   /**
    * Starts the actual transcription stream.
@@ -36,6 +31,16 @@ export interface STTStrategy {
    * Stops the transcription stream and performs necessary cleanup.
    */
   stop(): Promise<void>;
+
+  /**
+   * Resumes the transcription stream.
+   */
+  resume(): Promise<void>;
+
+  /**
+   * Pauses the transcription stream.
+   */
+  pause(): Promise<void>;
 
   /**
    * Nuclear cleanup of all resources (threads, sockets, caches).

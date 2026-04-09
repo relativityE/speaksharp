@@ -1,5 +1,5 @@
 import { http, HttpResponse, type RequestHandler } from 'msw';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 import { createMockSession, createMockUserProfile, createMockUser } from './test-user-utils';
 import { MOCK_SESSION_HISTORY } from '@shared/test-fixtures';
 

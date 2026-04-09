@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 
 /**
  * Response from check-usage-limit Edge Function

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import posthog from 'posthog-js';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useProfile } from './useProfile';

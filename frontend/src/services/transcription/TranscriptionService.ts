@@ -1,4 +1,4 @@
-import logger from '@/lib/logger';
+import logger from '../../lib/logger';
 import { isEqual } from 'lodash-es';
 import { MicStream } from './utils/types';
 import { STTNegotiator } from './STTNegotiator';
@@ -8,7 +8,8 @@ import { STTStrategy } from './STTStrategy';
 import { STTStrategyFactory } from './STTStrategyFactory';
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
-import { TranscriptionModeOptions, Transcript, TranscriptionError } from './modes/types';
+import { TranscriptionModeOptions } from './modes/types';
+import { TranscriptionError } from './errors';
 import {
   TranscriptionPolicy,
   TranscriptionMode,
@@ -16,7 +17,6 @@ import {
 } from './TranscriptionPolicy';
 import { useSessionStore } from '../../stores/useSessionStore';
 import { calculateTranscriptStats, TranscriptStats } from '../../utils/fillerWordUtils';
-import { ImmutableCallbackProxy } from './utils/ImmutableCallbackProxy';
 import { TranscriptionFSM, TranscriptionState } from './TranscriptionFSM';
 import { FailureManager } from './FailureManager';
 import { STT_CONFIG } from '../../config';
@@ -93,7 +93,6 @@ export default class TranscriptionService {
   private watchdogTimer: NodeJS.Timeout | null = null;
   private isFrozen: boolean = false;
 
-  private callbackProxy: ImmutableCallbackProxy<TranscriptionModeOptions>;
   private policy: TranscriptionPolicy;
   private options: TranscriptionServiceOptions;
 
@@ -106,7 +105,9 @@ export default class TranscriptionService {
 
   private transcriptHistory: HistorySegment[] = [];
 
+  private strategyCallbacks: TranscriptionModeOptions;
   private mode: TranscriptionMode | null = null;
+  private isModeLocked: boolean = false;
   private serviceId: string; // Unique ID for this service instance
   private runId: string | null = null; // Unique ID for each logical start run
   private lastError: Error | null = null;
@@ -133,9 +134,7 @@ export default class TranscriptionService {
     this.failureManager = new FailureManager();
     this.policy = options.policy || PROD_FREE_POLICY;
 
-    // ✅ E2E HOOK: Exposed Registry logic removed (Banned Patterns)
-
-    // Default options to avoid undefined crashes
+    // 1. Initial stable options to avoid undefined closure crashes
     this.options = {
       onTranscriptUpdate: options.onTranscriptUpdate || (() => { }),
       onModelLoadProgress: options.onModelLoadProgress || (() => { }),
@@ -153,12 +152,29 @@ export default class TranscriptionService {
       onHistoryUpdate: options.onHistoryUpdate,
     };
 
+    // 2. stable strategyCallbacks (captured this.options)
+    this.strategyCallbacks = {
+      onTranscriptUpdate: (u) => this.processTranscript(u),
+      onModelLoadProgress: (p) => this.processModelLoadProgress(p),
+      onReady: () => this.options.onReady?.(),
+      onError: (err) => {
+        logger.error({ sId: this.serviceId, rId: this.runId, error: err }, '[TranscriptionService] Strategy Error');
+        this.idempotencyKey = null; // Reset on failure
+        this.fsm.transition({ type: 'ERROR_OCCURRED', error: err });
+        this.options.onError?.(err);
+      },
+      onConnectionStateChange: (s) => this.options.onStatusChange?.({ type: s === 'connected' ? 'ready' : 'info', message: `Connection ${s}` }),
+      session: options.session || null,
+      navigate: options.navigate || ((() => { }) as unknown as NavigateFunction),
+      getAssemblyAIToken: options.getAssemblyAIToken || (async () => null),
+      userWords: options.userWords || [],
+      serviceId: this.serviceId,
+      runId: this.runId || 'unknown'
+    };
+
     this.fsm.subscribe(state => this.handleStateChange(state));
 
     logger.debug({ sId: this.serviceId }, '[TranscriptionService] Service initialized');
-
-    // Initialize Proxy for stable callback references in modes
-    this.callbackProxy = new ImmutableCallbackProxy(this.getProxyOptions());
 
     // ✅ DB Persistence Wiring
     this.dbHandlers = {
@@ -213,69 +229,90 @@ export default class TranscriptionService {
       throw new Error(`[Invariant Violation] Implicit mode switch detected: negotiated mode '${mode}' does not match explicit user preference '${this.policy.preferredMode}'`);
     }
 
-    // 1. Session Isolation: Mode change always triggers clean strategy termination
-    if (this.mode !== mode && this.strategy) {
-      logger.info({ from: this.mode, to: mode }, '[TranscriptionService] Mode switch detected. Purging current strategy.');
-      await this.strategy.terminate();
-      this.strategy = null;
+    // 1. Mode Lock Guard: Block mid-session pivots (Security Invariant)
+    if (this.isModeLocked && this.mode !== null && this.mode !== mode) {
+      logger.error({ active: this.mode, requested: mode }, '[TranscriptionService] 🛡️ Security Violation: Mid-session mode switch blocked');
+      throw TranscriptionError.modeLocked(this.mode, mode);
+    }
+
+    // 2. Session Isolation & Immutability (Tightened Step 8)
+    // If a strategy exists for a DIFFERENT mode, we must terminate it.
+    // If it exists for the SAME mode, we MUST NOT replace it (Immutability).
+    if (this.strategy) {
+      if (this.mode !== mode) {
+        logger.info({ from: this.mode, to: mode }, '[TranscriptionService] Mode switch detected. Purging current strategy.');
+        await this.strategy.terminate();
+        this.strategy = null;
+      } else {
+        // 🔒 Single Engine Invariant: If it already exists for the same mode, preserve it
+        // but ensure we don't accidentally create a second one.
+        logger.debug({ mode }, '[TranscriptionService] Strategy for current mode already exists. Preserving instance.');
+      }
     }
 
     this.idempotencyKey = Math.random().toString(STT_CONFIG.ALPHANUMERIC_RADIX).substring(7);
-    this.mode = mode;
+    this.mode = mode; // Assigned ONCE here after isolation
 
-    // 2. Instantiate Strategy if needed
+    // 3. Instantiate Strategy if null (Step 8.1)
     if (!this.strategy) {
-      this.strategy = STTStrategyFactory.create(mode, this.getProxyOptions(), this.policy);
+      logger.debug({ mode }, '[TranscriptionService] Creating new strategy instance');
+      this.strategy = STTStrategyFactory.create(mode, this.strategyCallbacks, this.policy);
     }
 
-    // 3. Probe Availability (The 🛡️ Guard)
-    const availability = await this.strategy.checkAvailability();
-    
-    if (!availability.isAvailable) {
-      logger.warn({ mode, reason: availability.reason }, '[TranscriptionService] Strategy BLOCKED');
-      
-      // Update FSM state based on reason
-      if (availability.reason === 'CACHE_MISS') {
-        this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
-      } else {
-        this.fsm.transition({ 
-          type: 'ERROR_OCCURRED', 
-          error: new TranscriptionError(
-            availability.message || 'Strategy unavailable', 
-            availability.reason || 'UNKNOWN', 
-            true
-          ) 
-        });
-      }
-      
-      // Update status for UI
-      this.options.onStatusChange?.({
-        type: availability.reason === 'CACHE_MISS' ? 'download-required' : 'error',
-        message: availability.message || 'Strategy blocked',
-        progress: availability.reason === 'CACHE_MISS' ? 0 : undefined
-      });
+    // 🛡️ IDENTITY INVARIANT: Prevent unplanned instance replacement mid-init
+    const capturedStrategy = this.strategy;
 
-      throw new Error(`Strategy BLOCKED: ${availability.reason}`);
+    // 3. Probe Availability (The 🛡️ Guard - Step 2)
+    const availability = await this.strategy.checkAvailability();
+    logger.debug({ serviceId: this.serviceId, availability, strategy: this.strategy?.constructor?.name }, '[TranscriptionService] Availability Probed');
+    
+    // GATED: Download required must terminal early
+    if (!availability.isAvailable && availability.reason === 'CACHE_MISS') {
+        logger.warn({ mode }, '[TranscriptionService] Model CACHE_MISS. Gating further execution.');
+        this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
+        this.options.onStatusChange?.({
+            type: 'download-required',
+            message: 'Private model download required.',
+            progress: 0
+        });
+        return;
+    }
+
+    // GATED: Any other failure is terminal (Step 2.1)
+    if (!availability.isAvailable) {
+        logger.error({ mode, reason: availability.reason }, '[TranscriptionService] Strategy NOT AVAILABLE. Gating execution.');
+        const error = TranscriptionError.engineFailure(mode, availability.message || 'Strategy unavailable');
+        this.fsm.transition({ type: 'ERROR_OCCURRED', error });
+        this.options.onStatusChange?.({
+            type: 'error',
+            message: availability.message || 'Strategy blocked'
+        });
+        throw error;
     }
 
     // 4. Prepare Strategy (PREPARING state)
     this.fsm.transition({ type: 'ENGINE_INIT_REQUESTED' });
+    const currentRunId = this.runId; // 🛡️ Capture runId for async coupling
     
     try {
-      // Guard: concurrent destroy() may null strategy at any await boundary
-      if (!this.strategy) return;
+      // Guard: concurrent destroy() or stale runId may invalidate this settlement
+      if (!this.strategy || this.strategy !== capturedStrategy || this.runId !== currentRunId) {
+        logger.warn({ runId: this.runId, expected: currentRunId }, '[TranscriptionService] Strategy settlement aborted: Identity or RunId mismatch');
+        return;
+      }
+
       await this.strategy.prepare();
 
-      // Strategy-specific init (legacy adapter)
-      // Guard: concurrent destroy() may have nulled strategy during prepare()
-      if (this.strategy && 'init' in this.strategy) {
-        await (this.strategy as unknown as { init: (opts: TranscriptionModeOptions) => Promise<void> }).init(this.getProxyOptions());
+      // 5. Final READY transition (Authoritative Settlement for Task 5.1.1)
+      if (this.fsm.is('ENGINE_INITIALIZING')) {
+        logger.info({ runId: this.runId, mode: this.mode }, '[TranscriptionService] Strategy initialized. Transitioning to READY.');
+        this.fsm.transition({ type: 'ENGINE_INIT_SUCCESS' });
       }
 
       // Guard: strategy may be nulled after init()
       if (!this.strategy) return;
 
-      // ✅ INTEGRITY FIX: Atomic DB Session Persistence
+      // Atomic DB Session Persistence
       // Record the engine transition in the DB BEFORE moving to ENGINE_STARTED.
       if (this.dbHandlers) {
         logger.info({ mode, runId: this.runId }, '[TranscriptionService] Registering engine transition in DB...');
@@ -298,7 +335,7 @@ export default class TranscriptionService {
       }
 
       if (!this.strategy) return;
-      this.fsm.transition({ type: 'ENGINE_STARTED' });
+
     } catch (error) {
       logger.error({ mode, error }, '[TranscriptionService] Strategy preparation failed');
       this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
@@ -335,29 +372,30 @@ export default class TranscriptionService {
     }
 
     this.fsm.transition({ type: 'START_REQUESTED' });
+
+    // 1. Mic Acquisition
+    try {
+      if (this.options.mockMic) {
+        this.mic = this.options.mockMic;
+      } else {
+        this.mic = await createMicStream();
+      }
+      this.fsm.transition({ type: 'MIC_ACQUIRED' });
+    } catch (error) {
+      this.micError = error as Error;
+      this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
+      return { success: false };
+    }
+
+    // 2. Unified Strategy Enrollment (Authoritative Gate - Consolidates Task 5.1.1)
     const requestedMode = this.policy.preferredMode || 'native';
     const { mode } = STTNegotiator.negotiate(this.policy, requestedMode);
 
-    await this.initializeStrategy(mode);
-
-    if (this.options.mockMic) {
-      this.mic = this.options.mockMic;
-      this.fsm.transition({ type: 'MIC_ACQUIRED' });
-      return { success: true };
-    }
-
     try {
-      this.mic = await createMicStream({ sampleRate: 16000, frameSize: 1024 });
-      this.micError = null;
-      this.fsm.transition({ type: 'MIC_ACQUIRED' });
+      await this.initializeStrategy(mode);
       return { success: true };
     } catch (error) {
-      const e = error instanceof Error ? error : new Error(String(error));
-      logger.error({ err: e }, '[TranscriptionService] Microphone initialization failed');
-      this.micError = e;
-      this.lastError = e;
-      this.fsm.transition({ type: 'ERROR_OCCURRED', error: e });
-      this.options.onError?.(e);
+      // initializeStrategy already transitions FSM to ERROR_OCCURRED and logs
       return { success: false };
     }
   }
@@ -370,6 +408,7 @@ export default class TranscriptionService {
     if (!this.strategy || !this.mode) return;
 
     logger.info({ sId: this.serviceId, rId: this.runId }, '[TranscriptionService] Initiating multi-segment handoff to Native');
+    this.options.onError?.(TranscriptionError.unknown('Speech recognition restart failed after multiple attempts'));
 
     // 1. Capture work done so far
     try {
@@ -429,14 +468,18 @@ export default class TranscriptionService {
     this.runId = Math.random().toString(36).substring(7);
     this.idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
 
+    logger.info({ serviceId: this.serviceId, runId: this.runId, mode }, '[TranscriptionService] 🚀 Start requested');
+
     try {
       // 3. Initialize Strategy (Handles Availability & Preparation)
+      logger.debug({ runId: this.runId, mode }, '[TranscriptionService] Calling initializeStrategy');
       await this.initializeStrategy(mode);
 
       // 4. Start Strategy Execution
+      logger.debug({ runId: this.runId, mode }, '[TranscriptionService] Calling executeStrategy');
       await this.executeStrategy(mode);
     } catch (error) {
-      logger.error({ mode, error }, '[TranscriptionService] startTranscription failed');
+      logger.error({ mode, runId: this.runId, error }, '[TranscriptionService] startTranscription FAILED');
       // FSM and UI status already updated in initializeStrategy/executeStrategy
     }
   }
@@ -444,13 +487,31 @@ export default class TranscriptionService {
   private async executeStrategy(mode: TranscriptionMode): Promise<void> {
     if (!this.strategy) return;
 
-    if (!this.fsm.is('ENGINE_INITIALIZING') && !this.fsm.is('READY') && !this.fsm.is('RECORDING')) {
-      logger.warn({ state: this.fsm.getState() }, '[TranscriptionService] executeStrategy aborted due to invalid state');
+    // 🛡️ Step 3: Block premature start
+    if (!this.fsm.is('READY')) {
+      logger.warn({ state: this.fsm.getState() }, '[TranscriptionService] executeStrategy aborted: FSM not in READY state');
       return;
     }
 
+    const runId = this.runId; // 🛡️ Step 4: Capture runId for async coupling
+
     try {
+      logger.info({ 
+        runId, 
+        engine: this.strategy.getEngineType(),
+        strategyObj: this.strategy?.constructor?.name 
+      }, '[TranscriptionService] 🚦 Executing strategy start...');
+      
       await this.strategy.start(this.mic!);
+      
+      // 🛡️ Step 4: Strict Success Coupling
+      if (this.runId !== runId) {
+        logger.warn({ runId, current: this.runId }, '[TranscriptionService] Start settled but runId changed; aborting transition.');
+        return;
+      }
+
+      this.fsm.transition({ type: 'ENGINE_STARTED' });
+      logger.info({ runId }, '[TranscriptionService] Strategy started successfully');
       this.startTime = Date.now();
       this.options.onModeChange?.(mode);
       this.startWatchdog();
@@ -458,8 +519,12 @@ export default class TranscriptionService {
       const state = (useSessionStore as unknown as { getState: () => { setActiveEngine: (mode: string) => void } }).getState?.();
       if (state) state.setActiveEngine(mode);
 
+      this.isModeLocked = true; // 🔒 Lock intent upon successful engine start
       this.fsm.transition({ type: 'ENGINE_STARTED' });
     } catch (error) {
+      if (this.runId !== runId) return; // Ignore failures from stale runs
+
+      logger.error({ runId, error }, '[TranscriptionService] Strategy execution FAILED');
       this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
       throw error;
     }
@@ -500,6 +565,7 @@ export default class TranscriptionService {
       const stats = calculateTranscriptStats([{ transcript }], [], '', duration);
 
       this.fsm.transition({ type: 'STOP_COMPLETED' });
+      this.isModeLocked = false; // 🔓 Release lock
       const state = (useSessionStore as unknown as { getState: () => { setActiveEngine: (m: string | null) => void; setModelLoadingProgress: (p: number | null) => void } }).getState?.();
       if (state) {
         state.setActiveEngine(null);
@@ -512,8 +578,58 @@ export default class TranscriptionService {
       this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
       this.options.onError?.(error as Error);
       return { success: false, transcript: '', stats: { transcript: '', total_words: 0, accuracy: 0, duration: 0 } };
-    } finally {
       this.startTime = null;
+      this.isModeLocked = false; // 🔓 Release lock always on completion
+    }
+  }
+
+  /**
+   * Pause transcription.
+   */
+  public async pauseTranscription(): Promise<void> {
+    if (!this.fsm.is('RECORDING')) {
+      logger.warn({ state: this.fsm.getState() }, '[TranscriptionService] pauseTranscription ignored: not in RECORDING state');
+      return;
+    }
+
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[TranscriptionService] ⏸️ Pausing transcription...');
+    this.fsm.transition({ type: 'PAUSE_REQUESTED' });
+
+    try {
+      if (this.strategy) {
+        await this.strategy.pause();
+      }
+      this.fsm.transition({ type: 'PAUSE_COMPLETED' });
+      this.options.onStatusChange?.({ type: 'paused', message: 'Paused' });
+    } catch (error) {
+      logger.error({ error }, '[TranscriptionService] pauseTranscription failed');
+      this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
+      throw error;
+    }
+  }
+
+  /**
+   * Resume transcription.
+   */
+  public async resumeTranscription(): Promise<void> {
+    if (!this.fsm.is('PAUSED')) {
+      logger.warn({ state: this.fsm.getState() }, '[TranscriptionService] resumeTranscription ignored: not in PAUSED state');
+      return;
+    }
+
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[TranscriptionService] ▶️ Resuming transcription...');
+    this.fsm.transition({ type: 'RESUME_REQUESTED' });
+
+    try {
+      if (this.strategy) {
+        await this.strategy.resume();
+      }
+      this.fsm.transition({ type: 'RESUME_COMPLETED' });
+      this.options.onStatusChange?.({ type: 'recording', message: 'Recording' });
+    } catch (error) {
+      logger.error({ error }, '[TranscriptionService] resumeTranscription failed');
+      this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
+      throw error;
     }
   }
 
@@ -534,7 +650,8 @@ export default class TranscriptionService {
     this.destroyPromise = (async () => {
       if (this.fsm.is('TERMINATED')) return;
 
-      this.fsm.transition({ type: 'TERMINATE_REQUESTED' });
+      this.isModeLocked = false; // 🔓 Release lock
+    this.fsm.transition({ type: 'TERMINATE_REQUESTED' });
       this.stopWatchdog();
 
       if (this.mic) {
@@ -572,7 +689,9 @@ export default class TranscriptionService {
    */
   public updateCallbacks(newOptions: Partial<TranscriptionServiceOptions>): void {
     this.options = { ...this.options, ...newOptions };
-    this.callbackProxy.update(this.getProxyOptions());
+    // Synchronize stable callback context
+    this.strategyCallbacks.session = this.options.session;
+    this.strategyCallbacks.userWords = this.options.userWords;
   }
 
   /**
@@ -623,6 +742,7 @@ export default class TranscriptionService {
 
     this.policy = PROD_FREE_POLICY;
     this.mode = null;
+    this.isModeLocked = false;
     this.lastError = null;
     this.failureManager.resetFailureCount();
 
@@ -753,8 +873,14 @@ export default class TranscriptionService {
    * Mandatory Transcript Processing Pipeline.
    * Ensures sanitation cannot be bypassed by configuration mistakes.
    */
-  private processTranscript(update: { transcript: Transcript }): void {
+  private processTranscript(update: TranscriptUpdate): void {
+    if (this.fsm.is('PAUSED')) {
+      logger.debug('[TranscriptionService] Ignoring transcript update while PAUSED');
+      return;
+    }
     const transcript = update.transcript;
+    logger.debug({ final: transcript.final?.length, partial: transcript.partial?.length }, '[TranscriptionService] Processing transcript');
+    
     if (transcript.final) {
       transcript.final = this.sanitizeTranscript(transcript.final);
     }
@@ -764,7 +890,10 @@ export default class TranscriptionService {
 
     // Only forward if there's actually something left after sanitization
     if (transcript.final || transcript.partial) {
+      logger.debug('[TranscriptionService] Sanitization complete; forwarding to UI');
       this.options.onTranscriptUpdate(update);
+    } else {
+      logger.warn('[TranscriptionService] Transcript EMPTY after sanitization; dropping.');
     }
   }
 
@@ -811,25 +940,7 @@ export default class TranscriptionService {
   }
 
   private getProxyOptions(): TranscriptionModeOptions {
-    const runId = this.runId || 'no-run';
-    logger.debug({ runId }, '[TranscriptionService] Generating proxy options');
-
-    return {
-      ...this.options,
-      instanceId: runId, // Keep for backward compat with engine interface but use runId
-      onModelLoadProgress: (p: number | null) => this.processModelLoadProgress(p),
-      onTranscriptUpdate: (u: { transcript: Transcript }) => this.processTranscript(u),
-      onReady: () => {
-        logger.info('[STT] Strategy ready.');
-        this.options.onReady?.();
-      },
-      onError: (err: Error) => {
-        logger.error({ sId: this.serviceId, rId: runId, error: err }, '[TranscriptionService] Proxy: Error triggered');
-        this.lastError = err;
-        this.fsm.transition({ type: 'ERROR_OCCURRED', error: err });
-        this.options.onError?.(err);
-      }
-    };
+    return this.strategyCallbacks;
   }
 
   /**

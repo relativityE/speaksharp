@@ -34,7 +34,7 @@
  */
 
 import { Session } from '@supabase/supabase-js';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 import { MOCK_SESSION } from '@shared/test-fixtures';
 import { TranscriptionModeOptions, Transcript } from '@/services/transcription/modes/types';
 import { ENV } from '@/config/TestFlags';

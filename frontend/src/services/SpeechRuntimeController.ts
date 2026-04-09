@@ -1,6 +1,5 @@
 // src/services/SpeechRuntimeController.ts
 import logger from '../lib/logger';
-import { STTStrategyFactory } from './transcription/STTStrategyFactory';
 import TranscriptionService from './transcription/TranscriptionService';
 import { TranscriptionPolicy, PROD_FREE_POLICY } from './transcription/TranscriptionPolicy';
 // Registry imports removed for Synchronization
@@ -54,7 +53,7 @@ export class SpeechRuntimeController {
     private service: TranscriptionService | null = null;
     private commandQueue: Promise<void> = Promise.resolve();
     private heartbeatInterval: NodeJS.Timeout | null = null;
-    private readonly HEARTBEAT_PERIOD_MS = 30000;
+    private readonly HEARTBEAT_PERIOD_MS = STT_CONFIG.HEARTBEAT_TIMEOUT_MS;
     private sessionId: string | null = null;
 
     // Cancellation tracking for startRecording
@@ -128,6 +127,7 @@ export class SpeechRuntimeController {
             // Ensures all defined strategy modes are reachable through the Factory.
             try {
                 const modes: TranscriptionMode[] = ['private', 'cloud', 'native'];
+                const { STTStrategyFactory } = await import('./transcription/STTStrategyFactory');
                 modes.forEach(mode => {
                     const strategy = STTStrategyFactory.create(mode, {} as unknown as TranscriptionServiceOptions, PROD_FREE_POLICY);
                     if (!strategy) throw new Error(`FACTORY_VALIDATION_FAILED: Strategy for ${mode} missing`);

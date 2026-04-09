@@ -1,9 +1,8 @@
-import { Result } from '../modes/types';
-import { EngineCallbacks, EngineType } from '@/contracts/IPrivateSTTEngine';
+import { Result, TranscriptionModeOptions } from '../modes/types';
+import { EngineType } from '../../../contracts/IPrivateSTTEngine';
 
-import logger from '@/lib/logger';
-import { STTEngine } from '@/contracts/STTEngine';
-import { TranscriptionModeOptions } from '../modes/types';
+import logger from '../../../lib/logger';
+import { STTEngine } from '../../../contracts/STTEngine';
 
 /**
  * Industry Standard: Deterministic Mock Pattern
@@ -18,15 +17,16 @@ export class MockEngine extends STTEngine {
     public readonly type: EngineType = 'mock';
 
     constructor(_options?: TranscriptionModeOptions) {
-        super();
+        super(_options);
     }
 
     /**
      * IPrivateSTTEngine implementation via STTEngine hooks
      */
-    protected async onInit(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
+    protected async onInit(_timeoutMs?: number): Promise<Result<void, Error>> {
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[MockEngine] Initializing...');
 
+        const callbacks = this.options as TranscriptionModeOptions;
         if (callbacks.onModelLoadProgress) {
             callbacks.onModelLoadProgress(0);
             await new Promise(r => setTimeout(r, 100)); // Simulate minimal load time
@@ -68,22 +68,6 @@ export class MockEngine extends STTEngine {
         return { isOk: true, data: transcript };
     }
 
-    /**
-     * Legacy Interface compatibility (to satisfy ITranscriptionEngine)
-     */
-    public override async init(callbacks: EngineCallbacks, timeoutMs?: number): Promise<Result<void, Error>>;
-    public async init(): Promise<void>;
-    public override async init(callbacks?: EngineCallbacks, timeoutMs?: number): Promise<Result<void, Error> | void> {
-        if (callbacks && typeof callbacks === 'object' && 'onReady' in callbacks) {
-            return super.init(callbacks, timeoutMs);
-        }
-        this.isInitialized = true;
-    }
-
-    dispose(): void {
-        void this.destroy();
-    }
-
     async getTranscript(): Promise<string> {
         return `[MOCK] Current transcript for ${this.serviceId}`;
     }
@@ -92,12 +76,20 @@ export class MockEngine extends STTEngine {
         return this.type;
     }
 
-    async pause(): Promise<void> {
-        logger.info({ sId: this.serviceId, rId: this.runId }, '[MockEngine] Pause requested');
+    public async pause(): Promise<void> {
+        await super.pause();
     }
 
-    async resume(): Promise<void> {
-        logger.info({ sId: this.serviceId, rId: this.runId }, '[MockEngine] Resume requested');
+    protected async onPause(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId }, '[MockEngine] onPause hook called');
+    }
+
+    public async resume(): Promise<void> {
+        await super.resume();
+    }
+
+    protected async onResume(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId }, '[MockEngine] onResume hook called');
     }
 
     async terminate(): Promise<void> {

@@ -1,37 +1,34 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
-import { TranscriptionModeOptions, ITranscriptionEngine } from '../modes/types';
+import { TranscriptionModeOptions, Result } from '../modes/types';
+import { EngineType } from '../../../contracts/IPrivateSTTEngine';
 import { NavigateFunction } from 'react-router-dom';
 import { MicStream } from '../utils/types';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
+import { sttRegistry } from '../STTRegistry';
 
 /**
  * @file TranscriptionService.heartbeat.test.ts
  * @description Verifies the 8s heartbeat watchdog and segmented handoff logic.
  */
 
-class MockHeartbeatEngine implements ITranscriptionEngine {
-    private lastHeartbeat = Date.now();
-    public onReady?: () => void;
-    public instanceId = 'mock-id';
+import { STTEngine } from '../../../contracts/STTEngine';
 
-    constructor(public type = 'private') {}
+class MockHeartbeatEngine extends STTEngine {
+    public override readonly type = 'transformers-js' as EngineType;
 
-    async init(callbacks: TranscriptionModeOptions) {
-        this.onReady = callbacks.onReady;
-        return { isOk: true as const, data: undefined };
+    constructor(options?: TranscriptionModeOptions) {
+        super(options);
     }
-    async checkAvailability() { return { isAvailable: true }; }
-    async prepare() { return Promise.resolve(); }
-    async start(): Promise<void> { return Promise.resolve(); }
-    async stop(): Promise<void> { return Promise.resolve(); }
-    async terminate(): Promise<void> { return Promise.resolve(); }
-    async startTranscription(): Promise<void> { return Promise.resolve(); }
-    async stopTranscription(): Promise<string> { return Promise.resolve('test'); }
-    dispose(): void {}
-    async getTranscript(): Promise<string> { return Promise.resolve('test'); }
-    getEngineType(): string { return this.type; }
-    getLastHeartbeatTimestamp(): number { return this.lastHeartbeat; }
+
+    protected async onInit() { return Result.ok(undefined); }
+    protected async onStart() { return Promise.resolve(); }
+    protected async onStop() { return Promise.resolve(); }
+    protected async onDestroy() { return Promise.resolve(); }
+    async transcribe() { return Result.ok('test'); }
+
+    public override async getTranscript() { return 'test'; }
+    public override getEngineType() { return 'whisper-turbo'; }
     setHeartbeat(ts: number) { this.lastHeartbeat = ts; }
 }
 
@@ -42,6 +39,7 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
     const mockMic: MicStream = {
         stream: {} as MediaStream,
         stop: vi.fn(),
+        prepare: vi.fn().mockResolvedValue(undefined),
         clone: vi.fn(),
         onFrame: vi.fn().mockReturnValue(() => { }),
     } as unknown as MicStream;
@@ -54,14 +52,10 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
         await setupStrictZero();
         
         // Override registry with heartbeat-specific engine at all keys
-        const win = window as unknown as { __SS_E2E__: { registry: Record<string, unknown> } };
-        win.__SS_E2E__.registry = {
-            ...win.__SS_E2E__.registry,
-            'whisper-turbo': () => engine,
-            'assemblyai': () => engine,
-            'native-browser': () => engine,
-            'transformers-js': () => engine
-        };
+        sttRegistry.register('whisper-turbo', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
+        sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
+        sttRegistry.register('native-browser', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
+        sttRegistry.register('transformers-js', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
         // Tests instantiate their own custom service
     });
 

@@ -14,6 +14,11 @@ export default defineConfig({
     tsconfigPaths({ projects: [path.resolve(__dirname, 'tsconfig.json')] }),
     react()
   ],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

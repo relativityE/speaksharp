@@ -7,7 +7,7 @@ export interface PrivateSTTInitOptions extends TranscriptionModeOptions {
 }
 
 export interface IPrivateSTT {
-    init(options: PrivateSTTInitOptions): Promise<Result<void, Error>>;
+    init(timeoutMs?: number): Promise<Result<void, Error>>;
 
     /**
      * Start the underlying engine

@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { setupStrictZero } from '../../../../../../tests/setupStrictZero';
 import { Result } from '@/services/transcription/modes/types';
-import { createPrivateSTT, PrivateSTT } from '../PrivateSTT';
+import { PrivateSTT } from '../PrivateSTT';
 import { ENV } from '@/config/TestFlags';
 import { STTEngine } from '@/contracts/STTEngine';
 
@@ -44,59 +44,57 @@ const mockEInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 
 class StubWTE extends STTEngine {
     type = 'whisper-turbo' as const;
-    onInit = mockWTEInit;
+    protected onInit = mockWTEInit;
     onStart = vi.fn().mockResolvedValue(undefined);
     onStop = vi.fn().mockResolvedValue(undefined);
+    onPause = vi.fn().mockResolvedValue(undefined);
+    onResume = vi.fn().mockResolvedValue(undefined);
     onDestroy = vi.fn().mockResolvedValue(undefined);
     transcribe = vi.fn();
 }
 
 class StubTJ extends STTEngine {
     type = 'transformers-js' as const;
-    onInit = mockTJInit;
+    protected onInit = mockTJInit;
     onStart = vi.fn().mockResolvedValue(undefined);
     onStop = vi.fn().mockResolvedValue(undefined);
+    onPause = vi.fn().mockResolvedValue(undefined);
+    onResume = vi.fn().mockResolvedValue(undefined);
     onDestroy = vi.fn().mockResolvedValue(undefined);
     transcribe = vi.fn();
 }
 
 class StubE extends STTEngine {
     type = 'mock' as const;
-    onInit = mockEInit;
+    protected onInit = mockEInit;
     onStart = vi.fn().mockResolvedValue(undefined);
     onStop = vi.fn().mockResolvedValue(undefined);
+    onPause = vi.fn().mockResolvedValue(undefined);
+    onResume = vi.fn().mockResolvedValue(undefined);
     onDestroy = vi.fn().mockResolvedValue(undefined);
     transcribe = vi.fn();
 }
 
-vi.mock('../WhisperTurboEngine', () => ({
-    WhisperTurboEngine: vi.fn().mockImplementation(() => new StubWTE())
-}));
 
-vi.mock('../TransformersJSEngine', () => ({
-    TransformersJSEngine: vi.fn().mockImplementation(() => new StubTJ())
-}));
-
-vi.mock('../MockEngine', () => ({
-    MockEngine: vi.fn().mockImplementation(() => new StubE())
-}));
 
 describe('PrivateSTT (Routing Logic)', () => {
     beforeEach(async () => {
         globalThis.__TEST__ = true;
         vi.clearAllMocks();
-        
-        // Final Architectural Directive: Test Harness owns mutation at T=0
+
+        // 1. Initialize Registry at T=0
         await setupStrictZero();
-        const win = window as unknown as { __SS_E2E__: { isActive: boolean, engineType: string, registry: Record<string, unknown> } };
-        win.__SS_E2E__.isActive = false; // Default to production routing for unit tests
+
+        // 2. Inject Test Stubs into SSOT Registry
+        const { sttRegistry } = await import('../../STTRegistry');
+        sttRegistry.register('whisper-turbo', (options) => new StubWTE(options));
+        sttRegistry.register('transformers-js', (options) => new StubTJ(options));
+        sttRegistry.register('mock', (options) => new StubE(options));
+
+        // 3. Configure Local Test State
+        const win = window as unknown as { __SS_E2E__: { isActive: boolean, engineType: string } };
+        win.__SS_E2E__.isActive = false; 
         win.__SS_E2E__.engineType = 'mock';
-        win.__SS_E2E__.registry = {
-            ...win.__SS_E2E__.registry,
-            'mock': () => new StubE(),
-            'whisper-turbo': () => new StubWTE(),
-            'transformers-js': () => new StubTJ()
-        };
 
         // Reset navigator metadata
         vi.stubGlobal('navigator', { ...navigator, gpu: undefined } as unknown as Navigator);
@@ -117,14 +115,14 @@ describe('PrivateSTT (Routing Logic)', () => {
 
     it('selects MockEngine when manifest engineType is mock', async () => {
         if (window.__SS_E2E__) window.__SS_E2E__.isActive = true;
-        
+
         // Validation: Verify T=0 injection worked
         expect(ENV.isTest).toBe(true);
         expect(ENV.engineType).toBe('mock');
 
-        pstt = createPrivateSTT();
-        await pstt.init({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
-        
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
         // Note: Real MockEngine import is now bypassed by registry injection in PrivateSTT.ts
         expect(pstt.getEngineType()).toBe('mock');
     });
@@ -137,9 +135,9 @@ describe('PrivateSTT (Routing Logic)', () => {
         // @ts-expect-error - mock navigator.gpu
         navigator.gpu = {};
 
-        pstt = createPrivateSTT();
-        await pstt.init({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
-        
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
         expect(pstt.getEngineType()).toBe('whisper-turbo');
     });
 
@@ -150,17 +148,17 @@ describe('PrivateSTT (Routing Logic)', () => {
         }
         // delete navigator.gpu handled in beforeEach
 
-        pstt = createPrivateSTT();
-        await pstt.init({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
-        
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
         expect(pstt.getEngineType()).toBe('transformers-js');
     });
 
     it('selects WhisperTurboEngine (Fast Path) when WebGPU is available (Re-verification)', async () => {
         // @ts-expect-error - mock navigator.gpu
         navigator.gpu = {};
-        pstt = createPrivateSTT();
-        await pstt.init({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
 
         expect(pstt.getEngineType()).toBe('whisper-turbo');
     });
@@ -173,9 +171,9 @@ describe('PrivateSTT (Routing Logic)', () => {
             setTimeout(() => resolve(Result.ok(undefined)), 2000);
         }));
 
-        pstt = createPrivateSTT();
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         // WebGPU is missing by default in beforeEach, so it will select TransformersJS
-        const initPromise = pstt.init({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        const initPromise = pstt.init();
 
         await vi.advanceTimersByTimeAsync(3000);
 

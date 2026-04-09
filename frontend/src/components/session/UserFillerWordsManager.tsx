@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Plus, X } from 'lucide-react';
 import { useUserFillerWords } from '@/hooks/useUserFillerWords';
 import { VOCABULARY_LIMITS } from '@/config';
-import logger from '@/lib/logger';
+import logger from '../../lib/logger';
 
 interface UserFillerWordsManagerProps {
     onWordAdded?: () => void;

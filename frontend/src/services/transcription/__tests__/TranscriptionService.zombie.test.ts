@@ -6,28 +6,32 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NavigateFunction } from 'react-router-dom';
 import TranscriptionService, { TranscriptionServiceOptions } from '../TranscriptionService';
 import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
-import { STTEngine } from '@/contracts/STTEngine';
+import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
-import { EngineType } from '@/contracts/IPrivateSTTEngine';
+import { sttRegistry } from '../STTRegistry';
+import { EngineType } from '../../../contracts/IPrivateSTTEngine';
 import { MicStream } from '../utils/types';
+import { TranscriptionModeOptions } from '../modes/types';
 
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
 
 class MockEngine extends STTEngine {
-    constructor(private name: string) {
-        super();
+    public override get type() { return this.name as EngineType; }
+
+    constructor(private name: string, options?: TranscriptionModeOptions) {
+        super(options);
     }
-    public get type(): EngineType { return this.name as EngineType; }
 
-    onInit = vi.fn().mockResolvedValue(Result.ok(undefined));
-    onStart = vi.fn().mockResolvedValue(undefined);
-    onStop = vi.fn().mockResolvedValue(undefined);
-    onDestroy = vi.fn().mockResolvedValue(undefined);
-    transcribe = vi.fn().mockResolvedValue(Result.ok(''));
+    protected async onInit() { return Result.ok(undefined); }
+    protected async onStart() { return Promise.resolve(); }
+    protected async onStop() { return Promise.resolve(); }
+    protected async onDestroy() { return Promise.resolve(); }
+    async transcribe() { return Result.ok('test'); }
 
-    terminate = vi.fn().mockResolvedValue(undefined);
-    // Explicitly override to satisfy the test's getTranscript() expectation if any
-    public override async getTranscript() { return ''; }
+    public override async getTranscript() { return 'test'; }
+    public override getEngineType() { return this.name as EngineType; }
+
+    terminate = vi.fn().mockImplementation(() => super.terminate());
 }
 
 // Testable subclass to expose protected methods if needed
@@ -53,6 +57,8 @@ describe('TranscriptionService - Zombie Prevention', () => {
         mockMic: {
             stream: {} as MediaStream,
             stop: vi.fn(),
+            prepare: vi.fn().mockResolvedValue(undefined),
+            start: vi.fn().mockResolvedValue(undefined),
             clone: vi.fn(),
             onFrame: vi.fn().mockReturnValue(() => { }),
         } as unknown as MicStream,
@@ -73,18 +79,15 @@ describe('TranscriptionService - Zombie Prevention', () => {
         await setupStrictZero();
 
         // 2. Inject core mock engines so that beforeEach init() bypasses checkAvailability
-        const win = window as unknown as { __SS_E2E__: { registry: Record<string, unknown>, instances: Record<string, MockEngine> } };
-        win.__SS_E2E__.instances = {
+        const instances = {
             assemblyai: new MockEngine('cloud'),
             'native-browser': new MockEngine('native'),
             'whisper-turbo': new MockEngine('private')
         };
-        win.__SS_E2E__.registry = {
-            ...(win.__SS_E2E__.registry || {}),
-            assemblyai: () => win.__SS_E2E__.instances.assemblyai,
-            'native-browser': () => win.__SS_E2E__.instances['native-browser'],
-            'whisper-turbo': () => win.__SS_E2E__.instances['whisper-turbo']
-        };
+        
+        sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { instances.assemblyai = new MockEngine('cloud', opts); return instances.assemblyai; });
+        sttRegistry.register('native-browser', (opts: TranscriptionModeOptions) => { instances['native-browser'] = new MockEngine('native', opts); return instances['native-browser']; });
+        sttRegistry.register('whisper-turbo', (opts: TranscriptionModeOptions) => { instances['whisper-turbo'] = new MockEngine('transformers-js', opts); return instances['whisper-turbo']; });
 
         service = new TestTranscriptionService(mockOptions);
         // Start init with a valid mock environment already present
@@ -94,10 +97,7 @@ describe('TranscriptionService - Zombie Prevention', () => {
     afterEach(async () => {
         // ✅ Always clean up, even if test fails
         if (service && !service.isServiceDestroyed()) {
-            const destroyPromise = service.destroy();
-            // Advance timers to allow any mocked timeouts (like in terminate) to resolve
-            await vi.advanceTimersByTimeAsync(1000);
-            await destroyPromise;
+            await service.destroy();
         }
         vi.useRealTimers();
         vi.restoreAllMocks();
@@ -105,8 +105,9 @@ describe('TranscriptionService - Zombie Prevention', () => {
 
     it('should terminate old instance before switching modes (Behavior-based)', async () => {
         // Arrange
-        // The cloud engine and private engine mocks are already registered in beforeEach
-        const cloudEngine = (window as unknown as { __SS_E2E__: { instances: Record<string, any> } }).__SS_E2E__.instances['assemblyai'];
+        const cloudEngine = new MockEngine('cloud');
+        sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { (cloudEngine as unknown as { options: TranscriptionModeOptions }).options = opts; return cloudEngine; });
+        
         // Spies on the newly created Cloud mock 
         const cloudSpy = vi.spyOn(cloudEngine, 'terminate');
 
@@ -124,19 +125,22 @@ describe('TranscriptionService - Zombie Prevention', () => {
 
     it('should handle concurrent terminate calls gracefully (Behavior-based)', async () => {
         // Arrange
-        // The cloud engine is already registered in beforeEach. Let's get it and mock its terminate.
-        const win = window as unknown as { __SS_E2E__: { instances: Record<string, any> } };
-        const cloudEngine = win.__SS_E2E__.instances['assemblyai'];
+        const cloudEngine = new MockEngine('cloud');
+        sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { (cloudEngine as unknown as { options: TranscriptionModeOptions }).options = opts; return cloudEngine; });
+        
         // Make terminate take some time
         cloudEngine.terminate.mockImplementation(() => new Promise(res => setTimeout(res, 50)));
 
-        await service.triggerStartTranscription({ ...mockOptions.policy!, preferredMode: 'cloud' });
+        await service.triggerStartTranscription({ ...PROD_FREE_POLICY, allowCloud: true, allowPrivate: true, preferredMode: 'cloud' });
         expect(service.getState()).toBe('RECORDING');
 
         // RAPID DESTROY CALLS
         const p1 = service.destroy();
         const p2 = service.destroy();
         const p3 = service.destroy();
+
+        // Advance timers to allow the mocked terminate promise to resolve
+        await vi.advanceTimersByTimeAsync(100);
 
         await Promise.all([p1, p2, p3]);
 
@@ -149,11 +153,8 @@ describe('TranscriptionService - Zombie Prevention', () => {
         // Arrange
         const cloudEngine = new MockEngine('cloud');
 
-        // 1. Inject into TestRegistry
-        const e2eBridge = (window as unknown as { __SS_E2E__: { registry: Record<string, () => STTEngine> } }).__SS_E2E__;
-        e2eBridge.registry = {
-            assemblyai: () => cloudEngine
-        };
+        // 1. Inject into STTRegistry - share the same instance
+        sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { (cloudEngine as unknown as { options: TranscriptionModeOptions }).options = opts; return cloudEngine; });
 
         await service.triggerStartTranscription({ ...mockOptions.policy!, preferredMode: 'cloud' });
         await service.destroy();

@@ -56,14 +56,19 @@ describe('TransformersJSEngine (Unit)', () => {
             registry: {}
         };
 
-        engine = new TransformersJSEngine();
+        engine = new TransformersJSEngine({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
 
         // Reset defaults
         mockPipeline.mockReset();
         mockEnv.allowLocalModels = false;
 
         // Default mock implementation - returns { transcript } matching TranscriptionResult interface
-        mockPipeline.mockImplementation(async () => {
+        mockPipeline.mockImplementation(async (_task, _model, options) => {
+            // Trigger the progress callback to satisfy the "trigger progress" test case
+            if (options?.progress_callback) {
+                options.progress_callback({ progress: 50 });
+            }
+            
             // Return a mock transcriber function
             return async (audio: Float32Array) => {
                 if (!(audio instanceof Float32Array)) throw new Error('Invalid input');
@@ -87,10 +92,11 @@ describe('TransformersJSEngine (Unit)', () => {
     it('should initialize successfully', async () => {
         const callbacks = {
             onReady: vi.fn(),
-            onModelLoadProgress: vi.fn()
+            onModelLoadProgress: vi.fn(),
+            onTranscriptUpdate: vi.fn()
         };
-
-        const result = await engine.init(callbacks);
+        engine = new TransformersJSEngine(callbacks);
+        const result = await engine.init();
 
         expect(result.isOk).toBe(true);
         expect(mockPipeline).toHaveBeenCalledWith(
@@ -105,7 +111,7 @@ describe('TransformersJSEngine (Unit)', () => {
 
     it('should process PCM audio buffer correctly', async () => {
         // Init uses the default mockPipeline which returns 'Mocked transcription result'
-        await engine.init({});
+        await engine.init();
 
         const pcmBuffer = new Float32Array(16000);
         const result = await engine.transcribe(pcmBuffer);
@@ -128,7 +134,7 @@ describe('TransformersJSEngine (Unit)', () => {
     it('should handle initialization errors', async () => {
         mockPipeline.mockRejectedValueOnce(new Error('Network failure'));
 
-        const result = await engine.init({});
+        const result = await engine.init();
 
         expect(result.isOk === false).toBe(true);
         const errorResult = result as { isOk: false; error: Error };
@@ -136,13 +142,13 @@ describe('TransformersJSEngine (Unit)', () => {
     });
 
     it('should handle transcription errors', async () => {
-        await engine.init({});
+        await engine.init();
         await engine.destroy(); // Clear existing transcriber to pick up the new mock
         mockPipeline.mockImplementationOnce(async () => {
             return async () => { throw new Error('Transcription failure'); };
         });
         // Non-cached init for this test to pick up the failing mock
-        await engine.init({});
+        await engine.init();
 
         const result = await engine.transcribe(new Float32Array(16000));
         expect(result.isOk === false).toBe(true);
@@ -159,7 +165,7 @@ describe('TransformersJSEngine (Unit)', () => {
         
         (ENV as unknown as Record<string, boolean>).IS_TEST_MODE = false;
 
-        await engine.init({});
+        await engine.init();
         expect(engine).toBeDefined();
 
         // Reset
@@ -169,27 +175,24 @@ describe('TransformersJSEngine (Unit)', () => {
     it('should handle "Unexpected token <" error specifically', async () => {
         mockPipeline.mockRejectedValueOnce(new Error("Unexpected token < at position 0"));
 
-        const result = await engine.init({});
+        const result = await engine.init();
         expect(result.isOk === false).toBe(true);
     });
 
     it('should trigger progress callback from transformers.js', async () => {
-        const callbacks = { onModelLoadProgress: vi.fn() };
-
-        mockPipeline.mockImplementationOnce(async (type, model, options) => {
-            if (options.progress_callback) {
-                options.progress_callback({ progress: 50 });
-            }
-            return async () => ({ transcript: 'ok' });
-        });
-
-        await engine.init(callbacks);
+        const callbacks = { 
+            onModelLoadProgress: vi.fn(),
+            onReady: vi.fn(),
+            onTranscriptUpdate: vi.fn()
+        };
+        engine = new TransformersJSEngine(callbacks);
+        await engine.init();
         expect(callbacks.onModelLoadProgress).toHaveBeenCalledWith(50);
     });
 
     it('should handle non-Error catch during init', async () => {
         mockPipeline.mockImplementationOnce(() => { throw "string error"; });
-        const result = await engine.init({});
+        const result = await engine.init();
         expect(result.isOk === false).toBe(true);
     });
 });

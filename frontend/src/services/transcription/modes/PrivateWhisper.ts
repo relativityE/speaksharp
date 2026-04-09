@@ -35,14 +35,13 @@
 
 import logger from '../../../lib/logger';
 import { createPrivateSTT, EngineType } from '../engines';
-import { IPrivateSTT } from '@/contracts/IPrivateSTT';
+import { IPrivateSTT } from '../../../contracts/IPrivateSTT';
 import { ITranscriptionEngine, TranscriptionModeOptions, Result } from './types';
-import { CacheMissEvent } from '../errors';
-import { EngineCallbacks } from '@/contracts/IPrivateSTTEngine';
+import { TranscriptionError } from '../errors';
 
 import { MicStream } from '../utils/types';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
-import { TranscriptUpdate } from '@/types/transcription';
+import { TranscriptUpdate } from '../../../types/transcription';
 import { ENV } from '../../../config/TestFlags';
 import { PauseDetector } from '../../audio/pauseDetector';
 
@@ -58,7 +57,7 @@ declare global {
   }
 }
 // Toast removed from here to centralized UI layer
-// import { toast } from '@/lib/toast';
+// import { toast } from '../../../lib/toast';
 
 type Status = 'uninitialized' | 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
 
@@ -100,7 +99,7 @@ export async function clearPrivateSTTCache(): Promise<void> {
  * via the options.instanceId field.
  * Inside the Engine, this ID is stored as this.instanceId.
  */
-import { STTEngine } from '@/contracts/STTEngine';
+import { STTEngine } from '../../../contracts/STTEngine';
 
 /**
  * ARCHITECTURE:
@@ -130,7 +129,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   }
 
   constructor(options: TranscriptionModeOptions, privateSTT?: IPrivateSTT) {
-    super();
+    super(options);
     this.onTranscriptUpdate = options.onTranscriptUpdate;
     this.onModelLoadProgress = options.onModelLoadProgress;
     this.onReady = options.onReady;
@@ -156,7 +155,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[PrivateWhisper] Initialized (dual-engine facade).');
   }
 
-  protected async onInit(_callbacks: EngineCallbacks | TranscriptionModeOptions): Promise<Result<void, Error>> {
+  protected async onInit(timeoutMs?: number): Promise<Result<void, Error>> {
     if (this.status === 'idle' || this.status === 'transcribing') {
       logger.info({ sId: this.serviceId, rId: this.instanceId }, `[PrivateWhisper] Already ${this.status}, skipping init.`);
       if (this.onReady) {
@@ -175,24 +174,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       }
 
       // Initialize the PrivateSTT facade (auto-selects best engine)
-      const initPromise = this.privateSTT.init({
-        serviceId: this.serviceId,
-        runId: this.instanceId,
-        onModelLoadProgress: (progress: number | null) => {
-          logger.info({ sId: this.serviceId, rId: this.instanceId, progress }, '[PrivateWhisper] 📊 Progress');
-          if (this.onModelLoadProgress) {
-            this.onModelLoadProgress(progress);
-          }
-        },
-        onReady: () => {
-          logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] Engine ready callback triggered.');
-        },
-        onTranscriptUpdate: (data) => {
-          if (this.onTranscriptUpdate) {
-            this.onTranscriptUpdate(data);
-          }
-        }
-      });
+      const initPromise = this.privateSTT.init(timeoutMs);
 
       const result = await initPromise;
 
@@ -230,7 +212,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       if (error.message.includes('not found in cache') || error.message.includes('CACHE_MISS')) {
         logger.warn({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] 📥 Cache miss detected during init.');
         this.status = 'error';
-        throw new CacheMissEvent();
+        throw TranscriptionError.cacheMiss();
       }
 
       logger.error({ sId: this.serviceId, rId: this.instanceId, err: error }, '[PrivateWhisper] ❌ Init failed');
@@ -250,6 +232,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       logger.error({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper CRITICAL] MicStream missing onFrame method!');
       throw new Error('Invalid MicStream: missing onFrame method');
     }
+
     logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] start() called.');
     if (this.status !== 'idle') {
       logger.warn({ sId: this.serviceId, rId: this.instanceId, status: this.status }, `[PrivateWhisper] Unexpected status: ${this.status}, expected 'idle'`);
@@ -357,8 +340,33 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
   }
 
+  public async pause(): Promise<void> {
+    await super.pause();
+  }
+
+  protected async onPause(): Promise<void> {
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] ⏸️ Internal processing loop paused');
+    if (this.processingInterval) {
+      clearInterval(this.processingInterval);
+      this.processingInterval = null;
+    }
+  }
+
+  public async resume(): Promise<void> {
+    await super.resume();
+  }
+
+  protected async onResume(): Promise<void> {
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] ▶️ Internal processing loop resumed');
+    if (!this.processingInterval && this.status === 'transcribing') {
+      this.processingInterval = setInterval(() => {
+        void this.processAudio();
+      }, 500);
+    }
+  }
+
   protected async onStop(): Promise<void> {
-    logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] onStop() called.');
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateWhisper] 🛑 Stopping engine...');
 
     if (this.processingInterval) {
       clearInterval(this.processingInterval);

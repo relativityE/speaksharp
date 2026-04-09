@@ -4,7 +4,7 @@ import { useAuthProvider } from '@/contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
 import { buildPolicyForUser, TranscriptionPolicy, TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
-import logger from '@/lib/logger';
+import logger from '../../lib/logger';
 import { Mic, Square, Loader2, Zap, Cloud, Computer, Lock } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';

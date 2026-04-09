@@ -1,15 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
 import type { TranscriptionServiceOptions } from '../TranscriptionService';
-import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
+import { TranscriptionPolicy } from '../TranscriptionPolicy';
 import type { MicStream } from '../utils/types';
 import type { PracticeSession } from '../../../types/session';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
+import { STTEngine } from '../../../contracts/STTEngine';
+import { Result } from '../modes/types';
+import { TranscriptionModeOptions } from '../modes/types';
+import { EngineType } from '../../../contracts/IPrivateSTTEngine';
+import { sttRegistry } from '../STTRegistry';
 
 /**
  * ARCHITECTURE:
- * STRICT ZERO ENFORCEMENT.
- * Tests follow the T=0 ordering: Reset -> Globals -> Import.
+ * STT REGISTRY SYNC (Task 5.0.1)
+ * Tests use registerStatic() to ensure identity parity between 
+ * the test suite and the TranscriptionService instance.
  */
 
 describe('TranscriptionService', () => {
@@ -28,13 +34,16 @@ describe('TranscriptionService', () => {
         vi.useFakeTimers();
         vi.clearAllMocks();
 
-        // Step 1 & 2: Reset + Set Globals at T=0
+        // Step 1: Reset + Set Globals at T=0
         await setupStrictZero();
 
-        // Step 3: Dynamic Import AFTER setup
+        // Step 2: Dynamic Import AFTER setup
         const tsModule = await import('../TranscriptionService');
         getTranscriptionService = tsModule.getTranscriptionService;
         resetTranscriptionService = tsModule.resetTranscriptionService;
+
+        // Reset singleton to ensure state isolation
+        resetTranscriptionService();
 
         const flagsModule = await import('../../../config/TestFlags');
         ENV = flagsModule.ENV;
@@ -73,17 +82,13 @@ describe('TranscriptionService', () => {
         if (service) {
             await service.destroy();
         }
-        if (typeof window !== 'undefined') {
-            const win = window as unknown as Record<string, unknown>;
-            delete win.__SS_E2E__;
-        }
         vi.useRealTimers();
         vi.restoreAllMocks();
         resetTranscriptionService();
+        sttRegistry.clear();
     });
 
     it('should initialize successfully with ST=0 registry-injected mock', async () => {
-        // T=0 Compliance Check
         expect(ENV.isTest).toBe(true);
         expect(ENV.disableWasm).toBe(true);
 
@@ -92,55 +97,111 @@ describe('TranscriptionService', () => {
         expect(service.getMode()).toBe('private');
     });
 
-    it('should sanitize transcripts before emitting (Behavior-based)', async () => {
-        // Arrange
-        await service.startTranscription({ ...PROD_FREE_POLICY, preferredMode: 'cloud' });
-
-        return new Promise<void>((resolve) => {
-            const tempService = getTranscriptionService({
-                onTranscriptUpdate: (update) => {
-                    // Assert
-                    expect(update.transcript.final).toBe(' clean text ');
-                    resolve();
-                }
-            });
-
-            // Act
-            const rawTranscript = { transcript: { final: ' clean text ', isFinal: true, timestamp: 0 } };
-            // Simulate the strategy emitting a transcript event via the facade's mapped callback
-            if ((tempService as any).strategy && (tempService as any).strategy.onTranscriptUpdate) {
-                (tempService as any).strategy.onTranscriptUpdate(rawTranscript);
-            } else {
-                // Fallback for tests if facade isn't fully established
-                (tempService as any).processTranscript(rawTranscript);
-            }
-        });
-    });
-
     it('should sanitize transcripts effectively', async () => {
+        // 1. Setup Sticky Mock
+        const { sttRegistry } = await import('../STTRegistry');
+        
+        class MockEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() {}
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+            
+            // Allow test to trigger transcription update
+            public triggerTranscript(data: { transcript: { final?: string; partial?: string } }) {
+                (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
+            }
+        }
+        
+        const mockEngine = new MockEngine({} as unknown as TranscriptionModeOptions);
+        sttRegistry.registerStatic('whisper-turbo', mockEngine);
+
         await service.init();
         await service.startTranscription();
         
-        // ARCHITECTURE: Black-box testing via the registered mock instance
-        const win = window as any;
-        const mockEngine = win.__SS_E2E__?.latestMock;
-        expect(mockEngine).toBeDefined();
-        
-        // Simulate a transcript event through the wired proxy
-        if (mockEngine && mockEngine.onTranscriptUpdate) {
-            mockEngine.onTranscriptUpdate({
-                transcript: {
-                    final: '[BLANK_AUDIO]  Hello world [MUSIC]  ',
-                    partial: 'thinking...'
-                }
-            });
-        }
+        // 2. Act: Simulate a transcript event through the wired mock
+        mockEngine.triggerTranscript({
+            transcript: {
+                final: '[BLANK_AUDIO]  Hello world [MUSIC]  ',
+                partial: 'thinking...'
+            }
+        });
 
+        // 3. Verify: Behavioral assertion on the Service's public callback
         expect(mockOnTranscriptUpdate).toHaveBeenCalledWith(expect.objectContaining({
             transcript: {
                 final: 'Hello world',
                 partial: 'thinking...'
             }
         }));
+    });
+
+    it('should transition to DOWNLOAD_REQUIRED on CACHE_MISS', async () => {
+        // 1. Setup Sticky Mock with CACHE_MISS
+        const { sttRegistry } = await import('../STTRegistry');
+        
+        class CacheMissEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            public override async checkAvailability(): Promise<import('../STTStrategy').AvailabilityResult> {
+                return { isAvailable: false, reason: 'CACHE_MISS', message: 'Download required' };
+            }
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() {}
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+        }
+        
+        const mockEngine = new CacheMissEngine();
+        sttRegistry.registerStatic('whisper-turbo', mockEngine);
+
+        // 2. Act: Attempt to init (should transition to DOWNLOAD_REQUIRED)
+        // Note: initializeStrategy throws internally when blocked to stop the init chain,
+        // so we must catch it to continue to the state assertion.
+        try {
+            await service.init();
+        } catch (e) {
+            // Error is expected as the strategy is BLOCKED
+        }
+
+        // 3. Verify FSM State transition
+        expect(service.getState()).toBe('DOWNLOAD_REQUIRED');
+    });
+
+    it('should transition to FAILED and NOT switch modes on engine failure', async () => {
+        // 1. Setup Sticky Mock that fails during start
+        const { sttRegistry } = await import('../STTRegistry');
+        
+        class FailureEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() { throw new Error('Start failed'); }
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+        }
+        
+        const mockEngine = new FailureEngine();
+        sttRegistry.registerStatic('whisper-turbo', mockEngine);
+
+        await service.init();
+        
+        // 2. Act
+        await service.startTranscription();
+
+        // 3. Verify terminal failure state and ZERO fallback (Mode Lock Integrity)
+        expect(service.getState()).toBe('FAILED');
+        expect(service.getMode()).toBe('private');
     });
 });

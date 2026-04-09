@@ -107,7 +107,7 @@ Next Target) ✅ COMPLETE
 This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.
 
 ### 🚧 Should-Have (Tech Debt)
-- 🔴 **E2E Timeout: STT Initialization Race Condition:** E2E tests are currently timing out because the `TranscriptionService` instance is `null` when `useTranscriptionControl` attempts to access it during test execution. A circular dependency or initialization order issue between `SpeechRuntimeController`, `TranscriptionProvider`, and component mount cycles needs investigation.
+- ✅ **E2E Timeout: STT Initialization Race Condition (2026-03-25):** Resolved via Single-Chain Orchestration and Unified Readiness Store. Mic initialization is bypassed in CI via `STTServiceFactory.ts` to prevent hardware timeouts.
 - ✅ **Strategic Error Logging (2025-12-11):** Added defensive error logging to PrivateWhisper.ts, SessionPage.tsx, AuthPage.tsx. Comprehensive coverage in critical paths.
 - ✅ **Usage Limit Pre-Check (2025-12-11):** P0 UX fix. New Edge Function `check-usage-limit` validates usage BEFORE session start. Shows toast with Upgrade button if exceeded.
 - ✅ **Screen Reader Accessibility (2025-12-11):** Added `aria-live="polite"` to live transcript for screen reader announcements.
@@ -117,10 +117,17 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - ⏸️ **BLOCKED** - Enable leaked password protection (requires Supabase Pro account)
   - ⏸️ **DEFERRED** - Upgrade Postgres version (not critical for alpha)
 - ✅ **COMPLETED - Integration Test (Usage Limits):** Deno unit tests exist at `backend/supabase/functions/check-usage-limit/index.test.ts` (167 lines, 6 test cases covering auth, free/pro users, exceeded limits, graceful degradation, CORS).
+- ✅ **STT Pause/Resume Logic (2026-04-09):** Implemented deterministic `pauseTranscription()` and `resumeTranscription()` in `TranscriptionService.ts`. Integrated with `TranscriptionFSM`'s `PAUSED` state and "Soft Pause" audio gating to avoid mic cold-starts. Verified via unit and contract tests.
 - 🔴 **Domain Services DI Refactor:** Evolve `domainServices.ts` from internal client retrieval to dependency injection pattern for fully pure, easily testable functions. Low priority - current spy-based testing works for alpha.
 - ✅ **Console Error Highlighting (P0 - Debugging):** Implemented via `pino-pretty` with `colorize: true` in `lib/logger.ts`. Standardized for all domain services and async modes. (2026-02-16)
 - ✅ **Independent Documentation Review (2026-01-28):** Conducted full audit of all project documents against `docs/OUTLINE.md` requirements. Verified sync across PRD, Architecture, and Roadmap.
 - ✅ **Gap Analysis [HIGH PRIORITY]:** Conducted full audit of Zero-Debt status, tech debt, and architectural drift. (2026-02-16)
+- ✅ **Phase 5E: Systematic Quality Pass (100% CI Compliance)**
+    - [x] Batch 5A: Engine Logic Hardening (`TransformersJSEngine.test.ts`, `PrivateSTT.test.ts`)
+    - [x] Batch 5B: Mode Logic Alignment (`WhisperTurboEngine.test.ts`, `PrivateWhisper.test.ts`)
+    - [x] Batch 5C: Platform Logic Alignment (`NativeBrowser.test.ts`, `CloudAssemblyAI.test.ts`)
+    - [x] Batch 5D: Integration Layer Verification (`PrivateSTT.integration.test.ts`)
+    - [x] Batch 5E: Final Lint Triage & SSOT Quality Pass (`pnpm quality`)
 - ✅ **Side-by-Side Session Comparison:** Implemented `SessionComparisonDialog.tsx` supporting 2-session diffs (WPM, Clarity, Fillers).
 - ✅ **Speaker Identification (2026-02-21):** Implemented diarization support in `CloudAssemblyAI.ts` and propagated via `Transcript` interface.
 - ✅ **Canary Tests:** Real-API `@canary` tests for staging environment implemented in `tests/canary/`.
@@ -428,7 +435,7 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Side-by-Side Session Comparison (2025-12-06):** Implemented `SessionComparisonDialog.tsx` with `ProgressIndicator` and integrated into `AnalyticsDashboard.tsx`. Verified via `session-comparison.e2e.spec.ts`.
 - [ ] **🛡️ Private STT Hardening (Post-Alpha Tech Debt):**
   - **Model Load Friction**: Eliminate mandatory 30s background downloads; transition to an **Intentional Privacy Model Download** button for Pro users with localized caching checks.
-  - **Multi-Tab State Corruption**: Implement `SharedWorker` or Cross-Tab Broadcast Channel to strictly enforce a single WebGPU instance across tabs.
+  - ✅ **Multi-Tab State Corruption (2026-03-20):** Resolved via Cross-Tab Mutex Lock in `useActiveSessionLock.ts` strictly enforcing a single-session policy.
   - **WebGPU Context Loss**: Add `device-lost` event handlers to the `WhisperEngineRegistry` to trigger graceful WASM fallback mid-session.
   - **Mobile RAM Optimization**: Implement dynamic model unloading or Tiny-model preference for iOS Safari (300MB RAM limit).
   - **Ad-Blocker Resilience**: Detect asset load failures and fallback to a "Lite" model probe with exponential backoff on retry.

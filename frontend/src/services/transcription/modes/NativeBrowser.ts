@@ -1,10 +1,11 @@
-import logger from '@/lib/logger';
-import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, TranscriptionError, Result } from './types';
-import { IPrivateSTTEngine } from '@/contracts/IPrivateSTTEngine';
+import logger from '../../../lib/logger';
+import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, Result } from './types';
+import { TranscriptionError } from '../errors';
+import { IPrivateSTTEngine } from '../../../contracts/IPrivateSTTEngine';
 import { MicStream } from '../utils/types';
-import { STTEngine } from '@/contracts/STTEngine';
-import { EngineType, EngineCallbacks } from '@/contracts/IPrivateSTTEngine';
-import { ENV } from '@/config/TestFlags';
+import { STTEngine } from '../../../contracts/STTEngine';
+import { EngineType } from '../../../contracts/IPrivateSTTEngine';
+import { ENV } from '../../../config/TestFlags';
 
 // A simplified interface for the SpeechRecognition event
 interface SpeechRecognitionEvent extends Event {
@@ -105,25 +106,13 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     return { isAvailable: true };
   }
 
-  /**
-   * STTStrategy Requirement: Explicit Preparation phase.
-   */
-  public async prepare(): Promise<void> {
-    // Native browser initialization is handled in onInit (legacy) or just-in-time.
-    // This satisfies the contract.
-  }
 
-  protected async onInit(callbacks: EngineCallbacks | TranscriptionModeOptions): Promise<Result<void, Error>> {
-    const opts = callbacks as TranscriptionModeOptions;
-    if (opts.onTranscriptUpdate) this.onTranscriptUpdate = opts.onTranscriptUpdate;
-    if (opts.onReady) this.onReady = opts.onReady;
-    if (opts.onError) this.onError = opts.onError;
-
+  protected async onInit(timeoutMs?: number): Promise<Result<void, Error>> {
     // Use injected mock if available
     if (this.mockEngine) {
         logger.info('[NativeBrowser] 🧪 Using injected MockEngine');
         if (this.mockEngine.init) {
-            await this.mockEngine.init(opts as unknown as EngineCallbacks);
+            await this.mockEngine.init(timeoutMs);
         }
         return Result.ok(undefined);
     }
@@ -227,6 +216,15 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
   protected async onStart(_mic?: MicStream): Promise<void> {
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] start called');
+    
+    if (this.mockEngine) {
+        logger.info('[NativeBrowser] 🧪 Using injected MockEngine');
+        if (this.mockEngine.start) await this.mockEngine.start(_mic);
+        this.isListening = true;
+        this.currentTranscript = '';
+        return;
+    }
+
     if (!this.recognition) {
       throw new Error('NativeBrowser not initialized');
     }
@@ -256,26 +254,92 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   }
 
   protected async onStop(): Promise<void> {
-    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] stopTranscription called');
-    if (!this.recognition || !this.isListening) {
-      logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Not listening or recognition not initialized');
+    if (this.isTerminated) return;
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Finalizing transcription shutdown');
+    
+    if (this.mockEngine) {
+      if (this.mockEngine.stop) await this.mockEngine.stop();
+      this.isListening = false;
       return;
     }
+
+    if (!this.recognition || !this.isListening) {
+      this.isListening = false;
+      this.isRestarting = false;
+      return;
+    }
+
     this.isListening = false;
+    this.isRestarting = false;
     this.updateHeartbeat();
-    this.recognition.stop();
+
+    // DETERMINISTIC SHUTDOWN: Await the 'onend' event
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        logger.warn('[NativeBrowser] SpeechRecognition stop timed out. Resolving.');
+        resolve();
+      }, 1000); // 1s safety timeout
+
+      if (this.recognition) {
+        const originalOnEnd = this.recognition.onend;
+        this.recognition.onend = () => {
+          if (originalOnEnd) originalOnEnd();
+          clearTimeout(timeout);
+          resolve();
+        };
+        try {
+          this.recognition.stop();
+        } catch (err) {
+          logger.warn({ err }, '[NativeBrowser] Error in recognition.stop()');
+          resolve();
+        }
+      } else {
+        resolve();
+      }
+    });
+
+    this.recognition = null; // Clear to prevent reuse
+  }
+
+  public async pause(): Promise<void> {
+    await super.pause();
+  }
+
+  protected async onPause(): Promise<void> {
+    // Native browser handles audio internally; no-op for pause loop
+  }
+
+  public async resume(): Promise<void> {
+    await super.resume();
+  }
+
+  protected async onResume(): Promise<void> {
+    // Native browser handles audio internally; no-op for resume loop
   }
 
   protected async onDestroy(): Promise<void> {
     // Already handled in onStop via destroy() calling stop()
   }
 
-  async terminate(): Promise<void> {
+  public async terminate(): Promise<void> {
+    if (this.isTerminated) return;
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] 🛑 Nuclear termination requested');
+    
     if (this.mockEngine) {
-      if (this.mockEngine.terminate) await this.mockEngine.terminate();
+      if (typeof this.mockEngine.terminate === 'function') await this.mockEngine.terminate();
       else await this.mockEngine.destroy();
     }
+    
+    await this.onStop();
     await super.terminate();
+  }
+
+  public override async getTranscript(): Promise<string> {
+    const engineWithGet = this.mockEngine as unknown as { getTranscript?: () => Promise<string> };
+    if (engineWithGet && engineWithGet.getTranscript) {
+        return engineWithGet.getTranscript();
+    }
+    return super.getTranscript();
   }
 
   public getLastHeartbeatTimestamp(): number {
@@ -299,7 +363,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     if (attempt >= MAX_ATTEMPTS) {
       logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Max restart attempts reached, giving up');
       this.isRestarting = false;
-      this.onError?.(new TranscriptionError('Speech recognition restart failed after multiple attempts', 'UNKNOWN', false));
+      this.onError?.(TranscriptionError.unknown('Speech recognition restart failed after multiple attempts'));
       return;
     }
 

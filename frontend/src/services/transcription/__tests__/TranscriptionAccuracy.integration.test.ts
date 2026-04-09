@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
 import { STTEngine } from '@/contracts/STTEngine';
-import { Result, TranscriptionModeOptions, Transcript } from '../modes/types';
-import { EngineCallbacks, EngineType } from '@/contracts/IPrivateSTTEngine';
+import { Result, TranscriptionModeOptions } from '../modes/types';
+import { EngineType } from '@/contracts/IPrivateSTTEngine';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
+import { sttRegistry } from '../STTRegistry';
 
 /**
  * @file TranscriptionAccuracy.integration.test.ts
@@ -13,6 +14,7 @@ import { setupStrictZero } from '../../../../../tests/setupStrictZero';
 
 describe('Transcription Accuracy Multi-Engine Integration', () => {
     let service: TranscriptionService | null = null;
+    const instances: Record<string, STTEngine> = {};
 
     beforeEach(async () => {
         vi.useFakeTimers();
@@ -27,8 +29,9 @@ describe('Transcription Accuracy Multi-Engine Integration', () => {
         }
         vi.useRealTimers();
         vi.restoreAllMocks();
+        sttRegistry.clear();
         if (typeof window !== 'undefined' && '__SS_E2E__' in window) {
-            delete (window as any).__SS_E2E__;
+            delete (window as unknown as Record<string, unknown>).__SS_E2E__;
         }
     });
 
@@ -39,37 +42,37 @@ describe('Transcription Accuracy Multi-Engine Integration', () => {
             const expectedText = `Accurate transcript from ${mode}`;
 
             class MockEngine extends STTEngine {
-                private onTranscriptUpdate?: (update: { transcript: Transcript }) => void;
-                private currentTranscriptText: string = '';
-
-                constructor(public readonly type: EngineType, private expectedText: string) {
-                    super();
+                constructor(public readonly type: EngineType, options: TranscriptionModeOptions) {
+                    super(options);
                 }
 
-                protected async onInit(callbacks: EngineCallbacks) {
-                    this.onTranscriptUpdate = (callbacks as unknown as TranscriptionModeOptions).onTranscriptUpdate;
+                protected async onInit() {
                     return Result.ok(undefined);
                 }
-                protected async onStart(_mic?: import('../utils/types').MicStream) {
-                    this.currentTranscriptText = this.expectedText;
-                    this.onTranscriptUpdate?.({ transcript: { final: this.expectedText } });
+                protected async onStart() {
+                    (this.options as TranscriptionModeOptions).onTranscriptUpdate?.({ transcript: { final: expectedText } });
                 }
                 protected async onStop() {}
                 protected async onDestroy() {}
-                async transcribe() { return Result.ok(this.expectedText); }
+                async transcribe() { return Result.ok(expectedText); }
 
                 public override async getTranscript() {
-                    return this.expectedText;
+                    return expectedText;
                 }
             }
 
-            // 1. Inject into TestRegistry using architectural keys
-            const e2eWindow = window as any;
-            if (!e2eWindow.__SS_E2E__) e2eWindow.__SS_E2E__ = { registry: {} };
-            const engineKey = mode === 'native' ? 'native-browser' : mode === 'cloud' ? 'assemblyai' : 'whisper-turbo';
-            e2eWindow.__SS_E2E__.registry[engineKey] = () => new MockEngine(mode as unknown as EngineType, expectedText);
+            // 1. Inject into STTRegistry using architectural keys
+            sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { instances.assemblyai = new MockEngine('cloud', opts); return instances.assemblyai; });
+            sttRegistry.register('native-browser', (opts: TranscriptionModeOptions) => { instances['native-browser'] = new MockEngine('native', opts); return instances['native-browser']; });
+            sttRegistry.register('whisper-turbo', (opts: TranscriptionModeOptions) => { instances['whisper-turbo'] = new MockEngine('transformers-js', opts); return instances['whisper-turbo']; });
 
             service = new TranscriptionService({
+                mockMic: {
+                    stream: {} as MediaStream,
+                    stop: vi.fn(),
+                    clone: vi.fn(),
+                    onFrame: vi.fn().mockReturnValue(() => { }),
+                } as unknown as import('../utils/types').MicStream,
                 policy: {
                     allowNative: mode === 'native',
                     allowCloud: mode === 'cloud',

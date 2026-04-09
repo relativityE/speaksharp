@@ -4,6 +4,10 @@ import type { SpeechRuntimeController } from '../../SpeechRuntimeController';
 import type { Session } from '@supabase/supabase-js';
 import type { NavigateFunction } from 'react-router-dom';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
+import { STT_CONFIG } from '@/config';
+import { STTEngine } from '../../../contracts/STTEngine';
+import { Result } from '../modes/types';
+import { EngineType } from '../../../contracts/IPrivateSTTEngine';
 
 /**
  * @file SttSafeguards.test.ts
@@ -24,13 +28,16 @@ describe('STT Safeguards Unit Tests', () => {
         completeSession: vi.fn().mockResolvedValue({ success: true }),
         updateSession: vi.fn().mockResolvedValue({ success: true }),
     };
+    let tsModule: { 
+        resetTranscriptionService: () => void; 
+        getTranscriptionService: (opts: Partial<import('../TranscriptionService').TranscriptionServiceOptions>) => TranscriptionService;
+    };
+    let factoryModule: { STTServiceFactory: { createService: () => TranscriptionService } };
 
     beforeEach(async () => {
-        vi.clearAllMocks();
-        vi.useFakeTimers();
-
-        // Step 1 & 2: Reset + Set Globals at T=0
+        // Step 1: Reset + Set Globals at T=0
         await setupStrictZero();
+        vi.useFakeTimers();
 
         // Step 3: Dynamic Import AFTER setup to ensure instance identity parity
         const supabaseModule = await import('../../../lib/supabaseClient');
@@ -46,15 +53,33 @@ describe('STT Safeguards Unit Tests', () => {
         vi.spyOn(storageModule, 'completeSession').mockImplementation(storageSpies.completeSession);
         vi.spyOn(storageModule, 'updateSession').mockImplementation(storageSpies.updateSession);
 
-        const tsModule = await import('../TranscriptionService');
+        tsModule = await import('../TranscriptionService');
         const srcModule = await import('../../SpeechRuntimeController');
-        const factoryModule = await import('../STTServiceFactory');
+        factoryModule = await import('../STTServiceFactory');
         const flagsModule = await import('../../../config/TestFlags');
+
+        await tsModule.resetTranscriptionService();
 
         speechRuntimeController = srcModule.speechRuntimeController;
         ENV = flagsModule.ENV;
 
         storageSpies.saveSession.mockResolvedValue({ session: { id: 'sess-123' }, usageExceeded: false });
+
+        // Step 4: Setup Mock Registry using SSOT sttRegistry
+        const { sttRegistry } = await import('../STTRegistry');
+        
+        class MockEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() {}
+            protected async onStop() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+        }
+        
+        const mockEngine = new MockEngine();
+        sttRegistry.register('whisper-turbo', () => mockEngine);
 
         service = tsModule.getTranscriptionService({
             onTranscriptUpdate: vi.fn(),
@@ -71,13 +96,15 @@ describe('STT Safeguards Unit Tests', () => {
                 executionIntent: 'test'
             },
             session: { user: { id: 'user-123' } } as unknown as Session,
+            mockMic: mockMic as unknown as import('../utils/types').MicStream
         });
 
         // Ensure controller uses the same instance
         vi.spyOn(factoryModule.STTServiceFactory, 'createService').mockReturnValue(service);
+        (speechRuntimeController as unknown as { service: TranscriptionService }).service = service;
 
         // Inject mock mic
-        (service as unknown as { mic: unknown }).mic = mockMic;
+        // (Handled by constructor options now)
     });
 
     afterEach(async () => {
@@ -88,6 +115,9 @@ describe('STT Safeguards Unit Tests', () => {
         vi.useRealTimers();
         if (speechRuntimeController) {
           await speechRuntimeController.reset();
+        }
+        if (tsModule) {
+            await tsModule.resetTranscriptionService();
         }
     });
 
@@ -115,6 +145,8 @@ describe('STT Safeguards Unit Tests', () => {
             if (service.getSessionId()) return;
             throw new Error('Session not set');
         });
+
+        await vi.advanceTimersByTimeAsync(STT_CONFIG.HEARTBEAT_TIMEOUT_MS + 5);
 
         await vi.waitFor(() => {
             expect(storageSpies.heartbeatSession).toHaveBeenCalledWith('sess-123', expect.any(Number));

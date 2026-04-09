@@ -24,16 +24,17 @@
  * @see docs/ARCHITECTURE.md - "Dual-Engine Private STT"
  */
 
-import { ITranscriptionEngine, TranscriptionModeOptions, Result } from '@/services/transcription/modes/types';
-import { IPrivateSTTEngine, EngineType, EngineCallbacks } from '@/contracts/IPrivateSTTEngine';
-import { STTEngine, validateEngine } from '@/contracts/STTEngine';
-import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
-import logger from '@/lib/logger';
+import { TranscriptionModeOptions, Result, ITranscriptionEngine } from '../../../services/transcription/modes/types';
+import { TranscriptionError } from '../../../services/transcription/errors';
+import { IPrivateSTTEngine, EngineType } from '../../../contracts/IPrivateSTTEngine';
+import { STTEngine, validateEngine } from '../../../contracts/STTEngine';
+import { PrivateSTTInitOptions } from '../../../contracts/IPrivateSTT';
+import logger from '../../../lib/logger';
 import { ModelManager } from '../ModelManager';
-import { ENV } from '@/config/TestFlags';
+import { ENV } from '../../../config/TestFlags';
 import { MicStream } from '../utils/types';
-import { getEngine } from '../TestRegistry';
-import { TranscriptionError } from '../modes/types';
+import { getEngine } from '../STTRegistry';
+// Stale import removed
 
 /**
  * Check if WebGPU is available for fast path
@@ -49,10 +50,11 @@ function hasWebGPU(): boolean {
  */
 export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscriptionEngine {
     public readonly type: EngineType = 'transformers-js'; // Primary type for this facade
-    
+
     private engine: IPrivateSTTEngine | null = null;
-    private mockEngine?: IPrivateSTTEngine;
-    private _engineType: EngineType | null = null;
+    protected _engineType: EngineType | 'mock' | null = null;
+    protected serviceId: string = 'unknown';
+    protected runId: string = 'unknown';
 
     /**
      * PrivateSTT manages the dual-engine strategy for on-device transcription.
@@ -60,7 +62,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      */
     constructor(options: Partial<TranscriptionModeOptions> = {}, mockEngine?: IPrivateSTTEngine) {
         super(options as TranscriptionModeOptions);
-        this.mockEngine = mockEngine;
+        this.engine = mockEngine || null;
     }
 
     /**
@@ -77,51 +79,66 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         return this._engineType || 'transformers-js';
     }
 
-    protected async onInit(callbacks: EngineCallbacks | TranscriptionModeOptions): Promise<Result<void, Error>> {
-        const options = callbacks as PrivateSTTInitOptions;
-        
+    public override init(timeoutMs?: number): Promise<Result<void, Error>> {
+        return super.init(timeoutMs);
+    }
+
+    protected async onInit(timeoutMs?: number): Promise<Result<void, Error>> {
+        const options = this.options as PrivateSTTInitOptions;
+
         this.serviceId = options.serviceId || 'unknown';
         this.runId = options.runId || 'unknown';
 
         logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🚀 Privacy-first engine selection started...');
 
-        // 0. Factory-injected mock engine takes absolute precedence
-        if (this.mockEngine) {
-            this.engine = this.mockEngine;
-            this._engineType = ((this.mockEngine as unknown as { getEngineType?: () => string }).getEngineType?.() as EngineType) || 'mock';
-            logger.info({ sId: this.serviceId, engineType: this._engineType }, '[PrivateSTT] Using factory-injected mock engine');
-            
-            if (this.engine.init) {
-                await this.engine.init(options);
-            }
-
-            return Result.ok(undefined);
-        }
-
         // 1. Manual engine override
         if (options.forceEngine) {
-            const res = await (async () => {
-                if (options.forceEngine === 'whisper-turbo') return this.initFastEngine(options);
-                if (options.forceEngine === 'transformers-js') return this.initSafeEngine(options);
-                if (options.forceEngine === 'mock') return this.initMockEngine(options);
+            const res = await (async (): Promise<Result<EngineType, Error>> => {
+                if (options.forceEngine === 'whisper-turbo') return this.initFastEngine();
+                if (options.forceEngine === 'transformers-js') return this.initSafeEngine();
+                if (options.forceEngine === 'mock') {
+                    const factory = getEngine('mock');
+                    if (factory) {
+                        const engine = factory(this.options as any);
+                        validateEngine(engine);
+                        const result = await engine.init(timeoutMs);
+                        if (result && (result as any).isOk) {
+                            this.engine = engine as IPrivateSTTEngine;
+                            this._engineType = 'mock';
+                            return Result.ok('mock' as EngineType);
+                        }
+                    }
+                    return { isOk: false, error: new Error('Mock engine requested but not registered in STTRegistry') };
+                }
                 return { isOk: false as const, error: new Error(`Unknown engine type: ${options.forceEngine}`) };
             })();
             return res.isOk ? Result.ok(undefined) : (res as Result<void, Error>);
         }
 
-        // 2. CI/Test Mock (Enforcement: window.__SS_E2E__ Manifest)
-        const manifest = (window as unknown as Record<string, unknown>).__SS_E2E__ as { engineType?: string };
-        if (ENV.isE2E && manifest?.engineType === 'mock') {
-            const res = await this.initMockEngine(options);
-            return res.isOk ? Result.ok(undefined) : (res as Result<void, Error>);
+        // 2. Registry-First Resolution (Mock-First / Environment Agnostic)
+        // If the registry provides a factory for our preferred engines, use it.
+        const preferredEngine = hasWebGPU() && !ENV.disableWasm ? 'whisper-turbo' : 'transformers-js';
+        const factory = getEngine(preferredEngine) || getEngine('mock');
+
+        if (factory) {
+            logger.info({ sId: this.serviceId, rId: this.runId, engine: preferredEngine }, '[PrivateSTT] 🧪 Injecting MockEngine/Override from Registry');
+            const engine = factory(this.options as any);
+            validateEngine(engine);
+            const result = await (engine as IPrivateSTTEngine).init(timeoutMs);
+            if (result && result.isOk) {
+                this.engine = engine as IPrivateSTTEngine;
+                this._engineType = (preferredEngine === 'whisper-turbo' || preferredEngine === 'transformers-js') ? preferredEngine : 'transformers-js';
+                return Result.ok(undefined);
+            }
+            logger.warn({ engine: preferredEngine, error: (result as any)?.error }, '[PrivateSTT] Registry engine failed to initialize. Continuing discovery...');
         }
 
-        // 3. Fast Path (WebGPU)
+        // 3. Environment-Based Discovery (Fast Path -> Safe Path)
         const forceSafe = ENV.disableWasm;
         const webGPUAvailable = hasWebGPU() && !forceSafe;
 
         if (webGPUAvailable) {
-            const fastResult = await this.initFastEngine(options);
+            const fastResult = await this.initFastEngine(timeoutMs);
             if (fastResult.isOk) return Result.ok(undefined);
 
             logger.warn({ sId: this.serviceId, rId: this.runId, err: fastResult.error }, '[PrivateSTT] ⚠️ WhisperTurbo failed. Falling back to WASM...');
@@ -129,11 +146,11 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         // 4. Safe Path (WASM/CPU)
         logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)...');
-        const safeResult = await this.initSafeEngine(options);
+        const safeResult = await this.initSafeEngine(timeoutMs);
 
         if (safeResult.isOk === false) {
             logger.error({ err: safeResult.error }, '[PrivateSTT] ❌ All private engines failed.');
-            return { isOk: false, error: new Error('Private STT failed: No compatible private engine could be initialized. Please switch to Cloud Mode for transcription.') };
+            return { isOk: false, error: TranscriptionError.engineFailure('private', 'No compatible on-device engine could be initialized.') };
         }
 
         return Result.ok(undefined);
@@ -146,12 +163,28 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     protected async onStop(): Promise<void> {
+        if (this.isTerminated) return;
         if (this.engine) {
             await this.engine.stop();
         }
     }
 
+    protected async onPause(): Promise<void> {
+        if (this.isTerminated) return;
+        if (this.engine) {
+            await this.engine.pause();
+        }
+    }
+
+    protected async onResume(): Promise<void> {
+        if (this.isTerminated) return;
+        if (this.engine) {
+            await this.engine.resume();
+        }
+    }
+
     protected async onDestroy(): Promise<void> {
+        if (this.isTerminated) return;
         if (this.engine) {
             await this.engine.destroy();
             this.engine = null;
@@ -173,10 +206,16 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
      * STTStrategy Requirement: Probe availability and prerequisites.
      */
     public async checkAvailability(): Promise<import('../STTStrategy').AvailabilityResult> {
-        // 1. Prioritize Injected Mock or E2E Registry
-        if (this.mockEngine || (ENV.isE2E && (getEngine('whisper-turbo') || (window as unknown as Record<string, unknown>).__SS_E2E__))) {
-            return { isAvailable: true };
+        // 1. Registry Lookup (Environment Agnostic)
+        // If an engine is already instantiated (e.g. Mock), delegate to it.
+        if (this.engine) {
+            logger.debug('[PrivateSTT] Delegating availability to active engine');
+            return this.engine.checkAvailability();
         }
+
+        // If a manifest exists, we MUST still probe the actual engine or manager
+        const hasManifest = getEngine('whisper-turbo') || getEngine('transformers-js') || getEngine('mock');
+        logger.debug({ hasManifest }, '[PrivateSTT] Base manifest check');
 
         // 2. Determine best available engine (WebGPU preference)
         const hasWebGPUAvailable = hasWebGPU() && !ENV.disableWasm;
@@ -186,9 +225,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const isDownloaded = await ModelManager.isModelDownloaded(preferredEngine);
 
         if (!isDownloaded) {
-            return { 
-                isAvailable: false, 
-                reason: 'CACHE_MISS', 
+            return {
+                isAvailable: false,
+                reason: 'CACHE_MISS',
                 message: 'Private model unavailable at first-use.',
                 sizeMB: ModelManager.getModelSizeMB(preferredEngine)
             };
@@ -197,52 +236,37 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         return { isAvailable: true };
     }
 
-    /**
-     * Initialize the mock engine for CI/E2E testing
-     */
-    private async initMockEngine(callbacks: TranscriptionModeOptions): Promise<Result<EngineType, Error>> {
-        try {
-            logger.info('[PrivateSTT] 🛠️ Loading MockEngine...');
-            // Registry Injection
-            const registryFactory = getEngine('mock');
-            if (registryFactory) {
-                logger.info('[PrivateSTT] 🧪 Injecting MockEngine from Registry');
-                const engine = registryFactory(callbacks);
-                validateEngine(engine);
-                await engine.init(callbacks);
-                this.engine = engine;
-                this._engineType = 'mock';
-                return { isOk: true, data: 'mock' as EngineType };
-            }
-            return { isOk: true, data: 'mock' as EngineType };
-        } catch (error) {
-            const e = error instanceof Error ? error : new Error(String(error));
-            logger.error({ err: e }, '[PrivateSTT] ❌ MockEngine init failed');
-            return { isOk: false, error: e };
-        }
-    }
+
 
     /**
      * Initialize the fast (whisper-turbo) engine
      */
-    private async initFastEngine(callbacks: TranscriptionModeOptions): Promise<Result<EngineType, Error>> {
+    private async initFastEngine(timeoutMs?: number): Promise<Result<EngineType, Error>> {
+        const options = this.options as TranscriptionModeOptions;
         try {
-            if (this.mockEngine) {
-                logger.info('[PrivateSTT] 🧪 Using injected MockEngine');
-                validateEngine(this.mockEngine);
-                const result = await this.mockEngine.init(callbacks as unknown as EngineCallbacks);
-                if (result && !result.isOk) return { isOk: false, error: result.error };
-                this.engine = this.mockEngine;
+            // 1. Registry Lookup (Mocks or Overrides)
+            const factory = getEngine('whisper-turbo');
+            if (factory) {
+                logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🚀 WhisperTurbo resolved via Registry');
+                const engine = factory(options);
+                validateEngine(engine);
+                const result = await engine.init(timeoutMs);
+                if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
+                    return { isOk: false, error: (result as { error: Error }).error };
+                }
+                this.engine = engine;
                 this._engineType = 'whisper-turbo';
                 return { isOk: true, data: 'whisper-turbo' as EngineType };
             }
-            
+
+            // 2. Production Fallback (Dynamic Import)
+            logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 📦 Loading production WhisperTurbo module...');
             const { WhisperTurboEngine } = await import('./WhisperTurboEngine');
             const engine = new WhisperTurboEngine();
             validateEngine(engine);
-            const resultRaw = await engine.init(callbacks as unknown as EngineCallbacks, 30000);
+            const resultRaw = await engine.init(timeoutMs);
             const result = resultRaw as unknown as Record<string, unknown>;
-            
+
             // Type guard for Result variants
             if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
                 logger.warn({ err: result.error as Error }, '[PrivateSTT] ⚠️ WhisperTurbo.init() failed');
@@ -250,7 +274,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             }
             // Check for status-based result (DownloadRequired)
             if (result && result.status === 'requires_download') {
-                return { isOk: false, error: new TranscriptionError('Download required', 'CACHE_MISS', true) };
+                return { isOk: false, error: TranscriptionError.cacheMiss() };
             }
             this.engine = engine;
             this._engineType = 'whisper-turbo';
@@ -262,28 +286,32 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     /**
-     * Initialize the safe (transformers.js) engine
+     * Initialize the safe (transformers-js) engine
      */
-    private async initSafeEngine(callbacks: TranscriptionModeOptions): Promise<Result<EngineType, Error>> {
+    private async initSafeEngine(timeoutMs?: number): Promise<Result<EngineType, Error>> {
+        const options = this.options as TranscriptionModeOptions;
         try {
-            const registryFactory = getEngine('transformers-js');
-            if (registryFactory) {
-                const engine = registryFactory(callbacks);
+            // 1. Registry Lookup (Mocks)
+            const factory = getEngine('transformers-js');
+            if (factory) {
+                logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🛡️ TransformersJS resolved via Registry');
+                const engine = factory(this.options as any);
                 validateEngine(engine);
-                const resultRaw = await engine.init(callbacks);
-                const result = resultRaw as unknown as Record<string, unknown>;
-                if (result && 'isOk' in result && result.isOk === false) {
-                    return { isOk: false, error: result.error as Error };
+                const result = await engine.init(timeoutMs);
+                if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
+                    return { isOk: false, error: (result as { error: Error }).error };
                 }
                 this.engine = engine;
                 this._engineType = 'transformers-js';
                 return { isOk: true, data: 'transformers-js' as EngineType };
             }
 
+            // 2. Production Fallback
+            logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 📦 Loading production TransformersJS module...');
             const { TransformersJSEngine } = await import('./TransformersJSEngine');
             const engine = new TransformersJSEngine();
             validateEngine(engine);
-            const resultRaw = await engine.init(callbacks);
+            const resultRaw = await engine.init(timeoutMs);
             const result = resultRaw as unknown as Record<string, unknown>;
             if (result && 'isOk' in result && result.isOk === false) {
                 return { isOk: false, error: result.error as Error };
@@ -307,6 +335,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     async terminate(): Promise<void> {
+        if (this.isTerminated) return;
+
         if (this.engine) {
             if (this.engine.terminate) {
                 await this.engine.terminate();
@@ -316,6 +346,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             this.engine = null;
             this._engineType = null;
         }
+        await super.terminate();
     }
 }
 

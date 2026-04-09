@@ -1,7 +1,8 @@
-import { SttStatus } from '@/types/transcription';
-import { TranscriptionModeOptions } from '@/services/transcription/modes/types';
-import { useSessionStore } from '@/stores/useSessionStore';
-import { calculateTranscriptStats } from '@/utils/fillerWordUtils';
+import { SttStatus } from '../../src/types/transcription';
+import { TranscriptionModeOptions } from '../../src/services/transcription/modes/types';
+import { useSessionStore } from '../../src/stores/useSessionStore';
+import { calculateTranscriptStats } from '../../src/utils/fillerWordUtils';
+import { TranscriptionError } from '../../src/services/transcription/errors';
 
 export class MockTranscriptionService {
     // Static reference for tests to access the latest instance
@@ -43,7 +44,7 @@ export class MockTranscriptionService {
     }
 
     getState = () => this.state;
-    updateCallbacks = (options: Partial<TranscriptionModeOptions>) => {
+    updateOptions = (options: Partial<TranscriptionModeOptions>) => {
         this.options = { ...this.options, ...options };
     };
 
@@ -93,6 +94,30 @@ export class MockTranscriptionService {
         await this.stopTranscription();
     }
 
+    pause = async (): Promise<void> => {
+        this.state = 'PAUSED';
+        this.notifySubscribers();
+        return Promise.resolve();
+    }
+
+    resume = async (): Promise<void> => {
+        this.state = 'RECORDING';
+        this.notifySubscribers();
+        return Promise.resolve();
+    }
+
+    onPause = async (): Promise<void> => {
+        return Promise.resolve();
+    }
+
+    onResume = async (): Promise<void> => {
+        return Promise.resolve();
+    }
+
+    onStop = async (): Promise<void> => {
+        return Promise.resolve();
+    }
+
     terminate = async (): Promise<void> => {
         this.isListening = false;
         return Promise.resolve();
@@ -119,6 +144,8 @@ export class MockTranscriptionService {
             prepare: async () => {},
             start: async () => { this.isListening = true; },
             stop: async () => { this.isListening = false; },
+            pause: async () => { this.state = 'PAUSED'; },
+            resume: async () => { this.state = 'RECORDING'; },
             terminate: async () => { this.isListening = false; },
             getTranscript: async () => 'Test transcript',
             getLastHeartbeatTimestamp: () => Date.now(),
@@ -178,7 +205,7 @@ export class MockTranscriptionService {
                 code: 'UNKNOWN',
                 recoverable: false,
                 name: 'TranscriptionError'
-            } as unknown as import('@/services/transcription/modes/types').TranscriptionError);
+            } as unknown as TranscriptionError);
         }
     }
 
@@ -195,7 +222,7 @@ export class MockTranscriptionService {
                 code: 'UNKNOWN',
                 recoverable: false,
                 name: 'TranscriptionError'
-            } as unknown as import('@/services/transcription/modes/types').TranscriptionError);
+            } as unknown as TranscriptionError);
         }
     }
 }

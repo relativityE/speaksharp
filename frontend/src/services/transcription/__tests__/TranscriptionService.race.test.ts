@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
 import { TranscriptionPolicy } from '../TranscriptionPolicy';
 import { MicStream } from '../utils/types';
-import { STTEngine } from '@/contracts/STTEngine';
+import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
 import { NavigateFunction } from 'react-router-dom';
+import { sttRegistry } from '../STTRegistry';
 
 /**
  * @file TranscriptionService.race.test.ts
@@ -57,9 +58,7 @@ describe('TranscriptionService - Race Conditions', () => {
 
     afterEach(async () => {
         if (service && !service.isServiceDestroyed()) {
-            const dPromise = service.destroy();
-            await vi.advanceTimersByTimeAsync(1000);
-            await dPromise;
+            await service.destroy();
         }
         vi.useRealTimers();
         vi.restoreAllMocks();
@@ -70,11 +69,9 @@ describe('TranscriptionService - Race Conditions', () => {
         const engine = new MockRaceEngine();
         
         await setupStrictZero();
-        const win = window as unknown as { __SS_E2E__: { registry: Record<string, unknown> } };
-        win.__SS_E2E__.registry = {
-            ...win.__SS_E2E__.registry,
-            'whisper-turbo': () => engine
-        };
+        sttRegistry.register('whisper-turbo', () => engine);
+        sttRegistry.register('transformers-js', () => engine);
+        sttRegistry.register('mock', () => engine);
 
         const policy: TranscriptionPolicy = {
             allowCloud: false,
@@ -98,6 +95,7 @@ describe('TranscriptionService - Race Conditions', () => {
             mockMic: {
                 stream: {} as MediaStream,
                 stop: vi.fn(),
+                prepare: vi.fn().mockResolvedValue(undefined),
                 clone: vi.fn(),
                 onFrame: vi.fn().mockReturnValue(() => { }),
             } as unknown as MicStream
@@ -116,7 +114,7 @@ describe('TranscriptionService - Race Conditions', () => {
         const p3 = service.destroy();
 
         // Advance timers to allow the interval check in destroy() to proceed and termination to complete
-        vi.advanceTimersByTime(100);
+        await vi.advanceTimersByTimeAsync(100);
 
         const results = await Promise.allSettled([p1, p2, p3]);
 
@@ -138,13 +136,9 @@ describe('TranscriptionService - Race Conditions', () => {
         const initPromiseResolves = new Promise(resolve => setTimeout(resolve, 50));
         vi.spyOn(engine, 'init').mockImplementation(() => initPromiseResolves as Promise<Result<void, Error>>);
         
-        // 1. Inject into TestRegistry
+        // 1. Inject into STTRegistry
         await setupStrictZero();
-        const win = window as unknown as { __SS_E2E__: { registry: Record<string, unknown> } };
-        win.__SS_E2E__.registry = {
-            ...win.__SS_E2E__.registry,
-            'whisper-turbo': () => engine
-        };
+        sttRegistry.register('whisper-turbo', () => engine);
         
         vi.stubGlobal('navigator', {
             gpu: {},
@@ -175,7 +169,7 @@ describe('TranscriptionService - Race Conditions', () => {
         const destroyPromise = freshService.destroy();
 
         // Advance timers
-        vi.advanceTimersByTime(100);
+        await vi.advanceTimersByTimeAsync(100);
 
         // Assert
         await expect(initPromise).resolves.not.toThrow();

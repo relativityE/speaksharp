@@ -79,6 +79,8 @@ class MockEngine implements ITranscriptionEngine {
   init = vi.fn().mockResolvedValue(undefined);
   start = vi.fn().mockResolvedValue(undefined);
   stop = vi.fn().mockResolvedValue(undefined);
+  pause = vi.fn().mockResolvedValue(undefined);
+  resume = vi.fn().mockResolvedValue(undefined);
   startTranscription = vi.fn().mockResolvedValue(undefined);
   stopTranscription = vi.fn().mockResolvedValue({ transcript: 'test transcript', duration: 30 });
   getTranscript = vi.fn().mockReturnValue({ transcript: 'test transcript' });

@@ -9,12 +9,16 @@ import { NavigateFunction } from 'react-router-dom';
 // Mock dependencies
 vi.mock('../modes/NativeBrowser');
 vi.mock('../modes/CloudAssemblyAI');
-vi.mock('../modes/engines/PrivateSTT', () => ({
-    PrivateSTT: vi.fn().mockImplementation(() => ({
+vi.mock('../modes/engines/PrivateSTT', () => {
+    const mockEngine = {
         init: vi.fn().mockResolvedValue({ isOk: true }),
+        getEngineType: () => 'private',
         type: 'private'
-    }))
-}));
+    };
+    return {
+        PrivateSTT: vi.fn().mockImplementation(() => mockEngine)
+    };
+});
 
 describe('EngineFactory', () => {
     // Correct TranscriptionModeOptions for type safety

@@ -1,5 +1,5 @@
-import logger from '@/lib/logger';
-import { ENV } from '@/config/TestFlags';
+import logger from '../../lib/logger';
+import { ENV } from '../../config/TestFlags';
 
 /**
  * ModelManager

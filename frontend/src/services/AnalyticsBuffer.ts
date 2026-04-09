@@ -1,7 +1,7 @@
 // src/services/AnalyticsBuffer.ts
 import posthog from 'posthog-js';
 import * as Sentry from "@sentry/react";
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 import { IS_TEST_ENVIRONMENT } from '@/config/env';
 
 /**

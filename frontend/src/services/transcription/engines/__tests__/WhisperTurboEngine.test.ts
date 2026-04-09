@@ -18,6 +18,17 @@ vi.mock('../WhisperEngineRegistry', () => ({
     }
 }));
 
+// Hoisted explicit override for TestFlags to eliminate jsdom global mapping leaks
+vi.mock('../../../../config/TestFlags', () => ({
+    ENV: {
+        isTest: true,
+        disableWasm: false,
+        engineType: 'real',
+        isE2E: false,
+        useRealDatabase: false
+    }
+}));
+
 describe('WhisperTurboEngine (Fast Path)', () => {
     let WhisperTurboEngineClass: typeof WhisperTurboEngine;
     let ENV: { isTest: boolean; disableWasm: boolean };
@@ -71,10 +82,12 @@ describe('WhisperTurboEngine (Fast Path)', () => {
         const onProgress = vi.fn();
         const onReady = vi.fn();
 
-        const result = await engine.init({
+        engine = new WhisperTurboEngineClass({
             onModelLoadProgress: onProgress,
             onReady: onReady
         });
+
+        const result = await engine.init();
 
         expect(result.isOk).toBe(true);
         const { WhisperEngineRegistry } = await import('../WhisperEngineRegistry');
@@ -88,7 +101,8 @@ describe('WhisperTurboEngine (Fast Path)', () => {
             data: { text: 'Transcribed text' }
         });
 
-        await engine.init({} as unknown as EngineCallbacks);
+        engine = new WhisperTurboEngineClass({} as unknown as EngineCallbacks);
+        await engine.init();
         const result = await engine.transcribe(new Float32Array([0.1]));
 
         expect(result.isOk).toBe(true);

@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Mail } from 'lucide-react';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 
 // Sign In page – supports both password and magic link
 export default function SignInPage() {

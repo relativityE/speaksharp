@@ -1,11 +1,14 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ENV } from '../../../config/TestFlags';
 import { STTNegotiator } from '../STTNegotiator';
 import { EngineSelector } from '../EngineSelector';
 import { TranscriptionModeOptions } from '../modes/types';
 import TranscriptionService, { resetTranscriptionService, getTranscriptionService } from '../TranscriptionService';
-import { PROD_FREE_POLICY } from '../TranscriptionPolicy';
+import { PROD_FREE_POLICY, PROD_PRO_POLICY } from '../TranscriptionPolicy';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
+import { sttRegistry } from '../STTRegistry';
+import { STTEngine } from '../../../contracts/STTEngine';
+import { Result } from '../modes/types';
 
 describe('Core Unit Suite (Tier 1)', () => {
     beforeEach(async () => {
@@ -27,8 +30,8 @@ describe('Core Unit Suite (Tier 1)', () => {
 
   describe('STTNegotiator', () => {
     it('should negotiate mock mode when ENV.disableWasm is true', () => {
-      const strategy = STTNegotiator.negotiate(PROD_FREE_POLICY, 'private');
-      // In tests, ENV.disableWasm is usually true by default in the mock manifest
+      // Use PROD_PRO_POLICY because PROD_FREE_POLICY correctly disallows 'private'
+      const strategy = STTNegotiator.negotiate(PROD_PRO_POLICY, 'private');
       expect(strategy).toBeDefined();
     });
   });
@@ -38,13 +41,23 @@ describe('Core Unit Suite (Tier 1)', () => {
       const mockStrategy = { mode: 'private' as const, isMock: true, variant: 'whisper-turbo' };
       const mockOptions = { onTranscriptUpdate: () => {}, onReady: () => {} };
       
-      // ARCHITECTURE: Safe merge into E2E registry
-      const e2eWindow = window as any;
-      if (!e2eWindow.__SS_E2E__) e2eWindow.__SS_E2E__ = { registry: {} };
-      e2eWindow.__SS_E2E__.registry['whisper-turbo'] = () => ({ start: vi.fn(), stop: vi.fn(), getEngineType: () => 'whisper-turbo' });
+      class MockEngine extends STTEngine {
+        public override readonly type = 'whisper-turbo' as const;
+        constructor(options: TranscriptionModeOptions) { super(options); }
+        protected async onInit() { return Result.ok(undefined); }
+        protected async onStart() {}
+        protected async onStop() {}
+        protected async onPause() {}
+        protected async onResume() {}
+        protected async onDestroy() {}
+        async transcribe() { return Result.ok('test'); }
+      }
+
+      sttRegistry.register('whisper-turbo', (opts) => new MockEngine(opts));
 
       const engine = await EngineSelector.select(mockStrategy, mockOptions as unknown as TranscriptionModeOptions, PROD_FREE_POLICY);
       expect(engine).toBeDefined();
+      expect(engine.getEngineType()).toBe('whisper-turbo');
     });
   });
 
@@ -53,6 +66,18 @@ describe('Core Unit Suite (Tier 1)', () => {
 
     beforeEach(() => {
       resetTranscriptionService();
+      
+      // Register native-browser mock for Free Tier tests
+      class NativeMock extends STTEngine {
+        public override readonly type = 'native-browser' as const;
+        protected async onInit() { return Result.ok(undefined); }
+        protected async onStart() {}
+        protected async onStop() {}
+        protected async onDestroy() {}
+        async transcribe() { return Result.ok('native test'); }
+      }
+      sttRegistry.register('native-browser', (opts) => new NativeMock(opts));
+      
       service = getTranscriptionService({ policy: PROD_FREE_POLICY });
     });
 

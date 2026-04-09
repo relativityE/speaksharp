@@ -4,7 +4,7 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './index.css';
-import logger from '@/lib/logger';
+import logger from './lib/logger';
 import { AuthProvider } from './contexts/AuthProvider';
 import posthog from 'posthog-js';
 import { PostHogProvider } from 'posthog-js/react';

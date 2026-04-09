@@ -27,7 +27,6 @@ vi.mock('@/lib/supabaseClient', () => ({
 
 import CloudAssemblyAI from '@/services/transcription/modes/CloudAssemblyAI';
 import { Session } from '@supabase/supabase-js';
-import { TranscriptionModeOptions } from '../types';
 
 
 
@@ -48,7 +47,12 @@ class MockWebSocket {
     send = vi.fn();
     close = vi.fn(() => {
         this.readyState = MockWebSocket.CLOSED;
-        // Trigger onclose automatically if desired, or manually in test
+        // Trigger onclose synchronously for test determinism
+        if (this.onclose) {
+            const cb = this.onclose;
+            this.onclose = null;
+            cb({ code: 1000, reason: 'Test closure' } as CloseEvent);
+        }
     });
 
     constructor(url: string) {
@@ -123,7 +127,7 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
 
     describe('Connection & Generation ID', () => {
         it('should fetch token and connect to WebSocket with correct URL', async () => {
-            await mode.init({ onTranscriptUpdate, onReady, onError, onModelLoadProgress: vi.fn() } as unknown as TranscriptionModeOptions);
+            await mode.init();
             await mode.start();
 
             // 1. Check fetch call
@@ -151,13 +155,13 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
 
         it('should ignore events from zombie connections (Generation ID guard)', async () => {
             // Start connection 1
-            await mode.init({ onTranscriptUpdate, onReady, onError, onModelLoadProgress: vi.fn() } as unknown as TranscriptionModeOptions);
+            await mode.init();
             await mode.start();
             const socket1 = LAST_SOCKET();
 
             // Stop and restart quickly
             await mode.stop();
-            await mode.init({ onTranscriptUpdate, onReady, onError, onModelLoadProgress: vi.fn() } as unknown as TranscriptionModeOptions);
+            await mode.init();
             await mode.start();
 
             const socket2 = LAST_SOCKET();
@@ -183,7 +187,7 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
 
     describe('Transcript Handling', () => {
         it('should handle Partial and Final transcripts correctly', async () => {
-            await mode.init({ onTranscriptUpdate, onReady, onError, onModelLoadProgress: vi.fn() } as unknown as TranscriptionModeOptions);
+            await mode.init();
             await mode.start();
             const socket = LAST_SOCKET();
             socket.simulateOpen();
@@ -206,7 +210,7 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
 
     describe('Resilience & Backoff', () => {
         it('should reconnect with exponential backoff on error', async () => {
-            await mode.init({ onTranscriptUpdate, onReady, onError, onModelLoadProgress: vi.fn() } as unknown as TranscriptionModeOptions);
+            await mode.init();
             await mode.start();
             const socket = LAST_SOCKET();
             socket.simulateOpen();
@@ -239,7 +243,7 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
         });
 
         it('should give up after max retries', async () => {
-            await mode.init({ onTranscriptUpdate, onReady, onError, onModelLoadProgress: vi.fn() } as unknown as TranscriptionModeOptions);
+            await mode.init();
             await mode.start();
             LAST_SOCKET().simulateOpen();
 
@@ -259,7 +263,7 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
 
     describe('Audio Processing', () => {
         it('should queue audio when connecting and flush on open (Behavioral)', async () => {
-            await mode.init({ onTranscriptUpdate, onReady, onError, onModelLoadProgress: vi.fn() } as unknown as TranscriptionModeOptions);
+            await mode.init();
             await mode.start();
 
             // Allow microtasks to complete (fetchToken, etc.)

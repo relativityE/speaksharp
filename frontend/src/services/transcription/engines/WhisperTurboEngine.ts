@@ -14,14 +14,14 @@
  * @see docs/ARCHITECTURE.md - "Dual-Engine Private STT"
  */
 
-import { Result } from '@/services/transcription/modes/types';
-import { EngineCallbacks, EngineType } from '@/contracts/IPrivateSTTEngine';
+import { Result, TranscriptionModeOptions } from '../../../services/transcription/modes/types';
+import { EngineCallbacks, EngineType } from '../../../contracts/IPrivateSTTEngine';
 
 import { floatToWavAsync } from '../utils/AudioProcessor';
 import { WhisperEngineRegistry } from './WhisperEngineRegistry';
-import { ENV } from '@/config/TestFlags';
-import logger from '@/lib/logger';
-import { STTEngine } from '@/contracts/STTEngine';
+import { ENV } from '../../../config/TestFlags';
+import logger from '../../../lib/logger';
+import { STTEngine } from '../../../contracts/STTEngine';
 
 export class WhisperTurboEngine extends STTEngine {
     public readonly type: EngineType = 'whisper-turbo';
@@ -31,7 +31,8 @@ export class WhisperTurboEngine extends STTEngine {
         super(options);
     }
 
-    protected async onInit(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
+    protected async onInit(_timeoutMs?: number): Promise<Result<void, Error>> {
+        const options = this.options as TranscriptionModeOptions;
         const tStart = performance.now();
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[WhisperTurbo] [PERF] Initializing engine via Registry at ${new Date().toISOString()}`);
 
@@ -41,23 +42,23 @@ export class WhisperTurboEngine extends STTEngine {
                 return { isOk: false, error: new Error('WASM_DISABLED_IN_CI') };
             }
 
-            if (callbacks.onModelLoadProgress) {
-                callbacks.onModelLoadProgress(0);
+            if (options.onModelLoadProgress) {
+                options.onModelLoadProgress(0);
             }
 
             // Acquire engine from singleton registry
             // This avoids re-downloading/re-compiling if already warmed up.
-            this.session = await WhisperEngineRegistry.acquire(callbacks.onModelLoadProgress);
+            this.session = await WhisperEngineRegistry.acquire(options.onModelLoadProgress);
 
             const tTotalInit = performance.now() - tStart;
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[WhisperTurbo] [PERF] Engine acquisition took ${tTotalInit.toFixed(2)}ms`);
 
-            if (callbacks.onModelLoadProgress) {
-                callbacks.onModelLoadProgress(100);
+            if (options.onModelLoadProgress) {
+                options.onModelLoadProgress(100);
             }
 
-            if (callbacks.onReady) {
-                callbacks.onReady();
+            if (options.onReady) {
+                options.onReady();
             }
 
             return { isOk: true, data: undefined };
@@ -76,6 +77,22 @@ export class WhisperTurboEngine extends STTEngine {
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[WhisperTurbo] Releasing engine back to registry...');
         WhisperEngineRegistry.release();
         this.session = null;
+    }
+
+    public async pause(): Promise<void> {
+        await this.onPause();
+    }
+
+    protected async onPause(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[WhisperTurbo] Pausing engine...');
+    }
+
+    public async resume(): Promise<void> {
+        await this.onResume();
+    }
+
+    protected async onResume(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[WhisperTurbo] Resuming engine...');
     }
 
     protected async onDestroy(): Promise<void> {

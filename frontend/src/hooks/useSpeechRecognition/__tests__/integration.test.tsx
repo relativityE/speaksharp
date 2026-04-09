@@ -16,9 +16,9 @@ vi.mock('@/services/transcription/TranscriptionService', async () => {
     };
 });
 
-// Mock the TestRegistry to ensure we can register our mock
-vi.mock('@/services/transcription/TestRegistry', async () => {
-    const actual = await vi.importActual('@/services/transcription/TestRegistry');
+// Mock the STTRegistry to ensure we can register our mock
+vi.mock('@/services/transcription/STTRegistry', async () => {
+    const actual = await vi.importActual('@/services/transcription/STTRegistry');
     return {
         ...actual,
         getEngine: vi.fn(),
@@ -28,7 +28,7 @@ vi.mock('@/services/transcription/TestRegistry', async () => {
 import { act, waitFor } from '../../../../tests/support/test-utils';
 import { renderHookWithProviders } from '@test-utils/renderHookWithProviders';
 import useSpeechRecognition from '../index';
-import { getEngine } from '@/services/transcription/TestRegistry';
+import { getEngine } from '@/services/transcription/STTRegistry';
 import TranscriptionService from '@/services/transcription/TranscriptionService';
 import type { Session as SupabaseSession } from '@supabase/supabase-js';
 import { ITranscriptionEngine, TranscriptionModeOptions } from '@/services/transcription/modes/types';
@@ -71,14 +71,14 @@ describe('useSpeechRecognition Integration', () => {
 
         // Setup the factory to return our singleton mock but with the NEW callbacks from the controller
         vi.mocked(STTServiceFactory.createService).mockImplementation((opts) => {
-            service.updateCallbacks(opts);
+            service.updateOptions(opts);
             return service as unknown as TranscriptionService;
         });
         
         vi.mocked(getEngine).mockImplementation((type) => {
             if (type === 'native' || type === 'mock-engine') {
                 return (opts: TranscriptionModeOptions) => {
-                    service.updateCallbacks(opts);
+                    service.updateOptions(opts);
                     return service as unknown as ITranscriptionEngine;
                 };
             }
