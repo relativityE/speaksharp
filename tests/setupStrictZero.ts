@@ -64,7 +64,7 @@ export async function setupStrictZero(options: { engineType?: string } = {}) {
 
   try {
       // ARCHITECTURE: Use central registry to reset invariants
-      const { sttRegistry } = await import('../frontend/src/services/transcription/STTRegistry');
+      const { sttRegistry } = await import('@/services/transcription/STTRegistry');
       if (sttRegistry) {
           sttRegistry.clear();
           logger.info('[setupStrictZero] Invariant reset: sttRegistry.clear()');
@@ -97,7 +97,7 @@ export async function setupStrictZero(options: { engineType?: string } = {}) {
 
   // Register with the new SSOT Registry
   try {
-      const { sttRegistry } = await import('../frontend/src/services/transcription/STTRegistry');
+      const { sttRegistry } = await import('@/services/transcription/STTRegistry');
       sttRegistry.register('native-browser', minimalistMockFactory);
       sttRegistry.register('assemblyai', minimalistMockFactory);
       sttRegistry.register('whisper-turbo', minimalistMockFactory);
