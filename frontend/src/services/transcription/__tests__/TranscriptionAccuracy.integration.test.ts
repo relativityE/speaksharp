@@ -4,7 +4,7 @@ import { STTEngine } from '@/contracts/STTEngine';
 import { Result, TranscriptionModeOptions } from '../modes/types';
 import { EngineType } from '@/contracts/IPrivateSTTEngine';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
-import { sttRegistry } from '../STTRegistry';
+import { sttRegistry } from '@/services/transcription/STTRegistry';
 
 /**
  * @file TranscriptionAccuracy.integration.test.ts
