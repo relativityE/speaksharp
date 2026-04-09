@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
 import { NavigateFunction } from 'react-router-dom';
-import { sttRegistry } from '../STTRegistry';
+import { sttRegistry } from '@/services/transcription/STTRegistry';
 import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
 import { EngineType } from '../../../contracts/IPrivateSTTEngine';
