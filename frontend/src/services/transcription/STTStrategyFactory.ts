@@ -6,7 +6,7 @@ import CloudAssemblyAI from './modes/CloudAssemblyAI';
 import { PrivateSTT } from './engines/PrivateSTT';
 import logger from '../../lib/logger';
 import { ENV } from '../../config/TestFlags';
-import { getEngine } from './STTRegistry';
+import { getEngine } from '@/services/transcription/STTRegistry';
 import { IPrivateSTTEngine } from '../../contracts/IPrivateSTTEngine';
 
 /**
