@@ -8,7 +8,7 @@ import TranscriptionService, { TranscriptionServiceOptions } from '../Transcript
 import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
 import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
-import { sttRegistry } from '../STTRegistry';
+import { sttRegistry } from '@/services/transcription/STTRegistry';
 import { EngineType } from '../../../contracts/IPrivateSTTEngine';
 import { MicStream } from '../utils/types';
 import { TranscriptionModeOptions } from '../modes/types';
