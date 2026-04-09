@@ -6,7 +6,7 @@ import { TranscriptionModeOptions } from '../modes/types';
 import TranscriptionService, { resetTranscriptionService, getTranscriptionService } from '../TranscriptionService';
 import { PROD_FREE_POLICY, PROD_PRO_POLICY } from '../TranscriptionPolicy';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
-import { sttRegistry } from '../STTRegistry';
+import { sttRegistry } from '@/services/transcription/STTRegistry';
 import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
 
