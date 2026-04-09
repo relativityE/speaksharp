@@ -33,7 +33,7 @@ import logger from '../../../lib/logger';
 import { ModelManager } from '../ModelManager';
 import { ENV } from '../../../config/TestFlags';
 import { MicStream } from '../utils/types';
-import { getEngine } from '../STTRegistry';
+import { getEngine } from '@/services/transcription/STTRegistry';
 // Stale import removed
 
 /**
