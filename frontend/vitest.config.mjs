@@ -90,8 +90,8 @@ export default defineConfig({
     poolOptions: {
       forks: {
         isolate: true,
-        maxForks: process.env.CI === 'true' ? 1 : 3,
-        execArgv: ['--max-old-space-size=4096'] // 4GB per fork
+        maxForks: 1, // Phase 1: Strict sequential execution
+        execArgv: ['--max-old-space-size=4096']
       }
     },
 
