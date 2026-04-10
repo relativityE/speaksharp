@@ -1,5 +1,4 @@
 import { vi } from 'vitest';
-import logger from '../frontend/src/lib/logger';
 import { ITranscriptionEngine, TranscriptionModeOptions } from '../frontend/src/services/transcription/modes/types';
 
 /**
@@ -47,7 +46,6 @@ export async function setupStrictZero(options: { engineType?: string } = {}) {
       const { sttRegistry } = await import('../frontend/src/services/transcription/STTRegistry');
       if (sttRegistry) {
           sttRegistry.clear();
-          console.error('[DIAGNOSTIC] Pre-reset identity:', (sttRegistry as any).identityId);
       }
   } catch (e) {
       console.error('[DIAGNOSTIC] Pre-reset clear failed', e);
@@ -76,7 +74,6 @@ export async function setupStrictZero(options: { engineType?: string } = {}) {
       sttRegistry.register('assemblyai', minimalistMockFactory);
       sttRegistry.register('whisper-turbo', minimalistMockFactory);
       sttRegistry.register('transformers-js', minimalistMockFactory);
-      console.error('[DIAGNOSTIC] setupStrictZero Identity:', (sttRegistry as any).identityId);
   } catch (e) {
       console.error('[DIAGNOSTIC] Post-setup registry sync failed', e);
   }

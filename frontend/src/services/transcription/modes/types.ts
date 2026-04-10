@@ -39,13 +39,10 @@ export interface TranscriptionModeOptions {
   runId?: string;
 }
 
-export type InitResult = 
-  | { status: 'ready' }
-  | { status: 'requires_download'; sizeMB?: number }
-  | void;
+
 
 export interface ITranscriptionEngine extends STTStrategy {
-  init(timeoutMs?: number): Promise<InitResult | Result<void, Error>>;
+  init(timeoutMs?: number): Promise<Result<void, Error>>;
   
   // These are now inherited from STTStrategy, but we can override or specialize if needed.
   // The base STTStrategy covers start, stop, terminate, getTranscript, getLastHeartbeatTimestamp, getEngineType.

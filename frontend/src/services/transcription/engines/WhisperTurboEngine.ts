@@ -14,14 +14,14 @@
  * @see docs/ARCHITECTURE.md - "Dual-Engine Private STT"
  */
 
-import { Result, TranscriptionModeOptions } from '../../../services/transcription/modes/types';
-import { EngineCallbacks, EngineType } from '../../../contracts/IPrivateSTTEngine';
+import { TranscriptionModeOptions, Result } from '@/services/transcription/modes/types';
+import { EngineCallbacks, EngineType } from '@/contracts/IPrivateSTTEngine';
 
-import { floatToWavAsync } from '../utils/AudioProcessor';
 import { WhisperEngineRegistry } from './WhisperEngineRegistry';
-import { ENV } from '../../../config/TestFlags';
-import logger from '../../../lib/logger';
-import { STTEngine } from '../../../contracts/STTEngine';
+import { ENV } from '@/config/TestFlags';
+import logger from '@/lib/logger';
+import { STTEngine } from '@/contracts/STTEngine';
+import { floatToWavAsync } from '../utils/AudioProcessor';
 
 export class WhisperTurboEngine extends STTEngine {
     public readonly type: EngineType = 'whisper-turbo';
@@ -31,7 +31,7 @@ export class WhisperTurboEngine extends STTEngine {
         super(options);
     }
 
-    protected async onInit(_timeoutMs?: number): Promise<Result<void, Error>> {
+    protected override async onInit(_timeoutMs?: number): Promise<Result<void, Error>> {
         const options = this.options as TranscriptionModeOptions;
         const tStart = performance.now();
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[WhisperTurbo] [PERF] Initializing engine via Registry at ${new Date().toISOString()}`);

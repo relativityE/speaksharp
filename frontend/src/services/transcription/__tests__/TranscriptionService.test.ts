@@ -1,18 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { TranscriptionServiceOptions } from '../TranscriptionService';
-import { TranscriptionPolicy } from '../TranscriptionPolicy';
-import type { MicStream } from '../utils/types';
-import type { PracticeSession } from '../../../types/session';
+import type TranscriptionService from '@/services/transcription/TranscriptionService';
+import type { TranscriptionServiceOptions } from '@/services/transcription/TranscriptionService';
+import { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
+import type { MicStream } from '@/services/transcription/utils/types';
+import type { PracticeSession } from '@/types/session';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
-import { STTEngine } from '../../../contracts/STTEngine';
-import { Result } from '../modes/types';
-import { TranscriptionModeOptions } from '../modes/types';
-import { EngineType } from '../../../contracts/IPrivateSTTEngine';
+import { STTEngine } from '@/contracts/STTEngine';
+import { Result, TranscriptionModeOptions } from '@/services/transcription/modes/types';
+import { EngineType } from '@/contracts/IPrivateSTTEngine';
 
 describe('TranscriptionService', () => {
-    let service: any;
-    let TranscriptionService: any;
-    let getTranscriptionService: (options: Partial<TranscriptionServiceOptions>) => any;
+    let service: TranscriptionService;
+    let TranscriptionServiceClass: typeof TranscriptionService;
     let resetTranscriptionService: () => void;
     let ENV: { isTest: boolean; disableWasm: boolean };
     
@@ -29,9 +28,11 @@ describe('TranscriptionService', () => {
         await setupStrictZero();
 
         // 2. Dynamic Import (Captures post-reset registry)
-        const tsModule = await import('../TranscriptionService');
-        TranscriptionService = tsModule.default;
-        getTranscriptionService = tsModule.getTranscriptionService;
+        const tsModule = (await import('@/services/transcription/TranscriptionService')) as unknown as { 
+          default: typeof TranscriptionService, 
+          resetTranscriptionService: () => void 
+        };
+        TranscriptionServiceClass = tsModule.default;
         resetTranscriptionService = tsModule.resetTranscriptionService;
         resetTranscriptionService();
 
@@ -44,7 +45,7 @@ describe('TranscriptionService', () => {
             usageExceeded: false 
         });
 
-        service = new (TranscriptionService as any)({
+        service = new (TranscriptionServiceClass as unknown as new (o: TranscriptionServiceOptions) => TranscriptionService)({
             onTranscriptUpdate: mockOnTranscriptUpdate,
             onModelLoadProgress: mockOnModelLoadProgress,
             onReady: mockOnReady,
@@ -144,7 +145,7 @@ describe('TranscriptionService', () => {
             checkAvailability: async () => ({ isAvailable: false, reason: 'UNKNOWN', message: 'Injected failure' }),
             init: async () => Result.ok(undefined),
             getEngineType: () => 'whisper-turbo'
-        } as any));
+        } as unknown as STTEngine));
 
         await expect(service.init()).resolves.toEqual({ success: false });
         expect(service.getState()).toBe('FAILED');

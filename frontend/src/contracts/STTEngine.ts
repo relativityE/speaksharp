@@ -1,8 +1,8 @@
 import { IPrivateSTTEngine, EngineType, EngineCallbacks } from './IPrivateSTTEngine';
-import { ITranscriptionEngine, TranscriptionModeOptions, Result } from '../services/transcription/modes/types';
-import { AvailabilityResult } from '../services/transcription/STTStrategy';
+import { ITranscriptionEngine, TranscriptionModeOptions, Result } from '@/services/transcription/modes/types';
+import { AvailabilityResult } from '@/services/transcription/STTStrategy';
 import logger from '../lib/logger';
-import { MicStream } from '../services/transcription/utils/types';
+import { MicStream } from '@/services/transcription/utils/types';
 
 /**
  * ARCHITECTURE:
@@ -97,7 +97,7 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
 
     const result = await this.onInit(timeoutMs);
 
-    if (result.isOk === true) {
+    if (result.isOk) {
       this.isInitialized = true;
       this.updateHeartbeat();
     }
@@ -200,7 +200,8 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     return this.lastHeartbeat;
   }
 
-  protected updateHeartbeat(): void {
+  /** @internal */
+  public updateHeartbeat(): void {
     this.lastHeartbeat = Date.now();
   }
 

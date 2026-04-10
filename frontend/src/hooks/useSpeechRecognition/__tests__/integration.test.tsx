@@ -29,7 +29,7 @@ import { act, waitFor } from '../../../../tests/support/test-utils';
 import { renderHookWithProviders } from '@test-utils/renderHookWithProviders';
 import useSpeechRecognition from '../index';
 import { getEngine } from '@/services/transcription/STTRegistry';
-import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
+import TranscriptionService from '@/services/transcription/TranscriptionService';
 import type { Session as SupabaseSession } from '@supabase/supabase-js';
 import { ITranscriptionEngine, TranscriptionModeOptions } from '@/services/transcription/modes/types';
 import { MockTranscriptionService } from '../../../../tests/mocks/MockTranscriptionService';

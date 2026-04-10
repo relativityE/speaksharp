@@ -42,11 +42,6 @@ export interface IPrivateSTTEngine {
      */
     checkAvailability(): Promise<import('@/services/transcription/STTStrategy').AvailabilityResult>;
 
-    /**
-     * Initialize the engine (download model, compile WASM, etc.)
-     * @param timeoutMs - Maximum time to wait for initialization
-     * @returns Result indicating success or failure
-     */
     init(timeoutMs?: number): Promise<Result<void, Error>>;
     
     /**

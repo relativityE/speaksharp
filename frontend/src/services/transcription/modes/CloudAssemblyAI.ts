@@ -170,8 +170,15 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
   protected async onDestroy(): Promise<void> {
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] 🛑 Destroying engine');
-    // Atomic safety: Ensure listening and connection are dead
+    
+    // Nuclear Cleanup: Kill timers and socket immediately
     this.isListening = false;
+
+    if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+    }
+
     if (this.socket) {
         this.socket.onmessage = null;
         this.socket.onclose = null;
@@ -263,7 +270,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     }
   }
 
-  private isE2EEnvironment(): boolean {
+  /** @internal */
+  public isE2EEnvironment(): boolean {
     return ENV.IS_E2E;
   }
 
@@ -307,7 +315,13 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
         // Guard: zombie socket check
         if (currentConnectionId !== this.connectionId) {
           logger.warn({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] closing zombie socket for ID ${currentConnectionId}`);
-          this.socket?.close();
+          if (this.socket) {
+              this.socket.onmessage = null;
+              this.socket.onopen = null;
+              this.socket.onclose = null;
+              this.socket.onerror = null;
+              this.socket.close();
+          }
           return;
         }
 
@@ -375,12 +389,14 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
       case 'PartialTranscript':
         if (data.text) {
+          this.updateHeartbeat(); // Satisfy Watchdog on Partial
           if (this.onTranscriptUpdate) this.onTranscriptUpdate({ transcript: { partial: data.text } });
         }
         break;
 
       case 'FinalTranscript':
         if (data.text) {
+          this.updateHeartbeat(); // Satisfy Watchdog on Final
           // Accumulate transcript
           this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${data.text}` : data.text;
           // Strict Turn Assembly: Final overwrites partial
@@ -424,8 +440,12 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
       logger.warn({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] Connection lost. Reconnecting in ${Math.round(delay)}ms...`);
 
+      const currentId = this.connectionId;
       this.reconnectTimer = setTimeout(() => {
-        void this.connect();
+        // Generation Guard: Abort if engine was destroyed or restarted while waiting
+        if (this.connectionId === currentId && this.isListening) {
+          void this.connect();
+        }
       }, delay);
 
     } else {
@@ -458,6 +478,11 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
       // DETERMINISTIC SHUTDOWN: Await the actual 'close' event
       if (this.socket.readyState !== WebSocket.CLOSED) {
+        // Silencing listeners EXCEPT for onclose (the resolve trigger)
+        this.socket.onmessage = null;
+        this.socket.onopen = null;
+        this.socket.onerror = null;
+
         await new Promise<void>((resolve) => {
           const timeout = setTimeout(() => {
             logger.warn('[CloudAssemblyAI] Socket close timed out. Forcing closure.');
@@ -476,7 +501,10 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
         });
       }
       
-      this.socket = null;
+      if (this.socket) {
+          this.socket.onclose = null;
+          this.socket = null;
+      }
     }
 
     this.audioQueue = []; // Clear queue

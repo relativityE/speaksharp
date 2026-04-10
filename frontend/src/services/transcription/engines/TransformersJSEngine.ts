@@ -14,12 +14,12 @@
  * @see docs/ARCHITECTURE.md - "Dual-Engine Private STT"
  */
 
-import { Result, TranscriptionModeOptions } from '../../../services/transcription/modes/types';
-import { EngineType } from '../../../contracts/IPrivateSTTEngine';
+import { Result, TranscriptionModeOptions } from '@/services/transcription/modes/types';
+import { EngineType } from '@/contracts/IPrivateSTTEngine';
 
-import { ENV } from '../../../config/TestFlags';
-import logger from '../../../lib/logger';
-import { STTEngine } from '../../../contracts/STTEngine';
+import { ENV } from '@/config/TestFlags';
+import logger from '@/lib/logger';
+import { STTEngine } from '@/contracts/STTEngine';
 
 // Lazy-load transformers.js to avoid bundle bloat
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
@@ -32,7 +32,7 @@ export class TransformersJSEngine extends STTEngine {
         super(options);
     }
 
-    protected async onInit(_timeoutMs?: number): Promise<Result<void, Error>> {
+    protected override async onInit(_timeoutMs?: number): Promise<Result<void, Error>> {
         const options = this.options as TranscriptionModeOptions;
         if (this.transcriber) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Engine already initialized, skipping.');

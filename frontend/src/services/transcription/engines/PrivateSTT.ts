@@ -24,14 +24,14 @@
  * @see docs/ARCHITECTURE.md - "Dual-Engine Private STT"
  */
 
-import { TranscriptionModeOptions, Result, ITranscriptionEngine } from '../../../services/transcription/modes/types';
-import { TranscriptionError } from '../../../services/transcription/errors';
-import { IPrivateSTTEngine, EngineType } from '../../../contracts/IPrivateSTTEngine';
-import { STTEngine, validateEngine } from '../../../contracts/STTEngine';
-import { PrivateSTTInitOptions } from '../../../contracts/IPrivateSTT';
-import logger from '../../../lib/logger';
+import { TranscriptionModeOptions, Result, ITranscriptionEngine } from '@/services/transcription/modes/types';
+import { TranscriptionError } from '@/services/transcription/errors';
+import { IPrivateSTTEngine, EngineType } from '@/contracts/IPrivateSTTEngine';
+import { STTEngine, validateEngine } from '@/contracts/STTEngine';
+import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
+import logger from '@/lib/logger';
 import { ModelManager } from '../ModelManager';
-import { ENV } from '../../../config/TestFlags';
+import { ENV } from '@/config/TestFlags';
 import { MicStream } from '../utils/types';
 import { getEngine } from '@/services/transcription/STTRegistry';
 // Stale import removed
@@ -82,8 +82,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     public override init(timeoutMs?: number): Promise<Result<void, Error>> {
         return super.init(timeoutMs);
     }
-
-    protected async onInit(timeoutMs?: number): Promise<Result<void, Error>> {
+    
+    protected override async onInit(timeoutMs?: number): Promise<Result<void, Error>> {
         const options = this.options as PrivateSTTInitOptions;
 
         this.serviceId = options.serviceId || 'unknown';
@@ -99,10 +99,10 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 if (options.forceEngine === 'mock') {
                     const factory = getEngine('mock');
                     if (factory) {
-                        const engine = factory(this.options as any);
+                        const engine = factory(this.options as TranscriptionModeOptions);
                         validateEngine(engine);
                         const result = await engine.init(timeoutMs);
-                        if (result && (result as any).isOk) {
+                        if (result.isOk) {
                             this.engine = engine as IPrivateSTTEngine;
                             this._engineType = 'mock';
                             return Result.ok('mock' as EngineType);
@@ -122,17 +122,17 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         if (factory) {
             logger.info({ sId: this.serviceId, rId: this.runId, engine: preferredEngine }, '[PrivateSTT] 🧪 Injecting MockEngine/Override from Registry');
-            const engine = factory(this.options as any);
+            const engine = factory(this.options as TranscriptionModeOptions);
             validateEngine(engine);
             const result = await (engine as IPrivateSTTEngine).init(timeoutMs);
-            if (result && result.isOk) {
+            if (result.isOk) {
                 this.engine = engine as IPrivateSTTEngine;
                 this._engineType = (preferredEngine === 'whisper-turbo' || preferredEngine === 'transformers-js') ? preferredEngine : 'transformers-js';
                 return Result.ok(undefined);
             }
             // 🚨 DEFENSE: Purge failed registry engine before fallback
-            await (engine as any).terminate?.();
-            logger.warn({ engine: preferredEngine, error: (result as any)?.error }, '[PrivateSTT] Registry engine failed to initialize. Continuing discovery...');
+            await (engine as IPrivateSTTEngine).terminate?.();
+            logger.warn({ engine: preferredEngine, error: result.error }, '[PrivateSTT] Registry engine failed to initialize. Continuing discovery...');
         }
 
         // 3. Environment-Based Discovery (Fast Path -> Safe Path)
@@ -297,7 +297,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             const factory = getEngine('transformers-js');
             if (factory) {
                 logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🛡️ TransformersJS resolved via Registry');
-                const engine = factory(this.options as any);
+                const engine = factory(options);
                 validateEngine(engine);
                 const result = await engine.init(timeoutMs);
                 if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {

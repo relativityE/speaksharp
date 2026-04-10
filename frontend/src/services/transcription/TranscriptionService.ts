@@ -1,15 +1,13 @@
-import logger from '../../lib/logger';
-import { isEqual } from 'lodash-es';
-import { MicStream } from './utils/types';
-import { STTNegotiator } from './STTNegotiator';
-import { createMicStream } from './utils/audioUtils';
-// Unused AudioProcessor removed
-import { STTStrategy } from './STTStrategy';
-import { STTStrategyFactory } from './STTStrategyFactory';
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
-import { TranscriptionModeOptions } from './modes/types';
-import { TranscriptionError } from './errors';
+import { isEqual } from 'lodash-es';
+import { TranscriptionModeOptions } from '@/services/transcription/modes/types';
+
+import { TranscriptionError } from '@/services/transcription/errors';
+import { STTStrategy } from '@/services/transcription/STTStrategy';
+import { STTStrategyFactory } from '@/services/transcription/STTStrategyFactory';
+import { STTNegotiator } from './STTNegotiator';
+import logger from '@/lib/logger';
 import {
   TranscriptionPolicy,
   TranscriptionMode,
@@ -18,7 +16,9 @@ import {
 import { useSessionStore } from '../../stores/useSessionStore';
 import { calculateTranscriptStats, TranscriptStats } from '../../utils/fillerWordUtils';
 import { TranscriptionFSM, TranscriptionState } from './TranscriptionFSM';
+import { createMicStream } from './utils/audioUtils';
 import { FailureManager } from './FailureManager';
+import { MicStream } from './utils/types';
 import { STT_CONFIG } from '../../config';
 import { SttStatus, TranscriptUpdate, HistorySegment } from '../../types/transcription';
 
@@ -263,37 +263,40 @@ export default class TranscriptionService {
     const capturedStrategy = this.strategy;
 
     // 3. Probe Availability (The 🛡️ Guard - Step 2)
+    if (!this.strategy) {
+      throw TranscriptionError.engineFailure(mode, 'Strategy allocation failed');
+    }
     const availability = await this.strategy.checkAvailability();
     logger.debug({ serviceId: this.serviceId, availability, strategy: this.strategy?.constructor?.name }, '[TranscriptionService] Availability Probed');
-    
+
     // GATED: Download required must terminal early
     if (!availability.isAvailable && availability.reason === 'CACHE_MISS') {
-        logger.warn({ mode }, '[TranscriptionService] Model CACHE_MISS. Gating further execution.');
-        this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
-        this.options.onStatusChange?.({
-            type: 'download-required',
-            message: 'Private model download required.',
-            progress: 0
-        });
-        return;
+      logger.warn({ mode }, '[TranscriptionService] Model CACHE_MISS. Gating further execution.');
+      this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
+      this.options.onStatusChange?.({
+        type: 'download-required',
+        message: 'Private model download required.',
+        progress: 0
+      });
+      return;
     }
 
     // GATED: Any other failure is terminal (Step 2.1)
     if (!availability.isAvailable) {
-        logger.error({ mode, reason: availability.reason }, '[TranscriptionService] Strategy NOT AVAILABLE. Gating execution.');
-        const error = TranscriptionError.engineFailure(mode, availability.message || 'Strategy unavailable');
-        this.fsm.transition({ type: 'ERROR_OCCURRED', error });
-        this.options.onStatusChange?.({
-            type: 'error',
-            message: availability.message || 'Strategy blocked'
-        });
-        throw error;
+      logger.error({ mode, reason: availability.reason }, '[TranscriptionService] Strategy NOT AVAILABLE. Gating execution.');
+      const error = TranscriptionError.engineFailure(mode, availability.message || 'Strategy unavailable');
+      this.fsm.transition({ type: 'ERROR_OCCURRED', error });
+      this.options.onStatusChange?.({
+        type: 'error',
+        message: availability.message || 'Strategy blocked'
+      });
+      throw error;
     }
 
     // 4. Prepare Strategy (PREPARING state)
     this.fsm.transition({ type: 'ENGINE_INIT_REQUESTED' });
     const currentRunId = this.runId; // 🛡️ Capture runId for async coupling
-    
+
     try {
       // Guard: concurrent destroy() or stale runId may invalidate this settlement
       if (!this.strategy || this.strategy !== capturedStrategy || this.runId !== currentRunId) {
@@ -302,9 +305,9 @@ export default class TranscriptionService {
       }
 
       const initResult = await this.strategy.init();
-      console.log(`[IDENTITY_TRACE] init() sId: ${this.serviceId} stratId: ${(this.strategy as any).instanceId}`);
+
       if (!initResult.isOk) {
-          throw initResult.error;
+        throw initResult.error;
       }
 
       // 5. Final READY transition (Authoritative Settlement for Task 5.1.1)
@@ -325,7 +328,7 @@ export default class TranscriptionService {
           policy: this.policy.executionIntent,
           device: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
         };
-        
+
         try {
           const sid = await this.dbHandlers.initDbSession(mode, this.idempotencyKey || 'no-key', metadata);
           if (sid) {
@@ -397,6 +400,12 @@ export default class TranscriptionService {
 
     try {
       await this.initializeStrategy(mode);
+      
+      // ✅ READINESS RESTORATION: Ensure we settle in READY (Authoritative for Task 5.1.1)
+      if (this.fsm.is('ENGINE_INITIALIZING')) {
+        this.fsm.transition({ type: 'ENGINE_INIT_SUCCESS' });
+      }
+      
       return { success: true };
     } catch (error) {
       // initializeStrategy already transitions FSM to ERROR_OCCURRED and logs
@@ -493,7 +502,7 @@ export default class TranscriptionService {
 
     // 🛡️ Step 3: Block premature start
     if (this.fsm.is('READY')) {
-      console.log(`[IDENTITY_TRACE] startRecording() sId: ${this.serviceId} stratId: ${(this.strategy as any).instanceId}`);
+
       this.startTimestamp = Date.now();
     } else {
       logger.warn({ state: this.fsm.getState() }, '[TranscriptionService] executeStrategy aborted: FSM not in READY state');
@@ -503,14 +512,14 @@ export default class TranscriptionService {
     const runId = this.runId; // 🛡️ Step 4: Capture runId for async coupling
 
     try {
-      logger.info({ 
-        runId, 
+      logger.info({
+        runId,
         engine: this.strategy.getEngineType(),
-        strategyObj: this.strategy?.constructor?.name 
+        strategyObj: this.strategy?.constructor?.name
       }, '[TranscriptionService] 🚦 Executing strategy start...');
-      
+
       await this.strategy.start(this.mic!);
-      
+
       // 🛡️ Step 4: Strict Success Coupling
       if (this.runId !== runId) {
         logger.warn({ runId, current: this.runId }, '[TranscriptionService] Start settled but runId changed; aborting transition.');
@@ -527,7 +536,6 @@ export default class TranscriptionService {
       if (state) state.setActiveEngine(mode);
 
       this.isModeLocked = true; // 🔒 Lock intent upon successful engine start
-      this.fsm.transition({ type: 'ENGINE_STARTED' });
     } catch (error) {
       if (this.runId !== runId) return; // Ignore failures from stale runs
 
@@ -548,14 +556,14 @@ export default class TranscriptionService {
     // Handle early stop during initialization
     if (this.fsm.is('ENGINE_INITIALIZING')) {
       logger.info({ sId: this.serviceId, rId: this.runId }, '[TranscriptionService] Early stop during initialization. Terminating strategy.');
-      this.modelLoadingProgress = null; 
+      this.modelLoadingProgress = null;
       const state = (useSessionStore as unknown as { getState: () => { setModelLoadingProgress: (p: number | null) => void } }).getState?.();
       if (state) state.setModelLoadingProgress(null);
-      
+
       this.fsm.transition({ type: 'STOP_REQUESTED' });
       // CRITICAL: Call destroy() to purge the initializing strategy/workers
       await this.destroy();
-      
+
       return { success: true, transcript: '', stats: calculateTranscriptStats([], [], '', 0) };
     }
 
@@ -658,7 +666,7 @@ export default class TranscriptionService {
       if (this.fsm.is('TERMINATED')) return;
 
       this.isModeLocked = false; // 🔓 Release lock
-    this.fsm.transition({ type: 'TERMINATE_REQUESTED' });
+      this.fsm.transition({ type: 'TERMINATE_REQUESTED' });
       this.stopWatchdog();
 
       if (this.mic) {
@@ -881,14 +889,14 @@ export default class TranscriptionService {
    * Ensures sanitation cannot be bypassed by configuration mistakes.
    */
   private processTranscript(update: TranscriptUpdate): void {
-    console.log(`[IDENTITY_TRACE] emission() sId: ${this.serviceId} stratId: ${(this.strategy as any).instanceId}`);
+
     if (this.fsm.is('PAUSED')) {
       logger.debug('[TranscriptionService] Ignoring transcript update while PAUSED');
       return;
     }
     const transcript = update.transcript;
     logger.debug({ final: transcript.final?.length, partial: transcript.partial?.length }, '[TranscriptionService] Processing transcript');
-    
+
     if (transcript.final) {
       transcript.final = this.sanitizeTranscript(transcript.final);
     }
@@ -985,11 +993,22 @@ export default class TranscriptionService {
       }
       case 'DOWNLOAD_REQUIRED': status = { type: 'download-required', message: 'Private model unavailable at first-use. Click button for one-time download.' }; break;
       case 'FAILED': status = { type: 'error', message: this.lastError?.message || 'Error occurred' }; break;
+      case 'STOPPING':
+      case 'CLEANING_UP': status = { type: 'idle', message: 'Stopping...' }; break;
       default: status = { type: 'idle', message: 'Ready' };
     }
 
-    // PERSISTENCE FIX: Ensure background download progress isn't clobbered by state changes
+    // ✅ METABOLIC SYNC: Propagate FSM state to Store's RuntimeState
     const store = typeof useSessionStore !== 'undefined' ? useSessionStore?.getState?.() : null;
+    if (store) {
+      // Unified state mapping for reactive UI
+      const runtimeState = (state === 'ENGINE_INITIALIZING' || state === 'ACTIVATING_MIC') ? 'INITIATING' :
+                          (state === 'RECORDING') ? 'RECORDING' :
+                          (state === 'PAUSED') ? 'PAUSED' :
+                          (state === 'READY') ? 'READY' : 'IDLE';
+      
+      store.setRuntimeState(runtimeState as any);
+    }
     if (store) {
       const currentProgress = store.modelLoadingProgress;
       if (currentProgress !== null && state !== 'TERMINATED') {

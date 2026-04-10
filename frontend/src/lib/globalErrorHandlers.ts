@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/react';
 import { toast } from '@/lib/toast';
 import logger from './logger';
+import { analyticsBuffer } from '../services/AnalyticsBuffer';
 
 let lastToastTime = 0;
 const TOAST_COOLDOWN_MS = 5000;
@@ -11,8 +12,11 @@ export const setupGlobalErrorHandlers = () => {
     window.addEventListener('unhandledrejection', (event) => {
         logger.error({ reason: event.reason }, 'Global Unhandled Rejection');
 
-        // Ensure background rejections are also sent to Sentry
+        // Ensure background rejections are also sent to Sentry and Analytics
         Sentry.captureException(event.reason);
+        analyticsBuffer.push('GLOBAL_UNHANDLED_REJECTION', {
+            reason: event.reason?.message || 'Unknown'
+        }, 'CRITICAL');
 
         // Add debouncing to prevent UI flooding during network outages
         const now = Date.now();

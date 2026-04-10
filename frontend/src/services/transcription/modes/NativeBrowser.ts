@@ -1,11 +1,10 @@
-import logger from '../../../lib/logger';
-import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, Result } from './types';
-import { TranscriptionError } from '../errors';
-import { IPrivateSTTEngine } from '../../../contracts/IPrivateSTTEngine';
+import logger from '@/lib/logger';
+import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, Result } from '@/services/transcription/modes/types';
+import { TranscriptionError } from '@/services/transcription/errors';
+import { IPrivateSTTEngine, EngineType } from '@/contracts/IPrivateSTTEngine';
 import { MicStream } from '../utils/types';
-import { STTEngine } from '../../../contracts/STTEngine';
-import { EngineType } from '../../../contracts/IPrivateSTTEngine';
-import { ENV } from '../../../config/TestFlags';
+import { STTEngine } from '@/contracts/STTEngine';
+import { ENV } from '@/config/TestFlags';
 
 // A simplified interface for the SpeechRecognition event
 interface SpeechRecognitionEvent extends Event {
@@ -107,7 +106,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   }
 
 
-  protected async onInit(timeoutMs?: number): Promise<Result<void, Error>> {
+  protected override async onInit(timeoutMs?: number): Promise<Result<void, Error>> {
     // Use injected mock if available
     if (this.mockEngine) {
         logger.info('[NativeBrowser] 🧪 Using injected MockEngine');
@@ -352,7 +351,8 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     return Result.ok(this.currentTranscript);
   }
 
-  protected updateHeartbeat(): void {
+  /** @internal */
+  public override updateHeartbeat(): void {
     this.lastHeartbeat = Date.now();
   }
 

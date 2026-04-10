@@ -4,6 +4,7 @@ import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import logger from '../lib/logger';
 import * as Sentry from '@sentry/react';
+import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 
 interface Props {
     children: ReactNode;
@@ -61,6 +62,13 @@ export class LocalErrorBoundary extends Component<Props, State> {
 
             Sentry.captureException(error);
         });
+
+        // 3. Telemetry Unification (PostHog)
+        analyticsBuffer.push('COMPONENT_CRASH', {
+            component: this.props.componentName || 'Unknown',
+            isolationKey: this.props.isolationKey,
+            message: error.message
+        }, 'CRITICAL');
     }
 
     private handleReset = () => {
