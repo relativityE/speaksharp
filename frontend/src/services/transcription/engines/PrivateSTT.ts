@@ -130,6 +130,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 this._engineType = (preferredEngine === 'whisper-turbo' || preferredEngine === 'transformers-js') ? preferredEngine : 'transformers-js';
                 return Result.ok(undefined);
             }
+            // 🚨 DEFENSE: Purge failed registry engine before fallback
+            await (engine as any).terminate?.();
             logger.warn({ engine: preferredEngine, error: (result as any)?.error }, '[PrivateSTT] Registry engine failed to initialize. Continuing discovery...');
         }
 
