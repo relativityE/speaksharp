@@ -177,7 +177,9 @@ describe('CloudAssemblyAI (Native WebSocket)', () => {
 
             // socket2 opens -> valid
             socket2.simulateOpen();
-            expect(onReady).toHaveBeenCalled();
+            await vi.waitFor(() => {
+                expect(onReady).toHaveBeenCalled();
+            });
 
             // socket2 receives message -> valid
             socket2.simulateMessage({ message_type: 'FinalTranscript', text: 'Real' });

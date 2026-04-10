@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
 import { STTStrategy } from '../STTStrategy';
 import { STTStrategyFactory } from '../STTStrategyFactory';
+import { Result } from '../modes/types';
 import { NavigateFunction } from 'react-router-dom';
 
 vi.mock('../STTStrategyFactory');
@@ -24,7 +25,7 @@ describe('TranscriptionService Pause/Resume', () => {
     // Setup Mock Strategy
     mockStrategy = {
       checkAvailability: vi.fn().mockResolvedValue({ isAvailable: true }),
-      prepare: vi.fn().mockResolvedValue(undefined),
+      init: vi.fn().mockResolvedValue(Result.ok(undefined)),
       start: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn().mockResolvedValue(undefined),
       pause: vi.fn().mockResolvedValue(undefined),

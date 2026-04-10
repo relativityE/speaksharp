@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import logger from '@/lib/logger';
+import logger from '../../../../src/lib/logger';
 
 // Senior Choice: Formal module mock to prevent real TranscriptionService from loading
 // Moving to top to ensure it's applied before any component/hook imports
@@ -29,7 +29,7 @@ import { act, waitFor } from '../../../../tests/support/test-utils';
 import { renderHookWithProviders } from '@test-utils/renderHookWithProviders';
 import useSpeechRecognition from '../index';
 import { getEngine } from '@/services/transcription/STTRegistry';
-import TranscriptionService from '@/services/transcription/TranscriptionService';
+import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { Session as SupabaseSession } from '@supabase/supabase-js';
 import { ITranscriptionEngine, TranscriptionModeOptions } from '@/services/transcription/modes/types';
 import { MockTranscriptionService } from '../../../../tests/mocks/MockTranscriptionService';
@@ -263,7 +263,12 @@ describe('useSpeechRecognition Integration', () => {
 
         // 2. Render hook
         const { result } = renderHookWithProviders(() => useSpeechRecognition());
-
+ 
+        // 2.1 Explicit Warmup Handshake (Deterministic Readiness)
+        await act(async () => {
+             await speechRuntimeController.warmUp('native');
+        });
+ 
         // Verify initial state
         await vi.waitFor(() => {
             expect(speechRuntimeController.getState()).toBe('READY');
@@ -294,8 +299,10 @@ describe('useSpeechRecognition Integration', () => {
         });
 
         // 8. Verify buffered transcript was flushed to the store/hook
-        expect(result.current.chunks.length).toBe(1);
-        expect(result.current.chunks[0].transcript).toBe('Early message');
+        await waitFor(() => {
+            expect(result.current.chunks.length).toBe(1);
+            expect(result.current.chunks[0].transcript).toBe('Early message');
+        });
     });
 
     it('should reclaim resources after 5 minutes of inactivity', async () => {

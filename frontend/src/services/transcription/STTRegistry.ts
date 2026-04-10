@@ -17,6 +17,7 @@ export type EngineFactory = (options: TranscriptionModeOptions) => ITranscriptio
 
 class STTRegistry {
     private static instance: STTRegistry;
+    public readonly identityId = Math.random().toString(36).substring(7);
     private registry: Map<string, EngineFactory> = new Map();
     private staticRegistry: Map<string, ITranscriptionEngine> = new Map();
     
@@ -51,6 +52,7 @@ class STTRegistry {
      * Hardened to return an Option-Aware Factory that preserves sanitization.
      */
     public get(mode: string): EngineFactory | undefined {
+        console.error('[DIAGNOSTIC] Registry.get requested key:', mode, 'Available:', Array.from(this.registry.keys()));
         const staticInstance = this.staticRegistry.get(mode);
         if (staticInstance) {
             return (options) => {

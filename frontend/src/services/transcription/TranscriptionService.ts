@@ -301,7 +301,11 @@ export default class TranscriptionService {
         return;
       }
 
-      await this.strategy.prepare();
+      const initResult = await this.strategy.init();
+      console.log(`[IDENTITY_TRACE] init() sId: ${this.serviceId} stratId: ${(this.strategy as any).instanceId}`);
+      if (!initResult.isOk) {
+          throw initResult.error;
+      }
 
       // 5. Final READY transition (Authoritative Settlement for Task 5.1.1)
       if (this.fsm.is('ENGINE_INITIALIZING')) {
@@ -488,7 +492,10 @@ export default class TranscriptionService {
     if (!this.strategy) return;
 
     // 🛡️ Step 3: Block premature start
-    if (!this.fsm.is('READY')) {
+    if (this.fsm.is('READY')) {
+      console.log(`[IDENTITY_TRACE] startRecording() sId: ${this.serviceId} stratId: ${(this.strategy as any).instanceId}`);
+      this.startTimestamp = Date.now();
+    } else {
       logger.warn({ state: this.fsm.getState() }, '[TranscriptionService] executeStrategy aborted: FSM not in READY state');
       return;
     }
@@ -874,6 +881,7 @@ export default class TranscriptionService {
    * Ensures sanitation cannot be bypassed by configuration mistakes.
    */
   private processTranscript(update: TranscriptUpdate): void {
+    console.log(`[IDENTITY_TRACE] emission() sId: ${this.serviceId} stratId: ${(this.strategy as any).instanceId}`);
     if (this.fsm.is('PAUSED')) {
       logger.debug('[TranscriptionService] Ignoring transcript update while PAUSED');
       return;

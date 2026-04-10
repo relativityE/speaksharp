@@ -1,4 +1,5 @@
 import { MicStream } from './utils/types';
+import { Result } from './modes/types';
 
 /**
  * ARCHITECTURE: STTStrategy
@@ -20,6 +21,7 @@ export interface STTStrategy {
    * Returns a detailed result including potential blocking reasons.
    */
   checkAvailability(): Promise<AvailabilityResult>;
+  init(timeoutMs?: number): Promise<Result<void, Error>>;
 
 
   /**

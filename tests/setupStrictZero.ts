@@ -5,26 +5,18 @@ import { ITranscriptionEngine, TranscriptionModeOptions } from '../frontend/src/
 /**
  * ARCHITECTURE:
  * STRICT ZERO - T=0 Initialization Harness.
- * 
- * Rules:
- * 1. Reset module graph.
- * 2. Set globals (identity).
- * 3. Dynamic import components.
  */
 
-// Local minimalist mock engine factory to avoid importing heavy WASM modules
 const minimalistMockFactory = (options: TranscriptionModeOptions) => {
   const mockEngine = {
     type: 'mock',
     instanceId: 'mock-instance-' + Math.random().toString(36).substring(7),
-    // ARCHITECTURE: init() no longer accepts callbacks (Step 5/6)
     init: vi.fn().mockImplementation(async () => {
       return { isOk: true, data: undefined };
     }),
     checkAvailability: vi.fn().mockResolvedValue({ isAvailable: true }),
     prepare: vi.fn().mockResolvedValue(undefined),
     start: vi.fn().mockImplementation(async () => {
-       // Simulate immediate ready if needed
        if (options.onReady) {
          const onReady = options.onReady as unknown as () => void;
          onReady();
@@ -41,36 +33,27 @@ const minimalistMockFactory = (options: TranscriptionModeOptions) => {
     getLastHeartbeatTimestamp: () => Date.now(),
     getTranscript: vi.fn().mockResolvedValue('mock transcript'),
     dispose: vi.fn(),
-    // Capture callbacks from options (Step 7)
     onTranscriptUpdate: options.onTranscriptUpdate,
     onModelLoadProgress: options.onModelLoadProgress,
     onReady: options.onReady,
   } as unknown as ITranscriptionEngine;
   
-  if (typeof window !== 'undefined') {
-      const g = window as unknown as Record<string, unknown>;
-      if (g.__SS_E2E__) {
-        const manifest = g.__SS_E2E__ as Record<string, unknown>;
-        manifest.latestMock = mockEngine;
-      }
-  }
-  
   return mockEngine;
 };
 
 export async function setupStrictZero(options: { engineType?: string } = {}) {
-  // 1. Clear OLD registry BEFORE reset (Identity Stabilization)
+  // 1. Clear OLD registry BEFORE reset
   try {
-      const { sttRegistry } = await import('@/services/transcription/STTRegistry');
+      const { sttRegistry } = await import('../frontend/src/services/transcription/STTRegistry');
       if (sttRegistry) {
           sttRegistry.clear();
-          logger.info('[setupStrictZero] Pre-reset: sttRegistry.clear()');
+          console.error('[DIAGNOSTIC] Pre-reset identity:', (sttRegistry as any).identityId);
       }
   } catch (e) {
-      // Ignore if not yet loaded
+      console.error('[DIAGNOSTIC] Pre-reset clear failed', e);
   }
 
-  // 2. Reset module graph (Ensures fresh instances for the test)
+  // 2. Reset module graph
   vi.resetModules();
 
   // 3. Clear shared browser state
@@ -78,32 +61,23 @@ export async function setupStrictZero(options: { engineType?: string } = {}) {
     localStorage.clear();
   }
 
-  // 4. Set globals BEFORE any imports (Post-reset)
+  // 4. Set globals
   const g = globalThis as unknown as Record<string, unknown>;
-  if (typeof g.window === 'undefined') {
-    g.window = g;
-  }
   g.__TEST__ = true;
   g.__SS_E2E__ = {
     isActive: true,
     engineType: options.engineType || 'mock',
-    registry: {
-      'native-browser': minimalistMockFactory,
-      'assemblyai': minimalistMockFactory,
-      'whisper-turbo': minimalistMockFactory,
-      'transformers-js': minimalistMockFactory
-    }
   };
 
   // 5. Register with the FRESH post-reset Registry
   try {
-      const { sttRegistry } = await import('@/services/transcription/STTRegistry');
+      const { sttRegistry } = await import('../frontend/src/services/transcription/STTRegistry');
       sttRegistry.register('native-browser', minimalistMockFactory);
       sttRegistry.register('assemblyai', minimalistMockFactory);
       sttRegistry.register('whisper-turbo', minimalistMockFactory);
       sttRegistry.register('transformers-js', minimalistMockFactory);
-      logger.info('[setupStrictZero] Post-reset: Registry repopulated');
+      console.error('[DIAGNOSTIC] setupStrictZero Identity:', (sttRegistry as any).identityId);
   } catch (e) {
-      logger.error({ error: e }, '[setupStrictZero] Post-setup registry sync failed');
+      console.error('[DIAGNOSTIC] Post-setup registry sync failed', e);
   }
 }

@@ -2,7 +2,8 @@ import { ITranscriptionEngine, TranscriptionModeOptions } from './modes/types';
 import { TranscriptionPolicy } from './TranscriptionPolicy';
 import { EngineFactory } from './EngineFactory';
 import { NegotiatedStrategy } from './STTNegotiator';
-import { getEngine } from '@/services/transcription/STTRegistry';
+import { getEngine, sttRegistry } from '@/services/transcription/STTRegistry';
+import logger from '@/lib/logger';
 import { ENV } from '../../config/TestFlags';
 
 /**

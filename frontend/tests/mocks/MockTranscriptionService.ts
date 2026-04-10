@@ -3,13 +3,16 @@ import { ITranscriptionEngine, TranscriptionModeOptions, Result } from '@/servic
 import { useSessionStore } from '../../src/stores/useSessionStore';
 import { calculateTranscriptStats } from '../../src/utils/fillerWordUtils';
 import { TranscriptionError } from '../../src/services/transcription/errors';
-import { logger } from '../../src/utils/logger';
+import logger from '../../src/lib/logger';
 
 export class MockTranscriptionService {
     // Static reference for tests to access the latest instance
     public static latestInstance: MockTranscriptionService | null = null;
 
     // Internal state
+    public serviceId = 'transcription-service';
+    public instanceId = Math.random().toString(36).substring(7);
+    public readonly isMock = true;
     public isListening = false;
     public isReady = true;
     public error: Error | null = null;
@@ -49,6 +52,10 @@ export class MockTranscriptionService {
         this.options = { ...this.options, ...options };
     };
 
+    updateCallbacks = (options: Partial<TranscriptionModeOptions>) => {
+        this.options = { ...this.options, ...options };
+    };
+
     // --- ITranscriptionService Interface Implementation ---
 
     init = async (): Promise<Result<void, Error>> => {
@@ -63,8 +70,6 @@ export class MockTranscriptionService {
         this.mode = mode as any;
         return Promise.resolve();
     }
-
-
 
     startTranscription = async (policy?: any): Promise<void> => {
         this.isListening = true;
@@ -138,6 +143,7 @@ export class MockTranscriptionService {
 
     getStrategy = (): any => {
         return {
+            instanceId: this.instanceId,
             checkAvailability: async () => ({ isAvailable: true }),
             init: async () => Result.ok(undefined),
             start: async () => { this.isListening = true; },
@@ -145,6 +151,7 @@ export class MockTranscriptionService {
             pause: async () => { this.state = 'PAUSED'; },
             resume: async () => { this.state = 'RECORDING'; },
             terminate: async () => { this.isListening = false; },
+            destroy: async () => { this.isListening = false; },
             getTranscript: async () => 'Test transcript',
             getLastHeartbeatTimestamp: () => Date.now(),
             getEngineType: () => this.mode
@@ -160,9 +167,9 @@ export class MockTranscriptionService {
     }
 
     getStartTime = () => this.startTime;
-    setSessionId = (id: string) => { 
+    setSessionId = (id: string) => {
         this.sessionId = id;
-        console.log('[DEBUG Mock] setSessionId:', id); 
+        console.log('[DEBUG Mock] setSessionId:', id);
     };
     getSessionId = () => this.sessionId;
     getMetadata = () => ({ engineVersion: '1.0.0', modelName: 'mock-model', deviceType: 'test' });
@@ -192,7 +199,7 @@ export class MockTranscriptionService {
     simulateError(error: Error): void {
         this.error = error;
         this.sttStatus = { type: 'error', message: error.message };
-        
+
         // Ensure store matches
         useSessionStore.getState().setSTTStatus(this.sttStatus);
 

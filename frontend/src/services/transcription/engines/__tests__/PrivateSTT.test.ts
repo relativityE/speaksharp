@@ -86,7 +86,7 @@ describe('PrivateSTT (Routing Logic)', () => {
         await setupStrictZero();
 
         // 2. Inject Test Stubs into SSOT Registry
-        const { sttRegistry } = await import('../../STTRegistry');
+        const { sttRegistry } = await import('@/services/transcription/STTRegistry');
         sttRegistry.register('whisper-turbo', (options) => new StubWTE(options));
         sttRegistry.register('transformers-js', (options) => new StubTJ(options));
         sttRegistry.register('mock', (options) => new StubE(options));

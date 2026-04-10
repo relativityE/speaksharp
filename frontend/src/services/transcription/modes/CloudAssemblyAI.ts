@@ -148,7 +148,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
   protected async onStop(): Promise<void> {
     logger.info({ sId: this.serviceId, rId: this.runId }, '[CloudAssemblyAI] Stopping connection...');
-    await this.terminate();
+    this.isListening = false;
+    await this.closeConnection();
   }
 
   public async pause(): Promise<void> {
@@ -169,7 +170,16 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
   protected async onDestroy(): Promise<void> {
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] 🛑 Destroying engine');
-    await this.onStop();
+    // Atomic safety: Ensure listening and connection are dead
+    this.isListening = false;
+    if (this.socket) {
+        this.socket.onmessage = null;
+        this.socket.onclose = null;
+        this.socket.onopen = null;
+        this.socket.onerror = null;
+        this.socket.close();
+        this.socket = null;
+    }
   }
 
   public async terminate(): Promise<void> {
@@ -178,13 +188,17 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     logger.info({ sId: this.serviceId, rId: this.instanceId }, '[CloudAssemblyAI] 🛑 Nuclear termination requested');
     this.isListening = false;
 
+    if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+    }
+
     if (this.mockEngine) {
       if (typeof this.mockEngine.terminate === 'function') await this.mockEngine.terminate();
       else await this.mockEngine.destroy();
     }
 
     await this.closeConnection();
-    await this.onDestroy();
     await super.terminate();
   }
 

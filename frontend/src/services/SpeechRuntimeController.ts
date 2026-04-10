@@ -1,6 +1,5 @@
-// src/services/SpeechRuntimeController.ts
 import logger from '../lib/logger';
-import TranscriptionService from './transcription/TranscriptionService';
+import TranscriptionService, { getTranscriptionService } from './transcription/TranscriptionService';
 import { TranscriptionPolicy, PROD_FREE_POLICY } from './transcription/TranscriptionPolicy';
 // Registry imports removed for Synchronization
 import { useReadinessStore } from '../stores/useReadinessStore';
@@ -154,10 +153,10 @@ export class SpeechRuntimeController {
 
             // 1. Create service eagerly (lightweight constructor)
             if (!this.service) {
-                this.service = new TranscriptionService({
-                    onTranscriptUpdate: this.handleTranscriptUpdate.bind(this),
-                    onHistoryUpdate: this.handleHistoryUpdate.bind(this),
-                    onError: this.handleError.bind(this),
+                this.service = getTranscriptionService({
+                    onTranscriptUpdate: (data) => this.handleTranscriptUpdate(data),
+                    onHistoryUpdate: (history) => this.handleHistoryUpdate(history),
+                    onError: (error) => this.handleError(error),
                 });
                 this.syncProvider();
             }
@@ -536,10 +535,8 @@ export class SpeechRuntimeController {
             while (this.emissionQueue.length > 0) {
                 const data = this.emissionQueue.shift();
                 if (data) {
-                    queueMicrotask(() => {
-                        this.pushTranscriptToStore(data);
-                        this.subscriberCallbacks.onTranscriptUpdate?.(data);
-                    });
+                    this.pushTranscriptToStore(data);
+                    this.subscriberCallbacks.onTranscriptUpdate?.(data);
                 }
             }
         }
@@ -565,13 +562,11 @@ export class SpeechRuntimeController {
         // Final transcript adds to the existing text
         if (data.transcript.final) {
             const newFullText = currentTranscript ? `${currentTranscript} ${data.transcript.final}` : data.transcript.final;
-            queueMicrotask(() => {
-                store.updateTranscript(newFullText, '');
-                store.addChunk({
-                    transcript: data.transcript.final || '',
-                    timestamp: Date.now(),
-                    isFinal: true
-                });
+            store.updateTranscript(newFullText, '');
+            store.addChunk({
+                transcript: data.transcript.final || '',
+                timestamp: Date.now(),
+                isFinal: true
             });
 
             // Also add to history segment if we want to track it there
@@ -617,7 +612,7 @@ export class SpeechRuntimeController {
 
             // 0.25 Ensure Service & Strategy Instance Exist (Validation Gate)
             if (!this.service) {
-                this.service = new TranscriptionService({
+                this.service = getTranscriptionService({
                     onTranscriptUpdate: (data) => this.handleTranscriptUpdate(data),
                     onHistoryUpdate: (history) => this.handleHistoryUpdate(history),
                     onError: (error) => this.handleError(error),
