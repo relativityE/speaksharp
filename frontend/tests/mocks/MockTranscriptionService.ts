@@ -1,8 +1,9 @@
 import { SttStatus } from '../../src/types/transcription';
-import { TranscriptionModeOptions } from '../../src/services/transcription/modes/types';
+import { ITranscriptionEngine, TranscriptionModeOptions, Result } from '@/services/transcription/modes/types';
 import { useSessionStore } from '../../src/stores/useSessionStore';
 import { calculateTranscriptStats } from '../../src/utils/fillerWordUtils';
 import { TranscriptionError } from '../../src/services/transcription/errors';
+import { logger } from '../../src/utils/logger';
 
 export class MockTranscriptionService {
     // Static reference for tests to access the latest instance
@@ -50,11 +51,12 @@ export class MockTranscriptionService {
 
     // --- ITranscriptionService Interface Implementation ---
 
-    init = async (): Promise<void> => {
+    init = async (): Promise<Result<void, Error>> => {
         this.isReady = true;
         this.state = 'READY';
         this.notifySubscribers();
         this.options.onReady?.();
+        return Result.ok(undefined);
     }
 
     warmUp = async (mode: string): Promise<void> => {
@@ -62,11 +64,7 @@ export class MockTranscriptionService {
         return Promise.resolve();
     }
 
-    prepare = async (): Promise<void> => {
-        this.state = 'READY';
-        this.notifySubscribers();
-        return Promise.resolve();
-    }
+
 
     startTranscription = async (policy?: any): Promise<void> => {
         this.isListening = true;
@@ -141,7 +139,7 @@ export class MockTranscriptionService {
     getStrategy = (): any => {
         return {
             checkAvailability: async () => ({ isAvailable: true }),
-            prepare: async () => {},
+            init: async () => Result.ok(undefined),
             start: async () => { this.isListening = true; },
             stop: async () => { this.isListening = false; },
             pause: async () => { this.state = 'PAUSED'; },
