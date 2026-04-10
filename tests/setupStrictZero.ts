@@ -59,26 +59,26 @@ const minimalistMockFactory = (options: TranscriptionModeOptions) => {
 };
 
 export async function setupStrictZero(options: { engineType?: string } = {}) {
-  // 1. Reset module graph for deterministic T=0 initialization
-  vi.resetModules();
-
+  // 1. Clear OLD registry BEFORE reset (Identity Stabilization)
   try {
-      // ARCHITECTURE: Use central registry to reset invariants
       const { sttRegistry } = await import('@/services/transcription/STTRegistry');
       if (sttRegistry) {
           sttRegistry.clear();
-          logger.info('[setupStrictZero] Invariant reset: sttRegistry.clear()');
+          logger.info('[setupStrictZero] Pre-reset: sttRegistry.clear()');
       }
   } catch (e) {
-      logger.error({ error: e }, '[setupStrictZero] Exception during STTRegistry reset');
+      // Ignore if not yet loaded
   }
 
-  // 1.5 Clear shared browser state
+  // 2. Reset module graph (Ensures fresh instances for the test)
+  vi.resetModules();
+
+  // 3. Clear shared browser state
   if (typeof localStorage !== 'undefined') {
     localStorage.clear();
   }
 
-  // 2. Set globals BEFORE any imports
+  // 4. Set globals BEFORE any imports (Post-reset)
   const g = globalThis as unknown as Record<string, unknown>;
   if (typeof g.window === 'undefined') {
     g.window = g;
@@ -95,13 +95,14 @@ export async function setupStrictZero(options: { engineType?: string } = {}) {
     }
   };
 
-  // Register with the new SSOT Registry
+  // 5. Register with the FRESH post-reset Registry
   try {
       const { sttRegistry } = await import('@/services/transcription/STTRegistry');
       sttRegistry.register('native-browser', minimalistMockFactory);
       sttRegistry.register('assemblyai', minimalistMockFactory);
       sttRegistry.register('whisper-turbo', minimalistMockFactory);
       sttRegistry.register('transformers-js', minimalistMockFactory);
+      logger.info('[setupStrictZero] Post-reset: Registry repopulated');
   } catch (e) {
       logger.error({ error: e }, '[setupStrictZero] Post-setup registry sync failed');
   }
