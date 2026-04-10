@@ -1,6 +1,7 @@
 import { beforeEach, afterEach, beforeAll, afterAll, vi, expect } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { WhisperEngineRegistry } from '@/services/transcription/engines/WhisperEngineRegistry';
+import { sttRegistry } from '@/services/transcription/STTRegistry';
 import { server } from './support/mocks/server';
 import { PORTS } from '../../scripts/build.config.js';
 
@@ -334,6 +335,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+    // 0. Clean up STT Registry (Identity Stabilization)
+    if (sttRegistry) sttRegistry.clear();
+
     // 1. Clean up MSW
     server.resetHandlers();
 
