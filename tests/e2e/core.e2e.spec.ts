@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { goToPublicRoute } from './helpers';
+import { goToInfrastructureRoute } from './helpers';
 
 /**
  * Core System Probe (Deterministic, Zero-Auth)
@@ -102,7 +102,7 @@ test.describe('Core System Validation (Deterministic)', () => {
       console.log('[T=0] Manifest & Surgical Mock Engine injected.');
     });
 
-    await goToPublicRoute(page, '/');
+    await goToInfrastructureRoute(page, '/');
 
     // Debug: Check manifest immediately after goto to see if it persisted
     const manifest = await page.evaluate(() => (window as unknown as E2EWindow).__SS_E2E__);

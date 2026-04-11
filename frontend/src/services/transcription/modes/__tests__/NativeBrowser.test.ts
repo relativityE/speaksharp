@@ -71,12 +71,9 @@ describe('NativeBrowser Transcription Mode', () => {
   describe('Result Handling', () => {
     it('should handle final transcript results correctly', async () => {
       await nativeBrowser.init();
-      const event = {
-        results: [[{ transcript: 'hello world', confidence: 0.9 }]],
-        resultIndex: 0,
-      };
-      // @ts-expect-error - Manually setting isFinal for test purposes
-      event.results[0].isFinal = true;
+      const resultItem = { transcript: 'hello world', confidence: 0.9, isFinal: true };
+      const resultList = Object.assign([resultItem], { isFinal: true });
+      const event = { results: [resultList], resultIndex: 0 };
 
       // Simulate the onresult event
       if (mockRecognition.onresult) {
@@ -90,12 +87,9 @@ describe('NativeBrowser Transcription Mode', () => {
 
     it('should handle interim transcript results correctly', async () => {
       await nativeBrowser.init();
-      const event = {
-        results: [[{ transcript: 'hello', confidence: 0.8 }]],
-        resultIndex: 0,
-      };
-      // @ts-expect-error - Manually setting isFinal for test purposes
-      event.results[0].isFinal = false;
+      const resultItem = { transcript: 'hello', confidence: 0.8, isFinal: false };
+      const resultList = Object.assign([resultItem], { isFinal: false });
+      const event = { results: [resultList], resultIndex: 0 };
 
       // Simulate the onresult event
       if (mockRecognition.onresult) {

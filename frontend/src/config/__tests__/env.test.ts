@@ -20,8 +20,7 @@ describe('env.ts (Environment Detection)', () => {
     });
 
     it('should detect test environment via window.__SS_E2E__', async () => {
-        // @ts-expect-error - Mocking global window for testing
-        global.window = { __SS_E2E__: { isActive: true } };
+        (global as unknown as Record<string, unknown>).window = { __SS_E2E__: { isActive: true } };
         const { IS_TEST_ENVIRONMENT } = await import('../env');
         expect(IS_TEST_ENVIRONMENT).toBe(true);
     });
@@ -29,8 +28,7 @@ describe('env.ts (Environment Detection)', () => {
     it('should detect false if __SS_E2E__ says inactive', async () => {
         const originalTest = (globalThis as unknown as { __TEST__?: boolean }).__TEST__;
         try {
-            // @ts-expect-error - Mocking global window for testing
-            global.window = { __SS_E2E__: { isActive: false } };
+            (global as unknown as Record<string, unknown>).window = { __SS_E2E__: { isActive: false } };
             (globalThis as unknown as { __TEST__?: boolean }).__TEST__ = false;
             
             const { IS_TEST_ENVIRONMENT } = await import('../env');

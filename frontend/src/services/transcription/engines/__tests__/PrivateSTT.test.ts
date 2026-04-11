@@ -135,8 +135,7 @@ describe('PrivateSTT (Routing Logic)', () => {
             window.__SS_E2E__.isActive = true;
             window.__SS_E2E__.engineType = 'real';
         }
-        // @ts-expect-error - mock navigator.gpu
-        navigator.gpu = {};
+        Object.defineProperty(navigator, 'gpu', { value: {}, writable: true, configurable: true });
 
         const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
@@ -165,8 +164,7 @@ describe('PrivateSTT (Routing Logic)', () => {
             window.__SS_E2E__.isActive = true;
             window.__SS_E2E__.engineType = 'real';
         }
-        // @ts-expect-error - mock navigator.gpu
-        navigator.gpu = {};
+        Object.defineProperty(navigator, 'gpu', { value: {}, writable: true, configurable: true });
 
         const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });

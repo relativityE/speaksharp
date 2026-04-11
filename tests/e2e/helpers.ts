@@ -167,6 +167,22 @@ export async function goToPublicRoute(page: Page, route: string) {
   await page.locator('[data-data-ready="true"]').waitFor({ timeout: 10000 });
 }
 
+/**
+ * Minimal navigation helper for zero-auth infrastructure probes (e.g. core.e2e.spec.ts).
+ *
+ * Waits ONLY for the app shell to boot ([data-app-booted]). Does not wait for
+ * data-route-ready or data-data-ready, which require an authenticated route to resolve.
+ * Use this for T=0 infrastructure checks that operate at the window/FSM level.
+ *
+ * For journey and feature tests that require full auth + data resolution,
+ * use goToPublicRoute or programmaticLoginWithRoutes instead.
+ */
+export async function goToInfrastructureRoute(page: Page, route: string) {
+  debugLog(`[INFRA] Navigating to ${route}`);
+  await page.goto(route);
+  await page.locator('[data-app-booted="true"]').waitFor({ timeout: 10000 });
+}
+
 export async function navigateToRoute(page: Page, route: string, options: { waitForMocks?: boolean } = {}) {
   const { waitForMocks = true } = options;
   debugLog(`Navigating to ${route} (waitForMocks: ${waitForMocks})`);

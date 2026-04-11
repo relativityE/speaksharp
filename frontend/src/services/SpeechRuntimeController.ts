@@ -117,7 +117,9 @@ export class SpeechRuntimeController {
 
         // E2E Short-circuit: Skip heavy WASM/mic probing in Playwright context
         // to avoid silent WASM crashes in sharded environments.
-        const isE2E = ENV.isE2E;
+        // NOTE: Must read window.__SS_E2E__?.isActive directly — ENV.isE2E is a frozen IIFE snapshot
+        // evaluated at module load time, before Playwright's addInitScript injects __SS_E2E__.
+        const isE2E = (typeof window !== 'undefined' && !!window.__SS_E2E__?.isActive) || ENV.isE2E;
 
         if (isE2E) {
             logger.info('[SpeechRuntimeController] E2E Mode detected. Short-circuiting STT readiness.');
