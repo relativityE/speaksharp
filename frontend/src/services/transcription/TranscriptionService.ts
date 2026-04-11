@@ -998,17 +998,8 @@ export default class TranscriptionService {
       default: status = { type: 'idle', message: 'Ready' };
     }
 
-    // ✅ METABOLIC SYNC: Propagate FSM state to Store's RuntimeState
-    const store = typeof useSessionStore !== 'undefined' ? useSessionStore?.getState?.() : null;
-    if (store) {
-      // Unified state mapping for reactive UI
-      const runtimeState = (state === 'ENGINE_INITIALIZING' || state === 'ACTIVATING_MIC') ? 'INITIATING' :
-                          (state === 'RECORDING') ? 'RECORDING' :
-                          (state === 'PAUSED') ? 'PAUSED' :
-                          (state === 'READY') ? 'READY' : 'IDLE';
-      
-      store.setRuntimeState(runtimeState as any);
-    }
+    // Propagate status to store and callbacks
+    const store = useSessionStore?.getState?.() ?? null;
     if (store) {
       const currentProgress = store.modelLoadingProgress;
       if (currentProgress !== null && state !== 'TERMINATED') {

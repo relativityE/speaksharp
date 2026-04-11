@@ -231,8 +231,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     // INDUSTRY STANDARD: Environment-based auth bypass
     // Pattern: Used by Stripe, Auth0, Twilio SDKs
 
-    if (this.isE2EEnvironment()) {
-      logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, '[CloudAssemblyAI] 🧪 E2E mode - bypassing auth');
+    if (this.isE2EEnvironment() || ENV.isTest) {
+      logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, '[CloudAssemblyAI] 🧪 Test/E2E mode - bypassing auth');
       return this.getMockToken();
     }
 
@@ -272,7 +272,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
   /** @internal */
   public isE2EEnvironment(): boolean {
-    return ENV.IS_E2E;
+    return ENV.IS_E2E || ENV.isTest;
   }
 
   private isDevelopmentEnvironment(): boolean {

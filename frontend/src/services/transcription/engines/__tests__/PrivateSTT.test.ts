@@ -12,7 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { setupStrictZero } from '../../../../../../tests/setupStrictZero';
 import { Result } from '@/services/transcription/modes/types';
-import { PrivateSTT } from '../PrivateSTT';
+import type { PrivateSTT as PrivateSTTType } from '../PrivateSTT';
 import { ENV } from '@/config/TestFlags';
 import { STTEngine } from '@/contracts/STTEngine';
 
@@ -100,7 +100,7 @@ describe('PrivateSTT (Routing Logic)', () => {
         vi.stubGlobal('navigator', { ...navigator, gpu: undefined } as unknown as Navigator);
     });
 
-    let pstt: PrivateSTT | null = null;
+    let pstt: PrivateSTTType | null = null;
 
     afterEach(async () => {
         if (pstt) {
@@ -116,15 +116,18 @@ describe('PrivateSTT (Routing Logic)', () => {
     it('selects MockEngine when manifest engineType is mock', async () => {
         if (window.__SS_E2E__) window.__SS_E2E__.isActive = true;
 
-        // Validation: Verify T=0 injection worked
-        expect(ENV.isTest).toBe(true);
-        expect(ENV.engineType).toBe('mock');
+        const traceEnv = `isE2E=${ENV.isE2E}, engineType=${ENV.engineType}, ssE2E=${JSON.stringify(window.__SS_E2E__)}`;
+        expect(ENV.isTest, `[TRACE-PSTT] ENV.isTest should be true — ${traceEnv}`).toBe(true);
+        expect(ENV.engineType, `[TRACE-PSTT] engineType should be mock — ${traceEnv}`).toBe('mock');
 
-        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        const { PrivateSTT } = await import('../PrivateSTT');
+        // Use forceEngine='mock' — the explicit mock path in onInit() (line 99-112)
+        // The fallback registry path only hits 'mock' when preferred engine has no factory
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'mock' } as never);
         await pstt.init();
 
-        // Note: Real MockEngine import is now bypassed by registry injection in PrivateSTT.ts
-        expect(pstt.getEngineType()).toBe('mock');
+        const gotType = pstt.getEngineType();
+        expect(gotType, `[TRACE-PSTT] wrong engine type — ${traceEnv}, gotType=${gotType}`).toBe('mock');
     });
 
     it('selects WhisperTurboEngine (Fast Path) when WebGPU is available', async () => {
@@ -135,6 +138,7 @@ describe('PrivateSTT (Routing Logic)', () => {
         // @ts-expect-error - mock navigator.gpu
         navigator.gpu = {};
 
+        const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         await pstt.init();
 
@@ -146,8 +150,9 @@ describe('PrivateSTT (Routing Logic)', () => {
             window.__SS_E2E__.isActive = true;
             window.__SS_E2E__.engineType = 'real';
         }
-        // delete navigator.gpu handled in beforeEach
+        // navigator.gpu is undefined by default (set in beforeEach)
 
+        const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         await pstt.init();
 
@@ -155,8 +160,15 @@ describe('PrivateSTT (Routing Logic)', () => {
     });
 
     it('selects WhisperTurboEngine (Fast Path) when WebGPU is available (Re-verification)', async () => {
+        // Must set engineType='real' so ENV.disableWasm=false, enabling the GPU path
+        if (window.__SS_E2E__) {
+            window.__SS_E2E__.isActive = true;
+            window.__SS_E2E__.engineType = 'real';
+        }
         // @ts-expect-error - mock navigator.gpu
         navigator.gpu = {};
+
+        const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         await pstt.init();
 
@@ -171,6 +183,7 @@ describe('PrivateSTT (Routing Logic)', () => {
             setTimeout(() => resolve(Result.ok(undefined)), 2000);
         }));
 
+        const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         // WebGPU is missing by default in beforeEach, so it will select TransformersJS
         const initPromise = pstt.init();

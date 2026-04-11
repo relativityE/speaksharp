@@ -52,6 +52,10 @@ describe('useTranscriptionService (Contract Verification)', () => {
     // Reset real store and controller
     useSessionStore.getState().resetSession();
     await speechRuntimeController.reset();
+    
+    // ✅ SYNC SETUP: Ensure system is READY and subscriber invariant is met before tests
+    await speechRuntimeController.warmUp();
+    speechRuntimeController.confirmSubscriberHandshake();
   });
 
   afterEach(async () => {
@@ -75,19 +79,19 @@ describe('useTranscriptionService (Contract Verification)', () => {
   it('should transition through FSM states during start (Contract 2: Command Flow)', async () => {
     const { result } = renderHook(() => useTranscriptionService(mockOptions), { wrapper });
 
-    // 1. Warm up
-    await act(async () => {
-        await speechRuntimeController.warmUp();
-    });
+    const stateBeforeStart = useSessionStore.getState().runtimeState;
 
-    // 2. Start Recording
     await act(async () => {
+      await speechRuntimeController.warmUp();
       await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
     });
 
-    // Wait for the store to reflect the transition
+    const stateAfterStart = useSessionStore.getState().runtimeState;
+
     await waitFor(() => {
-      expect(useSessionStore.getState().runtimeState).toBe('RECORDING');
+      const current = useSessionStore.getState().runtimeState;
+      const trace = `stateBefore=${stateBeforeStart}, stateAfterStart=${stateAfterStart}, current=${current}`;
+      expect(current, `[TRACE-C2] runtimeState never reached RECORDING — ${trace}`).toBe('RECORDING');
       expect(useSessionStore.getState().isListening).toBe(true);
       expect(result.current.isListening).toBe(true);
     }, { timeout: 2000 });

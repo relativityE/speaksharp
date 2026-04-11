@@ -61,10 +61,26 @@ describe('Transcription Accuracy Multi-Engine Integration', () => {
                 }
             }
 
-            // 1. Inject into STTRegistry using architectural keys
-            sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { instances.assemblyai = new MockEngine('cloud', opts); return instances.assemblyai; });
-            sttRegistry.register('native-browser', (opts: TranscriptionModeOptions) => { instances['native-browser'] = new MockEngine('native', opts); return instances['native-browser']; });
-            sttRegistry.register('whisper-turbo', (opts: TranscriptionModeOptions) => { instances['whisper-turbo'] = new MockEngine('transformers-js', opts); return instances['whisper-turbo']; });
+            // 1. Inject into STTRegistry using architectural keys (Task 7.2)
+            sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { 
+                instances.assemblyai = new MockEngine('cloud', opts); 
+                return instances.assemblyai; 
+            });
+            sttRegistry.register('native-browser', (opts: TranscriptionModeOptions) => { 
+                instances['native-browser'] = new MockEngine('native', opts); 
+                return instances['native-browser']; 
+            });
+            
+            // Register both private engine keys: PrivateSTT routes to transformers-js when
+            // ENV.disableWasm=true (test env without real GPU), whisper-turbo when GPU is available.
+            sttRegistry.register('whisper-turbo', (opts: TranscriptionModeOptions) => {
+                instances['whisper-turbo'] = new MockEngine('whisper-turbo', opts);
+                return instances['whisper-turbo'];
+            });
+            sttRegistry.register('transformers-js', (opts: TranscriptionModeOptions) => {
+                instances['transformers-js'] = new MockEngine('transformers-js', opts);
+                return instances['transformers-js'];
+            });
 
             service = new TranscriptionService({
                 mockMic: {
