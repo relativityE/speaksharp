@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-24
+**Last Reviewed:** 2026-04-23
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -91,6 +91,8 @@ Next Target) ✅ COMPLETE
 | **S8** | **Expert CI Hardening (1A, 2A, 3A)**| **CRITICAL**| ✅ Complete | Professional CI Hardening: Mitigated Mock Poisoning (1A), prevented Over-Mocking (2A), and resolved Mock Divergence (3A). |
 | **S9** | **Merge Wave 1: Baseline** | **CRITICAL**| ✅ Complete | Consolidated Master Security Fix, RPC Analytics, and O(1) NLP Counting. |
 | **S10** | **Merge Wave 2: Hardening** | **CRITICAL**| ✅ Complete | Consolidated Atomic Row-locking, AI Persistence, and Debounced NLP. |
+| **S11** | **Forensic Infrastructure Centralization**| **CRITICAL**| ✅ Complete | Centralized redundant signaling logic into `e2eProbe.ts`, stabilized integration lifecycle, and achieved 100% compliance with strict quality gates. |
+| **S12** | **v0.6.4 Milestone: Forensic Finalization**| **CRITICAL**| ✅ Complete | Achieved production-ready forensic signaling baseline. Consolidated stale-closure reproduction logic and enforced authoritative telemetry paths. |
 
 
 ## 📽️ Marketing & Growth
@@ -107,20 +109,43 @@ Next Target) ✅ COMPLETE
 This phase focuses on fixing critical bugs, addressing code health, and ensuring the existing features are reliable and robust.
 
 ### 🚧 Should-Have (Tech Debt)
-- 🔴 **E2E Timeout: STT Initialization Race Condition:** E2E tests are currently timing out because the `TranscriptionService` instance is `null` when `useTranscriptionControl` attempts to access it during test execution. A circular dependency or initialization order issue between `SpeechRuntimeController`, `TranscriptionProvider`, and component mount cycles needs investigation.
+- ✅ **E2E Timeout: STT Initialization Race Condition (2026-03-25):** Resolved via Single-Chain Orchestration and Unified Readiness Store. Mic initialization is bypassed in CI via `STTServiceFactory.ts` to prevent hardware timeouts.
 - ✅ **Strategic Error Logging (2025-12-11):** Added defensive error logging to PrivateWhisper.ts, SessionPage.tsx, AuthPage.tsx. Comprehensive coverage in critical paths.
 - ✅ **Usage Limit Pre-Check (2025-12-11):** P0 UX fix. New Edge Function `check-usage-limit` validates usage BEFORE session start. Shows toast with Upgrade button if exceeded.
 - ✅ **Screen Reader Accessibility (2025-12-11):** Added `aria-live="polite"` to live transcript for screen reader announcements.
 - ✅ **PDF Export Fix (2025-12-11):** Replaced manual download with FileSaver.js industry standard.
+- [ ] Refactor Download Model tier gating: display disabled button for Free users as marketing funnel ([PRD §3.5](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/docs/PRD.md#L157-L159))
+- ✅ **STT Initialization UX (Pulsatile Glow):** Implement a subtle pulsatile glow or glassmorphic loader around the microphone during the `isEngineInitialized` transition to mask initialization lag. (Added Apr 2026).
 - 🔴 **Harden Supabase Security:** Address security advisor warnings.
   - ⏸️ **BLOCKED** - Shorten OTP expiry to <1 hour (requires Supabase Pro account)
   - ⏸️ **BLOCKED** - Enable leaked password protection (requires Supabase Pro account)
   - ⏸️ **DEFERRED** - Upgrade Postgres version (not critical for alpha)
 - ✅ **COMPLETED - Integration Test (Usage Limits):** Deno unit tests exist at `backend/supabase/functions/check-usage-limit/index.test.ts` (167 lines, 6 test cases covering auth, free/pro users, exceeded limits, graceful degradation, CORS).
+- ✅ **STT Pause/Resume Logic (2026-04-09):** Implemented deterministic `pauseTranscription()` and `resumeTranscription()` in `TranscriptionService.ts`. Integrated with `TranscriptionFSM`'s `PAUSED` state and "Soft Pause" audio gating to avoid mic cold-starts. Verified via unit and contract tests.
 - 🔴 **Domain Services DI Refactor:** Evolve `domainServices.ts` from internal client retrieval to dependency injection pattern for fully pure, easily testable functions. Low priority - current spy-based testing works for alpha.
 - ✅ **Console Error Highlighting (P0 - Debugging):** Implemented via `pino-pretty` with `colorize: true` in `lib/logger.ts`. Standardized for all domain services and async modes. (2026-02-16)
 - ✅ **Independent Documentation Review (2026-01-28):** Conducted full audit of all project documents against `docs/OUTLINE.md` requirements. Verified sync across PRD, Architecture, and Roadmap.
 - ✅ **Gap Analysis [HIGH PRIORITY]:** Conducted full audit of Zero-Debt status, tech debt, and architectural drift. (2026-02-16)
+- ✅ **Phase 5: Systematic Quality Pass (v0.6.0 Finalization)**
+    - [x] Batch 5A: Engine Logic Hardening (`TransformersJSEngine.test.ts`, `PrivateSTT.test.ts`)
+    - [x] Batch 5B: Mode Logic Alignment (`WhisperTurboEngine.test.ts`, `PrivateWhisper.test.ts`)
+    - [x] Batch 5C: Platform Logic Alignment (`NativeBrowser.test.ts`, `CloudAssemblyAI.test.ts`)
+    - [x] Batch 5D: Integration Layer Verification (`PrivateSTT.integration.test.ts`)
+    - [x] Batch 5E: Final Lint Triage & SSOT Quality Pass (`pnpm quality`)
+    - [x] **v0.6.0 Finalization:** Deterministic Bridge stabilization & signal rename (`isEngineInitialized`).
+    - [x] Batch 5F: Acoustic Ground Truth Metric Pipeline (`benchmark-filler-ceiling.mts`, `generate-filler-audio.sh`).
+    - [x] Batch 5G: E2E Pipeline Un-Sharding & Dependency resolution (`sharp` darwin-arm64v8).
+    - [x] **v0.6.1 Finalization:** Acoustic Benchmarking and comprehensive CI/E2E stability.
+    - [x] **v0.6.2 Milestone: Identity & E2E Unblocking (2026-04-20)**
+        - [x] **Shadow Store Resolution**: Harmonized all core infrastructure to canonical `@/` alias.
+        - [x] **Bootstrap Deadlock Fix**: Removed global `navigator.webdriver` barrier.
+        - [x] **Finalized STT Contract**: Resolving `STT_ENGINE_INVALID` in E2E mocks (Mandatory methods).
+        - [x] **Vitest Alias Sync**: Resolving module resolution failures in deep-nested component tests.
+    - [x] **v0.6.15 Milestone: Initialization Hardening (2026-04-24)**
++        - [x] **Infinite Initialization Loop Fix**: Resolved recursive race condition in background pulses.
++    - [x] **v0.6.16 Milestone: Lifecycle Invariant Stabilization (2026-04-25)**
++        - [x] **Strict Monotonic Reset**: Enforced unconditional lifecycle versioning.
++        - [x] **Test-Aware Branch Removal**: Eliminated E2E fast-path and test-specific timer guards.
 - ✅ **Side-by-Side Session Comparison:** Implemented `SessionComparisonDialog.tsx` supporting 2-session diffs (WPM, Clarity, Fillers).
 - ✅ **Speaker Identification (2026-02-21):** Implemented diarization support in `CloudAssemblyAI.ts` and propagated via `Transcript` interface.
 - ✅ **Canary Tests:** Real-API `@canary` tests for staging environment implemented in `tests/canary/`.
@@ -136,8 +161,11 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Result:** All 38 E2E tests pass reliably in parallel CI.
   - **Warning:** DO NOT revert to MSW - the race conditions are fundamental architectural limitations.
 
-### ⚡ Performance Optimization & CI Stabilization (2026-02-07) ✅ COMPLETE
+### ⚡ Performance Optimization & CI Stabilization (2026-03-25) ✅ COMPLETE
 
+- ✅ **Industrial Alias Resolution**: Synced Vitest with `tsconfig.json` using `vite-tsconfig-paths`.
+- ✅ **Authoritative Bridge**: Centralized environment flags in `TestFlags.ts`.
+- ✅ **Strangler Shim**: Frozen `env.ts` as a logic-free compatibility layer.
 - ✅ **Web Worker Offloading:** Moved heavy audio processing to a dedicated Web Worker to ensure UI responsiveness.
 - ✅ **CI Stabilization:** Upgraded pnpm, increased memory limits, and tuned timeouts for 100% reliable CI runs.
 - ✅ **Regex Memoization:** Implemented content-based regex memoization in `highlightUtils.ts` to eliminate repeated compilation in render loops.
@@ -304,14 +332,13 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
   - **Optimizations:** Lazy-load Recharts, lazy-load Whisper model loader, aggressive route-based code splitting
   - **Status:** Acceptable for Alpha, optimize in Beta for performance SLO compliance. *Note: AnalyticsPage chunk optimized from 877KB to 500.64KB via RPC migration.*
 
-- 🟡 **Bundle Chunk Size Warning (2026-02-20):** Vite build emits warning about chunks >500KB.
+- 🟡 **Bundle Chunk Size & Dynamic Import Warning (2026-04-13):** Vite build emits warning about chunks >500KB and dynamic imports.
   - **Affected Chunks:** `index-*.js` (933.63KB), `vendor-transformers-*.js` (823.85KB)
-  - **Warning Text:** `(!) Some chunks are larger than 500 kB after minification`
+  - **Warning Text:** `(!) Some chunks are larger than 500 kB after minification`, plus warnings about modules like `storage.ts` or `SpeechRuntimeController.ts` being both dynamically and statically imported.
   - **Recommended Fixes:**
-    - Use `dynamic import()` for code-splitting heavy components (Recharts, html2canvas)
+    - Refactor conflicting static vs dynamic imports for core application modules.
+    - Use `dynamic import()` correctly for code-splitting heavy components without static overlap.
     - Configure `build.rollupOptions.output.manualChunks` for vendor chunking
-    - Consider `build.chunkSizeWarningLimit` as last resort (masks issue, doesn't fix)
-  - **Reference:** https://rollupjs.org/configuration-options/#output-manualchunks
   - **Status:** P2 - Acceptable for Alpha, optimize in Beta
 
 - 🟡 **E2E Test Console Warnings (2025-12-22):** The following console logs appear during E2E tests and should be addressed:
@@ -425,7 +452,7 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Side-by-Side Session Comparison (2025-12-06):** Implemented `SessionComparisonDialog.tsx` with `ProgressIndicator` and integrated into `AnalyticsDashboard.tsx`. Verified via `session-comparison.e2e.spec.ts`.
 - [ ] **🛡️ Private STT Hardening (Post-Alpha Tech Debt):**
   - **Model Load Friction**: Eliminate mandatory 30s background downloads; transition to an **Intentional Privacy Model Download** button for Pro users with localized caching checks.
-  - **Multi-Tab State Corruption**: Implement `SharedWorker` or Cross-Tab Broadcast Channel to strictly enforce a single WebGPU instance across tabs.
+  - ✅ **Multi-Tab State Corruption (2026-03-20):** Resolved via Cross-Tab Mutex Lock in `useActiveSessionLock.ts` strictly enforcing a single-session policy.
   - **WebGPU Context Loss**: Add `device-lost` event handlers to the `WhisperEngineRegistry` to trigger graceful WASM fallback mid-session.
   - **Mobile RAM Optimization**: Implement dynamic model unloading or Tiny-model preference for iOS Safari (300MB RAM limit).
   - **Ad-Blocker Resilience**: Detect asset load failures and fallback to a "Lite" model probe with exponential backoff on retry.
@@ -590,7 +617,14 @@ This phase is about confirming the core feature set works as expected and polish
 | 14 | **WASM Binary Cache** | `TranscriptionService.ts` | P2 | 🔴 Not Started - Implement global binary caching for $O(1)$ startup vs. current init lag. |
 | 15 | **Transient Transcript Policy** | `TranscriptionService.ts` | P2 | 🔴 Not Started - Ephemeral local storage for transcripts to protect PII and save disk costs. |
 | 16 | **Free-Tier Private Gating** | `SessionPage.tsx` | P3 | 🔴 Not Started - User-tier gating in DOM for Free users to reduce asset load noise. |
-| 17 | Unified STT Engine Contract (Cloud/Native) | `CloudAssemblyAI.ts`, `NativeBrowser.ts` | P2 | 🟡 In Progress | Migrating Cloud/Native engines to the `STTEngine` base class to enable unified heartbeat monitoring and telemetry. |
+| 17 | **Unified STT Engine Contract (Cloud/Native)** | `CloudAssemblyAI.ts`, `NativeBrowser.ts` | P2 | ✅ Complete | Migrated Cloud/Native engines to the `STTEngine` base class to enable unified heartbeat monitoring and telemetry. Finalized v0.6.4. |
+| 18 | **ENV → EnvProvider Dependency Injection** | `TestFlags.ts`, test infrastructure | P2 | 🔴 Not Started | Refactor `ENV` from a frozen IIFE to an injectable `EnvProvider.get()` pattern. 3–5 days, touches frozen `TestFlags.ts`, cascades across entire test suite. Not the cause of current E2E failures — `addInitScript` runs before page scripts so `window.__SS_E2E__` IS available when the IIFE evaluates. Deferred. |
+| 19 | **E2E Tiered Execution Strategy** | `playwright.config.ts`, `package.json` | P2 | 🔴 Not Started | Add named Playwright projects (smoke/journeys/features/infra) and corresponding `pnpm` scripts (`test:e2e:smoke`, `test:e2e:journeys`, `test:e2e:features`, `test:e2e:infra`). CI pipeline runs smoke on every PR; full suite only on merge to `main`. Currently all 35 tests run flat on every CI invocation — no fast-feedback tier. Requires 100% green baseline first (Item 21 done). After baseline confirmed, this gives faster PR feedback loops. |
+| 20 | **E2E Spec File Consolidation** | `tests/e2e/` | P3 | 🔴 Not Started | Cosmetic reduction from 35 to ~25 spec files. Primary candidates: `analytics.e2e.spec.ts` + `analytics-empty-state.e2e.spec.ts` + `analytics-details.e2e.spec.ts` → 1 file; `private-stt.e2e.spec.ts` + `private-stt-fallback-negotiation.e2e.spec.ts` + `priv-stt-mock-fallback.e2e.spec.ts` + `diag-private-stt.e2e.spec.ts` → 1 file. Do not execute until tiered strategy (Item 19) is in place. |
+| 21 | **`goToInfrastructureRoute` Helper** | `tests/e2e/helpers.ts` | P1 | ✅ Done (2026-04-11) | Minimal navigation helper that waits only for `[data-app-booted="true"]`, without the `data-route-ready` or `data-data-ready` signals that require an authenticated route. `core.e2e.spec.ts` now uses this instead of `goToPublicRoute`, restoring its zero-auth design intent. Added additively — no modifications to existing helper functions. |
+| 22 | **`/healthcheck` Dedicated Route** | `frontend/src/App.tsx`, `frontend/src/pages/` | P3 | 🔴 Not Started | Optional dedicated route complementary to Item 21 (not a replacement). Item 21's `goToInfrastructureRoute('/')` waits boot-only and is sufficient. Item 22 would eliminate the redirect-path dependency entirely — a dedicated page that fires `data-app-booted` immediately with no auth, redirects, or data resolution. Revisit if zero-auth strictness becomes a hard requirement. |
+| 23 | **Global Playwright `__SS_E2E__` Fixture** | `playwright.config.ts`, `tests/e2e/` | P2 | 🔴 Not Started | Each E2E spec currently calls `setupE2EManifest` individually to inject `window.__SS_E2E__`. This per-spec responsibility caused the C4 evidence spec to bypass injection entirely, triggering a 2-week debugging loop. **Proposed fix:** Create a shared Playwright fixture (via `test.extend`) or a `globalSetup` that automatically calls `page.addInitScript` with the base `__SS_E2E__` manifest. Specs that need custom config (auth tokens, engine type) would still call `programmaticLoginWithRoutes`. Specs that only need the bridge (like forensic evidence specs) would get it for free. Simple additive change — no rearchitecting of existing helpers. |
+| 24 | **Global ENV Purge (No Test-Awareness)** | `frontend/src/**/*` | P1 | 🔴 Not Started | Purge `import { ENV }` and all test-aware conditionals from the entire production source. Re-align with constructor/dependency injection patterns to fulfill stabilization mandate. |
 
 
 
@@ -889,6 +923,7 @@ This phase addresses findings from the December 2025 UX Audit (`ux_audit.md`) to
 | **P6.2** | **Domain Mapping Layer** | **CRITICAL** | ✅ Complete | Migrated DB mapping (snake_case) to `goalsService`, decoupling Hooks from schema (#727). |
 | **P6.3** | **Analytics Aggregation Fix** | **HIGH** | ✅ Complete | Optimized `analyticsUtils.ts` by consolidating redundant reduce operations and calculations (#728). |
 | **P6.4** | **README Hardening** | **CRITICAL** | ✅ Complete | Documented "Dead Environment" recovery steps and clarified TIA test taxonomy. |
+| **P6.5** | **Cloud Engine DI Refactor** | **MEDIUM** | 🟡 Pending | Migrate `CloudAssemblyAI` to formal dependency injection to remove remaining `ENV.isE2E` branching (Ref: Secondary Gate Report). |
 
 ---
 
@@ -910,3 +945,15 @@ This phase addresses findings from the December 2025 UX Audit (`ux_audit.md`) to
 | **B2** | **Harvard Sentence Baselines** | **HIGH** | ✅ Complete | Created `harvard-sentences.ts`, generated 16kHz audio fixtures, and implemented `benchmark-*.mts` Node.js runners using `tsx`. |
 | **B3** | **STTAccuracyVsBenchmark**   | **HIGH** | ✅ Complete | Built Recharts component for plotting dynamic accuracy vs config ceiling. |
 | **B4** | **Hook Integration**         | **HIGH** | ✅ Complete | Updated `useAnalytics` and DB to track active `engine` per session. |
+
+---
+
+## 🎙️ Forensic Telemetry & Provisioning FSM (Apr 2026) 🟡 In Progress
+
+> **Goal:** Stabilize the model provisioning lifecycle and enforce a strict "Check-Then-Act" protocol for heavy resources.
+
+| ID | Title | Priority | Status | Notes |
+|----|-------|----------|--------|-------|
+| **F1** | **Forensic Telemetry Stabilization** | **CRITICAL** | ✅ Complete | Resolved the infinite initialization loop by decoupling background pulses from user intent. |
+| **F2** | **Provisioning FSM Refinement** | **CRITICAL** | 🟡 In Progress | Migrating from 'isExplicitInit' code smell to a formal 'DOWNLOADING' state in TranscriptionFSM. |
+| **F3** | **Mock Provisioning (E2E)** | **HIGH** | 🟡 In Progress | Updating setupE2EManifest.ts to simulate model download lifecycle for deterministic CI testing. |

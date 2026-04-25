@@ -1,8 +1,10 @@
-import logger from '@/lib/logger';
-import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, TranscriptionError, Result } from './types';
-import { STTEngine } from '@/contracts/STTEngine';
-import { EngineType, EngineCallbacks } from '@/contracts/IPrivateSTTEngine';
-import { TestFlags } from '@/config/TestFlags';
+import logger from '../../../lib/logger';
+import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, Result } from './types';
+import { TranscriptionError } from '../errors';
+import { IPrivateSTTEngine, EngineType } from '../../../contracts/IPrivateSTTEngine';
+import { MicStream } from '../utils/types';
+import { STTEngine } from '../../../contracts/STTEngine';
+import { ENV } from '../../../config/TestFlags';
 
 // A simplified interface for the SpeechRecognition event
 interface SpeechRecognitionEvent extends Event {
@@ -41,25 +43,80 @@ interface SpeechRecognitionStatic {
  * Leverages the browser's built-in SpeechRecognition API.
  */
 export default class NativeBrowser extends STTEngine implements ITranscriptionEngine {
-  public readonly type: EngineType = 'native';
+  public readonly type: EngineType = 'native-browser';
+  private mockEngine?: IPrivateSTTEngine;
   private recognition: SpeechRecognition | null = null;
   private isSupported: boolean = true;
   private isListening: boolean = false;
   private isRestarting: boolean = false;
-  protected lastHeartbeat: number = Date.now();
+  public onTranscriptUpdate?: (update: { transcript: Transcript }) => void;
+  public onReady?: () => void;
+  public onError?: (error: TranscriptionError) => void;
+  private _engineType: EngineType | null = null;
 
-  private onTranscriptUpdate?: (update: { transcript: Transcript }) => void;
-  private onEngineError?: (error: TranscriptionError) => void;
-
-  constructor(_options?: TranscriptionModeOptions) {
-    super();
+  constructor(options: Partial<TranscriptionModeOptions> = {}, mockEngine?: IPrivateSTTEngine) {
+    super(options as TranscriptionModeOptions);
+    this.mockEngine = mockEngine;
+    
+    this.onTranscriptUpdate = options.onTranscriptUpdate;
+    this.onReady = options.onReady;
+    this.onError = options.onError;
   }
 
-  protected async onInit(callbacks: EngineCallbacks | TranscriptionModeOptions): Promise<Result<void, Error>> {
-    const options = callbacks as TranscriptionModeOptions;
-    this.onTranscriptUpdate = options.onTranscriptUpdate;
-    this.onEngineError = options.onError;
+  private get modeOptions(): TranscriptionModeOptions | null {
+    return this.options as TranscriptionModeOptions;
+  }
 
+  /**
+   * STTStrategy Requirement: Probe availability and prerequisites.
+   */
+  public async checkAvailability(): Promise<import('../STTStrategy').AvailabilityResult> {
+    // Mock engine injected = availability is authoritatively declared by test harness
+    if (this.mockEngine) {
+      return { isAvailable: true };
+    }
+
+    // 1. Check for basic browser support
+    const SpeechRecognition = (window.SpeechRecognition || window.webkitSpeechRecognition) as SpeechRecognitionStatic;
+    if (!SpeechRecognition) {
+      return {
+        isAvailable: false,
+        reason: 'UNSUPPORTED',
+        message: 'This browser does not support the Web Speech API. Please try Chrome or Safari.'
+      };
+    }
+
+    // 2. Check for microphone permission if API is available
+    if (navigator.permissions && navigator.permissions.query) {
+      try {
+        const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        if (result.state === 'denied') {
+          return {
+            isAvailable: false,
+            reason: 'PERMISSION_DENIED',
+            message: 'Microphone access is denied. Please grant permission in your browser settings.'
+          };
+        }
+      } catch (err) {
+        logger.warn({ err }, '[NativeBrowser] Permission query failed.');
+      }
+    }
+
+    return { isAvailable: true };
+  }
+
+
+  protected override async onInit(timeoutMs?: number): Promise<Result<void, Error>> {
+    // Use injected mock if available
+    if (this.mockEngine) {
+        logger.info('[NativeBrowser] 🧪 Using injected MockEngine');
+        if (this.mockEngine.init) {
+            await this.mockEngine.init(timeoutMs);
+        }
+        return Result.ok(undefined);
+    }
+
+    if (typeof window === 'undefined') return Result.ok(undefined);
     const SpeechRecognition = (window.SpeechRecognition || window.webkitSpeechRecognition) as SpeechRecognitionStatic;
     this.isSupported = !!SpeechRecognition;
 
@@ -67,7 +124,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Native browser speech recognition not supported');
       return Result.err(new Error('Native browser speech recognition not supported'));
     }
-    
+
     this.recognition = new SpeechRecognition();
     this.recognition.interimResults = true;
     this.recognition.continuous = true;
@@ -109,8 +166,8 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
           logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Microphone permission denied by user or browser settings');
-          if (this.onEngineError) {
-            this.onEngineError(TranscriptionError.permission('Microphone permission denied. Please allow microphone access in your browser/system settings.'));
+          if (this.onError) {
+            this.onError(TranscriptionError.permission('Microphone permission denied. Please allow microphone access in your browser/system settings.'));
           }
         }
       } catch (error) {
@@ -148,7 +205,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Recognition started');
       this.isListening = true;
       this.updateHeartbeat();
-      if (options.onReady) options.onReady();
+      if (this.modeOptions?.onReady) this.modeOptions.onReady();
     };
 
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Init complete.');
@@ -156,8 +213,17 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     return Result.ok(undefined);
   }
 
-  protected async onStart(): Promise<void> {
-    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] startTranscription called');
+  protected async onStart(_mic?: MicStream): Promise<void> {
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] start called');
+    
+    if (this.mockEngine) {
+        logger.info('[NativeBrowser] 🧪 Using injected MockEngine');
+        if (this.mockEngine.start) await this.mockEngine.start(_mic);
+        this.isListening = true;
+        this.currentTranscript = '';
+        return;
+    }
+
     if (!this.recognition) {
       throw new Error('NativeBrowser not initialized');
     }
@@ -177,7 +243,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     }
     const win = window as unknown as E2EWindow;
 
-    if (TestFlags.IS_E2E || win.dispatchMockTranscript) {
+    if (ENV.isE2E || win.dispatchMockTranscript) {
       win.__activeSpeechRecognition = this.recognition;
       (win as unknown as Record<string, boolean>)['__e2e_e2e:speech-recognition-ready_fired__'] = true;
       window.dispatchEvent(new CustomEvent('e2e:speech-recognition-ready'));
@@ -187,18 +253,96 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   }
 
   protected async onStop(): Promise<void> {
-    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] stopTranscription called');
-    if (!this.recognition || !this.isListening) {
-      logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Not listening or recognition not initialized');
+    if (this.isTerminated) return;
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Finalizing transcription shutdown');
+    
+    if (this.mockEngine) {
+      if (this.mockEngine.stop) await this.mockEngine.stop();
+      this.isListening = false;
       return;
     }
+
+    if (!this.recognition || !this.isListening) {
+      this.isListening = false;
+      this.isRestarting = false;
+      return;
+    }
+
     this.isListening = false;
+    this.isRestarting = false;
     this.updateHeartbeat();
-    this.recognition.stop();
+
+    // DETERMINISTIC SHUTDOWN: Await the 'onend' event
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        logger.warn('[NativeBrowser] SpeechRecognition stop timed out. Resolving.');
+        resolve();
+      }, 1000); // 1s safety timeout
+
+      if (this.recognition) {
+        const originalOnEnd = this.recognition.onend;
+        this.recognition.onend = () => {
+          if (originalOnEnd) originalOnEnd();
+          clearTimeout(timeout);
+          resolve();
+        };
+        try {
+          this.recognition.stop();
+        } catch (err) {
+          logger.warn({ err }, '[NativeBrowser] Error in recognition.stop()');
+          resolve();
+        }
+      } else {
+        resolve();
+      }
+    });
+
+    this.recognition = null; // Clear to prevent reuse
+  }
+
+  public async pause(): Promise<void> {
+    await super.pause();
+  }
+
+  protected async onPause(): Promise<void> {
+    // Native browser handles audio internally; no-op for pause loop
+  }
+
+  public async resume(): Promise<void> {
+    await super.resume();
+  }
+
+  protected async onResume(): Promise<void> {
+    // Native browser handles audio internally; no-op for resume loop
   }
 
   protected async onDestroy(): Promise<void> {
     // Already handled in onStop via destroy() calling stop()
+  }
+
+  public async terminate(): Promise<void> {
+    if (this.isTerminated) return;
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] 🛑 Nuclear termination requested');
+    
+    if (this.mockEngine) {
+      if (typeof this.mockEngine.terminate === 'function') await this.mockEngine.terminate();
+      else await this.mockEngine.destroy();
+    }
+    
+    await this.onStop();
+    await super.terminate();
+  }
+
+  public override async getTranscript(): Promise<string> {
+    const engineWithGet = this.mockEngine as unknown as { getTranscript?: () => Promise<string> };
+    if (engineWithGet && engineWithGet.getTranscript) {
+        return engineWithGet.getTranscript();
+    }
+    return super.getTranscript();
+  }
+
+  public getLastHeartbeatTimestamp(): number {
+    return this.mockEngine ? this.mockEngine.getLastHeartbeatTimestamp() : super.getLastHeartbeatTimestamp();
   }
 
   async transcribe(_audio: Float32Array): Promise<Result<string, Error>> {
@@ -207,11 +351,8 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     return Result.ok(this.currentTranscript);
   }
 
-  public getLastHeartbeatTimestamp(): number {
-    return this.lastHeartbeat;
-  }
-
-  protected updateHeartbeat(): void {
+  /** @internal */
+  public override updateHeartbeat(): void {
     this.lastHeartbeat = Date.now();
   }
 
@@ -222,9 +363,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     if (attempt >= MAX_ATTEMPTS) {
       logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Max restart attempts reached, giving up');
       this.isRestarting = false;
-      if (this.onEngineError) {
-        this.onEngineError(TranscriptionError.network('Speech recognition restart failed after multiple attempts', false));
-      }
+      this.onError?.(TranscriptionError.unknown('Speech recognition restart failed after multiple attempts'));
       return;
     }
 

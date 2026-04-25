@@ -1,0 +1,82 @@
+- Journey 8: Session Detail View
+- Journey 8.3: Invalid Session ID
+- should display empty state when user has no session history
+- Analytics Matrix: Dashboard and Stat-Card Verification
+- Analytics Matrix: Session Detail View and Error Handling
+- Analytics Matrix: Resilience to Invalid Session IDs
+- Analytics Matrix: Zero-Data Empty State
+- should display analytics dashboard with session data
+- should allow a logged-in user to access protected routes with full hydration
+- app boots without runtime errors
+- ENV reflects test mode
+- registry is available at boot
+- mock engine is selected
+- does not load real WASM
+- FSM transitions correctly
+- mock transcription flows through system
+- no STT_ENGINE_MISSING errors
+- fast timers applied
+- no external network calls occur
+- DIAGNOSTIC: check isProUser and profile state
+- DIAGNOSTIC: dump readiness state
+- SPA startup diagnostic
+- should validate that the STT Engine signatures match expected contracts
+- should verify that store updates are observable via E2E bridge
+- Engine Lifecycle: Verify Download Flow and Cache Persistence
+- Resilience Matrix: Verify Graceful Fallback when Primary Engine fails
+- Tier Control: Verify Private engine is gated for Free users
+- should load session page and show start button
+- should remain functional after clicking start in mock mode
+- should handle token endpoint failure gracefully
+- should handle Supabase profile fetch failure gracefully
+- should display goals section in analytics
+- should show actual session progress, not hardcoded values
+- should allow users to set custom goals
+- Idempotency: Same request returns existing session
+- Concurrency: User is blocked after max_concurrent_sessions
+- Privacy Fallback: No silent native leak when Private STT fails
+- should sign in and verify Stripe checkout Edge Function
+- should display live transcript after session starts
+    test(`should complete full journey for ${scenario.name}`, async ({ 
+- should update WPM, Clarity Score, and Filler Words in real-time
+- should navigate to all application routes successfully
+- should navigate using nav links
+- should trigger PDF download and verify filename
+- should download valid PDF file (E2E scope)
+- should have download button for each session in analytics
+- should display plan selection cards on signup page
+- Cross-Tab Mutex: Prevents Tab B from starting if Tab A is active
+- VAD Auto-Pause: Stops session after 5 minutes of silence
+- should start session immediately using fallback while model downloads in background
+- should fallback to TransformersJS when WebGPU is unavailable
+- should fallback to TransformersJS when WhisperTurbo fails to initialize
+- should show error modal and block native fallback on total private failure (Privacy Guarantee)
+- should show download progress on first use
+- should load instantly from cache
+- should restrict Private option for Free users
+- should handle download abandonment
+- should allow a promo user to bypass Stripe via promo code
+- shows inline error when promo fails with no valid credentials (validation phase)
+- redirects as free user when promo fails but credentials are valid
+- should display session history with metrics
+- should display session history list for trend analysis
+- should show progress trends over time
+- should calculate clarity score correctly in live session
+- Journey 4 & 5: Switch STT Modes
+- Journey 6: User Word Management
+- Free user is blocked when daily limit is exhausted
+- Free user is blocked when monthly limit is exhausted
+- Daily limit auto-stops an active session
+- Free users can add up to 100 filler words
+- intentional timeout for telemetry verification
+- captures requested pages
+- should display signup form with plan selection
+- should attempt Stripe checkout when submitting with Pro plan
+- Free Tier Matrix: Verify Session Limits, Watermarked PDF, and Feature Gating
+- Pro Tier Matrix: Verify AI Coach, Diarization, and Clean PDF exports
+- should allow adding and removing filler words
+- should detect user filler words in transcript (Analysis)
+- should add, detect, and remove a user word with UI feedback
+- should not show the upgrade banner for a pro user
+- should verify the full lifecycle: download -> cache -> instant-start
+- should survive and resume if download is interrupted

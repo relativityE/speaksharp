@@ -15,6 +15,7 @@ build/
 # --- Testing & CI Artifacts ---
 **/test-results/
 /artifacts/
+/tests/artifacts/
 **/playwright-report/
 /blob-report/
 /merged-reports/

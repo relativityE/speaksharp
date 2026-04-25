@@ -1,9 +1,9 @@
 import { create } from 'zustand';
-import { FillerCounts } from '../utils/fillerWordUtils';
-import logger from '../lib/logger';
-import { TranscriptionMode } from '../services/transcription/TranscriptionPolicy';
-import { SttStatus, HistorySegment } from '../types/transcription';
-import { TestFlags } from '../config/TestFlags';
+import { FillerCounts } from '@/utils/fillerWordUtils';
+import logger from '@/lib/logger';
+import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import { SttStatus, HistorySegment } from '@/types/transcription';
+import { ENV } from '@/config/TestFlags';
 
 interface TranscriptState {
     transcript: string;
@@ -12,7 +12,7 @@ interface TranscriptState {
 
 // SttStatus imported from '@/types/transcription'
 
-import { RuntimeState } from '../services/SpeechRuntimeController';
+import { RuntimeState } from '@/services/SpeechRuntimeController';
 
 export interface SessionState {
     runtimeState: RuntimeState;
@@ -53,6 +53,8 @@ interface SessionActions {
     setHistory: (history: Array<HistorySegment>) => void;
     resetSession: () => void;
     addChunk: (chunk: { transcript: string; timestamp: number; isFinal: boolean }) => void;
+    appendChunk: (chunk: { transcript: string; timestamp: number; isFinal: boolean; isCorrection?: boolean }) => void;
+    setChunks: (chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean; isCorrection?: boolean }>) => void;
     setLockHeldByOther: (held: boolean) => void;
     setSessionSaved: (saved: boolean) => void;
     setSunsetModal: (modal: { type: 'daily' | 'monthly'; open: boolean }) => void;
@@ -83,7 +85,14 @@ const initialState: SessionState = {
     sunsetModal: { type: 'daily', open: false },
 };
 
-export const useSessionStore = create<SessionStore>((set) => ({
+export const useSessionStore = create<SessionStore>((set) => {
+    const instanceId = Math.random().toString(36).substring(7);
+    if (typeof window !== 'undefined') {
+        (window as unknown as { __LAST_STORE_ID__: string }).__LAST_STORE_ID__ = instanceId;
+        console.warn(`[STORE-IDENTITY] 🏗️ SessionStore Instance Created: [${instanceId}]`);
+    }
+
+    return {
     ...initialState,
 
     setRuntimeState: (runtimeState) => {
@@ -120,13 +129,15 @@ export const useSessionStore = create<SessionStore>((set) => ({
             isReady: ready,
         }),
 
-    updateTranscript: (transcriptText, partial = '') =>
+    updateTranscript: (transcriptText, partial = '') => {
+        console.warn(`[DIAG-STORE] updateTranscript: "${transcriptText.substring(0, 30)}..." (partial: "${partial}")`);
         set({
             transcript: {
                 transcript: transcriptText,
                 partial,
             },
-        }),
+        });
+    },
 
     updateFillerData: (data) =>
         set({
@@ -139,6 +150,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
         }),
 
     setSTTStatus: (status) => {
+        logger.debug({ type: status.type, message: status.message, timestamp: Date.now() }, '[STORE UPDATE]');
         set((state) => {
             // ✅ GUARD: Don't allow overwriting 'recording' with 'idle' or 'ready' silently
             if (state.sttStatus.type === 'recording' && (status.type === 'idle' || status.type === 'ready')) {
@@ -149,10 +161,11 @@ export const useSessionStore = create<SessionStore>((set) => ({
         });
     },
 
-    setSTTMode: (mode) =>
+    setSTTMode: (mode) => {
         set({
             sttMode: mode,
-        }),
+        });
+    },
 
     setActiveEngine: (engine) =>
         set({
@@ -198,12 +211,22 @@ export const useSessionStore = create<SessionStore>((set) => ({
             chunks: [...state.chunks, chunk],
         })),
 
+    appendChunk: (chunk) =>
+        set((state) => ({
+            chunks: [...state.chunks, chunk],
+        })),
+
+    setChunks: (chunks) =>
+        set({
+            chunks,
+        }),
+
     setLockHeldByOther: (held: boolean) =>
         set({
             isLockHeldByOther: held,
         }),
 
-    setSessionSaved: (saved: boolean) =>
+        setSessionSaved: (saved: boolean) =>
         set({
             sessionSaved: saved,
         }),
@@ -212,10 +235,12 @@ export const useSessionStore = create<SessionStore>((set) => ({
         set({
             sunsetModal,
         }),
-}));
+    };
+});
+
 
 // Expose store to window only in test/dev for E2E diagnostics (Strict Zero)
-if (process.env.NODE_ENV !== 'production' || TestFlags.IS_E2E) {
+if (process.env.NODE_ENV !== 'production' || ENV.isE2E) {
     if (typeof window !== 'undefined') {
         (window as unknown as { useSessionStore: unknown }).useSessionStore = useSessionStore;
         (window as unknown as { __SESSION_STORE_API__: unknown }).__SESSION_STORE_API__ = useSessionStore;

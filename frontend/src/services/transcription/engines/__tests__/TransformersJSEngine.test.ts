@@ -6,6 +6,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TransformersJSEngine } from '../TransformersJSEngine';
+import { ENV } from '@/config/TestFlags';
+import { setupStrictZero } from '../../../../../../tests/setupStrictZero';
 
 // Hoist mock factories to top of file
 const { mockPipeline, mockEnv } = vi.hoisted(() => ({
@@ -15,18 +17,19 @@ const { mockPipeline, mockEnv } = vi.hoisted(() => ({
 
 // Mock the flagging system - aligned with window.__SS_E2E__
 vi.mock('@/config/TestFlags', () => ({
-    isE2E: () => true,
-    FLAGS: {
-        DEBUG_ENABLED: true,
-        DISABLE_WASM: false,
-        BYPASS_MUTEX: true,
-        FAST_TIMERS: true
-    },
-    TestFlags: {
+    ENV: {
         IS_E2E: true,
+        IS_TEST_MODE: true,
         ENGINE_TYPE: 'system',
         USE_REAL_DATABASE: false,
-        DEBUG_ENABLED: true
+        DEBUG_ENABLED: true,
+        isTest: true,
+        FLAGS: {
+            DEBUG_ENABLED: true,
+            DISABLE_WASM: false,
+            BYPASS_MUTEX: true,
+            FAST_TIMERS: true
+        }
     }
 }));
 
@@ -41,23 +44,31 @@ vi.mock('@xenova/transformers', () => {
 describe('TransformersJSEngine (Unit)', () => {
     let engine: TransformersJSEngine;
 
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.clearAllMocks();
         
-        // Align with SSOT Manifest
+        // Final Architectural Directive: Test Harness owns mutation at T=0
+        await setupStrictZero();
+
         window.__SS_E2E__ = {
             isActive: true,
-            engineType: 'system'
+            engineType: 'system',
+            registry: {}
         };
 
-        engine = new TransformersJSEngine();
+        engine = new TransformersJSEngine({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
 
         // Reset defaults
         mockPipeline.mockReset();
         mockEnv.allowLocalModels = false;
 
         // Default mock implementation - returns { transcript } matching TranscriptionResult interface
-        mockPipeline.mockImplementation(async () => {
+        mockPipeline.mockImplementation(async (_task, _model, options) => {
+            // Trigger the progress callback to satisfy the "trigger progress" test case
+            if (options?.progress_callback) {
+                options.progress_callback({ progress: 50 });
+            }
+            
             // Return a mock transcriber function
             return async (audio: Float32Array) => {
                 if (!(audio instanceof Float32Array)) throw new Error('Invalid input');
@@ -66,8 +77,12 @@ describe('TransformersJSEngine (Unit)', () => {
         });
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+        if (engine) {
+            await engine.destroy();
+        }
         vi.useRealTimers();
+        vi.restoreAllMocks();
     });
 
     it('should have correct engine type', () => {
@@ -77,10 +92,11 @@ describe('TransformersJSEngine (Unit)', () => {
     it('should initialize successfully', async () => {
         const callbacks = {
             onReady: vi.fn(),
-            onModelLoadProgress: vi.fn()
+            onModelLoadProgress: vi.fn(),
+            onTranscriptUpdate: vi.fn()
         };
-
-        const result = await engine.init(callbacks);
+        engine = new TransformersJSEngine(callbacks);
+        const result = await engine.init();
 
         expect(result.isOk).toBe(true);
         expect(mockPipeline).toHaveBeenCalledWith(
@@ -95,7 +111,7 @@ describe('TransformersJSEngine (Unit)', () => {
 
     it('should process PCM audio buffer correctly', async () => {
         // Init uses the default mockPipeline which returns 'Mocked transcription result'
-        await engine.init({});
+        await engine.init();
 
         const pcmBuffer = new Float32Array(16000);
         const result = await engine.transcribe(pcmBuffer);
@@ -118,7 +134,7 @@ describe('TransformersJSEngine (Unit)', () => {
     it('should handle initialization errors', async () => {
         mockPipeline.mockRejectedValueOnce(new Error('Network failure'));
 
-        const result = await engine.init({});
+        const result = await engine.init();
 
         expect(result.isOk === false).toBe(true);
         const errorResult = result as { isOk: false; error: Error };
@@ -126,13 +142,13 @@ describe('TransformersJSEngine (Unit)', () => {
     });
 
     it('should handle transcription errors', async () => {
-        await engine.init({});
+        await engine.init();
         await engine.destroy(); // Clear existing transcriber to pick up the new mock
         mockPipeline.mockImplementationOnce(async () => {
             return async () => { throw new Error('Transcription failure'); };
         });
         // Non-cached init for this test to pick up the failing mock
-        await engine.init({});
+        await engine.init();
 
         const result = await engine.transcribe(new Float32Array(16000));
         expect(result.isOk === false).toBe(true);
@@ -143,44 +159,40 @@ describe('TransformersJSEngine (Unit)', () => {
         expect(true).toBe(true); // Verification that it runs without error
     });
 
-    it('should exercise environmental branches (IS_TEST_MODE false)', async () => {
-        const { TestFlags } = await import('@/config/TestFlags');
-        // @ts-expect-error forcing readonly property for test coverage
-        TestFlags.IS_TEST_MODE = false;
+    it('should exercise environmental branches', async () => {
+        // Exercise logging paths by temporarily overriding the bridge state
+        const original = ENV.IS_TEST_MODE;
+        
+        (ENV as unknown as Record<string, boolean>).IS_TEST_MODE = false;
 
-        // Code will traverse logging branches because DEBUG_ENABLED=true in mock
-        await engine.init({});
+        await engine.init();
         expect(engine).toBeDefined();
 
         // Reset
-        // @ts-expect-error forcing readonly property for test coverage
-        TestFlags.IS_TEST_MODE = true;
+        (ENV as unknown as Record<string, boolean>).IS_TEST_MODE = original;
     });
 
     it('should handle "Unexpected token <" error specifically', async () => {
         mockPipeline.mockRejectedValueOnce(new Error("Unexpected token < at position 0"));
 
-        const result = await engine.init({});
+        const result = await engine.init();
         expect(result.isOk === false).toBe(true);
     });
 
     it('should trigger progress callback from transformers.js', async () => {
-        const callbacks = { onModelLoadProgress: vi.fn() };
-
-        mockPipeline.mockImplementationOnce(async (type, model, options) => {
-            if (options.progress_callback) {
-                options.progress_callback({ progress: 50 });
-            }
-            return async () => ({ transcript: 'ok' });
-        });
-
-        await engine.init(callbacks);
+        const callbacks = { 
+            onModelLoadProgress: vi.fn(),
+            onReady: vi.fn(),
+            onTranscriptUpdate: vi.fn()
+        };
+        engine = new TransformersJSEngine(callbacks);
+        await engine.init();
         expect(callbacks.onModelLoadProgress).toHaveBeenCalledWith(50);
     });
 
     it('should handle non-Error catch during init', async () => {
         mockPipeline.mockImplementationOnce(() => { throw "string error"; });
-        const result = await engine.init({});
+        const result = await engine.init();
         expect(result.isOk === false).toBe(true);
     });
 });

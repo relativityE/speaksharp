@@ -9,7 +9,7 @@ import { Session } from '@supabase/supabase-js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from '@/lib/toast';
 import { useQueryClient } from '@tanstack/react-query';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 
 // --- Types ---
 type AuthView = 'sign_in' | 'sign_up' | 'forgot_password';

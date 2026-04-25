@@ -2,7 +2,7 @@ import React from 'react';
 import { AlertCircle, CheckCircle2, Loader2, Info, AlertTriangle, Lock } from 'lucide-react';
 
 import { SttStatus, SttStatusType } from '../../types/transcription';
-import { useSessionStore } from '../../stores/useSessionStore';
+import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
 
 interface StatusNotificationBarProps {

@@ -4,16 +4,16 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './index.css';
-import logger from '@/lib/logger';
+import logger from './lib/logger';
 import { AuthProvider } from './contexts/AuthProvider';
 import posthog from 'posthog-js';
 import { PostHogProvider } from 'posthog-js/react';
 import { Elements } from '@stripe/react-stripe-js';
-import { Session } from '@supabase/supabase-js';
+import type { Session } from '@supabase/supabase-js';
 import * as Sentry from "@sentry/react";
 import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
 import App from './App';
-import { IS_TEST_ENVIRONMENT } from '@/config/env';
+import { ENV } from './config/TestFlags';
 import { useReadinessStore } from './stores/useReadinessStore';
 
 declare global {
@@ -24,7 +24,7 @@ declare global {
 }
 
 // Deterministic Mock Data (CI/E2E)
-if (IS_TEST_ENVIRONMENT()) {
+if (ENV.isTest) {
   // Simple LCG for deterministic Math.random() in CI/E2E
   let seed = 42;
   Math.random = () => {
@@ -63,7 +63,7 @@ const queryClient = new QueryClient({
     },
   },
 });
-if (IS_TEST_ENVIRONMENT()) {
+if (ENV.isTest) {
   (window as unknown as { queryClient: typeof queryClient }).queryClient = queryClient;
 }
 logger.info('[React Query] ✅ QueryClient initialized');
@@ -71,7 +71,7 @@ logger.info('[React Query] ✅ QueryClient initialized');
 // CRITICAL: Initialize Sentry FIRST before any async operations
 // This ensures errors during initialization are captured
 const sentryDSN = import.meta.env.VITE_SENTRY_DSN;
-const isTestMode = IS_TEST_ENVIRONMENT() || import.meta.env.VITE_TEST_MODE === 'true';
+const isTestMode = ENV.isTest || import.meta.env.VITE_TEST_MODE === 'true';
 const skipSentry = isTestMode || !sentryDSN || sentryDSN.includes('example.invalid');
 
 logger.info({ isTestMode, sentryDSN, skipSentry }, '[main.tsx] Sentry Initialization Check');
@@ -143,7 +143,7 @@ const renderApp = async (initialSession: Session | null = null) => {
       // Defer Stripe loading - create promise but don't await it
       // Stripe will be loaded when Elements component mounts
       // Skip Stripe in test mode to avoid iframe interference with automated testing
-      const stripePromise = IS_TEST_ENVIRONMENT()
+      const stripePromise = ENV.isTest
         ? Promise.resolve(null)
         : import('@stripe/stripe-js').then(({ loadStripe }) =>
           loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!)
@@ -155,7 +155,7 @@ const renderApp = async (initialSession: Session | null = null) => {
 
       // Get initial session (mock if in E2E mode)
       const sessionToUse = initialSession;
-      if (IS_TEST_ENVIRONMENT()) {
+      if (ENV.isTest) {
         // Non-blocking bridge import - use window flag for session if available
         import('@/lib/e2e-bridge').then(m => {
           const session = m.getInitialSession(initialSession);
@@ -199,6 +199,8 @@ const renderApp = async (initialSession: Session | null = null) => {
 // Readiness contract initialization
 
 const startInitializing = async () => {
+  // Bootstrap: Initialize E2E Environment if in test mode
+
   logger.info('[main.tsx] Initialize started');
 
   // Defer heavy WASM initialization to avoid competing with React hydration
@@ -242,7 +244,7 @@ const startInitializing = async () => {
   }
 
   // SIGNAL BOOT READINESS
-  useReadinessStore.getState().setReady('boot');
+  useReadinessStore.getState().setReady('app');
 };
 // Subscriptions handled in App.tsx for consolidated signaling
 void startInitializing();

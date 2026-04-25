@@ -4,13 +4,14 @@ import { speechRuntimeController } from '../../services/SpeechRuntimeController'
 import { TranscriptUpdate, SttStatus } from '@/types/transcription';
 import type { Session } from '@supabase/supabase-js';
 import type { NavigateFunction } from 'react-router-dom';
+import logger from '@/lib/logger';
 
 /**
  * Atomic Hook: Callback Synchronization.
  * Responsibility: Registering UI callbacks with the SpeechRuntimeController.
  * This ensures they are proxied correctly and play nice with the Segmented Emission Queue.
  */
-import { TranscriptionPolicy, TranscriptionMode } from '../../services/transcription/TranscriptionPolicy';
+import type { TranscriptionPolicy, TranscriptionMode } from '../../services/transcription/TranscriptionPolicy';
 
 interface TranscriptionCallbacks {
     onTranscriptUpdate?: (data: TranscriptUpdate) => void;
@@ -40,7 +41,13 @@ export function useTranscriptionCallbacks(callbacks: TranscriptionCallbacks) {
         if (!isReady) return;
 
         speechRuntimeController.setSubscriberCallbacks({
-            onTranscriptUpdate: (update) => callbacksRef.current.onTranscriptUpdate?.(update),
+            onTranscriptUpdate: (update) => {
+                logger.debug({ 
+                    isFinal: !!update.transcript?.final,
+                    text: update.transcript?.final || update.transcript?.partial 
+                }, '[useTranscriptionCallbacks] 🎣 Hook receiving transcript from Service');
+                callbacksRef.current.onTranscriptUpdate?.(update);
+            },
             onModelLoadProgress: (progress) => callbacksRef.current.onModelLoadProgress?.(progress),
             onReady: () => callbacksRef.current.onReady?.(),
             onModeChange: (mode) => callbacksRef.current.onModeChange?.(mode),
@@ -53,5 +60,10 @@ export function useTranscriptionCallbacks(callbacks: TranscriptionCallbacks) {
             userWords: callbacksRef.current.userWords,
         });
 
+        return () => {
+            // Symmetrically detaches callback listeners from the controller upon unmount 
+            // to prevent memory leaks and orphaned event emissions during React remount cycles.
+            void speechRuntimeController.reset('subscriber_unmount');
+        };
     }, [isReady]);
 }

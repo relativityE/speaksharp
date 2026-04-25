@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
 import { Loader2, Sparkles, AlertTriangle } from 'lucide-react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import logger from '@/lib/logger';
+import logger from '../../lib/logger';
 
 interface SuggestionItem {
   title: string;
@@ -81,7 +81,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
   };
 
   return (
-    <Card>
+    <Card data-testid="ai-suggestions-card">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-purple-500" />

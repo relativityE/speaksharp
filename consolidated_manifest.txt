@@ -1,0 +1,20 @@
+- Analytics Matrix: Dashboard and Stat-Card Verification
+- Analytics Matrix: Session Detail View and Error Handling
+- Analytics Matrix: Resilience to Invalid Session IDs
+- Analytics Matrix: Zero-Data Empty State
+- app boots without runtime errors
+- ENV reflects test mode
+- registry is available at boot
+- mock engine is selected
+- does not load real WASM
+- FSM transitions correctly
+- mock transcription flows through system
+- no STT_ENGINE_MISSING errors
+- fast timers applied
+- no external network calls occur
+- Engine Lifecycle: Verify Download Flow and Cache Persistence
+- Resilience Matrix: Verify Graceful Fallback when Primary Engine fails
+- Tier Control: Verify Private engine is gated for Free users
+tests/e2e/main-journey.e2e.spec.ts:    test(`should complete full journey for ${scenario.name}`, async ({ 
+- Free Tier Matrix: Verify Session Limits, Watermarked PDF, and Feature Gating
+- Pro Tier Matrix: Verify AI Coach, Diarization, and Clean PDF exports

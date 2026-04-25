@@ -43,6 +43,8 @@ vi.mock('jspdf', () => {
     output: mockOutput,
     splitTextToSize: mockSplitTextToSize,
     setFontSize: mockSetFontSize,
+    getTextWidth: vi.fn(() => 50),
+    setTextColor: vi.fn(),
     internal: {
       getNumberOfPages: () => 2,
       pageSize: { height: 297, width: 210 },
@@ -50,7 +52,7 @@ vi.mock('jspdf', () => {
     lastAutoTable: { finalY: 100 }, // Initial value
   }));
 
-  return { default: mockJsPDF };
+  return { jsPDF: mockJsPDF, default: mockJsPDF };
 });
 
 // Mock DOM methods

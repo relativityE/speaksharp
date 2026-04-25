@@ -37,7 +37,9 @@ test.describe('Error State Handling', () => {
 
             if (await startButton.isEnabled()) {
                 await startButton.click();
-                await userPage.waitForTimeout(2000);
+                
+                // Determine state reached via recording attribute
+                await expect(userPage.locator('html')).toHaveAttribute('data-recording-state', 'recording', { timeout: 10000 });
 
                 // App should remain functional
                 await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible();
@@ -72,11 +74,8 @@ test.describe('Error State Handling', () => {
                 route.abort('failed');
             });
 
-            // Wait for error handling
-            await userPage.waitForTimeout(3000);
-
-            // Page should still be interactive (not white screen of death)
-            await expect(userPage.locator('body')).toBeVisible();
+            // Verification of page health after API failure
+            await expect(userPage.locator('body')).toBeVisible({ timeout: 10000 });
 
             // Either we're on an error page or main app is visible
             const hasContent = await userPage.locator('body').textContent();

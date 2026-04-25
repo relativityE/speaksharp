@@ -13,7 +13,8 @@ import {
 
 import { RuntimeState } from '@/services/SpeechRuntimeController';
 
-export type RecordingMode = 'cloud' | 'native' | 'private';
+
+export type RecordingMode = 'cloud' | 'native' | 'private' | 'mock';
 
 interface LiveRecordingCardProps {
     // State

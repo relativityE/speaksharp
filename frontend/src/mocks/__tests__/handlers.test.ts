@@ -66,6 +66,7 @@ describe('MSW Handlers', () => {
             const response = await fetch('https://mock.supabase.co/rest/v1/user_profiles', {
                 headers: {
                     'Accept': 'application/vnd.pgrst.object+json',
+                    'Authorization': 'Bearer mock-pro-token',
                 },
             });
             const data = await response.json();

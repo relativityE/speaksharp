@@ -143,5 +143,15 @@ export function createTestSessionStore(
             set((state: any) => ({
                 chunks: [...state.chunks, chunk],
             }))),
+
+        appendChunk: vi.fn((chunk) =>
+            set((state: any) => ({
+                chunks: [...state.chunks, chunk],
+            }))),
+
+        setChunks: vi.fn((chunks) =>
+            set({
+                chunks,
+            })),
     }));
 }

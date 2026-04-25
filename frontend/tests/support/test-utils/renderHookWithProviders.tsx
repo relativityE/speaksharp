@@ -7,12 +7,15 @@ import { MemoryRouter } from 'react-router-dom';
 import type { Session } from '@supabase/supabase-js';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { UserProfile } from '@/types/user';
+import { UseBoundStore, StoreApi } from 'zustand';
+import { SessionStore } from '@/stores/useSessionStore';
 
 interface CustomRenderOptions extends Omit<RenderOptions, 'wrapper'> {
   route?: string;
   session?: Session | null;
   authMock?: Partial<import('@/contexts/AuthProvider').AuthContextType>;
   profileMock?: Partial<UserProfile>;
+  store?: UseBoundStore<StoreApi<SessionStore>>; // The Zustand hook instance
 }
 
 const queryClient = new QueryClient();
@@ -34,7 +37,7 @@ export function renderWithProviders(ui: ReactElement, { route = '/', session = n
         <QueryClientProvider client={queryClient}>
           <AuthProvider initialSession={session || (authMock?.session as Session)}>
             <ProfileProvider value={{ profile: defaultProfile, isVerified: true }}>
-              <TranscriptionProvider>
+              <TranscriptionProvider store={renderOptions.store}>
                 {children}
               </TranscriptionProvider>
             </ProfileProvider>
@@ -66,7 +69,7 @@ export function renderHookWithProviders<Result, Props>(
         <QueryClientProvider client={queryClient}>
           <AuthProvider initialSession={session || (authMock?.session as Session)}>
             <ProfileProvider value={{ profile: defaultProfile, isVerified: true }}>
-              <TranscriptionProvider>
+              <TranscriptionProvider store={renderOptions.store}>
                 {children}
               </TranscriptionProvider>
             </ProfileProvider>

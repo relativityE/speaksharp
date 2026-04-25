@@ -140,11 +140,23 @@ async function registerRoute(
 export async function setupSupabaseAuthMocks(page: Page): Promise<void> {
     // GET /auth/v1/user
     await registerRoute(page, '**/auth/v1/user', async (route) => {
-        mockLog('[E2E MOCK] Fulfilling auth/v1/user');
+        const page = route.request().frame()?.page();
+        if (!page) return route.continue();
+        const state = getPageState(page);
+        
+        mockLog(`[E2E MOCK] Fulfilling auth/v1/user for: ${state.profile.subscription_status}`);
+        
+        // Synchronize user metadata with the active test tier
+        const user = { ...MOCK_USER };
+        user.app_metadata = { 
+            ...user.app_metadata, 
+            subscription_status: state.profile.subscription_status 
+        };
+
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify(MOCK_USER),
+            body: JSON.stringify(user),
         });
     });
 
@@ -476,6 +488,7 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
                 monthly_limit: isPro ? -1 : 90000,
                 subscription_status: userType,
                 is_pro: isPro,
+                user_type: userType, // Harden: Extra signal for tier-aware UI
                 streak_count: 0
             }),
         });

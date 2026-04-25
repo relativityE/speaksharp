@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-24
+**Last Reviewed:** 2026-04-23
 
 
 # Agent Instructions for SpeakSharp Repository
@@ -22,6 +22,15 @@ To ensure 100% CI reliability, the following surface areas were **FROZEN** durin
 *   **STT Engines**: No new engines or logic changes to existing ones.
 *   **Routing/Layout**: No navigation changes or structural layout shifts.
 *   **Test Helpers**: No modifications to `tests/e2e/helpers.ts` except for contract alignment.
+*   **Env Bridge**: No changes to `TestFlags.ts` or `env.ts` (Frozen Strangler).
+*   **Engine Routing**: No changes to `PrivateSTT.ts` (Frozen Gate).
+
+### 🛡️ The Inviolable Sequence
+**OBSERVE → PROVE → FIX → CONFIRM**
+1. **Never FIX before PROVE**: You must reproduce the failure before attempting a fix.
+2. **Never PROVE by reading code alone**: Use high-fidelity probes and trace logs.
+3. **No Production code implementation until fix is confirmed**: Use a "Dumping Ground" spec to validate your hypothesis.
+4. **Final Confirmation**: Fixes must be validated against the original evidence probe.
 
 ### ✅ ALLOWED Areas:
 *   **Contract Enforcement**: Transitioning to `STTEngine` abstract base and `data-route-ready`.
@@ -47,7 +56,7 @@ pnpm preflight
 
 This script performs a fast, minimal sanity check of your environment to ensure Node.js, pnpm, and all dependencies are correctly installed.
 
-Do not proceed until this script completes successfully. If it fails, follow the "Dead Environment Trap" troubleshooting in `README.md` to stabilize your environment via `pnpm env:stabilize`.
+Do not proceed until this script completes successfully. If it fails, follow the "Dead Environment Trap" troubleshooting in `README.md` to stabilize your environment via `pnpm reset:clean`.
 
 ---
 
@@ -108,6 +117,13 @@ The remediation strategy focuses on "defense in depth," addressing vulnerabiliti
 
 These core patterns were established during the Hardening cycle and refined in v3.6.0 to ensure system-wide stability and security.
 
+### 🎙️ Acoustic Ground Truth Pipeline (Added v0.6.1)
+
+To mathematically verify STT accuracy and ensure zero-regression on NLP models (like filler word counting), SpeakSharp utilizes a dedicated **Acoustic Ground Truth Metric Pipeline**. Agents must adhere to the following when modifying NLP or core audio processing:
+1. **Isolated Validation**: STT accuracy is intentionally decoupled from standard fast-running UI E2E tests to preserve CI execution speed.
+2. **Audio Synthesis**: `scripts/generate-filler-audio.sh` uses macOS `say` and `ffmpeg` to deterministically render 16kHz `.wav` payloads containing specific phonemes ("ums", "ahs", etc.).
+3. **Evaluation Script**: `scripts/benchmark-filler-ceiling.mts` executes these raw `.wav` fixtures through specific machine engines (`Whisper` or `AssemblyAI`) to calculate an exact Word Error Rate (WER).
+4. **Binary Node Dependencies**: When working with machine-learning tools (`@xenova/transformers`, `sharp`, `onnxruntime-node`), architecture-specific binaries (e.g., `darwin-arm64v8`) must be managed carefully. If modifying dependencies in these deep trees, ensure explicit `npm rebuild` within the nested `node_modules` is preserved if required.
 
 ---
 
@@ -120,11 +136,12 @@ The primary runner for all local validation is `pnpm test:all:local` (which call
 
 ### 3. Selective Use of `scripts/env-stabilizer.sh`
 
-The `./scripts/env-stabilizer.sh` script is a powerful tool for recovering a broken environment, but it should be used selectively.
+The `./scripts/env-stabilizer.sh` script (via `pnpm reset:env`) is a powerful tool for recovering a broken environment in CI, but it is **DESTRUCTIVE** in dev mode (it runs `git restore .`).
 
 *   Run `pnpm preflight` first.
-*   If instability persists (e.g., hanging tests, port conflicts), then run `pnpm env:stabilize`.
-*   Escalate to the user **before using** `./scripts/vm-recovery.sh`.
+*   If instability persists (e.g., hanging tests, port conflicts), run **`pnpm reset:clean`**. This kills stale processes and wipes Vite caches without touching your code.
+*   **NEVER** run `pnpm reset:env` in dev mode if you have uncommitted changes.
+*   Escalate to the user **before using** `./scripts/vm-recovery.sh` or `pnpm reset:env ci`.
 *   Always read `README.md` to understand setup, workflow, and scripts.
 
 ### 4. Handling Silent Crashes in E2E Tests
@@ -159,19 +176,19 @@ ___
 ## ⚡ Quick Reference – Non-Negotiable Rules
 
 6. ✅ **Hardening Protocols** – All agents MUST strictly follow these new stability patterns:
+    *   **Check-Then-Act Provisioning**: All heavy resource acquisition (e.g., model downloads) MUST be decoupled. Background pulses (`warmUp`) probe availability and stop at `DOWNLOAD_REQUIRED`. Explicit user intent MUST transition the FSM to `DOWNLOADING` before proceeding to `strategy.init()`.
     *   **STT Engine Contract Enforcement**: All engines MUST extend the `STTEngine` abstract base class, ensuring a deterministic lifecycle (`start`, `stop`) and heartbeat monitoring. See `STTEngine.ts` or `PrivateSTT.ts`.
     *   **Analytics Decoupling**: Telemetry events MUST be buffered via `AnalyticsBuffer` to prevent blocking the UI thread or readiness signals. See `AnalyticsBuffer.ts`.
-    *   **Constant-Time Secrets**: Use `safeCompare` (XOR-based) for all secret/token comparisons in Edge Functions to prevent timing attacks.
+    *   **Forensic Signaling Infrastructure**: Use `e2eProbe.ts` as the single authoritative source for internal state telemetry. Never add new `window` properties or custom bridge methods directly to service logic.
 2.  ✅ **Codebase Context** – Inspect `/frontend/src`, `/tests` (E2E), `/frontend/tests/integration` (Real DB), `/docs` before acting.
 3.  ❌ **No Code Reversals Without Consent** – Never undo user work.
 4.  ⏱️ **Timeout Constraint** – Every command must complete within 7 minutes.
-5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `ci:full:local` script runs the EXACT same pipeline as GitHub CI.
+5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `ci:full` script runs the EXACT same pipeline as GitHub CI.
 
     ```json
-     "test:all:local": "pnpm run test:all:local",
-     "ci:full:local": "pnpm run ci:full:local",
-     "test:health:local": "pnpm run test:health:local",
-     "test": "pnpm test:unit:local",
+     "test:full": "pnpm run test:full",
+     "ci:full": "pnpm run ci:full",
+     "test": "pnpm test:infra",
      "dev": "pnpm run dev",
      "build": "pnpm run build",
      "pw:install": "pnpm run pw:install",
@@ -183,11 +200,9 @@ ___
     **Playwright Browsers:** Browser installation is NOT automatic. After `pnpm install`, run `pnpm pw:install` to install Chromium for E2E testing.
     
     **Terminology Clarification:**
-    - `test:health:local`: Runs a fast validation suite (Preflight + Unit Tests + Mock E2E).
-    - **"Healthcheck passed!"**: This log message comes from the Lighthouse CLI and refers to its internal environment check, NOT the project's health check script.
-    - **Health Check Test**: Refers specifically to `tests/e2e/health-check.e2e.spec.ts`.
+    - **Infrastructure Probe**: Refers specifically to `tests/e2e/infra.probe.e2e.spec.ts`. This is the authoritative T=0 environment probe, performing a "Deterministic, Single-Path" validation (Preflight + 1 E2E Journey).
     
-    **CRITICAL:** `ci:full:local` is NOT a simulation - it runs the exact same commands as GitHub CI (frozen lockfile, same build, same shards). If it passes locally, CI will pass.
+    **CRITICAL:** `ci:full` is NOT a simulation - it runs the exact same commands as GitHub CI (frozen lockfile, same build, same shards). If it passes locally, CI will pass.
     
     **New Configuration Scripts (2025-11-28):**
     - `build.config.js` - Centralized port configuration (DEV: 5173, PREVIEW: 4173)
@@ -203,7 +218,7 @@ ___
 1. **Contextual Review** – Read `/docs` and `README.md` before acting.
     - **Handling Secrets**: Critical credentials (like `ASSEMBLYAI_API_KEY`) are managed via **GitHub Secrets**, not `.env` files. Run `gh secret list` to verify available secrets.
     - **Cloud Execution**: Consult `tests/TEST_PLAYBOOK.md` to understand how tests are dispatched to the GitHub Cloud via YAML scripts (e.g., `ci:dispatch:soak`).
-2. **Stabilize Environment** – Run `pnpm env:stabilize` only if instability signs appear.
+2. **Stabilize Environment** – Run **`pnpm reset:clean`** if instability signs (port conflicts, hanging tests) appear. Only use `reset:env` if instructed by the user and you have no uncommitted work.
 3. **Grounding** – Review current workflows, scripts, and audit runners.
 4. **Codebase Deep Dive** – Inspect actual code, not assumptions.
 5. **Strategic Consultation** – Present root cause + 2–3 solution paths **before major changes**.
@@ -219,14 +234,14 @@ ___
 
 1.  **Run Local Audit Script**
     ```bash
-    pnpm test:all:local
+    pnpm test:full
     ```
     Must pass lint, typecheck, all unit tests, and the full E2E suite.
 
 2.  **Mandatory Pre-Push Validation**
     Before pushing to `main`, you MUST run:
     ```bash
-    pnpm run ci:full:local
+    pnpm run ci:full
     ```
     This runs the EXACT GitHub CI pipeline locally (frozen lockfile, sharded E2E, lighthouse). If it fails, DO NOT PUSH. Fix the issues first.
 

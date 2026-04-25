@@ -3,7 +3,7 @@ import { NavLink, useParams } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 import { toast } from '@/lib/toast';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { isPro } from '@/constants/subscriptionTiers';

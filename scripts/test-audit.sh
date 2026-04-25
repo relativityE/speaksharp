@@ -12,6 +12,7 @@ show_help() {
     echo "  local                 Run the full local audit (Node.js Orchestrator)"
     echo "  agent                 Run the Agent-safe repair loop (Node.js Orchestrator)"
     echo "  clean                 Remove test artifacts, reports, and temporary metadata"
+    echo "  infra                 Run Infrastructure Probe suite (Fast)"
     echo ""
     echo "Options:"
     echo "  --skip-lighthouse     (ci-simulate|local) Skip the Lighthouse CI stage"
@@ -29,12 +30,13 @@ for arg in "$@"; do
     if [ "$arg" = "ci-simulate" ]; then STAGE="ci-simulate"; fi
     if [ "$arg" = "agent" ]; then STAGE="agent"; fi
     if [ "$arg" = "local" ]; then STAGE="local"; fi
+    if [ "$arg" = "infra" ]; then STAGE="infra"; fi
     if [ "$arg" = "clean" ]; then STAGE="clean"; fi
     if [ "$arg" = "--help" ] || [ "$arg" = "-h" ]; then show_help; exit 0; fi
 done
 
 case $STAGE in
-    ci-simulate|local|agent) 
+    ci-simulate|local|agent|infra) 
         echo "🚀 Delegating to Node.js CI Orchestrator..."
         node scripts/run-ci.mjs "$@"
         ;;

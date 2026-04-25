@@ -35,7 +35,7 @@ export const useCriticalQueries = () => {
   // Signal data readiness for E2E tests
   useEffect(() => {
     if (isResolved && typeof document !== 'undefined') {
-      document.documentElement.setAttribute('data-data-ready', 'true');
+      document.documentElement.setAttribute('data-services-ready', 'true');
     }
   }, [isResolved]);
 

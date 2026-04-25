@@ -1,4 +1,4 @@
-import { IS_TEST_ENVIRONMENT } from './env';
+import { ENV } from './TestFlags';
 
 /**
  * Centralized access to global test flags.
@@ -6,7 +6,7 @@ import { IS_TEST_ENVIRONMENT } from './env';
  */
 export const getTestConfig = () => {
     return {
-        isTestMode: IS_TEST_ENVIRONMENT,
+        isTestMode: ENV.isTest,
     };
 };
 

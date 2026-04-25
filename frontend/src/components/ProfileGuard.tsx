@@ -1,17 +1,19 @@
 import React from 'react';
+import { ENV } from '../config/TestFlags';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 import { ProfileProvider } from '../contexts/ProfileContext';
-import { useReadinessStore } from '../stores/useReadinessStore';
+import { useReadinessStore } from '@/stores/useReadinessStore';
+import { UserProfile } from '../types/user';
 
 interface ProfileGuardProps {
     children: React.ReactNode;
 }
 
 /**
- * ARCHITECTURE (Senior Architect):
+ * ARCHITECTURE:
  * ProfileGuard pattern ensures that authenticated users have a valid profile
  * loaded before the application renders its core logic.
  * 
@@ -30,11 +32,16 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
         if (!profileLoading && profile) {
             setReady('profile');
             // Dispatch Architectural Event for E2E listeners (Gold Standard)
-            window.dispatchEvent(new CustomEvent('app-hydration-complete', { 
-                detail: { profileId: (profile as unknown as { id: string })?.id } 
+            window.dispatchEvent(new CustomEvent('app-hydration-complete', {
+                detail: { profileId: profile.id }
             }));
         }
     }, [profileLoading, profile, setReady]);
+
+    // 🧪 Ensure ProfileContext integrity for E2E System Probes
+    // Provides a synthetic guest profile to satisfy the "Guaranteed Context" 
+    // invariant for protected routes like /session when no real session exists.
+    const isE2EMockMode = ENV.isE2E;
 
     // 1. Auth is still initializing (Supabase getSession)
     if (authLoading) {
@@ -46,13 +53,29 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
         );
     }
 
-    // 2. No session - transparency mode
-    // We don't block UNAUTHENTICATED users (Landing page, Sign In, etc.)
+    // 2. E2E Synthetic Path (Zero-Auth Probes)
+    if (isE2EMockMode && !session) {
+        const syntheticProfile: UserProfile = {
+            id: '__E2E_GUEST_USER__',
+            subscription_status: 'pro',
+            usage_seconds: 0,
+            usage_reset_date: new Date(Date.now() + 86400000).toISOString(),
+            created_at: new Date().toISOString(),
+        };
+
+        return (
+            <ProfileProvider value={{ profile: syntheticProfile, isVerified: true }}>
+                {children}
+            </ProfileProvider>
+        );
+    }
+
+    // 3. No session - Transparency mode (Landing/Public pages)
     if (!session) {
         return <>{children}</>;
     }
 
-    // 3. Authenticated but Profile is loading
+    // 4. Authenticated but Profile is loading
     if (profileLoading) {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-background p-6" data-testid="app-loading">

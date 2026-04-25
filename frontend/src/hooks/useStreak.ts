@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useUsageLimit } from './useUsageLimit';
+import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
 
 export function useStreak() {
-    const { data: usageLimit } = useUsageLimit();
+    const e2eDeps = (typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>).__E2E_DEPS__ : null) as { fetchUsageLimit?: () => Promise<UsageLimitCheck> } | null;
+    const { data: usageLimit } = useUsageLimit(e2eDeps || undefined);
     const [localStreak, setLocalStreak] = useState(() => {
         const saved = localStorage.getItem('speaksharp-streak');
         return saved ? JSON.parse(saved).currentStreak : 0;

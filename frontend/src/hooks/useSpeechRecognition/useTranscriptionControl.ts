@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { TranscriptionPolicy } from '../../services/transcription/TranscriptionPolicy';
 import logger from '../../lib/logger';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
-import { useSessionStore } from '../../stores/useSessionStore';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 /**
  * Atomic Hook: Controls the transcription lifecycle.

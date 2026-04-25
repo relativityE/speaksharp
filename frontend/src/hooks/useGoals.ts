@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { goalsService } from '@/services/domainServices';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 import { GOALS_STORAGE_KEY, DEFAULT_GOALS } from '@/config/env';
 import type { UserGoals } from '@/types/goals';
 

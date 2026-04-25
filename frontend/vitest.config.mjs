@@ -2,14 +2,28 @@
 // vitest.config.mjs
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import tsconfigPaths from 'vite-tsconfig-paths';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+console.log(`[VITEST-CONFIG] 🏁 Loading from ${__filename}`);
+console.log(`[VITEST-CONFIG] 📍 __dirname: ${__dirname}`);
+console.log(`[VITEST-CONFIG] 🗺️ Alias @ -> ${path.resolve(__dirname, 'src')}`);
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    tsconfigPaths({ projects: [path.resolve(__dirname, 'tsconfig.json')] }),
+    react()
+  ],
+  resolve: {
+    alias: [
+      { find: /^@\/(.*)/, replacement: path.resolve(__dirname, 'src/$1') },
+      { find: '@', replacement: path.resolve(__dirname, 'src') }
+    ]
+  },
   test: {
     globals: true,
     environment: 'jsdom',
@@ -66,7 +80,7 @@ export default defineConfig({
       // actual numbers are visible. CI fails with exact shortfall message.
       thresholds: {
         statements: 60,
-        branches: 50,
+        branches: 60,
         functions: 60,
         lines: 60,
       },
@@ -81,8 +95,8 @@ export default defineConfig({
     poolOptions: {
       forks: {
         isolate: true,
-        maxForks: process.env.CI === 'true' ? 1 : 3,
-        execArgv: ['--max-old-space-size=4096'] // 4GB per fork
+        maxForks: 1, // Phase 1: Strict sequential execution
+        execArgv: ['--max-old-space-size=4096']
       }
     },
 
@@ -97,19 +111,6 @@ export default defineConfig({
         inline: ["@xenova/transformers", "whisper-turbo", "whisper-webgpu"],
       }
     }
-  },
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-      "@shared": path.resolve(__dirname, "../backend/supabase/functions/_shared"),
-      "@config": path.resolve(__dirname, "../scripts"),
-      "@test-utils": path.resolve(__dirname, "./tests/support/test-utils"),
-      "@test-mocks": path.resolve(__dirname, "./tests/mocks"),
-      "sharp": path.resolve(__dirname, "./tests/support/mocks/sharp.ts"),
-      "file-saver": path.resolve(__dirname, "./tests/mocks/file-saver.ts"),
-      "whisper-turbo": path.resolve(__dirname, "./tests/mocks/whisper-turbo.ts"),
-      "whisper-webgpu": path.resolve(__dirname, "./tests/mocks/whisper-turbo.ts"),
-    },
   },
   define: {},
   optimizeDeps: {

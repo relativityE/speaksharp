@@ -1,0 +1,1067 @@
+
+> speaksharp@0.5.4.5 test:e2e /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> playwright test tests/e2e/primary-journey.e2e.spec.ts
+
+[1A[2K[WebServer] 
+[WebServer] > speaksharp@0.5.4.5 dev /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+[WebServer] > cd frontend && pnpm vite --port 5173 --mode test --logLevel error
+[WebServer] 
+
+[1A[2K[WebServer] [Vite] Mode: test
+
+
+Running 13 tests using 4 workers
+
+[1A[2K[1/13] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[1A[2K[2/13] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[1A[2K[3/13] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[1A[2K[4/13] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [lyxp2b]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [t3qy9]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [1yxzg]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [t3l01j]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) a6ea4ef8-1ce9-4d87-8810-2e04c930f237 top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) fcc35851-04e6-4053-98dc-170f85dd680b top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 8a800758-df61-4d39-bb9b-f3a2370c2d1a top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 5c748cf6-fdbc-455f-a8a5-dcf4188a49b3 top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[5/13] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[1A[2K[6/13] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[1A[2K[7/13] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [ld5t20u]
+
+[1A[2K[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [0ejiu]
+
+[1A[2K[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [b1qe7p]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 6432bdbb-142f-4024-b37b-3d5aeeb86b6e top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 34ce8cbc-2929-4e7f-aa8c-bfa2dc079fa8 top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) ecc90196-86c5-4400-b0d4-0a883845b43d top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[8/13] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-LOG] [E2E-MOCK] Engine started.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-LOG] [E2E-MOCK] Engine started.
+
+[1A[2K[BROWSER-LOG] [E2E-TEST] 📞 Emission Start. Bridge Keys: [isActive, enableRealEngine, isEngineInitialized, engineType, _activeCallbacks, registry, flags, emitTranscript, startRecording, stopRecording, getFSMState, destroyService, onStateChange, pauseAtState]
+
+[1A[2K[BROWSER-LOG] [E2E-BRIDGE] Using Controller->Service->Strategy bridge path
+
+[1A[2K[BROWSER-WARNING] [DIAG-STORE] updateTranscript: "..." (partial: "Hello")
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[9/13] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-LOG] [E2E-BRIDGE] Using Controller->Service->Strategy bridge path
+
+[1A[2K[BROWSER-WARNING] [DIAG-STORE] updateTranscript: "..." (partial: "Hello from E2E")
+
+[1A[2K[BROWSER-LOG] [E2E-TEST] ✅ Emission Finish.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[10/13] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[1A[2K[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [9xsclb]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 16f1fcfe-0015-4819-847c-4e7b5c50c274 top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [3fvtyo]
+
+[1A[2K[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 1f9480f3-9c46-47c0-b764-30d7aca1b045 top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [kra54]
+
+[1A[2K[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-LOG] [E2E-MOCK] Engine started.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) ed97fd50-e173-48df-a151-c4420a83af73 top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[11/13] [full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+[1A[2K[12/13] [full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+[1A[2K[13/13] [full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Cloud)
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961371629,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] TEST_HEARTBEAT\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961371631,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] RAW_MANIFEST_CONFIG {\"engineType\":\"real\",\"debug\":false}\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961371645,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] TEST_HEARTBEAT\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961371646,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] RAW_MANIFEST_CONFIG {\"engineType\":\"mock\",\"debug\":false}\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Cloud)
+{"level":40,"time":1776961371661,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] TEST_HEARTBEAT\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961371664,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] RAW_MANIFEST_CONFIG {\"engineType\":\"real\",\"debug\":false}\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961372633,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [jgvhqja]\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961372743,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [mlpuop]\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961372746,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961372806,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961372809,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID qh3x4q31v3\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961372887,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961372912,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961372914,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID qh3x4q31v3\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961372916,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] CHECK_AVAILABILITY\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961372916,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961372916,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID 72dwt9jsqib\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961372991,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Cloud)
+{"level":40,"time":1776961373032,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [e11abo]\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961373121,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961373165,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Cloud)
+{"level":40,"time":1776961373166,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961373170,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID qh3x4q31v3\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961373246,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] TEST_HEARTBEAT\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961373247,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] RAW_MANIFEST_CONFIG {\"engineType\":\"real\",\"debug\":false}\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Cloud)
+{"level":40,"time":1776961373298,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961373428,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] TEST_HEARTBEAT\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961373428,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] RAW_MANIFEST_CONFIG {\"engineType\":\"mock\",\"debug\":false}\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Cloud)
+{"level":40,"time":1776961373898,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] TEST_HEARTBEAT\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961373899,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] RAW_MANIFEST_CONFIG {\"engineType\":\"real\",\"debug\":false}\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961374385,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [bg5lvq]\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961374515,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961374532,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961374533,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID qh3x4q31v3\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961374537,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [eni4x]\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961374546,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961374557,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961374559,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961374559,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID qh3x4q31v3\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961374559,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] CHECK_AVAILABILITY\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961374563,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961374564,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID 72dwt9jsqib\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961374627,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Cloud)
+{"level":40,"time":1776961375338,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [0qdsgp]\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961375375,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961375420,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961375420,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID qh3x4q31v3\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961375477,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961375705,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961375705,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961375705,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961375705,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961375935,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961375935,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961375937,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961375937,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Cloud)
+{"level":40,"time":1776961376378,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376379,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376379,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376379,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961376870,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] CHECK_AVAILABILITY\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376870,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376870,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID tcve2d6bgw\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376880,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] CHECK_AVAILABILITY\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376880,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376881,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID 0tuae1tqlxdc\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961376892,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376892,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID 997c0cxj8n\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376892,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] CHECK_AVAILABILITY\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376893,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376893,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID wf3t0g7loo\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961376907,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] CHECK_AVAILABILITY\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376907,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376907,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID trhswil69b\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961376930,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] CHECK_AVAILABILITY\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376931,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961376931,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID 8z7kbyyvgjv\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377222,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"Welcome everyone to the session.\")\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377222,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E-TRACE-FLOW] SpeechRuntimeController received transcript: {\"transcript\":{\"final\":\"\",\"partial\":\"Welcome everyone to the session.\"}}\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377222,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [step: 7] SpeechRuntimeController RECEIVED TRANSCRIPT: {\"transcript\":{\"final\":\"\",\"partial\":\"Welcome everyone to the session.\"}} UI_READY: true\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377225,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"Welcome everyone to the session.\")\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961377231,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"Welcome everyone to the session.\")\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961377342,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"This is a test of live transcript streaming.\")\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961377351,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"This is a test of live transcript streaming.\")\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961377358,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E-TRACE-FLOW] SpeechRuntimeController received transcript: {\"transcript\":{\"final\":\"\",\"partial\":\"This is a test of live transcript streaming.\"}}\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377358,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [step: 7] SpeechRuntimeController RECEIVED TRANSCRIPT: {\"transcript\":{\"final\":\"\",\"partial\":\"This is a test of live transcript streaming.\"}} UI_READY: true\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377358,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"This is a test of live transcript streaming.\")\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961377438,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"We are simulating multiple lines arriving over time.\")\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961377462,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"We are simulating multiple lines arriving over time.\")\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377462,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E-TRACE-FLOW] SpeechRuntimeController received transcript: {\"transcript\":{\"final\":\"\",\"partial\":\"We are simulating multiple lines arriving over time.\"}}\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377462,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [step: 7] SpeechRuntimeController RECEIVED TRANSCRIPT: {\"transcript\":{\"final\":\"\",\"partial\":\"We are simulating multiple lines arriving over time.\"}} UI_READY: true\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377463,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"We are simulating multiple lines arriving over time.\")\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377523,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"We are simulating multiple lines arriving over time.\")\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377524,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E-TRACE-FLOW] SpeechRuntimeController received transcript: {\"transcript\":{\"final\":\"We are simulating multiple lines arriving over time.\",\"partial\":\"\"}}\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377524,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [step: 7] SpeechRuntimeController RECEIVED TRANSCRIPT: {\"transcript\":{\"final\":\"We are simulating multiple lines arriving over time.\",\"partial\":\"\"}} UI_READY: true\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377524,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"We are simulating multiple lin...\" (partial: \"\")\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961377792,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"We are simulating multiple lines arriving over time.\")\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Cloud)
+{"level":40,"time":1776961377898,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377898,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID 997c0cxj8n\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377898,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] CHECK_AVAILABILITY\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377898,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377898,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID wf3t0g7loo\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377900,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] CHECK_AVAILABILITY\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377900,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961377903,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID 8z7kbyyvgjv\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961378006,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378006,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961378086,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378088,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] CHECK_AVAILABILITY\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378088,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {from: STOPPING, event: ENGINE_INIT_REQUESTED} [FSM] Invalid transition attempt\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378088,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378088,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID shp4goenvcb\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378089,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378089,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E-TRACE-FLOW] SpeechRuntimeController received transcript: {\"transcript\":{\"final\":\"We are simulating multiple lines arriving over time.\",\"partial\":\"\"}}\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378089,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [step: 7] SpeechRuntimeController RECEIVED TRANSCRIPT: {\"transcript\":{\"final\":\"We are simulating multiple lines arriving over time.\",\"partial\":\"\"}} UI_READY: true\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378089,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"We are simulating multiple lin...\" (partial: \"\")\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961378356,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378356,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378356,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Cloud)
+{"level":40,"time":1776961378454,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"Welcome everyone to the session.\")\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961378464,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378464,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378464,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378718,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAGNOSTIC] 🏁 Route Exit Detected: /session -> /analytics\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378718,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAGNOSTIC] 🧨 Triggering Hard Termination for Session: NONE\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378719,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] DESTROY_SESSION_CALLED\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961378723,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAGNOSTIC] 🏁 Route Exit Detected: /session -> /analytics\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378724,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAGNOSTIC] 🧨 Triggering Hard Termination for Session: NONE\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961378724,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] DESTROY_SESSION_CALLED\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Cloud)
+{"level":40,"time":1776961379334,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"This is a test of live transcript streaming.\")\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379434,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"We are simulating multiple lines arriving over time.\")\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379550,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"...\" (partial: \"We are simulating multiple lines arriving over time.\")\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379723,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379723,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] CHECK_AVAILABILITY\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379723,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {from: STOPPING, event: ENGINE_INIT_REQUESTED} [FSM] Invalid transition attempt\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379723,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_CALLED\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379723,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] FACTORY_ID ysspaapbs6\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379724,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379731,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [E2E-TRACE-FLOW] SpeechRuntimeController received transcript: {\"transcript\":{\"final\":\"We are simulating multiple lines arriving over time.\",\"partial\":\"\"}}\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379732,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [step: 7] SpeechRuntimeController RECEIVED TRANSCRIPT: {\"transcript\":{\"final\":\"We are simulating multiple lines arriving over time.\",\"partial\":\"\"}} UI_READY: true\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379732,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAG-STORE] updateTranscript: \"We are simulating multiple lin...\" (partial: \"\")\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379786,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379804,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961379805,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {status: Object, currentState: recording} [Store] ⚠️ Attempted to overwrite recording state\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961380033,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAGNOSTIC] 🏁 Route Exit Detected: /session -> /analytics\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961380033,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [DIAGNOSTIC] 🧨 Triggering Hard Termination for Session: NONE\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961380033,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] [TRACE] DESTROY_SESSION_CALLED\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961380987,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961380987,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961380988,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961380988,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961380988,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961380988,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961380989,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961380993,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381032,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381032,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381033,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381033,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Private)
+{"level":40,"time":1776961381291,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381291,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381293,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381293,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381293,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381295,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381295,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381295,"pid":22240,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Free/Basic Tier (Native)
+{"level":40,"time":1776961381323,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381323,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381323,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381324,"pid":22238,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K[full-suite] › tests/e2e/primary-journey.e2e.spec.ts:47:5 › Primary User Journey Matrix › should complete full journey for Pro Tier (Cloud)
+{"level":40,"time":1776961381448,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381449,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381449,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381449,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381475,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381475,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381475,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381475,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381505,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381506,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381506,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K{"level":40,"time":1776961381507,"pid":22239,"hostname":"Mac.lan","msg":"\u001b[33m[BROWSER warning] The width(-1) and height(-1) of chart should be greater than 0,\n       please check the style of container, or the props width(100%) and height(100%),\n       or add a minWidth(1) or minHeight(1) or use aspect(undefined) to control the\n       height and width.\u001b[0m"}
+
+[1A[2K  13 passed (34.7s)
+[PW] Summary: 13 passed, 0 failed, 0 flaky (Total unique: 13)

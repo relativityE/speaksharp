@@ -8,9 +8,9 @@
  * environment/tier policy from execution strategy.
  */
 
-import logger from '../../lib/logger';
+import logger from '@/lib/logger';
 
-export type TranscriptionMode = 'native' | 'cloud' | 'private';
+export type TranscriptionMode = 'native' | 'cloud' | 'private' | 'mock';
 
 /**
  * Policy object that defines which transcription modes are permitted
@@ -129,30 +129,26 @@ export function resolveMode(
         allowPrivate: policy.allowPrivate
     }, '[TranscriptionPolicy] Resolving mode:');
 
+    // 0. Safety Check: If absolutely no modes are allowed, throw standardized error
+    if (!policy.allowNative && !policy.allowCloud && !policy.allowPrivate) {
+        throw new Error('No allowed transcription mode');
+    }
+
     // 1. Check user preference (if allowed)
     if (userPreference && isModeAllowed(userPreference, policy)) {
         logger.info({ resolved: userPreference, source: 'user-preference' }, '[TranscriptionPolicy] Resolved mode');
         return userPreference;
     }
 
-    // 2. Check policy's preferred mode
+    // 2. Resort to Policy Preference or first allowed mode
     if (policy.preferredMode && isModeAllowed(policy.preferredMode, policy)) {
-        logger.info({ resolved: policy.preferredMode, source: 'policy-preference' }, '[TranscriptionPolicy] Resolved mode');
         return policy.preferredMode;
     }
+    if (policy.allowNative) return 'native';
+    if (policy.allowCloud) return 'cloud';
+    if (policy.allowPrivate) return 'private';
 
-    // 3. Fallback order: native -> cloud -> private
-    let fallback: TranscriptionMode | null = null;
-    if (policy.allowNative) fallback = 'native';
-    else if (policy.allowCloud) fallback = 'cloud';
-    else if (policy.allowPrivate) fallback = 'private';
-
-    if (fallback) {
-        logger.info({ resolved: fallback, source: 'fallback' }, '[TranscriptionPolicy] Resolved mode');
-        return fallback;
-    }
-
-    throw new Error('[TranscriptionPolicy] No allowed transcription mode in policy');
+    throw new Error(`[TranscriptionPolicy] Requested mode '${userPreference || policy.preferredMode}' is not allowed by current policy.`);
 }
 
 /**
@@ -166,6 +162,7 @@ export function isModeAllowed(
         case 'native': return policy.allowNative;
         case 'cloud': return policy.allowCloud;
         case 'private': return policy.allowPrivate;
+        case 'mock': return true; // Always allow mock
         default: return false;
     }
 }

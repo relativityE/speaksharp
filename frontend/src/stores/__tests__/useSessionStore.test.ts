@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useSessionStore } from '../useSessionStore';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 /**
  * useSessionStore Behavioral Tests

@@ -24,29 +24,14 @@ export function createMockUserProfile(overrides: Partial<UserProfile> = {}): Use
   };
 }
 
-export function createMockSession(overrides: Partial<Session> = {}): Session {
+export function createMockSession(overrides: Partial<Session> = {}, userType: 'free' | 'pro' = 'pro'): Session {
   const now = Math.floor(Date.now() / 1000);
-  const user = createMockUser();
+  const user = createMockUser({
+    email: userType === 'pro' ? 'pro@example.com' : 'free@example.com'
+  });
 
-  const base64UrlEncode = (str: string) => {
-    return btoa(str)
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-  };
-
-  const header = base64UrlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const payload = base64UrlEncode(JSON.stringify({
-    sub: user.id,
-    email: user.email,
-    aud: "authenticated",
-    role: "authenticated",
-    exp: now + 3600,
-    iat: now,
-    session_id: `test-session-${now}`,
-  }));
-  const signature = "fake-signature-for-e2e-testing";
-  const fakeAccessToken = `${header}.${payload}.${signature}`;
+  // Harden: Generate a tier-specific mock token for deterministic MSW branching
+  const fakeAccessToken = `mock-${userType}-token-${now}`;
 
   return {
     access_token: fakeAccessToken,

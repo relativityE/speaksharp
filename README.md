@@ -1,9 +1,8 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-24
+**Last Reviewed:** 2026-04-23
 
-# SpeakSharp
-# SpeakSharp
-**v0.6.0** | **Last Updated: 2026-03-24**
+# SpeakSharp v0.6.4 (CI Stabilized)
+**v0.6.4 (CI Stabilized)** | **Last Updated: 2026-04-23**
 
 SpeakSharp is an AI-powered speech coaching application that helps users improve their public speaking skills. It provides real-time feedback on filler words, speaking pace, and more.
 
@@ -32,8 +31,14 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
     -   **NLP Caching:** 500x faster re-renders for multi-speaker dialog via LRU document cache.
     -   **Atomic Consistency:** Restored row-locking prevents usage limit bypass under high concurrency.
     - **Concurrent PDF Parsing (PR #735):** ~90% reduction in extraction latency via `Promise.all` orchestration.
+- **v0.6.0 Finalization (Apr 2026):** **Deterministic Bridge Baseline**.
+    - **T=0 Bridge Reset:** Mandatory reset of bridge signals on page load to eliminate "Bridge Drift."
+    - **isEngineInitialized Signal:** Verified unambiguous engine-level synchronization for flake-free E2E runs.
+    - **Zero-Regress Audit:** Achieved 100% deterministic green status for the Infrastructure Probe.
 - **Mar 2026 Stabilization Audit (v0.6.0):** **High-Fidelity Contract Baseline**.
     - **Deterministic STT Infrastructure:** Achieved 100% contract compliance via `STTEngine` unification.
+    - **Environment Bridge (Strangler Pattern):** Centralized environmental logic in `TestFlags.ts` with logic-free projection in `env.ts`.
+    - **Industrial Alias Resolution:** Synchronized Vitest with `tsconfig.json` paths via `vite-tsconfig-paths`.
     - **Monotonic Readiness:** Replaced `networkidle` with explicit `data-route-ready` DOM signals.
     - **Strict Zero Manifest:** Implemented `window.__SS_E2E__` as the synchronous source of truth for all environment flags.
     - **Telemetry Decoupling:** Implemented `AnalyticsBuffer` (Queue + Flush) for non-blocking boot performance.
@@ -121,6 +126,7 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     pnpm preflight
     ```
     This script ensures your system meets the strict Node.js, pnpm, and dependency requirements before you start.
+    If it fails, follow the "Dead Environment Trap" troubleshooting in `README.md` to stabilize your environment via `pnpm reset:clean`.
 
 5.  **Configure Environment Variables:**
     
@@ -161,10 +167,9 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     pnpm pw:install:all   # All browsers
     ```
 
-7.  **Validate Your Local Installation:**
-    If you're a new developer setting up the project, it's highly recommended to run the canonical health check to ensure your local environment is sound:
+    If you're a new developer setting up the project, it's highly recommended to run the **Infrastructure Probe** to ensure your local environment is sound:
     ```bash
-    pnpm test:health:local
+    pnpm test:infra
     ```
 
 ## Asset Organization
@@ -198,7 +203,7 @@ This project uses a strict `pnpm-lock.yaml` file to guarantee that every develop
     pnpm setup
     ```
 
-The `pnpm setup` command executes `pnpm install --frozen-lockfile`, which is the **only** correct way to install dependencies in this project. It forces pnpm to install the exact versions specified in the lockfile, ensuring a reproducible environment.
+The `pnpm setup` command executes `pnpm install --frozen-lockfile`, which is the **only** correct way to install dependencies in this project. It forces pnpm to install the exact versions specified in the lockfile, ensuring a reproducible environment. Do not proceed until this script completes successfully. If it fails, follow the "Dead Environment Trap" troubleshooting in `README.md` to stabilize your environment via `pnpm reset:clean`.
 
 ## Troubleshooting: The "Dead Environment" Trap
  
@@ -208,16 +213,16 @@ If you find yourself in a state where `node_modules` is missing and `pnpm instal
  
 ### Recovery Steps:
  
-1.  **Run the Stabilizer**:
+1.  **Run the Nuclear Clean**:
     ```bash
-    pnpm env:stabilize
+    pnpm reset:clean
     ```
-    This script attempts to recover local links and clear corrupted caches without requiring a full re-download.
+    This kills stale processes and wipes all caches without touching your source code.
  
 2.  **The "Rebase then Setup" Rule**:
     Never run `pnpm install` immediately after a large rebase if dependencies have changed significantly.
     - `git pull --rebase`
-    - `./scripts/git-pull-fix.sh` (This script automates the cleanup and re-install, or use `pnpm git:pull-fix`)
+    - `./scripts/git-pull-fix.sh` (This script automates the cleanup and re-install, or use `pnpm reset:git`)
  
 3.  **Check TIA Impact**:
     If your tests are not running, verify that your changes are captured in `test-impact-map.json`. If you added a new file, you **must** update this map or the `test:agent` command will skip it.
@@ -235,29 +240,24 @@ All test scripts follow a strict **Level : Env : Mode** taxonomy: `test:<level>:
 
 ### The Canonical Test Commands
 
-*   **Run the isolated Agent-Safe test loop (recommended for AI debugging):**
+*   **Run the infrastructure environmental probe (Recommended):**
     ```bash
-    pnpm test:agent
+    pnpm test:infra
     ```
 
-*   **Run the complete CI pipeline locally (recommended before any commit):**
+*   **Run the complete CI pipeline locally (Recommended before any commit):**
     ```bash
-    pnpm test:all:local
-    ```
-
-*   **Run a fast "health check" of the application:**
-    ```bash
-    pnpm test:health:local
+    pnpm test:full
     ```
 
 *   **Run only the unit tests:**
     ```bash
-    pnpm test:unit:local
+    pnpm test:unit
     ```
 
 ### Software Quality Metrics (SQM)
 
-This section provides an up-to-date snapshot of the project's software quality. These metrics are generated by running `pnpm test:all:local` and are automatically updated in the `docs/PRD.md` file.
+This section provides an up-to-date snapshot of the project's software quality. These metrics are generated by running `pnpm test:full` and are automatically updated in the `docs/PRD.md` file.
 
 **Lighthouse Scores** (2026-03-01):
 - **Performance:** 97%
@@ -267,7 +267,7 @@ This section provides an up-to-date snapshot of the project's software quality. 
 
 For detailed test metrics, coverage, and E2E results, see the latest [PRD.md Software Quality Metrics](./docs/PRD.md#software-quality-metrics-sqm) section.
 The test runner automatically generates a Software Quality Metrics report.
-*   When run locally (e.g., `pnpm test:all:local` or `pnpm test:health:local`), a summary is printed to your console.
+*   When run locally (e.g., `pnpm test:full` or `pnpm test:infra`), a summary is printed to your console.
 *   When run in CI, the full report is automatically generated and committed to `docs/PRD.md`.
 
 ### Scripts Reference
@@ -278,7 +278,7 @@ This project provides multiple pnpm scripts for different use cases. All test sc
 
 **🎯 Want to run the full CI simulation locally?**
 ```bash
-pnpm ci:full:local
+pnpm ci:full
 ```
 - Runs frozen lockfile check, quality checks, build, E2E shards (1-4), Lighthouse CI
 - Mirrors GitHub CI workflow exactly
@@ -286,10 +286,10 @@ pnpm ci:full:local
 
 **🚀 Want quick validation during development?**
 ```bash
-pnpm test:health:local
+pnpm test:infra
 ```
-- Runs preflight, build, and the **canonical Core Journey E2E test**
-- **Core journey verifies:** Homepage, Session Flow, Transcription, and Analytics persistence.
+- Runs preflight, build, and the **Infrastructure Probe** Journey
+- **Infrastructure probe verifies:** Homepage, Session Flow, Transcription, and Analytics persistence.
 - **Use for:** Rapid "critical path" verification.
 
 **⚡ Want the fastest local feedback (unit tests only)?**

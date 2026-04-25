@@ -17,7 +17,7 @@ import type { UseSpeechRecognitionProps, TranscriptStats, TranscriptionPolicy, C
 import type { SttStatus } from '@/types/transcription';
 import { E2E_DETERMINISTIC_NATIVE, buildPolicyForUser } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
-import { useSessionStore } from '../../stores/useSessionStore';
+import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
 
 // Error handling helper

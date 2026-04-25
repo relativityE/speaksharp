@@ -2,7 +2,7 @@ import { renderHook } from '../../../../tests/support/test-utils';
 import { useTranscriptionService, type UseTranscriptionServiceOptions } from '../useTranscriptionService';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
-import { useSessionStore, type SessionStore } from '../../../stores/useSessionStore';
+import { useSessionStore, type SessionStore } from '@/stores/useSessionStore';
 import { type Session } from '@supabase/supabase-js';
 import { speechRuntimeController } from '../../../services/SpeechRuntimeController';
 
@@ -76,7 +76,8 @@ describe('useTranscriptionService - Integrated Behavior', () => {
         vi.clearAllMocks();
         vi.mocked(useTranscriptionContext).mockReturnValue({
             isReady: true,
-            runtimeState: 'IDLE'
+            runtimeState: 'IDLE',
+            useStore: useSessionStore as unknown as typeof useSessionStore
         });
         vi.mocked(useSessionStore).mockReturnValue(mockStore as unknown as SessionStore);
     });

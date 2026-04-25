@@ -9,9 +9,7 @@ import logger from '../../lib/logger';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
 import { TranscriptStats } from '../../utils/fillerWordUtils';
 import { TranscriptUpdate } from '../../types/transcription';
-import { useSessionStore } from '../../stores/useSessionStore';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
-import { TestFlags } from '@/config/TestFlags';
 import { useTranscriptionState } from './useTranscriptionState';
 
 // Re-exporting to satisfy architectural contract and linting
@@ -28,6 +26,7 @@ export interface ITranscriptionService {
   stopTranscription: () => Promise<{ success: boolean; transcript: string; stats: TranscriptStats } | null>;
   destroy: () => Promise<void>;
   getMode: () => TranscriptionMode | null;
+  isServiceDestroyed: () => boolean;
 }
 
 export interface UseTranscriptionServiceOptions {
@@ -47,7 +46,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
   // ============================================
   // CONTEXT & STORE (Pure Listeners)
   // ============================================
-  const { isReady: isContextReady } = useTranscriptionContext();
+  const { isReady: isContextReady, useStore } = useTranscriptionContext();
   const {
     isListening,
     isReady,
@@ -55,7 +54,7 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
     sttMode: currentMode,
     modelLoadingProgress,
     startSession // Only for UI intent, FSM handles transition
-  } = useSessionStore();
+  } = useStore();
 
   const isMountedRef = useRef(true);
   const isStartingRef = useRef(false);
@@ -77,9 +76,13 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
 
   // 2. Callback Management (Stable References for Controller)
   const callbacks: Partial<TranscriptionServiceOptions> = useMemo(() => ({
-    onTranscriptUpdate: (update: TranscriptUpdate) => optionsRef.current.onTranscriptUpdate(update),
+    onTranscriptUpdate: (update: TranscriptUpdate) => {
+      console.warn('[TRACE] CALLBACK_DATA', !!update.transcript.final);
+      optionsRef.current.onTranscriptUpdate(update);
+    },
     onModelLoadProgress: (progress: number | null) => optionsRef.current.onModelLoadProgress?.(progress),
     onReady: () => {
+      console.warn('[TRACE] CALLBACK_READY');
       // Logic removed: FSM handles setReady(true) via controller.confirmSubscriberHandshake() or transition
       optionsRef.current.onReady?.();
     },
@@ -101,14 +104,9 @@ export const useTranscriptionService = (options: UseTranscriptionServiceOptions)
 
     return () => {
       isMountedRef.current = false;
-      // In E2E (Playwright), we let the manifest control persistence across page loads.
-      // We detect Playwright by the existence of window.__SS_E2E__.
-      // Unit tests (Vitest) should still perform deterministic teardown.
-      const isPlaywright = typeof window !== 'undefined' && !!(window as any).__SS_E2E__?.isActive;
-      
-      if (!isPlaywright) {
-        void speechRuntimeController.reset('teardown');
-      }
+      // 🛡️ Layer 1: Cleanup Symmetry (v0.6.4)
+      // Explicitly signal the unsubscription to the class-based controller.
+      void speechRuntimeController.reset('subscriber_unmount');
     };
   }, [callbacks]);
 

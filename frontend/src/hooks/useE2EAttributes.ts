@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
-import { useSessionStore } from '../stores/useSessionStore';
-import { useReadinessStore } from '../stores/useReadinessStore';
+import { useSessionStore } from '@/stores/useSessionStore';
+import { useReadinessStore, REQUIRED_GLOBAL } from '../stores/useReadinessStore';
 import logger from '../lib/logger';
 
 /**
@@ -16,31 +16,32 @@ import logger from '../lib/logger';
  * - data-download-progress: "0-100 | null"
  */
 export const useE2EAttributes = () => {
-    const activeEngine = useSessionStore(s => s.activeEngine);
-    const modelLoadingProgress = useSessionStore(s => s.modelLoadingProgress);
+    const { activeEngine, sttMode, modelLoadingProgress } = useSessionStore();
     
     const readinessSignals = useReadinessStore(s => s.signals);
     const appState = useReadinessStore(s => s.appState);
 
     // 1. App Boot & Route Readiness
     useEffect(() => {
-        const allSignalsReady = readinessSignals.boot && readinessSignals.layout && 
-                               readinessSignals.auth && readinessSignals.stt && 
-                               readinessSignals.msw;
+        const missing = REQUIRED_GLOBAL.filter(k => !readinessSignals[k]);
+        const allSignalsReady = missing.length === 0;
         
+        if (!allSignalsReady && Object.keys(readinessSignals).length > 0) {
+            logger.debug({ missing, signals: readinessSignals }, '[useE2EAttributes] Waiting for signals...');
+        }
+
         if (allSignalsReady) {
-            // NOTE: data-app-booted remains in the hook for now as it aggregates 
-            // multiple infrastructure signals (Auth, layout, msw) beyond just STT.
-            if (document.documentElement.getAttribute('data-app-booted') !== 'true') {
-                logger.info('[useE2EAttributes] 🏁 BOOT BARRIER CLEARED. Signaling E2E.');
-                document.documentElement.setAttribute('data-app-booted', 'true');
+            // NOTE: data-app-ready is the canonical terminal signal for E2E.
+            if (document.documentElement.getAttribute('data-app-ready') !== 'true') {
+                logger.info('[useE2EAttributes] 🏁 APP READY BARRIER CLEARED. Signaling E2E.');
+                document.documentElement.setAttribute('data-app-ready', 'true');
             }
         }
 
-        if (readinessSignals.route) {
-            document.documentElement.setAttribute('data-route-ready', 'true');
+        if (readinessSignals.router) {
+            document.documentElement.setAttribute('data-router-mounted', 'true');
         } else {
-            document.documentElement.removeAttribute('data-route-ready');
+            document.documentElement.removeAttribute('data-router-mounted');
         }
 
         document.documentElement.setAttribute('data-ready-state', appState);
@@ -52,12 +53,14 @@ export const useE2EAttributes = () => {
     // are now managed EXCLUSIVELY by SpeechRuntimeController (Source of Truth).
     
     useEffect(() => {
-        if (activeEngine && activeEngine !== 'none') {
-            document.body.setAttribute('data-stt-policy', activeEngine);
+        const effectiveMode = (activeEngine && activeEngine !== 'none') ? activeEngine : sttMode;
+        
+        if (effectiveMode) {
+            document.body.setAttribute('data-stt-policy', effectiveMode);
         } else {
             document.body.removeAttribute('data-stt-policy');
         }
-    }, [activeEngine]);
+    }, [activeEngine, sttMode]);
 
     useEffect(() => {
         if (modelLoadingProgress !== null) {

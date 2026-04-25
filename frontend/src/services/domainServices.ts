@@ -24,7 +24,7 @@
  */
 
 import { getSupabaseClient } from '@/lib/supabaseClient';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
 import { UserGoals } from '@/types/goals';

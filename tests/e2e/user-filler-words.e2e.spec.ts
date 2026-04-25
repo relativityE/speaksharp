@@ -19,7 +19,6 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         const fillerCard = userPage.getByText('Filler Words', { exact: true }).first();
         await expect(fillerCard).toBeVisible({ timeout: 10000 });
         await fillerCard.scrollIntoViewIfNeeded();
-        await userPage.waitForTimeout(500); // Allow scroll animation
 
         // 4. Open filler words popover using unique testid
         const settingsBtn = userPage.getByTestId(TEST_IDS.SESSION_SETTINGS_BUTTON);
@@ -38,8 +37,8 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         // Click the Add button (Plus icon)
         await userPage.getByRole('button', { name: /add word/i }).click();
 
-        // 6. Wait for word to appear in the FillerWordsCard (popover closes after add)
-        await userPage.waitForTimeout(1000); // Allow word to be added and popover to close
+        // Ensure the popover closes before proceeding
+        await expect(userPage.getByPlaceholder(/literally/i)).toBeHidden({ timeout: 10000 });
 
         // Verify word appears in the main FillerWordsCard below
         await expect(userPage.getByTestId('filler-words-list').getByText(word, { exact: false })).toBeVisible({ timeout: 10000 });
@@ -113,8 +112,8 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         const fillerWordsCard = userPage.getByTestId('filler-words-list').locator('..'); // Get parent card
         await fillerWordsCard.scrollIntoViewIfNeeded();
 
-        // Wait for filler detection to process
-        await userPage.waitForTimeout(2000);
+        // Verification of asynchronous filler detection count
+        // The following assertion with generous timeout replaces the fixed delay.
 
         // Use the reliable testid instead of badge text which can be flaky
         const fillerCountValue = userPage.getByTestId(TEST_IDS.FILLER_COUNT_VALUE);

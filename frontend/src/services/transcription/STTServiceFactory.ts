@@ -1,9 +1,10 @@
 import TranscriptionService, { TranscriptionServiceOptions } from './TranscriptionService';
-import logger from '@/lib/logger';
-import { TestFlags } from '@/config/TestFlags';
+import logger from '../../lib/logger';
+import { ENV } from '../../config/TestFlags';
+import { STT_CONFIG } from '@/config';
 
 /**
- * ARCHITECTURE (Senior Architect):
+ * ARCHITECTURE:
  * STTServiceFactory enables the "Disposable Service" pattern.
  * It yields the "Universal Orchestrator" (TranscriptionService).
  * 
@@ -25,7 +26,7 @@ export class STTServiceFactory {
     // 🚀 Narrow Mic Bypass (CI/E2E)
     // We inject a mock mic handle if one isn't provided, allowing the service 
     // to complete its initialization FSM without physical hardware.
-    const isE2E = TestFlags.IS_E2E;
+    const isE2E = ENV.isE2E;
     const isCI = typeof process !== 'undefined' && (process.env.CI === 'true' || process.env.E2E === 'true');
 
     if ((isE2E || isCI) && !options.mockMic) {
@@ -41,7 +42,12 @@ export class STTServiceFactory {
       logger.info('[STTServiceFactory] 🎤 Injecting narrow Mic bypass for CI/E2E environment');
     }
 
-    const service = new TranscriptionService(options);
+    const service = new TranscriptionService(
+      options,
+      undefined,
+      STT_CONFIG.HEARTBEAT_TIMEOUT_MS / 15, // default ~2s
+      STT_CONFIG.HEARTBEAT_TIMEOUT_MS
+    );
     
     // Track the lifecycle in the global window for E2E visibility, 
     // but the controller remains the authoritative owner of the instance.

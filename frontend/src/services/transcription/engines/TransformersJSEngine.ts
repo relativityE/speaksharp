@@ -14,10 +14,10 @@
  * @see docs/ARCHITECTURE.md - "Dual-Engine Private STT"
  */
 
-import { Result } from '@/services/transcription/modes/types';
-import { EngineCallbacks, EngineType } from '@/contracts/IPrivateSTTEngine';
+import { Result, TranscriptionModeOptions } from '@/services/transcription/modes/types';
+import { EngineType } from '@/contracts/IPrivateSTTEngine';
 
-import { TestFlags } from '@/config/TestFlags';
+import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { STTEngine } from '@/contracts/STTEngine';
 
@@ -28,14 +28,15 @@ export class TransformersJSEngine extends STTEngine {
     public readonly type: EngineType = 'transformers-js';
     private transcriber: Pipeline | null = null;
 
-    constructor() {
-        super();
+    constructor(options?: TranscriptionModeOptions) {
+        super(options);
     }
 
-    protected async onInit(callbacks: EngineCallbacks): Promise<Result<void, Error>> {
+    protected override async onInit(_timeoutMs?: number): Promise<Result<void, Error>> {
+        const options = this.options as TranscriptionModeOptions;
         if (this.transcriber) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Engine already initialized, skipping.');
-            if (callbacks.onReady) callbacks.onReady();
+            if (options.onReady) options.onReady();
             return { isOk: true, data: undefined };
         }
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Initializing engine...');
@@ -45,7 +46,7 @@ export class TransformersJSEngine extends STTEngine {
             const transformers = await import('@xenova/transformers');
             const { pipeline, env } = transformers;
 
-            if (TestFlags.FLAGS.DEBUG_ENABLED) {
+            if (ENV.debug) {
                 logger.debug({
                     hasPipeline: !!pipeline,
                     hasEnv: !!env,
@@ -69,9 +70,9 @@ export class TransformersJSEngine extends STTEngine {
                 typeof window.document !== 'undefined' &&
                 !navigator.userAgent.includes('HappyDOM');
 
-            env.useBrowserCache = isBrowser && !TestFlags.IS_E2E;
+            env.useBrowserCache = isBrowser && !ENV.isE2E;
 
-            if (TestFlags.FLAGS.DEBUG_ENABLED) {
+            if (ENV.debug) {
                 logger.debug({
                     isBrowser,
                     cacheEnabled: env.useBrowserCache,
@@ -80,8 +81,8 @@ export class TransformersJSEngine extends STTEngine {
             }
 
             // Report progress (transformers.js manages its own download progress callbacks)
-            if (callbacks.onModelLoadProgress) {
-                callbacks.onModelLoadProgress(0);
+            if (options.onModelLoadProgress) {
+                options.onModelLoadProgress(0);
             }
 
             const loadStart = performance.now();
@@ -95,8 +96,8 @@ export class TransformersJSEngine extends STTEngine {
                     revision: 'main',
                     // Progress callback
                     progress_callback: (data: { progress?: number }) => {
-                        if (callbacks.onModelLoadProgress && data.progress !== undefined) {
-                            callbacks.onModelLoadProgress(data.progress);
+                        if (options.onModelLoadProgress && data.progress !== undefined) {
+                            options.onModelLoadProgress(data.progress);
                         }
                     }
                 }
@@ -113,12 +114,12 @@ export class TransformersJSEngine extends STTEngine {
                 engine: 'transformersjs',
             }, '[TransformersJS] Engine initialized successfully.');
 
-            if (callbacks.onModelLoadProgress) {
-                callbacks.onModelLoadProgress(100);
+            if (options.onModelLoadProgress) {
+                options.onModelLoadProgress(100);
             }
 
-            if (callbacks.onReady) {
-                callbacks.onReady();
+            if (options.onReady) {
+                options.onReady();
             }
 
             return Result.ok(undefined);
@@ -141,6 +142,22 @@ export class TransformersJSEngine extends STTEngine {
 
     protected async onStop(): Promise<void> {
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Stopping engine...');
+    }
+
+    public async pause(): Promise<void> {
+        await this.onPause();
+    }
+
+    protected async onPause(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Pausing engine...');
+    }
+
+    public async resume(): Promise<void> {
+        await this.onResume();
+    }
+
+    protected async onResume(): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Resuming engine...');
     }
 
     protected async onDestroy(): Promise<void> {

@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-24
+**Last Reviewed:** 2026-04-23
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 0.6.0** | **Last Updated: 2026-03-24**
+**Version 0.6.4** | **Last Updated: 2026-04-23** (Forensic Finalization)
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 
@@ -141,7 +141,19 @@ Data Flow:
 
 ### 🏗️ SpeakSharp Architecture Patterns
 
-> **For the Single Source of Truth on all SpeakSharp Architecture Patterns and Principles (Patterns 1 through 29), please refer to the [AGENTS.md](../AGENTS.md#%EF%B8%8F-speaksharp-architecture-patterns) manifesto.**
+#### Pattern 30: Canonical Alias Identity (`@/*`)
+**Problem:** Relative import drift (`../../stores/...`) in high-concurrency environments can cause Vite/Vitest to instantiate duplicate singletons (the "Shadow Store" fracture), leading to inconsistent state (e.g., Auth logged in, but Session Store empty).
+**Solution:** Enforce absolute path resolution via the canonical `@/` alias for all business-critical singletons (Services, Stores, Hooks, Providers).
+- **Benefit:** Guarantees a single module identity across the entire application graph, ensuring state consistency and deterministic E2E liveness signals.
+- **Rule**: All infrastructure and service managers MUST be imported via `@/services/...` or `@/stores/...`. Relative paths are forbidden for core singletons.
+
+#### Pattern 31: Environment-Agnostic Service Layer
+**Problem:** `TranscriptionService` and other core logic files previously imported the `ENV` singleton, creating a tight coupling between business logic and the test environment. This led to "Test-Aware" branching (e.g., `if (ENV.isTest)`) in production code.
+**Solution:** Purge all environment-aware singletons from the service layer. Move all environmental logic (timing overrides, diagnostic bridges) to the **Configuration Boundary** (Factory/Manager).
+- **Benefit**: Ensures production code is 100% agnostic of its runtime. All environment-specific behaviors are injected via positional constructor parameters.
+- **Rule**: Production services MUST NOT import `ENV` or `isTest`. All variable behaviors must be injected at instantiation.
+- **Rule**: Core orchestration logic (e.g., `SpeechRuntimeController`) MUST NOT contain test-specific branches (e.g., `import.meta.env.MODE === 'test'`). Hardware/timing concerns must be handled via Vitest's fake timers and environment-agnostic mocks.
+- **Rule**: All async initialization and reset sequences MUST enforce strictly monotonic lifecycle versioning to prevent state leakage across asynchronous boundaries.
 
 ### Promo Admin System
 We prioritize a secure, dynamic promo code system for internal access/testing.
@@ -382,13 +394,49 @@ All test scripts follow `test:<level>:<env>[:<mode>]` and CI orchestration scrip
 | `test:system:local:headed` | system | local | headed | Full live suite + hardware |
 | `test:deploy` | deploy | prod | — | Post-deploy smoke |
 | `test:deploy:local` | deploy | local | — | Smoke against localhost |
-| `test:health:local` | health | local | — | Fast preflight + core journey |
-| `test:all:local` | all | local | — | Full quality gate |
+| `test:infra` | infra | local | — | Fast preflight + infrastructure probe |
+| `test:full` | all | local | — | Full quality gate |
 | `test:soak:api:cloud` | soak | cloud | — | API stress test |
 | `test:soak:ui:cloud` | soak | cloud | — | Memory/stability test |
-| `ci:full:local` | — | — | — | Full CI pipeline locally |
+| `ci:full` | — | — | — | Full CI pipeline simulation |
 | `ci:dispatch:deploy` | — | — | — | Dispatch deploy smoke to GH Actions |
 | `ci:dispatch:soak` | — | — | — | Dispatch soak test to GH Actions |
+
+#### 3.1 Environmental Orchestration (The ENV Bridge)
+
+SpeakSharp utilizes a centralized **ENV Bridge** to decouple the application logic from the underlying environment (Vite, Vitest, CI, Production). This is implemented via the **Strangler Pattern** to safely transition legacy codebases.
+
+**Components:**
+1. **`TestFlags.ts` (SSOT)**: The authoritative source of all environment detections.
+2. **`env.ts` (Frozen Shim)**: A logic-free projection layer that maintains compatibility with 50+ legacy files.
+
+**Architectural Constraints:**
+*   **Frozen Shim**: `env.ts` must remain a pure value projection. No computation allowed.
+*   **SSOT-Only**: All environmental logic must derive from modern `ENV` properties.
+*   **Dynamic Correctness**: Environment properties use Getters/IIFE locals to ensure the state is evaluated correctly across shared Vitest workers.
+
+#### 3.2 E2E Mocking Contract (Engine-Only Model)
+
+To prevent "Facade Hijacking" and ensure that orchestration logic (e.g., fallback, FSM transitions, UI state synchronization) is fully exercised during E2E tests, the application enforces a strict **Engine-Only Mocking Contract**.
+
+**Architectural Principles:**
+1.  **Registry is Engine-Level Only**: The E2E registry (`window.__SS_E2E__.registry`) MUST only contain keys for concrete execution engines.
+2.  **No Facade Overrides**: Registry keys for orchestration facades (e.g., `private`, `native`, `cloud`) are strictly forbidden. The `EngineSelector` will throw a fatal error if these keys are detected.
+3.  **Facade Execution Guarantee**: The real facade classes (e.g., `PrivateSTT`) MUST always execute. They are the "Smart Orchestrators" that resolve internal engines from the registry.
+4.  **T=0 Reset & Injection**: All mock factories MUST be defined within the browser context at T=0 via `page.addInitScript()`. Crucially, the bridge signal `isEngineInitialized` MUST be reset to `false` and `_activeCallbacks` to `null` on every page load to prevent "Bridge Drift" (stale callback leaks from previous sessions).
+
+**Standard Engine Keys:**
+- `whisper-turbo` (Private STT Fast Path)
+- `transformers-js` (Private STT Safe Path)
+- `assemblyai` (Cloud Mode Engine)
+- `native-browser` (Native Mode Engine)
+
+**Behavioral Scenario Modeling:**
+Deterministic scenarios (e.g., GPU Failure -> CPU Fallback) must be modeled by injecting specific behaviors into the *internal* engine slots:
+- **Fast Path Fail**: Inject a mock into `whisper-turbo` that fails `init()`.
+- **Safe Path Success**: Inject a mock into `transformers-js` that succeeds or provides progress.
+
+---
 
 #### 3.1 Global Readiness Signals (E2E Contract)
 
@@ -397,8 +445,9 @@ To eliminate non-deterministic race conditions (flakiness) in E2E tests, the app
 *   **data-app-ready:** Set to `'true'` when the core application shell and auth are initialized.
 *   **data-route-ready:** Set to `'true'` when the current route is fully hydrated and ready for interaction.
 *   **data-model-status:** Tracks the STT model state (`'idle'`, `'loading'`, `'ready'`, `'download-required'`).
+*   **isEngineInitialized (Bridge Signal):** A persistent signal on `window.__SS_E2E__` that toggles `true` only when the active transcription engine has fully attached its callbacks at runtime.
 
-E2E tests must use the `waitForAppReady()`, `waitForRouteReady()`, and `waitForModelReady()` helpers to synchronize with these signals.
+E2E tests must use the `waitForAppReady()`, `waitForRouteReady()`, and `waitForFunction(() => window.__SS_E2E__.isEngineInitialized)` helpers to synchronize with these signals.
 
 **Secrets by Environment:**
 
@@ -545,7 +594,7 @@ To ensure CI reliability and prevent "sloth" or "noise" from masking regressions
 ---
 
 ### 🧪 E2E Mock Integrity
-External services (Supabase, Edge Functions) are mocked via Playwright routes in `mock-routes.ts`. To distinguish between automated tests and manual browser checks (which use MSW), a `window.__E2E_PLAYWRIGHT__` flag is injected. For infrastructure-level debugging, refer to [tests/TROUBLESHOOTING.md](../tests/TROUBLESHOOTING.md).
+External services (Supabase, Edge Functions) are mocked via Playwright routes in `mock-routes.ts`. To distinguish between automated tests and manual browser checks (which use MSW), a `window.__E2E_PLAYWRIGHT__` flag is injected. For infrastructure-level debugging, refer to [tests/CODEBASE_FIX_APPROACH.md](../tests/CODEBASE_FIX_APPROACH.md).
 
 > **Why This Matters:**
 > Supabase Edge Functions and DB connections experience cold starts in CI/serverless environments. The first fetch may timeout, but subsequent retries succeed once the connection is warm. This pattern eliminates transient "Failed to fetch" errors without requiring infrastructure changes.
@@ -599,13 +648,11 @@ The transcription pipeline now supports **Speaker Diarization**. The `CloudAssem
 **Word Error Rate (WER) Analysis:**
 The analytics engine supports automated accuracy scoring. By ingesting **Ground Truth** (via PDF or text), the system calculates a Levenshtein-based WER and displays a relative accuracy percentage trend in the `STTAccuracyComparison` chart.
 
-#### Benchmarking Architecture (Static Ceilings)
-To provide users with a meaningful "Accuracy Signal", we utilize **Path A: Client-Side Dynamic Comparison**.
+#### Benchmarking Architecture (Static Ceilings & Acoustic Ground Truth)
+To provide users with a meaningful "Accuracy Signal" and mathematically verify STT performance, we utilize **Path A: Client-Side Dynamic Comparison** coupled with an **Acoustic Ground Truth Metric Pipeline**.
 - **Static Config**: Theoretical maximum accuracy ceilings for each engine are stored in `tests/STT_BENCHMARKS.json`.
-- **Node Orchestration**: Ceilings are established by running engine-specific live benchmarks:
-    - **Cloud**: `pnpm test:system:local:headed tests/live/benchmark-cloud.live.spec.ts`
-    - **CPU**: `pnpm test:system:local:headed tests/live/benchmark-cpu.live.spec.ts`
-    - **WebGPU**: `pnpm test:system:local:headed tests/live/benchmark-webgpu.live.spec.ts`
+- **Acoustic Synthesis**: The script `scripts/generate-filler-audio.sh` deterministically renders 16kHz `.wav` payloads containing specific phonemes (ums, ahs) using macOS `say` and `ffmpeg`.
+- **Isolated Evaluation Engine**: `scripts/benchmark-filler-ceiling.mts` executes these raw `.wav` fixtures through specific machine engines (Whisper or AssemblyAI) to calculate an exact Word Error Rate (WER) against ground-truth filler-word counts. This pipeline is isolated from the UI UI E2E test-suite to preserve CI execution speed.
 - **Environment Gating**: While **AssemblyAI (Cloud)** and **Whisper (CPU)** are automated in CI via tiered execution, the **WhisperTurbo (WebGPU)** ceiling is human-maintained. It must be manually updated in `tests/STT_BENCHMARKS.json` when running benchmarks on a GPU-enabled developer machine. 
 - **Pro Calibration**: Live benchmarks support authenticated Pro-user credentials via `E2E_PRO_EMAIL` and `E2E_PRO_PASSWORD` to verify restricted STT modes (Private/WebGPU) and tier-specific accuracy Signal.
 - **Dynamic Scoring**: The frontend `useAnalytics` hook dynamically calculates the user's live WER and charts it against this static ceiling benchmark to show relative performance over time.
@@ -731,45 +778,34 @@ To achieve React Refresh compliance and high maintainability, the monolithic `us
 > All automated tests use MockEngine for reliability and speed.
 > To test real engine behavior, use a production build in a real browser.
 
-### Universal TestRegistry Priority Pattern
+### 3.9 Deterministic Engine Orchestration (v0.6.2)
 
-To allow E2E tests to simulate complex resilience scenarios and ensure deterministic mocking across varying environments (Mock, Live, Canary, Driver-Dependent), SpeakSharp implements a strict **Universal Priority Pattern** for STT engine resolution.
+To ensure 100% CI reliability and eliminate non-deterministic "ping-pong" regressions, SpeakSharp enforces a strict **Negotiator → Selector → Factory** layering.
 
-**The Priority Chain:**
+#### The Orchestration Flow:
 
-The `TranscriptionService` resolves the engine instance using `resolveSTTImplementation`, which follows this hierarchy:
+1.  **STTNegotiator (Intent)**: Resolves the *intended* strategy based on policy and user preference.
+    - **Rule**: Must only use `ENV` for environment checks (`ENV.isTest && ENV.disableWasm`).
+    - **Rule**: No direct registry access.
+2.  **EngineSelector (Enforcement)**: The **authoritative boundary layer**. It enforces resource guards (WASM isolation) and resolves mocks.
+    - **Rule**: The **ONLY** layer allowed to access the `TestRegistry`.
+    - **Rule**: If `strategy.isMock` or `ENV.disableWasm`, it retrieves the engine from the registry.
+3.  **EngineFactory (Construction)**: A **pure implementer**.
+    - **Rule**: ZERO knowledge of test infrastructure, registries, or mocks.
+    - **Rule**: Only instantiates real production engines (`NativeBrowser`, `CloudAssemblyAI`, `PrivateSTT`).
+    - **Injection**: Responsible for injecting environment-aware parameters (e.g., watchdog timing) into services positionally, maintaining service-layer agnosticism.
 
-1.  **`TestRegistry` (Selection Container):** Priority 100. A synchronous lookup container. Injected mocks take absolute precedence.
-    *   **Partnership with Facade DI:** The `TestRegistry` provides the *source* of the dependency. The injection itself happens via **Facade DI**: the `PrivateWhisper` wrapper accepts an optional `injectedSTT` engine (`IPrivateSTT`) in its constructor (`injectedSTT || new PrivateSTT()`).
-    *   **Strict Zero Manifest:** E2E tests inject engine factories via `window.__SS_E2E__.registry` using Playwright's `addInitScript`. This ensures all mocks are available at **$T=0$** (the first microtask), eliminating asynchronous race conditions.
-2.  **`E2EConfig` (Environment Mocks):** Priority 50. Derived from the `__SS_E2E__` manifest. These are the standard "Fast Mocks" used in CI.
-3.  **Real Implementation:** Priority 0. The default production engines (OpenAI, TransformersJS, Web Speech API).
+#### Absolute Governance Rules:
 
-**Mechanics:**
-- **Diagnostic Introspection:** `TestRegistry.getInfo()` returns the merged state of manifest and local registrations, accessible via `window.__TEST_REGISTRY__.getInfo()`.
-- **Standard Mocks:** Shared mock behaviors (`failure`, `slow-load`, `controlled-progress`) are defined in `tests/helpers/testRegistry.helpers.ts`.
+| Rule | Rationale |
+| :--- | :--- |
+| **No Test Libs in Factory** | Prevents test concerns from leaking into production paths. |
+| **Kill `getEngineType()`** | Eliminates secondary sources of truth; use `ENV` exclusively. |
+| **T=0 Registry Injection** | Guarantees all mocks are available before first microtask, preventing races. |
+| **Environment-First Guard** | `ENV.disableWasm` takes precedence to prevent heavy ML loads in CI. |
 
-**Architecture Flow:**
-```ascii
-TranscriptionService.init(mode)
-       │
-       ▼
-resolveSTTImplementation(mode)
-       │
-       ▼
-TestRegistry.get(mode)? ───────────┐
-       │                           │
-    [No]                         [Yes]
-       │                           │
-       ▼                           ▼
-E2EConfig active? ─────────┐    Mock (Prio 100)
-       │                   │    (e.g. ControlledProgress)
-    [No]                 [Yes]
-       │                   │
-       ▼                   ▼
-Real Engine (Prio 0)    Standard Mock (Prio 50)
-                        (e.g. MockWhisper)
-```
+#### Dependency Flow:
+`TranscriptionService` → `STTNegotiator` (Strategy) → `EngineSelector` (Instance) → `EngineFactory` (Real) OR `TestRegistry` (Mock).
 
 ### ⚡ Optimistic Entry Pattern
 
@@ -813,6 +849,34 @@ To avoid blocking the user experience during large model downloads (e.g., Privat
 - **Path A (Hit)**: If the model is cached, initialization completes within the window, and the session begins in `private` mode immediately.
 - **Path B (Miss/Slow)**: If the model must be downloaded or initialization is slow, the 2s timeout triggers a `CACHE_MISS`. The system immediately falls back to the next available mode to ensure zero-wait recording.
 - **Mock Handling**: Mock instances (from `TestRegistry` or `E2EConfig`) **bypass the Optimistic Entry timeout** to prevent race conditions during automated tests, ensuring deterministic behavior even on slow CI runners.
+
+### 3.10 Forensic Signaling Infrastructure (v0.6.4)
+
+To support high-fidelity investigative debugging (forensics) without polluting production logs, SpeakSharp utilizes a centralized **Forensic Signaling Bridge**. This system allows E2E tests and agents to monitor internal state transitions and race conditions that are invisible to the standard UI.
+
+#### The e2eProbe Utility (`@/lib/e2eProbe`)
+
+The `e2eProbe` is the **authoritative interface** for all E2E telemetry. It centralizes the legacy, scattered `window.__SS_E2E__` methods into a type-safe, version-controlled utility.
+
+**Key Responsibilities:**
+1. **Signal Propagation**: Routes internal events (e.g., `ENGINE_READY`, `TRANSCRIPT_PULSE`) to the bridge.
+2. **Readiness Enforcement**: Used by the `SpeechRuntimeController.ensureReady()` gate to block interaction until forensic listeners are attached.
+3. **Trace Synchronization**: Ensures that the `runId` and `sessionId` are correctly correlated across the bridge for multi-session tracing.
+
+**Bridge Schema (`window.__SS_E2E__`):**
+```typescript
+interface E2EBridge {
+  isEngineInitialized: boolean;   // Authoritative readiness signal
+  isRouteReady: boolean;          // Route hydration status
+  _activeCallbacks: Map<string, Function>; // Forensic event listeners
+  registry: Map<string, any>;     // Mock engine injection slot
+  pushEvent: (type: string, payload: any) => void; // Event emission
+}
+```
+
+#### Forensic Patterns:
+- **Witness Variable Pattern**: In tests, imports that are only used for mocking or as "linter-witnesses" are preserved to satisfy strict quality gates without suppressing errors.
+- **Lately Captured State Pattern**: Used in async callbacks to ensure that signals emitted to the bridge always contain the *current* state rather than a stale closure.
 
 ### 🧪 E2E Resilience Testing Strategy
 
@@ -1085,7 +1149,7 @@ expect(text).toBe('5');
             *   `mockLiveTranscript()`: Tells the Bridge to simulate speech events.
             *   `navigateToRoute()`: Client-side navigation that preserves mock context.
 
-*   **Single Source of Truth (`pnpm test:all:local`):** A single command, `pnpm test:all:local`, is the user-facing entry point for all validation. It runs an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process both locally and in CI, guaranteeing consistency and speed.
+*   **Single Source of Truth (`pnpm test:full`):** A single command, `pnpm test:full`, is the developer-facing entry point for complete validation.
     *   **Image Processing (Test):** node-canvas (replaces Jimp/Sharp for stability)
 
 ## Testing and CI/CD
@@ -1154,7 +1218,7 @@ SpeakSharp employs a unified and resilient testing strategy designed for speed a
 
 This script is the **single source of truth** for all code validation. It is accessed via simple `pnpm` commands (e.g., `pnpm audit`) and is optimized for a 7-minute CI timeout by using aggressive parallelization.
 *   **Stage-Based Execution:** The script is designed to be called with different stages (`prepare`, `test`, `report`) that map directly to the jobs in the CI pipeline. This allows for a sophisticated, multi-stage workflow.
-*   **Local-First Mode:** When run without arguments (as with `pnpm test:all:local`), it executes a `local` stage that runs all checks sequentially, providing a comprehensive local validation experience.
+*   **Local-First Mode:** When run without arguments (as with `pnpm test:full`), it executes a `local` stage that runs all checks sequentially.
 
 ### CI Dependency Boundary (Architectural Principle)
 
@@ -1258,7 +1322,7 @@ The CI pipeline, defined in `.github/workflows/ci.yml`, is a multi-stage, parall
 
 Both the local test runner and CI use the same `test-audit.sh` script, ensuring perfect alignment between local and remote environments. However, they differ in execution strategy:
 
-**Local Test Runner (`pnpm test:all:local`):**
+**Local Test Runner (`pnpm test:full`):**
 - Runs `./test-audit.sh local` as a single process
 - Executes all 60 E2E tests serially
 - Quality checks (lint/typecheck/test) run in parallel via `concurrently`
@@ -1316,7 +1380,7 @@ The project uses a tiered testing approach to balance speed, reliability, and re
 |----------|---------|-------------|---------|
 | **1. Unit Tests** | `pnpm test:unit` | `happy-dom` | Fast, isolated logic tests. Mocks all external deps. |
 | **2. Integration Tests** | `pnpm test:unit` | `happy-dom` | Component + Provider interaction. Mocks services. |
-| **3. CI Simulation (E2E)** | `pnpm ci:full:local` | Playwright + **MSW** | **The Default.** Full app flow with **Mocked Backend**. Fast, reliable, runs on PRs. No secrets needed. |
+| **3. CI Simulation (E2E)** | `pnpm ci:full` | Playwright + **MSW** | **The Default.** Full app flow with **Mocked Backend**. Fast, reliable, runs on PRs. No secrets needed. |
 | **4. Integration** | `pnpm test:int:local` | Playwright + **Real APIs** | Validates integration with **Real Supabase/Stripe**. Non-driver-dependent subset. |
 | **4b. System** | `pnpm test:system:local:headed` | Playwright + **Real HW** | Full system suite including driver-dependent STT tests. Headed Chrome required. |
 | **5. Deploy Tests** | `pnpm test:deploy` | Real App | Production deployment validation. Runs post-deploy. |
@@ -1459,7 +1523,7 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 - Required secrets: `E2E_FREE_EMAIL`, `E2E_FREE_PASSWORD`, `SUPABASE_URL`, etc.
 
 **4. Resilience & Health Tests** (`tests/e2e/*.e2e.spec.ts`)
-- `health-check.e2e.spec.ts` performs the canonical app-wide journey.
+- `core.e2e.spec.ts` performs the canonical app-wide probe journey.
 - `priv-stt-mock-fallback.e2e.spec.ts` validates timeout and fallback under load.
 
 ##### Intentionally Skipped Tests Registry
@@ -1467,7 +1531,7 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 | Test File | Test Name | Skip Condition | Reason | CI Risk |
 |-----------|-----------|----------------|--------|---------|
 | `tier-limits.e2e.spec.ts` | Daily limit auto-stops | `process.env.CI` | Resilience test requires long timeout; not suitable for CI | ✅ None |
-| `health-check.e2e.spec.ts` | Production health check | `none` | Canonical E2E health check (was mock.smoke). | ✅ None |
+| `infra.probe.e2e.spec.ts` | Infrastructure Probe | `none` | Deterministic, Single-Path Probe. | ✅ None |
 | `priv-stt-mock-fallback.e2e.spec.ts` | 10s timeout hang detection | `process.env.CI` | Tests 10-second timeout behavior; too slow for CI matrix | ✅ None |
 | `analytics-journey.live.spec.ts` | Full analytics journey | `!AGENT_SECRET` | Requires provisioning secret for isolated user creation | ✅ None |
 | `live-transcript.live.spec.ts` | Native STT transcription | `browserName !== 'chromium'` | Web Speech API only works in Chromium | ✅ None |
@@ -2231,7 +2295,7 @@ E2E_FREE_EMAIL          about 1 month ago
 
 ### Canonical Health Check: Core User Journey
 
-Our E2E testing strategy includes a **health check** (`tests/e2e/core-journey.e2e.spec.ts`) that serves as the canonical verification of the application's integrity. This test verifies the complete end-to-end data flow in a single pass:
+Our E2E testing strategy includes a **health check** (`tests/e2e/infra.probe.e2e.spec.ts`) that serves as the canonical verification of the application's integrity. This test verifies the complete end-to-end data flow in a single pass:
 
 **Health Check Coverage:**
 1. **Unauthenticated Homepage:** Confirms public landing page loads correctly.
@@ -2241,7 +2305,7 @@ Our E2E testing strategy includes a **health check** (`tests/e2e/core-journey.e2
 5. **Session -> Analytics Flow:** Verifies the auto-redirect to the analytics dashboard upon stopping.
 6. **Data Persistence:** Confirms the new session appears in the history list with correct stats.
 
-**Purpose:** This test is triggered by `pnpm test:health:local`. It is optimized for speed by bypassing the full unit test suite and focusing purely on this high-level "Critical Path" verification. It provides a fast, reliable signal after every commit.
+**Purpose:** This test is triggered by `pnpm test:infra`. It is optimized for speed by focusing purely on this high-level "Deterministic Probe" validation.
 
 **Visual Documentation:** A separate test (`tests/e2e/capture-states.e2e.spec.ts`) handles screenshot generation for visual documentation. This decoupled architecture ensures that purely visual changes (e.g., CSS refactors) do not break the critical functional health check.
 
@@ -2305,7 +2369,7 @@ The E2E test environment is designed for stability and isolation. Several key ar
     ```ascii
     +---------------------------------+
     |        Playwright Test          |
-    | (e.g., core-journey.e2e.spec.ts)|
+    | (e.g., infra.probe.e2e.spec.ts)|
     +--------------- | ---------------+
                     |
     (1) Calls programmaticLogin(page)
@@ -3266,7 +3330,16 @@ The following patterns were established during the 'Expert' hardening cycle to e
 *   **Problem:** Mandatory failures in CI environments lacking WebGPU hardware when running "Deep" Private STT tests.
 *   **Solution:** Implemented `test.skip(!hasWebGPU)` logic coupled with `TestRegistry` mocks to ensure high-fidelity testing on hardware and clean passes in CI.
 
+#### Pattern 37: Forensic Signaling Infrastructure (e2eProbe)
+*   **Problem:** High-fidelity investigative debugging (forensics) required brittle, scattered `window` modifications that bypassed production code paths.
+*   **Solution:** Centralized all investigative telemetry into `e2eProbe.ts`. This authoritative bridge enforces readiness guards and provides type-safe access to internal state transitions for E2E tests without polluting production logic.
+
+#### Pattern 38: Check-Then-Act Provisioning [Logic]
+*   **Problem:** Conflation of **Probing** (is model available?) and **Provisioning** (download model) in the same code path, leading to infinite initialization loops when a model is missing.
+*   **Solution:** Decoupled the lifecycle via the FSM. Background pulses (`warmUp`) probe availability and stop at `DOWNLOAD_REQUIRED`. User intent (`initiateDownload`) explicitly transitions the FSM to `DOWNLOADING`, allowing the execution to proceed to `strategy.init()` to handle the actual resource acquisition.
+
 ### 17.2 Residual Technical Debt
+- **ModelManager Authority Gap**: `TransformersJSEngine` and `WhisperTurboEngine` bypass `ModelManager` for internal caching checks. `ModelManager.isModelDownloaded()` is therefore currently an unreliable source of truth. (v0.7.0).
 - **Validation**: Lack of input length enforcement for the `transcript` field in the database layer.
 - **Scalability**: Cold start optimization for deeply nested Edge Function imports.
 - **Resolved**: Private STT E2E flakiness (2026-03-16).

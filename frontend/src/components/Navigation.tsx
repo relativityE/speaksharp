@@ -134,6 +134,7 @@ const Navigation = () => {
                       disabled={isUpgrading}
                       size="sm"
                       className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20"
+                      data-testid="nav-upgrade-button"
                     >
                       {isUpgrading ? (
                         <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />

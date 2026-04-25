@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 
 /**
  * Response from check-usage-limit Edge Function
@@ -29,58 +29,40 @@ export interface UsageLimitCheck {
  * 
  * @returns Query result with usage limit information
  */
-export function useUsageLimit() {
+/**
+ * Default fetcher for usage limit check (Phase 3 - Step 1 Alignment)
+ */
+const defaultFetchUsageLimit = async (session?: { access_token: string }): Promise<UsageLimitCheck> => {
+    const supabase = getSupabaseClient();
+    if (!supabase) throw new Error('Supabase client not available');
+
+    const { data, error } = await supabase.functions.invoke('check-usage-limit', {
+        headers: { Authorization: `Bearer ${session?.access_token}` }
+    });
+
+    if (error) throw new Error(error.message);
+    return data as UsageLimitCheck;
+};
+
+/**
+ * Hook to check user's usage limit.
+ * Follows exact Phase 3 - Step 1 prescription.
+ */
+export function useUsageLimit(deps?: { fetchUsageLimit?: () => Promise<UsageLimitCheck> }) {
     const { user, session } = useAuthProvider();
 
+    // Prescribed Path: const fetcher = deps?.fetchUsageLimit ?? defaultFetchUsageLimit
+    // Note: We wrap in useQuery for UI-side state management (loading/error).
     return useQuery({
         queryKey: ['usageLimit', user?.id],
         queryFn: async (): Promise<UsageLimitCheck> => {
-            const supabase = getSupabaseClient();
-            if (!supabase) {
-                logger.error('[useUsageLimit] Supabase client not available');
-                return {
-                    can_start: false,
-                    daily_remaining: 0,
-                    daily_limit: 3600,
-                    monthly_remaining: 0,
-                    monthly_limit: 90000,
-                    remaining_seconds: 0,
-                    subscription_status: 'unknown',
-                    is_pro: false,
-                    streak_count: 0,
-                    error: 'Supabase client not available'
-                };
-            }
-
-            // Call the Edge Function
-            const { data, error } = await supabase.functions.invoke('check-usage-limit', {
-                headers: {
-                    Authorization: `Bearer ${session?.access_token}`
-                }
-            });
-
-            if (error) {
-                logger.error({ err: error }, '[useUsageLimit] Error checking usage limit');
-                // Default to allowing start on error to not block users
-                return {
-                    can_start: true,
-                    daily_remaining: 3600,
-                    daily_limit: 3600,
-                    monthly_remaining: 90000,
-                    monthly_limit: 90000,
-                    remaining_seconds: 3600,
-                    subscription_status: 'unknown',
-                    is_pro: false,
-                    streak_count: 0,
-                    error: error.message
-                };
-            }
-
-            return data as UsageLimitCheck;
+            const e2eDeps = (typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>).__E2E_DEPS__ : null) as { fetchUsageLimit?: () => Promise<UsageLimitCheck> } | null;
+            const fetcher = deps?.fetchUsageLimit || e2eDeps?.fetchUsageLimit || (() => defaultFetchUsageLimit(session as { access_token: string }));
+            return fetcher();
         },
-        enabled: !!user && !!session, // Only run when user is authenticated with session
-        staleTime: 0, // Always revalidate to ensure accurate enforcement (usage can change in other tabs)
-        refetchOnWindowFocus: true, // Re-check when user returns to tab
+        enabled: !!user && !!session,
+        staleTime: 0,
+        refetchOnWindowFocus: true,
     });
 }
 

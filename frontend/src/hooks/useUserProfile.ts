@@ -3,7 +3,7 @@ import { useAuthProvider } from "../contexts/AuthProvider";
 import { profileService } from "../services/domainServices";
 import { UserProfile } from "../types/user";
 import logger from "../lib/logger";
-import { TestFlags } from "../config/TestFlags";
+import { ENV } from "../config/TestFlags";
 
 declare global {
   interface Window {
@@ -61,7 +61,7 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
         const email = session.user.email?.toLowerCase() || '';
         const isProEmail = email.includes('pro-user') || email.includes('testuser') || email === 'test@example.com';
 
-        if ((import.meta.env.DEV || TestFlags.IS_E2E) && isProEmail) {
+        if ((import.meta.env.DEV || ENV.isE2E) && isProEmail) {
           // GUARD: Don't override if E2E test explicitly set subscription_status to 'free'
           // This allows tier-limits tests to work correctly with free user scenarios
           const isExplicitlyFree = profile?.subscription_status === 'free';
@@ -79,7 +79,7 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
             };
 
             // Signal E2E even for synthetic profiles
-            if (TestFlags.IS_E2E && typeof window !== 'undefined') {
+            if (ENV.isE2E && typeof window !== 'undefined') {
               window.__e2eProfileLoaded__ = true;
               window.__e2e_e2e_profile_loaded_fired__ = true;
               window.dispatchEvent(new CustomEvent('e2e:profile-loaded'));
@@ -99,7 +99,7 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
         }
 
         // Signal for E2E tests via Strict Zero Manifest
-        if (TestFlags.IS_E2E && typeof window !== 'undefined') {
+        if (ENV.isE2E && typeof window !== 'undefined') {
           window.__e2eProfileLoaded__ = true;
           window.__e2e_e2e_profile_loaded_fired__ = true;
           window.dispatchEvent(new CustomEvent('e2e:profile-loaded'));

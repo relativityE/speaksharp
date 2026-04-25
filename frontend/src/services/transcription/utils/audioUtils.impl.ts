@@ -1,6 +1,6 @@
 import logger from '../../../lib/logger';
 import { MicStream, MicStreamOptions } from './types';
-import { TestFlags } from '../../../config/TestFlags';
+import { ENV } from '../../../config/TestFlags';
 
 // This file contains the actual implementation for creating a microphone stream
 // and is dynamically imported by the 'safe' wrapper file (audioUtils.ts).
@@ -30,7 +30,7 @@ export async function createMicStreamImpl(
 ): Promise<MicStream> {
   // In test mode, return a mock stream to avoid hardware errors in CI.
   // CRITICAL: Bypass mock if we are explicitly running driver-dependent tests.
-  if (TestFlags.IS_E2E && TestFlags.ENGINE_TYPE !== 'real') {
+  if (ENV.IS_E2E && ENV.ENGINE_TYPE !== 'real') {
     logger.info('Mocking microphone stream for TEST_ENVIRONMENT');
     const mockStream: MicStream = {
       state: 'ready',
@@ -43,7 +43,7 @@ export async function createMicStreamImpl(
     };
 
     // Expose for E2E synchronization
-    if (TestFlags.DEBUG_ENABLED && typeof window !== 'undefined') {
+    if (ENV.DEBUG_ENABLED && typeof window !== 'undefined') {
       (window as unknown as WindowWithwebkitAudioContext).micStream = mockStream;
     }
 
@@ -128,7 +128,7 @@ export async function createMicStreamImpl(
   };
 
   // Expose for E2E synchronization
-  if (TestFlags.DEBUG_ENABLED && typeof window !== 'undefined') {
+  if (ENV.DEBUG_ENABLED && typeof window !== 'undefined') {
     (window as unknown as WindowWithwebkitAudioContext).micStream = stream;
     logger.info('[MicStream] 🎤 Ready and exposed to window.micStream');
   }

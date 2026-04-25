@@ -1,9 +1,10 @@
 import { beforeEach, afterEach, beforeAll, afterAll, vi, expect } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { WhisperEngineRegistry } from '@/services/transcription/engines/WhisperEngineRegistry';
+import { sttRegistry } from '@/services/transcription/STTRegistry';
 import { server } from './support/mocks/server';
 import { PORTS } from '../../scripts/build.config.js';
- 
+
 // Mock unified logger globally to prevent mock poisoning
 vi.mock('@/lib/logger', () => {
     const mockLogger = {
@@ -204,15 +205,15 @@ if (typeof window !== 'undefined') {
 
     // URL polyfills for PDF generation (Necessary bridge for jsdom)
     if (typeof globalThis.URL.createObjectURL === 'undefined') {
-        Object.defineProperty(globalThis.URL, 'createObjectURL', { 
+        Object.defineProperty(globalThis.URL, 'createObjectURL', {
             value: vi.fn().mockReturnValue('blob:mock'),
-            configurable: true 
+            configurable: true
         });
     }
     if (typeof globalThis.URL.revokeObjectURL === 'undefined') {
-        Object.defineProperty(globalThis.URL, 'revokeObjectURL', { 
+        Object.defineProperty(globalThis.URL, 'revokeObjectURL', {
             value: vi.fn(),
-            configurable: true 
+            configurable: true
         });
     }
 
@@ -261,8 +262,10 @@ if (typeof window !== 'undefined') {
         });
     }
 
+    (globalThis as any).__TEST__ = true;
+
     (window as any).__SS_E2E__ = {
-        isActive: true,
+        isActive: false,
         engineType: 'mock',
         registry: {},
         flags: {
@@ -332,6 +335,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+    // 0. Clean up STT Registry (Identity Stabilization)
+    if (sttRegistry) sttRegistry.clear();
+
     // 1. Clean up MSW
     server.resetHandlers();
 

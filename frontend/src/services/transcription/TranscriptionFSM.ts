@@ -11,6 +11,8 @@ export type TranscriptionState =
     | 'STOPPING'
     | 'CLEANING_UP'
     | 'DOWNLOAD_REQUIRED'
+    | 'DOWNLOADING'
+    | 'DOWNLOAD_COMPLETE'
     | 'FAILED'
     | 'TERMINATED';
 
@@ -18,14 +20,19 @@ export type TranscriptionEvent =
     | { type: 'START_REQUESTED' }
     | { type: 'MIC_ACQUIRED' }
     | { type: 'ENGINE_INIT_REQUESTED' }
+    | { type: 'ENGINE_INIT_SUCCESS' }
     | { type: 'ENGINE_STARTED' }
     | { type: 'PAUSE_REQUESTED' }
+    | { type: 'PAUSE_COMPLETED' }
     | { type: 'RESUME_REQUESTED' }
+    | { type: 'RESUME_COMPLETED' }
     | { type: 'STOP_REQUESTED' }
     | { type: 'STOP_COMPLETED' }
     | { type: 'RESET_REQUESTED' }
     | { type: 'ERROR_OCCURRED'; error: Error }
     | { type: 'DOWNLOAD_REQUIRED' }
+    | { type: 'DOWNLOAD_STARTED' }
+    | { type: 'DOWNLOAD_FINISHED' }
     | { type: 'TERMINATE_REQUESTED' }
     | { type: 'TERMINATE_COMPLETED' }
     | { type: 'POLICY_UPDATED'; policy: TranscriptionPolicy };
@@ -51,21 +58,35 @@ export class TranscriptionFSM {
 
         { from: 'ACTIVATING_MIC', to: 'READY', event: 'MIC_ACQUIRED' },
 
+        { from: 'IDLE', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' }, // Allow direct init from idle
         { from: 'READY', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' },
         { from: 'ENGINE_INITIALIZING', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' }, // Allow re-init/fallback
         { from: 'FAILED', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' }, // Allow fallback/retry
 
+        { from: 'ENGINE_INITIALIZING', to: 'READY', event: 'ENGINE_INIT_SUCCESS' },
+        { from: 'DOWNLOADING', to: 'READY', event: 'ENGINE_INIT_SUCCESS' },
+        { from: 'READY', to: 'RECORDING', event: 'ENGINE_STARTED' },
         { from: 'ENGINE_INITIALIZING', to: 'RECORDING', event: 'ENGINE_STARTED' },
         { from: 'ENGINE_INITIALIZING', to: 'IDLE', event: 'STOP_REQUESTED' },
         { from: 'ENGINE_INITIALIZING', to: 'IDLE', event: 'RESET_REQUESTED' },
         { from: 'ENGINE_INITIALIZING', to: 'DOWNLOAD_REQUIRED', event: 'DOWNLOAD_REQUIRED' },
+        { from: 'IDLE', to: 'DOWNLOAD_REQUIRED', event: 'DOWNLOAD_REQUIRED' },
+        { from: 'READY', to: 'DOWNLOAD_REQUIRED', event: 'DOWNLOAD_REQUIRED' }, // Allow download required from ready
 
         { from: 'DOWNLOAD_REQUIRED', to: 'IDLE', event: 'RESET_REQUESTED' },
         { from: 'DOWNLOAD_REQUIRED', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' },
+        { from: 'DOWNLOAD_REQUIRED', to: 'DOWNLOADING', event: 'DOWNLOAD_STARTED' },
+        { from: 'DOWNLOADING', to: 'DOWNLOAD_COMPLETE', event: 'DOWNLOAD_FINISHED' },
+        { from: 'DOWNLOADING', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' },
+        { from: 'DOWNLOADING', to: 'FAILED', event: 'ERROR_OCCURRED' },
+        { from: 'DOWNLOADING', to: 'IDLE', event: 'RESET_REQUESTED' },
+        { from: 'DOWNLOAD_COMPLETE', to: 'IDLE', event: 'RESET_REQUESTED' },
         { from: 'DOWNLOAD_REQUIRED', to: 'FAILED', event: 'ERROR_OCCURRED' },
 
         { from: 'RECORDING', to: 'PAUSED', event: 'PAUSE_REQUESTED' },
+        { from: 'PAUSED', to: 'PAUSED', event: 'PAUSE_COMPLETED' }, // Settlement
         { from: 'PAUSED', to: 'RECORDING', event: 'RESUME_REQUESTED' },
+        { from: 'RECORDING', to: 'RECORDING', event: 'RESUME_COMPLETED' }, // Settlement
 
         { from: 'RECORDING', to: 'STOPPING', event: 'STOP_REQUESTED' },
         { from: 'PAUSED', to: 'STOPPING', event: 'STOP_REQUESTED' }, // Can stop while paused
@@ -85,12 +106,13 @@ export class TranscriptionFSM {
         // Terminal & Cleanup Sequence
         { from: 'IDLE', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
         { from: 'FAILED', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
+        { from: 'ACTIVATING_MIC', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
+        { from: 'READY', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
+        { from: 'ENGINE_INITIALIZING', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'RECORDING', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'PAUSED', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'STOPPING', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
-        { from: 'ACTIVATING_MIC', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
-        { from: 'ENGINE_INITIALIZING', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
-        { from: 'READY', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
+        { from: 'DOWNLOAD_REQUIRED', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'CLEANING_UP', to: 'TERMINATED', event: 'TERMINATE_COMPLETED' },
 
         // Finalize cleanup - Strict outbound transitions per Senior Audit
@@ -134,8 +156,9 @@ export class TranscriptionFSM {
         logger.info({
             from: previousState,
             to: this.currentState,
-            event: event.type
-        }, `[FSM] State transition: ${previousState} -> ${this.currentState}`);
+            event: event.type,
+            error: 'error' in event ? (event as { error: Error }).error.message : undefined
+        }, `[FSM] ⚡ Transition: ${previousState} --(${event.type})--> ${this.currentState}`);
 
         this.notifyListeners();
         return true;

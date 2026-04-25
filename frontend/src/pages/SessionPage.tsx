@@ -22,7 +22,7 @@ import { SunsetModals } from '@/components/session/SunsetModals';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 
 /**
- * ARCHITECTURE (Senior Architect):
+ * ARCHITECTURE:
  * SessionPage is now a "Thin View" component.
  * All complex state orchestration, timer logic, and persistence flows 
  * have been extracted into useSessionLifecycle.
@@ -119,7 +119,7 @@ export const SessionPage: React.FC = () => {
     };
 
     return (
-        <main aria-label="Practice Session" data-testid="session-page" className="min-h-screen bg-gradient-subtle pt-20">
+        <main aria-label="Practice Session" data-testid="session-page" data-runtime-state={runtimeState} data-engine-ready={isReady ? 'true' : 'false'} className="min-h-screen bg-gradient-subtle pt-20">
             {/* Page Header */}
             <div className="relative text-center py-4 px-6 max-w-7xl mx-auto flex flex-col items-center">
                 <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>
@@ -132,7 +132,7 @@ export const SessionPage: React.FC = () => {
                             size="sm"
                             variant="outline"
                             onClick={() => {
-                                void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.warmUp('private'));
+                                void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
                             }}
                             className="gap-2 h-9 px-4 text-[10px] font-black uppercase tracking-[0.2em] bg-primary/10 border-primary/30 hover:bg-primary/20 text-primary shadow-sm hover:shadow-md transition-all group"
                             data-testid="download-model-button"

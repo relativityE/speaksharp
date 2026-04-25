@@ -1,22 +1,22 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import posthog from 'posthog-js';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthProvider } from '../contexts/AuthProvider';
 import { useProfile } from './useProfile';
-import { useSessionStore } from '../stores/useSessionStore';
+import { useSessionStore } from '@/stores/useSessionStore';
 import { useSpeechRecognition } from './useSpeechRecognition';
 import { useSessionMetrics } from './useSessionMetrics';
-import { useUsageLimit } from './useUsageLimit';
+import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
 import { useStreak } from './useStreak';
 import { useUserFillerWords } from './useUserFillerWords';
 import { isPro } from '@/constants/subscriptionTiers';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
-import { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
-import { TestFlags } from '@/config/TestFlags';
+import { ENV } from '@/config/TestFlags';
 
 export const useSessionLifecycle = () => {
     const { session } = useAuthProvider();
@@ -25,7 +25,8 @@ export const useSessionLifecycle = () => {
     const tick = useSessionStore(state => state.tick);
     const elapsedTime = useSessionStore(state => state.elapsedTime);
     const isLockHeldByOther = useSessionStore(state => state.isLockHeldByOther);
-    const { data: usageLimit } = useUsageLimit();
+    const e2eDeps = (typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>).__E2E_DEPS__ : null) as { fetchUsageLimit?: () => Promise<UsageLimitCheck> } | null;
+    const { data: usageLimit } = useUsageLimit(e2eDeps || undefined);
     const { updateStreak } = useStreak();
     const { userFillerWords } = useUserFillerWords();
     const activeEngine = useSessionStore(state => state.activeEngine);
@@ -102,9 +103,9 @@ export const useSessionLifecycle = () => {
             if (elapsedTime < MIN_SESSION_DURATION_SECONDS && !options?.stopReason) {
                 await speechRuntimeController.stopRecording();
                 setShowAnalyticsPrompt(false);
-                setSTTStatus({ 
-                    type: 'info', 
-                    message: `⚠️ Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.` 
+                setSTTStatus({
+                    type: 'info',
+                    message: `⚠️ Session too short (${elapsedTime}s). Minimum ${MIN_SESSION_DURATION_SECONDS}s required.`
                 });
                 isProcessingRef.current = false;
                 return;
@@ -116,7 +117,7 @@ export const useSessionLifecycle = () => {
                 await speechRuntimeController.stopRecording();
 
                 const streakResult = updateStreak(); // UI layer still needs streak for display
-                
+
                 if (options?.stopReason) {
                     setSTTStatus({ type: 'info', message: options.stopReason });
                 } else {
@@ -156,15 +157,15 @@ export const useSessionLifecycle = () => {
 
                 // Mutex Check: Use the reactive store state updated by SpeechRuntimeController
                 if (isLockHeldByOther) {
-                    setSTTStatus({ 
-                        type: 'error', 
-                        message: '⛔ Active session in another tab. Switch to that tab to continue.' 
+                    setSTTStatus({
+                        type: 'error',
+                        message: '⛔ Active session in another tab. Switch to that tab to continue.'
                     });
                     return;
                 }
 
                 // Expert Diagnostic
-                if (TestFlags.IS_E2E) {
+                if (ENV.isTest) {
                     logger.info({
                         isListening,
                         isProUser,
@@ -176,7 +177,7 @@ export const useSessionLifecycle = () => {
                 if (typeof document !== 'undefined') {
                     document.body.setAttribute('data-user-tier', isProUser ? 'pro' : 'free');
                 }
-                
+
                 // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
                 await speechRuntimeController.startRecording(undefined, userFillerWords);
                 posthog.capture('session_started', { mode: sttMode });
@@ -294,14 +295,18 @@ export const useSessionLifecycle = () => {
         }
     }, [sttMode, isListening]);
 
-    // Cleanup on unmount - TRULY only on unmount
+    // UI Cleanup on unmount
+    // We ONLY detach listeners (subscriber_unmount) to handle React remounts.
+    // Hard termination is handled at the Route level.
     useEffect(() => {
         return () => {
-            logger.debug('[useSessionLifecycle] Component unmounting - Cleanup running');
+            logger.debug('[useSessionLifecycle] Component unmounting - Detaching listeners');
             if (isListeningRef.current) {
-                logger.debug('[useSessionLifecycle] Session active on unmount - forcing stop');
-                void speechRuntimeController.stopRecording(); 
+                logger.info('[useSessionLifecycle] Session active on unmount - stopping recording');
+                void speechRuntimeController.stopRecording();
             }
+            // Explicitly detach to prevent listener accumulation (Invariant #3)
+            void speechRuntimeController.reset('subscriber_unmount');
         };
     }, []);
 

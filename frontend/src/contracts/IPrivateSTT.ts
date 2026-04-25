@@ -7,7 +7,7 @@ export interface PrivateSTTInitOptions extends TranscriptionModeOptions {
 }
 
 export interface IPrivateSTT {
-    init(options: PrivateSTTInitOptions): Promise<Result<EngineType, Error>>;
+    init(timeoutMs?: number): Promise<Result<void, Error>>;
 
     /**
      * Start the underlying engine
@@ -21,7 +21,7 @@ export interface IPrivateSTT {
 
     transcribe(audio: Float32Array): Promise<Result<string, Error>>;
     destroy(): Promise<void>;
-    getEngineType(): EngineType | null;
+    getEngineType(): string;
     /**
      * Get the last heartbeat timestamp from the active engine
      */

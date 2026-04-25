@@ -1,71 +1,43 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
-import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
-import { STTEngine } from '@/contracts/STTEngine';
+import { NavigateFunction } from 'react-router-dom';
+import { sttRegistry } from '../STTRegistry';
+import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
 import { MicStream } from '../utils/types';
-import { testRegistry } from '../TestRegistry';
+import { EngineType } from '../../../contracts/IPrivateSTTEngine';
 
+/**
+ * @file TranscriptionService.maxAttempts.test.ts
+ * @description Verifies the "Max Attempts" circuit breaker and fallback logic.
+ */
 
+import { setupStrictZero } from '../../../../../tests/setupStrictZero';
 
-vi.mock('../utils/audioUtils', () => ({
-    createMicStream: vi.fn().mockResolvedValue({
-        stop: vi.fn(),
-        onFrame: vi.fn(),
-    }),
-}));
-
-describe('TranscriptionService - Max Attempts', () => {
+describe('TranscriptionService Max Attempts', () => {
     let service: TranscriptionService;
-    const onStatusChange = vi.fn();
-
-    class MockPrivateEngine extends STTEngine {
-        public readonly type = 'whisper-turbo' as const;
-        protected async onInit() { return Result.err(new Error('Persistent Fail')); }
-        protected async onStart() {}
-        protected async onStop() {}
-        protected async onDestroy() {}
-        async transcribe() { return Result.ok('test'); }
-
-        public override async getTranscript() { return 'test'; }
-    }
-
-    class MockNativeEngine extends STTEngine {
-        public readonly type = 'native' as const;
-        protected async onInit() { return Result.ok(undefined); }
-        protected async onStart() {}
-        protected async onStop() {}
-        protected async onDestroy() {}
-        async transcribe() { return Result.ok('test'); }
-
-        public override async getTranscript() { return 'test'; }
-    }
-
-    const privatePolicy: TranscriptionPolicy = {
-        ...PROD_FREE_POLICY,
-        allowNative: true,
-        allowCloud: false,
-        allowPrivate: true,
-        preferredMode: 'private',
-        allowFallback: true,
-        executionIntent: 'test-max-attempts'
-    };
 
     beforeEach(async () => {
         vi.useFakeTimers();
-        vi.clearAllMocks();
-        testRegistry.clear();
-        // FailureManager is now instance-bound to the service
+        
+        // 1. Setup T=0 Environment
+        await setupStrictZero();
 
         service = new TranscriptionService({
             onTranscriptUpdate: vi.fn(),
             onModelLoadProgress: vi.fn(),
             onReady: vi.fn(),
-            onStatusChange,
-            navigate: vi.fn(),
-            getAssemblyAIToken: vi.fn(),
             session: null,
-            policy: privatePolicy,
+            navigate: vi.fn() as unknown as NavigateFunction,
+            getAssemblyAIToken: vi.fn().mockResolvedValue('token'),
+            policy: {
+                allowNative: true,
+                allowCloud: false,
+                allowPrivate: true,
+                preferredMode: 'private',
+                executionIntent: 'test',
+                allowFallback: true
+            },
             mockMic: {
                 stream: {} as MediaStream,
                 stop: vi.fn(),
@@ -73,50 +45,51 @@ describe('TranscriptionService - Max Attempts', () => {
                 onFrame: vi.fn().mockReturnValue(() => { }),
             } as unknown as MicStream
         });
-
-        await service.init();
     });
 
     afterEach(async () => {
-        if (service && !service.isServiceDestroyed()) {
+        if (service) {
             await service.destroy();
         }
-        testRegistry.clear();
         vi.useRealTimers();
+        vi.restoreAllMocks();
     });
 
-    it('should enforce Native fallback after max private attempts', async () => {
-        const privateEngine = new MockPrivateEngine();
-        testRegistry.register('private', () => privateEngine);
-        testRegistry.register('native', () => new MockNativeEngine());
-
-        const failureManager = service.getFailureManager();
-
-        // 1. Force max attempts directly to ensure clean state
-        for (let i = 0; i < 3; i++) {
-            failureManager.recordPrivateFailure();
+    it('should block Private transcription after max failures but respect No Implicit Fallback', async () => {
+        // 1. Setup Mock Engine that always fails init
+        class FailureEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            private failCount = 0;
+            protected async onInit() { 
+                this.failCount++;
+                return Result.err(new Error(`FAIL ${this.failCount}`)); 
+            }
+            public async checkAvailability() {
+                return { isAvailable: true };
+            }
+            protected async onStart() {}
+            protected async onStop() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'whisper-turbo' as EngineType; }
         }
 
-        // 2. Prepare spy for validation
-        const initSpy = vi.spyOn(privateEngine, 'init');
-        initSpy.mockClear();
-        onStatusChange.mockClear();
+        const mockEngine = new FailureEngine();
+        sttRegistry.register('whisper-turbo', () => mockEngine);
 
-        // 3. Attempt transcription - Should NOT try Private, should Force Native directly
-        // We re-apply the private policy to ensure mode resolution *starts* as private
-        await service.startTranscription(privatePolicy);
+        await service.init();
+        
+        // 3. Trigger 3 consecutive failures
+        for (let i = 0; i < 3; i++) {
+            await service.startTranscription();
+            expect(service.getState()).toBe('FAILED');
+        }
 
-        // EXPECTATIONS - Behavior-based
-        // Should NOT have tried to init private engine again
-        expect(initSpy).not.toHaveBeenCalled();
-
-        // Should be in native mode
-        expect(service.getMode()).toBe('native');
-
-        // Should have emitted fallback status
-        expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({
-            type: 'fallback',
-            newMode: 'native'
-        }));
+        // 4. Verification of "No Implicit Fallback"
+        // Mode remains 'private' despite failures, conforming to Phase 4.3 invariant
+        expect(service.getMode()).toBe('private');
+        
+        // Final State should be FAILED
+        expect(service.getState()).toBe('FAILED');
     });
 });

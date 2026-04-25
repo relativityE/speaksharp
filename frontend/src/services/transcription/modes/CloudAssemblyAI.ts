@@ -1,11 +1,12 @@
-import { STTEngine } from '@/contracts/STTEngine';
-import { EngineType, EngineCallbacks } from '@/contracts/IPrivateSTTEngine';
-import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, TranscriptionError, Result } from './types';
+import { STTEngine, validateEngine } from '../../../contracts/STTEngine';
+import type { EngineType, IPrivateSTTEngine } from '../../../contracts/IPrivateSTTEngine';
+import { Result, type ITranscriptionEngine, type TranscriptionModeOptions, type Transcript } from './types';
 import { getSupabaseClient } from '../../../lib/supabaseClient';
-import { Session } from '@supabase/supabase-js';
+import type { Session } from '@supabase/supabase-js';
 import { floatToInt16Async } from '../utils/AudioProcessor';
+import { ENV } from '../../../config/TestFlags';
+import { TranscriptionError } from '../errors';
 import logger from '../../../lib/logger';
-import { TestFlags } from '../../../config/TestFlags';
 
 // Message types for AssemblyAI WebSocket
 interface AssemblyAIMessage {
@@ -37,12 +38,13 @@ type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecti
  */
 export default class CloudAssemblyAI extends STTEngine implements ITranscriptionEngine {
   public readonly type: EngineType = 'cloud';
-  
+
+  private mockEngine?: IPrivateSTTEngine;
   private onTranscriptUpdate?: (update: { transcript: Transcript }) => void;
   private onModelLoadProgress?: (progress: number | null) => void;
   public onReady?: () => void;
   private onError?: (error: TranscriptionError) => void;
-  
+
   private socket: WebSocket | null = null;
   private isListening: boolean = false;
   private audioQueue: Float32Array[] = [];
@@ -58,14 +60,12 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   private baseReconnectDelay: number = 1000;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private isReconnect: boolean = false;
-
   private session: Session | null = null;
-  private options?: TranscriptionModeOptions;
 
-  constructor(options?: TranscriptionModeOptions) {
-    super();
+  constructor(options?: TranscriptionModeOptions, mockEngine?: IPrivateSTTEngine) {
+    super(options);
+    this.mockEngine = mockEngine;
     if (options) {
-      this.options = options;
       this.session = options.session ?? null;
       this.onTranscriptUpdate = options.onTranscriptUpdate;
       this.onModelLoadProgress = options.onModelLoadProgress;
@@ -74,37 +74,151 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     }
   }
 
-  protected async onInit(callbacks: EngineCallbacks | TranscriptionModeOptions): Promise<Result<void, Error>> {
-    // We already captured options in the constructor, but we'll accept callbacks if they change
-    const opts = callbacks as TranscriptionModeOptions;
-    if (opts.onTranscriptUpdate) this.onTranscriptUpdate = opts.onTranscriptUpdate;
-    if (opts.onModelLoadProgress) this.onModelLoadProgress = opts.onModelLoadProgress;
-    if (opts.onReady) this.onReady = opts.onReady;
-    if (opts.onError) this.onError = opts.onError;
-    
-    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] Init complete (lazy connection strategy).');
+  private get modeOptions(): TranscriptionModeOptions | null {
+    return this.options as TranscriptionModeOptions;
+  }
+
+  /**
+   * STTStrategy Requirement: Probe availability and prerequisites.
+   */
+  public async checkAvailability(): Promise<import('../STTStrategy').AvailabilityResult> {
+    // Mock engine injected = availability is authoritatively declared by test harness
+    if (this.mockEngine) {
+      return { isAvailable: true };
+    }
+
+    // 1. Check for network connectivity
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return {
+        isAvailable: false,
+        reason: 'OFFLINE',
+        message: 'AssemblyAI requires an active internet connection. Please check your network and retry.'
+      };
+    }
+
+    // 2. Check for existence of Supabase session (primary auth source)
+    const supabase = getSupabaseClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session && !this.isE2EEnvironment()) {
+      return {
+        isAvailable: false,
+        reason: 'NO_API_KEY', // Semantic mapping to "Not Authenticated"
+        message: 'Cloud transcription requires authentication. Please sign in.'
+      };
+    }
+
+    return { isAvailable: true };
+  }
+
+
+  protected async onInit(timeoutMs?: number): Promise<Result<void, Error>> {
+    if (this.mockEngine) {
+        logger.info('[CloudAssemblyAI] 🧪 Using injected MockEngine, initializing...');
+        if (this.mockEngine.init) {
+            await this.mockEngine.init(timeoutMs);
+        }
+        return Result.ok(undefined);
+    }
+
+    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] Init complete.');
     return Result.ok(undefined);
   }
 
   protected async onStart(): Promise<void> {
     if (this.isListening) return;
 
+    // Use injected mock if available
+    if (this.mockEngine) {
+        logger.info('[CloudAssemblyAI] 🧪 Using injected MockEngine');
+        validateEngine(this.mockEngine);
+    }
+
     this.isListening = true;
     this.currentTranscript = '';
     this.reconnectionAttempts = 0;
     this.isReconnect = false;
-    await this.connect();
+    
+    // Only connect if not mocked
+    if (!this.mockEngine) {
+        await this.connect();
+    } else {
+        await this.mockEngine.start();
+    }
   }
 
   protected async onStop(): Promise<void> {
-    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] 🛑 Stopping transcription');
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[CloudAssemblyAI] Stopping connection...');
     this.isListening = false;
     await this.closeConnection();
   }
 
+  public async pause(): Promise<void> {
+    await super.pause();
+  }
+
+  protected async onPause(): Promise<void> {
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[CloudAssemblyAI] Pausing connection (no-op)...');
+  }
+
+  public async resume(): Promise<void> {
+    await super.resume();
+  }
+
+  protected async onResume(): Promise<void> {
+    logger.info({ sId: this.serviceId, rId: this.runId }, '[CloudAssemblyAI] Resuming connection (no-op)...');
+  }
+
   protected async onDestroy(): Promise<void> {
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] 🛑 Destroying engine');
-    await this.onStop();
+    
+    // Nuclear Cleanup: Kill timers and socket immediately
+    this.isListening = false;
+
+    if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+    }
+
+    if (this.socket) {
+        this.socket.onmessage = null;
+        this.socket.onclose = null;
+        this.socket.onopen = null;
+        this.socket.onerror = null;
+        this.socket.close();
+        this.socket = null;
+    }
+  }
+
+  public async terminate(): Promise<void> {
+    if (this.isTerminated) return;
+    
+    logger.info({ sId: this.serviceId, rId: this.instanceId }, '[CloudAssemblyAI] 🛑 Nuclear termination requested');
+    this.isListening = false;
+
+    if (this.reconnectTimer) {
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+    }
+
+    if (this.mockEngine) {
+      if (typeof this.mockEngine.terminate === 'function') await this.mockEngine.terminate();
+      else await this.mockEngine.destroy();
+    }
+
+    await this.closeConnection();
+    await super.terminate();
+  }
+
+  public getLastHeartbeatTimestamp(): number {
+    return this.mockEngine ? this.mockEngine.getLastHeartbeatTimestamp() : super.getLastHeartbeatTimestamp();
+  }
+
+  public override async getTranscript(): Promise<string> {
+    const engineWithGet = this.mockEngine as unknown as { getTranscript?: () => Promise<string> };
+    if (engineWithGet && engineWithGet.getTranscript) {
+        return engineWithGet.getTranscript();
+    }
+    return super.getTranscript();
   }
 
   async transcribe(_audio: Float32Array): Promise<Result<string, Error>> {
@@ -118,7 +232,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     // Pattern: Used by Stripe, Auth0, Twilio SDKs
 
     if (this.isE2EEnvironment()) {
-      logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, '[CloudAssemblyAI] 🧪 E2E mode - bypassing auth');
+      logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, '[CloudAssemblyAI] 🧪 Test/E2E mode - bypassing auth');
       return this.getMockToken();
     }
 
@@ -156,8 +270,9 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     }
   }
 
-  private isE2EEnvironment(): boolean {
-    return TestFlags.IS_E2E;
+  /** @internal */
+  public isE2EEnvironment(): boolean {
+    return ENV.isE2E || ENV.isTest;
   }
 
   private isDevelopmentEnvironment(): boolean {
@@ -187,7 +302,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       }
 
       // 🚀 PERFORMANCE: Add STT Word Boosting for user words (Fixes Domain 4)
-      const vocabulary = this.options?.userWords || [];
+      const vocabulary = this.modeOptions?.userWords || [];
       const keytermsParam = vocabulary.length > 0
         ? `&keyterms_prompt=${encodeURIComponent(vocabulary.join(','))}`
         : '';
@@ -196,11 +311,17 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
       this.socket = new WebSocket(wsUrl);
 
-      this.socket.onopen = async () => {
+      this.socket.onopen = () => {
         // Guard: zombie socket check
         if (currentConnectionId !== this.connectionId) {
           logger.warn({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] closing zombie socket for ID ${currentConnectionId}`);
-          this.socket?.close();
+          if (this.socket) {
+              this.socket.onmessage = null;
+              this.socket.onopen = null;
+              this.socket.onclose = null;
+              this.socket.onerror = null;
+              this.socket.close();
+          }
           return;
         }
 
@@ -268,12 +389,14 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
       case 'PartialTranscript':
         if (data.text) {
+          this.updateHeartbeat(); // Satisfy Watchdog on Partial
           if (this.onTranscriptUpdate) this.onTranscriptUpdate({ transcript: { partial: data.text } });
         }
         break;
 
       case 'FinalTranscript':
         if (data.text) {
+          this.updateHeartbeat(); // Satisfy Watchdog on Final
           // Accumulate transcript
           this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${data.text}` : data.text;
           // Strict Turn Assembly: Final overwrites partial
@@ -317,8 +440,12 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
       logger.warn({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] Connection lost. Reconnecting in ${Math.round(delay)}ms...`);
 
+      const currentId = this.connectionId;
       this.reconnectTimer = setTimeout(() => {
-        void this.connect();
+        // Generation Guard: Abort if engine was destroyed or restarted while waiting
+        if (this.connectionId === currentId && this.isListening) {
+          void this.connect();
+        }
       }, delay);
 
     } else {
@@ -333,7 +460,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
   private async closeConnection(): Promise<void> {
     this.updateHeartbeat();
-    
+
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -342,15 +469,49 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     if (this.socket) {
       // Send termination message if open
       if (this.socket.readyState === WebSocket.OPEN) {
-        this.socket.send(JSON.stringify({ terminate_session: true }));
+        try {
+          this.socket.send(JSON.stringify({ terminate_session: true }));
+        } catch (err) {
+          logger.warn({ err }, '[CloudAssemblyAI] Error sending terminate_session');
+        }
       }
-      this.socket.close();
-      this.socket = null;
+
+      // DETERMINISTIC SHUTDOWN: Await the actual 'close' event
+      if (this.socket.readyState !== WebSocket.CLOSED) {
+        // Silencing listeners EXCEPT for onclose (the resolve trigger)
+        this.socket.onmessage = null;
+        this.socket.onopen = null;
+        this.socket.onerror = null;
+
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => {
+            logger.warn('[CloudAssemblyAI] Socket close timed out. Forcing closure.');
+            resolve();
+          }, 2000); // 2s safety timeout
+
+          if (this.socket) {
+            this.socket.onclose = () => {
+              clearTimeout(timeout);
+              resolve();
+            };
+            this.socket.close();
+          } else {
+            resolve();
+          }
+        });
+      }
+      
+      if (this.socket) {
+          this.socket.onclose = null;
+          this.socket = null;
+      }
     }
 
     this.audioQueue = []; // Clear queue
     this.updateConnectionState('disconnected');
   }
+
+
 
   public processAudio(audioData: Float32Array): void {
     if (!this.isListening) return;

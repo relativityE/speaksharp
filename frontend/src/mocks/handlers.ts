@@ -1,5 +1,5 @@
 import { http, HttpResponse, type RequestHandler } from 'msw';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 import { createMockSession, createMockUserProfile, createMockUser } from './test-user-utils';
 import { MOCK_SESSION_HISTORY } from '@shared/test-fixtures';
 
@@ -155,7 +155,14 @@ export const handlers: RequestHandler[] = [
   // consistent with the one created by the AuthProvider mock.
   http.get('*/rest/v1/user_profiles', ({ request }) => {
     logger.info('[MSW DEBUG] Intercepted: GET /rest/v1/user_profiles');
-    const profile = createMockUserProfile();
+    
+    // Tier-Aware Mock: Branch based on Deterministic Tier Tokens (Harden: deterministic E2E identity)
+    const authHeader = request.headers.get('Authorization') || '';
+    const isPro = authHeader.includes('mock-pro-token');
+    
+    const profile = createMockUserProfile({ 
+      subscription_status: isPro ? 'pro' : 'free' 
+    });
 
     // DEFENSIVE: Verify mock profile was created with required fields
     if (!profile) {
@@ -370,14 +377,18 @@ export const handlers: RequestHandler[] = [
   }),
 
   // Edge Function: check-usage-limit
-  http.post('*/functions/v1/check-usage-limit', () => {
+  http.post('*/functions/v1/check-usage-limit', ({ request }) => {
     logger.info('[MSW DEBUG] Intercepted: POST /functions/v1/check-usage-limit');
-    // Return unlimited usage for test user (Pro tier simulation)
+    
+    // Tier-Aware Mock: Branch based on Deterministic Tier Tokens
+    const authHeader = request.headers.get('Authorization') || '';
+    const isPro = authHeader.includes('mock-pro-token');
+
     return HttpResponse.json({
       allowed: true,
       remaining_minutes: 999,
       limit_minutes: 999,
-      is_pro: true,
+      is_pro: isPro,
     });
   }),
 

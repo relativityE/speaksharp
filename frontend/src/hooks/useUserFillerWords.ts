@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSupabaseClient } from '../lib/supabaseClient';
 import { useAuthProvider } from '../contexts/AuthProvider';
-import { useUsageLimit } from './useUsageLimit';
-import { useSessionStore } from '../stores/useSessionStore';
+import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
+import { useSessionStore } from '@/stores/useSessionStore';
 import { toast } from '@/lib/toast';
 import { getMaxFillerWords } from '../constants/subscriptionTiers';
 
@@ -18,13 +18,14 @@ interface UserWord {
 export const useUserFillerWords = () => {
     const { session } = useAuthProvider();
     const queryClient = useQueryClient();
-    const { data: usageData } = useUsageLimit(); // Use the usage limit hook
-    const isPro = usageData?.is_pro ?? false;
+    const e2eDeps = (typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>).__E2E_DEPS__ : null) as { fetchUsageLimit?: () => Promise<UsageLimitCheck> } | null;
+    const { data: usageLimitData } = useUsageLimit(e2eDeps || undefined);
+    const isPro = usageLimitData?.is_pro ?? false;
     const supabase = getSupabaseClient();
     const setSTTStatus = useSessionStore(s => s.setSTTStatus);
 
     // Use usage limits from hook or fallback to centralized config
-    const MAX_WORDS = getMaxFillerWords(usageData?.subscription_status);
+    const MAX_WORDS = getMaxFillerWords(usageLimitData?.subscription_status);
 
     const { data: userFillerWords = [], isLoading, error } = useQuery({
         queryKey: ['user-filler-words', session?.user?.id],

@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import TranscriptionService from '../TranscriptionService';
-import { testRegistry } from '../TestRegistry';
-import { STTEngine } from '@/contracts/STTEngine';
-import { Result, TranscriptionModeOptions, Transcript } from '../modes/types';
-import { EngineCallbacks, EngineType } from '@/contracts/IPrivateSTTEngine';
+import { STTEngine } from '../../../contracts/STTEngine';
+import { Result, TranscriptionModeOptions } from '../modes/types';
+import { EngineType } from '../../../contracts/IPrivateSTTEngine';
+import { setupStrictZero } from '../../../../../tests/setupStrictZero';
+import { sttRegistry } from '../STTRegistry';
+
 /**
  * @file TranscriptionAccuracy.integration.test.ts
  * @description Integration tests verifying that the TranscriptionService correctly
@@ -11,14 +13,26 @@ import { EngineCallbacks, EngineType } from '@/contracts/IPrivateSTTEngine';
  */
 
 describe('Transcription Accuracy Multi-Engine Integration', () => {
-    beforeEach(() => {
-        testRegistry.clear();
+    let service: TranscriptionService | null = null;
+    const instances: Record<string, STTEngine> = {};
+
+    beforeEach(async () => {
         vi.useFakeTimers();
+        // 1. Setup T=0 Environment
+        await setupStrictZero();
     });
 
-    afterEach(() => {
-        testRegistry.clear();
+    afterEach(async () => {
+        if (service) {
+            await service.destroy();
+            service = null;
+        }
         vi.useRealTimers();
+        vi.restoreAllMocks();
+        sttRegistry.clear();
+        if (typeof window !== 'undefined' && '__SS_E2E__' in window) {
+            delete (window as unknown as Record<string, unknown>).__SS_E2E__;
+        }
     });
 
     const modes: ('native' | 'cloud' | 'private')[] = ['native', 'cloud', 'private'];
@@ -27,41 +41,56 @@ describe('Transcription Accuracy Multi-Engine Integration', () => {
         it(`should produce accurate transcript for ${mode} mode`, async () => {
             const expectedText = `Accurate transcript from ${mode}`;
 
-
             class MockEngine extends STTEngine {
-                private onTranscriptUpdate?: (update: { transcript: Transcript }) => void;
-
-                constructor(public readonly type: EngineType, private expectedText: string) {
-                    super();
+                constructor(public readonly type: EngineType, options: TranscriptionModeOptions) {
+                    super(options);
                 }
 
-                protected async onInit(callbacks: EngineCallbacks) {
-                    this.onTranscriptUpdate = (callbacks as unknown as TranscriptionModeOptions).onTranscriptUpdate;
+                public async checkAvailability() { return { isAvailable: true }; }
+
+                protected async onInit() {
                     return Result.ok(undefined);
                 }
-                protected async onStart() {}
+                protected async onStart() {
+                    (this.options as TranscriptionModeOptions).onTranscriptUpdate?.({ transcript: { final: expectedText } });
+                }
                 protected async onStop() {}
                 protected async onDestroy() {}
-                async transcribe() { return Result.ok(this.expectedText); }
-
-                public override async startTranscription() {
-                    await this.start();
-                    this.onTranscriptUpdate?.({ transcript: { final: this.expectedText } });
-                }
-
-                public override async stopTranscription() {
-                    await this.stop();
-                    return this.expectedText;
-                }
+                async transcribe() { return Result.ok(expectedText); }
 
                 public override async getTranscript() {
-                    return this.expectedText;
+                    return expectedText;
                 }
             }
 
-            testRegistry.register(mode, (_opts: unknown) => new MockEngine(mode as unknown as EngineType, expectedText));
+            // 1. Inject into STTRegistry using architectural keys (Task 7.2)
+            sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { 
+                instances.assemblyai = new MockEngine('cloud', opts); 
+                return instances.assemblyai; 
+            });
+            sttRegistry.register('native-browser', (opts: TranscriptionModeOptions) => { 
+                instances['native-browser'] = new MockEngine('native', opts); 
+                return instances['native-browser']; 
+            });
+            
+            // Register both private engine keys: PrivateSTT routes to transformers-js when
+            // ENV.disableWasm=true (test env without real GPU), whisper-turbo when GPU is available.
+            sttRegistry.register('whisper-turbo', (opts: TranscriptionModeOptions) => {
+                instances['whisper-turbo'] = new MockEngine('whisper-turbo', opts);
+                return instances['whisper-turbo'];
+            });
+            sttRegistry.register('transformers-js', (opts: TranscriptionModeOptions) => {
+                instances['transformers-js'] = new MockEngine('transformers-js', opts);
+                return instances['transformers-js'];
+            });
 
-            const service = new TranscriptionService({
+            service = new TranscriptionService({
+                mockMic: {
+                    stream: {} as MediaStream,
+                    stop: vi.fn(),
+                    clone: vi.fn(),
+                    onFrame: vi.fn().mockReturnValue(() => { }),
+                } as unknown as import('../utils/types').MicStream,
                 policy: {
                     allowNative: mode === 'native',
                     allowCloud: mode === 'cloud',

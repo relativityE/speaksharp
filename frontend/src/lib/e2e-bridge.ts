@@ -7,7 +7,7 @@
  * PURPOSE:
  * --------
  * Provides test infrastructure for End-to-End testing with Playwright.
- * ONLY loaded when IS_TEST_ENVIRONMENT === true (production code stays clean).
+ * ONLY loaded when ENV.isTest === true (production code stays clean).
  * 
  * CONTENTS:
  * ---------
@@ -34,10 +34,10 @@
  */
 
 import { Session } from '@supabase/supabase-js';
-import logger from '@/lib/logger';
+import logger from '../lib/logger';
 import { MOCK_SESSION } from '@shared/test-fixtures';
 import { TranscriptionModeOptions, Transcript } from '@/services/transcription/modes/types';
-import { TestFlags } from '@/config/TestFlags';
+import { ENV } from '@/config/TestFlags';
 import { getE2EConfig } from '../../../tests/types/e2eConfig';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 
@@ -128,7 +128,7 @@ export const getInitialSession = (fallbackSession: Session | null = null): Sessi
     // Priority 2: Injected Mock Session (only if explicitly enabled AND not using real DB)
     // This allows Live Integration tests (VITE_USE_LIVE_DB) to use the real session in localStorage
     // while still allowing standard E2E tests to use the mock user.
-    if (window.__E2E_MOCK_SESSION__ && !TestFlags.USE_REAL_DATABASE) {
+    if (window.__E2E_MOCK_SESSION__ && !ENV.USE_REAL_DATABASE) {
         logger.info('[E2E Bridge] Using mock session (test-user-123)');
         return MOCK_SESSION as Session;
     }
@@ -136,7 +136,7 @@ export const getInitialSession = (fallbackSession: Session | null = null): Sessi
     // Fallback: Return null to allow AuthProvider to fetch from localStorage
     logger.debug({
         hasMockFlag: !!window.__E2E_MOCK_SESSION__,
-        useRealDb: TestFlags.USE_REAL_DATABASE
+        useRealDb: ENV.USE_REAL_DATABASE
     }, '[E2E Bridge] Deferring to real session (null returned)');
     return null;
 };

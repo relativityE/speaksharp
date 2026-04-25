@@ -1,7 +1,8 @@
 import { IPrivateSTTEngine, EngineType, EngineCallbacks } from './IPrivateSTTEngine';
-import { ITranscriptionEngine, TranscriptionModeOptions, Result } from '../services/transcription/modes/types';
-import logger from '@/lib/logger';
-import { MicStream } from '../services/transcription/utils/types';
+import { ITranscriptionEngine, TranscriptionModeOptions, Result } from '@/services/transcription/modes/types';
+import { AvailabilityResult } from '@/services/transcription/STTStrategy';
+import logger from '../lib/logger';
+import { MicStream } from '@/services/transcription/utils/types';
 
 /**
  * ARCHITECTURE:
@@ -20,24 +21,59 @@ import { MicStream } from '../services/transcription/utils/types';
  */
 export function validateEngine(engine: unknown): asserts engine is IPrivateSTTEngine {
   if (!engine || typeof engine !== 'object') {
-    throw new Error('STT_ENGINE_INVALID: Engine is not an object');
+    throw new Error('STT_ENGINE_INVALID: Engine must be an object');
   }
 
-  // These three methods define the core contract
-  const required = ['start', 'stop', 'getEngineType'] as const;
+  const required: Array<keyof IPrivateSTTEngine> = [
+    'init', 'start', 'stop', 'pause', 'resume', 'destroy'
+  ];
+
+  /**
+   * Prototype-Safe Method Check:
+   * Ensures methods are identified even if they live on the prototype chain.
+   */
+  const hasMethod = (obj: unknown, method: string): boolean => {
+    if (!obj || typeof obj !== 'object') return false;
+    let current = obj as Record<string, unknown>;
+    while (current && current !== Object.prototype) {
+      if (Object.prototype.hasOwnProperty.call(current, method)) {
+        return typeof current[method] === 'function';
+      }
+      current = Object.getPrototypeOf(current) as Record<string, unknown>;
+    }
+    // Final check for class-style methods that might not be detected by hasOwnProperty on the instance
+    return typeof (obj as Record<string, unknown>)[method] === 'function';
+  };
 
   for (const method of required) {
-    if (typeof (engine as Record<string, unknown>)[method] !== 'function') {
-      throw new Error(`STT_ENGINE_INVALID: Engine missing required method '${method}'`);
+    if (!hasMethod(engine, method as string)) {
+      // Robust diagnostic: Crawl prototype chain to find what's actually there
+      const methods: string[] = [];
+      let obj: unknown = engine;
+      while (obj && obj !== Object.prototype) {
+        methods.push(...Object.getOwnPropertyNames(obj));
+        obj = Object.getPrototypeOf(obj);
+      }
+      throw new Error(
+        `STT_ENGINE_INVALID: Engine missing required method '${method}'. ` +
+        `Detected methods in entire chain: ${methods.join(', ')}`
+      );
     }
   }
 
-  // Optional: Provide default no-op for cleanup methods if not present
-  if (typeof (engine as Record<string, unknown>).terminate !== 'function') {
-    (engine as Record<string, unknown>).terminate = () => {}; // Default no-op
+  // Optional: Provide default no-op for lifecycle methods if not present
+  const record = engine as Record<string, unknown>;
+  if (typeof record.terminate !== 'function') {
+    record.terminate = async () => { logger.debug('STT_ENGINE_TERMINATE_NOOP: Using default no-op'); };
   }
-  if (typeof (engine as Record<string, unknown>).destroy !== 'function') {
-    (engine as Record<string, unknown>).destroy = () => {}; // Default no-op
+  if (typeof record.destroy !== 'function') {
+    record.destroy = async () => { logger.debug('STT_ENGINE_DESTROY_NOOP: Using default no-op'); };
+  }
+  if (typeof record.pause !== 'function') {
+    record.pause = async () => { logger.debug('STT_ENGINE_PAUSE_NOOP: Using default no-op'); };
+  }
+  if (typeof record.resume !== 'function') {
+    record.resume = async () => { logger.debug('STT_ENGINE_RESUME_NOOP: Using default no-op'); };
   }
 }
 
@@ -51,28 +87,37 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   protected serviceId: string = 'unknown';
   protected runId: string = 'unknown';
   protected currentTranscript: string = '';
+  protected isTerminated: boolean = false;
 
-  constructor() {
+  protected options: TranscriptionModeOptions | EngineCallbacks | null = null;
+
+  constructor(options?: TranscriptionModeOptions | EngineCallbacks) {
     this.instanceId = Math.random().toString(36).substring(7);
+    this.options = options || null;
   }
+
+  /**
+   * STTStrategy Requirement: Probes environment for availability.
+   * Default implementation for engines.
+   */
+  public async checkAvailability(): Promise<AvailabilityResult> {
+    return { isAvailable: true };
+  }
+
 
   /**
    * Common Initialization Logic
    */
-  async init(callbacks: TranscriptionModeOptions | EngineCallbacks, timeoutMs?: number): Promise<Result<void, Error>> {
-    // Adapter logic to handle both interface styles
-    this.serviceId = (callbacks as Record<string, unknown>).serviceId as string || 'unknown';
-    this.runId = (callbacks as Record<string, unknown>).runId as string || 'unknown';
-
+  async init(timeoutMs?: number): Promise<Result<void, Error>> {
     logger.info({
       type: this.type,
       instanceId: this.instanceId,
       serviceId: this.serviceId
     }, `[STTEngine] Initializing ${this.type}...`);
 
-    const result = await this.onInit(callbacks as unknown as EngineCallbacks, timeoutMs);
+    const result = await this.onInit(timeoutMs);
 
-    if (result.isOk === true) {
+    if (result.isOk) {
       this.isInitialized = true;
       this.updateHeartbeat();
     }
@@ -83,20 +128,20 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   /**
    * Abstract hook for engine-specific initialization
    */
-  protected abstract onInit(callbacks: EngineCallbacks, timeoutMs?: number): Promise<Result<void, Error>>;
+  protected abstract onInit(timeoutMs?: number): Promise<Result<void, Error>>;
 
   /**
    * High-level Start command (Contract Requirement)
    */
-  async start(): Promise<void> {
+  async start(mic?: MicStream): Promise<void> {
     if (!this.isInitialized) {
       throw new Error(`[STTEngine] Cannot start ${this.type} - not initialized.`);
     }
     this.updateHeartbeat();
-    await this.onStart();
+    await this.onStart(mic);
   }
 
-  protected abstract onStart(): Promise<void>;
+  protected abstract onStart(mic?: MicStream): Promise<void>;
 
   /**
    * High-level Stop command (Contract Requirement)
@@ -109,6 +154,30 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   protected abstract onStop(): Promise<void>;
 
   /**
+   * High-level Pause command (Contract Requirement)
+   */
+  async pause(): Promise<void> {
+    await this.onPause();
+    this.updateHeartbeat();
+  }
+
+  protected async onPause(): Promise<void> {
+    // Default no-op
+  }
+
+  /**
+   * High-level Resume command (Contract Requirement)
+   */
+  async resume(): Promise<void> {
+    await this.onResume();
+    this.updateHeartbeat();
+  }
+
+  protected async onResume(): Promise<void> {
+    // Default no-op
+  }
+
+  /**
    * Implementation of transcribe from IPrivateSTTEngine
    */
   abstract transcribe(audio: Float32Array): Promise<Result<string, Error>>;
@@ -117,19 +186,31 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * Implementation of destroy from IPrivateSTTEngine
    */
   async destroy(): Promise<void> {
+    if (this.isTerminated) return;
     await this.stop();
     await this.onDestroy();
     this.isInitialized = false;
+    this.isTerminated = true;
   }
 
   protected abstract onDestroy(): Promise<void>;
 
   /**
+   * Update engine options at runtime.
+   * Default implementation allows re-wiring callbacks.
+   */
+  public updateOptions(options: Partial<Record<string, unknown>>): void {
+    this.options = { ...(this.options || {}), ...options } as TranscriptionModeOptions;
+  }
+
+  /**
    * Optional Nuclear Termination (Contract Requirement)
+   * Hardened to ensure settlement by calling destroy().
    */
   async terminate(): Promise<void> {
-    // Default empty implementation to satisfy validateEngine contract
-    logger.debug(`[STTEngine] No-op terminate called for ${this.type}`);
+    if (this.isTerminated) return;
+    logger.info({ type: this.type, instanceId: this.instanceId }, `[STTEngine] 🛑 Nuclear termination requested for ${this.type}`);
+    await this.destroy();
   }
 
   /**
@@ -139,21 +220,9 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     return this.lastHeartbeat;
   }
 
-  protected updateHeartbeat(): void {
+  /** @internal */
+  public updateHeartbeat(): void {
     this.lastHeartbeat = Date.now();
-  }
-
-  /**
-   * Implementation of ITranscriptionEngine (Legacy Bridge)
-   */
-  public async startTranscription(_mic?: MicStream): Promise<void> {
-    // mic is managed by the service orchestrator, but we satisfy the interface
-    await this.start();
-  }
-
-  public async stopTranscription(): Promise<string> {
-    await this.stop();
-    return this.getTranscript();
   }
 
   public async getTranscript(): Promise<string> {
@@ -164,7 +233,20 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     return this.type;
   }
 
-  public dispose(): void {
-    this.destroy().catch(err => logger.error({ err }, '[STTEngine] Async destruction failed in dispose'));
+  /**
+   * 🛡️ E2E BRIDGE HOOK (v0.6.16)
+   * Deterministically injects a transcript update into the engine's callback pipeline.
+   * This is the authoritative entry point for Playwright/Browser injection.
+   */
+  public emitTranscript(text: string, isFinal: boolean = true): void {
+    if (this.options && 'onTranscriptUpdate' in this.options) {
+      const updateCallback = this.options.onTranscriptUpdate as (update: { transcript: { partial?: string; final?: string } }) => void;
+      updateCallback({
+        transcript: isFinal ? { final: text } : { partial: text }
+      });
+    } else {
+      logger.warn({ type: this.type }, '[STTEngine] ⚠️ emitTranscript called but no onTranscriptUpdate callback is registered.');
+    }
   }
+
 }

@@ -12,9 +12,18 @@ export const getEnvVar = (key: string): string | undefined => {
 
 export const SUPABASE_URL = getEnvVar('VITE_SUPABASE_URL');
 export const SUPABASE_ANON_KEY = getEnvVar('VITE_SUPABASE_ANON_KEY');
-import { TestFlags } from './TestFlags';
-
-export const IS_TEST_ENVIRONMENT = () => TestFlags.IS_E2E;
+/** 
+ * 🚨 FROZEN SHIM (Strangler Pattern)
+ * 
+ * Governance Rules:
+ * 1. PURE PROJECTION ONLY: No logic, computation, or functions allowed for flags.
+ * 2. SSOT-ONLY: Reference only modern ENV properties (ENV.isTest, etc.). 
+ *    Illegal: TestFlags.IS_E2E ❌
+ * 3. DYNAMIC CORRECTNESS: ENV properties are getters. They are safe to read
+ *    even if globals are set AFTER this file is imported.
+ */
+import { ENV } from './TestFlags';
+export const IS_TEST_ENVIRONMENT = ENV.isTest;
 
 // ServiceWorker registration timeout (in milliseconds)
 export const SW_TIMEOUT_MS = 2000;

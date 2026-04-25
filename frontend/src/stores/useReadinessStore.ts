@@ -1,13 +1,13 @@
 import { create } from 'zustand';
-import logger from '../lib/logger';
+import logger from '@/lib/logger';
 
-export const REQUIRED_GLOBAL = ['boot', 'layout', 'auth', 'stt', 'msw'] as const;
+export const REQUIRED_GLOBAL = ['app', 'layout', 'auth', 'stt', 'msw'] as const;
 
 export const checkGlobalReadiness = (signals: Record<string, boolean | Record<string, number>>) => {
   return REQUIRED_GLOBAL.every(k => !!signals[k]);
 };
 
-export const OPTIONAL_FEATURES = ['analytics', 'profile', 'route'] as const;
+export const OPTIONAL_FEATURES = ['analytics', 'profile', 'router'] as const;
 
 export type ReadinessSignal = (typeof REQUIRED_GLOBAL)[number] | (typeof OPTIONAL_FEATURES)[number];
 export type ReadinessAppState = 'BOOTING' | 'SERVICE_READY' | 'ENGINE_READY' | 'SUBSCRIBER_READY' | 'READY';
@@ -20,19 +20,19 @@ export interface ReadinessStore {
   timestamps: Record<string, number>;
   setReady: (key: ReadinessSignal) => void;
   setAppState: (state: ReadinessAppState) => void;
-  resetRouteReady: () => void;
+  resetRouterReady: () => void;
   reset: () => void;
 }
 
 const INITIAL_SIGNALS: ReadinessSignals = {
-  boot: false,
+  app: false,
   layout: false,
   auth: false,
   profile: false,
   analytics: false,
   stt: false,
   msw: false,
-  route: false,
+  router: false,
 };
 
 
@@ -101,14 +101,15 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
     });
   },
 
-  resetRouteReady: () => {
+
+  resetRouterReady: () => {
     set((state) => {
-      const newSignals = { ...state.signals, route: false };
+      const newSignals = { ...state.signals, router: false };
       // We don't remove the timestamp, we just set the signal to false
       // to ensure the next "true" is picked up.
       return { signals: newSignals };
     });
-    logger.info('[useReadinessStore] Route readiness reset (navigation initiated)');
+    logger.info('[useReadinessStore] Router readiness reset (navigation initiated)');
   },
 
   reset: () => {

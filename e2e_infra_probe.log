@@ -1,0 +1,660 @@
+
+> speaksharp@0.5.4.5 test:e2e /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> playwright test tests/e2e/infra.probe.e2e.spec.ts
+
+[1A[2K[WebServer] 
+[WebServer] > speaksharp@0.5.4.5 dev /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+[WebServer] > cd frontend && pnpm vite --port 5173 --mode test --logLevel error
+[WebServer] 
+
+[1A[2K[WebServer] [Vite] Mode: test
+
+
+Running 10 tests using 4 workers
+
+[1A[2K[1/10] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[1A[2K[2/10] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[1A[2K[3/10] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[1A[2K[4/10] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [muvi7]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [s9wps]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [otod2]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [4snrt]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 84864429-8291-46ac-a6ce-3c340bd1c068 top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) d3350c3c-2c21-46e4-9a3c-63722c250b77 top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 4aeb14e9-97ac-418f-8e8d-f667b8b36663 top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 294ae8cd-5899-46ac-aeee-f2672424c3c4 top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:223:3 › Core System Validation (Deterministic) › ENV reflects test mode
+[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:239:3 › Core System Validation (Deterministic) › mock engine is selected
+[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:231:3 › Core System Validation (Deterministic) › registry is available at boot
+[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[5/10] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[1A[2K[6/10] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[1A[2K[7/10] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [333gb]
+
+[1A[2K[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [xfjf9]
+
+[1A[2K[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [g1n6a8]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) be59aa5e-f954-4884-9ba7-17548313599a top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 087df0a4-387f-403d-8bbd-be94085f1221 top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 2b960f3f-73e5-4f0d-bde8-bee8d0eef2bb top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:248:3 › Core System Validation (Deterministic) › does not load real WASM
+[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:213:3 › Core System Validation (Deterministic) › app boots without runtime errors
+[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:256:3 › Core System Validation (Deterministic) › FSM transitions correctly
+[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-LOG] [E2E-MOCK] Engine started.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-LOG] [E2E-MOCK] Engine started.
+
+[1A[2K[8/10] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[1A[2K[9/10] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[1A[2K[BROWSER-LOG] [E2E-TEST] 📞 Emission Start. Bridge Keys: [isActive, enableRealEngine, isEngineInitialized, engineType, _activeCallbacks, registry, flags, emitTranscript, startRecording, stopRecording, getFSMState, destroyService, onStateChange, pauseAtState]
+
+[1A[2K[BROWSER-LOG] [E2E-BRIDGE] Using Controller->Service->Strategy bridge path
+
+[1A[2K[BROWSER-WARNING] [DIAG-STORE] updateTranscript: "..." (partial: "Hello")
+
+[1A[2K[10/10] [infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[E2E-TEST-DEBUG] Manual Signal Check: {
+  htmlAttrs: [],
+  windowSignals: [90mundefined[39m,
+  env: [90mundefined[39m,
+  st: [90mundefined[39m
+}
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:265:3 › Core System Validation (Deterministic) › mock transcription flows through system
+[BROWSER-LOG] [E2E-BRIDGE] Using Controller->Service->Strategy bridge path
+
+[1A[2K[BROWSER-WARNING] [DIAG-STORE] updateTranscript: "..." (partial: "Hello from E2E")
+
+[1A[2K[BROWSER-LOG] [E2E-TEST] ✅ Emission Finish.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[BROWSER-LOG] [T=0] Manifest & Boot Signals injected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [bxaqx]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[BROWSER-DEBUG] [vite] connecting...
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [6yog86]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[BROWSER-DEBUG] [vite] connected.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 6e22a433-1832-4c47-a6c8-90b37320419b top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[BROWSER-INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold
+
+[1A[2K[BROWSER-WARNING] [STORE-IDENTITY] 🏗️ SessionStore Instance Created: [he99pr]
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 691d0b67-9d18-4598-8f2e-dbd2d07b1367 top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[BROWSER-WARNING] [Sentry] No DSN provided (expected in test mode)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[BROWSER-LOG] [E2E-MOCK] Factory creating local engine instance...
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[BROWSER-STARTGROUPCOLLAPSED] %c[MSW] Mocking enabled. color:orangered;font-weight:bold;
+
+[1A[2K[BROWSER-LOG] %cDocumentation: %chttps://mswjs.io/docs font-weight:bold font-weight:normal
+
+[1A[2K[BROWSER-LOG] Found an issue? https://github.com/mswjs/msw/issues
+
+[1A[2K[BROWSER-LOG] Worker script URL: http://localhost:5173/mockServiceWorker.js
+
+[1A[2K[BROWSER-LOG] Worker scope: http://localhost:5173/
+
+[1A[2K[BROWSER-LOG] Client ID: %s (%s) 3a1cfcdc-63ea-4900-846c-42c3e7a22e53 top-level
+
+[1A[2K[BROWSER-ENDGROUP] console.groupEnd
+
+[1A[2K[BROWSER-WARNING] [E2E MODE] Analytics disabled entirely.
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[BROWSER-INFO] [App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)
+
+[1A[2K[E2E-TEST-DEBUG] Rationale: Late-bound getters must resolve true at first access. { hasWindowBridge: [33mtrue[39m, isE2EActive: [33mtrue[39m }
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:321:3 › Core System Validation (Deterministic) › fast timers applied
+[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:331:3 › Core System Validation (Deterministic) › no external network calls occur
+[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount, state: READY} [SpeechRuntimeController] RESET triggered
+
+[1A[2K[BROWSER-WARNING] {reason: subscriber_unmount} [SpeechRuntimeController] Reset triggered by: subscriber_unmount
+
+[1A[2K[infra-probe] › tests/e2e/infra.probe.e2e.spec.ts:306:3 › Core System Validation (Deterministic) › no STT_ENGINE_MISSING errors
+[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-WARNING] [E2E-MOCK] Reusing cached local engine instance for mode: mock
+
+[1A[2K[BROWSER-LOG] [E2E-MOCK] Engine started.
+
+[1A[2K  10 passed (15.8s)
+[PW] Summary: 10 passed, 0 failed, 0 flaky (Total unique: 10)

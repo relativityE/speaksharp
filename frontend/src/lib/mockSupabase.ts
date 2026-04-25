@@ -7,7 +7,20 @@ export const createMockSupabase = () => {
 
     return {
         auth: {
-            getSession: () => Promise.resolve({ data: { session: currentSession }, error: null }),
+            getSession: () => {
+                const session = currentSession;
+                const checkSessionIdentity = (session: unknown) => {
+                    const s = session as { user?: { id?: string } };
+                    logger.debug({ 
+                        userId: s?.user?.id,
+                        isActive: !!session,
+                        role: MOCK_USER_PROFILE.subscription_status,
+                        timestamp: Date.now() 
+                    }, '[AUTH STATE]');
+                };
+                checkSessionIdentity(session);
+                return Promise.resolve({ data: { session }, error: null });
+            },
             onAuthStateChange: (callback: (event: string, session: unknown) => void) => {
                 listeners.add(callback);
                 return { data: { subscription: { unsubscribe: () => listeners.delete(callback) } } };

@@ -14,7 +14,7 @@ import { Result } from '@/services/transcription/modes/types';
 /**
  * Engine type identifier
  */
-export type EngineType = 'whisper-turbo' | 'transformers-js' | 'mock' | 'native' | 'cloud';
+export type EngineType = 'whisper-turbo' | 'transformers-js' | 'mock' | 'native' | 'cloud' | 'native-browser' | 'assemblyai';
 
 /**
  * Callbacks for engine lifecycle events
@@ -38,22 +38,31 @@ export interface IPrivateSTTEngine {
     readonly type: EngineType;
 
     /**
-     * Initialize the engine (download model, compile WASM, etc.)
-     * @param callbacks - Lifecycle callbacks
-     * @param timeoutMs - Maximum time to wait for initialization
-     * @returns Result indicating success or failure
+     * Probe availability and prerequisites (Contract Requirement)
      */
-    init(callbacks: EngineCallbacks, timeoutMs?: number): Promise<Result<void, Error>>;
+    checkAvailability(): Promise<import('@/services/transcription/STTStrategy').AvailabilityResult>;
+
+    init(timeoutMs?: number): Promise<Result<void, Error>>;
     
     /**
      * Start the engine (Contract Requirement)
      */
-    start(): Promise<void>;
+    start(mic?: import('@/services/transcription/utils/types').MicStream): Promise<void>;
 
     /**
      * Stop the engine (Contract Requirement)
      */
     stop(): Promise<void>;
+
+    /**
+     * Pause the engine
+     */
+    pause(): Promise<void>;
+
+    /**
+     * Resume the engine
+     */
+    resume(): Promise<void>;
 
     /**
      * Transcribe audio data
@@ -70,7 +79,12 @@ export interface IPrivateSTTEngine {
     /**
      * Forcefully terminate engines and workers
      */
-    terminate?(): Promise<void>;
+    terminate(): Promise<void>;
+
+    /**
+     * Update engine options at runtime
+     */
+    updateOptions(options: Partial<import('@/services/transcription/modes/types').TranscriptionModeOptions>): void;
 
     /** Unique identifier for tracing */
     instanceId?: string;

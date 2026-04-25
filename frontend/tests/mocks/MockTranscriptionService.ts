@@ -1,12 +1,18 @@
-import { SttStatus } from '@/types/transcription';
-import { TranscriptionModeOptions } from '@/services/transcription/modes/types';
-import { useSessionStore } from '@/stores/useSessionStore';
+import { SttStatus } from '../../src/types/transcription';
+import { ITranscriptionEngine, TranscriptionModeOptions, Result } from '@/services/transcription/modes/types';
+import { useSessionStore } from '../../src/stores/useSessionStore';
+import { calculateTranscriptStats } from '../../src/utils/fillerWordUtils';
+import { TranscriptionError } from '../../src/services/transcription/errors';
+import logger from '../../src/lib/logger';
 
 export class MockTranscriptionService {
     // Static reference for tests to access the latest instance
     public static latestInstance: MockTranscriptionService | null = null;
 
     // Internal state
+    public serviceId = 'transcription-service';
+    public instanceId = Math.random().toString(36).substring(7);
+    public readonly isMock = true;
     public isListening = false;
     public isReady = true;
     public error: Error | null = null;
@@ -16,6 +22,7 @@ export class MockTranscriptionService {
     public state: string = 'IDLE';
     private sessionId: string = 'mock-session-id';
     private startTime: number = Date.now();
+    private _isDestroyed: boolean = false;
     private fsmSubscribers: Set<(state: string) => void> = new Set();
     public fsm = {
         subscribe: (cb: (state: string) => void) => {
@@ -42,20 +49,34 @@ export class MockTranscriptionService {
     }
 
     getState = () => this.state;
+    updateOptions = (options: Partial<TranscriptionModeOptions>) => {
+        this.options = { ...this.options, ...options };
+    };
+
     updateCallbacks = (options: Partial<TranscriptionModeOptions>) => {
         this.options = { ...this.options, ...options };
     };
 
+    subscribe(options: Partial<TranscriptionModeOptions>): () => void {
+        this.options = { ...this.options, ...options };
+        return () => {
+            // Reset callbacks on unsubscribe — prevents zombie emissions
+            this.options = {} as TranscriptionModeOptions;
+        };
+    }
+
     // --- ITranscriptionService Interface Implementation ---
 
-    init = async (): Promise<void> => {
+    init = async (): Promise<Result<void, Error>> => {
         this.isReady = true;
         this.state = 'READY';
         this.notifySubscribers();
         this.options.onReady?.();
+        return Result.ok(undefined);
     }
 
     warmUp = async (mode: string): Promise<void> => {
+        this.mode = mode as any;
         return Promise.resolve();
     }
 
@@ -67,13 +88,14 @@ export class MockTranscriptionService {
         return Promise.resolve();
     }
 
-    stopTranscription = async (): Promise<string> => {
+    stopTranscription = async (): Promise<any> => {
         this.isListening = false;
         this.state = 'READY';
         this.notifySubscribers();
 
-        // Return transcript string (solves contract mismatch)
-        return 'Test transcript final';
+        const transcript = 'Test transcript final';
+        const stats = calculateTranscriptStats([{ transcript }], [], '', 0);
+        return { success: true, transcript, stats };
     }
 
     start = async (): Promise<void> => {
@@ -84,13 +106,44 @@ export class MockTranscriptionService {
         await this.stopTranscription();
     }
 
+    pause = async (): Promise<void> => {
+        this.state = 'PAUSED';
+        this.notifySubscribers();
+        return Promise.resolve();
+    }
+
+    resume = async (): Promise<void> => {
+        this.state = 'RECORDING';
+        this.notifySubscribers();
+        return Promise.resolve();
+    }
+
+    onPause = async (): Promise<void> => {
+        return Promise.resolve();
+    }
+
+    onResume = async (): Promise<void> => {
+        return Promise.resolve();
+    }
+
+    onStop = async (): Promise<void> => {
+        return Promise.resolve();
+    }
+
     terminate = async (): Promise<void> => {
         this.isListening = false;
         return Promise.resolve();
     }
 
     destroy = async (): Promise<void> => {
+        this._isDestroyed = true;
+        this.state = 'TERMINATED';
+        this.notifySubscribers();
         return this.terminate();
+    }
+
+    isServiceDestroyed = (): boolean => {
+        return this._isDestroyed || this.state === 'TERMINATED';
     }
 
     updatePolicy = vi.fn();
@@ -101,17 +154,23 @@ export class MockTranscriptionService {
         this.sttStatus = { type: 'idle', message: 'Idle' };
     }
 
-    getMode = () => this.mode;
-    getEngineType = () => this.mode === 'private' ? 'whisper-turbo' : this.mode;
+    public getMode(): any { return this.mode; }
+    public getEngineType(): any { return this.mode === 'private' ? 'whisper-turbo' : this.mode; }
 
-    getEngine = (): any => {
+    public getStrategy(): any {
         return {
-            getLastHeartbeatTimestamp: () => Date.now(),
-            terminate: async () => {},
+            instanceId: this.instanceId,
+            checkAvailability: async () => ({ isAvailable: true }),
+            init: async () => Result.ok(undefined),
+            start: async () => { this.isListening = true; },
+            stop: async () => { this.isListening = false; },
+            pause: async () => { this.state = 'PAUSED'; },
+            resume: async () => { this.state = 'RECORDING'; },
+            terminate: async () => { this.isListening = false; },
+            destroy: async () => { this.isListening = false; },
             getTranscript: async () => 'Test transcript',
-            getEngineType: () => this.mode,
-            start: async () => {},
-            stop: async () => {}
+            getLastHeartbeatTimestamp: () => Date.now(),
+            getEngineType: () => this.mode
         };
     }
 
@@ -124,9 +183,9 @@ export class MockTranscriptionService {
     }
 
     getStartTime = () => this.startTime;
-    setSessionId = (id: string) => { 
+    setSessionId = (id: string) => {
         this.sessionId = id;
-        console.log('[DEBUG Mock] setSessionId:', id); 
+        console.log('[DEBUG Mock] setSessionId:', id);
     };
     getSessionId = () => this.sessionId;
     getMetadata = () => ({ engineVersion: '1.0.0', modelName: 'mock-model', deviceType: 'test' });
@@ -141,12 +200,16 @@ export class MockTranscriptionService {
      * Simulate a transcript update from the service.
      */
     simulateTranscript(transcript: string, isFinal: boolean = false): void {
+        console.warn(`[DIAG-MOCK] simulateTranscript called: "${transcript}" (final: ${isFinal})`);
         if (this.options.onTranscriptUpdate) {
+            console.warn(`[DIAG-MOCK] Invoking onTranscriptUpdate for: "${transcript}"`);
             this.options.onTranscriptUpdate({
                 transcript: isFinal
                     ? { final: transcript, partial: '' }
                     : { final: '', partial: transcript }
             });
+        } else {
+            console.warn(`[DIAG-MOCK] ❌ No onTranscriptUpdate callback registered for: "${transcript}"`);
         }
     }
 
@@ -156,7 +219,7 @@ export class MockTranscriptionService {
     simulateError(error: Error): void {
         this.error = error;
         this.sttStatus = { type: 'error', message: error.message };
-        
+
         // Ensure store matches
         useSessionStore.getState().setSTTStatus(this.sttStatus);
 
@@ -167,7 +230,7 @@ export class MockTranscriptionService {
                 code: 'UNKNOWN',
                 recoverable: false,
                 name: 'TranscriptionError'
-            } as unknown as import('@/services/transcription/modes/types').TranscriptionError);
+            } as unknown as TranscriptionError);
         }
     }
 
@@ -184,7 +247,11 @@ export class MockTranscriptionService {
                 code: 'UNKNOWN',
                 recoverable: false,
                 name: 'TranscriptionError'
-            } as unknown as import('@/services/transcription/modes/types').TranscriptionError);
+            } as unknown as TranscriptionError);
         }
+    }
+
+    emitTranscript(text: string, isFinal: boolean = true): void {
+        this.simulateTranscript(text, isFinal);
     }
 }

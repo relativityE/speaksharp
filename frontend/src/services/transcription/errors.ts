@@ -1,103 +1,106 @@
 /**
- * Industry Pattern: Typed Exception Hierarchy
+ * Industry Pattern: Typed Exception Hierarchy (Static Factory Pattern)
  * Reference: Clean Architecture - Robert C. Martin
  * 
- * Separates EXPECTED EVENTS from UNEXPECTED FAILURES
+ * Central Source of Truth for all transcription-related exceptions.
+ * Enforces unified error reporting and recovery logic across all strategies.
  */
 
-/**
- * Base class for all transcription-related exceptions
- */
+export type TranscriptionErrorCode = 
+    | 'NETWORK' 
+    | 'PERMISSION' 
+    | 'MODEL_LOAD' 
+    | 'WEBSOCKET' 
+    | 'UNKNOWN' 
+    | 'CACHE_MISS' 
+    | 'NO_API_KEY' 
+    | 'OFFLINE' 
+    | 'PERMISSION_DENIED' 
+    | 'UNSUPPORTED'
+    | 'MODE_LOCK_VIOLATION'
+    | 'ENGINE_FAILURE'
+    | 'MIC_ERROR';
+
 export class TranscriptionError extends Error {
-    constructor(
+    readonly isExpectedEvent: boolean;
+
+    private constructor(
         message: string,
-        public readonly code: string
+        public readonly code: TranscriptionErrorCode,
+        public readonly recoverable: boolean = true,
+        isExpected: boolean = false
     ) {
         super(message);
         this.name = 'TranscriptionError';
+        this.isExpectedEvent = isExpected;
     }
-}
 
-/**
- * EXPECTED EVENTS - Do NOT call onError for these
- * These are known, predictable control flow events
- */
-export class TranscriptionEvent extends TranscriptionError {
-    readonly isExpectedEvent = true;
-}
+    // --- STATIC FACTORY METHODS (The ONLY way to create errors) ---
 
-export class CacheMissEvent extends TranscriptionEvent {
-    constructor() {
-        super('Model not in cache - download required', 'CACHE_MISS');
-        this.name = 'CacheMissEvent';
+    static network(reason: string, recoverable = true): TranscriptionError {
+        return new TranscriptionError(`Network error: ${reason}`, 'NETWORK', recoverable);
     }
-}
 
-export class ModelLoadingEvent extends TranscriptionEvent {
-    constructor() {
-        super('Model is loading', 'MODEL_LOADING');
-        this.name = 'ModelLoadingEvent';
+    static permission(reason: string): TranscriptionError {
+        return new TranscriptionError(`Permission denied: ${reason}`, 'PERMISSION', false);
     }
-}
 
-/**
- * UNEXPECTED FAILURES - DO call onError for these
- * These are genuine failures requiring user feedback
- */
-export class TranscriptionFailure extends TranscriptionError {
-    readonly isExpectedEvent = false;
-}
-
-export class MicrophoneError extends TranscriptionFailure {
-    constructor(reason: string) {
-        super(`Microphone error: ${reason}`, 'MIC_ERROR');
-        this.name = 'MicrophoneError';
+    static modelLoad(reason: string): TranscriptionError {
+        return new TranscriptionError(`Model load error: ${reason}`, 'MODEL_LOAD', true);
     }
-}
 
-export class NetworkError extends TranscriptionFailure {
-    constructor(reason: string) {
-        super(`Network error: ${reason}`, 'NETWORK_ERROR');
-        this.name = 'NetworkError';
+    static websocket(reason: string, recoverable = true): TranscriptionError {
+        return new TranscriptionError(`WebSocket error: ${reason}`, 'WEBSOCKET', recoverable);
     }
-}
 
-export class EngineFailure extends TranscriptionFailure {
-    constructor(engine: string, reason: string) {
-        super(`Engine ${engine} failed: ${reason}`, 'ENGINE_FAILURE');
-        this.name = 'EngineFailure';
+    static cacheMiss(): TranscriptionError {
+        return new TranscriptionError('Model not in cache - download required', 'CACHE_MISS', true, true);
+    }
+
+    static modeLocked(active: string, requested: string): TranscriptionError {
+        return new TranscriptionError(
+            `Security Violation: Cannot switch to ${requested} while session is locked to ${active}`, 
+            'MODE_LOCK_VIOLATION', 
+            false
+        );
+    }
+
+    static engineFailure(engine: string, reason: string, recoverable = true): TranscriptionError {
+        return new TranscriptionError(`Engine ${engine} failed: ${reason}`, 'ENGINE_FAILURE', recoverable);
+    }
+
+    static microphone(reason: string): TranscriptionError {
+        return new TranscriptionError(`Microphone error: ${reason}`, 'MIC_ERROR', false);
+    }
+
+    static unknown(reason: string): TranscriptionError {
+        return new TranscriptionError(`An unknown error occurred: ${reason}`, 'UNKNOWN', true);
     }
 }
 
 /**
  * Type guard: Is this an expected event (not an error)?
  */
-export function isExpectedEvent(error: unknown): error is TranscriptionEvent {
+export function isExpectedEvent(error: unknown): error is TranscriptionError {
     return (
-        error instanceof TranscriptionEvent ||
-        (error instanceof Error && 'isExpectedEvent' in error && (error as unknown as Record<string, unknown>).isExpectedEvent === true)
+        error instanceof TranscriptionError && error.isExpectedEvent === true
     );
 }
 
 /**
  * Type guard: Is this a genuine failure?
  */
-export function isUnexpectedFailure(error: unknown): error is TranscriptionFailure {
+export function isUnexpectedFailure(error: unknown): error is TranscriptionError {
     return (
-        error instanceof TranscriptionFailure ||
-        (error instanceof Error && !isExpectedEvent(error))
+        error instanceof TranscriptionError && error.isExpectedEvent === false
     );
 }
 
 /**
  * Type guard: Is this specifically a cache miss?
  */
-export function isCacheMiss(error: unknown): error is CacheMissEvent {
+export function isCacheMiss(error: unknown): error is TranscriptionError {
     return (
-        error instanceof CacheMissEvent ||
-        (error instanceof Error && (
-            error.message.includes('CACHE_MISS') ||
-            ((error as unknown as Record<string, unknown>).code === 'CACHE_MISS')
-        ))
+        error instanceof TranscriptionError && error.code === 'CACHE_MISS'
     );
 }

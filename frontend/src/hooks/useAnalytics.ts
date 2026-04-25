@@ -34,11 +34,13 @@ export const useAnalytics = () => {
 
     // Signal Analytics Readiness (Critical Query Settlement)
     useEffect(() => {
-        if (!isLoading) {
+        // Resolve readiness if loading completes OR if an error is encountered.
+        // This ensures the E2E runner isn't trapped in a skeleton hang.
+        if (!isLoading || !!error) {
             useReadinessStore.getState().setReady('analytics');
-            logger.info('[useAnalytics] ✅ Analytics Ready Signal');
+            logger.info({ isLoading, hasError: !!error }, '[useAnalytics] ✅ Analytics Ready Signal');
         }
-    }, [isLoading]);
+    }, [isLoading, error]);
 
     const { data: totalSessionsCount = 0 } = useQuery({
         queryKey: ["sessionCount", user?.id],
@@ -162,7 +164,7 @@ export const useAnalytics = () => {
         sessionHistory,
         ...analyticsData,
         // DEV BYPASS: Force loading to false when devBypass is active so UI renders with mock data
-        loading: isDevBypass ? false : (isLoading || effectiveSessionLoading || (shouldUseRPC && isSummaryLoading)),
+        loading: isDevBypass ? false : ((isLoading && !error) || (effectiveSessionLoading && !error) || (shouldUseRPC && isSummaryLoading)),
         error
     };
 };

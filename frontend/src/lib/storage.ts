@@ -41,7 +41,7 @@ export const getSessionHistory = async (
   try {
     const { data, error }: { data: PracticeSession[] | null, error: PostgrestError | null } = await supabase
       .from('sessions')
-      .select('*')
+      .select('id, user_id, title, duration, wpm, clarity_score, accuracy, filler_words, created_at, engine, status')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
@@ -76,7 +76,7 @@ export const getSessionById = async (sessionId: string): Promise<PracticeSession
   try {
     const { data, error }: { data: PracticeSession | null, error: PostgrestError | null } = await supabase
       .from('sessions')
-      .select('*')
+      .select('id, user_id, title, duration, wpm, clarity_score, accuracy, filler_words, created_at, engine, status')
       .eq('id', sessionId)
       .single();
 
