@@ -7,13 +7,22 @@ import path from 'path';
  */
 export default class VitestCIReporter {
     onFinished(files) {
-        const stats = files.reduce((acc, f) => {
-            const state = f.result?.state;
-            if (state === 'pass') acc.passed++;
-            else if (state === 'fail') acc.failed++;
-            acc.total++;
-            return acc;
-        }, { passed: 0, failed: 0, total: 0 });
+        const countTests = (tasks, stats) => {
+            tasks.forEach(task => {
+                if (task.type === 'test') {
+                    if (task.result?.state === 'pass') stats.passed++;
+                    else if (task.result?.state === 'fail') stats.failed++;
+                    stats.total++;
+                } else if (task.tasks) {
+                    countTests(task.tasks, stats);
+                }
+            });
+        };
+
+        const stats = { passed: 0, failed: 0, total: 0 };
+        files.forEach((f) => {
+            if (f.tasks) countTests(f.tasks, stats);
+        });
 
         // Ensure correct IPC discriminator handling
         if (process.send) {

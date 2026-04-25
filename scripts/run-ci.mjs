@@ -430,6 +430,15 @@ async function main() {
                             }
                         }
 
+                        // Final Summary Injection
+                        const unitArtifact = path.join(rootDir, 'test-results', 'unit', 'results.json');
+                        if (fs.existsSync(unitArtifact)) {
+                            try {
+                                const data = JSON.parse(fs.readFileSync(unitArtifact, 'utf8'));
+                                console.log(`${ANSI.GREEN}${ANSI.BOLD}[UNIT] Tests: ${data.numPassedTests} passed (${data.numTotalTests})${ANSI.RESET}`);
+                            } catch (e) { }
+                        }
+
                         // Guard: Check for unit test results
                         if (!isInfraMode && impactOutput !== 'NONE') {
                             const unitArtifact = path.join(rootDir, 'test-results', 'unit', 'results.json');
@@ -484,13 +493,13 @@ async function main() {
                     if (isInfraMode) {
                         console.log("[CI] Running Infrastructure Probe (E2E)...");
                         await runCommand('pnpm', [
-                            'run', 'test:e2e:mock:headless',
+                            'run', 'test:e2e',
                             '--workers=1', // Zero flake requirement
                             'tests/e2e/infra.probe.e2e.spec.ts'
                         ], { label: 'INFRA-PROBE' });
                     } else if (impactOutput === 'ALL' || process.argv.includes('ci-simulate')) {
                         await runCommand('pnpm', [
-                            'run', 'test:e2e:mock:headless',
+                            'run', 'test:e2e',
                             `--workers=${workerCount}`,
                             '--reporter=./scripts/playwright-telemetry-reporter.mjs,json',
                             '--output=test-results/playwright-artifacts'
@@ -500,7 +509,7 @@ async function main() {
                         const playwrightFiles = [...new Set([...testFiles.filter(f => f.includes('.spec.ts')), ...ALWAYS_RUN_SPECS])];
                         if (playwrightFiles.length > 0) {
                             await runCommand('pnpm', [
-                                'run', 'test:e2e:mock:headless',
+                                'run', 'test:e2e',
                                 `--workers=${workerCount}`,
                                 '--reporter=./scripts/playwright-telemetry-reporter.mjs,json',
                                 '--output=test-results/playwright-artifacts',

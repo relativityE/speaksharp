@@ -40,7 +40,9 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 10000,
     teardownTimeout: 15000,
-    reporters: ['default', path.resolve(__dirname, '../scripts/vitest-ci-reporter.mjs')],
+    reporters: process.env.CI 
+      ? [path.resolve(__dirname, '../scripts/vitest-ci-reporter.mjs')]
+      : ['default', path.resolve(__dirname, '../scripts/vitest-ci-reporter.mjs')],
     // Suppress console.log noise from tests in CI mode
     silent: !process.env.CI_DEBUG,
     // ─── Coverage ────────────────────────────────────────────────────────────

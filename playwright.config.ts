@@ -86,7 +86,7 @@ export default defineConfig({
     },
     {
       name: 'full-suite',
-      testMatch: ['**/!(infra.probe).e2e.spec.ts', '**/evidence.probe.spec.ts'],
+      testMatch: ['**/!(*infra.probe*).spec.ts'],
       dependencies: ['infra-probe'],
       snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}',
       use: getChromeWithMic(),
