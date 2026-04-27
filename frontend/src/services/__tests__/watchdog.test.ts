@@ -26,12 +26,13 @@ describe('SpeechRuntimeController: Heartbeat Watchdog', () => {
       start: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn().mockResolvedValue(undefined),
       destroy: vi.fn().mockResolvedValue(undefined),
-      handleHeartbeatFailure: vi.fn(), 
+      handleHeartbeatFailure: vi.fn(),
       on: vi.fn(),
       off: vi.fn(),
     };
 
     (controller as { service: unknown }).service = mockService;
+    (controller as { isEngineReady: boolean }).isEngineReady = true;
   });
 
   afterEach(() => {

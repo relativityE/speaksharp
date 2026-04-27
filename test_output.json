@@ -1,0 +1,359 @@
+{
+  "config": {
+    "configFile": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/playwright.config.ts",
+    "rootDir": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e",
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 3
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/test-results/playwright",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "actualWorkers": 3
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e",
+        "testIgnore": [
+          "/.*\\.(live|canary|soak)\\.spec\\.ts/"
+        ],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "none",
+    "updateSourceMethod": "patch",
+    "version": "1.57.0",
+    "workers": 4,
+    "webServer": {
+      "command": "pnpm dev",
+      "port": 5173,
+      "reuseExistingServer": true,
+      "timeout": 120000,
+      "stdout": "pipe",
+      "stderr": "pipe"
+    }
+  },
+  "suites": [
+    {
+      "title": "engine-lifecycle.e2e.spec.ts",
+      "file": "engine-lifecycle.e2e.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Engine Lifecycle & Resilience Matrix",
+          "file": "engine-lifecycle.e2e.spec.ts",
+          "line": 10,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Engine Lifecycle: Verify Download Flow and Cache Persistence",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 25499,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByTestId('download-model-button')\nExpected: visible\nTimeout: 20000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 20000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('download-model-button')\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByTestId('download-model-button')\nExpected: visible\nTimeout: 20000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 20000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('download-model-button')\u001b[22m\n\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/engine-lifecycle.e2e.spec.ts:65:31",
+                        "location": {
+                          "file": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/engine-lifecycle.e2e.spec.ts",
+                          "column": 31,
+                          "line": 65
+                        },
+                        "snippet": "  63 |     await page.getByTestId('session-start-stop-button').click();\n  64 |     const downloadBtn = page.getByTestId('download-model-button');\n> 65 |     await expect(downloadBtn).toBeVisible({ timeout: 20000 });\n     |                               ^\n  66 |     await downloadBtn.click();\n  67 |\n  68 |     const indicator = page.getByTestId('background-task-indicator');"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/engine-lifecycle.e2e.spec.ts",
+                            "column": 31,
+                            "line": 65
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByTestId('download-model-button')\nExpected: visible\nTimeout: 20000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 20000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('download-model-button')\u001b[22m\n\n\n  63 |     await page.getByTestId('session-start-stop-button').click();\n  64 |     const downloadBtn = page.getByTestId('download-model-button');\n> 65 |     await expect(downloadBtn).toBeVisible({ timeout: 20000 });\n     |                               ^\n  66 |     await downloadBtn.click();\n  67 |\n  68 |     const indicator = page.getByTestId('background-task-indicator');\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/engine-lifecycle.e2e.spec.ts:65:31"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "{\"level\":40,\"time\":1776164461362,\"pid\":73804,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164461399,\"pid\":73804,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164462657,\"pid\":73804,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164462705,\"pid\":73804,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164463134,\"pid\":73804,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] ⚠️ Hard reset triggered\\u001b[0m\"}\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-14T11:00:59.398Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/test-results/playwright/engine-lifecycle.e2e-Engin-a7bc5--Flow-and-Cache-Persistence-chromium/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/test-results/playwright/engine-lifecycle.e2e-Engin-a7bc5--Flow-and-Cache-Persistence-chromium/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/test-results/playwright/engine-lifecycle.e2e-Engin-a7bc5--Flow-and-Cache-Persistence-chromium/error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/test-results/playwright/engine-lifecycle.e2e-Engin-a7bc5--Flow-and-Cache-Persistence-chromium/trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/engine-lifecycle.e2e.spec.ts",
+                        "column": 31,
+                        "line": 65
+                      }
+                    },
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 22769,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByTestId('download-model-button')\nExpected: visible\nTimeout: 20000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 20000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('download-model-button')\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByTestId('download-model-button')\nExpected: visible\nTimeout: 20000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 20000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('download-model-button')\u001b[22m\n\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/engine-lifecycle.e2e.spec.ts:65:31",
+                        "location": {
+                          "file": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/engine-lifecycle.e2e.spec.ts",
+                          "column": 31,
+                          "line": 65
+                        },
+                        "snippet": "  63 |     await page.getByTestId('stt-mode-select').click();\n  64 |     await page.getByRole('menuitemradio', { name: /Private/i }).click();\n> 65 |\n     | ^\n  66 |     // Trigger Download (Hardened poll)\n  67 |     await page.getByTestId('session-start-stop-button').click();\n  68 |     const downloadBtn = page.getByTestId('download-model-button');"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/engine-lifecycle.e2e.spec.ts",
+                            "column": 31,
+                            "line": 65
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: getByTestId('download-model-button')\nExpected: visible\nTimeout: 20000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 20000ms\u001b[22m\n\u001b[2m  - waiting for getByTestId('download-model-button')\u001b[22m\n\n\n  63 |     await page.getByTestId('stt-mode-select').click();\n  64 |     await page.getByRole('menuitemradio', { name: /Private/i }).click();\n> 65 |\n     | ^\n  66 |     // Trigger Download (Hardened poll)\n  67 |     await page.getByTestId('session-start-stop-button').click();\n  68 |     const downloadBtn = page.getByTestId('download-model-button');\n    at /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/engine-lifecycle.e2e.spec.ts:65:31"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "{\"level\":40,\"time\":1776164487430,\"pid\":73868,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164487442,\"pid\":73868,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164487843,\"pid\":73868,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164487852,\"pid\":73868,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164487965,\"pid\":73868,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] ⚠️ Hard reset triggered\\u001b[0m\"}\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 1,
+                      "startTime": "2026-04-14T11:01:26.627Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/test-results/playwright/engine-lifecycle.e2e-Engin-a7bc5--Flow-and-Cache-Persistence-chromium-retry1/test-failed-1.png"
+                        },
+                        {
+                          "name": "video",
+                          "contentType": "video/webm",
+                          "path": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/test-results/playwright/engine-lifecycle.e2e-Engin-a7bc5--Flow-and-Cache-Persistence-chromium-retry1/video.webm"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/test-results/playwright/engine-lifecycle.e2e-Engin-a7bc5--Flow-and-Cache-Persistence-chromium-retry1/error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/test-results/playwright/engine-lifecycle.e2e-Engin-a7bc5--Flow-and-Cache-Persistence-chromium-retry1/trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "/Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/tests/e2e/engine-lifecycle.e2e.spec.ts",
+                        "column": 31,
+                        "line": 65
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "38d2c973a8cd83ca83c4-165c3ee393e808ffb0dd",
+              "file": "engine-lifecycle.e2e.spec.ts",
+              "line": 22,
+              "column": 3
+            },
+            {
+              "title": "Resilience Matrix: Verify Graceful Fallback when Primary Engine fails",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "passed",
+                      "duration": 4724,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "{\"level\":40,\"time\":1776164461356,\"pid\":73808,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164461390,\"pid\":73808,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164462581,\"pid\":73808,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164462653,\"pid\":73808,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164463016,\"pid\":73808,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] ⚠️ Hard reset triggered\\u001b[0m\"}\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-14T11:00:59.404Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "38d2c973a8cd83ca83c4-f741043d2188a75e7ef3",
+              "file": "engine-lifecycle.e2e.spec.ts",
+              "line": 93,
+              "column": 3
+            },
+            {
+              "title": "Tier Control: Verify Private engine is gated for Free users",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
+                      "status": "passed",
+                      "duration": 4344,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "{\"level\":40,\"time\":1776164461351,\"pid\":73807,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164461384,\"pid\":73807,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164462508,\"pid\":73807,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [Sentry] No DSN provided (expected in test mode)\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164462580,\"pid\":73807,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] [E2E MODE] Analytics disabled entirely.\\u001b[0m\"}\n"
+                        },
+                        {
+                          "text": "{\"level\":40,\"time\":1776164462904,\"pid\":73807,\"hostname\":\"Mac-2.lan\",\"msg\":\"\\u001b[33m[BROWSER warning] {reason: subscriber_unmount} [SpeechRuntimeController] ⚠️ Hard reset triggered\\u001b[0m\"}\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-04-14T11:00:59.405Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "38d2c973a8cd83ca83c4-97343f5d16f92d7a1cac",
+              "file": "engine-lifecycle.e2e.spec.ts",
+              "line": 139,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-04-14T11:00:58.891Z",
+    "duration": 51441.575000000004,
+    "expected": 2,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

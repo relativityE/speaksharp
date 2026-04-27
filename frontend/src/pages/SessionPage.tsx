@@ -122,9 +122,6 @@ export const SessionPage: React.FC = () => {
         <main 
             aria-label="Practice Session" 
             data-testid="session-page" 
-            data-runtime-state={runtimeState} 
-            data-app-ready={runtimeState === 'READY' ? 'true' : 'false'}
-            data-engine-ready={isReady ? 'true' : 'false'} 
             className="min-h-screen bg-gradient-subtle pt-20"
         >
             {/* Page Header */}

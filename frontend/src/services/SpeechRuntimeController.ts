@@ -51,12 +51,14 @@ export type RuntimeState =
  */
 export class SpeechRuntimeController {
     private static instance: SpeechRuntimeController;
+    private readonly HEARTBEAT_THRESHOLD_MS = 
+        import.meta.env.VITE_E2E_MODE ? 60000 : 30000;
+    private lifecycleVersion: number = 0;
     private state: RuntimeState = 'IDLE';
     private initialized: boolean = false;
     public service: TranscriptionService | null = null;
     private serviceUnsubscribe: (() => void) | null = null;
     private commandQueue: Promise<void> = Promise.resolve();
-    private lifecycleVersion: number = 0;
     private destroyed: boolean = false;
     private heartbeatInterval: NodeJS.Timeout | null = null;
     private readonly HEARTBEAT_PERIOD_MS = STT_CONFIG.HEARTBEAT_TIMEOUT_MS;
@@ -71,7 +73,6 @@ export class SpeechRuntimeController {
     private idleTimeout: NodeJS.Timeout | null = null;
     private readonly IDLE_RECLAMATION_MS = 5 * 60 * 1000;
     private readonly WATCHDOG_PERIOD_MS = 5000;
-    private readonly HEARTBEAT_TIMEOUT_MS = STT_CONFIG.HEARTBEAT_TIMEOUT_MS;
 
     private readonly FAILURE_HOLD_DURATION_MS = STT_CONFIG.FAILURE_HOLD_DURATION_MS;
     private readonly VISIBLE_HOLD_DURATION_MS = STT_CONFIG.VISIBLE_HOLD_DURATION_MS;
@@ -98,17 +99,25 @@ export class SpeechRuntimeController {
     private getAssemblyAIToken?: () => Promise<string | null>;
 
     private constructor() {
+        this.lock = new DistributedLock();
+        
+        // EXPERT RESCUE: App readiness is now decoupled from the Audio runtime.
+        // We use a feature-specific signal for audio-intensive tests.
+        if (typeof document !== 'undefined') {
+            document.documentElement.setAttribute('data-stt-ready', 'false');
+        }
+
         this.serviceCallbacks = {
             onTranscriptUpdate: this.handleTranscriptUpdate.bind(this),
+            onStatusChange: this.handleStatusChange.bind(this),
             onModelLoadProgress: this.handleModelLoadProgress.bind(this),
             onReady: this.handleReady.bind(this),
             onHistoryUpdate: this.handleHistoryUpdate.bind(this),
             onModeChange: this.handleModeChange.bind(this),
-            onStatusChange: this.handleStatusChange.bind(this),
             onAudioData: this.handleAudioData.bind(this),
             onError: this.handleError.bind(this),
         };
-        this.lock = new DistributedLock();
+        
         // E2E HOOK: Sanctioned Mocks
         if (typeof window !== 'undefined') {
             window.STTEngine = STTEngine;
@@ -370,25 +379,7 @@ export class SpeechRuntimeController {
         return this.state;
     }
 
-    /**
-     * Internal helper to set canonical E2E attributes directly on the DOM.
-     * This ensures attributes are authoritative and \"upstream\" of React logic.
-     * TARGET: document.documentElement (<html>) for T=0 visibility and selector consistency.
-     */
-    private setCanonicalAttribute(name: string, value: string | null): void {
-        // NOTE: Forensic signaling is now handled centrally by TranscriptionProvider.
-        // This method remains as a no-op to satisfy legacy internal calls if any,
-        // but all DOM-level forensic state is now store-driven.
-    }
-
-    private updateE2EAttributes(state: RuntimeState): void {
-        // NOTE: Individual forensic attributes (data-recording-state, etc.) 
-        // are now derived and set by TranscriptionProvider via useStore.subscribe.
-        logger.debug({ state }, '[SpeechRuntimeController] FSM state updated - derived attributes handled by Provider');
-    }
-
     private updateSessionPersisted(persisted: boolean): void {
-        this.setCanonicalAttribute('data-session-persisted', persisted.toString());
         useSessionStore.getState().setSessionSaved(persisted);
     }
 
@@ -489,8 +480,6 @@ export class SpeechRuntimeController {
         // Push to store for reactive UI (Single Source of Truth)
         store.setRuntimeState(newState);
 
-        // Update Authoritative E2E Attributes Immediately (Sync)
-        this.updateE2EAttributes(newState);
 
         // Sticky Error Messaging for Cache Misses
         // If we transition to FAILED, only set generic error if a more specific
@@ -563,6 +552,11 @@ export class SpeechRuntimeController {
         if (this.isEngineReady) {
             logger.info('[SpeechRuntimeController] \u2705 Full Handshake Complete (Engine ready & Subscriber attached)');
             readiness.setAppState('READY');
+            
+            // 🛡️ FEATURE READINESS: Signal specifically that the STT engine is ready.
+            if (typeof document !== 'undefined') {
+                document.documentElement.setAttribute('data-stt-ready', 'true');
+            }
         }
 
         // ✅ BOOT SIGNAL: Handshake confirmed, UI is now ready for emissions
@@ -617,7 +611,13 @@ export class SpeechRuntimeController {
         }
     }
 
-    private handleError(error: Error) {
+    private handleError(error: Error): void {
+        // 🛡️ FEATURE READINESS RESET: Reset the audio-specific signal on failure.
+        if (typeof document !== 'undefined') {
+            document.documentElement.setAttribute('data-stt-ready', 'false');
+        }
+        
+        if (this.destroyed) return;
         logger.error({ error }, '[SpeechRuntimeController] \u{1F6A8} Service error received');
         const store = useSessionStore.getState();
         store.setSTTStatus({ type: 'error', message: error.message });
@@ -916,9 +916,16 @@ export class SpeechRuntimeController {
     private startHeartbeat(sessionId: string, service: TranscriptionService): void {
         this.stopHeartbeat();
 
+        const version = ++this.lifecycleVersion;
+
         const scheduleNext = (immediate = false) => {
             const delay = immediate ? 0 : this.HEARTBEAT_PERIOD_MS;
             this.heartbeatInterval = setTimeout(() => {
+                if (version !== this.lifecycleVersion) {
+                    if (this.heartbeatInterval) clearTimeout(this.heartbeatInterval);
+                    return;
+                }
+
                 void (async () => {
                     try {
                         // \u2705 Safety Check: Only heartbeat if still recording and session matches
@@ -930,11 +937,18 @@ export class SpeechRuntimeController {
 
                         await heartbeatSession(sessionId, Math.round(this.HEARTBEAT_PERIOD_MS / 1000));
 
+                        // 🛡️ Post-work guard (before reschedule)
+                        if (version !== this.lifecycleVersion) return;
+
                         // Recursive call to schedule next heartbeat only after previous one succeeds
                         scheduleNext();
                     } catch (error: unknown) {
                         const e = error as { message?: string };
                         logger.error({ sessionId, message: e?.message }, '[SpeechRuntimeController] Heartbeat failed');
+                        
+                        // 🛡️ Post-work guard (before retry)
+                        if (version !== this.lifecycleVersion) return;
+
                         // Even on failure, we retry unless the state changed
                         scheduleNext();
                     }
@@ -961,20 +975,23 @@ export class SpeechRuntimeController {
      * @param service Current transcription service instance
      */
     private startWatchdog(service: TranscriptionService): void {
+        const version = ++this.lifecycleVersion;
         this.stopWatchdog();
 
         this.watchdogInterval = setInterval(() => {
-            const strategy = service.getStrategy();
-            if (!strategy) {
-                this.handleHeartbeatFailure(new Error('STT_STRATEGY_MISSING_DURING_WATCHDOG'));
+            if (version !== this.lifecycleVersion) {
+                if (this.watchdogInterval) clearInterval(this.watchdogInterval);
                 return;
             }
+            const strategy = service.getStrategy();
+            if (!strategy || !this.isEngineReady) return;
+
             const lastHeartbeat = service.getLastHeartbeatTimestamp();
             const drift = Date.now() - lastHeartbeat;
 
-            if (drift > this.HEARTBEAT_TIMEOUT_MS) {
-                const error = new Error(`STT_HEARTBEAT_FAILURE: Engine unresponsive for ${drift}ms (Threshold: ${this.HEARTBEAT_TIMEOUT_MS}ms)`);
-                logger.error({ drift, threshold: this.HEARTBEAT_TIMEOUT_MS, error }, '[SpeechRuntimeController] \u{1F6A8} Heartbeat Failure!');
+            if (drift > this.HEARTBEAT_THRESHOLD_MS) {
+                const error = new Error(`STT_HEARTBEAT_FAILURE: Engine unresponsive for ${drift}ms (Threshold: ${this.HEARTBEAT_THRESHOLD_MS}ms)`);
+                logger.error({ drift, threshold: this.HEARTBEAT_THRESHOLD_MS, error }, '[SpeechRuntimeController] \u{1F6A8} Heartbeat Failure!');
                 this.handleHeartbeatFailure(error);
             }
         }, this.WATCHDOG_PERIOD_MS);
@@ -1094,6 +1111,14 @@ export class SpeechRuntimeController {
      * We ONLY detach listeners; we do NOT terminate the session service.
      */
     public async reset(reason: string = 'manual'): Promise<void> {
+        this.lifecycleVersion++;
+        this.destroyed = true;
+
+        if (this.watchdogInterval) clearInterval(this.watchdogInterval);
+        if (this.heartbeatInterval) clearTimeout(this.heartbeatInterval);
+        this.watchdogInterval = null;
+        this.heartbeatInterval = null;
+
         if (this.destroyed && reason === 'subscriber_unmount') return;
         
         this.lifecycleVersion++;

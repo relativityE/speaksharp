@@ -5,7 +5,13 @@
 
 # SpeakSharp System Architecture
 
-**Version 0.6.4** | **Last Updated: 2026-04-23** (Forensic Finalization)
+**Version 0.6.17** | **Last Updated: 2026-04-27** (Readiness Hardening)
+
+#### Pattern 32: Unconditional Root Readiness (`main.tsx`)
+**Problem:** Non-deterministic boot hangs (45s) caused by coupling the `data-app-ready` signal to heavy, asynchronous data/STT handshakes or nested route resolution.
+**Solution:** Move the readiness signal to the absolute root of the application (`main.tsx`).
+- **Invariant**: The app MUST signal `data-app-ready="false"` before rendering and `data-app-ready="true"` synchronously after the successful `root.render()` call.
+- **Benefit**: Restores 100% deterministic boot sequences for E2E tests by separating the "interactive shell" mount from background hydration.
 
 This document provides an overview of the technical architecture of the SpeakSharp application. For product requirements and project status, please refer to the [PRD.md](./PRD.md) and the [Roadmap](./ROADMAP.md) respectively.
 

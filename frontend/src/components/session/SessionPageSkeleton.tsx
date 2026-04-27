@@ -15,7 +15,7 @@ const LOADING_TIPS = [
 
 export function SessionPageSkeleton() {
     const [tip, setTip] = useState("");
-    const { runtimeState } = useTranscriptionContext();
+    useTranscriptionContext();
 
     useEffect(() => {
         setTip(LOADING_TIPS[Math.floor(Math.random() * LOADING_TIPS.length)]);
@@ -25,8 +25,6 @@ export function SessionPageSkeleton() {
         <div 
             className="min-h-screen bg-background" 
             data-testid="session-page-skeleton"
-            data-runtime-state="IDLE"
-            data-app-ready="false"
         >
             {/* Header Skeleton */}
             <div className="flex items-center justify-between py-8 px-6 max-w-7xl mx-auto">

@@ -1,8 +1,7 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-03-24
-**Version:** v0.6.3 (CI Stabilized)
-**Last Updated:** 2026-04-21
-**Version: 11.0.1** | **Last Updated:** 2026-04-21
+**Last Reviewed:** 2026-04-27
+**Version:** v0.6.17 (Readiness Hardened)
+**Last Updated:** 2026-04-27
 
 ## 1. Executive Summary
 

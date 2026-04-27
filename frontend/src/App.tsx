@@ -111,6 +111,9 @@ const App: React.FC = () => {
   useEffect(() => {
     useReadinessStore.getState().setReady('layout');
     document.body.classList.add('app-loaded');
+    
+    // 🛡️ AUTHORITATIVE BOOT BARRIER: React App Shell is mounted and interactive.
+    // Signal now managed centrally in main.tsx (Final Directive v0.8.3).
   }, []);
 
   // 1. Reset route readiness on navigation

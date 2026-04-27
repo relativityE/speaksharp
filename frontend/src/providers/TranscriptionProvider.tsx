@@ -58,19 +58,6 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
 
         const newPolicy = buildPolicyForUser(tier === 'pro');
         speechRuntimeController.updatePolicy(newPolicy);
-
-        const SENSITIVE_ATTR = import.meta.env.DEV ? 'data-user-tier' : null;
-
-        // Behavioral Gating - Setting E2E wait attribute
-        // TARGET: document.documentElement for authoritative contract surface
-        if (typeof document !== 'undefined' && SENSITIVE_ATTR) {
-        }
-
-        return () => {
-            // Cleanup
-            if (typeof document !== 'undefined' && SENSITIVE_ATTR) {
-            }
-        };
     }, [profile?.id, profile?.subscription_status]);
 
     const contextValue: TranscriptionContextValue = {

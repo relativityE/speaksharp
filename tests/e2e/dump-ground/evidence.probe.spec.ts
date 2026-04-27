@@ -186,7 +186,7 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
       await page.getByTestId('session-start-stop-button').click();
       
       // Step 5.2 — Wait for FSM to enter DOWNLOADING state — no timeout hacks
-      await page.waitForSelector('[data-runtime-state="DOWNLOADING"]', { timeout: 10000 });
+      await page.waitForSelector('html[data-runtime-state="DOWNLOADING"]', { timeout: 10000 });
       
       const downloadBtn = page.getByTestId('download-model-button');
       await expect(downloadBtn).toBeVisible({ timeout: 20000 });

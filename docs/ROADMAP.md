@@ -115,6 +115,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ **Screen Reader Accessibility (2025-12-11):** Added `aria-live="polite"` to live transcript for screen reader announcements.
 - ✅ **PDF Export Fix (2025-12-11):** Replaced manual download with FileSaver.js industry standard.
 - [ ] Refactor Download Model tier gating: display disabled button for Free users as marketing funnel ([PRD §3.5](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/docs/PRD.md#L157-L159))
+- [ ] **Redundant Forensic Constants (Tech Debt)**: `e2eAttributes.ts` and `forensicAnchors.ts` both define forensic attribute names. Consolidate into `forensicAnchors.ts` as the Single Source of Truth for both definitions and execution. (Added Apr 2026).
 - ✅ **STT Initialization UX (Pulsatile Glow):** Implement a subtle pulsatile glow or glassmorphic loader around the microphone during the `isEngineInitialized` transition to mask initialization lag. (Added Apr 2026).
 - 🔴 **Harden Supabase Security:** Address security advisor warnings.
   - ⏸️ **BLOCKED** - Shorten OTP expiry to <1 hour (requires Supabase Pro account)

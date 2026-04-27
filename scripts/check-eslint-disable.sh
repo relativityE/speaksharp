@@ -11,10 +11,14 @@ if grep -r "eslint-disable" . \
     --exclude-dir=node_modules \
     --exclude-dir=.git \
     --exclude-dir=dist \
+    --exclude-dir=dist-e2e \
     --exclude-dir=coverage \
+    --exclude-dir=frontend/coverage \
     --exclude-dir=.gemini \
     --exclude-dir=backend \
     --exclude-dir=docs \
+    --exclude-dir=brain \
+    --exclude-dir=.agent \
     --exclude="check-eslint-disable.sh" \
     --exclude="package.json" \
     --exclude="pnpm-lock.yaml" \

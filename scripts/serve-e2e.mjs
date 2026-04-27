@@ -15,6 +15,12 @@ app.use((req, res, next) => {
 // Serve the production E2E build (from frontend/dist)
 app.use(express.static(resolve('frontend/dist')));
 
+// 🛡️ SPA FALLBACK: Ensure nested routes (e.g. /auth/signup) return index.html
+// This prevents raw 404s on direct navigation, allowing the React app to mount.
+app.get('*', (req, res) => {
+  res.sendFile(resolve('frontend/dist/index.html'));
+});
+
 // Explicit localhost binding — resolving storage access denials seen on 127.0.0.1
 app.listen(4173, 'localhost', () => {
   console.log('🚀 [E2E Server] Running at http://localhost:4173');

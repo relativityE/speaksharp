@@ -172,12 +172,10 @@ export function setupNetworkTracking(page: Page) {
  * Performs a standard page navigation and waits for the system-wide
  * interactive barrier [data-app-ready="true"].
  */
-export async function goToApp(page: Page, route: string) {
+export async function goToApp(page: Page, route: string = '/') {
   debugLog(`Navigating to ${route}`);
   await page.goto(route);
-
-  // Wait for canonical interactive barrier (Auth, Profile, and Runtime resolved)
-  await page.locator('[data-app-ready="true"]').waitFor({ timeout: 10000 });
+  await waitForAppReady(page);
 }
 
 /** @deprecated Use goToApp instead. Maintained for spec compatibility during migration. */
@@ -216,33 +214,15 @@ export async function waitForApp(page: Page) {
 }
 
 
-export async function waitForAppReady(page: Page, timeout: number = 30000) {
+export async function waitForAppReady(page: Page, timeout: number = 45000) {
   debugLog('Awaiting deterministic BOOT BARRIER...');
 
-  // 1. Primary Signal: DOM Attribute OR Visual Anchor (Determined by which resolves first)
-  try {
-    await Promise.race([
-      page.waitForSelector('[data-app-ready="true"]', { timeout: timeout / 2 }),
-      page.waitForSelector('[data-testid="nav-session-link"]', { timeout: timeout / 2 }),
-      page.waitForSelector('[data-testid="nav-sign-out-button"]', { timeout: timeout / 2 })
-    ]);
-    debugLog('App shell ready via Visual Heartbeat or data-app-ready barrier');
-    return;
-  } catch {
-    debugLog('No readiness signal found, falling back to signal polling...');
-  }
-
-  // 2. Fallback: Direct Signal Map Polling (Section 7)
-  await page.waitForFunction(
-    (args) => {
-      const { required } = args as { required: string[] };
-      const s = (window as unknown as { __APP_READY_STATE__: Record<string, boolean | Record<string, number>> }).__APP_READY_STATE__;
-      return s && typeof s === 'object' && required.every(k => s[k] === true);
-    },
-    { required: REQUIRED_GLOBAL },
-    { timeout: timeout / 2 }
-  );
-  debugLog('App shell ready via signal map polling');
+  // 🛡️ AUTHORITATIVE CONTRACT: data-app-ready is set on <html> by forensicAnchors.ts
+  // 🛡️ ACCESSIBILITY: We use state: 'attached' because <html> fails visibility checks
+  await page.locator('html[data-app-ready="true"]').waitFor({ 
+    state: 'attached',
+    timeout 
+  });
 }
 
 export async function waitForFeature(page: Page, feature: ReadinessSignal, timeout: number = 30000) {

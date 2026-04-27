@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-04-23
+**Last Reviewed:** 2026-04-27
 
 
 # Agent Instructions for SpeakSharp Repository
@@ -38,6 +38,35 @@ To ensure 100% CI reliability, the following surface areas were **FROZEN** durin
 *   **Observability**: Adding structured logging and error escalation.
 
 
+
+---
+
+## 🏛️ Invariant Stabilization Principles
+
+These tenets govern all stabilization and hardening work in the SpeakSharp repository. They are non-negotiable and must be applied strictly to break "fix-and-fail" loops.
+
+### 🔒 1. The Ruleset (Mechanical Constraint)
+*   **Change one variable at a time**: Never stack fixes or combine refactors with stabilization.
+*   **Atomic Validation**: After each change, run **only** the specific failing test.
+*   **Outcome Verification**: Confirm the outcome changed *exactly* as expected.
+*   **Strict Reversion**: If the outcome is not directly explained by the change → **revert immediately**.
+*   **Problem Integrity**: Do not rename or reinterpret problems; solve them as they exist in the logs.
+
+### 🧠 2. The Mental Model (Invariant-Driven)
+*   **Strict System Reality**: Failures are signs that the system has become stricter, exposing pre-existing gaps in observability or lifecycle isolation.
+*   **Invariant Restoration**: Your role is to restore the three core invariants: **Observability** (authoritative signals), **Isolation** (no state leakage), and **Determinism** (readiness-gated execution).
+*   **Mechanical Proof over Narrative**: Rely only on what can be proven in the DOM or logs, never on assumptions of how the code "should" behave.
+
+### 🧭 3. The Approach (The Inviolable Sequence)
+*   **Observe → Prove → Fix → Confirm**: Never apply a fix without a high-fidelity reproduction probe.
+*   **Observability First**: Fix the signals before the logic. If the test can't see the state, the state doesn't exist for the test.
+*   **Single Source of Truth**: One writer controls one signal. Redundancy is an observability risk.
+*   **Kill the Zombie**: Always unconditionally terminate async processes (watchdogs, intervals) in reset cycles to prevent "state poisoning."
+
+### 🛠️ 4. Development & Testing Workflow
+*   **Closed-Loop Status**: Update the `implementation_plan.md` status and pause for approval after *every* discrete step.
+*   **Baseline Transparency**: Use mechanical tallies (pass/fail) to prove convergence at each milestone.
+*   **Tech Debt Isolation**: Log design smells for later paydown; never allow them to drift the stabilization sequence.
 
 ---
 

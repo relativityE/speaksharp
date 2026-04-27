@@ -23,6 +23,11 @@ declare global {
   }
 }
 
+// 🛡️ INITIAL BOOT BARRIER: Set to false before any rendering logic starts.
+if (typeof document !== 'undefined') {
+  document.documentElement.setAttribute('data-app-ready', 'false');
+}
+
 // Deterministic Mock Data (CI/E2E)
 if (ENV.isTest) {
   // Simple LCG for deterministic Math.random() in CI/E2E
@@ -186,12 +191,22 @@ const renderApp = async (initialSession: Session | null = null) => {
           </QueryClientProvider>
         </StrictMode>
       );
+      
+      // 🛡️ FINAL BOOT SIGNAL: React mount initiated. Unconditional.
+      if (typeof document !== 'undefined') {
+        document.documentElement.setAttribute('data-app-ready', 'true');
+      }
     } else {
       root.render(
         <StrictMode>
           <ConfigurationNeededPage />
         </StrictMode>
       );
+
+      // 🛡️ FINAL BOOT SIGNAL: Config path mount initiated. Unconditional.
+      if (typeof document !== 'undefined') {
+        document.documentElement.setAttribute('data-app-ready', 'true');
+      }
     }
   }
 };

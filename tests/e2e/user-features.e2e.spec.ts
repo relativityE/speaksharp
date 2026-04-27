@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures';
-import { 
-  waitForAppReady, 
-  navigateToRoute
+import {
+  navigateToRoute,
+  waitForTranscriptionService
 } from './helpers';
 
 /**
@@ -15,9 +15,10 @@ test.describe('Exhaustive User Feature Matrix', () => {
   test('Free Tier Matrix: Verify Session Limits, Watermarked PDF, and Feature Gating', async ({ freePage: page }) => {
     // 1. Verify Session Limit Visibility
     await navigateToRoute(page, '/session');
+    await page.waitForURL('**/session');
     const startButton = page.getByTestId('session-start-stop-button');
     await expect(startButton).toBeVisible();
-    
+
     // Check for Free-Tier Limit messaging
     await expect(page.getByText(/1-hour free training window/i)).toBeHidden(); // Modal shouldn't show yet
 
@@ -30,7 +31,9 @@ test.describe('Exhaustive User Feature Matrix', () => {
     await startButton.click();
 
     await navigateToRoute(page, '/analytics');
-    await waitForAppReady(page, 15000);
+    await page.waitForURL('**/analytics');
+    // 🛡️ Deterministic Layout Barrier: Wait for the session history list to resolve
+    await page.waitForSelector('[data-testid^="session-history-item-"]', { timeout: 15000 });
 
     // 4. PRD §531: AI Coach Gating (Should NOT be visible)
     await expect(page.getByTestId('ai-suggestions-card')).not.toBeVisible();
@@ -38,10 +41,10 @@ test.describe('Exhaustive User Feature Matrix', () => {
     // 5. PRD §283: Watermarked PDF Export
     const pdfBtn = page.getByRole('button', { name: /pdf|export|download/i }).first();
     await pdfBtn.click();
-    
+
     // Verify E2E signal for watermark (Injected in Phase 5)
     await expect(page.locator('body')).toHaveAttribute('data-pdf-token', 'watermarked');
-    
+
     // 6. Marketing Funnel: Upgrade buttons should be prominent
     await expect(page.getByTestId('nav-upgrade-button')).toBeVisible();
   });
@@ -50,7 +53,8 @@ test.describe('Exhaustive User Feature Matrix', () => {
   test('Pro Tier Matrix: Verify AI Coach, Diarization, and Clean PDF exports', async ({ proPage: page }) => {
     // 1. Verify Pro Engine Access (Cloud/Private)
     await navigateToRoute(page, '/session');
-    
+    await page.waitForURL('**/session');
+
     // Default mode should allow Cloud STT as Pro
     const startButton = page.getByTestId('session-start-stop-button');
     await expect(startButton).toBeVisible();
@@ -61,7 +65,9 @@ test.describe('Exhaustive User Feature Matrix', () => {
 
     // 3. Navigation to Analytics & Session Selection
     await navigateToRoute(page, '/analytics');
-    await waitForAppReady(page, 15000);
+    await page.waitForURL('**/analytics');
+    // 🛡️ Deterministic Layout Barrier: Wait for the session history list to resolve
+    await page.waitForSelector('[data-testid^="session-history-item-"]', { timeout: 15000 });
 
     // 🛡️ CRITICAL: Select the latest session from the history to enter the Detail View
     // We target the first history item in the list
@@ -74,7 +80,7 @@ test.describe('Exhaustive User Feature Matrix', () => {
     // 6. Professional PDF Export (Clean)
     const pdfBtn = page.getByRole('button', { name: /pdf|export|download/i }).first();
     await pdfBtn.click();
-    
+
     // Verify E2E signal for clean report (Injected in Phase 5)
     await expect(page.locator('body')).toHaveAttribute('data-pdf-token', 'clean');
 

@@ -58,7 +58,7 @@ test.describe('Genesis Trace Audit', () => {
     await goToApp(page, '/session');
 
     // 3. WAIT FOR READINESS & MOBILIZE ENGINE
-    await page.waitForSelector('[data-app-ready="true"]', { timeout: 15000 });
+    await page.waitForSelector('html[data-app-ready="true"]', { state: 'attached', timeout: 15000 });
     
     // 🎙️ ACTIVATE ENGINE
     await page.getByTestId('session-start-stop-button').click();
@@ -73,7 +73,7 @@ test.describe('Genesis Trace Audit', () => {
     await navigateToRoute(page, '/session');
     
     // Wait for the new component to mount and ready up
-    await page.waitForSelector('[data-app-ready="true"]', { timeout: 15000 });
+    await page.waitForSelector('html[data-app-ready="true"]', { state: 'attached', timeout: 15000 });
 
     // 4. GENERATE REPORT
     console.log('\n--- FORENSIC LIFECYCLE EVENT TABLE ---');

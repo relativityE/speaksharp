@@ -1,3 +1,9 @@
+## [0.6.17] - 2026-04-27
+### Fixed
+- **Root Readiness Invariant**: Implemented unconditional `data-app-ready="true"` in `main.tsx` after `root.render()`. Decoupled app interactivity signals from heavy STT handshakes to eliminate 45s boot hangs across the entire suite.
+- **E2E Infrastructure Hardening**: Added wildcard SPA fallback to `scripts/serve-e2e.mjs`. Resolved raw 404 errors on direct navigation to nested routes (e.g. `/auth/signup`).
+- **Signal Authority**: Moved initial `data-app-ready="false"` state to the top of the entry point, ensuring Playwright waits for the actual React mount before proceeding.
+
 ## [0.6.16] - 2026-04-25
 ### Fixed
 - **Lifecycle Invariant Stabilization**: Enforced strictly monotonic lifecycle versioning in `SpeechRuntimeController` by making `lifecycleVersion` increment unconditional in `reset()`. This prevents pre-init async tasks from surviving resets and leaking state into subsequent tests.

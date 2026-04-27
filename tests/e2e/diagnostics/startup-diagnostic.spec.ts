@@ -37,7 +37,7 @@ test('SPA startup diagnostic', async ({ page }) => {
   logger.info({ rootExists }, 'Root node exists:');
 
   // detect readiness signal
-  const readyAttr = await page.locator('[data-app-ready]').count();
+  const readyAttr = await page.locator('html[data-app-ready]').count();
   logger.info({ readyAttr }, 'Ready attribute count:');
 
   // detect React render

@@ -1,8 +1,13 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-04-23
 
-# SpeakSharp v0.6.4 (CI Stabilized)
-**v0.6.4 (CI Stabilized)** | **Last Updated: 2026-04-23**
+# SpeakSharp v0.6.17 (Readiness Hardened)
+**v0.6.17 (Readiness Hardened)** | **Last Updated: 2026-04-27**
+
+- **Phase 7: Readiness Hardening (v0.6.17):** **Zero-Hang Baseline**.
+    - **Unconditional Root Readiness**: Moved `data-app-ready` signaling to the React entry point (`main.tsx`). Eliminated non-deterministic 45s boot hangs by decoupling app interactivity from heavy STT handshakes.
+    - **SPA Fallback Invariant**: Hardened `scripts/serve-e2e.mjs` with a wildcard fallback to `index.html`. Resolved raw 404 errors during direct navigation to nested routes like `/auth/signup`.
+    - **Infra-Probe Success**: Achieved 100% pass rate on the T=0 Infrastructure Probe.
 
 SpeakSharp is an AI-powered speech coaching application that helps users improve their public speaking skills. It provides real-time feedback on filler words, speaking pace, and more.
 
