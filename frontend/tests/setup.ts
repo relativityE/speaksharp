@@ -203,6 +203,39 @@ if (typeof window !== 'undefined') {
     }));
     (window as any).webkitAudioContext = (window as any).AudioContext;
 
+    // --- PDF Generation Mocks (Task B) ---
+    vi.mock('jspdf', () => {
+        const MockjsPDF = vi.fn().mockImplementation(() => ({
+            setFontSize: vi.fn().mockReturnThis(),
+            text: vi.fn().mockReturnThis(),
+            splitTextToSize: vi.fn().mockReturnValue(['line1', 'line2']),
+            addPage: vi.fn().mockReturnThis(),
+            setPage: vi.fn().mockReturnThis(),
+            setTextColor: vi.fn().mockReturnThis(),
+            getTextWidth: vi.fn().mockReturnValue(50),
+            output: vi.fn().mockReturnValue(new Blob()),
+            internal: {
+                getNumberOfPages: vi.fn().mockReturnValue(1),
+                pageSize: { height: 842, width: 595 }
+            },
+            lastAutoTable: { finalY: 100 }
+        }));
+        return {
+            default: MockjsPDF,
+            __esModule: true
+        };
+    });
+
+    vi.mock('jspdf-autotable', () => ({
+        default: vi.fn().mockImplementation(() => ({})),
+        __esModule: true
+    }));
+
+    vi.mock('file-saver', () => ({
+        saveAs: vi.fn(),
+        __esModule: true
+    }));
+
     // URL polyfills for PDF generation (Necessary bridge for jsdom)
     if (typeof globalThis.URL.createObjectURL === 'undefined') {
         Object.defineProperty(globalThis.URL, 'createObjectURL', {

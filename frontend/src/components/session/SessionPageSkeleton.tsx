@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card } from '@/components/ui/card';
+import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 
 const LOADING_TIPS = [
     "Tip: Pause instead of using filler words like 'um' or 'ah'.",
@@ -14,13 +15,19 @@ const LOADING_TIPS = [
 
 export function SessionPageSkeleton() {
     const [tip, setTip] = useState("");
+    const { runtimeState } = useTranscriptionContext();
 
     useEffect(() => {
         setTip(LOADING_TIPS[Math.floor(Math.random() * LOADING_TIPS.length)]);
     }, []);
 
     return (
-        <div className="min-h-screen bg-background" data-testid="session-page-skeleton">
+        <div 
+            className="min-h-screen bg-background" 
+            data-testid="session-page-skeleton"
+            data-runtime-state="IDLE"
+            data-app-ready="false"
+        >
             {/* Header Skeleton */}
             <div className="flex items-center justify-between py-8 px-6 max-w-7xl mx-auto">
                 <div className="space-y-2">

@@ -174,17 +174,22 @@ export class SpeechRuntimeController {
      * rapid React remount cycles (bridging the StrictMode pulse window).
      */
     public async syncServiceSubscription(): Promise<void> {
-
+        pushE2EEvent('SYNC_SUBSCRIPTION_START', { source: 'SpeechRuntimeController' });
         try {
             await this.enqueue(async () => {
-                if (!this.service) return;
+                if (!this.service) {
+                    pushE2EEvent('SYNC_SUBSCRIPTION_SKIP', { reason: 'no_service' });
+                    return;
+                }
 
                 // Enforce cleanup symmetry by terminating any existing subscription before re-syncing
                 if (this.serviceUnsubscribe) {
+                    pushE2EEvent('SYNC_SUBSCRIPTION_CLEANUP', { source: 'SpeechRuntimeController' });
                     this.serviceUnsubscribe();
                     this.serviceUnsubscribe = null;
                 }
 
+                pushE2EEvent('SYNC_SUBSCRIPTION_EXECUTE', { source: 'SpeechRuntimeController' });
                 this.serviceUnsubscribe = this.service.subscribe(
                     this.serviceCallbacks,
                     'SpeechRuntimeController'
@@ -220,12 +225,11 @@ export class SpeechRuntimeController {
             // Note: Handshake confirmation will trigger the final 'READY' appState
             readiness.setReady('stt');
 
+            // Note: Handshake confirmation will trigger the final 'READY' appState
+            readiness.setReady('stt');
+
             // 3. Start session lock watchdog
             this.startLockWatchdog();
-
-            // 4. BOOT BARRIER: Signal to E2E that infrastructure is fully instantiated
-            // Registry read, Controller instantiated, Initial state committed.
-            this.setCanonicalAttribute('data-app-ready', 'true');
 
             logger.info('[SpeechRuntimeController] Infrastructure ready (Lazy)');
         });
@@ -372,40 +376,15 @@ export class SpeechRuntimeController {
      * TARGET: document.documentElement (<html>) for T=0 visibility and selector consistency.
      */
     private setCanonicalAttribute(name: string, value: string | null): void {
-        if (typeof document === 'undefined') return;
-        if (value === null) {
-            document.documentElement.removeAttribute(name);
-        } else {
-            document.documentElement.setAttribute(name, value);
-        }
+        // NOTE: Forensic signaling is now handled centrally by TranscriptionProvider.
+        // This method remains as a no-op to satisfy legacy internal calls if any,
+        // but all DOM-level forensic state is now store-driven.
     }
 
     private updateE2EAttributes(state: RuntimeState): void {
-        // 1. data-recording-state (idle | recording | failed | terminated)
-        const stateMap: Record<RuntimeState, string> = {
-            'IDLE': 'idle',
-            'READY': 'idle',
-            'INITIATING': 'idle',
-            'ENGINE_INITIALIZING': 'idle',
-            'RECORDING': 'recording',
-            'STOPPING': 'recording',
-            'FAILED': 'failed',
-            'FAILED_VISIBLE': 'failed',
-            'TERMINATED': 'terminated'
-        };
-        const recordingState = stateMap[state] || 'idle';
-        this.setCanonicalAttribute('data-recording-state', recordingState);
-
-        // 2. data-error-visible (true | false)
-        const isErrorVisible = state === 'FAILED' || state === 'FAILED_VISIBLE';
-        this.setCanonicalAttribute('data-error-visible', isErrorVisible.toString());
-
-        // 3. data-engine-ready (true | false)
-        // True if initialized OR in a state that implies active engine use
-        const isEngineReady = this.isEngineReady || state === 'RECORDING' || state === 'READY';
-        this.setCanonicalAttribute('data-engine-ready', isEngineReady.toString());
-
-        logger.debug({ state, recordingState, isEngineReady }, '[SpeechRuntimeController] \u{1F3F7}\u{FE0F} E2E Attributes Updated');
+        // NOTE: Individual forensic attributes (data-recording-state, etc.) 
+        // are now derived and set by TranscriptionProvider via useStore.subscribe.
+        logger.debug({ state }, '[SpeechRuntimeController] FSM state updated - derived attributes handled by Provider');
     }
 
     private updateSessionPersisted(persisted: boolean): void {
@@ -440,11 +419,6 @@ export class SpeechRuntimeController {
     private async transition(newState: RuntimeState, _error?: Error): Promise<void> {
         const previousState = this.state;
         this.state = newState;
-
-        // P1 DETERMINISM: Canonical data attribute for E2E verification
-        if (typeof document !== 'undefined') {
-            document.documentElement.setAttribute('data-speech-state', newState);
-        }
 
         logger.info({ from: previousState, to: newState }, '[SpeechRuntimeController] \u{26A1} Transition');
         const store = useSessionStore.getState();
@@ -591,9 +565,8 @@ export class SpeechRuntimeController {
             readiness.setAppState('READY');
         }
 
-        // ✅ BOOT SIGNAL: Ensure E2E boot barrier is satisfied once UI is attached
-        this.setCanonicalAttribute('data-app-ready', 'true');
-        this.setCanonicalAttribute('data-route-ready', 'true');
+        // ✅ BOOT SIGNAL: Handshake confirmed, UI is now ready for emissions
+        logger.info('[SpeechRuntimeController] \u2705 Subscriber handshake confirmed');
 
         // Flush any buffered data arrived before the UI was ready
         this.flushQueues();
@@ -653,7 +626,6 @@ export class SpeechRuntimeController {
 
     private handleReady() {
         logger.info('[SpeechRuntimeController] \u2705 Service signaling READY');
-        this.setCanonicalAttribute('data-model-status', 'ready');
         this.isEngineReady = true;
         if (this.service) {
             this.startWatchdog(this.service);
@@ -1122,6 +1094,8 @@ export class SpeechRuntimeController {
      * We ONLY detach listeners; we do NOT terminate the session service.
      */
     public async reset(reason: string = 'manual'): Promise<void> {
+        if (this.destroyed && reason === 'subscriber_unmount') return;
+        
         this.lifecycleVersion++;
         logger.warn({ reason, state: this.state }, '[SpeechRuntimeController] RESET triggered');
         logger.warn({ reason }, `[SpeechRuntimeController] Reset triggered by: ${reason}`);
@@ -1273,6 +1247,17 @@ export class SpeechRuntimeController {
 
                         // 3. Update Streak (Controller Authority)
                         this.updateStreakInternal();
+
+                        // 🚀 Task C: Signal Analysis Completion for E2E Stability
+                        if (typeof window !== 'undefined') {
+                            const { pushE2EEvent } = await import('../lib/e2eProbe');
+                            pushE2EEvent('ANALYSIS_COMPLETE', {
+                                sessionId,
+                                fillerCount: fillerWords.total.count,
+                                wpm,
+                                accuracy
+                            });
+                        }
 
                         this.updateSessionPersisted(true);
                         useSessionStore.getState().setSessionSaved(true);

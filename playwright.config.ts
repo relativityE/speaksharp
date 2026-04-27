@@ -13,7 +13,7 @@ import { CI_CONFIG } from './scripts/ci.config.js';
 // Load test environment variables
 loadEnv('test');
 
-const BASE_URL = 'http://localhost:5173'; // switched to dev server
+const BASE_URL = 'http://localhost:4173';
 
 export default defineConfig({
   ...baseConfig,
@@ -24,7 +24,7 @@ export default defineConfig({
   timeout: 60_000, // 60s per test max (bridged to diagnostic guard)
   expect: { timeout: 15_000 }, // 15s expect timeout
   retries: 1,
-  workers: process.env.CI 
+  workers: process.env.CI
     ? Math.min(Math.max(1, Math.floor(os.cpus().length * CI_CONFIG.WORKER_SCALING_RATIO)), CI_CONFIG.MAX_WORKERS)
     : undefined,
   reporter: [['line'], ['./scripts/playwright-telemetry-reporter.mjs']],
@@ -35,6 +35,7 @@ export default defineConfig({
     launchOptions: {
       args: [
         '--disable-blink-features=AutomationControlled',
+        '--disable-web-security',
         '--disable-cache',           // ← Disable disk cache
         '--disable-application-cache', // ← Disable app cache
         '--disable-offline-load-stale-cache',
@@ -61,10 +62,9 @@ export default defineConfig({
   updateSnapshots: process.env.CI ? 'missing' : 'none',
   // ✅ CRITICAL: Web server configuration
   webServer: {
-    // ✅ Use Dev Server for E2E in TEST mode (loads .env.test)
-    command: 'pnpm dev',
-
-    port: 5173,
+    // ✅ Use Custom E2E Server for production-like environment
+    command: 'pnpm serve:e2e',
+    port: 4173,
 
     // ✅ CRITICAL: Reuse server in dev (faster), restart in CI (fresh)
     reuseExistingServer: true,
@@ -82,18 +82,38 @@ export default defineConfig({
       name: 'infra-probe',
       testMatch: '**/infra.probe.e2e.spec.ts',
       snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}',
-      use: getChromeWithMic(),
+      use: {
+        ...getChromeWithMic(),
+        launchOptions: {
+          args: [
+            ...(getChromeWithMic().launchOptions?.args || []),
+            '--disable-cache',
+            '--disable-blink-features=AutomationControlled',
+          ]
+        },
+        storageState: undefined,
+      },
     },
     {
       name: 'full-suite',
-      testMatch: ['**/!(*infra.probe*).spec.ts'],
+      testMatch: ['tests/e2e/**/*.spec.ts'],
+      testIgnore: ['**/infra.probe.e2e.spec.ts', '**/*.live.spec.ts'],
       dependencies: ['infra-probe'],
       snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}',
-      use: getChromeWithMic(),
+      use: {
+        ...getChromeWithMic(),
+        launchOptions: {
+          args: [
+            ...(getChromeWithMic().launchOptions?.args || []),
+            '--disable-cache',
+            '--disable-blink-features=AutomationControlled',
+          ]
+        },
+        storageState: undefined,
+      },
     },
     // Soak tests run separately via: npx playwright test --config=playwright.soak.config.ts
   ],
   // ✅ Resolve aliases from tsconfig (e.g., @shared)
   tsconfig: './tsconfig.json',
 });
-

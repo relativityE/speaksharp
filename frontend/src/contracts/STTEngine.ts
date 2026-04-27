@@ -88,6 +88,7 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   protected runId: string = 'unknown';
   protected currentTranscript: string = '';
   protected isTerminated: boolean = false;
+  protected isStopped: boolean = true;
 
   protected options: TranscriptionModeOptions | EngineCallbacks | null = null;
 
@@ -137,6 +138,8 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     if (!this.isInitialized) {
       throw new Error(`[STTEngine] Cannot start ${this.type} - not initialized.`);
     }
+    this.isTerminated = false;
+    this.isStopped = false;
     this.updateHeartbeat();
     await this.onStart(mic);
   }
@@ -147,7 +150,12 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * High-level Stop command (Contract Requirement)
    */
   async stop(): Promise<void> {
+    if (this.isStopped) {
+      logger.debug({ type: this.type }, '[STTEngine] stop() called but already stopped, skipping.');
+      return;
+    }
     await this.onStop();
+    this.isStopped = true;
     this.updateHeartbeat();
   }
 
@@ -187,10 +195,10 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    */
   async destroy(): Promise<void> {
     if (this.isTerminated) return;
+    this.isTerminated = true; // BLOCK RE-ENTRY IMMEDIATELY
     await this.stop();
     await this.onDestroy();
     this.isInitialized = false;
-    this.isTerminated = true;
   }
 
   protected abstract onDestroy(): Promise<void>;

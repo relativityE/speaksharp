@@ -68,19 +68,13 @@ export default defineConfig(({ mode }) => {
           'docs/PRD.md'
         ]
       },
-      headers: isTestMode ? {
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-      } : undefined
+      headers: {} // COOP/COEP removed to prevent blocking Stripe.js in E2E
     },
     preview: {
       host: '127.0.0.1',
       port: PORTS.PREVIEW,
       strictPort: true, // Fail fast if port is taken by a zombie
-      headers: {
-        'Cross-Origin-Opener-Policy': 'same-origin',
-        'Cross-Origin-Embedder-Policy': 'require-corp',
-      }
+      headers: {} // COOP/COEP removed to prevent blocking Stripe.js in E2E
     },
     build: {
       target: 'esnext',

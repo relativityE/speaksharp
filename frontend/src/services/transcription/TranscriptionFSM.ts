@@ -125,6 +125,7 @@ export class TranscriptionFSM {
         // Dynamic Policy Updates (re-evaluates current state)
         { from: 'IDLE', to: 'IDLE', event: 'POLICY_UPDATED' },
         { from: 'READY', to: 'READY', event: 'POLICY_UPDATED' },
+        { from: 'ENGINE_INITIALIZING', to: 'ENGINE_INITIALIZING', event: 'POLICY_UPDATED' },
         { from: 'RECORDING', to: 'RECORDING', event: 'POLICY_UPDATED' },
         { from: 'PAUSED', to: 'PAUSED', event: 'POLICY_UPDATED' },
         { from: 'FAILED', to: 'FAILED', event: 'POLICY_UPDATED' },

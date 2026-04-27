@@ -84,7 +84,7 @@ test.describe('Primary User Journey Matrix', () => {
       await expect(page.getByLabel(/Start Recording/i)).toBeVisible();
       
       // Deterministic Sync: Wait for engine handshake before clicking start
-      await waitForTranscriptionService(page, 'ENGINE_READY');
+      await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
       
       await startButton.click();
 

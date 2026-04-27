@@ -6,6 +6,7 @@ import { useAuthProvider } from '../contexts/AuthProvider';
 import { useProfile } from './useProfile';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { useSpeechRecognition } from './useSpeechRecognition';
+import { pushE2EEvent } from '@/lib/e2eProbe';
 import { useSessionMetrics } from './useSessionMetrics';
 import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
 import { useStreak } from './useStreak';
@@ -174,8 +175,10 @@ export const useSessionLifecycle = () => {
                     }, '[SESSION_DIAG]');
                 }
 
-                if (typeof document !== 'undefined') {
-                    document.body.setAttribute('data-user-tier', isProUser ? 'pro' : 'free');
+                if (typeof document !== 'undefined' && import.meta.env.DEV) {
+                    if (!import.meta.env.PROD) {
+                        document.body.setAttribute('data-user-tier', isProUser ? 'pro' : 'free');
+                    }
                 }
 
                 // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
@@ -287,12 +290,23 @@ export const useSessionLifecycle = () => {
         }
     }, [isListening, activeEngine, sttMode, setSTTMode]);
 
-    // Engine Warm-up: Pre-initialize heavy engines (WASM) when mode is selected
+    const warmUpTriggered = useRef<string | null>(null);
+
+    // Engine Warm-up: Pre-initialize engines when mode is selected
     useEffect(() => {
-        if (sttMode === 'private' && !isListening) {
-            logger.info('[useSessionLifecycle] Mode set to private - triggering warm-up');
-            void speechRuntimeController.warmUp('private');
+        pushE2EEvent('SESSION_LIFECYCLE_RENDER', { sttMode, isListening });
+        
+        if (sttMode && !isListening && warmUpTriggered.current !== sttMode) {
+            warmUpTriggered.current = sttMode;
+            pushE2EEvent('SESSION_LIFECYCLE_WARMUP', { mode: sttMode });
+            logger.info(`[useSessionLifecycle] Mode set to ${sttMode} - triggering warm-up`);
+            void speechRuntimeController.warmUp(sttMode);
         }
+
+        return () => {
+            // Reset trigger on unmount so navigation back re-triggers warm-up
+            warmUpTriggered.current = null;
+        };
     }, [sttMode, isListening]);
 
     // UI Cleanup on unmount

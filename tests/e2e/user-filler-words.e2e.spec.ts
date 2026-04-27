@@ -80,6 +80,9 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         await userPage.getByPlaceholder(/literally/i).fill('detectiontest');
         await userPage.getByRole('button', { name: /add word/i }).click();
 
+        // 4. Verification: Check dashboard counter
+        await expect(userPage.getByTestId('filler-count')).toHaveText('3', { timeout: 3000 });
+
         // Wait for word to be added to FillerWordsCard (not popover)
         await expect(userPage.getByTestId('filler-words-list').getByText('detectiontest', { exact: false })).toBeVisible();
 

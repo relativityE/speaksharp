@@ -139,14 +139,24 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
         crashLog.push(err.message + '\n' + err.stack);
       });
 
-      await setupE2EManifest(page, { engineType: 'real', debug: false });
+      await setupE2EManifest(page, { 
+        engineType: 'real', 
+        debug: false
+      });
 
       await registerMockInE2E(page, 'whisper-turbo', `(opts) => {
         let statusCb = opts?.onStatusChange;
         return {
           init: async () => {
             if (!window.__MODEL_CACHED__) {
+              // Signal DOWNLOADING before the gate
               if (statusCb) statusCb({ type: 'downloading', progress: 0.1 });
+              
+              // Simulate the initialization delay for visibility
+              const win = window as any;
+              const delay = win.__SS_E2E__?.mockEngineInitDelayMs ?? 0;
+              if (delay > 0) await new Promise(r => setTimeout(r, delay));
+
               await new Promise(resolve => { window.__E2E_FINISH_DOWNLOAD__ = resolve; });
               if (statusCb) statusCb({ type: 'downloading', progress: 1.0 });
               window.__MODEL_CACHED__ = true;
@@ -174,6 +184,10 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
 
       // Trigger start + download
       await page.getByTestId('session-start-stop-button').click();
+      
+      // Step 5.2 — Wait for FSM to enter DOWNLOADING state — no timeout hacks
+      await page.waitForSelector('[data-runtime-state="DOWNLOADING"]', { timeout: 10000 });
+      
       const downloadBtn = page.getByTestId('download-model-button');
       await expect(downloadBtn).toBeVisible({ timeout: 20000 });
       await downloadBtn.click();

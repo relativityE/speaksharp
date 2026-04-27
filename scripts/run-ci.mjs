@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -87,8 +87,8 @@ let devServer = null;
 process.on('exit', () => {
     if (devServer) {
         try {
-            // Using spawnSync/execSync for synchronous exit cleanup
-            spawn('pkill', ['-9', '-f', 'vite'], { stdio: 'ignore' });
+            // Using execSync with || true to prevent non-zero exit codes from pkill
+            execSync('pkill -9 -f vite || true', { stdio: 'ignore' });
         } catch (e) { }
     }
 });

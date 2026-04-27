@@ -264,10 +264,11 @@ test.describe('Core System Validation (Deterministic)', () => {
   // 7. Transcription Smoke
   test('mock transcription flows through system', async ({ page }) => {
     await page.waitForSelector('[data-runtime-state]', { timeout: 15000 });
-    await page.getByTestId('session-start-stop-button').click();
-
     // 🛡️ Deterministic Barrier: Wait for engine handshake before clicking start
-    await waitForTranscriptionService(page, 'ENGINE_READY');
+    // Terminal state: FSM reaches READY
+    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
+
+    await page.getByTestId('session-start-stop-button').click();
 
     // 🛡️ State Barrier: Wait for the UI to signal it is actively recording
     await page.waitForSelector('html[data-recording-state="recording"]', { timeout: 15000 });
@@ -339,6 +340,31 @@ test.describe('Core System Validation (Deterministic)', () => {
     // Verification of isolation between simulated and real environments
     await page.waitForSelector('[data-runtime-state]', { timeout: 5000 });
     expect(requests.length).toBe(0);
+  });
+  
+  // 11. Boot Sequence Contract (Observability)
+  test('observability contract: data-app-ready transitions', async ({ page }) => {
+    // 1. Initial State: App must start at IDLE or READY (if warmup is fast)
+    const initialState = await page.getAttribute('html', 'data-runtime-state');
+    expect(['IDLE', 'READY']).toContain(initialState);
+
+    // 2. Terminal State: App ready signal must be present
+    await page.waitForSelector('html[data-app-ready="true"]', { timeout: 10000 });
+    const terminalState = await page.getAttribute('html', 'data-app-ready');
+    expect(terminalState).toBe('true');
+  });
+
+  // 12. Production Security Leak Check (Forensic vs Sensitive)
+  test('security contract: sensitive attributes are tree-shaken in production', async ({ page }) => {
+    await page.waitForSelector('html[data-app-ready="true"]', { timeout: 10000 });
+    
+    // FORENSIC signals must be present on the document element
+    const forensicState = await page.getAttribute('html', 'data-runtime-state');
+    expect(['IDLE', 'READY']).toContain(forensicState);
+
+    // SENSITIVE attributes must be ABSENT (Tree-shaken)
+    const sensitiveAttr = await page.getAttribute('html', 'data-user-tier');
+    expect(sensitiveAttr).toBeNull();
   });
 
 });

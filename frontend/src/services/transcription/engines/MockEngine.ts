@@ -17,31 +17,61 @@ import type { MicStream } from '../utils/types';
  */
 export class MockEngine extends STTEngine {
     public readonly type: EngineType = 'mock';
+    private currentState: string = 'IDLE';
 
     constructor(_options?: TranscriptionModeOptions) {
         super(_options);
+    }
+
+    private setState(state: string): void {
+        this.currentState = state;
+        // NOTE: Forensic signaling (data-runtime-state) is now handled 
+        // centrally by TranscriptionProvider via the store subscription.
+    }
+
+    private async waitForSubscriber(timeoutMs: number = 5000): Promise<void> {
+        if (typeof window === 'undefined') return;
+        
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            const win = window as unknown as { __SUBSCRIBER_READY__?: boolean; TEST_MODE?: boolean };
+            if (win.__SUBSCRIBER_READY__ || win.TEST_MODE) {
+                logger.debug('[MockEngine] Subscriber handshake received');
+                return;
+            }
+            await new Promise(r => setTimeout(r, 50));
+        }
+        logger.warn('[MockEngine] Subscriber handshake timeout - proceeding anyway');
     }
 
     public async checkAvailability(): Promise<AvailabilityResult> {
         return { isAvailable: true, message: 'Mock engine always available' };
     }
 
-    /**
-     * IPrivateSTTEngine implementation via STTEngine hooks
-     */
     protected async onInit(_timeoutMs?: number): Promise<Result<void, Error>> {
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[MockEngine] Initializing...');
+        
+        // 1. Immediately signal DOWNLOADING — UI must render download button from this
+        this.setState('DOWNLOADING');
 
         const callbacks = this.options as TranscriptionModeOptions;
         if (callbacks.onModelLoadProgress) {
             callbacks.onModelLoadProgress(0);
-            await new Promise(r => setTimeout(r, 100)); // Simulate minimal load time
+        }
+
+        // 2. Wait for UI/Test to subscribe before completing
+        await this.waitForSubscriber();
+
+        if (callbacks.onModelLoadProgress) {
             callbacks.onModelLoadProgress(100);
         }
 
+        // 3. Finalize initialization
         if (callbacks.onReady) {
             callbacks.onReady();
         }
+
+        this.setState('READY');
 
         // HANDSHAKE v3: Bridge to Playwright poll
         const readyStateWin = window as unknown as { __APP_READY_STATE__?: Record<string, boolean> };

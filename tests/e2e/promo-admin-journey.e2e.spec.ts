@@ -9,6 +9,10 @@ import { goToPublicRoute, navigateToRoute } from './helpers';
 test.describe('Promo Admin Journey', () => {
 
     test('should allow a promo user to bypass Stripe via promo code', async ({ mockedPage: page }) => {
+        // 🛡️ SECURITY & STABILITY: Block real Stripe scripts to prevent COEP issues
+        await page.route('**stripe.com/**', route => route.abort());
+        await page.route('**stripe.network/**', route => route.abort());
+
         // 1. Navigate to signup
         await goToPublicRoute(page, '/auth/signup');
 
@@ -31,7 +35,10 @@ test.describe('Promo Admin Journey', () => {
         await page.click('[data-testid="sign-up-submit"]');
 
         // 6. Verify transition to /session (Pro Dashboard)
-        await expect(page).toHaveURL(/\/session/, { timeout: 15000 });
+        await page.waitForURL('**/session', { timeout: 15000 }).catch(() => {
+            throw new Error(`Signup redirect failed. Current URL: ${page.url()}`);
+        });
+        await expect(page).toHaveURL(/\/session/);
 
         // 7. Verify Pro features are visible
         await page.click('button:has-text("Native")');
@@ -39,7 +46,7 @@ test.describe('Promo Admin Journey', () => {
         await expect(privateOption).not.toHaveAttribute('aria-disabled', 'true');
 
         // 8. Navigate to Analytics and verify the Pro status
-        await navigateToRoute(page, '/analytics', { waitForMocks: false });
+        await navigateToRoute(page, '/analytics');
         await expect(page.locator('text=Pro Plan Active')).toBeVisible();
         await expect(page.locator('text=Free Plan')).not.toBeVisible();
     });

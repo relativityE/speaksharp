@@ -12,6 +12,7 @@ export interface SSE2EManifest {
   flags?: Record<string, unknown>;
   registry?: Record<string, unknown>;
   MOCK_STT_AVAILABILITY?: boolean;
+  guestStatus?: 'free' | 'pro';
   emitTranscript?: (text: string, isFinal?: boolean) => void;
   onStateChange?: (cb: (state: string) => void) => (() => void) | void;
   destroyService?: () => Promise<void>;
@@ -79,16 +80,19 @@ export async function setupE2EManifest(
     flags?: { bypassMutex?: boolean; fastTimers?: boolean };
     debug?: boolean;
     storage?: Record<string, string>;
+    userType?: 'free' | 'pro';
   }
 ) {
-  const { storage = {}, ...manifest } = config;
+  const { storage = {}, userType = 'free', ...manifest } = config;
 
-  await page.addInitScript(({ m, s }: { m: unknown; s: Record<string, string> }) => {
+  await page.addInitScript(({ m, s, ut }: { m: unknown; s: Record<string, string>; ut: string }) => {
     console.warn('[TRACE] TEST_HEARTBEAT');
     console.warn('[TRACE] RAW_MANIFEST_CONFIG', JSON.stringify(m));
-    
-    // 🛡️ [E2E-LOGGER] Local proxy to allow 'logger' syntax before Pino loads
-    // [E2E-LOGGER] Removed unused local proxy to satisfy lint
+
+    // 0. AUTHORITATIVE TIER SIGNAL (Synchronous E2E Override)
+    (window as unknown as { __MOCK_PROFILE__?: { subscription_status: string } }).__MOCK_PROFILE__ = { 
+      subscription_status: ut === 'pro' ? 'pro' : 'free' 
+    };
 
     const localManifest = m as SSE2EManifest;
     const localBrowserStorage = s;
@@ -141,8 +145,6 @@ export async function setupE2EManifest(
           // 1. Simulate Download started if not already initialized
           if (!win.__SS_E2E__.isEngineInitialized) {
             opts?.onStatusChange?.({ type: 'downloading', progress: 0 });
-            // Small delay to allow Playwright to catch the 'Visible' state
-            await new Promise(resolve => setTimeout(resolve, 300));
             opts?.onStatusChange?.({ type: 'downloading', progress: 100 });
           }
 
@@ -183,6 +185,7 @@ export async function setupE2EManifest(
       isActive: true,
       enableRealEngine: existing?.enableRealEngine || localManifest.enableRealEngine || false,
       MOCK_STT_AVAILABILITY: existing?.MOCK_STT_AVAILABILITY || localManifest?.MOCK_STT_AVAILABILITY || true,
+      guestStatus: ut as 'free' | 'pro',
       runtimeEventLog: existing?.runtimeEventLog || [],
       ...localManifest,
       flags: { bypassMutex: true, fastTimers: true, ...(localManifest.flags || {}) },
@@ -217,5 +220,5 @@ export async function setupE2EManifest(
     win.__APP_READY_STATE__ = { msw: true, boot: true };
     win.__E2E_READY__ = true;
     
-  }, { m: manifest as Record<string, unknown>, s: storage });
+  }, { m: manifest as Record<string, unknown>, s: storage, ut: userType });
 }

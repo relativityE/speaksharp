@@ -7,13 +7,13 @@ import { TranscriptionContext, type TranscriptionContextValue } from './Transcri
 import { useSessionStore } from '@/stores/useSessionStore';
 
 interface TranscriptionProviderProps {
-  children: ReactNode;
-  store?: typeof useSessionStore; // Optional injection for test parity
+    children: ReactNode;
+    store?: typeof useSessionStore; // Optional injection for test parity
 }
 
-export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({ 
-  children, 
-  store: injectedStore 
+export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
+    children,
+    store: injectedStore
 }) => {
     const profileContext = React.useContext(ProfileContext);
     const profile = profileContext?.profile;
@@ -22,9 +22,9 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
     const runtimeState = useStore((state) => state.runtimeState);
     const [ready, setReady] = useState(false);
 
-    // Sync state whenever the runtime state changes
+
+    // 2. Handshake Invariant: Confirm readiness whenever entering an active state
     useEffect(() => {
-        // Handshake Invariant: Confirm readiness whenever entering an active state
         if (runtimeState === 'INITIATING' || runtimeState === 'ENGINE_INITIALIZING') {
             logger.debug({ state: runtimeState }, '[TranscriptionProvider] Re-confirming handshake for active transition');
             speechRuntimeController.confirmSubscriberHandshake();
@@ -34,17 +34,6 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
     useEffect(() => {
         // 1. Immediate Handshake (UI is mounted and ready for data)
         speechRuntimeController.confirmSubscriberHandshake();
-
-        // 🛡️ E2E LIVENESS PULSE: Ensure boot barrier is satisfied even if init hangs
-        if (typeof window !== 'undefined' && (window as unknown as { __SS_E2E__?: { isActive: boolean } }).__SS_E2E__?.isActive) {
-            const failsafe = setTimeout(() => {
-                if (document.documentElement.getAttribute('data-app-ready') !== 'true') {
-                    console.warn('[E2E-FAILSAFE] Forcefully emitting data-app-ready signal');
-                    document.documentElement.setAttribute('data-app-ready', 'true');
-                }
-            }, 500);
-            return () => clearTimeout(failsafe);
-        }
 
         // 2. Ensure engine is warming up on mount (Clean Pipeline Entry)
         speechRuntimeController.warmUp().then(() => {
@@ -70,16 +59,16 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
         const newPolicy = buildPolicyForUser(tier === 'pro');
         speechRuntimeController.updatePolicy(newPolicy);
 
+        const SENSITIVE_ATTR = import.meta.env.DEV ? 'data-user-tier' : null;
+
         // Behavioral Gating - Setting E2E wait attribute
         // TARGET: document.documentElement for authoritative contract surface
-        if (typeof document !== 'undefined') {
-            document.documentElement.setAttribute('data-user-tier', tier);
+        if (typeof document !== 'undefined' && SENSITIVE_ATTR) {
         }
 
         return () => {
             // Cleanup
-            if (typeof document !== 'undefined') {
-                document.documentElement.removeAttribute('data-user-tier');
+            if (typeof document !== 'undefined' && SENSITIVE_ATTR) {
             }
         };
     }, [profile?.id, profile?.subscription_status]);

@@ -14,7 +14,6 @@ import { useReadinessStore } from '@/stores/useReadinessStore';
 import { useCriticalQueries } from './hooks/useCriticalQueries';
 import { SSE2EWindow } from './config/TestFlags';
 import { TranscriptionState, TranscriptionEvent } from './services/transcription/TranscriptionFSM';
-import { useE2EAttributes } from './hooks/useE2EAttributes';
 import { sessionManager } from '@/services/transcription/SessionManager';
 
 /**
@@ -58,7 +57,6 @@ const App: React.FC = () => {
   const location = useLocation();
 
   // --- E2E AUTHORITATIVE SIGNALING ---
-  useE2EAttributes();
 
   // Forensic Side-Car Activation (v0.6.15)
   // __SS_E2E__ is injected by setupE2EManifest's addInitScript BEFORE the app mounts.

@@ -35,6 +35,12 @@ export function probe(event: string, payload: Record<string, unknown> = {}) {
   } else {
     buffer.push(entry);
   }
+
+  // 3. Side-Channel Emission (Node.js Persistence)
+  const emit = win.__PROBE_EMIT__ as ((entry: unknown) => void) | undefined;
+  if (typeof emit === 'function') {
+    emit(entry);
+  }
 }
 
 // 🛡️ Persistence Guard: Ensure the buffer survives soft reloads if required

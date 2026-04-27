@@ -78,6 +78,21 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   },
 
   proPage: async ({ page }, use) => {
+    // Intercept BEFORE navigation to avoid race conditions with React Query hydration
+    await page.route('**/rest/v1/user_profiles*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ 
+          id: 'mock-pro-id',
+          subscription_status: 'pro',
+          usage_seconds: 0,
+          usage_reset_date: new Date(Date.now() + 30 * 86400000).toISOString(),
+          created_at: new Date().toISOString()
+        })
+      });
+    });
+
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
     await use(page);
   },

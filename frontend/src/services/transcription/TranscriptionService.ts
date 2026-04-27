@@ -8,14 +8,16 @@ import { STTStrategy } from './STTStrategy';
 import { STTStrategyFactory } from './STTStrategyFactory';
 import { STTNegotiator } from './STTNegotiator';
 import logger from '@/lib/logger';
-import type {
+import {
   TranscriptionPolicy,
   TranscriptionMode,
+  resolveMode,
 } from './TranscriptionPolicy';
 import { PROD_FREE_POLICY } from './TranscriptionPolicy';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { calculateTranscriptStats, TranscriptStats } from '@/utils/fillerWordUtils';
 import { TranscriptionFSM, TranscriptionState } from './TranscriptionFSM';
+import { syncForensicAnchors, mapToRuntimeState } from '../../lib/forensicAnchors';
 import { createMicStream } from './utils/audioUtils';
 import { pushE2EEvent, isBridgeActive } from '@/lib/e2eProbe';
 import { FailureManager } from './FailureManager';
@@ -140,6 +142,15 @@ export default class TranscriptionService {
     logger.debug('[TranscriptionService] Initializing service');
     this.serviceId = Math.random().toString(36).substring(7);
     this.fsm = new TranscriptionFSM();
+
+    // 🛡️ Forensic Bridge (v0.7.0): Synchronous DOM signaling
+    // Fired in the same tick as every FSM transition.
+    this.fsm.subscribe((state: TranscriptionState) => {
+      syncForensicAnchors(mapToRuntimeState(state));
+    });
+
+    // T=0 Signal: Ensure IDLE is written before any async transitions
+    syncForensicAnchors('IDLE');
     this.failureManager = new FailureManager() as FailureManager;
     this.lock = lock || new DistributedLock();
     this.policy = (options.policy || PROD_FREE_POLICY) as TranscriptionPolicy;
@@ -844,6 +855,9 @@ export default class TranscriptionService {
 
     // ✅ EXPERT FIX: Dispatch to FSM to ensure valid state transitions/re-eval
     this.fsm.transition({ type: 'POLICY_UPDATED', policy: newPolicy });
+
+    // ✅ Sync UI/Store Mode with new policy resolution
+    this.options.onModeChange?.(resolveMode(newPolicy));
 
     logger.info({
       policy: newPolicy,

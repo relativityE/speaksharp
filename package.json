@@ -22,6 +22,7 @@
     "build:test": "node scripts/pnpm-only.mjs && rm -rf frontend/dist && cd frontend && pnpm vite build --mode test",
     "preview": "node scripts/pnpm-only.mjs && cd frontend && pnpm vite preview",
     "preview:test": "node scripts/pnpm-only.mjs && cd frontend && pnpm vite preview --mode test",
+    "serve:e2e": "node scripts/serve-e2e.mjs",
     "// ============ Quality ============": "",
     "quality": "pnpm lint && pnpm typecheck && pnpm eslint-disable",
     "lint": "eslint 'frontend/src/**/*.{js,jsx,ts,tsx}' 'tests/**/*.{js,jsx,ts,tsx}' 'backend/supabase/functions/**/*.ts' --no-cache --report-unused-disable-directives --max-warnings 0",

@@ -1,8 +1,7 @@
 import { test, expect } from './fixtures';
 import { 
   waitForAppReady, 
-  navigateToRoute,
-  waitForTranscriptionService 
+  navigateToRoute
 } from './helpers';
 
 /**

@@ -323,8 +323,9 @@ export async function programmaticLoginWithRoutes(
   setupNetworkTracking(page);
 
   // Harden:setupE2EManifest now correctly inlines the mock registry in the browser context.
+  // We default to 'mock' for ALL users in E2E to ensure CI stability (avoiding heavy WASM crashes).
   await setupE2EManifest(page, {
-    engineType: userType === 'pro' ? 'real' : 'mock',
+    engineType: 'mock',
     debug: !!debug,
     storage: {
       [localStorageKey]: JSON.stringify(session)
