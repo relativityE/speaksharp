@@ -73,11 +73,14 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { transition: (s: string) => void }).transition('FAILED');
 
         // In the new logic, FAILED immediately transitions to FAILED_VISIBLE
+        // Wait for the enqueue queue to flush
+        await new Promise(resolve => setTimeout(resolve, 0));
+        
         expect(controller.getState()).toBe('FAILED_VISIBLE');
         expect(useSessionStore.getState().runtimeState).toBe('FAILED_VISIBLE');
 
         // 3. Evidence: FAILED_VISIBLE -> TERMINATED (after hold duration)
-        await vi.advanceTimersByTime(5000);
+        await vi.advanceTimersByTimeAsync(5000);
         expect(controller.getState()).toBe('TERMINATED');
         expect(useSessionStore.getState().runtimeState).toBe('TERMINATED');
     });
@@ -118,7 +121,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(localStorageSpy).not.toHaveBeenCalledWith('speaksharp_active_session_lock');
 
         // Advance to TERMINATED (Total duration from FAILED: 30ms + 4000ms = 4030ms > 4000ms threshold)
-        await vi.advanceTimersByTime(4000);
+        await vi.advanceTimersByTimeAsync(4000);
         expect(controller.getState()).toBe('TERMINATED');
 
         // Verification: Lock should finally be released

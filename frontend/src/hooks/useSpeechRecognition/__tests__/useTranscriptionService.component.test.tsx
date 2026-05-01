@@ -76,7 +76,7 @@ describe('useTranscriptionService (Contract Verification)', () => {
 
     // Reset real store and controller
     useSessionStore.getState().resetSession();
-    await speechRuntimeController.reset();
+    speechRuntimeController.reset();
 
     // ✅ SYNC SETUP: Ensure system is READY and subscriber invariant is met before tests
     await speechRuntimeController.warmUp();
@@ -93,7 +93,7 @@ describe('useTranscriptionService (Contract Verification)', () => {
         await speechRuntimeController.stopRecording();
         await waitFor(() => useSessionStore.getState().runtimeState === 'READY');
       }
-      await speechRuntimeController.reset();
+      speechRuntimeController.reset();
     }
   });
 

@@ -58,7 +58,7 @@ describe('useSpeechRecognition Integration', () => {
     };
 
     beforeEach(async () => {
-        await speechRuntimeController.reset();
+        speechRuntimeController.reset();
         vi.clearAllMocks();
         vi.useFakeTimers();
 
@@ -114,7 +114,7 @@ describe('useSpeechRecognition Integration', () => {
         } catch (e) {
             // Silently handle cases where timers were already real
         }
-        await speechRuntimeController.reset();
+        speechRuntimeController.reset();
         vi.useRealTimers();
         service = null;
     });
@@ -333,7 +333,7 @@ describe('useSpeechRecognition Integration', () => {
         vi.useFakeTimers();
         const resetSpy = vi.spyOn(speechRuntimeController, 'reset');
 
-        await speechRuntimeController.reset();
+        speechRuntimeController.reset();
         expect(speechRuntimeController.getState()).toBe('IDLE');
 
         await act(async () => {

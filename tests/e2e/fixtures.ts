@@ -27,8 +27,37 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await use();
   }, { scope: 'worker' }],
 
-  // Fail tests on console errors or unhandled exceptions (CI Hard-Gate)
+  // 🛡️ [Fix 5.1/5.2] Test Harness Isolation (Singleton + Storage)
+  // v0.6.1 Hardening: Move isolation logic to the base 'page' fixture
+  // to ensure it executes BEFORE auth-scoped fixtures (like userPage).
   page: async ({ page }, use) => {
+    // 1. Establish Origin & Reset Execution Context
+    await goToApp(page, '/');
+    await page.evaluate(() => {
+      try {
+        // A. Singleton Reset (Fix 5.1/5.2)
+        const win = window as unknown as {
+          __SpeechRuntimeController__?: { __resetForTests: () => void }
+        };
+        if (win.__SpeechRuntimeController__) {
+          win.__SpeechRuntimeController__.__resetForTests();
+          console.log('[E2E] Singleton reset (Base Page Fixture)');
+        }
+
+        // B. Filtered Storage Clearing (Fix 5.3)
+        // Only clear Supabase auth keys to avoid nuking manifest settings 
+        // if they were somehow set earlier (though usually they are set after).
+        Object.keys(localStorage)
+          .filter(k => k.startsWith('sb-'))
+          .forEach(k => localStorage.removeItem(k));
+        
+        console.log('[E2E] Storage isolation complete');
+      } catch (err) {
+        console.warn('[E2E] Isolation failed', err);
+      }
+    });
+
+    // 2. Attach Global Monitors (Console/Errors)
     page.on('console', msg => {
       if (msg.type() === 'error') {
         const text = msg.text();
@@ -62,6 +91,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     page.on('pageerror', error => {
       throw error;
     });
+
     await use(page);
   },
 
@@ -110,38 +140,5 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   }
 });
 
-/**
- * 🛡️ [Fix 5B.2] Origin-Aware Storage Isolation
- * Establishing origin BEFORE clearing ensures no SecurityError.
- */
-test.beforeEach(async ({ page }) => {
-  await goToApp(page, '/');
-  await page.evaluate(() => {
-    try {
-      window.localStorage.clear();
-      console.log('[E2E] Storage cleared (Origin established)');
-    } catch (err) {
-      console.warn('[E2E] Storage clear failed', err);
-    }
-  });
-});
-
-/**
- * 🛡️ [Fix 5A.4] Singleton Escape Hatch
- */
-test.afterEach(async ({ page }) => {
-  try {
-    await page.evaluate(() => {
-      const win = window as unknown as {
-        __SpeechRuntimeController__?: { __resetForTests: () => void }
-      };
-      if (win.__SpeechRuntimeController__) {
-        win.__SpeechRuntimeController__.__resetForTests();
-      }
-    });
-  } catch (err) {
-    console.warn('[E2E] Singleton reset failed — page likely navigation closed', err);
-  }
-});
 
 export { expect } from '@playwright/test';

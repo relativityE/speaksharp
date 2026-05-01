@@ -96,7 +96,7 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
 
     test('C4: Idempotent destroy() sequence', async ({ page }) => {
       await page.getByTestId('session-start-stop-button').click();
-      await page.waitForSelector('html[data-recording-state="recording"]', { timeout: 15000 });
+      await page.waitForSelector('html[data-runtime-state="RECORDING"]', { timeout: 15000 });
 
       const destroyResult = await page.evaluate(async () => {
         const bridge = (window as unknown as E2EWindow).__SS_E2E__;

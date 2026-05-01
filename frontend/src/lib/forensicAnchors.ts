@@ -10,6 +10,48 @@
 
 import type { RuntimeState } from '../services/SpeechRuntimeController';
 
+/**
+ * 👑 Master Control Object (MCA)
+ * Centralized diagnostic hub for E2E infrastructure audits.
+ * NO UI coupling. Diagnostic ONLY.
+ */
+export interface SSMasterControl {
+  fsm: {
+    state: RuntimeState;
+    lastTransition: number;
+    heartbeat: 'ok' | 'stale' | 'none';
+  };
+  auth: {
+    userType: 'free' | 'pro' | 'unknown';
+    isMock: boolean;
+  };
+  engine: {
+    active: string;
+    initialized: boolean;
+    ready: boolean;
+  };
+  diag: {
+    bootDuration: number;
+    signals: Record<string, string | boolean>;
+  };
+}
+
+// Initialize global bridge if in browser
+if (typeof window !== 'undefined') {
+  const win = window as unknown as { __SS_MASTER_CONTROL__?: SSMasterControl };
+  win.__SS_MASTER_CONTROL__ = win.__SS_MASTER_CONTROL__ || {
+    fsm: { state: 'IDLE', lastTransition: Date.now(), heartbeat: 'none' },
+    auth: { userType: 'unknown', isMock: true },
+    engine: { active: 'none', initialized: false, ready: false },
+    diag: { bootDuration: 0, signals: {} }
+  };
+}
+
+const getMCA = (): SSMasterControl | null => {
+  if (typeof window === 'undefined') return null;
+  return (window as unknown as { __SS_MASTER_CONTROL__: SSMasterControl }).__SS_MASTER_CONTROL__;
+};
+
 // Internal FSM states from TranscriptionService
 export type TranscriptionState =
   | 'IDLE'
@@ -29,19 +71,19 @@ export type TranscriptionState =
 // Map internal FSM states to the authoritative forensic contract
 export function mapToRuntimeState(state: TranscriptionState): RuntimeState {
   switch (state) {
-    case 'IDLE':        return 'IDLE';
+    case 'IDLE': return 'IDLE';
     case 'ACTIVATING_MIC': return 'INITIATING';
-    case 'READY':       return 'READY';
+    case 'READY': return 'READY';
     case 'ENGINE_INITIALIZING': return 'ENGINE_INITIALIZING';
-    case 'RECORDING':   return 'RECORDING';
-    case 'PAUSED':      return 'RECORDING';    // Paused is still an active session
-    case 'STOPPING':    return 'STOPPING';
+    case 'RECORDING': return 'RECORDING';
+    case 'PAUSED': return 'RECORDING';    // Paused is still an active session
+    case 'STOPPING': return 'STOPPING';
     case 'CLEANING_UP': return 'STOPPING';
     case 'DOWNLOAD_REQUIRED': return 'IDLE';
     case 'DOWNLOADING': return 'ENGINE_INITIALIZING';
     case 'DOWNLOAD_COMPLETE': return 'IDLE';
-    case 'FAILED':      return 'FAILED';
-    case 'TERMINATED':  return 'TERMINATED';
+    case 'FAILED': return 'FAILED';
+    case 'TERMINATED': return 'TERMINATED';
     default: {
       // Exhaustiveness check — TypeScript will error if a new state is added
       // to TranscriptionState without updating this mapper
@@ -86,25 +128,38 @@ export function setAppReady(ready: boolean): void {
 export function syncSTTReady(isReady: boolean): void {
   if (typeof document === 'undefined') return;
   document.documentElement.setAttribute('data-stt-ready', isReady ? 'true' : 'false');
+
+  const mca = getMCA();
+  if (mca) {
+    mca.engine.ready = isReady;
+  }
 }
 
-export function syncRuntimeState(state: string): void {
-  if (typeof document === 'undefined') return;
-  document.documentElement.setAttribute('data-runtime-state', state);
-}
 
 /**
  * Synchronizes the current FSM state to the DOM.
  * This is called synchronously during every state transition to ensure 
  * 100% determinism for E2E infrastructure audits.
  */
-export function syncForensicAnchors(state: RuntimeState): void {
+export function syncForensicAnchors(state: RuntimeState, mode?: string | null): void {
   if (typeof document === 'undefined') return;
-  
+
   const root = document.documentElement;
 
   // 1. data-runtime-state: Always present — reflects exact FSM state for forensic tracing
   root.setAttribute('data-runtime-state', state);
+
+  // 1.5 data-stt-policy: Optional — reflects active transcription mode for forensic tracing
+  if (mode) {
+    document.body.setAttribute('data-stt-policy', mode);
+  }
+
+  // MCA Sync
+  const mca = getMCA();
+  if (mca) {
+    mca.fsm.state = state;
+    mca.fsm.lastTransition = Date.now();
+  }
 
   // 2. data-app-ready: Monotonic Guard — once READY, we don't regress.
   // We only set it here if it's not already true, to support late-binding services.
@@ -112,7 +167,7 @@ export function syncForensicAnchors(state: RuntimeState): void {
     setAppReady(true);
   }
 
-  // 4. data-error-visible: Explicit error visibility signal for error boundary coordination
+  // 3. data-error-visible: Explicit error visibility signal for error boundary coordination
   root.setAttribute(
     'data-error-visible',
     ERROR_STATES.has(state) ? 'true' : 'false'
@@ -133,6 +188,11 @@ export const forensic = {
     if (typeof document === 'undefined') return;
     const attrName = name.startsWith('data-') ? name : `data-${name}`;
     document.documentElement.setAttribute(attrName, String(value));
+
+    const mca = getMCA();
+    if (mca) {
+      mca.diag.signals[name] = value;
+    }
   },
 
   /**

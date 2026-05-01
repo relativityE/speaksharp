@@ -1,6 +1,17 @@
 import { create } from 'zustand';
 import logger from '@/lib/logger';
 
+interface AppReadyState {
+  [key: string]: boolean | string | number | undefined | Record<string, number>;
+  _timestamps?: Record<string, number>;
+}
+
+declare global {
+  interface Window {
+    __APP_READY_STATE__?: AppReadyState;
+  }
+}
+
 export const REQUIRED_GLOBAL = ['app', 'layout', 'auth', 'stt', 'msw'] as const;
 
 export const checkGlobalReadiness = (signals: Record<string, boolean | Record<string, number>>) => {
@@ -60,9 +71,14 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
 
       // Synchronize PURE signal map + traceability to window
       if (typeof window !== 'undefined') {
+        const current: AppReadyState = window.__APP_READY_STATE__ || {};
         window.__APP_READY_STATE__ = {
+          ...current,
           ...newSignals,
-          _timestamps: newTimestamps
+          _timestamps: {
+            ...(current._timestamps || {}),
+            ...newTimestamps
+          }
         };
       }
 
@@ -88,9 +104,14 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
       };
 
       if (typeof window !== 'undefined') {
+        const current: AppReadyState = window.__APP_READY_STATE__ || {};
         window.__APP_READY_STATE__ = {
+          ...current,
           ...state.signals,
-          _timestamps: newTimestamps
+          _timestamps: {
+            ...(current._timestamps || {}),
+            ...newTimestamps
+          }
         };
       }
 
@@ -122,9 +143,14 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
     });
 
     if (typeof window !== 'undefined') {
+      const current: AppReadyState = window.__APP_READY_STATE__ || {};
       window.__APP_READY_STATE__ = {
+        ...current,
         ...INITIAL_SIGNALS,
-        _timestamps: resetTimestamps
+        _timestamps: {
+          ...(current._timestamps || {}),
+          ...resetTimestamps
+        }
       };
     }
   }
@@ -133,8 +159,13 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
 // Initialize window object with PURE signals map + debug metadata
 if (typeof window !== 'undefined' && (!window.__APP_READY_STATE__ || typeof window.__APP_READY_STATE__ === 'string')) {
   const state = useReadinessStore.getState();
+  const current: AppReadyState = window.__APP_READY_STATE__ || {};
   window.__APP_READY_STATE__ = {
+    ...current,
     ...state.signals,
-    _timestamps: state.timestamps
+    _timestamps: {
+      ...(current._timestamps || {}),
+      ...state.timestamps
+    }
   };
 }

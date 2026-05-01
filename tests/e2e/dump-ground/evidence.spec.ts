@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupE2EManifest, goToApp, navigateToRoute } from '../helpers';
+import { setupE2EManifest, goToApp } from '../helpers';
 
 /**
  * 🕵️ GENESIS TRACE AUDIT (The Blueprint Proof)
@@ -62,15 +62,15 @@ test.describe('Genesis Trace Audit', () => {
     
     // 🎙️ ACTIVATE ENGINE
     await page.getByTestId('session-start-stop-button').click();
-    await page.waitForSelector('html[data-recording-state="recording"]', { timeout: 15000 });
+    await page.waitForSelector('html[data-runtime-state="RECORDING"]', { timeout: 15000 });
 
     // 🧪 STEP 1: THE REMOUNT PULSE (Forensic Discovery)
     // We navigate away to /dashboard and immediately back to /session.
     // This forces the React component to unmount/remount while the Service persists.
     console.log('🚀 Triggering STEP 1: Remount Pulse...');
-    await navigateToRoute(page, '/dashboard');
+    await goToApp(page, '/dashboard');
     await page.waitForTimeout(500); // Allow unmount cleanup to fire
-    await navigateToRoute(page, '/session');
+    await goToApp(page, '/session');
     
     // Wait for the new component to mount and ready up
     await page.waitForSelector('html[data-app-ready="true"]', { state: 'attached', timeout: 15000 });

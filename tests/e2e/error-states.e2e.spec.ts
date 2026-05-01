@@ -39,7 +39,7 @@ test.describe('Error State Handling', () => {
                 await startButton.click();
                 
                 // Determine state reached via recording attribute
-                await expect(userPage.locator('html')).toHaveAttribute('data-recording-state', 'recording', { timeout: 10000 });
+                await expect(userPage.locator('html')).toHaveAttribute('data-runtime-state', 'RECORDING', { timeout: 10000 });
 
                 // App should remain functional
                 await expect(userPage.getByTestId('nav-sign-out-button')).toBeVisible();

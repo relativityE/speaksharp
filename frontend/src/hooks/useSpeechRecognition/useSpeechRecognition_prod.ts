@@ -120,17 +120,13 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         return () => {
             // Signal the controller that this specific subscriber is gone.
             // The controller decides whether to reset based on active session state.
-            speechRuntimeController.reset('subscriber_unmount').catch(err => {
-                logger.error({ err }, '[useSpeechRecognition] Cleanup reset failed');
-            });
+            speechRuntimeController.reset('subscriber_unmount');
         };
     }, []);
 
     // 5. Public Actions (Controller Triggers)
     const reset = useCallback(() => {
-        speechRuntimeController.reset('manual_reset').catch(err => {
-            logger.error({ err }, '[useSpeechRecognition] Manual reset failed');
-        });
+        speechRuntimeController.reset('manual_reset');
         if (toastIdRef.current) {
             toast.dismiss(toastIdRef.current);
             toastIdRef.current = null;

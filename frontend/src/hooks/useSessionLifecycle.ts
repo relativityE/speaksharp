@@ -332,7 +332,10 @@ export const useSessionLifecycle = () => {
         modelLoadingProgress,
         activeMode,
         mode: sttMode,
-        setMode: setSTTMode,
+        setMode: (m: TranscriptionMode) => {
+            setSTTMode(m);
+            speechRuntimeController.syncForensicState();
+        },
         recordingIntent: isRecordingIntent,
         elapsedTime,
         handleStartStop,

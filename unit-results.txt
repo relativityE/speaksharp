@@ -1,5 +1,5 @@
 
-> speaksharp@0.5.4.5 test:unit /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
+> speaksharp@0.6.17 test:unit /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp
 > cross-env CI=true vitest run --config frontend/vitest.config.mjs
 
 [VITEST-CONFIG] 🏁 Loading from /Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/frontend/vitest.config.mjs
