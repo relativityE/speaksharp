@@ -20,15 +20,27 @@ export default class TelemetryReporter {
     const title = test.titlePath().join(" › ");
     const outcome = test.outcome();
 
-    // Store the latest outcome for this unique test ID to deduplicate retries
-    this.testOutcomes.set(test.id, {
-      title,
+    // Store all attempts for this unique test ID to accurately calculate logical duration
+    if (!this.testOutcomes.has(test.id)) {
+      this.testOutcomes.set(test.id, {
+        title,
+        attempts: [],
+        error: null
+      });
+    }
+
+    const entry = this.testOutcomes.get(test.id);
+    entry.attempts.push({
       status: result.status,
-      outcome,
-      retry: result.retry,
       duration: result.duration,
-      error: result.error
+      retry: result.retry
     });
+
+    // Always reflect final status and outcome
+    entry.status = result.status;
+    entry.outcome = outcome;
+    entry.retry = result.retry; // Final retry count
+    if (result.error) entry.error = result.error;
 
     // Console logging for real-time visibility (mirrors original behavior)
     if (outcome === "flaky") {
@@ -50,13 +62,19 @@ export default class TelemetryReporter {
     this.results.tests = [];
 
     for (const [id, data] of this.testOutcomes.entries()) {
+      const totalDuration = data.attempts.reduce((sum, a) => sum + (a.duration || 0), 0);
+      const firstAttemptDuration = data.attempts[0]?.duration || 0;
+      const retryOverhead = totalDuration - firstAttemptDuration;
+
       this.results.tests.push({
         id,
         title: data.title,
         status: data.status,
         outcome: data.outcome,
         retries: data.retry,
-        duration: data.duration
+        duration: totalDuration,
+        retryOverheadMs: Math.round(retryOverhead),
+        attempts: data.attempts.length
       });
 
       switch (data.outcome) {

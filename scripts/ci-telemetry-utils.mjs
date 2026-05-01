@@ -48,33 +48,21 @@ export function formatDuration(ms) {
 export function parsePlaywrightResults(rootDir) {
     const DEBUG = process.env.LOG_LEVEL === 'debug';
     // Standardized Path
-    const resultsPath = path.join(rootDir, 'test-results', 'playwright', 'results.json');
+    const resultsDir = path.join(rootDir, 'test-results', 'playwright');
     const telemetry = { passed: 0, failed: 0, flaky: 0, skipped: 0, total: 0, shards: {} };
 
-    if (!fs.existsSync(resultsPath)) return telemetry;
+    if (!fs.existsSync(resultsDir)) return telemetry;
 
-    // 1. Check for Shards
-    const shardsDir = path.join(rootDir, 'artifacts', 'playwright');
-    if (fs.existsSync(shardsDir)) {
-        const shards = fs.readdirSync(shardsDir).filter(s => s.startsWith('shard-'));
-        if (shards.length > 0) {
-            for (const shard of shards) {
-                const shardId = shard.replace('shard-', '');
-                const shardPath = path.join(shardsDir, shard, 'report.json'); // Assumes unzipped or separate json
-                // Note: If they are only zips, we'd need to unzip. 
-                // But ci.yml can be adjusted to unzip or we assume merged report is primary.
-                // For now, let's stick to the merged results.json but provide the structure.
-            }
-        }
-    }
-
-    if (!fs.existsSync(resultsPath)) {
-        if (DEBUG) console.log(`[CI DEBUG] Playwright results missing at: ${resultsPath}`);
+    const resultFiles = fs.readdirSync(resultsDir).filter(f => f.startsWith('results') && f.endsWith('.json'));
+    if (resultFiles.length === 0) {
+        if (DEBUG) console.log(`[CI DEBUG] No Playwright results found in: ${resultsDir}`);
         return telemetry;
     }
 
-    try {
-        const data = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+    for (const file of resultFiles) {
+        const resultsPath = path.join(resultsDir, file);
+        try {
+            const data = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
 
         function walk(suite) {
             if (suite.specs) {
@@ -93,6 +81,7 @@ export function parsePlaywrightResults(rootDir) {
                             } else {
                                 telemetry.failed++;
                             }
+                            telemetry.total++;
                         });
                     }
                 });
@@ -106,16 +95,15 @@ export function parsePlaywrightResults(rootDir) {
             data.suites.forEach(walk);
         }
 
-        // 2. Preserve Shard Metadata (informational only, don't add to counts)
+        // 2. Preserve Shard Metadata
         if (data.metadata?.shards || data.shards) {
-            telemetry.shards = data.metadata?.shards || data.shards;
+            Object.assign(telemetry.shards, data.metadata?.shards || data.shards);
         }
-
-        return telemetry;
     } catch (e) {
         console.warn(`⚠️ [CI] Failed to parse Playwright results at ${resultsPath}:`, e.message);
-        return telemetry;
     }
+    }
+    return telemetry;
 }
 
 /**
@@ -123,28 +111,41 @@ export function parsePlaywrightResults(rootDir) {
  */
 export function parseLighthouse(rootDir) {
     const DEBUG = process.env.LOG_LEVEL === 'debug';
-    
-    // Check local results first (Orchestrator mode), then artifacts (Aggregator mode)
-    let resultsDir = path.join(rootDir, 'lighthouse-results');
-    if (!fs.existsSync(resultsDir)) {
-        resultsDir = path.join(rootDir, 'artifacts', 'lighthouse');
-    }
-
-    if (!fs.existsSync(resultsDir)) {
-        if (DEBUG) console.log('[CI DEBUG] Lighthouse results directory missing.');
-        return {};
-    }
 
     try {
-        const files = fs.readdirSync(resultsDir).filter(f => f.endsWith('-report.json'));
-        if (files.length === 0) return {};
+        const dirs = [
+      path.join(rootDir, 'lighthouse-results'),
+      path.join(rootDir, '.lighthouseci')
+    ];
 
-        const totals = { performance: 0, accessibility: 0, bestPractices: 0, seo: 0 };
-        let count = 0;
+    let files = [];
+    for (const dir of dirs) {
+      if (fs.existsSync(dir)) {
+        files.push(...fs.readdirSync(dir).map(f => path.join(dir, f)));
+      }
+    }
+    files = files.filter(f => f.endsWith('.json'));
 
-        for (const file of files) {
-            const filePath = path.join(resultsDir, file);
-            const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    files = files.filter(file => {
+      try {
+        const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+        return data.categories && data.categories.performance;
+      } catch {
+        return false;
+      }
+    });
+
+    if (files.length === 0) {
+      throw new Error('[CI TELEMETRY] No valid Lighthouse reports found');
+    }
+    console.log('[LH] Files used:', files.length);
+
+    const totals = { performance: 0, accessibility: 0, bestPractices: 0, seo: 0 };
+    let count = 0;
+
+    for (const file of files) {
+      const filePath = file;
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
             if (data.categories) {
                 totals.performance += (data.categories.performance?.score || 0) * 100;
@@ -219,7 +220,7 @@ export function parseVitestResults(rootDir) {
  */
 export function getSQMResults(rootDir, currentTelemetry = {}) {
     const DEBUG = process.env.LOG_LEVEL === 'debug';
-    
+
     // Check local coverage first, then artifacts
     let coveragePath = path.join(rootDir, 'frontend', 'coverage', 'coverage-summary.json');
     if (!fs.existsSync(coveragePath)) {
@@ -239,9 +240,12 @@ export function getSQMResults(rootDir, currentTelemetry = {}) {
         try {
             const data = JSON.parse(fs.readFileSync(coveragePath, 'utf8'));
             result.coverage = data.total?.lines?.pct || 0;
+            console.log(`[SQM] Ingested coverage: ${result.coverage}%`);
         } catch (e) {
-            if (DEBUG) console.warn('[CI DEBUG] Failed to parse coverage:', e.message);
+            console.warn('[SQM] Failed to parse coverage:', e.message);
         }
+    } else {
+        console.warn(`[SQM] Coverage file missing at: ${coveragePath}`);
     }
 
     // 2. Metrics & Score computation

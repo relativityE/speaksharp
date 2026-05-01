@@ -71,12 +71,27 @@ const ERROR_STATES = new Set<RuntimeState>([
 ]);
 
 /**
- * States where audio is actively being processed.
+ * Set the global app-ready signal.
+ * This is the ONLY authoritative writer for data-app-ready.
  */
-const RECORDING_STATES = new Set<RuntimeState>([
-  'RECORDING',
-  'STOPPING',
-]);
+export function setAppReady(ready: boolean): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.setAttribute('data-app-ready', ready ? 'true' : 'false');
+}
+
+/**
+ * Synchronizes the STT readiness signal to the DOM.
+ * ONLY authoritative writer for data-stt-ready.
+ */
+export function syncSTTReady(isReady: boolean): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.setAttribute('data-stt-ready', isReady ? 'true' : 'false');
+}
+
+export function syncRuntimeState(state: string): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.setAttribute('data-runtime-state', state);
+}
 
 /**
  * Synchronizes the current FSM state to the DOM.
@@ -91,17 +106,11 @@ export function syncForensicAnchors(state: RuntimeState): void {
   // 1. data-runtime-state: Always present — reflects exact FSM state for forensic tracing
   root.setAttribute('data-runtime-state', state);
 
-  // 2. data-app-ready: True when system is fully operational — includes active recording
-  root.setAttribute(
-    'data-app-ready',
-    HEALTHY_STATES.has(state) ? 'true' : 'false'
-  );
-
-  // 3. data-recording-state: Reflects active audio processing phases
-  root.setAttribute(
-    'data-recording-state',
-    RECORDING_STATES.has(state) ? 'recording' : 'idle'
-  );
+  // 2. data-app-ready: Monotonic Guard — once READY, we don't regress.
+  // We only set it here if it's not already true, to support late-binding services.
+  if (root.getAttribute('data-app-ready') !== 'true' && HEALTHY_STATES.has(state)) {
+    setAppReady(true);
+  }
 
   // 4. data-error-visible: Explicit error visibility signal for error boundary coordination
   root.setAttribute(
@@ -109,3 +118,38 @@ export function syncForensicAnchors(state: RuntimeState): void {
     ERROR_STATES.has(state) ? 'true' : 'false'
   );
 }
+
+/**
+ * Authoritative forensic signaling interface.
+ * Standardizes all transient DOM signals for E2E infrastructure.
+ */
+export const forensic = {
+  /**
+   * Set a forensic signal on the document root.
+   * @param name The signal name (e.g. 'pdf-ready')
+   * @param value The value (true, 'clean', etc)
+   */
+  setSignal(name: string, value: string | boolean): void {
+    if (typeof document === 'undefined') return;
+    const attrName = name.startsWith('data-') ? name : `data-${name}`;
+    document.documentElement.setAttribute(attrName, String(value));
+  },
+
+  /**
+   * Get a forensic signal from the document root.
+   */
+  getSignal(name: string): string | null {
+    if (typeof document === 'undefined') return null;
+    const attrName = name.startsWith('data-') ? name : `data-${name}`;
+    return document.documentElement.getAttribute(attrName);
+  },
+
+  /**
+   * Remove a forensic signal from the document root.
+   */
+  removeSignal(name: string): void {
+    if (typeof document === 'undefined') return;
+    const attrName = name.startsWith('data-') ? name : `data-${name}`;
+    document.documentElement.removeAttribute(attrName);
+  }
+};

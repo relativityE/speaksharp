@@ -1,5 +1,5 @@
 import { test as base, Page } from '@playwright/test';
-import { programmaticLoginWithRoutes } from './helpers';
+import { programmaticLoginWithRoutes, goToApp } from './helpers';
 import { setupE2EMocks } from './mock-routes';
 
 /**
@@ -35,27 +35,26 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         const upperText = text.toUpperCase();
 
         // Identify expected non-fatal network/STT errors
-        const isNetworkError = upperText.includes('NET::ERR_') || 
-                              upperText.includes('FAILED TO LOAD RESOURCE') ||
-                              upperText.includes('404') ||
-                              upperText.includes('500') ||
-                              upperText.includes('FETCH') ||
-                              upperText.includes('TRANSCRIPTION ERROR') ||
-                              upperText.includes('TRANSCRIPTIONSERVICE') ||
-                              upperText.includes('ENSUREENGINEINITIALIZED') ||
-                              upperText.includes('NETWORK_TIMEOUT') ||
-                              upperText.includes('ABORT') ||
-                              upperText.includes('PROMO') ||
-                              upperText.includes('RPC') ||
-                              upperText.includes('PROFILE') ||
-                              upperText.includes('USERPROFILE') ||
-                              upperText.includes('FAILED_VISIBLE') ||
-                              upperText.includes('DISTRIBUTEDLOCK');
+        const isNetworkError = upperText.includes('NET::ERR_') ||
+          upperText.includes('FAILED TO LOAD RESOURCE') ||
+          upperText.includes('404') ||
+          upperText.includes('500') ||
+          upperText.includes('FETCH') ||
+          upperText.includes('TRANSCRIPTION ERROR') ||
+          upperText.includes('TRANSCRIPTIONSERVICE') ||
+          upperText.includes('ENSUREENGINEINITIALIZED') ||
+          upperText.includes('NETWORK_TIMEOUT') ||
+          upperText.includes('ABORT') ||
+          upperText.includes('PROMO') ||
+          upperText.includes('RPC') ||
+          upperText.includes('PROFILE') ||
+          upperText.includes('USERPROFILE') ||
+          upperText.includes('FAILED_VISIBLE') ||
+          upperText.includes('DISTRIBUTEDLOCK');
 
         if (isNetworkError) {
           console.warn(`[E2E_NON_FATAL_LOG] ${text}`);
         } else {
-          // Throw for legitimate application errors (React crashes, etc)
           throw new Error(`[E2E_FATAL_CONSOLE_ERROR] ${text}`);
         }
       }
@@ -66,26 +65,22 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await use(page);
   },
 
-  // Isolated per-test mocked page
   mockedPage: async ({ page }, use) => {
     await setupE2EMocks(page);
     await use(page);
   },
 
-  // Isolated per-test authenticated pages
-  // These are now lean by default because 'READY' handles hydration.
   userPage: async ({ page }, use) => {
     await programmaticLoginWithRoutes(page);
     await use(page);
   },
 
   proPage: async ({ page }, use) => {
-    // Intercept BEFORE navigation to avoid race conditions with React Query hydration
     await page.route('**/rest/v1/user_profiles*', async (route) => {
       await route.fulfill({
         status: 200,
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           id: 'mock-pro-id',
           subscription_status: 'pro',
           usage_seconds: 0,
@@ -99,7 +94,6 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await use(page);
   },
 
-  // Fixture alias for clarity in speed-sensitive tests
   leanUserPage: async ({ page }, use) => {
     await programmaticLoginWithRoutes(page);
     await use(page);
@@ -113,6 +107,40 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   freePage: async ({ page }, use) => {
     await programmaticLoginWithRoutes(page, { userType: 'free' });
     await use(page);
+  }
+});
+
+/**
+ * 🛡️ [Fix 5B.2] Origin-Aware Storage Isolation
+ * Establishing origin BEFORE clearing ensures no SecurityError.
+ */
+test.beforeEach(async ({ page }) => {
+  await goToApp(page, '/');
+  await page.evaluate(() => {
+    try {
+      window.localStorage.clear();
+      console.log('[E2E] Storage cleared (Origin established)');
+    } catch (err) {
+      console.warn('[E2E] Storage clear failed', err);
+    }
+  });
+});
+
+/**
+ * 🛡️ [Fix 5A.4] Singleton Escape Hatch
+ */
+test.afterEach(async ({ page }) => {
+  try {
+    await page.evaluate(() => {
+      const win = window as unknown as {
+        __SpeechRuntimeController__?: { __resetForTests: () => void }
+      };
+      if (win.__SpeechRuntimeController__) {
+        win.__SpeechRuntimeController__.__resetForTests();
+      }
+    });
+  } catch (err) {
+    console.warn('[E2E] Singleton reset failed — page likely navigation closed', err);
   }
 });
 

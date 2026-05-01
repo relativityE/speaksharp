@@ -32,9 +32,22 @@ export interface SSE2EManifest {
 }
 
 /**
- * E2EWindow — Extended window for Playwright bridge.
+ * Minimal interface for the controller to avoid importing the full class.
  */
-export interface E2EWindow extends Window {
+interface ControllerBridge {
+  service?: {
+    strategy?: {
+      emitTranscript?: (text: string, isFinal: boolean) => void;
+    };
+    isTerminated: boolean;
+  };
+}
+
+/**
+ * E2EWindow — Extended window for Playwright bridge.
+ * 🛡️ We DO NOT extend Window here to avoid type conflicts with global.d.ts definitions.
+ */
+export interface E2EWindow {
   __SS_E2E__: SSE2EManifest;
   __SS_E2E_ACTIVE_ENGINE__?: unknown;
   __SS_E2E_ENGINE_CACHE__?: Record<string, unknown>;
@@ -55,18 +68,11 @@ export interface E2EWindow extends Window {
   MockPrivateWhisper?: unknown;
   __activeSpeechRecognition?: unknown;
   __e2eBridgeReady__?: boolean;
-}
-
-/**
- * 🛡️ INTERNAL: Structural bridge for bridge routing without full controller dependency
- */
-interface BridgeTarget {
-  service?: {
-    strategy?: {
-      emitTranscript?: (text: string, isFinal: boolean) => void;
-    };
-    isTerminated: boolean;
-  };
+  __MOCK_PROFILE__?: { subscription_status: string };
+  __TRANSCRIPTION_SERVICE__?: ControllerBridge;
+  localStorage: Storage;
+  location: Location;
+  setInterval: (handler: TimerHandler, timeout?: number, ...args: unknown[]) => number;
 }
 
 /**
@@ -86,87 +92,72 @@ export async function setupE2EManifest(
   const { storage = {}, userType = 'free', ...manifest } = config;
 
   await page.addInitScript(({ m, s, ut }: { m: unknown; s: Record<string, string>; ut: string }) => {
-    console.warn('[TRACE] TEST_HEARTBEAT');
-    console.warn('[TRACE] RAW_MANIFEST_CONFIG', JSON.stringify(m));
-
-    // 0. AUTHORITATIVE TIER SIGNAL (Synchronous E2E Override)
-    (window as unknown as { __MOCK_PROFILE__?: { subscription_status: string } }).__MOCK_PROFILE__ = { 
+    // 0. AUTHORITATIVE TIER SIGNAL
+    const win = window as unknown as E2EWindow;
+    win.__MOCK_PROFILE__ = { 
       subscription_status: ut === 'pro' ? 'pro' : 'free' 
     };
 
-    const localManifest = m as SSE2EManifest;
     const localBrowserStorage = s;
 
-    // 1. CLEAR: Strict Zero baseline
-    window.localStorage.clear();
+    // 1. CLEAR: Strict Zero baseline with Origin Guard
+    try {
+      if (win.location.origin !== 'null' && win.location.origin !== 'about:blank') {
+        win.localStorage.clear();
+      }
+    } catch (err) {
+      console.warn('[E2E] localStorage.clear failed in setupE2EManifest', err);
+    }
 
     // 2. STORAGE: Re-inject tokens
     Object.entries(localBrowserStorage).forEach(([key, val]) => {
-      window.localStorage.setItem(key, val);
+      try {
+        win.localStorage.setItem(key, val);
+      } catch (err) {
+        console.warn(`[E2E] localStorage.setItem failed for key ${key}`, err);
+      }
     });
 
-    // 3. 🛡️ DOMAIN INJECTION (Single Authoritative Handle)
-    const win = window as unknown as E2EWindow;
-    
-    // Cache for engines
     win.__SS_E2E_ENGINE_CACHE__ = win.__SS_E2E_ENGINE_CACHE__ || {};
 
     const minimalStubFactory = (mode: string) => (opts?: { 
       onReady?: () => void, 
-      onTranscriptUpdate?: (update: { transcript: { partial?: string; final?: string } }) => void 
+      onTranscriptUpdate?: (update: {
+        transcript: { partial?: string; final?: string };
+        isFinal: boolean;
+        isPartial: boolean;
+        timestamp: number;
+      }) => void 
     }) => {
-      const fid = Math.random().toString(36).slice(2);
-      console.warn('[TRACE] FACTORY_CALLED');
-      console.warn('[TRACE] FACTORY_ID', fid);
       const cache = win.__SS_E2E_ENGINE_CACHE__ || {};
       win.__SS_E2E_ENGINE_CACHE__ = cache;
-      if (cache[mode]) {
-        return cache[mode] as { instanceId: string };
-      }
+      if (cache[mode]) return cache[mode];
 
-      const id = Math.random().toString(36).substring(7);
-      
       const instance = {
-        instanceId: id,
-        checkAvailability: async () => {
-          console.warn('[TRACE] CHECK_AVAILABILITY');
-          const win = window as unknown as E2EWindow;
-          const isCached = win.__MODEL_CACHED__ !== false; // Default to true if not set
-          return { 
-            isAvailable: isCached, 
-            available: isCached, 
-            requiresDownload: !isCached,
-            reason: isCached ? undefined : 'CACHE_MISS'
-          };
-        },
-        init: async (opts?: { onStatusChange?: (s: { type: string, progress: number }) => void, onReady?: () => void }) => {
-          console.warn('[TRACE] MOCK_INIT_STARTED', id);
-          
-          // 1. Simulate Download started if not already initialized
-          if (!win.__SS_E2E__.isEngineInitialized) {
-            opts?.onStatusChange?.({ type: 'downloading', progress: 0 });
-            opts?.onStatusChange?.({ type: 'downloading', progress: 100 });
-          }
-
+        instanceId: `mock-${Math.random().toString(36).slice(2)}`,
+        checkAvailability: async () => ({ isAvailable: true }),
+        init: async (io?: { onReady?: () => void }) => {
           win.__SS_E2E__.isEngineInitialized = true;
-          if (opts?.onReady) opts.onReady();
-          win.__SS_E2E_ACTIVE_ENGINE__ = instance;
-          
-          console.warn('[TRACE] MOCK_INIT_COMPLETE', id);
+          if (io?.onReady) io.onReady();
           return { isOk: true };
         },
-        start: async () => { },
-        stop: async () => { },
-        pause: async () => { },
-        resume: async () => { },
-        destroy: async () => { },
-        terminate: async () => { },
+        start: async () => {},
+        stop: async () => {},
+        pause: async () => {},
+        resume: async () => {},
+        destroy: async () => {},
+        terminate: async () => {},
         getEngineType: () => mode,
         getLastHeartbeatTimestamp: () => Date.now(),
         getTranscript: async () => '[E2E_MOCK]',
         emitTranscript: (text: string, isFinal: boolean = true) => {
           if (opts?.onTranscriptUpdate) {
-            opts.onTranscriptUpdate({ transcript: isFinal ? { final: text } : { partial: text } });
+            opts.onTranscriptUpdate({
+              transcript: isFinal ? { final: text } : { partial: text },
+              isFinal,
+              isPartial: !isFinal,
+              timestamp: Date.now()
+            });
           }
         }
       };
@@ -174,32 +165,27 @@ export async function setupE2EManifest(
       return instance;
     };
 
-    // Initialize Manifest (Sticky Guard: preserve mobilization if already set)
-    const existing = win.__SS_E2E__;
-    const supportEngines = ['mock', 'whisper-turbo', 'transformers-js', 'assemblyai', 'native-browser'] as const;
+    const supportEngines = ['mock', 'whisper-turbo', 'transformers-js', 'assemblyai', 'native-browser'];
     const engineRegistry = Object.fromEntries(
         supportEngines.map(id => [id, minimalStubFactory(id)])
     );
 
+    const mCast = m as SSE2EManifest;
     win.__SS_E2E__ = {
       isActive: true,
-      enableRealEngine: existing?.enableRealEngine || localManifest.enableRealEngine || false,
-      MOCK_STT_AVAILABILITY: existing?.MOCK_STT_AVAILABILITY || localManifest?.MOCK_STT_AVAILABILITY || true,
+      enableRealEngine: false,
+      MOCK_STT_AVAILABILITY: true,
       guestStatus: ut as 'free' | 'pro',
-      runtimeEventLog: existing?.runtimeEventLog || [],
-      ...localManifest,
-      flags: { bypassMutex: true, fastTimers: true, ...(localManifest.flags || {}) },
+      ... mCast,
       registry: {
         ...engineRegistry,
-        ...(localManifest.registry || {})
+        ...(mCast.registry || {})
       }
     };
-    win.__E2E_FINISH_DOWNLOAD__ = null;
 
-    // Authoritative Bridge
     win.__SS_E2E_BRIDGE__ = {
       emitTranscript: (text: string, isFinal: boolean = true) => {
-        const controller = (win as unknown as Record<string, unknown>)['__TRANSCRIPTION_SERVICE__'] as BridgeTarget | undefined;
+        const controller = win.__TRANSCRIPTION_SERVICE__;
         const svc = controller?.service;
         if (svc && !svc.isTerminated) {
           svc.strategy?.emitTranscript?.(text, isFinal);
@@ -207,18 +193,28 @@ export async function setupE2EManifest(
       }
     };
 
-    setInterval(() => {
-      if (win.__SS_E2E__) {
-        const bridge = win.__SS_E2E_BRIDGE__;
-        if (bridge) {
-            win.__SS_E2E__.emitTranscript = bridge.emitTranscript;
-        }
+    win.setInterval(() => {
+      if (win.__SS_E2E__ && win.__SS_E2E_BRIDGE__) {
+        win.__SS_E2E__.emitTranscript = win.__SS_E2E_BRIDGE__.emitTranscript;
       }
     }, 50);
 
-    // Readiness signals
+    const t0 = performance.now();
     win.__APP_READY_STATE__ = { msw: true, boot: true };
     win.__E2E_READY__ = true;
+    win.TEST_MODE = true;
     
-  }, { m: manifest as Record<string, unknown>, s: storage, ut: userType });
+    // Stamp the boot duration once the script finishes its T=0 setup
+    // 🛡️ Safe-wait for document.documentElement if called too early in addInitScript
+    const stampDuration = () => {
+      if (document.documentElement) {
+        const duration = (performance.now() - t0).toFixed(2);
+        document.documentElement.setAttribute('data-boot-duration-ms', duration);
+        console.log(`[E2E] Boot telemetry stamped: ${duration}ms`);
+      } else {
+        setTimeout(stampDuration, 10);
+      }
+    };
+    stampDuration();
+  }, { m: manifest, s: storage, ut: userType });
 }

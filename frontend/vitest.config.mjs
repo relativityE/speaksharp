@@ -59,15 +59,11 @@ export default defineConfig({
     //
     // reporter: 'json-summary' → produces coverage-summary.json (NOT 'json',
     //   which produces coverage-final.json — a different file, different schema).
-    coverage: {
-      enabled: true,
-      provider: 'v8',
-      reportsDirectory: path.resolve(__dirname, '../frontend/coverage'),
-      reporter: [
-        'text',         // console table — visible in CI logs
-        'json-summary', // → coverage-summary.json — consumed by run-metrics.sh
-        'html',         // → index.html — for local browsing, gitignored
-      ],
+      coverage: {
+        enabled: true,
+        provider: 'v8',
+        reportsDirectory: path.resolve(__dirname, '../artifacts/coverage'),
+        reporter: ['json-summary'],
       include: ['frontend/src/**/*.{ts,tsx}'],
       exclude: [
         'frontend/src/**/*.test.{ts,tsx}',

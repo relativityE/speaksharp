@@ -226,6 +226,19 @@ jobs:
       - name: Generate Final Report
         run: pnpm ci:report
 
+      - name: Aggregate CI Metrics
+        run: node scripts/aggregate-ci.mjs
+
+      - name: Upload CI Metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-metrics
+          path: |
+            artifacts/ci-metrics.json
+            artifacts/ci-wall-clock.json
+          retention-days: 30
+
       - name: Upload HTML Report
         if: always()
         uses: actions/upload-artifact@v4

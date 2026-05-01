@@ -47,8 +47,8 @@ export async function setupStrictZero(options: { engineType?: string } = {}) {
       if (sttRegistry) {
           sttRegistry.clear();
       }
-  } catch (e) {
-      console.error('[DIAGNOSTIC] Pre-reset clear failed', e);
+  } catch (err) {
+      console.error('[DIAGNOSTIC] Pre-reset clear failed', err);
   }
 
   // 2. Reset module graph
@@ -56,7 +56,11 @@ export async function setupStrictZero(options: { engineType?: string } = {}) {
 
   // 3. Clear shared browser state
   if (typeof localStorage !== 'undefined') {
-    localStorage.clear();
+    try {
+      localStorage.clear();
+    } catch (err) {
+      console.warn('[DIAGNOSTIC] LocalStorage clear failed in Vitest', err);
+    }
   }
 
   // 4. Set globals
@@ -74,7 +78,7 @@ export async function setupStrictZero(options: { engineType?: string } = {}) {
       sttRegistry.register('assemblyai', minimalistMockFactory);
       sttRegistry.register('whisper-turbo', minimalistMockFactory);
       sttRegistry.register('transformers-js', minimalistMockFactory);
-  } catch (e) {
-      console.error('[DIAGNOSTIC] Post-setup registry sync failed', e);
+  } catch (err) {
+      console.error('[DIAGNOSTIC] Post-setup registry sync failed', err);
   }
 }

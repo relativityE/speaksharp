@@ -13,13 +13,14 @@ export default class VitestCIReporter {
                     if (task.result?.state === 'pass') stats.passed++;
                     else if (task.result?.state === 'fail') stats.failed++;
                     stats.total++;
+                    stats.totalDuration += (task.result?.duration || 0);
                 } else if (task.tasks) {
                     countTests(task.tasks, stats);
                 }
             });
         };
 
-        const stats = { passed: 0, failed: 0, total: 0 };
+        const stats = { passed: 0, failed: 0, total: 0, totalDuration: 0 };
         files.forEach((f) => {
             if (f.tasks) countTests(f.tasks, stats);
         });
@@ -42,6 +43,7 @@ export default class VitestCIReporter {
             numPassedTests: stats.passed,
             numFailedTests: stats.failed,
             numTotalTests: stats.total,
+            totalDuration: stats.totalDuration,
             numPendingTests: 0
         };
         fs.writeFileSync(path.join(resultsDir, 'results.json'), JSON.stringify(bridge, null, 2));

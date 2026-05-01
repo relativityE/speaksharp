@@ -36,7 +36,7 @@ for arg in "$@"; do
 done
 
 case $STAGE in
-    ci-simulate|local|agent|infra) 
+    ci-simulate|local|agent|infra|report) 
         echo "🚀 Delegating to Node.js CI Orchestrator..."
         node scripts/run-ci.mjs "$@"
         ;;
