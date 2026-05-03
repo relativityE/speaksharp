@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { goToApp, MOCK_STT_AVAILABILITY } from './helpers';
-import type { E2EWindow } from './helpers/setupE2EManifest';
+import type { E2EWindow, SSE2EManifest } from './helpers/setupE2EManifest';
 
 /**
  * Core System Probe (Deterministic, Zero-Auth)
@@ -23,11 +23,17 @@ import type { E2EWindow } from './helpers/setupE2EManifest';
  */
 
 test.describe('Core System Validation (Deterministic)', () => {
+  let logs: string[] = [];
+
   test.beforeEach(async ({ page }) => {
+    logs = [];
+    page.on('console', msg => logs.push(msg.text()));
+
     // 🛡️ T=0 Injection: Define the deterministic mock harness directly in the browser context.
-    await page.addInitScript((MOCK_STT_AVAILABILITY_VAL: unknown) => {
+    await page.addInitScript((MOCK_VAL: { isAvailable: boolean }) => {
       // ✅ GLOBAL SIGNALS
       const win = window as unknown as E2EWindow;
+      win.__E2E_LOG_LEVEL__ = 'info';
       win.TEST_MODE = true;
       win.ENV = { isE2E: true };
       win.__E2E_READY__ = true;
@@ -62,7 +68,7 @@ test.describe('Core System Validation (Deterministic)', () => {
         const opts = options || {};
         const instance = {
           instanceId: `e2e-mock-${Math.random().toString(36).substring(7)}`,
-          checkAvailability: async () => MOCK_STT_AVAILABILITY_VAL as { isAvailable: boolean },
+          checkAvailability: async () => MOCK_VAL,
           init: async (io?: { onReady?: () => void }) => {
             if (io?.onReady) io.onReady();
             if (window.__SS_E2E__) {
@@ -122,7 +128,7 @@ test.describe('Core System Validation (Deterministic)', () => {
             return;
           }
         }
-      };
+      } satisfies Partial<SSE2EManifest> as SSE2EManifest;
     }, MOCK_STT_AVAILABILITY);
 
     await goToApp(page, '/');
@@ -160,11 +166,25 @@ test.describe('Core System Validation (Deterministic)', () => {
 
   // 8. No Race Conditions (Deterministic Start)
   test('no STT_ENGINE_MISSING errors', async ({ page }) => {
-    const logs: string[] = [];
-    page.on('console', msg => logs.push(msg.text()));
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
     await page.getByTestId('session-start-stop-button').click();
     await page.waitForSelector('html[data-runtime-state="RECORDING"]', { timeout: 5000 });
     expect(logs.some(l => l.includes('STT_ENGINE_MISSING'))).toBe(false);
+  });
+  // 11. Forensic Audit (Identity Guard Verification)
+  test('Forensic Audit: negotiator identity guard is active', async ({ page }) => {
+    await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
+
+    // Check logs for negotiator identity
+    const negotiatorLogs = logs.filter(l => l.includes('[STTNegotiator]'));
+    console.log('[E2E Audit] All Captured Logs:', logs);
+    console.log('[E2E Audit] Captured Logs Count:', logs.length);
+    console.log('[E2E Audit] Negotiator Logs:', negotiatorLogs);
+
+    // We expect at least one negotiator log showing isMock: true
+    const hasMockIdentity = logs.some(l =>
+      (l.includes('[STTNegotiator] Decision') && (l.includes('"isMock":true') || l.includes('isMock: true') || l.includes('isMock:true')))
+    );
+    expect(hasMockIdentity).toBe(true);
   });
 });

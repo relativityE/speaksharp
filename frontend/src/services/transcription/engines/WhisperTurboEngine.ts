@@ -31,12 +31,18 @@ export class WhisperTurboEngine extends STTEngine {
         super(options);
     }
 
-    protected override async onInit(_timeoutMs?: number): Promise<Result<void, Error>> {
+    protected override async onInit(_timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
         const options = this.options as TranscriptionModeOptions;
         const tStart = performance.now();
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[WhisperTurbo] [PERF] Initializing engine via Registry at ${new Date().toISOString()}`);
 
         try {
+            if (isMock) {
+                logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[WhisperTurbo] 🧪 Mock mode detected - bypassing heavy initialization');
+                if (options.onReady) options.onReady();
+                return Result.ok(undefined);
+            }
+
             if (ENV.disableWasm) {
                 logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[WhisperTurbo] WASM Disabled via manifest. Forcing fallback.');
                 return { isOk: false, error: new Error('WASM_DISABLED_IN_CI') };

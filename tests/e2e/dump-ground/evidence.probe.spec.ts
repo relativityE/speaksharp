@@ -178,6 +178,12 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
       await page.evaluate(() => { (window as unknown as E2EWindow).__MODEL_CACHED__ = false; });
       await navigateToRoute(page, '/session');
 
+      // Forensic Readiness Gate (Invariant I3)
+      await expect.poll(
+        async () => await page.getAttribute('html', 'data-engine-ready'),
+        { timeout: 15000 }
+      ).toBe('true');
+
       // Switch to Private Mode
       await page.getByTestId('stt-mode-select').click();
       await page.getByRole('menuitemradio', { name: /Private/i }).click();
@@ -188,6 +194,11 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
       // Step 5.2 — Wait for FSM to enter DOWNLOADING state — no timeout hacks
       await page.waitForSelector('html[data-runtime-state="DOWNLOADING"]', { timeout: 10000 });
       
+      await expect.poll(
+        async () => await page.getAttribute('html', 'data-engine-ready'),
+        { timeout: 15000 }
+      ).toBe('true');
+
       const downloadBtn = page.getByTestId('download-model-button');
       await expect(downloadBtn).toBeVisible({ timeout: 20000 });
       await downloadBtn.click();

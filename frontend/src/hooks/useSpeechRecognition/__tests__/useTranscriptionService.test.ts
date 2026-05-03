@@ -109,8 +109,6 @@ describe('useTranscriptionService - Integrated Behavior', () => {
 
         renderHook(() => useTranscriptionService(options));
 
-        await vi.waitFor(() => {
-            expect(speechRuntimeController.startRecording).toHaveBeenCalled();
-        });
+        expect(speechRuntimeController.startRecording).toHaveBeenCalled();
     });
 });

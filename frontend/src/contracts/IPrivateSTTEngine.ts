@@ -42,7 +42,7 @@ export interface IPrivateSTTEngine {
      */
     checkAvailability(): Promise<import('@/services/transcription/STTStrategy').AvailabilityResult>;
 
-    init(timeoutMs?: number): Promise<Result<void, Error>>;
+    init(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>>;
     
     /**
      * Start the engine (Contract Requirement)

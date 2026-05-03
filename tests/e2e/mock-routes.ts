@@ -216,14 +216,38 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         });
     });
 
-    // GET /rest/v1/sessions
+    // GET/PATCH /rest/v1/sessions
     await page.route(/\/rest\/v1\/sessions(\?.*)?/, async (route) => {
+        const method = route.request().method();
         const reqHeaders = route.request().headers();
         if (!reqHeaders['accept']) reqHeaders['accept'] = '*/*';
 
         const page = route.request().frame()?.page();
         if (!page) return route.continue();
         const state = getPageState(page);
+
+        if (method === 'PATCH') {
+            const postData = route.request().postDataJSON() || {};
+            const url = new URL(route.request().url());
+            const idParam = url.searchParams.get('id');
+            const targetId = idParam?.replace('eq.', '');
+
+            if (targetId && state.sessions) {
+                const idx = state.sessions.findIndex((s: { id: string }) => s.id === targetId);
+                if (idx !== -1) {
+                    state.sessions[idx] = { ...state.sessions[idx], ...postData };
+                }
+            }
+
+            const updatedSession = state.sessions?.find((s: { id: string }) => s.id === targetId) || {};
+
+            await route.fulfill({
+                status: 200,
+                headers: SUPABASE_SINGLE_HEADERS,
+                body: JSON.stringify(updatedSession),
+            });
+            return;
+        }
 
         if (state.emptySessions) {
             mockLog('[E2E MOCK] Returning empty sessions (flag set)');

@@ -106,12 +106,12 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   }
 
 
-  protected override async onInit(timeoutMs?: number): Promise<Result<void, Error>> {
+  protected override async onInit(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
     // Use injected mock if available
     if (this.mockEngine) {
         logger.info('[NativeBrowser] 🧪 Using injected MockEngine');
         if (this.mockEngine.init) {
-            await this.mockEngine.init(timeoutMs);
+            await this.mockEngine.init(timeoutMs, isMock);
         }
         return Result.ok(undefined);
     }

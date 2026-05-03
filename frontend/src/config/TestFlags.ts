@@ -108,6 +108,7 @@ if (typeof window !== 'undefined' && (import.meta.env.MODE === 'test' || window.
   if (!window.__SS_E2E__) {
     logger.warn('[ENV] ⚠️ Test mode detected but __SS_E2E__ bridge is missing. Capture may be stale.');
   } else {
-    logger.info('[ENV] ✅ E2E Bridge connected (T=0 Dynamic Getters active)');
+    // Promote logger level to info in E2E to ensure telemetry visibility
+    logger.level = 'info';
   }
 }

@@ -152,6 +152,8 @@ export function syncForensicAnchors(state: RuntimeState, mode?: string | null): 
   // 1.5 data-stt-policy: Optional — reflects active transcription mode for forensic tracing
   if (mode) {
     document.body.setAttribute('data-stt-policy', mode);
+  } else {
+    document.body.removeAttribute('data-stt-policy');
   }
 
   // MCA Sync
@@ -213,3 +215,30 @@ export const forensic = {
     document.documentElement.removeAttribute(attrName);
   }
 };
+
+/**
+ * Invariant I3: Engine Readiness Contract
+ * Ensures data-engine-ready attribute is 1:1 with controller state.
+ */
+export function syncEngineReady(ready: boolean): void {
+  if (typeof document === 'undefined') return;
+  if (ready) {
+    document.documentElement.setAttribute('data-engine-ready', 'true');
+  } else {
+    document.documentElement.removeAttribute('data-engine-ready');
+  }
+}
+
+/**
+ * Invariant I4: Session Persistence Contract
+ * Signals when a session has been successfully saved to the database.
+ */
+export function syncSessionPersisted(persisted: boolean): void {
+    if (typeof document === 'undefined') return;
+    console.info(`[FORENSIC] syncSessionPersisted: ${persisted}`);
+    if (persisted) {
+        document.documentElement.setAttribute('data-session-persisted', 'true');
+    } else {
+        document.documentElement.removeAttribute('data-session-persisted');
+    }
+}

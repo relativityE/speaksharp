@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ENV } from '../config/TestFlags';
+import { safeLocalStorageGet, safeLocalStorageSet, safeLocalStorageRemove } from '@/lib/safeStorage';
 
 const LOCK_KEY = 'speaksharp_active_session_lock';
 const HEARTBEAT_INTERVAL = 2000;
@@ -16,7 +17,7 @@ export const useActiveSessionLock = () => {
     const heartbeatTimer = useRef<NodeJS.Timeout | null>(null);
 
     const getLock = useCallback((): SessionLockInfo | null => {
-        const raw = localStorage.getItem(LOCK_KEY);
+        const raw = safeLocalStorageGet(LOCK_KEY);
         if (!raw) return null;
         try {
             return JSON.parse(raw);
@@ -55,7 +56,7 @@ export const useActiveSessionLock = () => {
             tabId,
             timestamp: now
         };
-        localStorage.setItem(LOCK_KEY, JSON.stringify(info));
+        safeLocalStorageSet(LOCK_KEY, JSON.stringify(info));
         setIsLockHeldByOther(false);
 
         // Start heartbeat
@@ -63,7 +64,7 @@ export const useActiveSessionLock = () => {
         heartbeatTimer.current = setInterval(() => {
             const currentLock = getLock();
             if (currentLock && currentLock.tabId === tabId) {
-                localStorage.setItem(LOCK_KEY, JSON.stringify({
+                safeLocalStorageSet(LOCK_KEY, JSON.stringify({
                     tabId,
                     timestamp: Date.now()
                 }));
@@ -76,7 +77,7 @@ export const useActiveSessionLock = () => {
     const releaseLock = useCallback(() => {
         const lock = getLock();
         if (lock && lock.tabId === tabId) {
-            localStorage.removeItem(LOCK_KEY);
+            safeLocalStorageRemove(LOCK_KEY);
         }
         if (heartbeatTimer.current) {
             clearInterval(heartbeatTimer.current);

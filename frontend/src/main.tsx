@@ -169,7 +169,7 @@ const renderApp = async (initialSession: Session | null = null) => {
             // via localStorage is the primary source of truth.
             logger.info('[E2E] Bridge session resolved asynchronously');
           }
-        }).catch((err) => { 
+        }).catch((err) => {
           logger.error({ err }, '[E2E] Failed to initialize e2e-bridge');
         });
       }
@@ -191,7 +191,7 @@ const renderApp = async (initialSession: Session | null = null) => {
           </QueryClientProvider>
         </StrictMode>
       );
-      
+
       // 🛡️ FINAL BOOT SIGNAL: React mount initiated. Unconditional.
       if (typeof document !== 'undefined') {
         document.documentElement.setAttribute('data-app-ready', 'true');

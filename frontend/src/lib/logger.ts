@@ -4,7 +4,7 @@ import pino from 'pino';
 import { LoggerOptions } from 'pino';
 
 const options: LoggerOptions = {
-  level: (typeof process !== 'undefined' && process.env?.LOG_LEVEL) || 'warn'
+  level: 'info'
 };
 
 // Safely determine mode regardless of whether we are in Vite or Node context (e.g. Playwright tests)

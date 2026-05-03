@@ -21,7 +21,7 @@ export interface STTStrategy {
    * Returns a detailed result including potential blocking reasons.
    */
   checkAvailability(): Promise<AvailabilityResult>;
-  init(timeoutMs?: number): Promise<Result<void, Error>>;
+  init(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>>;
 
 
   /**

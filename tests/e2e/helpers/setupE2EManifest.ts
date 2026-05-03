@@ -57,6 +57,7 @@ export interface E2EWindow {
   };
   __APP_READY_STATE__?: Record<string, boolean>;
   __E2E_READY__?: boolean;
+  __E2E_LOG_LEVEL__?: string;
   __E2E_FINISH_DOWNLOAD__?: (() => void) | null;
   __WASM_LOADED__?: boolean;
   dispatchMockTranscript?: (text: string, isFinal: boolean) => void;

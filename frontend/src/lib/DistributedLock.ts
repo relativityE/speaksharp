@@ -1,5 +1,6 @@
 // src/lib/DistributedLock.ts
 import logger from './logger';
+import { safeLocalStorageGet, safeLocalStorageSet, safeLocalStorageRemove } from './safeStorage';
 
 export interface LockInfo {
     tabId: string;
@@ -35,7 +36,7 @@ export class DistributedLock {
      * @param state Optional state metadata (e.g. 'RECORDING', 'FAILED_HOLD')
      */
     public acquire(state?: string): boolean {
-        if (typeof localStorage === 'undefined') return true;
+        if (typeof window === 'undefined') return true;
 
         const lock = this.getLock();
         const now = Date.now();
@@ -57,7 +58,7 @@ export class DistributedLock {
             timestamp: now,
             state
         };
-        localStorage.setItem(DistributedLock.LOCK_KEY, JSON.stringify(info));
+        safeLocalStorageSet(DistributedLock.LOCK_KEY, JSON.stringify(info));
 
         // 3. Start Heartbeat
         this.startHeartbeat(state);
@@ -68,19 +69,16 @@ export class DistributedLock {
      * Update the state metadata while holding the lock.
      */
     public updateState(state: string): void {
-        if (typeof localStorage === 'undefined') return;
         const lock = this.getLock();
         if (lock && lock.tabId === this.tabId) {
             const info: LockInfo = { ...lock, state, timestamp: Date.now() };
-            localStorage.setItem(DistributedLock.LOCK_KEY, JSON.stringify(info));
+            safeLocalStorageSet(DistributedLock.LOCK_KEY, JSON.stringify(info));
             // Restart heartbeat with new state
             this.startHeartbeat(state);
         }
     }
 
     public release(): void {
-        if (typeof localStorage === 'undefined') return;
-
         const lock = this.getLock();
         if (lock && lock.tabId === this.tabId) {
             // Lifecycle Guard: Lock Release Invariant
@@ -95,7 +93,7 @@ export class DistributedLock {
                 throw new Error(msg);
             }
 
-            localStorage.removeItem(DistributedLock.LOCK_KEY);
+            safeLocalStorageRemove(DistributedLock.LOCK_KEY);
             logger.info('[DistributedLock] 🔓 Lock released');
         }
 
@@ -103,8 +101,7 @@ export class DistributedLock {
     }
 
     public getLock(): LockInfo | null {
-        if (typeof localStorage === 'undefined') return null;
-        const raw = localStorage.getItem(DistributedLock.LOCK_KEY);
+        const raw = safeLocalStorageGet(DistributedLock.LOCK_KEY);
         if (!raw) return null;
         try {
             return JSON.parse(raw);
@@ -130,7 +127,7 @@ export class DistributedLock {
                     timestamp: Date.now(),
                     state: state || currentLock.state
                 };
-                localStorage.setItem(DistributedLock.LOCK_KEY, JSON.stringify(info));
+                safeLocalStorageSet(DistributedLock.LOCK_KEY, JSON.stringify(info));
             } else {
                 this.stopHeartbeat();
             }

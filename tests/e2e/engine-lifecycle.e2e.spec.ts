@@ -80,6 +80,12 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     await navigateToRoute(page, '/session');
     
     // Switch to Private Mode
+    // Forensic Readiness Gate (Invariant I3)
+    await expect.poll(
+      async () => await page.getAttribute('html', 'data-engine-ready'),
+      { timeout: 15000 }
+    ).toBe('true');
+
     await page.getByTestId('stt-mode-select').click();
     await page.getByRole('menuitemradio', { name: /Private/i }).click();
 
@@ -146,6 +152,12 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     });
 
     await navigateToRoute(page, '/session');
+    // Forensic Readiness Gate (Invariant I3)
+    await expect.poll(
+      async () => await page.getAttribute('html', 'data-engine-ready'),
+      { timeout: 15000 }
+    ).toBe('true');
+
     await page.getByTestId('stt-mode-select').click();
     await page.getByRole('menuitemradio', { name: /Private/i }).click();
 

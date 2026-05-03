@@ -41,6 +41,12 @@ test.describe('Promo Admin Journey', () => {
         await expect(page).toHaveURL(/\/session/);
 
         // 7. Verify Pro features are visible
+        // Forensic Readiness Gate (Invariant I3)
+        await expect.poll(
+            async () => await page.getAttribute('html', 'data-engine-ready'),
+            { timeout: 15000 }
+        ).toBe('true');
+
         await page.click('button:has-text("Native")');
         const privateOption = page.locator('role=menuitemradio', { hasText: 'Private' });
         await expect(privateOption).not.toHaveAttribute('aria-disabled', 'true');

@@ -49,8 +49,9 @@ export function getTranscriptionService(options: Partial<TranscriptionServiceOpt
   return sessionManager.getOrCreateService(options, lock);
 }
 
-export const resetTranscriptionService = (): void => {
-  void sessionManager.destroySession();
+export const resetTranscriptionService = async (): Promise<void> => {
+  await sessionManager.destroySession();
+  syncForensicAnchors('IDLE', null);
 };
 
 // Types moved to src/types/transcription.ts
@@ -146,7 +147,7 @@ export default class TranscriptionService {
     // 🛡️ Forensic Bridge (v0.7.0): Synchronous DOM signaling
     // Fired in the same tick as every FSM transition.
     this.fsm.subscribe((state: TranscriptionState) => {
-      syncForensicAnchors(mapToRuntimeState(state));
+      syncForensicAnchors(mapToRuntimeState(state), this.mode);
     });
 
     // T=0 Signal: Ensure IDLE is written before any async transitions
@@ -252,9 +253,9 @@ export default class TranscriptionService {
   }
 
   public async warmUp(mode: TranscriptionMode): Promise<void> {
-    const { mode: negotiatedMode } = STTNegotiator.negotiate(this.policy, mode);
+    const { mode: negotiatedMode, isMock } = STTNegotiator.negotiate(this.policy, mode);
     try {
-      await this.initializeStrategy(negotiatedMode);
+      await this.initializeStrategy(negotiatedMode, isMock);
     } catch (error) {
       logger.debug({ error, mode: negotiatedMode }, '[TranscriptionService] Warm-up failed (ignoring)');
     }
@@ -264,7 +265,7 @@ export default class TranscriptionService {
    * Mode-Neutral Strategy Initialization.
    * Probes availability, handles BLOCKED states, and prepares strategy.
    */
-  private async initializeStrategy(mode: TranscriptionMode): Promise<void> {
+  private async initializeStrategy(mode: TranscriptionMode, isMock?: boolean): Promise<void> {
     logger.debug('[TRACE] STRATEGY_RESOLVE_START');
 
     /**
@@ -293,6 +294,7 @@ export default class TranscriptionService {
     // 🏁 3. Persist Identity: Secure identity BEFORE engine creation (Logic Tier Fix)
     this.idempotencyKey = this.idempotencyKey || Math.random().toString(STT_CONFIG.ALPHANUMERIC_RADIX).substring(7);
     this.mode = mode;
+    syncForensicAnchors(mapToRuntimeState(this.fsm.getState()), this.mode);
 
     // 🏗️ 4. Strategy Lifecycle: Instantiate or Preserve
     if (!this.strategy) {
@@ -346,7 +348,7 @@ export default class TranscriptionService {
       if (!strategy) return;
 
       logger.debug('[TRACE] ENGINE_INIT_START');
-      const initResult = await strategy.init();
+      const initResult = await this.strategy.init(STT_CONFIG.STRATEGY_INIT_TIMEOUT_MS, isMock);
 
       if (version !== this.strategyVersion) {
         logger.debug('[TranscriptionService] initializeStrategy aborted: strategy version mismatch');
@@ -429,10 +431,10 @@ export default class TranscriptionService {
 
     // 2. Unified Strategy Enrollment (Authoritative Gate - Consolidates Task 5.1.1)
     const requestedMode = this.policy.preferredMode || 'native';
-    const { mode } = STTNegotiator.negotiate(this.policy, requestedMode);
+    const { mode, isMock } = STTNegotiator.negotiate(this.policy, requestedMode);
 
     try {
-      await this.initializeStrategy(mode);
+      await this.initializeStrategy(mode, isMock);
 
       // ✅ READINESS RESTORATION: Ensure we settle in READY (Authoritative for Task 5.1.1)
       if (this.fsm.is('ENGINE_INITIALIZING')) {
@@ -515,7 +517,7 @@ export default class TranscriptionService {
     }
 
     const requestedMode = this.policy.preferredMode || 'private';
-    const { mode } = STTNegotiator.negotiate(this.policy, requestedMode);
+    const { mode, isMock } = STTNegotiator.negotiate(this.policy, requestedMode);
     this.runId = Math.random().toString(36).substring(7);
     this.idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
 
@@ -524,7 +526,7 @@ export default class TranscriptionService {
     try {
       // 3. Initialize Strategy (Handles Availability & Preparation)
       logger.debug({ runId: this.runId, mode }, '[TranscriptionService] Calling initializeStrategy');
-      await this.initializeStrategy(mode);
+      await this.initializeStrategy(mode, isMock);
 
       // 4. Start Strategy Execution
       logger.debug({ runId: this.runId, mode }, '[TranscriptionService] Calling executeStrategy');
@@ -742,6 +744,7 @@ export default class TranscriptionService {
       // ✅ Lock released HERE and only HERE — state is now guaranteed TERMINATED
       this.lock.release();
 
+      this.reset('TERMINATED');
       logger.info({ sId: this.serviceId }, '[TranscriptionService] ✅ destroy() complete, lock released');
     })();
 
@@ -765,7 +768,7 @@ export default class TranscriptionService {
   public subscribe(newOptions: Partial<TranscriptionServiceOptions>, subscriberId: string = 'unknown'): () => void {
     pushE2EEvent('SUBSCRIBE', { id: subscriberId, source: 'TranscriptionService', sessionId: this.sessionId });
     logger.debug({ id: subscriberId, serviceId: this.serviceId, timestamp: Date.now() }, '[SUBSCRIBE]');
-    logger.debug({}, '[TRACE] SUBSCRIBE');
+    logger.info({}, '[TRACE] SUBSCRIBE');
     this.assertAlive();
 
     // 🛡️ STEP 3: Single Subscriber Invariant
@@ -881,6 +884,68 @@ export default class TranscriptionService {
       return this.strategy.getTranscript();
     }
     return '';
+  }
+
+  /**
+   * NUCLEAR RESET: authoritative clearing of all session state.
+   * @param targetState - The state to transition the FSM to after clearing (default: 'IDLE')
+   */
+  public reset(targetState: TranscriptionState = 'IDLE'): void {
+    logger.info({ sId: this.serviceId, targetState }, '[TranscriptionService] ☢️ NUCLEAR RESET: Clearing all async state and buffers');
+
+    this.stopWatchdog();
+
+    // Clear ephemeral session state
+    this.mode = null;
+    this.isModeLocked = false;
+    this.lastError = null;
+    this.failureManager.resetFailureCount();
+
+    this.sessionId = null;
+    this.idempotencyKey = null;
+    this.startTime = null;
+    this.startTimestamp = 0;
+    this.runId = null;
+
+    // Clear buffers
+    this.transcriptHistory = [];
+    this.currentTranscript = '';
+    this.partialTranscript = '';
+    this.modelLoadingProgress = null;
+
+    // Clear strategy and mic
+    if (this.strategy) {
+      this.strategyVersion++;
+      // Note: termination is usually handled by destroy() before calling reset()
+      this.strategy = null;
+    }
+    this.mic = null;
+
+    // Reset FSM
+    if (targetState === 'IDLE') {
+      this.fsm.reset();
+    } else {
+      this.fsm.setState(targetState);
+    }
+
+    // Sync UI
+    const state = (useSessionStore as unknown as {
+      getState: () => {
+        setActiveEngine: (m: unknown) => void;
+        setSTTMode: (m: unknown) => void;
+        setModelLoadingProgress: (p: unknown) => void;
+        setSTTStatus: (s: unknown) => void;
+      }
+    }).getState?.();
+
+    if (state) {
+      state.setActiveEngine(null);
+      state.setModelLoadingProgress(null);
+      state.setSTTStatus({
+        type: targetState === 'TERMINATED' ? 'idle' : 'idle',
+        message: targetState === 'TERMINATED' ? 'Ready' : 'Ready'
+      });
+    }
   }
 
   /**
@@ -1026,6 +1091,11 @@ export default class TranscriptionService {
    */
   private processTranscript(update: TranscriptUpdate): void {
     logger.debug(`[TRACE] ENGINE_DATA ${!!update.transcript.final}`);
+
+    if (this.fsm.is('TERMINATED') || this.fsm.is('CLEANING_UP') || this.isTerminated) {
+      logger.debug('[TranscriptionService] 🛡️ Guard: Dropping transcript update because service is terminated');
+      return;
+    }
 
     if (this.fsm.is('PAUSED')) {
       logger.debug('[TranscriptionService] Ignoring transcript update while PAUSED');

@@ -175,6 +175,10 @@ export function setupNetworkTracking(page: Page) {
 export async function goToApp(page: Page, route: string = '/') {
   debugLog(`Navigating to ${route}`);
   await page.goto(route);
+  
+  // 🛡️ STRICT ORDERING RULE: Assert origin before ANY storage/forensic access
+  await expect(page).toHaveURL(/localhost|127\.0\.0\.1/);
+
   await waitForAppReady(page);
 }
 

@@ -13,7 +13,7 @@ export class SessionManager {
     private activeService: TranscriptionService | null = null;
     private destroying = false;
 
-    private constructor() {}
+    private constructor() { }
 
     public static getInstance(): SessionManager {
         if (!SessionManager.instance) {
@@ -36,15 +36,15 @@ export class SessionManager {
         }
 
         logger.info('[SessionManager] 🏗️ Creating new authoritative session service');
-        
+
         // Use the statically imported class
         this.activeService = new TranscriptionService(
-            options, 
-            lock, 
+            options,
+            lock,
             STT_CONFIG.HEARTBEAT_TIMEOUT_MS / 15, // ~2s
             STT_CONFIG.HEARTBEAT_TIMEOUT_MS
         );
-        
+
         return this.activeService!;
     }
 

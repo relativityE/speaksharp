@@ -1,5 +1,6 @@
 import logger from '@/lib/logger';
-import { syncSTTReady, syncForensicAnchors as syncRuntimeState } from '../lib/forensicAnchors';
+import { syncSTTReady, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted } from '@/lib/forensicAnchors';
+import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
 import { useReadinessStore } from '@/stores/useReadinessStore';
@@ -49,10 +50,11 @@ export interface LifecycleToken {
 }
 
 /**
- * SPEECH RUNTIME CONTROLLER (Master FSM)
- * ------------------------------------
- * High-authority controller that mediates between the UI and the 
- * underlying TranscriptionService. 
+ * LIFECYCLE CONTRACT (v2 — Emission Control)
+ * Any async work via enqueue() may be aborted if lifecycleVersion changes.
+ * No side-effects are guaranteed after cancellation.
+ * Tests must use whenStable() — never vi.waitFor() for side-effects.
+ * @see LifecycleToken
  */
 export class SpeechRuntimeController {
     private static instance: SpeechRuntimeController | null = null;
@@ -68,9 +70,11 @@ export class SpeechRuntimeController {
     private sessionId: string | null = null;
     private heartbeatInterval: NodeJS.Timeout | null = null;
     private readonly HEARTBEAT_PERIOD_MS = STT_CONFIG.HEARTBEAT_TIMEOUT_MS;
+    private readonly MAX_HEARTBEAT_FAILURES = 3;
 
     // Cancellation tracking for startRecording
     private currentRecordingId: string | null = null;
+    private capturedUserId: string | null = null;
 
     // Session Lock (Tab Mutex)
     private lock: DistributedLock;
@@ -144,27 +148,12 @@ export class SpeechRuntimeController {
      * Exhaustive State Purge:
      * Clears engine, strategy, and readiness bits to prevent state leakage.
      */
-    private fullReset(): void {
-        this.isEngineReady = false;
-        this.isSubscriberReady = false;
-        this.isEmissionsSafe = false;
-        this.readyPromise = null;
-        this.service = null;
-        this.lifecycleVersion++;
-
-        if (this.watchdogInterval) clearInterval(this.watchdogInterval);
-        if (this.heartbeatInterval) clearTimeout(this.heartbeatInterval);
-        if (this.idleTimeout) clearTimeout(this.idleTimeout);
-        if (this.lockWatchdogInterval) clearInterval(this.lockWatchdogInterval);
-
-        this.watchdogInterval = null;
-        this.heartbeatInterval = null;
-        this.idleTimeout = null;
-        this.lockWatchdogInterval = null;
-
-        // Use Forensic Anchors ONLY
-        syncSTTReady(false);
-        syncRuntimeState('IDLE');
+    public fullReset(): void {
+        this.reset();
+        syncRuntimeState('IDLE', null);
+        this.setEngineReady(false);
+        useSessionStore.getState().setRuntimeState('IDLE');
+        this.updateSessionPersisted(false);
     }
 
     /**
@@ -210,7 +199,7 @@ export class SpeechRuntimeController {
         await this.readyPromise;
 
         // Authoritative Readiness Barrier
-        await this.enqueue(async (token) => {
+        await this.enqueue(async (_token) => {
             await this.ensureReady({ skipIfDownloadPending: true });
         });
 
@@ -234,7 +223,7 @@ export class SpeechRuntimeController {
     public async syncServiceSubscription(): Promise<void> {
         pushE2EEvent('SYNC_SUBSCRIPTION_START', { source: 'SpeechRuntimeController' });
         try {
-            await this.enqueue(async () => {
+            await this.enqueue(async (_token) => {
                 if (!this.service) {
                     pushE2EEvent('SYNC_SUBSCRIPTION_SKIP', { reason: 'no_service' });
                     return;
@@ -341,9 +330,9 @@ export class SpeechRuntimeController {
     }
 
     private updateStreakInternal(): { currentStreak: number; isNewDay: boolean } {
-        if (typeof window === 'undefined' || !window.localStorage) return { currentStreak: 0, isNewDay: false };
+        if (typeof window === 'undefined') return { currentStreak: 0, isNewDay: false };
 
-        const saved = localStorage.getItem('speaksharp-streak');
+        const saved = safeLocalStorageGet('speaksharp-streak');
         const now = new Date();
         const today = now.toISOString().split('T')[0];
 
@@ -364,7 +353,7 @@ export class SpeechRuntimeController {
             }
 
             const updated = { currentStreak: newStreak, lastPracticeDate: today };
-            localStorage.setItem('speaksharp-streak', JSON.stringify(updated));
+            safeLocalStorageSet('speaksharp-streak', JSON.stringify(updated));
         }
 
         return { currentStreak: newStreak, isNewDay };
@@ -397,6 +386,20 @@ export class SpeechRuntimeController {
 
     private updateSessionPersisted(persisted: boolean): void {
         useSessionStore.getState().setSessionSaved(persisted);
+        syncSessionPersisted(persisted);
+    }
+
+    /**
+     * Returns a promise that resolves when the current command queue
+     * is fully drained. Use in tests instead of vi.waitFor() polling.
+     *
+     * @example
+     * await controller.startRecording();
+     * await controller.whenStable();
+     * expect(store.getState().sessionId).toBeDefined();
+     */
+    public async whenStable(): Promise<void> {
+        return this.commandQueue;
     }
 
     private handleStrategyReady(): void {
@@ -414,12 +417,15 @@ export class SpeechRuntimeController {
         this.syncProvider(this.lifecycleVersion);
     }
 
-    private async transition(newState: RuntimeState, _error?: Error, token?: LifecycleToken): Promise<void> {
-        if (token && (token.cancelled || token.version !== this.lifecycleVersion)) return;
+    private setEngineReady(ready: boolean): void {
+        this.isEngineReady = ready;
+        syncEngineReady(ready);
+    }
 
-        const capturedVersion = token ? token.version : this.lifecycleVersion;
+    private async transition(newState: RuntimeState, _error?: Error, token?: LifecycleToken): Promise<void> {
         const previousState = this.state;
         this.state = newState;
+        this.syncProvider(this.lifecycleVersion);
 
         logger.info({ from: previousState, to: newState }, '[SpeechRuntimeController] \u{26A1} Transition');
         const store = useSessionStore.getState();
@@ -447,7 +453,6 @@ export class SpeechRuntimeController {
                 store.stopSession();
                 if (newState === 'TERMINATED') {
                     await this.service?.destroy();
-                    if (token && (token.cancelled || token.version !== this.lifecycleVersion)) return;
                     this.sessionId = null;
                 }
             }
@@ -480,7 +485,6 @@ export class SpeechRuntimeController {
                 }).catch(() => { });
             }
             await this.transition('FAILED_VISIBLE', undefined, token);
-            if (token && (token.cancelled || token.version !== this.lifecycleVersion)) return;
         }
 
         if (newState === 'FAILED_VISIBLE') {
@@ -497,7 +501,7 @@ export class SpeechRuntimeController {
             store.startSession();
         }
 
-        this.syncProvider(capturedVersion);
+        this.syncProvider(this.lifecycleVersion);
     }
 
     private canTransitionToRecording(): boolean {
@@ -563,7 +567,7 @@ export class SpeechRuntimeController {
     }
 
     private handleReady() {
-        this.isEngineReady = true;
+        this.setEngineReady(true);
         if (this.service) {
             this.startWatchdog(this.service);
         }
@@ -581,6 +585,12 @@ export class SpeechRuntimeController {
     }
 
     private handleStatusChange(status: SttStatus) {
+        if (status.type === 'initializing') {
+            this.setEngineReady(false);
+        }
+        if (status.type === 'ready') {
+            this.setEngineReady(true);
+        }
         this.subscriberCallbacks.onStatusChange?.(status);
     }
 
@@ -611,6 +621,16 @@ export class SpeechRuntimeController {
         const store = useSessionStore.getState();
         const currentTranscript = store.transcript.transcript;
 
+        // 🛡️ USER_ID EMISSION GUARD: Ensure transcripts belong to the session starter
+        const currentUserId = this.session?.user?.id;
+        if (this.capturedUserId && currentUserId !== this.capturedUserId) {
+            logger.warn({
+                expected: this.capturedUserId,
+                actual: currentUserId
+            }, '[SpeechRuntimeController] ABORTING EMISSION: userId mismatch');
+            return;
+        }
+
         if (data.transcript.final) {
             const newFullText = currentTranscript ? `${currentTranscript} ${data.transcript.final}` : data.transcript.final;
             store.updateTranscript(newFullText, '');
@@ -626,7 +646,8 @@ export class SpeechRuntimeController {
 
     private syncProvider(expectedVersion: number) {
         if (expectedVersion !== this.lifecycleVersion) return;
-        syncRuntimeState(this.state);
+        const mode = this.policy?.preferredMode ?? null;
+        syncRuntimeState(this.state, mode);
     }
 
     public async startRecording(policy?: TranscriptionPolicy, userWords: string[] = []): Promise<void> {
@@ -635,8 +656,10 @@ export class SpeechRuntimeController {
         const recordingId = crypto.randomUUID();
         this.currentRecordingId = recordingId;
 
-        return this.enqueue(async (token) => {
-            if (this.currentRecordingId !== recordingId) return;
+        return this.enqueue(async (_token) => {
+            if (this.currentRecordingId !== recordingId) {
+                return;
+            }
 
             if (this.state !== 'READY' && this.state !== 'IDLE' && this.state !== 'FAILED') {
                 return;
@@ -656,6 +679,9 @@ export class SpeechRuntimeController {
             const mode = this.policy?.preferredMode || 'private';
             if (this.service) {
                 await this.service.warmUp(mode);
+                if (_token.cancelled || _token.version !== this.lifecycleVersion) {
+                    return;
+                }
 
                 const strategy = this.service.getStrategy();
                 if (strategy && 'start' in strategy && 'stop' in strategy) {
@@ -667,38 +693,47 @@ export class SpeechRuntimeController {
             if (!acquired) {
                 useSessionStore.getState().setSTTStatus({
                     type: 'error',
-                    message: '\u26D4 Active session in another tab.'
+                    message: '⛔ Active session in another tab.'
                 });
-                await this.transition('FAILED', undefined, token);
+                await this.transition('FAILED', undefined, _token);
                 return;
             }
 
-            await this.transition('INITIATING', undefined, token);
+            await this.transition('INITIATING', undefined, _token);
+            if (_token.cancelled || _token.version !== this.lifecycleVersion) {
+                return;
+            }
+
             useSessionStore.getState().setStartTime(Date.now());
 
             const service = this.service;
             if (!service) throw new Error('SERVICE_MISSING');
 
-            await this.transition('ENGINE_INITIALIZING', undefined, token);
+            await this.transition('ENGINE_INITIALIZING', undefined, _token);
 
             try {
                 await service.startTranscription(policy);
-
-                if (this.currentRecordingId !== recordingId) return;
-
-                if (service && service.fsm?.is('DOWNLOAD_REQUIRED')) {
-                    this.isEngineReady = false;
-                    this.service = null;
+                if (_token.cancelled || _token.version !== this.lifecycleVersion) {
                     return;
                 }
 
-                this.isEngineReady = true;
+                if (service && service.fsm?.is('DOWNLOAD_REQUIRED')) {
+                    this.setEngineReady(false);
+                    this.service = null;
+                    return;
+                }
+                this.setEngineReady(true);
                 this.isEmissionsSafe = true;
                 await this.checkRecordingInvariant();
 
                 const supabase = getSupabaseClient();
                 const { data: { session } } = await supabase.auth.getSession();
+                if (_token.cancelled || _token.version !== this.lifecycleVersion) {
+                    return;
+                }
+
                 const userId = session?.user?.id;
+                this.capturedUserId = userId || null;
 
                 if (userId) {
                     const mode = service.getMode() || 'unknown';
@@ -716,19 +751,30 @@ export class SpeechRuntimeController {
 
                     this.updateSessionPersisted(false);
                     const saveResult = await saveSession(sessionData, { id: userId } as UserProfile, mode, idempotencyKey, metadata);
-
                     const dbSession = saveResult?.session;
+
+                    if (dbSession) {
+                        this.sessionId = dbSession.id;
+                    }
+
+                    if (_token.cancelled || _token.version !== this.lifecycleVersion) {
+                        return;
+                    }
+
                     if (saveResult?.usageExceeded) throw new Error('Usage limit exceeded');
 
                     const currentState = this.getState();
-                    if (dbSession && service && (currentState === 'RECORDING' || currentState === 'ENGINE_INITIALIZING')) {
-                        this.sessionId = dbSession.id;
+                    if (dbSession && service && (
+                        currentState === 'RECORDING' || 
+                        currentState === 'ENGINE_INITIALIZING' || 
+                        currentState === 'STOPPING'
+                    )) {
                         service.setSessionId?.(dbSession.id);
                         this.startHeartbeat(dbSession.id, service);
                     }
                 }
             } catch (err: unknown) {
-                await this.transition('FAILED', err as Error, token);
+                await this.transition('FAILED', err as Error, _token);
                 throw err;
             }
         });
@@ -769,7 +815,10 @@ export class SpeechRuntimeController {
         }
 
         this.serviceUnsubscribe = null;
-        this.isEngineReady = false;
+        this.setEngineReady(false);
+        syncRuntimeState('IDLE', null);
+        useSessionStore.getState().setRuntimeState('IDLE');
+        this.updateSessionPersisted(false);
         this.initialized = false;
         this.readyPromise = null;
         this.isSubscriberReady = false;
@@ -791,7 +840,6 @@ export class SpeechRuntimeController {
 
     public async stopRecording(): Promise<unknown> {
         return this.enqueue(async (token) => {
-            if (token.cancelled || token.version !== this.lifecycleVersion) return null;
             const canStop =
                 this.state === 'RECORDING' ||
                 this.state === 'ENGINE_INITIALIZING' ||
@@ -800,7 +848,6 @@ export class SpeechRuntimeController {
                 this.state === 'FAILED_VISIBLE';
 
             if (!canStop) return null;
-
             const wasRecording = this.state === 'RECORDING';
             await this.transition('STOPPING', undefined, token);
             if (token.cancelled || token.version !== this.lifecycleVersion) return null;
@@ -814,6 +861,7 @@ export class SpeechRuntimeController {
                 }
 
                 let result = null;
+                logger.info({ wasRecording, state: this.state, sessionId: this.sessionId }, '[DEBUG-STOP] state-check');
                 if (wasRecording) {
                     const sessionId = this.sessionId;
                     const startTime = service.getStartTime();
@@ -858,15 +906,18 @@ export class SpeechRuntimeController {
                         });
                         if (token.cancelled || token.version !== this.lifecycleVersion) return null;
 
+                        logger.info({ sessionId }, '[DEBUG-STOP] updateSession starting');
                         await updateSession(sessionId, {
                             filler_words: fillerWords as unknown as FillerCounts,
                             wpm,
                             clarity_score: accuracy
                         });
+                        logger.info('[DEBUG-STOP] updateSession done');
 
                         this.updateStreakInternal();
 
                         if (typeof window !== 'undefined') {
+                            logger.info('[DEBUG-STOP] pushing ANALYTICS_COMPLETE');
                             const { pushE2EEvent } = await import('../lib/e2eProbe');
                             pushE2EEvent('ANALYSIS_COMPLETE', {
                                 sessionId,
@@ -876,6 +927,7 @@ export class SpeechRuntimeController {
                             });
                         }
 
+                        logger.info('[DEBUG-STOP] calling updateSessionPersisted(true)');
                         this.updateSessionPersisted(true);
                         useSessionStore.getState().setSessionSaved(true);
                     }
@@ -886,10 +938,12 @@ export class SpeechRuntimeController {
                 await service.destroy();
                 this.service = null;
 
-                // The old era is dead, initiate READY state un-guarded
+                logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
+                logger.info('[DEBUG-STOP] transition READY done');
                 return result;
             } catch (err: unknown) {
+                logger.error({ err }, '[DEBUG-STOP] ERROR caught');
                 if (this.sessionId) {
                     completeSession(this.sessionId, {
                         status: 'failed',
@@ -929,6 +983,7 @@ export class SpeechRuntimeController {
     private startHeartbeat(sessionId: string, service: TranscriptionService): void {
         this.stopHeartbeat();
         const version = ++this.lifecycleVersion;
+        let consecutiveFailures = 0;
         const scheduleNext = (immediate = false) => {
             const delay = immediate ? 0 : this.HEARTBEAT_PERIOD_MS;
             this.heartbeatInterval = setTimeout(() => {
@@ -939,9 +994,22 @@ export class SpeechRuntimeController {
                         if (!sessionId || (currentState !== 'RECORDING' && currentState !== 'ENGINE_INITIALIZING')) return;
                         await heartbeatSession(sessionId, Math.round(this.HEARTBEAT_PERIOD_MS / 1000));
                         if (version !== this.lifecycleVersion) return;
+                        consecutiveFailures = 0; // Reset on success
                         scheduleNext();
                     } catch (error: unknown) {
                         if (version !== this.lifecycleVersion) return;
+                        consecutiveFailures++;
+                        
+                        if (consecutiveFailures >= this.MAX_HEARTBEAT_FAILURES) {
+                            logger.error({ sessionId, consecutiveFailures }, '[Heartbeat] Max failures reached — terminating session');
+                            pushE2EEvent('HEARTBEAT_FAILURE_THRESHOLD_REACHED', { sessionId, consecutiveFailures });
+                            
+                            this.stopHeartbeat(); // Kill interval before transition
+                            await this.transition('FAILED', error instanceof Error ? error : new Error('HEARTBEAT_FAILURE'));
+                            return;
+                        }
+
+                        logger.warn({ sessionId, consecutiveFailures, error }, '[Heartbeat] Failure pulse recorded');
                         scheduleNext();
                     }
                 })();
@@ -1028,7 +1096,7 @@ export class SpeechRuntimeController {
                 await this.service.destroy();
                 this.service = null;
             }
-            this.isEngineReady = false;
+            this.setEngineReady(false);
             const nativePolicy: TranscriptionPolicy = {
                 allowNative: true, allowCloud: false, allowPrivate: false,
                 preferredMode: 'native', allowFallback: false, executionIntent: 'native-recovery'

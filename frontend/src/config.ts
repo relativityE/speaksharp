@@ -63,6 +63,7 @@ export const STT_CONFIG = {
   HEARTBEAT_TIMEOUT_MS: 30000,
   FAILURE_HOLD_DURATION_MS: 1500,
   VISIBLE_HOLD_DURATION_MS: 2500,
+  STRATEGY_INIT_TIMEOUT_MS: 5000,
   ALPHANUMERIC_RADIX: 36, // Used for random string generation (0-9, a-z)
 } as const;
 

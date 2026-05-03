@@ -12,7 +12,7 @@ import { CI_CONFIG } from './scripts/ci.config.js';
 
 // Load test environment variables
 loadEnv('test');
-
+const TIMEOUT_MULTIPLIER = parseInt(process.env.CI_TIMEOUT_MULTIPLIER ?? '1');
 const BASE_URL = 'http://localhost:4173';
 
 export default defineConfig({
@@ -21,8 +21,8 @@ export default defineConfig({
   testIgnore: [/.*\.(live|canary|soak)\.spec\.ts/], // Exclude other categories
   outputDir: './test-results/playwright',
   // FAIL FAST: Aggressive timeouts - no test should hang
-  timeout: 60_000, // 60s per test max (bridged to diagnostic guard)
-  expect: { timeout: 15_000 }, // 15s expect timeout
+  timeout: 60_000 * TIMEOUT_MULTIPLIER, // 60s per test max (bridged to diagnostic guard)
+  expect: { timeout: 15_000 * TIMEOUT_MULTIPLIER }, // 15s expect timeout
   retries: 1,
   workers: process.env.CI
     ? Math.min(Math.max(1, Math.floor(os.cpus().length * CI_CONFIG.WORKER_SCALING_RATIO)), CI_CONFIG.MAX_WORKERS)

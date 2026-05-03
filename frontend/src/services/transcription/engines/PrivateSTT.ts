@@ -83,7 +83,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         return super.init(timeoutMs);
     }
 
-    protected override async onInit(timeoutMs?: number): Promise<Result<void, Error>> {
+    protected override async onInit(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
         const options = this.options as PrivateSTTInitOptions;
 
         this.serviceId = options.serviceId || 'unknown';
@@ -101,7 +101,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                     if (factory) {
                         const engine = factory(this.options as TranscriptionModeOptions);
                         validateEngine(engine);
-                        const result = await engine.init(timeoutMs);
+                        const result = await engine.init(timeoutMs, isMock);
                         if (result.isOk) {
                             this.engine = engine as unknown as IPrivateSTTEngine;
                             this._engineType = 'mock';
@@ -124,7 +124,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             logger.info({ sId: this.serviceId, rId: this.runId, engine: preferredEngine }, '[PrivateSTT] 🧪 Injecting MockEngine/Override from Registry');
             const engine = factory(this.options as TranscriptionModeOptions);
             validateEngine(engine);
-            const result = await (engine as unknown as IPrivateSTTEngine).init(timeoutMs);
+            const result = await (engine as unknown as IPrivateSTTEngine).init(timeoutMs, isMock);
             if (result.isOk) {
                 this.engine = engine as unknown as IPrivateSTTEngine;
                 this._engineType = (preferredEngine === 'whisper-turbo' || preferredEngine === 'transformers-js') ? preferredEngine : 'transformers-js';
@@ -140,7 +140,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const webGPUAvailable = hasWebGPU() && !forceSafe;
 
         if (webGPUAvailable) {
-            const fastResult = await this.initFastEngine(timeoutMs);
+            const fastResult = await this.initFastEngine(timeoutMs, isMock);
             if (fastResult.isOk) return Result.ok(undefined);
 
             logger.warn({ sId: this.serviceId, rId: this.runId, err: fastResult.error }, '[PrivateSTT] ⚠️ WhisperTurbo failed. Falling back to WASM...');
@@ -148,7 +148,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         // 4. Safe Path (WASM/CPU)
         logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)...');
-        const safeResult = await this.initSafeEngine(timeoutMs);
+        const safeResult = await this.initSafeEngine(timeoutMs, isMock);
 
         if (safeResult.isOk === false) {
             logger.error({ err: safeResult.error }, '[PrivateSTT] ❌ All private engines failed.');
@@ -250,7 +250,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     /**
      * Initialize the fast (whisper-turbo) engine
      */
-    private async initFastEngine(timeoutMs?: number): Promise<Result<EngineType, Error>> {
+    private async initFastEngine(timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
         const options = this.options as TranscriptionModeOptions;
         try {
             // 1. Registry Lookup (Mocks or Overrides)
@@ -259,7 +259,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🚀 WhisperTurbo resolved via Registry');
                 const engine = factory(options);
                 validateEngine(engine);
-                const result = await engine.init(timeoutMs);
+                const result = await engine.init(timeoutMs, isMock);
                 if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
                     return { isOk: false, error: (result as { error: Error }).error };
                 }
@@ -273,7 +273,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             const { WhisperTurboEngine } = await import('./WhisperTurboEngine');
             const engine = new WhisperTurboEngine();
             validateEngine(engine);
-            const resultRaw = await engine.init(timeoutMs);
+            const resultRaw = await engine.init(timeoutMs, isMock);
             const result = resultRaw as unknown as Record<string, unknown>;
 
             // Type guard for Result variants
@@ -297,7 +297,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     /**
      * Initialize the safe (transformers-js) engine
      */
-    private async initSafeEngine(timeoutMs?: number): Promise<Result<EngineType, Error>> {
+    private async initSafeEngine(timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
         const options = this.options as TranscriptionModeOptions;
         try {
             // 1. Registry Lookup (Mocks)
@@ -306,7 +306,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🛡️ TransformersJS resolved via Registry');
                 const engine = factory(options);
                 validateEngine(engine);
-                const result = await engine.init(timeoutMs);
+                const result = await engine.init(timeoutMs, isMock);
                 if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
                     return { isOk: false, error: (result as { error: Error }).error };
                 }
@@ -320,7 +320,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             const { TransformersJSEngine } = await import('./TransformersJSEngine');
             const engine = new TransformersJSEngine();
             validateEngine(engine);
-            const resultRaw = await engine.init(timeoutMs);
+            const resultRaw = await engine.init(timeoutMs, isMock);
             const result = resultRaw as unknown as Record<string, unknown>;
             if (result && 'isOk' in result && result.isOk === false) {
                 return { isOk: false, error: result.error as Error };

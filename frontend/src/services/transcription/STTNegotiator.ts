@@ -1,6 +1,7 @@
 import type { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPolicy';
 import { resolveMode } from './TranscriptionPolicy';
 import { ENV } from '../../config/TestFlags';
+import logger from '../../lib/logger';
 
 /**
  * NegotiatedStrategy: 
@@ -32,22 +33,14 @@ export class STTNegotiator {
     policy: TranscriptionPolicy,
     userPreference?: TranscriptionMode | null
   ): NegotiatedStrategy {
-    // 1. E2E Surgical Mock Bypass
-    if (ENV.isE2E) {
-        if (ENV.engineType === 'mock') {
-            return {
-                mode: 'mock',
-                isMock: true
-            };
-        }
-    }
-
     // 2. Production Policy Resolution
     const resolvedMode = resolveMode(policy, userPreference);
-    
-    return {
+    const result: NegotiatedStrategy = {
       mode: resolvedMode,
-      isMock: false
+      isMock: ENV.isE2E && ENV.engineType === 'mock'
     };
+
+    logger.info({ mode: result.mode, isMock: result.isMock }, '[STTNegotiator] Decision');
+    return result;
   }
 }

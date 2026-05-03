@@ -121,7 +121,7 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
 
         // socket2 opens (connectionId=2) → active, onReady should fire exactly once
         socket2.simulateOpen();
-        await vi.waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
+        expect(onReady).toHaveBeenCalledTimes(1);
 
         // socket1 arrives late (zombie, connectionId=1 ≠ 2) → should be rejected
         vi.clearAllMocks();

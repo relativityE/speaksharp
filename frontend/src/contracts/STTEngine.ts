@@ -109,14 +109,14 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   /**
    * Common Initialization Logic
    */
-  async init(timeoutMs?: number): Promise<Result<void, Error>> {
+  async init(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
     logger.info({
       type: this.type,
       instanceId: this.instanceId,
       serviceId: this.serviceId
     }, `[STTEngine] Initializing ${this.type}...`);
 
-    const result = await this.onInit(timeoutMs);
+    const result = await this.onInit(timeoutMs, isMock);
 
     if (result.isOk) {
       this.isInitialized = true;
@@ -129,7 +129,7 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   /**
    * Abstract hook for engine-specific initialization
    */
-  protected abstract onInit(timeoutMs?: number): Promise<Result<void, Error>>;
+  protected abstract onInit(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>>;
 
   /**
    * High-level Start command (Contract Requirement)
@@ -247,6 +247,10 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * This is the authoritative entry point for Playwright/Browser injection.
    */
   public emitTranscript(text: string, isFinal: boolean = true): void {
+    if (this.isStopped) {
+      logger.debug({ type: this.type }, '[STTEngine] 🛡️ Guard: Dropping emitTranscript because engine is stopped.');
+      return;
+    }
     if (this.options && 'onTranscriptUpdate' in this.options) {
       const updateCallback = this.options.onTranscriptUpdate as (update: { transcript: { partial?: string; final?: string } }) => void;
       updateCallback({

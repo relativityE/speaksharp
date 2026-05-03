@@ -187,10 +187,9 @@ describe('useSpeechRecognition Integration', () => {
         });
 
         // 5. Assert — the stop handler must have captured 'Final State'
-        await vi.waitFor(() => {
-            // Note: transcript property in this hook is a stats object { transcript: string, ... }
-            expect(result.current.transcript.transcript).toBe('Final State');
-        }, { timeout: 3000 });
+        await speechRuntimeController.whenStable();
+        // Note: transcript property in this hook is a stats object { transcript: string, ... }
+        expect(result.current.transcript.transcript).toBe('Final State');
     });
 
     it('should handle service errors gracefully', async () => {
@@ -212,11 +211,10 @@ describe('useSpeechRecognition Integration', () => {
             }
         });
 
-        await vi.waitFor(() => {
-            const status = result.current.sttStatus;
-            expect(status.type).toBe('error');
-            expect(status.message).toBe('Microphone access denied');
-        }, { timeout: 3000 });
+        await speechRuntimeController.whenStable();
+        const status = result.current.sttStatus;
+        expect(status.type).toBe('error');
+        expect(status.message).toBe('Microphone access denied');
     });
 
     it('should capture usage limit exceeded state mid-session', async () => {
@@ -241,11 +239,10 @@ describe('useSpeechRecognition Integration', () => {
             }
         });
 
-        await vi.waitFor(() => {
-            const status = result.current.sttStatus;
-            expect(status.type).toBe('error');
-            expect(status.message).toBe('Daily usage limit reached');
-        }, { timeout: 3000 });
+        await speechRuntimeController.whenStable();
+        const status = result.current.sttStatus;
+        expect(status.type).toBe('error');
+        expect(status.message).toBe('Daily usage limit reached');
     });
 
     it('should cleanup on unmount', async () => {
@@ -261,12 +258,10 @@ describe('useSpeechRecognition Integration', () => {
         });
 
         let service_inst: MockTranscriptionService | null = null;
-        await vi.waitFor(() => {
-            speechRuntimeController.getStore().getState();
-            service_inst = MockTranscriptionService.latestInstance;
-            expect(service_inst).toBeTruthy();
-            expect(result.current.isListening).toBe(true);
-        }, { timeout: 3000 });
+        await speechRuntimeController.whenStable();
+        service_inst = MockTranscriptionService.latestInstance;
+        expect(service_inst).toBeTruthy();
+        expect(result.current.isListening).toBe(true);
 
         // Unlock emission queue for unit test context
         await act(async () => {
@@ -323,10 +318,9 @@ describe('useSpeechRecognition Integration', () => {
             speechRuntimeController.confirmSubscriberHandshake();
         });
 
-        await vi.waitFor(() => {
-            expect(result.current.chunks.length).toBe(1);
-            expect(result.current.chunks[0].transcript).toBe('Early message');
-        });
+        await speechRuntimeController.whenStable();
+        expect(result.current.chunks.length).toBe(1);
+        expect(result.current.chunks[0].transcript).toBe('Early message');
     });
 
     it('should reclaim resources after 5 minutes of inactivity', async () => {

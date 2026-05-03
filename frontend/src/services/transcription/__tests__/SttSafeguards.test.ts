@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type TranscriptionService from '../TranscriptionService';
-import type { SpeechRuntimeController } from '../../SpeechRuntimeController';
-import type { Session } from '@supabase/supabase-js';
+import { SpeechRuntimeController } from '../../SpeechRuntimeController';
+import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import type { NavigateFunction } from 'react-router-dom';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
 import { STT_CONFIG } from '../../../config';
@@ -14,58 +14,62 @@ import { EngineType } from '../../../contracts/IPrivateSTTEngine';
  * @description Verifies session lifecycle safeguards and heartbeat stability.
  */
 
+// Top-level mock for storage to ensure deterministic resolution
+vi.mock('@/lib/storage', () => ({
+    saveSession: vi.fn(),
+    heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
+    completeSession: vi.fn().mockResolvedValue({ success: true }),
+    updateSession: vi.fn().mockResolvedValue({ success: true }),
+}));
+
+import type * as StorageModule from '@/lib/storage';
+type MockedStorage = {
+    [K in keyof typeof StorageModule]: import('vitest').Mock;
+};
+
 describe('STT Safeguards Unit Tests', () => {
     let service: TranscriptionService;
-    let speechRuntimeController: SpeechRuntimeController;
+    let controller: SpeechRuntimeController;
     let ENV: { isTest: boolean };
+    let storageMocks: MockedStorage;
 
     const mockMic = { stop: vi.fn(), onFrame: () => () => { } };
     const mockNavigate = vi.fn();
 
-    const storageSpies = {
-        saveSession: vi.fn(),
-        heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
-        completeSession: vi.fn().mockResolvedValue({ success: true }),
-        updateSession: vi.fn().mockResolvedValue({ success: true }),
-    };
     let tsModule: { 
-        resetTranscriptionService: () => void; 
+        resetTranscriptionService: () => Promise<void>; 
         getTranscriptionService: (opts: Partial<import('../TranscriptionService').TranscriptionServiceOptions>) => TranscriptionService;
     };
-    let factoryModule: { STTServiceFactory: { createService: () => TranscriptionService } };
 
     beforeEach(async () => {
-        // Step 1: Reset + Set Globals at T=0
+        // Step 1: Deterministic Reset
         await setupStrictZero();
         vi.useFakeTimers();
+        SpeechRuntimeController.__resetForTests();
+        controller = SpeechRuntimeController.getInstance();
 
-        // Step 3: Dynamic Import AFTER setup to ensure instance identity parity
-        const supabaseModule = await import('../../../lib/supabaseClient');
-        vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue({
+        // Step 2: Supabase Mocking
+        window.supabase = {
             auth: {
                 getSession: vi.fn().mockResolvedValue({ data: { session: { user: { id: 'user-123' } } } })
-            }
-        } as unknown as ReturnType<typeof supabaseModule.getSupabaseClient>);
+            },
+            rpc: vi.fn() // Add fallback RPC
+        } as unknown as SupabaseClient;
 
-        const storageModule = await import('../../../lib/storage');
-        vi.spyOn(storageModule, 'saveSession').mockImplementation(storageSpies.saveSession);
-        vi.spyOn(storageModule, 'heartbeatSession').mockImplementation(storageSpies.heartbeatSession);
-        vi.spyOn(storageModule, 'completeSession').mockImplementation(storageSpies.completeSession);
-        vi.spyOn(storageModule, 'updateSession').mockImplementation(storageSpies.updateSession);
+        // Step 3: Storage Mocking
+        const storage = await import('@/lib/storage');
+        storageMocks = storage as unknown as MockedStorage;
+        storageMocks.saveSession.mockResolvedValue({ session: { id: 'sess-123' }, usageExceeded: false });
 
+        // Step 4: ModelManager Mocking
+        const mmModule = await import('../ModelManager');
+        vi.spyOn(mmModule.ModelManager, 'isModelDownloaded').mockResolvedValue(true);
+
+        // Step 5: Service Initialization
         tsModule = await import('../TranscriptionService');
-        const srcModule = await import('../../SpeechRuntimeController');
-        factoryModule = await import('../STTServiceFactory');
         const flagsModule = await import('../../../config/TestFlags');
-
-        await tsModule.resetTranscriptionService();
-
-        speechRuntimeController = srcModule.speechRuntimeController;
         ENV = flagsModule.ENV;
 
-        storageSpies.saveSession.mockResolvedValue({ session: { id: 'sess-123' }, usageExceeded: false });
-
-        // Step 4: Setup Mock Registry using SSOT sttRegistry
         const { sttRegistry } = await import('../STTRegistry');
         
         class MockEngine extends STTEngine {
@@ -79,8 +83,11 @@ describe('STT Safeguards Unit Tests', () => {
             public override getEngineType() { return 'whisper-turbo' as EngineType; }
         }
         
-        const mockEngine = new MockEngine();
-        sttRegistry.register('whisper-turbo', () => mockEngine);
+        sttRegistry.register('whisper-turbo', () => new MockEngine());
+        sttRegistry.register('transformers-js', () => new MockEngine());
+        sttRegistry.register('mock', () => new MockEngine());
+
+        await tsModule.resetTranscriptionService();
 
         service = tsModule.getTranscriptionService({
             onTranscriptUpdate: vi.fn(),
@@ -100,75 +107,72 @@ describe('STT Safeguards Unit Tests', () => {
             mockMic: mockMic as unknown as import('../utils/types').MicStream
         });
 
-        // Ensure controller uses the same instance
-        vi.spyOn(factoryModule.STTServiceFactory, 'createService').mockReturnValue(service);
-        (speechRuntimeController as unknown as { service: TranscriptionService }).service = service;
-
-        // Inject mock mic
-        // (Handled by constructor options now)
+        (controller as unknown as { service: TranscriptionService }).service = service;
+        controller.setSubscriberCallbacks({
+            session: { user: { id: 'user-123' } } as unknown as Session,
+        });
     });
 
     afterEach(async () => {
-        if (typeof window !== 'undefined') {
-            const win = window as unknown as Record<string, unknown>;
-            delete win.__SS_E2E__;
-        }
         vi.useRealTimers();
-        if (speechRuntimeController) {
-          await speechRuntimeController.reset();
-        }
         if (tsModule) {
             await tsModule.resetTranscriptionService();
         }
+        SpeechRuntimeController.__resetForTests();
+        delete (window as unknown as { supabase: unknown }).supabase;
+        vi.clearAllMocks();
     });
 
     it('should generate an idempotency key and create a session at start', async () => {
         expect(ENV.isTest).toBe(true);
-        await speechRuntimeController.warmUp();
-        await service.init();
-        await speechRuntimeController.startRecording();
-
-        await vi.waitFor(() => {
-            if (service.getSessionId()) return;
-            throw new Error('Session not set');
+        storageMocks.saveSession.mockResolvedValue({ 
+            session: { id: 'test-session-id' }, 
+            usageExceeded: false 
         });
 
-        expect(storageSpies.saveSession).toHaveBeenCalled();
+        await controller.warmUp();
+        await controller.startRecording(); 
+        await controller.whenStable();
+
+        expect(service.getSessionId()).toBe('test-session-id');
+        expect(storageMocks.saveSession).toHaveBeenCalled();
     });
 
     it('should start heartbeat interval after session is created', async () => {
-        await speechRuntimeController.warmUp();
-        await service.init();
-        await speechRuntimeController.startRecording();
-        speechRuntimeController.confirmSubscriberHandshake(); 
-
-        await vi.waitFor(() => {
-            if (service.getSessionId()) return;
-            throw new Error('Session not set');
+        storageMocks.saveSession.mockResolvedValue({ 
+            session: { id: 'sess-123' }, 
+            usageExceeded: false 
         });
+
+        await controller.warmUp();
+        await controller.startRecording();
+        controller.confirmSubscriberHandshake(); 
+        await controller.whenStable();
+
+        expect(service.getSessionId()).toBe('sess-123');
 
         await vi.advanceTimersByTimeAsync(STT_CONFIG.HEARTBEAT_TIMEOUT_MS + 5);
-
-        await vi.waitFor(() => {
-            expect(storageSpies.heartbeatSession).toHaveBeenCalledWith('sess-123', expect.any(Number));
-        });
+        expect(storageMocks.heartbeatSession).toHaveBeenCalledWith('sess-123', expect.any(Number));
     });
 
     it('should complete session and stop heartbeat when transcription stops', async () => {
-        await speechRuntimeController.warmUp();
-        await service.init();
-        await speechRuntimeController.startRecording();
-        speechRuntimeController.confirmSubscriberHandshake(); 
-
-        await vi.waitFor(() => {
-            if (service.getSessionId()) return;
-            throw new Error('Session not set');
+        storageMocks.saveSession.mockResolvedValue({ 
+            session: { id: 'sess-123' }, 
+            usageExceeded: false 
         });
 
-        await vi.advanceTimersByTimeAsync(6000);
-        await speechRuntimeController.stopRecording();
+        await controller.warmUp();
+        await controller.startRecording();
+        controller.confirmSubscriberHandshake(); 
+        await controller.whenStable();
 
-        expect(storageSpies.completeSession).toHaveBeenCalled();
-        expect((speechRuntimeController as unknown as { heartbeatInterval: unknown }).heartbeatInterval).toBeNull();
+        expect(service.getSessionId()).toBe('sess-123');
+
+        await vi.advanceTimersByTimeAsync(6000);
+        await controller.stopRecording();
+        await controller.whenStable();
+
+        expect(storageMocks.completeSession).toHaveBeenCalled();
+        expect((controller as unknown as { heartbeatInterval: unknown }).heartbeatInterval).toBeNull();
     });
 });

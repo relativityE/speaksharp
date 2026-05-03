@@ -74,8 +74,8 @@ describe('Core Unit Suite (Tier 1)', () => {
   describe('TranscriptionService Lifecycle', () => {
     let service: TranscriptionService;
 
-    beforeEach(() => {
-      resetTranscriptionService();
+    beforeEach(async () => {
+      await resetTranscriptionService();
       
       // Register native-browser mock for Free Tier tests
       class NativeMock extends STTEngine {
@@ -109,7 +109,7 @@ describe('Core Unit Suite (Tier 1)', () => {
       if (service && service.getState() !== 'TERMINATED') {
         await service.destroy();
       }
-      resetTranscriptionService();
+      await resetTranscriptionService();
       vi.clearAllMocks();
       vi.clearAllTimers();
     });

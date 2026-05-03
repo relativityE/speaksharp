@@ -10,6 +10,12 @@ import {
  */
 
 test.describe('Exhaustive User Feature Matrix', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/heartbeat**', route => route.fulfill({
+      status: 200,
+      body: JSON.stringify({ ok: true })
+    }));
+  });
 
   // SCENARIO 1: Free Tier (Restrictive Matrix)
   test('Free Tier Matrix: Verify Session Limits, Watermarked PDF, and Feature Gating', async ({ freePage: page }) => {

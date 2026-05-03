@@ -89,6 +89,12 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         await userPage.keyboard.press('Escape'); // Close settings
 
         // 5. Ensure Native Mode is selected
+        // Forensic Readiness Gate (Invariant I3)
+        await expect.poll(
+            async () => await userPage.getAttribute('html', 'data-engine-ready'),
+            { timeout: 15000 }
+        ).toBe('true');
+
         const modeTrigger = userPage.getByTestId(TEST_IDS.STT_MODE_SELECT);
         if (await modeTrigger.isVisible()) {
             const currentMode = await modeTrigger.getAttribute('data-state');

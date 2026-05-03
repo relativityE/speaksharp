@@ -1,4 +1,4 @@
-import { renderHook, act, waitFor } from '../../../../tests/support/test-utils';
+import { renderHook, act } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 
@@ -91,7 +91,7 @@ describe('useTranscriptionService (Contract Verification)', () => {
     if (speechRuntimeController) {
       if (useSessionStore.getState().isListening) {
         await speechRuntimeController.stopRecording();
-        await waitFor(() => useSessionStore.getState().runtimeState === 'READY');
+        await speechRuntimeController.whenStable();
       }
       speechRuntimeController.reset();
     }
@@ -117,13 +117,12 @@ describe('useTranscriptionService (Contract Verification)', () => {
 
     const stateAfterStart = speechRuntimeController.getStore().getState().runtimeState;
 
-    await waitFor(() => {
-      const current = speechRuntimeController.getStore().getState().runtimeState;
-      const trace = `stateBefore=${stateBeforeStart}, stateAfterStart=${stateAfterStart}, current=${current}`;
-      expect(current, `[TRACE-C2] runtimeState never reached RECORDING — ${trace}`).toBe('RECORDING');
-      expect(speechRuntimeController.getStore().getState().isListening).toBe(true);
-      expect(result.current.isListening).toBe(true);
-    }, { timeout: 2000 });
+    await speechRuntimeController.whenStable();
+    const current = speechRuntimeController.getStore().getState().runtimeState;
+    const trace = `stateBefore=${stateBeforeStart}, stateAfterStart=${stateAfterStart}, current=${current}`;
+    expect(current, `[TRACE-C2] runtimeState never reached RECORDING — ${trace}`).toBe('RECORDING');
+    expect(speechRuntimeController.getStore().getState().isListening).toBe(true);
+    expect(result.current.isListening).toBe(true);
   });
 
   it('should cleanup correctly on stop (Contract 2: Stop Flow)', async () => {
@@ -156,8 +155,7 @@ describe('useTranscriptionService (Contract Verification)', () => {
       unmount();
     });
 
-    await vi.waitFor(() => {
-      expect(speechRuntimeController.getStore().getState().runtimeState).toBe('RECORDING');
-    });
+    await speechRuntimeController.whenStable();
+    expect(speechRuntimeController.getStore().getState().runtimeState).toBe('RECORDING');
   });
 });

@@ -4,6 +4,7 @@ import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { SttStatus, HistorySegment } from '@/types/transcription';
 import { ENV } from '@/config/TestFlags';
+import { syncForensicAnchors } from '@/lib/forensicAnchors';
 
 interface TranscriptState {
     transcript: string;
@@ -162,8 +163,14 @@ export const useSessionStore = create<SessionStore>((set) => {
     },
 
     setSTTMode: (mode) => {
-        set({
-            sttMode: mode,
+        set((state) => {
+            const next = {
+                ...state,
+                sttMode: mode,
+            };
+            // Immediate intent signal using next-state snapshot (Invariant I2)
+            syncForensicAnchors(next.runtimeState, mode);
+            return next;
         });
     },
 

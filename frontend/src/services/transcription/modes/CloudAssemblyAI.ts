@@ -111,11 +111,11 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   }
 
 
-  protected async onInit(timeoutMs?: number): Promise<Result<void, Error>> {
+  protected async onInit(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
     if (this.mockEngine) {
         logger.info('[CloudAssemblyAI] 🧪 Using injected MockEngine, initializing...');
         if (this.mockEngine.init) {
-            await this.mockEngine.init(timeoutMs);
+            await this.mockEngine.init(timeoutMs, isMock);
         }
         return Result.ok(undefined);
     }

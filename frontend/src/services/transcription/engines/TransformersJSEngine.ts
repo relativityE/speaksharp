@@ -32,7 +32,7 @@ export class TransformersJSEngine extends STTEngine {
         super(options);
     }
 
-    protected override async onInit(_timeoutMs?: number): Promise<Result<void, Error>> {
+    protected override async onInit(_timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
         const options = this.options as TranscriptionModeOptions;
         if (this.transcriber) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Engine already initialized, skipping.');
@@ -40,6 +40,12 @@ export class TransformersJSEngine extends STTEngine {
             return { isOk: true, data: undefined };
         }
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Initializing engine...');
+        
+        if (isMock) {
+            logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] 🧪 Mock mode detected - bypassing heavy initialization');
+            if (options.onReady) options.onReady();
+            return Result.ok(undefined);
+        }
 
         try {
             // Lazy import transformers.js
