@@ -57,6 +57,10 @@ export class TranscriptionFSM {
         { from: 'FAILED', to: 'ACTIVATING_MIC', event: 'START_REQUESTED' }, // Retry from error
 
         { from: 'ACTIVATING_MIC', to: 'READY', event: 'MIC_ACQUIRED' },
+        { from: 'READY', to: 'IDLE', event: 'RESET_REQUESTED' },
+        { from: 'RECORDING', to: 'IDLE', event: 'RESET_REQUESTED' },
+        { from: 'PAUSED', to: 'IDLE', event: 'RESET_REQUESTED' },
+        { from: 'IDLE', to: 'IDLE', event: 'RESET_REQUESTED' },
 
         { from: 'IDLE', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' }, // Allow direct init from idle
         { from: 'READY', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' },

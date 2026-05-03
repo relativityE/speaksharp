@@ -1,6 +1,7 @@
 import type { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPolicy';
 import { resolveMode } from './TranscriptionPolicy';
 import { ENV } from '../../config/TestFlags';
+import { syncSTTIdentity } from '../../lib/forensicAnchors';
 import logger from '../../lib/logger';
 
 /**
@@ -40,6 +41,7 @@ export class STTNegotiator {
       isMock: ENV.isE2E && ENV.engineType === 'mock'
     };
 
+    syncSTTIdentity(resolvedMode, result.isMock);
     logger.info({ mode: result.mode, isMock: result.isMock }, '[STTNegotiator] Decision');
     return result;
   }

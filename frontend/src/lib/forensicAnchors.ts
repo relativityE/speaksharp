@@ -135,6 +135,18 @@ export function syncSTTReady(isReady: boolean): void {
   }
 }
 
+/**
+ * Synchronizes the STT identity (negotiation result) to the DOM.
+ * MUST be called at negotiation time, NOT after engine initialization.
+ * This is the authoritative signal for E2E identity verification.
+ */
+export function syncSTTIdentity(mode: string, isMock: boolean): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.setAttribute('data-stt-mode', mode);
+  document.documentElement.setAttribute('data-stt-is-mock', String(isMock));
+}
+
+
 
 /**
  * Synchronizes the current FSM state to the DOM.

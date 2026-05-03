@@ -295,10 +295,25 @@ export class SpeechRuntimeController {
         }
     }
 
-    public updatePolicy(policy: TranscriptionPolicy) {
+    public updatePolicy(policy: TranscriptionPolicy): void {
         this.policy = policy;
         if (this.service) {
             this.service.updatePolicy(policy);
+            
+            // Re-warm with new policy — strategy was nulled by service.updatePolicy()
+            const currentMode = policy.preferredMode ?? 'private';
+            void this.enqueue(async (token) => {
+                // Token check FIRST
+                if (token.cancelled || token.version !== this.lifecycleVersion) return; 
+                
+                const service = this.service; // Capture reference
+                if (!service) return;         // Explicit null check
+                
+                await service.warmUp(currentMode);
+                
+                // Re-check after await
+                if (token.cancelled || token.version !== this.lifecycleVersion) return;
+            });
         }
     }
 
@@ -765,8 +780,8 @@ export class SpeechRuntimeController {
 
                     const currentState = this.getState();
                     if (dbSession && service && (
-                        currentState === 'RECORDING' || 
-                        currentState === 'ENGINE_INITIALIZING' || 
+                        currentState === 'RECORDING' ||
+                        currentState === 'ENGINE_INITIALIZING' ||
                         currentState === 'STOPPING'
                     )) {
                         service.setSessionId?.(dbSession.id);
@@ -957,6 +972,9 @@ export class SpeechRuntimeController {
     }
 
     public async ensureReady(options: { skipIfDownloadPending?: boolean } = {}): Promise<void> {
+        // Lifecycle guard — prevent stale execution after unmount
+        const version = this.lifecycleVersion;
+
         if (!this.service) {
             this.service = getTranscriptionService({
                 ...this.serviceCallbacks,
@@ -973,6 +991,9 @@ export class SpeechRuntimeController {
 
         const mode = this.service.getMode() || 'private';
         await this.service.warmUp(mode);
+
+        // Lifecycle check after async warmUp — abort if unmounted
+        if (version !== this.lifecycleVersion) return;
 
         const strategy = this.service.getStrategy();
         if (!strategy) {
@@ -999,11 +1020,11 @@ export class SpeechRuntimeController {
                     } catch (error: unknown) {
                         if (version !== this.lifecycleVersion) return;
                         consecutiveFailures++;
-                        
+
                         if (consecutiveFailures >= this.MAX_HEARTBEAT_FAILURES) {
                             logger.error({ sessionId, consecutiveFailures }, '[Heartbeat] Max failures reached — terminating session');
                             pushE2EEvent('HEARTBEAT_FAILURE_THRESHOLD_REACHED', { sessionId, consecutiveFailures });
-                            
+
                             this.stopHeartbeat(); // Kill interval before transition
                             await this.transition('FAILED', error instanceof Error ? error : new Error('HEARTBEAT_FAILURE'));
                             return;

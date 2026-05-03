@@ -121,7 +121,8 @@ describe('TranscriptionService - Zombie Prevention', () => {
 
         // ASSERT BEHAVIOR: Old instance terminated
         expect(cloudSpy).toHaveBeenCalled();
-        expect(service.getMode()).toBe('private');
+        // C.6: userPreference ('cloud') takes absolute precedence over policy default ('private')
+        expect(service.getMode()).toBe('cloud');
     });
 
     it('should handle concurrent terminate calls gracefully (Behavior-based)', async () => {

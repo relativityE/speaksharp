@@ -67,6 +67,9 @@ export class MockEngine extends STTEngine {
         }
 
         // 3. Finalize initialization
+        if (callbacks.onConnectionStateChange) {
+            callbacks.onConnectionStateChange('connected'); // Triggers setEngineReady(true)
+        }
         if (callbacks.onReady) {
             callbacks.onReady();
         }

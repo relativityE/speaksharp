@@ -856,8 +856,14 @@ export default class TranscriptionService {
     this.policy = newPolicy;
     this.options.policy = newPolicy;
 
-    // ✅ EXPERT FIX: Dispatch to FSM to ensure valid state transitions/re-eval
-    this.fsm.transition({ type: 'POLICY_UPDATED', policy: newPolicy });
+    // C0: Invalidate cached strategy before FSM reset — order matters
+    if (this.strategy) {
+      this.strategyVersion++;
+      void this.strategy.terminate().catch(e => logger.warn({ e }, '[TranscriptionService] Strategy terminate failed during policy update'));
+      this.strategy = null;
+    }
+
+    this.fsm.transition({ type: 'RESET_REQUESTED' });
 
     // ✅ Sync UI/Store Mode with new policy resolution
     this.options.onModeChange?.(resolveMode(newPolicy));

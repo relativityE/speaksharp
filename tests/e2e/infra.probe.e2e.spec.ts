@@ -175,16 +175,8 @@ test.describe('Core System Validation (Deterministic)', () => {
   test('Forensic Audit: negotiator identity guard is active', async ({ page }) => {
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
 
-    // Check logs for negotiator identity
-    const negotiatorLogs = logs.filter(l => l.includes('[STTNegotiator]'));
-    console.log('[E2E Audit] All Captured Logs:', logs);
-    console.log('[E2E Audit] Captured Logs Count:', logs.length);
-    console.log('[E2E Audit] Negotiator Logs:', negotiatorLogs);
-
-    // We expect at least one negotiator log showing isMock: true
-    const hasMockIdentity = logs.some(l =>
-      (l.includes('[STTNegotiator] Decision') && (l.includes('"isMock":true') || l.includes('isMock: true') || l.includes('isMock:true')))
-    );
-    expect(hasMockIdentity).toBe(true);
+    // DOM-anchored deterministic assertion — no log scraping
+    await expect(page.locator('html')).toHaveAttribute('data-stt-is-mock', 'true');
+    await expect(page.locator('html')).toHaveAttribute('data-stt-mode', /.+/);
   });
 });
