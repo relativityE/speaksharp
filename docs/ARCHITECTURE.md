@@ -5,7 +5,7 @@
 
 # SpeakSharp System Architecture
 
-**Version 0.6.17** | **Last Updated: 2026-04-27** (Readiness Hardening)
+**Version 0.6.18** | **Last Updated: 2026-05-03** (SpeechRuntime Stabilization)
 
 #### Pattern 32: Unconditional Root Readiness (`main.tsx`)
 **Problem:** Non-deterministic boot hangs (45s) caused by coupling the `data-app-ready` signal to heavy, asynchronous data/STT handshakes or nested route resolution.
@@ -160,6 +160,13 @@ Data Flow:
 - **Rule**: Production services MUST NOT import `ENV` or `isTest`. All variable behaviors must be injected at instantiation.
 - **Rule**: Core orchestration logic (e.g., `SpeechRuntimeController`) MUST NOT contain test-specific branches (e.g., `import.meta.env.MODE === 'test'`). Hardware/timing concerns must be handled via Vitest's fake timers and environment-agnostic mocks.
 - **Rule**: All async initialization and reset sequences MUST enforce strictly monotonic lifecycle versioning to prevent state leakage across asynchronous boundaries.
+
+#### Pattern 33: Token-First Policy Synchronization
+**Problem:** High-frequency policy updates (e.g., rapid tier-switch or session resets) in `SpeechRuntimeController` could trigger race conditions where a new `warmUp` cycle started before the previous strategy was fully terminated, leading to "Identity Hijack" or null-strategy crashes.
+**Solution:** Implemented a non-blocking, enqueued `warmUp` pattern in `updatePolicy`.
+- **Invariant**: The `updatePolicy` method MUST nullify the current strategy and trigger a `RESET_REQUESTED` FSM transition before enqueuing a fresh `warmUp` call.
+- **Benefit**: Guarantees that the system re-negotiates the optimal engine immediately after a policy shift, ensuring the UI remains in a deterministic `READY` or `DOWNLOAD_REQUIRED` state without hydration stalls.
+- **Rule**: Use the `enqueue(async (token) => ...)` pattern with explicit `token.cancelled` checks before and after all `await` calls.
 
 ### Promo Admin System
 We prioritize a secure, dynamic promo code system for internal access/testing.

@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-04-27
-**Version:** v0.6.17 (Readiness Hardened)
-**Last Updated:** 2026-04-27
+**Version:** v0.6.18 (SpeechRuntime Stabilized)
+**Last Updated:** 2026-05-03
 
 ## 1. Executive Summary
 
@@ -261,6 +261,7 @@ To ensure the "Gold Standard" of production readiness, the project enforces the 
 - **Atomic Initialization**: All core services MUST provide a deterministic readiness signal. Tests are forbidden from using arbitrary `wait()` calls; they must await the `window.__APP_READY_STATE__` contract.
 
 ### 5.4 Active System Constraints & Known Issues
+- ✅ RESOLVED: v0.6.18 Stabilization - SpeechRuntime Determinism: Implemented "Token-First" policy synchronization, fixed MockEngine signaling, and expanded FSM transitions to resolve hydration hangs and readiness timeouts.
 - ✅ RESOLVED: v0.6.16 Stabilization - Lifecycle Invariant Stabilization: Enforced strictly monotonic lifecycle versioning and purged the last remaining test-aware production branches (E2E fast-path and test-specific timer guards).
 - ✅ RESOLVED: v0.6.4 Stabilization - Forensic Signaling Infrastructure: Centralized all investigative telemetry into `e2eProbe.ts`, resolving stale-closure regressions and enforcing authoritative signal paths for CI.
 - **✅ RESOLVED: v0.6.2 Stabilization - STT Contract Alignment**: E2E mocks in `engine-lifecycle.e2e.spec.ts` now support full FSM lifecycle including heartbeat monitoring.
@@ -283,6 +284,10 @@ To ensure the "Gold Standard" of production readiness, the project enforces the 
 - **✅ RESOLVED - Unit Test Mock Bypasses:** Fixed an issue in `CloudAssemblyAI.test.ts` where redundant `ENV.isTest` checks incorrectly bypassed the E2E mock proxy in unit tests. Now correctly decoupled through strictly using `isE2EEnvironment()`.
 - **🔴 Active Tech Debt - Vite Rollup Chunks Warning:** Suboptimal code-splitting for dynamically and statically imported modules (e.g., `storage.ts`) generates `dynamic import will not move module into another chunk` warnings and exceeds 500KB limits. Requires architecture refactor of shared service imports.
 - **ℹ️ Native Environment Dependency (Sharp):** Executing the acoustic benchmark requires `darwin-arm64v8` specific prebuilt binaries for `sharp` (via `@xenova/transformers`). Manual `npm rebuild` within specific nested `node_modules` remains a requisite step after environment resets.
+- **Active Constraint: Pro Tier Hydration Race:** `ProfileGuard.tsx` renders a loading skeleton during hydration, which can cause E2E visibility failures for "Pro Plan Active" indicators if the test is extremely fast. (Remediation: Implement retry/stable-gate in `ProfileGuard`).
+- **Tech Debt: STT Factory Test-Awareness:** `STTStrategyFactory.ts` still contains `ENV.isTest` branches that should be transitioned to dependency-injected mocks in future refactors.
+- **REJECTED/REVERTED: v0.6.18 Filler Word Propagation:** Proposed fix for custom user word passing was rejected by user. Custom word detection remains an active tech debt item for Cluster C.
+- **REJECTED/REVERTED: v0.6.18 Forensic Signaling Refinement:** Proposed switch to explicit 'true'/'false' attributes was rejected. Failure Cluster A remains active.
 ### Tech Debt (Database & Tier Tracking)
 
 - **🟡 Database Tier Enforcement Refactor (Inch-stones):** The `update_user_usage` RPC and `useSessionLifecycle.ts` hooks are being refactored to align with the new financial model:
@@ -346,7 +351,7 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Thu, 19 Mar 2026 00:19:00 GMT
+**Last Updated:** Sun, 03 May 2026 12:00:00 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 

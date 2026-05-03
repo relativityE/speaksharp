@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-04-23
+**Last Reviewed:** 2026-05-03
 
 🔗 [Back to Outline](./OUTLINE.md)
 
@@ -143,10 +143,17 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
         - [x] **Finalized STT Contract**: Resolving `STT_ENGINE_INVALID` in E2E mocks (Mandatory methods).
         - [x] **Vitest Alias Sync**: Resolving module resolution failures in deep-nested component tests.
     - [x] **v0.6.15 Milestone: Initialization Hardening (2026-04-24)**
-+        - [x] **Infinite Initialization Loop Fix**: Resolved recursive race condition in background pulses.
-+    - [x] **v0.6.16 Milestone: Lifecycle Invariant Stabilization (2026-04-25)**
-+        - [x] **Strict Monotonic Reset**: Enforced unconditional lifecycle versioning.
-+        - [x] **Test-Aware Branch Removal**: Eliminated E2E fast-path and test-specific timer guards.
+        - [x] **Infinite Initialization Loop Fix**: Resolved recursive race condition in background pulses.
+    - [x] **v0.6.16 Milestone: Lifecycle Invariant Stabilization (2026-04-25)**
+        - [x] **Strict Monotonic Reset**: Enforced unconditional lifecycle versioning.
+        - [x] **Test-Aware Branch Removal**: Eliminated E2E fast-path and test-specific timer guards.
+    - [x] **v0.6.18 Milestone: SpeechRuntime Stabilization (2026-05-03)**
+        - [x] **Token-First Policy Synchronization**: Implemented `enqueue` with abort-token check in `updatePolicy`.
+        - [x] **MockEngine Signaling**: Fixed `connected` handshake in `MockEngine`.
+        - [x] **FSM Expansion**: Allowed `RESET_REQUESTED` from all states for universal recovery.
+        - [x] **Test Assertion Alignment**: Synced `TranscriptionService` unit tests with v0.6.0 negotiator.
+        - [ ] **Forensic Signaling Standardization (REJECTED)**: Reverted to previous state by user.
+        - [ ] **Filler Word Propagation (REJECTED)**: Reverted to previous state by user.
 - ✅ **Side-by-Side Session Comparison:** Implemented `SessionComparisonDialog.tsx` supporting 2-session diffs (WPM, Clarity, Fillers).
 - ✅ **Speaker Identification (2026-02-21):** Implemented diarization support in `CloudAssemblyAI.ts` and propagated via `Transcript` interface.
 - ✅ **Canary Tests:** Real-API `@canary` tests for staging environment implemented in `tests/canary/`.

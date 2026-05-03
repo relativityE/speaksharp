@@ -38,15 +38,15 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     const { session } = props;
     const { profile } = useProfile();
     const navigate = useNavigate();
-    
+
     // Select strictly from store (Read-Only)
     const store = useSessionStore();
     const toastIdRef = useRef<string | number | null>(null);
 
     // 1. Core Service Hooks (Projections)
     const stt = useTranscriptionState(); // Already refactored to read from store
-    const { 
-        isRecording: storeIsListening, 
+    const {
+        isRecording: storeIsListening,
         interimTranscript: storeInterim,
         finalChunks,
         state: runtimeState
@@ -56,10 +56,10 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     const storeTranscript = { partial: storeInterim };
 
     // Additional store access for specialized fields not in stt hook
-    const { 
-        isReady: storeIsReady, 
-        sttStatus, 
-        modelLoadingProgress, 
+    const {
+        isReady: storeIsReady,
+        sttStatus,
+        modelLoadingProgress,
         elapsedTime,
     } = store;
     useTranscriptionControl();

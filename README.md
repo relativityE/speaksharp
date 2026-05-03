@@ -1,13 +1,14 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-04-23
 
-# SpeakSharp v0.6.17 (Readiness Hardened)
-**v0.6.17 (Readiness Hardened)** | **Last Updated: 2026-04-27**
+# SpeakSharp v0.6.18 (SpeechRuntime Stabilized)
+**v0.6.18 (SpeechRuntime Stabilized)** | **Last Updated: 2026-05-03**
 
-- **Phase 7: Readiness Hardening (v0.6.17):** **Zero-Hang Baseline**.
-    - **Unconditional Root Readiness**: Moved `data-app-ready` signaling to the React entry point (`main.tsx`). Eliminated non-deterministic 45s boot hangs by decoupling app interactivity from heavy STT handshakes.
-    - **SPA Fallback Invariant**: Hardened `scripts/serve-e2e.mjs` with a wildcard fallback to `index.html`. Resolved raw 404 errors during direct navigation to nested routes like `/auth/signup`.
-    - **Infra-Probe Success**: Achieved 100% pass rate on the T=0 Infrastructure Probe.
+- **Phase 8: SpeechRuntime Stabilization (v0.6.18):** **Deterministic Engine Signaling**.
+    - **Token-First warmUp Pattern**: Implemented safe, enqueued re-initialization in `SpeechRuntimeController.updatePolicy` to eliminate race conditions during tier-switch hydration.
+    - **MockEngine Signaling Hardening**: Explicitly triggered connection status events in `MockEngine` to satisfy E2E signal chains.
+    - **FSM Transition Expansion**: Allow `RESET_REQUESTED` from all active/idle states to ensure deterministic recovery.
+    - **Test Precedence Sync**: Aligned all test assertions with v0.6.0 Negotiator precedence logic (User Preference > Policy Default).
 
 SpeakSharp is an AI-powered speech coaching application that helps users improve their public speaking skills. It provides real-time feedback on filler words, speaking pace, and more.
 
@@ -269,6 +270,7 @@ This section provides an up-to-date snapshot of the project's software quality. 
 - **Accessibility:** 94%
 - **Best Practices:** 100%
 - **SEO:** 91%
+- **E2E Status:** 82.5% Pass (33/40) - Stabilization documentation updated.
 
 For detailed test metrics, coverage, and E2E results, see the latest [PRD.md Software Quality Metrics](./docs/PRD.md#software-quality-metrics-sqm) section.
 The test runner automatically generates a Software Quality Metrics report.

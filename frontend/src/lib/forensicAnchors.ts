@@ -246,11 +246,11 @@ export function syncEngineReady(ready: boolean): void {
  * Signals when a session has been successfully saved to the database.
  */
 export function syncSessionPersisted(persisted: boolean): void {
-    if (typeof document === 'undefined') return;
-    console.info(`[FORENSIC] syncSessionPersisted: ${persisted}`);
-    if (persisted) {
-        document.documentElement.setAttribute('data-session-persisted', 'true');
-    } else {
-        document.documentElement.removeAttribute('data-session-persisted');
-    }
+  if (typeof document === 'undefined') return;
+  console.info(`[FORENSIC] syncSessionPersisted: ${persisted}`);
+  if (persisted) {
+    document.documentElement.setAttribute('data-session-persisted', 'true');
+  } else {
+    document.documentElement.removeAttribute('data-session-persisted');
+  }
 }
