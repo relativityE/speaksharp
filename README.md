@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-04-23
+**Last Reviewed:** 2026-05-03
 
 # SpeakSharp v0.6.18 (SpeechRuntime Stabilized)
 **v0.6.18 (SpeechRuntime Stabilized)** | **Last Updated: 2026-05-03**

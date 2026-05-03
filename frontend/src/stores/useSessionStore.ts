@@ -33,6 +33,7 @@ export interface SessionState {
     chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean }>;
     sessionSaved: boolean;
     sunsetModal: { type: 'daily' | 'monthly'; open: boolean };
+    isBooting: boolean;
 }
 
 interface SessionActions {
@@ -59,6 +60,7 @@ interface SessionActions {
     setLockHeldByOther: (held: boolean) => void;
     setSessionSaved: (saved: boolean) => void;
     setSunsetModal: (modal: { type: 'daily' | 'monthly'; open: boolean }) => void;
+    setIsBooting: (isBooting: boolean) => void;
 }
 
 export type SessionStore = SessionState & SessionActions;
@@ -84,6 +86,7 @@ const initialState: SessionState = {
     chunks: [],
     sessionSaved: false,
     sunsetModal: { type: 'daily', open: false },
+    isBooting: false,
 };
 
 export const useSessionStore = create<SessionStore>((set) => {
@@ -241,6 +244,11 @@ export const useSessionStore = create<SessionStore>((set) => {
     setSunsetModal: (sunsetModal) =>
         set({
             sunsetModal,
+        }),
+    
+    setIsBooting: (isBooting) =>
+        set({
+            isBooting,
         }),
     };
 });

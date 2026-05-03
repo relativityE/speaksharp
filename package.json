@@ -33,7 +33,7 @@
     "test:infra": "pnpm quality && pnpm test:unit && pnpm build:test && pnpm test:e2e --project=infra-probe",
     "test:full": "pnpm quality && pnpm test:unit && pnpm build:test && pnpm test:e2e",
     "test:unit": "cross-env CI=true vitest run --config frontend/vitest.config.mjs",
-    "test:e2e": "playwright test",
+    "test:e2e": "pnpm build:test && playwright test",
     "// Integration (test:int:<env>)": "",
     "test:int:local": "node scripts/pnpm-only.mjs && cross-env VITE_USE_LIVE_DB=true playwright test tests/live/auth.live.spec.ts tests/live/upgrade.live.spec.ts tests/live/analytics-journey.live.spec.ts --config=playwright.live.config.ts",
     "// System (test:system:<env>:<mode>)": "",

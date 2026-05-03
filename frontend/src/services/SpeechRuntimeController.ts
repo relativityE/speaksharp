@@ -1,5 +1,5 @@
 import logger from '@/lib/logger';
-import { syncSTTReady, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted } from '@/lib/forensicAnchors';
+import { syncSTTReady, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
@@ -150,7 +150,7 @@ export class SpeechRuntimeController {
      */
     public fullReset(): void {
         this.reset();
-        syncRuntimeState('IDLE', null);
+        syncNegotiatorDecision('none', false);
         this.setEngineReady(false);
         useSessionStore.getState().setRuntimeState('IDLE');
         this.updateSessionPersisted(false);
@@ -221,6 +221,13 @@ export class SpeechRuntimeController {
      * Synchronizes the controller's internal state callbacks with the transcription service.
      */
     public async syncServiceSubscription(): Promise<void> {
+        // Prevent re-subscription during booting to avoid state fragmentation
+        // SANCTIONED: Top-level guard (S4.1)
+        if (useSessionStore.getState().isBooting) {
+            pushE2EEvent('SYNC_SUBSCRIPTION_SKIP', { reason: 'is_booting' });
+            return;
+        }
+
         pushE2EEvent('SYNC_SUBSCRIPTION_START', { source: 'SpeechRuntimeController' });
         try {
             await this.enqueue(async (_token) => {
@@ -250,6 +257,7 @@ export class SpeechRuntimeController {
         try {
             const readiness = useReadinessStore.getState();
             readiness.setAppState('BOOTING');
+            useSessionStore.getState().setIsBooting(true);
 
             logger.info('[SpeechRuntimeController] \u{1F3C1} Infrastructure initialization started');
 
@@ -272,6 +280,8 @@ export class SpeechRuntimeController {
         } catch (error) {
             this.readyPromise = null;
             throw error;
+        } finally {
+            useSessionStore.getState().setIsBooting(false);
         }
     }
 
@@ -298,7 +308,7 @@ export class SpeechRuntimeController {
     public updatePolicy(policy: TranscriptionPolicy): void {
         this.policy = policy;
         if (this.service) {
-            this.service.updatePolicy(policy);
+            void this.service.updatePolicy(policy);
             
             // Re-warm with new policy — strategy was nulled by service.updatePolicy()
             const currentMode = policy.preferredMode ?? 'private';
@@ -727,7 +737,7 @@ export class SpeechRuntimeController {
             await this.transition('ENGINE_INITIALIZING', undefined, _token);
 
             try {
-                await service.startTranscription(policy);
+                await service.startTranscription(policy, userWords);
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {
                     return;
                 }

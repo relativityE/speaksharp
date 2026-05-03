@@ -1,7 +1,7 @@
 import type { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPolicy';
 import { resolveMode } from './TranscriptionPolicy';
 import { ENV } from '../../config/TestFlags';
-import { syncSTTIdentity } from '../../lib/forensicAnchors';
+import { syncSTTIdentity, syncNegotiatorDecision } from '../../lib/forensicAnchors';
 import logger from '../../lib/logger';
 
 /**
@@ -11,11 +11,18 @@ import logger from '../../lib/logger';
 export interface NegotiatedStrategy {
   /** The mode resolved from policy or overridden by test registry */
   mode: TranscriptionMode;
+  /** Authoritative resolved mode for forensic signaling */
+  resolvedMode: string;
   /** Whether this is a mock execution path */
   isMock: boolean;
+  /** Execution source intent */
+  source: string;
+  /** The specific execution mode (e.g. 'mock' or the resolved mode) */
+  executionMode: string;
   /** The specific engine variant requested (e.g. 'private' might resolve to 'whisper-turbo') */
   variant?: string;
 }
+
 
 /**
  * STTNegotiator:
@@ -36,10 +43,20 @@ export class STTNegotiator {
   ): NegotiatedStrategy {
     // 2. Production Policy Resolution
     const resolvedMode = resolveMode(policy, userPreference);
+    
+    // Deterministic Execution Mode (Invariant I1)
+    const executionMode = (ENV.isE2E && ENV.engineType === 'mock') ? 'mock' : resolvedMode;
+    const source = policy.executionIntent || 'unknown';
+
     const result: NegotiatedStrategy = {
-      mode: resolvedMode,
-      isMock: ENV.isE2E && ENV.engineType === 'mock'
+        mode: resolvedMode, // Compatibility
+        resolvedMode,
+        executionMode,
+        isMock: executionMode === 'mock',
+        source,
     };
+
+    syncNegotiatorDecision(result.resolvedMode, result.isMock);
 
     syncSTTIdentity(resolvedMode, result.isMock);
     logger.info({ mode: result.mode, isMock: result.isMock }, '[STTNegotiator] Decision');

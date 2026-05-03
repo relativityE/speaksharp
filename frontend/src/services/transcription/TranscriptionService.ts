@@ -17,7 +17,7 @@ import { PROD_FREE_POLICY } from './TranscriptionPolicy';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { calculateTranscriptStats, TranscriptStats } from '@/utils/fillerWordUtils';
 import { TranscriptionFSM, TranscriptionState } from './TranscriptionFSM';
-import { syncForensicAnchors, mapToRuntimeState } from '../../lib/forensicAnchors';
+import { syncForensicAnchors, mapToRuntimeState, syncEngineReady } from '../../lib/forensicAnchors';
 import { createMicStream } from './utils/audioUtils';
 import { pushE2EEvent, isBridgeActive } from '@/lib/e2eProbe';
 import { FailureManager } from './FailureManager';
@@ -26,6 +26,7 @@ import { STT_CONFIG } from '@/config';
 import { sessionManager } from './SessionManager';
 import { DistributedLock } from '@/lib/DistributedLock';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
+import type { LifecycleToken } from '../SpeechRuntimeController';
 
 import {
   saveSession,
@@ -95,6 +96,11 @@ export default class TranscriptionService {
   private policy: TranscriptionPolicy;
   private options: TranscriptionServiceOptions;
 
+  private lifecycleVersion: number = 0;
+  private commandQueue: Promise<void> = Promise.resolve();
+  private activeTasks: Set<LifecycleToken> = new Set();
+  private negotiator: STTNegotiator;
+
   private startTimestamp: number = 0;
   private lastTranscriptTime: number = 0;
   private sessionId: string | null = null;
@@ -125,6 +131,57 @@ export default class TranscriptionService {
     return this.failureManager;
   }
 
+  private setEngineReady(ready: boolean): void {
+    syncEngineReady(ready);
+  }
+
+  /**
+   * Serializes async operations to prevent concurrent initialization races.
+   */
+  private async enqueue<T>(task: (token: LifecycleToken) => Promise<T>): Promise<T> {
+    const token: LifecycleToken = { version: this.lifecycleVersion, cancelled: false };
+    this.activeTasks.add(token);
+
+    const wrapped = async (): Promise<T> => {
+      try {
+        if (token.cancelled || token.version !== this.lifecycleVersion) {
+          return undefined as unknown as T;
+        }
+        return await task(token);
+      } finally {
+        this.activeTasks.delete(token);
+      }
+    };
+
+    const next = this.commandQueue.then(wrapped);
+    this.commandQueue = next.then(() => { }, () => { });
+    return next;
+  }
+
+  /**
+   * Atomic Readiness Gate
+   * Ensures the STT strategy is initialized within a serialized queue.
+   */
+  public async ensureReady(expectedVersion: number): Promise<void> {
+    return this.enqueue(async () => {
+      if (this.lifecycleVersion !== expectedVersion) {
+        logger.debug({ current: this.lifecycleVersion, expected: expectedVersion }, '[TranscriptionService] ensureReady ABORTED: lifecycleVersion mismatch');
+        return;
+      }
+
+      // 1. Resolve strategy (Atomic)
+      const strategy = STTNegotiator.negotiate(this.policy, this.options.onModeChange ? null : undefined);
+      // Note: Negotiator is static for now as per current STTNegotiator.ts, but we use 'this.negotiator' in snippet if it were an instance.
+      // Snippet S2.1 used 'this.negotiator.getStrategy()', but S2.2 used 'STTNegotiator.negotiate'.
+      // I will follow S2.2's logic for the actual method body but keep the enqueue wrapper from S2.1.
+
+      this.strategy = STTStrategyFactory.create(strategy.mode, this.strategyCallbacks, this.policy);
+
+      // 2. Initialize
+      await this.strategy.init();
+    });
+  }
+
   // Handlers populated via injection
   private dbHandlers?: {
     initDbSession: (mode: string, idempotencyKey: string, metadata: unknown) => Promise<string | null>;
@@ -143,6 +200,8 @@ export default class TranscriptionService {
     logger.debug('[TranscriptionService] Initializing service');
     this.serviceId = Math.random().toString(36).substring(7);
     this.fsm = new TranscriptionFSM();
+    this.negotiator = new STTNegotiator();
+    this.setEngineReady(false);
 
     // 🛡️ Forensic Bridge (v0.7.0): Synchronous DOM signaling
     // Fired in the same tick as every FSM transition.
@@ -479,7 +538,7 @@ export default class TranscriptionService {
     this.destroyPromise = null;
 
     // 4. Force Native Mode
-    this.updatePolicy({
+    await this.updatePolicy({
       ...this.policy,
       allowPrivate: false,
       preferredMode: 'native',
@@ -494,10 +553,11 @@ export default class TranscriptionService {
   /**
    * Unified Entry Point for starting transcription.
    */
-  public async startTranscription(runtimePolicy?: TranscriptionPolicy): Promise<void> {
+  public async startTranscription(runtimePolicy?: TranscriptionPolicy, userWords: string[] = []): Promise<void> {
     logger.debug('[TRACE] START_TRANSCRIPTION');
     this.assertAlive();
-    if (runtimePolicy) this.updatePolicy(runtimePolicy);
+    this.options.userWords = userWords;
+    if (runtimePolicy) await this.updatePolicy(runtimePolicy);
 
     if (this.fsm.is('CLEANING_UP')) {
       logger.warn('[TranscriptionService] startTranscription rejected - still cleaning up');
@@ -530,15 +590,16 @@ export default class TranscriptionService {
 
       // 4. Start Strategy Execution
       logger.debug({ runId: this.runId, mode }, '[TranscriptionService] Calling executeStrategy');
-      await this.executeStrategy(mode);
+      await this.executeStrategy(mode, userWords);
     } catch (error) {
       logger.error({ mode, runId: this.runId, error }, '[TranscriptionService] startTranscription FAILED');
       // FSM and UI status already updated in initializeStrategy/executeStrategy
     }
   }
 
-  private async executeStrategy(mode: TranscriptionMode): Promise<void> {
+  private async executeStrategy(mode: TranscriptionMode, userWords: string[] = []): Promise<void> {
     logger.debug('[TRACE] STRATEGY_RESOLVE_END');
+    this.options.userWords = userWords;
     if (!this.strategy) return;
 
     // 🛡️ Step 3: Block premature start
@@ -848,9 +909,10 @@ export default class TranscriptionService {
    * 
    * @param newPolicy - The new policy to apply
    */
-  public updatePolicy(newPolicy: TranscriptionPolicy): void {
-
+  public async updatePolicy(newPolicy: TranscriptionPolicy): Promise<void> {
     if (isEqual(this.policy, newPolicy)) return;
+
+    this.setEngineReady(false);
 
     const oldPolicy = this.policy;
     this.policy = newPolicy;
@@ -873,6 +935,10 @@ export default class TranscriptionService {
       from: oldPolicy.executionIntent,
       to: newPolicy.executionIntent
     }, '[TranscriptionService] 🔄 Policy updated');
+
+    await this.warmUp(resolveMode(newPolicy));
+
+    this.setEngineReady(true);
   }
 
   public getSessionId(): string | null { return this.sessionId; }

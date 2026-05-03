@@ -23,6 +23,7 @@ const initialState: SessionState = {
     chunks: [],
     sessionSaved: false,
     sunsetModal: { type: 'daily', open: false },
+    isBooting: false,
 };
 
 /**
@@ -152,6 +153,11 @@ export function createTestSessionStore(
         setChunks: vi.fn((chunks) =>
             set({
                 chunks,
+            })),
+            
+        setIsBooting: vi.fn((isBooting) =>
+            set({
+                isBooting,
             })),
     }));
 }

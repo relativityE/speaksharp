@@ -1,10 +1,19 @@
+# Changelog
+
 ## [0.6.18] - 2026-05-03
+### Added
+- **Phase 4 Stabilization**: Implemented `isBooting` lifecycle guard in `SpeechRuntimeController.ts` (S4.1) to prevent state fragmentation during infrastructure boot.
+- **Phase 5 Stabilization**: Restored `userWords` functional chain for custom vocabulary boosting across the runtime pipeline (S5.1).
+- **Phase 6 Stabilization**: Enforced `build:test` dependency in `test:e2e` for deterministic environment preparation (S6.1).
+
 ### Fixed
 - **SpeechRuntime Architecture Stabilization**: Implemented a "Token-First" enqueued `warmUp` pattern in `SpeechRuntimeController.updatePolicy`. This ensures that strategy re-negotiation occurs immediately and safely following policy resets (e.g., during tier upgrades), eliminating "Readying your experience" hydration hangs.
 - **MockEngine Signaling**: Resolved a signaling gap in `MockEngine` by explicitly triggering `onConnectionStateChange('connected')` during initialization. This unblocks the `data-engine-ready` signal chain in E2E environments.
 - **FSM Transition Expansion**: Updated `TranscriptionFSM` to allow `RESET_REQUESTED` transitions from all active and idle states (`READY`, `RECORDING`, `PAUSED`, `IDLE`), ensuring consistent state recovery during high-frequency policy updates.
 - **Test Alignment**: Updated `TranscriptionService.zombie.test.ts` to align with v0.6.0 Negotiator precedence (C.6), where `userPreference` takes absolute priority over policy defaults.
-- **Unit Test Determinism**: Achieved 100% pass rate (622/622) for the transcription unit suite.
+- **Unit Test Determinism**: Resolved context/handshake deadlock in `useTranscriptionService` by restoring synchronous top-level guards.
+- Restored unit test baseline to **622/622 passing**.
+- Restored E2E baseline to **33/40 passing**.
 
 ## [0.6.17] - 2026-04-27
 ### Fixed

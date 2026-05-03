@@ -152,8 +152,14 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
         - [x] **MockEngine Signaling**: Fixed `connected` handshake in `MockEngine`.
         - [x] **FSM Expansion**: Allowed `RESET_REQUESTED` from all states for universal recovery.
         - [x] **Test Assertion Alignment**: Synced `TranscriptionService` unit tests with v0.6.0 negotiator.
+        - [x] **Phase 4 Stabilization**: Implemented sanctioned S4.1 top-level lifecycle guard.
+        - [x] **Phase 5 Stabilization**: Restored `userWords` functional pipeline (S5.1).
+        - [x] **Phase 6 Stabilization**: Enforced `build:test` dependency in `test:e2e` (S6.1).
         - [ ] **Forensic Signaling Standardization (REJECTED)**: Reverted to previous state by user.
         - [ ] **Filler Word Propagation (REJECTED)**: Reverted to previous state by user.
+        - [ ] **Cluster 5 Serialized Downloads**: `initiateModelDownload` bypassing the `enqueue` queue.
+        - [ ] **Cluster 5 Null-Chain Safety**: Missing requested guards in the forensic bridge.
+        - [ ] **Legacy Scraping Removal**: `infra.probe.e2e.spec.ts` still using console log assertions.
 - ✅ **Side-by-Side Session Comparison:** Implemented `SessionComparisonDialog.tsx` supporting 2-session diffs (WPM, Clarity, Fillers).
 - ✅ **Speaker Identification (2026-02-21):** Implemented diarization support in `CloudAssemblyAI.ts` and propagated via `Transcript` interface.
 - ✅ **Canary Tests:** Real-API `@canary` tests for staging environment implemented in `tests/canary/`.

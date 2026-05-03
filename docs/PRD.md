@@ -288,6 +288,9 @@ To ensure the "Gold Standard" of production readiness, the project enforces the 
 - **Tech Debt: STT Factory Test-Awareness:** `STTStrategyFactory.ts` still contains `ENV.isTest` branches that should be transitioned to dependency-injected mocks in future refactors.
 - **REJECTED/REVERTED: v0.6.18 Filler Word Propagation:** Proposed fix for custom user word passing was rejected by user. Custom word detection remains an active tech debt item for Cluster C.
 - **REJECTED/REVERTED: v0.6.18 Forensic Signaling Refinement:** Proposed switch to explicit 'true'/'false' attributes was rejected. Failure Cluster A remains active.
+- **Active Tech Debt: Cluster 1 Readiness Race:** `syncServiceSubscription` lacks an upstream readiness gate, potentially triggering subscription attempts during hydration.
+- **Active Tech Debt: Cluster 5 Non-Serialized Downloads:** `initiateModelDownload` bypasses the `enqueue()` command queue, risking concurrent engine initialization.
+- **Active Tech Debt: Legacy Log Scraping:** `infra.probe.e2e.spec.ts` still relies on console log scraping for `STT_ENGINE_MISSING` assertions.
 ### Tech Debt (Database & Tier Tracking)
 
 - **🟡 Database Tier Enforcement Refactor (Inch-stones):** The `update_user_usage` RPC and `useSessionLifecycle.ts` hooks are being refactored to align with the new financial model:
@@ -352,8 +355,10 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 ## 6. Software Quality Metrics
 
 **Last Updated:** Sun, 03 May 2026 12:00:00 GMT
-
-**Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
+**Owner:** [unassigned]
+**Last Reviewed:** 2026-05-03
+**Version:** v0.6.18 (SpeechRuntime Stabilized)
+**Last Updated:** 2026-05-03
 
 **Metric Definitions:**
 - **Total Source Size:** Sum of all code in src, backend, tests, docs, and scripts.
@@ -367,15 +372,15 @@ The project's development status is tracked in the [**Roadmap**](./ROADMAP.md). 
 
 | Metric                  | Value |
 | ----------------------- | ----- |
-| Total tests             | 635 (622 unit + 13 E2E) |
+| Total tests             | 662 (622 unit + 40 E2E) |
 | Unit tests              | 622   |
-| E2E tests (Playwright)  | 13  |
-| Passing tests           | 634 (621 unit + 13 E2E)   |
-| Failing tests           | 0   |
+| E2E tests (Playwright)  | 40  |
+| Passing tests           | 654 (621 unit + 33 E2E)   |
+| Failing tests           | 7 (E2E)   |
 | Disabled/skipped tests  | 1 (Landing.test.tsx)   |
 | Passing unit tests      | 621/622 (99.8%)   |
-| Passing E2E tests       | 13/13 (100%)   |
-| Total runtime           | ~1.5m (Unit) + 1m (E2E)   |
+| Passing E2E tests       | 33/40 (82.5%)   |
+| Total runtime           | ~1.5m (Unit) + 2.5m (E2E)   |
 
 ---
 
