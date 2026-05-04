@@ -1,6 +1,7 @@
 import React, { useEffect, useState, ReactNode } from 'react';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
+import { syncProfileReady } from '@/lib/forensicAnchors';
 import logger from '@/lib/logger';
 import ProfileContext from '@/contexts/ProfileContext';
 import { TranscriptionContext, type TranscriptionContextValue } from './TranscriptionContext';
@@ -58,6 +59,13 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
 
         const newPolicy = buildPolicyForUser(tier === 'pro');
         speechRuntimeController.updatePolicy(newPolicy);
+        
+        // 🛡️ Forensic Barrier: Signal profile hydration and policy sync are complete
+        syncProfileReady(true);
+
+        return () => {
+            syncProfileReady(false);
+        };
     }, [profile?.id, profile?.subscription_status]);
 
     const contextValue: TranscriptionContextValue = {

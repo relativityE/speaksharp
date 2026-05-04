@@ -11,8 +11,8 @@
  * - Pro Features: Engine toggling (Whisper/Cloud), advanced analytics details, and PDF exports.
  */
 import { test, expect } from './fixtures';
-import { 
-  navigateToRoute, 
+import {
+  navigateToRoute,
   mockLiveTranscript,
   selectTranscriptionEngine,
   programmaticLoginWithRoutes,
@@ -22,21 +22,21 @@ import { TEST_IDS } from '../constants';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 
 const SCENARIOS = [
-  { 
-    name: 'Free/Basic Tier (Native)', 
-    userType: 'free' as const, 
+  {
+    name: 'Free/Basic Tier (Native)',
+    userType: 'free' as const,
     mode: 'native' as const,
     expectedModePattern: /native|browser/i
   },
-  { 
-    name: 'Pro Tier (Cloud)', 
-    userType: 'pro' as const, 
+  {
+    name: 'Pro Tier (Cloud)',
+    userType: 'pro' as const,
     mode: 'cloud' as const,
     expectedModePattern: /cloud/i
   },
-  { 
-    name: 'Pro Tier (Private)', 
-    userType: 'pro' as const, 
+  {
+    name: 'Pro Tier (Private)',
+    userType: 'pro' as const,
     mode: 'private' as const,
     expectedModePattern: /private|on-device/i
   }
@@ -47,7 +47,7 @@ test.describe('Primary User Journey Matrix', () => {
     test(`should complete full journey for ${scenario.name}`, async ({ page }) => {
       // 1. Boot explicitly for the tier (preventing Playwright fixture-overlap contamination)
       await programmaticLoginWithRoutes(page, { userType: scenario.userType });
-      
+
       // 2. Navigation & Boot (Visual Heartbeat Signal)
       await navigateToRoute(page, '/session');
       await expect(page.getByText(/Practice Session/i)).toBeVisible();
@@ -68,30 +68,30 @@ test.describe('Primary User Journey Matrix', () => {
         await modeButton.click();
         const privateOption = page.getByRole('menuitemradio', { name: /private/i });
         const cloudOption = page.getByRole('menuitemradio', { name: /cloud/i });
-        
+
         await expect(privateOption).toBeVisible();
         await expect(privateOption).toHaveAttribute('aria-disabled', 'true');
         await expect(cloudOption).toHaveAttribute('aria-disabled', 'true');
-        
+
         // Close menu & verify current selection is the only one allowed
         await page.keyboard.press('Escape');
         const buttonText = await modeButton.textContent();
         expect(buttonText).toMatch(scenario.expectedModePattern);
       }
-      
+
       // 4. Recording Lifecycle (Accessibility Label Logic)
       const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
       await expect(page.getByLabel(/Start Recording/i)).toBeVisible();
-      
+
       // Deterministic Sync: Wait for engine handshake before clicking start
       await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
-      
+
       await startButton.click();
 
       // Verify recording state via attribute & Accessibility Label
       await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
       await expect(page.getByLabel(/Stop Recording/i)).toBeVisible();
-      
+
       // 5. Simulate Speech using the central file transcript fixture
       await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
 
@@ -112,7 +112,7 @@ test.describe('Primary User Journey Matrix', () => {
       // 8. Navigation to Analytics via SPA Click (prevents full hard reload and cache wipes)
       await page.getByTestId(TEST_IDS.NAV_ANALYTICS_LINK).click();
       await expect(page.getByTestId(TEST_IDS.ANALYTICS_DASHBOARD)).toBeVisible({ timeout: 20000 });
-      
+
       // 9. Tier-Aware Visibility (Lean Smoke Test)
       if (scenario.userType === 'free') {
         await expect(page.getByTestId('analytics-page-upgrade-button')).toBeVisible();

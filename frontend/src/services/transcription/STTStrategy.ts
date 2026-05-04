@@ -27,7 +27,7 @@ export interface STTStrategy {
   /**
    * Starts the actual transcription stream.
    */
-  start(mic?: MicStream): Promise<void>;
+  start(mic?: MicStream, userWords?: string[]): Promise<void>;
 
   /**
    * Stops the transcription stream and performs necessary cleanup.

@@ -99,7 +99,12 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
         if (await modeTrigger.isVisible()) {
             const currentMode = await modeTrigger.getAttribute('data-state');
             if (currentMode !== 'native') {
-                await modeTrigger.click();
+                const bboxFW = await modeTrigger.boundingBox();
+                if (bboxFW) {
+                    await userPage.mouse.click(bboxFW.x + bboxFW.width / 2, bboxFW.y + bboxFW.height / 2);
+                } else {
+                    await modeTrigger.click({ force: true });
+                }
                 await userPage.getByRole('menuitemradio', { name: /Native/i }).click();
             }
         }

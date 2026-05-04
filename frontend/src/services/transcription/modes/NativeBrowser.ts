@@ -237,15 +237,11 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     this.recognition.start();
 
     // E2E Test Bridge (Strict Zero)
-    interface E2EWindow extends Window {
-      dispatchMockTranscript?: unknown;
-      __activeSpeechRecognition?: SpeechRecognition;
-    }
-    const win = window as unknown as E2EWindow;
+    const win = window as any;
 
     if (ENV.isE2E || win.dispatchMockTranscript) {
       win.__activeSpeechRecognition = this.recognition;
-      (win as unknown as Record<string, boolean>)['__e2e_e2e:speech-recognition-ready_fired__'] = true;
+      (win as Record<string, boolean>)['__e2e_e2e:speech-recognition-ready_fired__'] = true;
       window.dispatchEvent(new CustomEvent('e2e:speech-recognition-ready'));
     }
 

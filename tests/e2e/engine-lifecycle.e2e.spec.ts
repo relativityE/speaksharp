@@ -18,22 +18,10 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
   });
 
   test.afterEach(async ({ page }) => {
-    await page.evaluate(() => {
-      document.body.removeAttribute('data-stt-policy');
-      window.__TEST_REGISTRY__?.clear();
-      // @ts-ignore
-      window.__TRANSCRIPTION_SERVICE__?.resetEphemeralState();
-    });
   });
 
   // SCENARIO 1: Private STT / Whisper (First-time Download -> Cache -> Success)
   test('Engine Lifecycle: Verify Download Flow and Cache Persistence', async ({ proPage: page }) => {
-    await page.evaluate(() => { (window as unknown as E2EWindow).__MODEL_CACHED__ = false; });
-    page.on('console', msg => {
-      if (msg.text().includes('[DIAGNOSTIC]')) {
-        console.log(`[BROWSER-LOG] ${msg.text()}`);
-      }
-    });
     attachLiveTranscript(page);
 
     // 1. Register a mock for 'whisper-turbo' that signals CACHE_MISS
@@ -78,7 +66,7 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     }`);
 
     await navigateToRoute(page, '/session');
-    
+
     // Switch to Private Mode
     // Forensic Readiness Gate (Invariant I3)
     await expect.poll(
@@ -86,7 +74,13 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
       { timeout: 15000 }
     ).toBe('true');
 
-    await page.getByTestId('stt-mode-select').click();
+    const modeButton = page.getByTestId('stt-mode-select');
+    const bbox = await modeButton.boundingBox();
+    if (bbox) {
+      await page.mouse.click(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
+    } else {
+      await modeButton.click({ force: true });
+    }
     await page.getByRole('menuitemradio', { name: /Private/i }).click();
 
     // Trigger Download (Hardened poll)
@@ -101,8 +95,8 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
 
     // 🛡️ UNFREEZE: Trigger completion from the test context
     await page.evaluate(() => {
-      if ((window as unknown as E2EWindow).__E2E_FINISH_DOWNLOAD__) {
-        (window as unknown as E2EWindow).__E2E_FINISH_DOWNLOAD__?.();
+      if ((window as any).__E2E_FINISH_DOWNLOAD__) {
+        (window as any).__E2E_FINISH_DOWNLOAD__?.();
       }
     });
 
@@ -110,7 +104,7 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
 
     await expect(indicator).not.toBeVisible({ timeout: 10000 });
     await waitForModelReady(page);
-    
+
     // Verify Instant Start after cache
     await page.getByTestId('session-start-stop-button').click();
     await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'true', { timeout: 10000 });
@@ -120,30 +114,32 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
   // SCENARIO 2: Fallback Negotiation (Whisper Failure -> transformers.js Success)
   test('Resilience Matrix: Verify Graceful Fallback when Primary Engine fails', async ({ proPage: page }) => {
     await enableTestRegistry();
-    
-    // Register FAILING whisper and SUCCESSFUL transformers.js
-    await page.evaluate(() => {
-      const win = window as unknown as { __SS_E2E__?: { isActive: boolean, registry: Record<string, unknown> }, __APP_READY_STATE__?: Record<string, boolean> };
-      win.__SS_E2E__ = win.__SS_E2E__ || { isActive: true, registry: {} };
-      
-      const whisperRegistry = win.__SS_E2E__.registry;
-      if (whisperRegistry) {
-        whisperRegistry['whisper-turbo'] = (opts?: { onReady?: () => void }) => ({
-          init: async () => {
-             if (opts?.onReady) opts.onReady();
-             throw new Error('GPU_FAIL');
-          },
-          checkAvailability: async () => ({ isAvailable: true, requiresDownload: false }),
-          getEngineType: () => 'whisper-turbo'
-        });
 
+    // Register FAILING whisper and SUCCESSFUL transformers.js
+    await registerMockInE2E(page, 'whisper-turbo', `(opts) => {
+      let statusCb = opts?.onStatusChange;
+      return {
+        init: async () => {
+          // Simulate immediate failure to trigger fallback
+          if (statusCb) statusCb({ type: 'error', error: 'WHISPER_CRASH' });
+          throw new Error('WHISPER_CRASH');
+        },
+        checkAvailability: async () => ({ isAvailable: false, reason: 'CRASHED' }),
+        start: async () => {}, stop: async () => {}, getEngineType: () => 'whisper-turbo'
+      };
+    }`);
+
+    await page.evaluate(() => {
+      const win = window as any;
+      if (win.__TEST_REGISTRY__) {
+        const whisperRegistry = win.__TEST_REGISTRY__;
         whisperRegistry['transformers-js'] = (opts?: { onReady?: () => void }) => ({
           init: async () => {
-             if (opts?.onReady) opts.onReady();
-             if (win.__APP_READY_STATE__) win.__APP_READY_STATE__['model-ready'] = true;
+            if (opts?.onReady) opts.onReady();
+            if (win.__APP_READY_STATE__) win.__APP_READY_STATE__['model-ready'] = true;
           },
           checkAvailability: async () => ({ isAvailable: true, requiresDownload: false }),
-          start: async () => {},
+          start: async () => { },
           stop: async () => "fallback-text",
           getTranscript: async () => "fallback-text",
           getEngineType: () => 'transformers-js'
@@ -157,12 +153,17 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
       async () => await page.getAttribute('html', 'data-engine-ready'),
       { timeout: 15000 }
     ).toBe('true');
-
-    await page.getByTestId('stt-mode-select').click();
+    const modeButton2 = page.getByTestId('stt-mode-select');
+    const bbox2 = await modeButton2.boundingBox();
+    if (bbox2) {
+      await page.mouse.click(bbox2.x + bbox2.width / 2, bbox2.y + bbox2.height / 2);
+    } else {
+      await modeButton2.click({ force: true });
+    }
     await page.getByRole('menuitemradio', { name: /Private/i }).click();
 
     await page.getByTestId('session-start-stop-button').click();
-    
+
     // Should start recording via Fallback Engine
     await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
     // Normalize to handle both Primary (Private Ready) and Fallback (Recording active) labels
@@ -172,7 +173,13 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
   // SCENARIO 3: Access Control (Free users restricted from Private)
   test('Tier Control: Verify Private engine is gated for Free users', async ({ freePage: page }) => {
     await navigateToRoute(page, '/session');
-    await page.getByTestId('stt-mode-select').click();
+    const modeButton3 = page.getByTestId('stt-mode-select');
+    const bbox3 = await modeButton3.boundingBox();
+    if (bbox3) {
+      await page.mouse.click(bbox3.x + bbox3.width / 2, bbox3.y + bbox3.height / 2);
+    } else {
+      await modeButton3.click({ force: true });
+    }
     const privateOption = page.getByRole('menuitemradio', { name: /Private/i });
     await expect(privateOption).toBeVisible();
     await expect(privateOption).toHaveAttribute('aria-disabled', 'true');

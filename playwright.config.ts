@@ -50,7 +50,7 @@ export default defineConfig({
     },
 
     // ✅ Force fresh context for each test
-    viewport: { width: 1280, height: 720 },
+    viewport: { width: 1280, height: 900 },
 
     // ✅ Allow service workers for MSW
     serviceWorkers: 'allow',

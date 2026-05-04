@@ -175,7 +175,7 @@ export function setupNetworkTracking(page: Page) {
 export async function goToApp(page: Page, route: string = '/') {
   debugLog(`Navigating to ${route}`);
   await page.goto(route);
-  
+
   // 🛡️ STRICT ORDERING RULE: Assert origin before ANY storage/forensic access
   await expect(page).toHaveURL(/localhost|127\.0\.0\.1/);
 
@@ -223,10 +223,21 @@ export async function waitForAppReady(page: Page, timeout: number = 45000) {
 
   // 🛡️ AUTHORITATIVE CONTRACT: data-app-ready is set on <html> by forensicAnchors.ts
   // 🛡️ ACCESSIBILITY: We use state: 'attached' because <html> fails visibility checks
-  await page.locator('html[data-app-ready="true"]').waitFor({ 
+  await page.locator('html[data-app-ready="true"]').waitFor({
     state: 'attached',
-    timeout 
+    timeout
   });
+}
+
+/**
+ * Deterministic Profile Readiness Signal
+ * Awaits the data-profile-ready="true" signal set by TranscriptionProvider.
+ */
+export async function waitForProfileReady(page: Page, timeout: number = 30000) {
+  debugLog('Awaiting profile hydration barrier...');
+  await page.waitForFunction(() => {
+    return document.documentElement.getAttribute('data-profile-ready') === 'true';
+  }, { timeout });
 }
 
 export async function waitForFeature(page: Page, feature: ReadinessSignal, timeout: number = 30000) {
@@ -370,9 +381,9 @@ export async function mockLiveTranscript(
       return probe?.some(e => e.event === 'TRANSCRIPT_PULSE');
     }, { timeout: 5000 });
     // Clear probe for next chunk synchronization
-    await page.evaluate(() => { 
+    await page.evaluate(() => {
       const win = (window as unknown as Record<string, unknown>);
-      win.__E2E_PROBE__ = []; 
+      win.__E2E_PROBE__ = [];
     });
   }
 

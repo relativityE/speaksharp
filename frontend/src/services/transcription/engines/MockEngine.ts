@@ -18,6 +18,8 @@ import type { MicStream } from '../utils/types';
 export class MockEngine extends STTEngine {
     public readonly type: EngineType = 'mock';
     private currentState: string = 'IDLE';
+    private isDestroyed: boolean = false;
+    private engineInstanceId: string = Math.random().toString(36).slice(2);
 
     constructor(_options?: TranscriptionModeOptions) {
         super(_options);
@@ -49,28 +51,28 @@ export class MockEngine extends STTEngine {
     }
 
     protected async onInit(_timeoutMs?: number): Promise<Result<void, Error>> {
-        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[MockEngine] Initializing...');
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, engineId: this.engineInstanceId }, '[MockEngine] Initializing...');
         
         // 1. Immediately signal DOWNLOADING — UI must render download button from this
         this.setState('DOWNLOADING');
 
         const callbacks = this.options as TranscriptionModeOptions;
-        if (callbacks.onModelLoadProgress) {
+        if (!this.isDestroyed && callbacks.onModelLoadProgress) {
             callbacks.onModelLoadProgress(0);
         }
 
         // 2. Wait for UI/Test to subscribe before completing
         await this.waitForSubscriber();
 
-        if (callbacks.onModelLoadProgress) {
+        if (!this.isDestroyed && callbacks.onModelLoadProgress) {
             callbacks.onModelLoadProgress(100);
         }
 
         // 3. Finalize initialization
-        if (callbacks.onConnectionStateChange) {
+        if (!this.isDestroyed && callbacks.onConnectionStateChange) {
             callbacks.onConnectionStateChange('connected'); // Triggers setEngineReady(true)
         }
-        if (callbacks.onReady) {
+        if (!this.isDestroyed && callbacks.onReady) {
             callbacks.onReady();
         }
 
@@ -86,16 +88,20 @@ export class MockEngine extends STTEngine {
         return { isOk: true, data: undefined };
     }
 
-    protected async onStart(_mic?: MicStream): Promise<void> {
-        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[MockEngine] Start Hook called.');
+    private lastReceivedUserWords: string[] = [];
+
+    protected async onStart(_mic?: MicStream, userWords: string[] = []): Promise<void> {
+        this.lastReceivedUserWords = userWords;
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, engineId: this.engineInstanceId, userWords }, '[MockEngine] Start Hook called.');
     }
 
     protected async onStop(): Promise<void> {
-        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[MockEngine] Stop Hook called.');
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, engineId: this.engineInstanceId }, '[MockEngine] Stop Hook called.');
     }
 
     protected async onDestroy(): Promise<void> {
-        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[MockEngine] Destroy Hook called.');
+        this.isDestroyed = true; // MUST be first
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, engineId: this.engineInstanceId }, '[MockEngine] Destroy Hook called.');
     }
 
     async transcribe(_audio: Float32Array): Promise<Result<string, Error>> {

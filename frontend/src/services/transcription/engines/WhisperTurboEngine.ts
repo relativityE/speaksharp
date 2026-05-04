@@ -16,6 +16,7 @@
 
 import { TranscriptionModeOptions, Result } from '@/services/transcription/modes/types';
 import { EngineCallbacks, EngineType } from '@/contracts/IPrivateSTTEngine';
+import { MicStream } from '@/services/transcription/utils/types';
 
 import { WhisperEngineRegistry } from './WhisperEngineRegistry';
 import { ENV } from '@/config/TestFlags';
@@ -75,8 +76,8 @@ export class WhisperTurboEngine extends STTEngine {
         }
     }
 
-    protected async onStart(): Promise<void> {
-        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[WhisperTurbo] Engine started at ${new Date().toISOString()}`);
+    protected async onStart(_mic?: MicStream, userWords: string[] = []): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, userWordsCount: userWords.length }, `[WhisperTurbo] Engine started at ${new Date().toISOString()}`);
     }
 
     protected async onStop(): Promise<void> {

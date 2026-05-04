@@ -7,6 +7,7 @@ import { floatToInt16Async } from '../utils/AudioProcessor';
 import { ENV } from '../../../config/TestFlags';
 import { TranscriptionError } from '../errors';
 import logger from '../../../lib/logger';
+import type { MicStream } from '../utils/types';
 
 // Message types for AssemblyAI WebSocket
 interface AssemblyAIMessage {
@@ -124,7 +125,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     return Result.ok(undefined);
   }
 
-  protected async onStart(): Promise<void> {
+  protected async onStart(_mic?: MicStream, userWords: string[] = []): Promise<void> {
     if (this.isListening) return;
 
     // Use injected mock if available
@@ -142,7 +143,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     if (!this.mockEngine) {
         await this.connect();
     } else {
-        await this.mockEngine.start();
+        await this.mockEngine.start(_mic, userWords);
     }
   }
 

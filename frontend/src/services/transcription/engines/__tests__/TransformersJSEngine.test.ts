@@ -4,7 +4,7 @@
  * Verifies PCM processing and internal wiring without heavy WASM/Model downloads.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TransformersJSEngine } from '../TransformersJSEngine';
 import { ENV } from '@/config/TestFlags';
 import { setupStrictZero } from '../../../../../../tests/setupStrictZero';

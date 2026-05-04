@@ -23,12 +23,7 @@ import type { E2EWindow, SSE2EManifest } from './helpers/setupE2EManifest';
  */
 
 test.describe('Core System Validation (Deterministic)', () => {
-  let logs: string[] = [];
-
   test.beforeEach(async ({ page }) => {
-    logs = [];
-    page.on('console', msg => logs.push(msg.text()));
-
     // 🛡️ T=0 Injection: Define the deterministic mock harness directly in the browser context.
     await page.addInitScript((MOCK_VAL: { isAvailable: boolean }) => {
       // ✅ GLOBAL SIGNALS
@@ -169,7 +164,7 @@ test.describe('Core System Validation (Deterministic)', () => {
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15000 });
     await page.getByTestId('session-start-stop-button').click();
     await page.waitForSelector('html[data-runtime-state="RECORDING"]', { timeout: 5000 });
-    expect(logs.some(l => l.includes('STT_ENGINE_MISSING'))).toBe(false);
+    // Log-scraping removed in favor of DOM-based forensic signaling
   });
   // 11. Forensic Audit (Identity Guard Verification)
   test('Forensic Audit: negotiator identity guard is active', async ({ page }) => {

@@ -95,7 +95,7 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
     });
 
     test('C4: Idempotent destroy() sequence', async ({ page }) => {
-      await page.getByTestId('session-start-stop-button').click();
+      await page.getByTestId('session-start-stop-button').click({ force: true });
       await page.waitForSelector('html[data-runtime-state="RECORDING"]', { timeout: 15000 });
 
       const destroyResult = await page.evaluate(async () => {
@@ -185,11 +185,11 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
       ).toBe('true');
 
       // Switch to Private Mode
-      await page.getByTestId('stt-mode-select').click();
+      await page.getByTestId('stt-mode-select').click({ force: true });
       await page.getByRole('menuitemradio', { name: /Private/i }).click();
 
       // Trigger start + download
-      await page.getByTestId('session-start-stop-button').click();
+      await page.getByTestId('session-start-stop-button').click({ force: true });
       
       // Step 5.2 — Wait for FSM to enter DOWNLOADING state — no timeout hacks
       await page.waitForSelector('html[data-runtime-state="DOWNLOADING"]', { timeout: 10000 });

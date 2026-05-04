@@ -1,5 +1,5 @@
 import logger from '@/lib/logger';
-import { syncSTTReady, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision } from '@/lib/forensicAnchors';
+import { syncSTTReady, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
@@ -154,6 +154,7 @@ export class SpeechRuntimeController {
         this.setEngineReady(false);
         useSessionStore.getState().setRuntimeState('IDLE');
         this.updateSessionPersisted(false);
+        syncProfileReady(false);
     }
 
     /**
@@ -844,6 +845,7 @@ export class SpeechRuntimeController {
         syncRuntimeState('IDLE', null);
         useSessionStore.getState().setRuntimeState('IDLE');
         this.updateSessionPersisted(false);
+        syncProfileReady(false);
         this.initialized = false;
         this.readyPromise = null;
         this.isSubscriberReady = false;

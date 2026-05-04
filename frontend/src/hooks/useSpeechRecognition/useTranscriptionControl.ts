@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { TranscriptionPolicy } from '../../services/transcription/TranscriptionPolicy';
 import logger from '../../lib/logger';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
+import { useUserFillerWords } from '../useUserFillerWords';
 import { useSessionStore } from '@/stores/useSessionStore';
 
 /**
@@ -12,12 +13,13 @@ import { useSessionStore } from '@/stores/useSessionStore';
  */
 export const useTranscriptionControl = () => {
     const isReady = useSessionStore(s => s.isReady);
+    const { userFillerWords } = useUserFillerWords();
 
     const startListening = useCallback(async (policy?: TranscriptionPolicy) => {
         logger.debug('[useTranscriptionControl] startListening triggered (Zero-Wait UX)');
         logger.info('[useTranscriptionControl] Starting transcription via Controller');
-        await speechRuntimeController.startRecording(policy);
-    }, []);
+        await speechRuntimeController.startRecording(policy, userFillerWords);
+    }, [userFillerWords]);
 
     const stopListening = useCallback(async () => {
         logger.info('[useTranscriptionControl] Stopping transcription via Controller');

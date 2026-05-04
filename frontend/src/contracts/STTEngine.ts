@@ -134,17 +134,17 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   /**
    * High-level Start command (Contract Requirement)
    */
-  async start(mic?: MicStream): Promise<void> {
+  async start(mic?: MicStream, userWords: string[] = []): Promise<void> {
     if (!this.isInitialized) {
       throw new Error(`[STTEngine] Cannot start ${this.type} - not initialized.`);
     }
     this.isTerminated = false;
     this.isStopped = false;
     this.updateHeartbeat();
-    await this.onStart(mic);
+    await this.onStart(mic, userWords);
   }
 
-  protected abstract onStart(mic?: MicStream): Promise<void>;
+  protected abstract onStart(mic?: MicStream, userWords?: string[]): Promise<void>;
 
   /**
    * High-level Stop command (Contract Requirement)

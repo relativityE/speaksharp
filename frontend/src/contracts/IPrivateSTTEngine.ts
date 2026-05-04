@@ -47,7 +47,7 @@ export interface IPrivateSTTEngine {
     /**
      * Start the engine (Contract Requirement)
      */
-    start(mic?: import('@/services/transcription/utils/types').MicStream): Promise<void>;
+    start(mic?: import('@/services/transcription/utils/types').MicStream, userWords?: string[]): Promise<void>;
 
     /**
      * Stop the engine (Contract Requirement)

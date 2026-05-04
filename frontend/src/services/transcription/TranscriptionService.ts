@@ -1,7 +1,7 @@
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { isEqual } from 'lodash-es';
-import { TranscriptionModeOptions } from '@/services/transcription/modes/types';
+import { TranscriptionModeOptions, Result } from '@/services/transcription/modes/types';
 
 import { TranscriptionError } from './errors';
 import { STTStrategy } from './STTStrategy';
@@ -112,6 +112,7 @@ export default class TranscriptionService {
 
   private strategyCallbacks: TranscriptionModeOptions;
   private mode: TranscriptionMode | null = null;
+  private activeStrategyId: string | null = null;
   private strategyVersion: number = 0;
   private isModeLocked: boolean = false;
   private lastError: TranscriptionError | null = null;
@@ -175,7 +176,9 @@ export default class TranscriptionService {
       // Snippet S2.1 used 'this.negotiator.getStrategy()', but S2.2 used 'STTNegotiator.negotiate'.
       // I will follow S2.2's logic for the actual method body but keep the enqueue wrapper from S2.1.
 
-      this.strategy = STTStrategyFactory.create(strategy.mode, this.strategyCallbacks, this.policy);
+      const newStrategy = STTStrategyFactory.create(strategy.mode, this.strategyCallbacks, this.policy);
+      this.strategy = newStrategy;
+      this.activeStrategyId = (newStrategy as any).instanceId ?? Math.random().toString(36);
 
       // 2. Initialize
       await this.strategy.init();
@@ -206,7 +209,12 @@ export default class TranscriptionService {
     // 🛡️ Forensic Bridge (v0.7.0): Synchronous DOM signaling
     // Fired in the same tick as every FSM transition.
     this.fsm.subscribe((state: TranscriptionState) => {
-      syncForensicAnchors(mapToRuntimeState(state), this.mode);
+      const runtimeState = mapToRuntimeState(state);
+      if (this.mode !== null) {
+        syncForensicAnchors(runtimeState, this.mode);
+      } else {
+        syncForensicAnchors(runtimeState);
+      }
     });
 
     // T=0 Signal: Ensure IDLE is written before any async transitions
@@ -234,19 +242,32 @@ export default class TranscriptionService {
     };
 
     // 2. stable strategyCallbacks (captured this.options)
+    const strategyIdAtBind = this.activeStrategyId;
+
     this.strategyCallbacks = {
       onTranscriptUpdate: (data: TranscriptUpdate) => {
+        if (this.activeStrategyId !== strategyIdAtBind) return;
         pushE2EEvent('TRANSCRIPT_PULSE', { isFinal: !!data.transcript?.final, source: 'TranscriptionService', sessionId: this.sessionId });
         this.processTranscript(data);
       },
-      onModelLoadProgress: (p) => this.processModelLoadProgress(p),
-      onReady: () => this.options.onReady?.(),
+      onModelLoadProgress: (p) => {
+        if (this.activeStrategyId !== strategyIdAtBind) return;
+        this.processModelLoadProgress(p);
+      },
+      onReady: () => {
+        if (this.activeStrategyId !== strategyIdAtBind) return;
+        this.options.onReady?.();
+      },
       onError: (err) => {
+        if (this.activeStrategyId !== strategyIdAtBind) return;
         this.idempotencyKey = null; // Reset on failure
         this.fsm.transition({ type: 'ERROR_OCCURRED', error: err });
         this.options.onError?.(err);
       },
-      onConnectionStateChange: (s) => this.options.onStatusChange?.({ type: s === 'connected' ? 'ready' : 'info', message: `Connection ${s}` }),
+      onConnectionStateChange: (s) => {
+        if (this.activeStrategyId !== strategyIdAtBind) return;
+        this.options.onStatusChange?.({ type: s === 'connected' ? 'ready' : 'info', message: `Connection ${s}` });
+      },
       session: options.session || null,
       navigate: options.navigate || ((() => { }) as unknown as NavigateFunction),
       getAssemblyAIToken: options.getAssemblyAIToken || (async () => null),
@@ -348,6 +369,7 @@ export default class TranscriptionService {
       this.strategyVersion++;
       try { await this.strategy.terminate(); } catch (e) { logger.warn({ e }, '[TranscriptionService] Strategy terminate failed during mode switch'); }
       this.strategy = null;
+      this.activeStrategyId = null;
     }
 
     // 🏁 3. Persist Identity: Secure identity BEFORE engine creation (Logic Tier Fix)
@@ -358,7 +380,9 @@ export default class TranscriptionService {
     // 🏗️ 4. Strategy Lifecycle: Instantiate or Preserve
     if (!this.strategy) {
       logger.debug('[TRACE] FACTORY_CREATE_START');
-      this.strategy = STTStrategyFactory.create(mode, this.strategyCallbacks, this.policy);
+      const newStrategy = STTStrategyFactory.create(mode, this.strategyCallbacks, this.policy);
+      this.strategy = newStrategy;
+      this.activeStrategyId = (newStrategy as any).instanceId ?? Math.random().toString(36);
       logger.debug('[TRACE] FACTORY_CREATE_END');
     }
 
@@ -415,7 +439,7 @@ export default class TranscriptionService {
       }
 
       if (!initResult.isOk) {
-        throw initResult.error || new Error('STRATEGY_INIT_FAILURE');
+        throw (initResult as any).error || new Error('STRATEGY_INIT_FAILURE');
       }
 
       // Final READY transition
@@ -620,7 +644,7 @@ export default class TranscriptionService {
         strategyObj: this.strategy?.constructor?.name
       }, '[TranscriptionService] 🚦 Executing strategy start...');
 
-      await this.strategy.start(this.mic!);
+      await this.strategy.start(this.mic!, this.options.userWords ?? []);
 
       // 🛡️ Step 4: Strict Success Coupling
       if (this.runId !== runId) {
@@ -790,6 +814,7 @@ export default class TranscriptionService {
           logger.error({ mode: this.mode, error: error as Error }, '[TranscriptionService] Strategy termination failed');
         }
         this.strategy = null;
+      this.activeStrategyId = null;
       }
 
       this.runId = null;
@@ -923,9 +948,19 @@ export default class TranscriptionService {
       this.strategyVersion++;
       void this.strategy.terminate().catch(e => logger.warn({ e }, '[TranscriptionService] Strategy terminate failed during policy update'));
       this.strategy = null;
+      this.activeStrategyId = null;
     }
 
+    // MOVE warmUp BEFORE transition
+    await this.warmUp(resolveMode(newPolicy));
+
     this.fsm.transition({ type: 'RESET_REQUESTED' });
+
+    // NOW safe
+    syncForensicAnchors(
+        mapToRuntimeState(this.fsm.getState()),
+        this.mode
+    );
 
     // ✅ Sync UI/Store Mode with new policy resolution
     this.options.onModeChange?.(resolveMode(newPolicy));
@@ -990,6 +1025,7 @@ export default class TranscriptionService {
       this.strategyVersion++;
       // Note: termination is usually handled by destroy() before calling reset()
       this.strategy = null;
+      this.activeStrategyId = null;
     }
     this.mic = null;
 
@@ -1054,6 +1090,7 @@ export default class TranscriptionService {
       this.strategyVersion++;
       void this.strategy.terminate().catch(e => logger.warn({ e }, '[TranscriptionService] Strategy terminate failed during reset'));
       this.strategy = null;
+      this.activeStrategyId = null;
     }
     this.mic = null;
 
@@ -1281,7 +1318,7 @@ export default class TranscriptionService {
       case 'IDLE':
       case 'TERMINATED': status = { type: 'idle', message: 'Ready' }; break;
       case 'ACTIVATING_MIC': status = { type: 'initializing', message: 'Mic requested...' }; break;
-      case 'READY': status = { type: 'idle', message: 'Mic ready' }; break;
+      case 'READY': status = { type: 'ready', message: 'Mic ready' }; break;
       case 'ENGINE_INITIALIZING': status = { type: 'initializing', message: 'Initializing engine...' }; break;
       case 'RECORDING': {
         let label = 'Recording active';

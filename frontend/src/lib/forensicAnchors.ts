@@ -146,6 +146,23 @@ export function syncSTTIdentity(mode: string, isMock: boolean): void {
   document.documentElement.setAttribute('data-stt-is-mock', String(isMock));
 }
 
+export function syncNegotiatorDecision(
+  resolvedMode: string,
+  isMock: boolean
+): void {
+  if (typeof document === 'undefined') return;
+
+  document.documentElement.setAttribute(
+    'data-stt-resolved-mode',
+    resolvedMode
+  );
+
+  document.documentElement.setAttribute(
+    'data-stt-is-mock',
+    String(isMock)
+  );
+}
+
 
 
 /**
@@ -252,5 +269,18 @@ export function syncSessionPersisted(persisted: boolean): void {
     document.documentElement.setAttribute('data-session-persisted', 'true');
   } else {
     document.documentElement.removeAttribute('data-session-persisted');
+  }
+}
+
+/**
+ * Invariant I5: Profile Readiness Contract
+ * Signals when the user profile (and tier) has been fully hydrated.
+ */
+export function syncProfileReady(ready: boolean): void {
+  if (typeof document === 'undefined') return;
+  if (ready) {
+    document.documentElement.setAttribute('data-profile-ready', 'true');
+  } else {
+    document.documentElement.removeAttribute('data-profile-ready');
   }
 }

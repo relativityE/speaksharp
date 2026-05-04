@@ -124,15 +124,16 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             logger.info({ sId: this.serviceId, rId: this.runId, engine: preferredEngine }, '[PrivateSTT] 🧪 Injecting MockEngine/Override from Registry');
             const engine = factory(this.options as TranscriptionModeOptions);
             validateEngine(engine);
-            const result = await (engine as unknown as IPrivateSTTEngine).init(timeoutMs, isMock);
-            if (result.isOk) {
-                this.engine = engine as unknown as IPrivateSTTEngine;
-                this._engineType = (preferredEngine === 'whisper-turbo' || preferredEngine === 'transformers-js') ? preferredEngine : 'transformers-js';
-                return Result.ok(undefined);
+            const initResult = await (engine as unknown as IPrivateSTTEngine).init(timeoutMs, isMock);
+            if (!initResult.isOk) {
+                throw (initResult as any).error || new Error('STRATEGY_INIT_FAILURE');
             }
+            this.engine = engine as unknown as IPrivateSTTEngine;
+            this._engineType = (preferredEngine === 'whisper-turbo' || preferredEngine === 'transformers-js') ? preferredEngine : 'transformers-js';
+            return Result.ok(undefined);
             // 🚨 DEFENSE: Purge failed registry engine before fallback
             await (engine as unknown as IPrivateSTTEngine).terminate?.();
-            logger.warn({ engine: preferredEngine, error: result.error }, '[PrivateSTT] Registry engine failed to initialize. Continuing discovery...');
+            logger.warn({ engine: preferredEngine, error: (initResult as any).error }, '[PrivateSTT] Registry engine failed to initialize. Continuing discovery...');
         }
 
         // 3. Environment-Based Discovery (Fast Path -> Safe Path)
@@ -143,7 +144,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             const fastResult = await this.initFastEngine(timeoutMs, isMock);
             if (fastResult.isOk) return Result.ok(undefined);
 
-            logger.warn({ sId: this.serviceId, rId: this.runId, err: fastResult.error }, '[PrivateSTT] ⚠️ WhisperTurbo failed. Falling back to WASM...');
+            logger.warn({ sId: this.serviceId, rId: this.runId, err: (fastResult as any).error }, '[PrivateSTT] ⚠️ WhisperTurbo failed. Falling back to WASM...');
         }
 
         // 4. Safe Path (WASM/CPU)
@@ -158,9 +159,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         return Result.ok(undefined);
     }
 
-    protected async onStart(mic?: MicStream): Promise<void> {
+    protected async onStart(mic?: MicStream, userWords: string[] = []): Promise<void> {
         if (this.engine) {
-            await this.engine.start(mic);
+            await this.engine.start(mic, userWords);
         }
     }
 

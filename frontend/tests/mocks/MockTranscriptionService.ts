@@ -2,6 +2,7 @@ import { SttStatus } from '../../src/types/transcription';
 import { ITranscriptionEngine, TranscriptionModeOptions, Result } from '@/services/transcription/modes/types';
 import { useSessionStore } from '../../src/stores/useSessionStore';
 import { calculateTranscriptStats } from '../../src/utils/fillerWordUtils';
+import { vi } from 'vitest';
 import { TranscriptionError } from '../../src/services/transcription/errors';
 import logger from '../../src/lib/logger';
 

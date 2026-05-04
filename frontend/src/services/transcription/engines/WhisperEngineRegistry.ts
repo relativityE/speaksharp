@@ -180,7 +180,7 @@ export class WhisperEngineRegistry {
 
         this.state = RegistryState.Available;
         this.startHeartbeat();
-        return modelResult.value;
+        return (modelResult as any).value;
     }
 
     private static startHeartbeat() {

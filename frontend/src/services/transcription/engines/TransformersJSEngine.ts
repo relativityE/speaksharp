@@ -16,6 +16,7 @@
 
 import { Result, TranscriptionModeOptions } from '@/services/transcription/modes/types';
 import { EngineType } from '@/contracts/IPrivateSTTEngine';
+import { MicStream } from '@/services/transcription/utils/types';
 
 import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
@@ -142,8 +143,8 @@ export class TransformersJSEngine extends STTEngine {
         }
     }
 
-    protected async onStart(): Promise<void> {
-        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[TransformersJS] Engine started at ${new Date().toISOString()}`);
+    protected async onStart(_mic?: MicStream, userWords: string[] = []): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, userWordsCount: userWords.length }, `[TransformersJS] Engine started at ${new Date().toISOString()}`);
     }
 
     protected async onStop(): Promise<void> {

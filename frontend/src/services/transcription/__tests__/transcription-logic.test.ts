@@ -47,7 +47,14 @@ describe('Core Unit Suite (Tier 1)', () => {
 
   describe('EngineSelector', () => {
     it('should resolve to a mock engine from registry if strategy is mock', async () => {
-      const mockStrategy = { mode: 'private' as const, isMock: true, variant: 'whisper-turbo' };
+      const mockStrategy = { 
+        mode: 'private' as const, 
+        resolvedMode: 'private',
+        executionMode: 'mock',
+        isMock: true, 
+        source: 'test',
+        variant: 'whisper-turbo' 
+      };
       const mockOptions = { onTranscriptUpdate: () => {}, onReady: () => {} };
       
       class MockEngine extends STTEngine {
