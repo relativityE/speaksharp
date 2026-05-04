@@ -1,7 +1,7 @@
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { isEqual } from 'lodash-es';
-import { TranscriptionModeOptions, Result } from '@/services/transcription/modes/types';
+import { TranscriptionModeOptions } from '@/services/transcription/modes/types';
 
 import { TranscriptionError } from './errors';
 import { STTStrategy } from './STTStrategy';

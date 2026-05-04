@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures';
 import { navigateToRoute, attachLiveTranscript, waitForModelReady } from './helpers';
 import { registerMockInE2E, enableTestRegistry } from '../helpers/testRegistry.helpers';
-import type { E2EWindow } from './helpers/setupE2EManifest';
+
 
 /**
  * CONSOLIDATED ENGINE LIFECYCLE SUITE (v1.6)
@@ -17,7 +17,7 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     await page.route('**/huggingface.co/**', route => route.fulfill({ status: 200, body: '{}' }));
   });
 
-  test.afterEach(async ({ page }) => {
+  test.afterEach(async () => {
   });
 
   // SCENARIO 1: Private STT / Whisper (First-time Download -> Cache -> Success)
@@ -95,8 +95,9 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
 
     // 🛡️ UNFREEZE: Trigger completion from the test context
     await page.evaluate(() => {
-      if ((window as any).__E2E_FINISH_DOWNLOAD__) {
-        (window as any).__E2E_FINISH_DOWNLOAD__?.();
+      const win = window as unknown as Record<string, (() => void) | undefined>;
+      if (win.__E2E_FINISH_DOWNLOAD__) {
+        win.__E2E_FINISH_DOWNLOAD__?.();
       }
     });
 
@@ -130,7 +131,7 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     }`);
 
     await page.evaluate(() => {
-      const win = window as any;
+      const win = window as unknown as Record<string, unknown>;
       if (win.__TEST_REGISTRY__) {
         const whisperRegistry = win.__TEST_REGISTRY__;
         whisperRegistry['transformers-js'] = (opts?: { onReady?: () => void }) => ({
