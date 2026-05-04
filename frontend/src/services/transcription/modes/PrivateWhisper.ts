@@ -138,7 +138,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // Set base properties manually for immediate construction logging
     // init() will override these based on callbacks, but constructor runs first
     this.serviceId = options.serviceId || 'unknown';
-    this.runId = options.instanceId || 'unknown'; // TranscriptionService uses instanceId as runId
+    this.runId = options.runId || 'unknown';
 
     this.status = 'uninitialized';
     this.currentTranscript = '';

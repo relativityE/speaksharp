@@ -1,7 +1,7 @@
 import { Session } from '@supabase/supabase-js';
 import { NavigateFunction } from 'react-router-dom';
 import { isEqual } from 'lodash-es';
-import { TranscriptionModeOptions } from '@/services/transcription/modes/types';
+import { TranscriptionModeOptions, Transcript } from '@/services/transcription/modes/types';
 
 import { TranscriptionError } from './errors';
 import { STTStrategy } from './STTStrategy';
@@ -58,7 +58,7 @@ export const resetTranscriptionService = async (): Promise<void> => {
 // Types moved to src/types/transcription.ts
 
 export interface TranscriptionServiceOptions {
-  onTranscriptUpdate: (update: TranscriptUpdate) => void;
+  onTranscriptUpdate: (update: { transcript: Transcript }) => void;
   onModelLoadProgress: (progress: number | null) => void;
   onReady: () => void;
   onHistoryUpdate?: (history: HistorySegment[]) => void;
@@ -238,31 +238,54 @@ export default class TranscriptionService {
       onHistoryUpdate: options.onHistoryUpdate,
     };
 
-    // 2. stable strategyCallbacks (captured this.options)
-    const strategyIdAtBind = this.activeStrategyId;
-
+    // 2. stable strategyCallbacks
     this.strategyCallbacks = {
-      onTranscriptUpdate: (data: TranscriptUpdate) => {
-        if (this.activeStrategyId !== strategyIdAtBind) return;
+      onTranscriptUpdate: (data) => {
+        if (this.isTerminated) return;
+
+        const state = this.fsm.getState();
+        if (state !== 'RECORDING') return; // 🛡️ Strict Hardening Gate
+
         pushE2EEvent('TRANSCRIPT_PULSE', { isFinal: !!data.transcript?.final, source: 'TranscriptionService', sessionId: this.sessionId });
-        this.processTranscript(data);
+
+        const final = data.transcript?.final || '';
+        const partial = data.transcript?.partial || '';
+
+        if (final) this.currentTranscript = final;
+        if (partial) this.partialTranscript = partial;
+
+        this.options.onTranscriptUpdate?.({
+          ...data,
+          transcript: {
+            final,
+            partial: final ? '' : partial
+          }
+        });
       },
       onModelLoadProgress: (p) => {
-        if (this.activeStrategyId !== strategyIdAtBind) return;
-        this.processModelLoadProgress(p);
+        if (this.isTerminated) return;
+        this.modelLoadingProgress = p;
+        this.options.onModelLoadProgress?.(p);
       },
       onReady: () => {
-        if (this.activeStrategyId !== strategyIdAtBind) return;
+        if (this.isTerminated) return;
         this.options.onReady?.();
       },
       onError: (err) => {
-        if (this.activeStrategyId !== strategyIdAtBind) return;
+        if (this.isTerminated) return;
         this.idempotencyKey = null; // Reset on failure
-        this.fsm.transition({ type: 'ERROR_OCCURRED', error: err });
-        this.options.onError?.(err);
+
+        if (this.policy.executionIntent === 'PRIVATE_FIRST' && this.strategy?.getEngineType() === 'whisper-turbo') {
+          logger.warn({ err }, '[TranscriptionService] 🔄 Whisper-turbo failed, attempting fallback to Transformers.js');
+          this.fsm.transition({ type: 'FALLBACK_REQUESTED' });
+          void this.updatePolicy({ ...this.policy, executionIntent: 'PRIVATE_SAFE' });
+        } else {
+          this.fsm.transition({ type: 'ERROR_OCCURRED', error: err });
+          this.options.onError?.(err);
+        }
       },
       onConnectionStateChange: (s) => {
-        if (this.activeStrategyId !== strategyIdAtBind) return;
+        // Connection state is usually global to the strategy/service
         this.options.onStatusChange?.({ type: s === 'connected' ? 'ready' : 'info', message: `Connection ${s}` });
       },
       session: options.session || null,
@@ -378,9 +401,32 @@ export default class TranscriptionService {
     // 🏗️ 4. Strategy Lifecycle: Instantiate or Preserve
     if (!this.strategy) {
       logger.debug('[TRACE] FACTORY_CREATE_START');
-      const newStrategy = STTStrategyFactory.create(mode, this.strategyCallbacks, this.policy);
+
+      const tempId = Math.random().toString(36).substring(7);
+      this.activeStrategyId = tempId;
+
+      const isolatedCallbacks: TranscriptionModeOptions = {
+        ...this.strategyCallbacks,
+        onTranscriptUpdate: (data) => {
+          if (this.activeStrategyId !== tempId) return;
+          this.strategyCallbacks.onTranscriptUpdate(data);
+        },
+        onReady: () => {
+          if (this.activeStrategyId !== tempId) return;
+          this.strategyCallbacks.onReady();
+        },
+        onModelLoadProgress: (p) => {
+          if (this.activeStrategyId !== tempId) return;
+          this.strategyCallbacks.onModelLoadProgress?.(p);
+        },
+        onError: (err) => {
+          if (this.activeStrategyId !== tempId) return;
+          this.strategyCallbacks.onError?.(err);
+        }
+      };
+
+      const newStrategy = STTStrategyFactory.create(mode, isolatedCallbacks, this.policy);
       this.strategy = newStrategy;
-      this.activeStrategyId = (newStrategy as unknown as { instanceId: string }).instanceId ?? Math.random().toString(36);
       logger.debug('[TRACE] FACTORY_CREATE_END');
     }
 
@@ -802,7 +848,7 @@ export default class TranscriptionService {
           logger.error({ mode: this.mode, error: error as Error }, '[TranscriptionService] Strategy termination failed');
         }
         this.strategy = null;
-      this.activeStrategyId = null;
+        this.activeStrategyId = null;
       }
 
       this.runId = null;
@@ -941,8 +987,8 @@ export default class TranscriptionService {
 
     // NOW safe
     syncForensicAnchors(
-        mapToRuntimeState(this.fsm.getState()),
-        this.mode
+      mapToRuntimeState(this.fsm.getState()),
+      this.mode
     );
 
     // ✅ Sync UI/Store Mode with new policy resolution

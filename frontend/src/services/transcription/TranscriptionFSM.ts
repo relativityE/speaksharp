@@ -35,6 +35,7 @@ export type TranscriptionEvent =
     | { type: 'DOWNLOAD_FINISHED' }
     | { type: 'TERMINATE_REQUESTED' }
     | { type: 'TERMINATE_COMPLETED' }
+    | { type: 'FALLBACK_REQUESTED' }
     | { type: 'POLICY_UPDATED'; policy: TranscriptionPolicy };
 
 interface StateTransition {
@@ -133,6 +134,8 @@ export class TranscriptionFSM {
         { from: 'RECORDING', to: 'RECORDING', event: 'POLICY_UPDATED' },
         { from: 'PAUSED', to: 'PAUSED', event: 'POLICY_UPDATED' },
         { from: 'FAILED', to: 'FAILED', event: 'POLICY_UPDATED' },
+        { from: 'RECORDING', to: 'ENGINE_INITIALIZING', event: 'FALLBACK_REQUESTED' },
+        { from: 'ENGINE_INITIALIZING', to: 'ENGINE_INITIALIZING', event: 'FALLBACK_REQUESTED' },
     ];
 
     constructor(initialState: TranscriptionState = 'IDLE') {

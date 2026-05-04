@@ -61,6 +61,8 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     this.onTranscriptUpdate = options.onTranscriptUpdate;
     this.onReady = options.onReady;
     this.onError = options.onError;
+    this.serviceId = options.serviceId || 'unknown';
+    this.runId = options.runId || 'unknown';
   }
 
   private get modeOptions(): TranscriptionModeOptions | null {
@@ -148,11 +150,15 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
         if (this.onTranscriptUpdate) {
           if (interimTranscript) {
-            this.onTranscriptUpdate({ transcript: { partial: interimTranscript } });
+            this.onTranscriptUpdate({ 
+                transcript: { partial: interimTranscript }
+            });
           }
           if (finalTranscript) {
             this.currentTranscript += finalTranscript;
-            this.onTranscriptUpdate({ transcript: { final: finalTranscript } });
+            this.onTranscriptUpdate({ 
+                transcript: { final: finalTranscript }
+            });
           }
         }
       } catch (error) {
@@ -205,7 +211,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Recognition started');
       this.isListening = true;
       this.updateHeartbeat();
-      if (this.modeOptions?.onReady) this.modeOptions.onReady();
+      this.onReady?.();
     };
 
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Init complete.');

@@ -144,7 +144,10 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
     await this.onStart(mic, userWords);
   }
 
-  protected abstract onStart(mic?: MicStream, userWords?: string[]): Promise<void>;
+  /**
+   * Internal start hook for concrete engines
+   */
+  protected abstract onStart(mic: MicStream | undefined, userWords?: string[]): Promise<void>;
 
   /**
    * High-level Stop command (Contract Requirement)

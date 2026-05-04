@@ -17,8 +17,7 @@ import type { MicStream } from '../utils/types';
  */
 export class MockEngine extends STTEngine {
     public readonly type: EngineType = 'mock';
-    private currentState: string = 'IDLE';
-    private isDestroyed: boolean = false;
+    private isDestroyed = false;
     private engineInstanceId: string = Math.random().toString(36).slice(2);
 
     constructor(_options?: TranscriptionModeOptions) {
@@ -26,7 +25,6 @@ export class MockEngine extends STTEngine {
     }
 
     private setState(state: string): void {
-        this.currentState = state;
         // NOTE: Forensic signaling (data-runtime-state) is now handled 
         // centrally by TranscriptionProvider via the store subscription.
     }
@@ -50,47 +48,20 @@ export class MockEngine extends STTEngine {
         return { isAvailable: true, message: 'Mock engine always available' };
     }
 
-    protected async onInit(_timeoutMs?: number): Promise<Result<void, Error>> {
-        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, engineId: this.engineInstanceId }, '[MockEngine] Initializing...');
-        
-        // 1. Immediately signal DOWNLOADING — UI must render download button from this
-        this.setState('DOWNLOADING');
-
+    protected override async onInit(): Promise<Result<void, Error>> {
         const callbacks = this.options as TranscriptionModeOptions;
-        if (!this.isDestroyed && callbacks.onModelLoadProgress) {
-            callbacks.onModelLoadProgress(0);
+        if (callbacks.onConnectionStateChange && !this.isDestroyed) {
+            callbacks.onConnectionStateChange('connected');
         }
-
-        // 2. Wait for UI/Test to subscribe before completing
-        await this.waitForSubscriber();
-
-        if (!this.isDestroyed && callbacks.onModelLoadProgress) {
-            callbacks.onModelLoadProgress(100);
-        }
-
-        // 3. Finalize initialization
-        if (!this.isDestroyed && callbacks.onConnectionStateChange) {
-            callbacks.onConnectionStateChange('connected'); // Triggers setEngineReady(true)
-        }
-        if (!this.isDestroyed && callbacks.onReady) {
+        if (callbacks.onReady && !this.isDestroyed) {
             callbacks.onReady();
         }
-
-        this.setState('READY');
-
-        // HANDSHAKE v3: Bridge to Playwright poll
-        const readyStateWin = window as unknown as { __APP_READY_STATE__?: Record<string, boolean> };
-        if (typeof window !== 'undefined' && readyStateWin.__APP_READY_STATE__) {
-            readyStateWin.__APP_READY_STATE__['model-ready'] = true;
-            readyStateWin.__APP_READY_STATE__['stt'] = true;
-        }
-
-        return { isOk: true, data: undefined };
+        return Result.ok(undefined);
     }
 
     private lastReceivedUserWords: string[] = [];
 
-    protected async onStart(_mic?: MicStream, userWords: string[] = []): Promise<void> {
+    protected override async onStart(_mic?: MicStream, userWords: string[] = []): Promise<void> {
         this.lastReceivedUserWords = userWords;
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, engineId: this.engineInstanceId, userWords }, '[MockEngine] Start Hook called.');
     }
@@ -99,9 +70,13 @@ export class MockEngine extends STTEngine {
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, engineId: this.engineInstanceId }, '[MockEngine] Stop Hook called.');
     }
 
+    async destroy(): Promise<void> {
+        this.isDestroyed = true; // ← must be first
+        await super.destroy();
+    }
+
     protected async onDestroy(): Promise<void> {
-        this.isDestroyed = true; // MUST be first
-        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, engineId: this.engineInstanceId }, '[MockEngine] Destroy Hook called.');
+        logger.info({ sId: this.serviceId, rId: this.runId, engineId: this.engineInstanceId }, '[MockEngine] Destroy Hook called.');
     }
 
     async transcribe(_audio: Float32Array): Promise<Result<string, Error>> {
@@ -111,7 +86,7 @@ export class MockEngine extends STTEngine {
 
         this.updateHeartbeat();
 
-        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[MockEngine] Transcribing dummy audio block...');
+        logger.info({ sId: this.serviceId, rId: this.runId }, '[MockEngine] Transcribing dummy audio block...');
         
         // Return a deterministic transcript based on serviceId for test validation
         const transcript = `[MOCK] Translated segment for ${this.serviceId}`;
@@ -130,10 +105,6 @@ export class MockEngine extends STTEngine {
 
     public async pause(): Promise<void> {
         await super.pause();
-    }
-
-    protected async onPause(): Promise<void> {
-        logger.info({ sId: this.serviceId, rId: this.runId }, '[MockEngine] onPause hook called');
     }
 
     public async resume(): Promise<void> {

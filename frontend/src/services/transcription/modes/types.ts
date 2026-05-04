@@ -34,12 +34,9 @@ export interface TranscriptionModeOptions {
   onAudioData?: (data: Float32Array) => void;
   onModeChange?: (mode: TranscriptionMode | null) => void;
   onStatusChange?: (status: SttStatus) => void;
-  instanceId?: string;
   serviceId?: string;
   runId?: string;
 }
-
-
 
 export interface ITranscriptionEngine extends STTStrategy {
   init(timeoutMs?: number): Promise<Result<void, Error>>;
@@ -48,7 +45,6 @@ export interface ITranscriptionEngine extends STTStrategy {
   // The base STTStrategy covers start, stop, terminate, getTranscript, getLastHeartbeatTimestamp, getEngineType.
   
   onReady?: () => void;
-  instanceId?: string;
 }
 
 export type { TranscriptionMode };

@@ -39,3 +39,9 @@ export function safeLocalStorageRemove(key: string): boolean {
         return false;
     }
 }
+export function clearAll() {
+    if (typeof window !== 'undefined' && (window as any).TEST_MODE) {
+        window.localStorage.clear();
+        console.log('[safeStorage] 🛡️ TEST_MODE: storage wiped');
+    }
+}

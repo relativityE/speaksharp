@@ -33,12 +33,20 @@ export class TransformersJSEngine extends STTEngine {
         super(options);
     }
 
-    protected override async onInit(_timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
+    protected override async onInit(): Promise<Result<void, Error>> {
+        const result = await this.loadModel(ENV.isE2E);
+        if (!result.isOk) return result;
+        
+        (this.options as TranscriptionModeOptions).onReady?.();
+        return Result.ok(undefined);
+    }
+
+    protected async loadModel(isMock?: boolean): Promise<Result<void, Error>> {
         const options = this.options as TranscriptionModeOptions;
         if (this.transcriber) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Engine already initialized, skipping.');
             if (options.onReady) options.onReady();
-            return { isOk: true, data: undefined };
+            return Result.ok(undefined);
         }
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Initializing engine...');
         

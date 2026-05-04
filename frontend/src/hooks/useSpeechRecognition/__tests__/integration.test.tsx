@@ -65,6 +65,8 @@ describe('useSpeechRecognition Integration', () => {
         resetSpy = vi.spyOn(speechRuntimeController, 'reset');
         vi.useFakeTimers();
         speechRuntimeController.getStore().getState().resetSession();
+        const { resetTranscriptionService } = await import('@/services/transcription/TranscriptionService');
+        await resetTranscriptionService();
 
         // Step 1: Initialize Fresh Instances
         service = new MockTranscriptionService({

@@ -60,7 +60,7 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         onError = vi.fn();
 
         mode = new CloudAssemblyAI({
-            instanceId: 'test-instance',
+            runId: 'test-instance',
             onTranscriptUpdate,
             onModelLoadProgress: vi.fn(),
             onReady,

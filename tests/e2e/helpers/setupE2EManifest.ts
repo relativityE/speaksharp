@@ -91,6 +91,10 @@ export async function setupE2EManifest(
   }
 ) {
   const { storage = {}, userType = 'free', ...manifest } = config;
+  
+  // 🛡️ Fix 5: Analytics Mock (Mandated Stabilization)
+  // Decouples telemetry from UI readiness to prevent network-induced flakiness
+  await page.route('**/telemetry/**', route => route.fulfill({ status: 200, body: '{}' }));
 
   await page.addInitScript(({ m, s, ut }: { m: unknown; s: Record<string, string>; ut: string }) => {
     // 0. AUTHORITATIVE TIER SIGNAL

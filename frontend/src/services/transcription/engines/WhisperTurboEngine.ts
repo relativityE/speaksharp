@@ -76,8 +76,8 @@ export class WhisperTurboEngine extends STTEngine {
         }
     }
 
-    protected async onStart(_mic?: MicStream, userWords: string[] = []): Promise<void> {
-        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, userWordsCount: userWords.length }, `[WhisperTurbo] Engine started at ${new Date().toISOString()}`);
+    protected async onStart(_mic?: MicStream, _userWords: string[] = []): Promise<void> {
+        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[WhisperTurbo] Engine started at ${new Date().toISOString()}`);
     }
 
     protected async onStop(): Promise<void> {

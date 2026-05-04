@@ -66,12 +66,22 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   constructor(options?: TranscriptionModeOptions, mockEngine?: IPrivateSTTEngine) {
     super(options);
     this.mockEngine = mockEngine;
-    if (options) {
-      this.session = options.session ?? null;
-      this.onTranscriptUpdate = options.onTranscriptUpdate;
-      this.onModelLoadProgress = options.onModelLoadProgress;
-      this.onReady = options.onReady;
-      this.onError = options.onError;
+    this.syncCallbacks();
+  }
+
+  public override updateOptions(options: Partial<TranscriptionModeOptions>): void {
+    super.updateOptions(options);
+    this.syncCallbacks();
+  }
+
+  private syncCallbacks(): void {
+    const opts = this.modeOptions;
+    if (opts) {
+      this.session = opts.session ?? null;
+      this.onTranscriptUpdate = opts.onTranscriptUpdate;
+      this.onModelLoadProgress = opts.onModelLoadProgress;
+      this.onReady = opts.onReady;
+      this.onError = opts.onError;
     }
   }
 
@@ -112,11 +122,11 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   }
 
 
-  protected async onInit(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
+  protected override async onInit(): Promise<Result<void, Error>> {
     if (this.mockEngine) {
         logger.info('[CloudAssemblyAI] 🧪 Using injected MockEngine, initializing...');
         if (this.mockEngine.init) {
-            await this.mockEngine.init(timeoutMs, isMock);
+            await this.mockEngine.init();
         }
         return Result.ok(undefined);
     }
@@ -125,7 +135,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     return Result.ok(undefined);
   }
 
-  protected async onStart(_mic?: MicStream, userWords: string[] = []): Promise<void> {
+  protected override async onStart(_mic: MicStream | undefined, userWords: string[] = []): Promise<void> {
     if (this.isListening) return;
 
     // Use injected mock if available
@@ -310,19 +320,18 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
       const wsUrl = `wss://streaming.assemblyai.com/v3/realtime/ws?sample_rate=16000&token=${token}${keytermsParam}&speaker_labels=true`;
 
-      this.socket = new WebSocket(wsUrl);
+      const ws = new WebSocket(wsUrl);
+      this.socket = ws;
 
-      this.socket.onopen = () => {
+      ws.onopen = () => {
         // Guard: zombie socket check
         if (currentConnectionId !== this.connectionId) {
           logger.warn({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] closing zombie socket for ID ${currentConnectionId}`);
-          if (this.socket) {
-              this.socket.onmessage = null;
-              this.socket.onopen = null;
-              this.socket.onclose = null;
-              this.socket.onerror = null;
-              this.socket.close();
-          }
+          ws.onmessage = null;
+          ws.onopen = null;
+          ws.onclose = null;
+          ws.onerror = null;
+          ws.close();
           return;
         }
 
@@ -338,7 +347,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       };
 
 
-      this.socket.onmessage = (event) => {
+      ws.onmessage = (event) => {
         if (currentConnectionId !== this.connectionId) return;
         this.updateHeartbeat();
 
@@ -352,11 +361,14 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
         }
       };
 
-      this.socket.onclose = (event) => {
+      ws.onclose = (event) => {
         if (currentConnectionId !== this.connectionId) return;
 
         logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId, code: event.code, reason: event.reason }, `[CloudAssemblyAI] WebSocket closed (ID: ${currentConnectionId}).`);
-        this.socket = null;
+        
+        if (this.socket === ws) {
+          this.socket = null;
+        }
 
         if (this.isListening) {
           this.handleConnectionLoss();
@@ -365,7 +377,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
         }
       };
 
-      this.socket.onerror = (event) => {
+      ws.onerror = (event) => {
         if (currentConnectionId !== this.connectionId) return;
         logger.error({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId, event }, `[CloudAssemblyAI] WebSocket error (ID: ${currentConnectionId}).`);
 
@@ -390,18 +402,19 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
       case 'PartialTranscript':
         if (data.text) {
-          this.updateHeartbeat(); // Satisfy Watchdog on Partial
-          if (this.onTranscriptUpdate) this.onTranscriptUpdate({ transcript: { partial: data.text } });
+          this.updateHeartbeat();
+          if (this.onTranscriptUpdate) {
+            this.onTranscriptUpdate({ 
+                transcript: { partial: data.text }
+            });
+          }
         }
         break;
 
       case 'FinalTranscript':
         if (data.text) {
-          this.updateHeartbeat(); // Satisfy Watchdog on Final
-          // Accumulate transcript
+          this.updateHeartbeat();
           this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${data.text}` : data.text;
-          // Strict Turn Assembly: Final overwrites partial
-          // Map AssemblyAI 'speaker' (e.g. 'A', 'B') to transcript update
           if (this.onTranscriptUpdate) {
             this.onTranscriptUpdate({
               transcript: {

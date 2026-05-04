@@ -18,7 +18,7 @@ const { mockPipeline, mockEnv } = vi.hoisted(() => ({
 // Mock the flagging system - aligned with window.__SS_E2E__
 vi.mock('@/config/TestFlags', () => ({
     ENV: {
-        IS_E2E: true,
+        IS_E2E: false,
         IS_TEST_MODE: true,
         ENGINE_TYPE: 'system',
         USE_REAL_DATABASE: false,

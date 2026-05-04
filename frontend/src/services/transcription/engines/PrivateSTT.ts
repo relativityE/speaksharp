@@ -141,7 +141,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const webGPUAvailable = hasWebGPU() && !forceSafe;
 
         if (webGPUAvailable) {
-            const fastResult = await this.initFastEngine(timeoutMs, isMock);
+            const fastResult = await this.initFastEngine();
             if (fastResult.isOk) return Result.ok(undefined);
 
             const fastError = (fastResult as { isOk: false; error: Error }).error;
@@ -150,7 +150,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         // 4. Safe Path (WASM/CPU)
         logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)...');
-        const safeResult = await this.initSafeEngine(timeoutMs, isMock);
+        const safeResult = await this.initSafeEngine();
 
         if (safeResult.isOk === false) {
             logger.error({ err: safeResult.error }, '[PrivateSTT] ❌ All private engines failed.');
