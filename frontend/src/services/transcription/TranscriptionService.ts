@@ -172,13 +172,10 @@ export default class TranscriptionService {
 
       // 1. Resolve strategy (Atomic)
       const strategy = STTNegotiator.negotiate(this.policy, this.options.onModeChange ? null : undefined);
-      // Note: Negotiator is static for now as per current STTNegotiator.ts, but we use 'this.negotiator' in snippet if it were an instance.
-      // Snippet S2.1 used 'this.negotiator.getStrategy()', but S2.2 used 'STTNegotiator.negotiate'.
-      // I will follow S2.2's logic for the actual method body but keep the enqueue wrapper from S2.1.
 
       const newStrategy = STTStrategyFactory.create(strategy.mode, this.strategyCallbacks, this.policy);
       this.strategy = newStrategy;
-      this.activeStrategyId = (newStrategy as any).instanceId ?? Math.random().toString(36);
+      this.activeStrategyId = (newStrategy as unknown as { instanceId: string }).instanceId ?? Math.random().toString(36);
 
       // 2. Initialize
       await this.strategy.init();
@@ -187,7 +184,7 @@ export default class TranscriptionService {
 
   // Handlers populated via injection
   private dbHandlers?: {
-    initDbSession: (mode: string, idempotencyKey: string, metadata: unknown) => Promise<string | null>;
+    initDbSession: (mode: string, idempotencyKey: string, metadata: Record<string, unknown>) => Promise<string | null>;
     heartbeatSession: (sessionId: string) => Promise<void>;
     completeSession: (sessionId: string, transcript: string, duration: number) => Promise<void>;
   };
@@ -311,6 +308,7 @@ export default class TranscriptionService {
   }
 
 
+
   /**
    * Explicitly initiates model download at user request.
    * Resets DOWNLOAD_REQUIRED gate via FSM so normal initialization proceeds.
@@ -382,7 +380,7 @@ export default class TranscriptionService {
       logger.debug('[TRACE] FACTORY_CREATE_START');
       const newStrategy = STTStrategyFactory.create(mode, this.strategyCallbacks, this.policy);
       this.strategy = newStrategy;
-      this.activeStrategyId = (newStrategy as any).instanceId ?? Math.random().toString(36);
+      this.activeStrategyId = (newStrategy as unknown as { instanceId: string }).instanceId ?? Math.random().toString(36);
       logger.debug('[TRACE] FACTORY_CREATE_END');
     }
 
@@ -439,7 +437,8 @@ export default class TranscriptionService {
       }
 
       if (!initResult.isOk) {
-        throw (initResult as any).error || new Error('STRATEGY_INIT_FAILURE');
+        const error = (initResult as { isOk: false; error: Error }).error;
+        throw error || new Error('STRATEGY_INIT_FAILURE');
       }
 
       // Final READY transition
@@ -466,17 +465,6 @@ export default class TranscriptionService {
       this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
       throw error;
     }
-  }
-
-  private isStrategyCompatible(mode: TranscriptionMode): boolean {
-    if (!this.strategy) return false;
-    const existingType = this.strategy.getEngineType();
-    const isPrivate = mode === 'private';
-
-    if (isPrivate) {
-      return existingType === 'transformers-js' || existingType === 'whisper-turbo';
-    }
-    return existingType === mode;
   }
 
   /**
@@ -915,16 +903,11 @@ export default class TranscriptionService {
    */
   public updateCallbacks(newOptions: Partial<TranscriptionServiceOptions>): void {
     this.options = { ...this.options, ...newOptions };
-    // Synchronize stable callback context
-    this.strategyCallbacks.session = this.options.session;
-    this.strategyCallbacks.userWords = this.options.userWords;
-
-    // ✅ E2E Bridge: Project callbacks to global manifest for injection tests
+    // Project current FSM state to sync UI status (Step 5: SSOT)
     if (isBridgeActive()) {
-      const win = window as unknown as Record<string, unknown>;
-      const manifest = (win['__SS_E2E__'] as Record<string, unknown> | undefined);
-      if (manifest) {
-        manifest['_activeCallbacks'] = this.options;
+      const win = window as unknown as Record<string, { _activeCallbacks?: TranscriptionModeOptions }>;
+      if (win.__SS_E2E__) {
+        win.__SS_E2E__._activeCallbacks = this.strategyCallbacks;
       }
     }
   }
@@ -970,8 +953,6 @@ export default class TranscriptionService {
       from: oldPolicy.executionIntent,
       to: newPolicy.executionIntent
     }, '[TranscriptionService] 🔄 Policy updated');
-
-    await this.warmUp(resolveMode(newPolicy));
 
     this.setEngineReady(true);
   }
