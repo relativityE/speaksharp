@@ -37,6 +37,7 @@ export type RuntimeState =
     | 'IDLE'
     | 'INITIATING'
     | 'ENGINE_INITIALIZING'
+    | 'DOWNLOAD_REQUIRED'
     | 'READY'
     | 'RECORDING'
     | 'STOPPING'
@@ -130,6 +131,11 @@ export class SpeechRuntimeController {
             window.Result = Result;
             window.__TRANSCRIPTION_SERVICE__ = this;
             window.__SpeechRuntimeController__ = SpeechRuntimeController;
+
+            // Fix 1 Correction: Programmatic Mode Switch
+            (window as any).__E2E_SET_MODE__ = (mode: TranscriptionMode) => {
+                this.updatePolicy({ ...this.policy!, preferredMode: mode });
+            };
         }
     }
 
@@ -488,6 +494,7 @@ export class SpeechRuntimeController {
             if (!this.canTransitionToRecording()) {
                 return;
             }
+            store.setSTTStatus({ type: 'recording', message: 'Recording active' });
         }
 
         this.state = newState;
@@ -583,8 +590,13 @@ export class SpeechRuntimeController {
     }
 
     private handleError(error: Error): void {
-        syncSTTReady(false);
         const store = useSessionStore.getState();
+        if (store.sttStatus?.type === 'recording') {
+            logger.warn({ error: error.message }, '[SpeechRuntimeController] handleError suppressed — recording is active');
+            return; // fallback recovery in progress — don't overwrite
+        }
+
+        syncSTTReady(false);
         store.setSTTStatus({ type: 'error', message: error.message });
 
         void this.enqueue(async (token) => {

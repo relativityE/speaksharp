@@ -3,6 +3,14 @@ import { setupE2EManifest, navigateToRoute, getProbe, programmaticLoginWithRoute
 import { registerMockInE2E } from '../../helpers/testRegistry.helpers';
 import type { E2EWindow } from '../helpers/setupE2EManifest';
 
+declare global {
+  interface Window {
+    __PROBE_ZOMBIE_FIRED__?: boolean;
+    __MODEL_CACHED__?: boolean;
+    __E2E_FINISH_DOWNLOAD__?: (value?: unknown) => void;
+  }
+}
+
 /**
  * CONSOLIDATED FORENSIC PROBE (v0.6.20)
  * 
@@ -146,13 +154,11 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
 
       await registerMockInE2E(page, 'whisper-turbo', `(opts) => {
         let statusCb = opts?.onStatusChange;
+        let isDestroyed = false;
         return {
           init: async () => {
             if (!window.__MODEL_CACHED__) {
-              // Signal DOWNLOADING before the gate
               if (statusCb) statusCb({ type: 'downloading', progress: 0.1 });
-              
-              // Simulate the initialization delay for visibility
               const win = window as any;
               const delay = win.__SS_E2E__?.mockEngineInitDelayMs ?? 0;
               if (delay > 0) await new Promise(r => setTimeout(r, delay));
@@ -161,7 +167,10 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
               if (statusCb) statusCb({ type: 'downloading', progress: 1.0 });
               window.__MODEL_CACHED__ = true;
             }
-            if (opts?.onReady) opts.onReady();
+            if (opts?.onReady) {
+              if (isDestroyed) window.__PROBE_ZOMBIE_FIRED__ = true;
+              opts.onReady();
+            }
           },
           checkAvailability: async () => ({
             isAvailable: !!window.__MODEL_CACHED__,
@@ -169,7 +178,7 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
             requiresDownload: !window.__MODEL_CACHED__,
           }),
           start: async () => {}, stop: async () => {}, pause: async () => {},
-          resume: async () => {}, destroy: async () => {}, terminate: async () => {},
+          resume: async () => {}, destroy: async () => { isDestroyed = true; }, terminate: async () => {},
           getTranscript: async () => 'ok', getLastHeartbeatTimestamp: () => Date.now(),
           getEngineType: () => 'whisper-turbo'
         };
@@ -191,26 +200,36 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
       // Trigger start + download
       await page.getByTestId('session-start-stop-button').click({ force: true });
       
-      // Step 5.2 — Wait for FSM to enter DOWNLOADING state — no timeout hacks
+      // Step 5.2 — Wait for FSM to enter DOWNLOADING state
       await page.waitForSelector('html[data-runtime-state="DOWNLOADING"]', { timeout: 10000 });
       
-      await expect.poll(
-        async () => await page.getAttribute('html', 'data-engine-ready'),
-        { timeout: 15000 }
-      ).toBe('true');
+      // Step 5.3 — UNMOUNT while downloading
+      await page.evaluate(async () => {
+        const win = window as any;
+        win.zombieCallbackFired = false;
+        
+        // Wrap the onReady callback to catch zombies
+        const originalFinish = win.__E2E_FINISH_DOWNLOAD__;
+        win.__E2E_FINISH_DOWNLOAD__ = () => {
+          originalFinish?.();
+          // If the service is destroyed, this callback should NOT reach the UI/store
+        };
 
-      const downloadBtn = page.getByTestId('download-model-button');
-      await expect(downloadBtn).toBeVisible({ timeout: 20000 });
-      await downloadBtn.click();
-
-      // Unfreeze
-      await page.evaluate(() => {
-        if ((window as unknown as E2EWindow).__E2E_FINISH_DOWNLOAD__) {
-          (window as unknown as E2EWindow).__E2E_FINISH_DOWNLOAD__?.();
-        }
+        await win.__SS_E2E__?.destroyService?.();
       });
 
-      await page.waitForTimeout(2000);
+      // Step 5.4 — Trigger the completion of the "frozen" download
+      await page.evaluate(() => {
+        const win = window as any;
+        win.__E2E_FINISH_DOWNLOAD__?.();
+      });
+
+      // Step 5.5 — ASSERT: No signal arrived after unmount
+      await page.waitForTimeout(1000);
+      const zombieCallbackFired = await page.evaluate(() => 
+          window.__PROBE_ZOMBIE_FIRED__ ?? false
+      );
+      expect(zombieCallbackFired).toBe(false);
       expect(crashLog, 'No unhandled crashes should fire').toHaveLength(0);
     });
   });

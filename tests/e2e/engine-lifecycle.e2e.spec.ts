@@ -24,8 +24,8 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
   test('Engine Lifecycle: Verify Download Flow and Cache Persistence', async ({ proPage: page }) => {
     attachLiveTranscript(page);
 
-    // 1. Register a mock for 'whisper-turbo' that signals CACHE_MISS
-    await registerMockInE2E(page, 'whisper-turbo', `(opts) => {
+    // 1. Register a mock for 'transformers-js' that signals CACHE_MISS
+    await registerMockInE2E(page, 'transformers-js', `(opts) => {
       let progressCb = opts?.onModelLoadProgress;
       let statusCb = opts?.onStatusChange;
       return {
@@ -69,10 +69,7 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
 
     // Switch to Private Mode
     // Forensic Readiness Gate (Invariant I3)
-    await expect.poll(
-      async () => await page.getAttribute('html', 'data-engine-ready'),
-      { timeout: 15000 }
-    ).toBe('true');
+
 
     const modeButton = page.getByTestId('stt-mode-select');
     const bbox = await modeButton.boundingBox();

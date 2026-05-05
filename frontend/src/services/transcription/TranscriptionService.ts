@@ -271,18 +271,27 @@ export default class TranscriptionService {
         if (this.isTerminated) return;
         this.options.onReady?.();
       },
-      onError: (err) => {
+      onError: (error) => {
         if (this.isTerminated) return;
         this.idempotencyKey = null; // Reset on failure
 
-        if (this.policy.executionIntent === 'PRIVATE_FIRST' && this.strategy?.getEngineType() === 'whisper-turbo') {
-          logger.warn({ err }, '[TranscriptionService] 🔄 Whisper-turbo failed, attempting fallback to Transformers.js');
-          this.fsm.transition({ type: 'FALLBACK_REQUESTED' });
-          void this.updatePolicy({ ...this.policy, executionIntent: 'PRIVATE_SAFE' });
-        } else {
-          this.fsm.transition({ type: 'ERROR_OCCURRED', error: err });
-          this.options.onError?.(err);
+        // 1. Check if we have a fallback path (e.g. from cloud to native)
+        const canFallback = 
+          (this.mode !== 'native' && this.mode !== 'mock') &&
+          (this.fsm.is('ENGINE_INITIALIZING') || this.fsm.is('READY'));
+
+        if (canFallback) {
+          logger.warn({ from: this.mode }, '[TranscriptionService] Attempting native fallback');
+          void this.warmUp('native').catch(() => {
+            this.fsm.transition({ type: 'ERROR_OCCURRED', error });
+            this.options.onError?.(error);
+          });
+          return;
         }
+
+        // 2. Otherwise terminal failure
+        this.fsm.transition({ type: 'ERROR_OCCURRED', error });
+        this.options.onError?.(error);
       },
       onConnectionStateChange: (s) => {
         // Connection state is usually global to the strategy/service
@@ -356,7 +365,7 @@ export default class TranscriptionService {
   public async warmUp(mode: TranscriptionMode): Promise<void> {
     const { mode: negotiatedMode, isMock } = STTNegotiator.negotiate(this.policy, mode);
     try {
-      await this.initializeStrategy(negotiatedMode, isMock);
+      await this.initializeStrategy(negotiatedMode, isMock, false); // Background pulse — stop at DOWNLOAD_REQUIRED
     } catch (error) {
       logger.debug({ error, mode: negotiatedMode }, '[TranscriptionService] Warm-up failed (ignoring)');
     }
@@ -366,7 +375,13 @@ export default class TranscriptionService {
    * Mode-Neutral Strategy Initialization.
    * Probes availability, handles BLOCKED states, and prepares strategy.
    */
-  private async initializeStrategy(mode: TranscriptionMode, isMock?: boolean): Promise<void> {
+  private async initializeStrategy(mode: TranscriptionMode, isMock: boolean = false, forceExplicit: boolean = false): Promise<void> {
+    // 🛡️ RE-ENTRY GUARD: Prevent redundant initialization for the SAME mode
+    if (this.fsm.is('ENGINE_INITIALIZING') && this.mode === mode) {
+      logger.warn({ mode, isMock }, '[TranscriptionService] initializeStrategy already in progress for this mode — skipping');
+      return;
+    }
+
     logger.debug('[TRACE] STRATEGY_RESOLVE_START');
 
     /**
@@ -435,11 +450,12 @@ export default class TranscriptionService {
 
     // Skip availability gating for 'mock' mode
     if (mode !== 'mock') {
-      const isExplicitInit = this.fsm.is('ENGINE_INITIALIZING');
+      const isExplicitInit = this.fsm.is('ENGINE_INITIALIZING') || forceExplicit;
 
       // Gate 1: CACHE_MISS specific
       if (!availability.isAvailable && availability.reason === 'CACHE_MISS') {
-        if (!this.fsm.is('DOWNLOAD_REQUIRED') && !isExplicitInit) {
+        if (!this.fsm.is('DOWNLOAD_REQUIRED') && !isExplicitInit 
+            && !this.fsm.is('READY') && !this.fsm.is('RECORDING')) {
           this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
         }
 
@@ -488,7 +504,7 @@ export default class TranscriptionService {
       }
 
       // Final READY transition
-      if (this.fsm.is('ENGINE_INITIALIZING')) {
+      if (this.fsm.is('ENGINE_INITIALIZING') || this.fsm.is('DOWNLOADING')) {
         logger.info({ runId: this.runId, mode: this.mode }, '[TranscriptionService] Strategy initialized. Transitioning to READY.');
         this.fsm.transition({ type: 'ENGINE_INIT_SUCCESS' });
         pushE2EEvent('ENGINE_READY', { serviceId: this.serviceId, source: 'TranscriptionService', sessionId: this.sessionId });
@@ -498,13 +514,23 @@ export default class TranscriptionService {
       // CACHE_MISS can be thrown or returned during init
       if (err?.code === 'CACHE_MISS' || err?.message?.includes('CACHE_MISS')) {
         logger.warn({ mode }, '[TranscriptionService] Model CACHE_MISS detected during init. transitioning to DOWNLOAD_REQUIRED.');
-        this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
+        if (!this.fsm.is('READY') && !this.fsm.is('RECORDING')) {
+          this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
+        }
         this.options.onStatusChange?.({
           type: 'download-required',
           message: 'Private model download required.',
           progress: 0
         });
         return;
+      }
+
+      const canFallback = this.mode !== 'native' && this.mode !== 'mock';
+      if (canFallback) {
+          logger.warn('[TranscriptionService] Init failed, attempting native fallback');
+          return this.warmUp('native').catch(() => {
+              this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
+          });
       }
 
       logger.error({ mode, error }, '[TranscriptionService] Strategy preparation failed');
@@ -644,7 +670,7 @@ export default class TranscriptionService {
     try {
       // 3. Initialize Strategy (Handles Availability & Preparation)
       logger.debug({ runId: this.runId, mode }, '[TranscriptionService] Calling initializeStrategy');
-      await this.initializeStrategy(mode, isMock);
+      await this.initializeStrategy(mode, isMock, true);
 
       // 4. Start Strategy Execution
       logger.debug({ runId: this.runId, mode }, '[TranscriptionService] Calling executeStrategy');
@@ -1373,6 +1399,13 @@ export default class TranscriptionService {
 
     this.options.onStatusChange?.(status);
     if (store) {
+      const currentStatus = store.sttStatus;
+      // 🛡️ SSOT GUARD: Never overwrite active recording or controller-managed errors with service-level pulses
+      if (currentStatus?.type === 'recording' || currentStatus?.type === 'error') {
+        if (status.type !== 'recording' && status.type !== 'error') {
+          return;
+        }
+      }
       store.setSTTStatus(status);
     }
   }

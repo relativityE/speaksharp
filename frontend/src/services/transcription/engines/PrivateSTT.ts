@@ -232,6 +232,14 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const hasWebGPUAvailable = hasWebGPU() && !ENV.disableWasm;
         const preferredEngine: 'whisper-turbo' | 'transformers-js' = hasWebGPUAvailable ? 'whisper-turbo' : 'transformers-js';
 
+        // 2.5 Consult the registry first if a mock is provided
+        const mockFactory = getEngine(preferredEngine);
+        if (mockFactory) {
+            logger.debug(`[PrivateSTT] Delegating availability to mock factory for ${preferredEngine}`);
+            const tempMock = mockFactory((this.options || {}) as TranscriptionModeOptions);
+            return tempMock.checkAvailability();
+        }
+
         // 3. Probe Cache for the preferred model
         const isDownloaded = await ModelManager.isModelDownloaded(preferredEngine);
 
