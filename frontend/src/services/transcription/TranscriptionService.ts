@@ -125,6 +125,7 @@ export default class TranscriptionService {
   private privateModelReady: boolean = false;
   private activeSubscriberId: string | null = null;
   private isTerminated: boolean = false;
+  private isDestroyed: boolean = false;
   private currentTranscript: string = '';
   private partialTranscript: string = '';
 
@@ -348,18 +349,13 @@ export default class TranscriptionService {
    */
   public async initiateDownload(mode?: TranscriptionMode): Promise<void> {
     const targetMode = mode || this.mode || 'private';
+    const { mode: negotiatedMode, isMock } = STTNegotiator.negotiate(this.policy, targetMode);
 
     // 🛡️ RACECONDITION FIX: Clear idempotency key to allow re-initialization
     // after a background pulse has gated.
     this.idempotencyKey = null;
 
-    // Signal explicit download intent via FSM
-    // Valid transition: DOWNLOAD_REQUIRED → ENGINE_INITIALIZING
-    if (this.fsm.is('DOWNLOAD_REQUIRED')) {
-      this.fsm.transition({ type: 'ENGINE_INIT_REQUESTED' });
-    }
-
-    await this.warmUp(targetMode);
+    await this.initializeStrategy(negotiatedMode, isMock, true);
   }
 
   public async warmUp(mode: TranscriptionMode): Promise<void> {
@@ -527,7 +523,7 @@ export default class TranscriptionService {
 
       const canFallback = this.mode !== 'native' && this.mode !== 'mock';
       if (canFallback) {
-          logger.warn('[TranscriptionService] Init failed, attempting native fallback');
+          logger.warn({ error: err }, '[TranscriptionService] Init failed, attempting native fallback');
           return this.warmUp('native').catch(() => {
               this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
           });
@@ -845,6 +841,7 @@ export default class TranscriptionService {
    * Idempotent and safe against concurrent calls.
    */
   public async destroy(): Promise<void> {
+    this.isDestroyed = true;
     logger.info({ sId: this.serviceId, state: this.fsm.getState() }, '[TranscriptionService] destroy() invoked');
 
     if (this.destroyPromise) return this.destroyPromise;
@@ -1040,10 +1037,10 @@ export default class TranscriptionService {
    * ✅ E2E HOOK: Retrieves the current transcript from the strategy.
    */
   public async getTranscript(): Promise<string> {
-    if (this.strategy) {
-      return this.strategy.getTranscript();
+    if (this.isDestroyed || !this.strategy) {
+      return this.currentTranscript || '';
     }
-    return '';
+    return this.strategy.getTranscript();
   }
 
   /**
@@ -1196,7 +1193,8 @@ export default class TranscriptionService {
    * Returns the last monotonic heartbeat from the active engine.
    */
   public getLastHeartbeatTimestamp(): number {
-    return this.strategy ? this.strategy.getLastHeartbeatTimestamp() : Date.now();
+    if (this.isDestroyed || !this.strategy) return Date.now();
+    return this.strategy.getLastHeartbeatTimestamp();
   }
 
   /**
@@ -1366,6 +1364,25 @@ export default class TranscriptionService {
 
   private handleStateChange(state: TranscriptionState): void {
     logger.debug(`[TRACE] STATE_TRANSITION ${state}`);
+    if (typeof document !== 'undefined') {
+      const modelStatus: Record<TranscriptionState, string> = {
+        IDLE: 'idle',
+        ACTIVATING_MIC: 'loading',
+        READY: 'ready',
+        ENGINE_INITIALIZING: 'loading',
+        RECORDING: 'ready',
+        PAUSED: 'ready',
+        STOPPING: 'ready',
+        CLEANING_UP: 'idle',
+        DOWNLOAD_REQUIRED: 'download-required',
+        DOWNLOADING: 'loading',
+        DOWNLOAD_COMPLETE: 'ready',
+        FAILED: 'error',
+        TERMINATED: 'idle',
+      };
+      document.documentElement.setAttribute('data-model-status', modelStatus[state]);
+    }
+
     let status: SttStatus;
     switch (state) {
       case 'IDLE':
@@ -1416,4 +1433,3 @@ export default class TranscriptionService {
   public getMetadata() { return this.metadata; }
   public setSessionId(id: string | null) { this.sessionId = id; }
 }
-

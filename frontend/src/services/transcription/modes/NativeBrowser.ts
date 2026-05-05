@@ -222,26 +222,6 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   protected async onStart(_mic?: MicStream): Promise<void> {
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] start called');
     
-    if (this.mockEngine) {
-        logger.info('[NativeBrowser] 🧪 Using injected MockEngine');
-        if (this.mockEngine.start) await this.mockEngine.start(_mic);
-        this.isListening = true;
-        this.currentTranscript = '';
-        return;
-    }
-
-    if (!this.recognition) {
-      throw new Error('NativeBrowser not initialized');
-    }
-    if (this.isListening) {
-      logger.warn({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Already listening, returning early');
-      return;
-    }
-    this.currentTranscript = '';
-    this.isListening = true;
-    logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Starting recognition.start()...');
-    this.recognition.start();
-
     // E2E Test Bridge (Strict Zero)
     const win = window as unknown as Record<string, unknown>;
 
@@ -249,6 +229,14 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       win.__activeSpeechRecognition = this.recognition as unknown;
       (win as Record<string, boolean>)['__e2e_e2e:speech-recognition-ready_fired__'] = true;
       window.dispatchEvent(new CustomEvent('e2e:speech-recognition-ready'));
+    }
+
+    if (this.mockEngine) {
+        logger.info('[NativeBrowser] 🧪 Using injected MockEngine');
+        if (this.mockEngine.start) await this.mockEngine.start(_mic);
+        this.isListening = true;
+        this.currentTranscript = '';
+        return;
     }
 
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] recognition.start() called successfully.');

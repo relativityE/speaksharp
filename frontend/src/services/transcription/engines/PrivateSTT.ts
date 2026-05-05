@@ -118,17 +118,24 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // 2. Registry-First Resolution (Mock-First / Environment Agnostic)
         // If the registry provides a factory for our preferred engines, use it.
         const preferredEngine = hasWebGPU() && !ENV.disableWasm ? 'whisper-turbo' : 'transformers-js';
-        const factory = getEngine(preferredEngine) || getEngine('mock');
+        const factory = getEngine(preferredEngine) 
+            || getEngine('transformers-js')
+            || getEngine('whisper-turbo')
+            || getEngine('mock');
 
         if (factory) {
             logger.info({ sId: this.serviceId, rId: this.runId, engine: preferredEngine }, '[PrivateSTT] 🧪 Injecting MockEngine/Override from Registry');
             const engine = factory(this.options as TranscriptionModeOptions);
             validateEngine(engine);
             const initResult = await (engine as unknown as IPrivateSTTEngine).init(timeoutMs, isMock);
-            if (!initResult.isOk) {
+            
+            // 🛡️ Safe check: Mocks might not return a Result object
+            const isOk = initResult ? (initResult as any).isOk !== false : true;
+            
+            if (!isOk) {
                 // 🚨 DEFENSE: Purge failed registry engine before fallback
                 await (engine as unknown as IPrivateSTTEngine).terminate?.();
-                logger.warn({ engine: preferredEngine, error: (initResult as { isOk: false; error: Error }).error }, '[PrivateSTT] Registry engine failed to initialize. Continuing discovery...');
+                logger.warn({ engine: preferredEngine, error: initResult ? (initResult as any).error : new Error('Mock init failed') }, '[PrivateSTT] Registry engine failed to initialize. Continuing discovery...');
                 return Result.ok(undefined); // Allow discovery to continue
             }
             this.engine = engine as unknown as IPrivateSTTEngine;
@@ -233,9 +240,12 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const preferredEngine: 'whisper-turbo' | 'transformers-js' = hasWebGPUAvailable ? 'whisper-turbo' : 'transformers-js';
 
         // 2.5 Consult the registry first if a mock is provided
-        const mockFactory = getEngine(preferredEngine);
+        const mockFactory = getEngine(preferredEngine)
+            || getEngine('transformers-js')
+            || getEngine('whisper-turbo')
+            || getEngine('mock');
         if (mockFactory) {
-            logger.debug(`[PrivateSTT] Delegating availability to mock factory for ${preferredEngine}`);
+            logger.debug(`[PrivateSTT] Delegating availability to mock factory`);
             const tempMock = mockFactory((this.options || {}) as TranscriptionModeOptions);
             return tempMock.checkAvailability();
         }

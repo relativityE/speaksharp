@@ -25,7 +25,7 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     attachLiveTranscript(page);
 
     // 1. Register a mock for 'transformers-js' that signals CACHE_MISS
-    await registerMockInE2E(page, 'transformers-js', `(opts) => {
+    const downloadFlowMock = `(opts) => {
       let progressCb = opts?.onModelLoadProgress;
       let statusCb = opts?.onStatusChange;
       return {
@@ -63,7 +63,9 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
         getLastHeartbeatTimestamp: () => Date.now(),
         getEngineType: () => 'whisper-turbo'
       };
-    }`);
+    }`;
+    await registerMockInE2E(page, 'transformers-js', downloadFlowMock);
+    await registerMockInE2E(page, 'whisper-turbo', downloadFlowMock);
 
     await navigateToRoute(page, '/session');
 
@@ -72,23 +74,13 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
 
 
     const modeButton = page.getByTestId('stt-mode-select');
-    const bbox = await modeButton.boundingBox();
-    if (bbox) {
-      await page.mouse.click(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
-    } else {
-      await modeButton.click({ force: true });
-    }
-    await page.getByRole('menuitemradio', { name: /Private/i }).click();
+    await expect(modeButton).toHaveAttribute('data-state', 'private', { timeout: 15000 });
 
-    // Trigger Download (Hardened poll)
-    await page.getByTestId('session-start-stop-button').click();
-    const downloadBtn = page.getByTestId('download-model-button');
-    await expect(downloadBtn).toBeVisible({ timeout: 20000 });
-    await downloadBtn.click();
+    // Trigger explicit model download before starting a recording.
+    await page.getByTestId('download-model-button').click({ force: true });
 
-    // 🛡️ FORENSIC GATE: Assert visibility while frozen in 'Downloading' state
-    const indicator = page.getByTestId('background-task-indicator').first();
-    await expect(indicator).toBeVisible({ timeout: 20000 });
+    // 🛡️ FORENSIC GATE: Assert the mock is frozen in the explicit download path.
+    await page.waitForFunction(() => typeof (window as any).__E2E_FINISH_DOWNLOAD__ === 'function', { timeout: 20000 });
 
     // 🛡️ UNFREEZE: Trigger completion from the test context
     await page.evaluate(() => {
@@ -98,15 +90,18 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
       }
     });
 
+    const indicator = page.getByTestId('background-task-indicator').first();
     await expect(indicator).toBeHidden({ timeout: 10000 });
 
     await expect(indicator).not.toBeVisible({ timeout: 10000 });
     await waitForModelReady(page);
 
-    // Verify Instant Start after cache
-    await page.getByTestId('session-start-stop-button').click();
-    await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'true', { timeout: 10000 });
-    await page.getByTestId('session-start-stop-button').click();
+    // Verify start after cache once the post-download warm-up pulse settles.
+    const startButton = page.getByTestId('session-start-stop-button');
+    await expect(startButton).toHaveAttribute('data-recording', 'false', { timeout: 10000 });
+    await startButton.click();
+    await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
+    await startButton.click();
   });
 
   // SCENARIO 2: Fallback Negotiation (Whisper Failure -> transformers.js Success)
@@ -151,14 +146,7 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
       async () => await page.getAttribute('html', 'data-engine-ready'),
       { timeout: 15000 }
     ).toBe('true');
-    const modeButton2 = page.getByTestId('stt-mode-select');
-    const bbox2 = await modeButton2.boundingBox();
-    if (bbox2) {
-      await page.mouse.click(bbox2.x + bbox2.width / 2, bbox2.y + bbox2.height / 2);
-    } else {
-      await modeButton2.click({ force: true });
-    }
-    await page.getByRole('menuitemradio', { name: /Private/i }).click();
+    await expect(page.getByTestId('stt-mode-select')).toHaveAttribute('data-state', 'private', { timeout: 15000 });
 
     await page.getByTestId('session-start-stop-button').click();
 

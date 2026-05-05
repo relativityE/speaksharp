@@ -149,17 +149,18 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
 
       await setupE2EManifest(page, { 
         engineType: 'real', 
-        debug: false
+        debug: false,
+        userType: 'pro'
       });
 
-      await registerMockInE2E(page, 'whisper-turbo', `(opts) => {
+      const delayedDownloadMock = `(opts) => {
         let statusCb = opts?.onStatusChange;
         let isDestroyed = false;
         return {
           init: async () => {
             if (!window.__MODEL_CACHED__) {
               if (statusCb) statusCb({ type: 'downloading', progress: 0.1 });
-              const win = window as any;
+              const win = window;
               const delay = win.__SS_E2E__?.mockEngineInitDelayMs ?? 0;
               if (delay > 0) await new Promise(r => setTimeout(r, delay));
 
@@ -182,7 +183,9 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
           getTranscript: async () => 'ok', getLastHeartbeatTimestamp: () => Date.now(),
           getEngineType: () => 'whisper-turbo'
         };
-      }`);
+      }`;
+      await registerMockInE2E(page, 'whisper-turbo', delayedDownloadMock);
+      await registerMockInE2E(page, 'transformers-js', delayedDownloadMock);
 
       await page.evaluate(() => { (window as unknown as E2EWindow).__MODEL_CACHED__ = false; });
       await navigateToRoute(page, '/session');
@@ -193,15 +196,15 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
         { timeout: 15000 }
       ).toBe('true');
 
-      // Switch to Private Mode
-      await page.getByTestId('stt-mode-select').click({ force: true });
-      await page.getByRole('menuitemradio', { name: /Private/i }).click();
+      // Pro sessions default to Private; assert that state directly so the
+      // probe remains focused on the download/unmount race.
+      await expect(page.getByTestId('stt-mode-select')).toHaveAttribute('data-state', 'private', { timeout: 15000 });
 
-      // Trigger start + download
-      await page.getByTestId('session-start-stop-button').click({ force: true });
-      
-      // Step 5.2 — Wait for FSM to enter DOWNLOADING state
-      await page.waitForSelector('html[data-runtime-state="DOWNLOADING"]', { timeout: 10000 });
+      // Trigger the explicit download path before unmounting.
+      await page.getByTestId('download-model-button').click({ force: true });
+
+      // Step 5.2 — Wait for the frozen mock download to be active.
+      await page.waitForFunction(() => typeof (window as any).__E2E_FINISH_DOWNLOAD__ === 'function', { timeout: 10000 });
       
       // Step 5.3 — UNMOUNT while downloading
       await page.evaluate(async () => {

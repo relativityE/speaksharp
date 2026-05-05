@@ -181,6 +181,10 @@ export const useSessionLifecycle = () => {
                     }
                 }
 
+                if (runtimeState === 'ENGINE_INITIALIZING' || runtimeState === 'INITIATING') {
+                    await speechRuntimeController.whenStable();
+                }
+
                 // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
                 await speechRuntimeController.startRecording(undefined, userFillerWords);
                 posthog.capture('session_started', { mode: sttMode });
@@ -191,7 +195,7 @@ export const useSessionLifecycle = () => {
                 isProcessingRef.current = false;
             }
         }
-    }, [isListening, elapsedTime, updateStreak, queryClient, isProUser, usageLimit, sttMode, isLockHeldByOther, setSTTStatus, userFillerWords]);
+    }, [isListening, elapsedTime, updateStreak, queryClient, isProUser, usageLimit, sttMode, isLockHeldByOther, setSTTStatus, userFillerWords, runtimeState]);
 
     // ✅ Keep the stable ref up to date with the latest callback
     handleStartStopRef.current = handleStartStop;
@@ -295,19 +299,21 @@ export const useSessionLifecycle = () => {
     // Engine Warm-up: Pre-initialize engines when mode is selected
     useEffect(() => {
         pushE2EEvent('SESSION_LIFECYCLE_RENDER', { sttMode, isListening });
-        
+
         if (sttMode && !isListening && warmUpTriggered.current !== sttMode) {
             warmUpTriggered.current = sttMode;
             pushE2EEvent('SESSION_LIFECYCLE_WARMUP', { mode: sttMode });
             logger.info(`[useSessionLifecycle] Mode set to ${sttMode} - triggering warm-up`);
             void speechRuntimeController.warmUp(sttMode);
         }
+    }, [sttMode, isListening]);
 
+    useEffect(() => {
         return () => {
             // Reset trigger on unmount so navigation back re-triggers warm-up
             warmUpTriggered.current = null;
         };
-    }, [sttMode, isListening]);
+    }, []);
 
     // UI Cleanup on unmount
     // We ONLY detach listeners (subscriber_unmount) to handle React remounts.
