@@ -90,7 +90,8 @@ test.describe('Exhaustive User Feature Matrix', () => {
     // Verify E2E signal for clean report (Injected in Phase 5)
     await expect(page.locator('body')).toHaveAttribute('data-pdf-token', 'clean');
 
-    // 7. Identity: Pro Badge visibility
+    // 7. Identity: Pro Badge visibility on dashboard view
+    await navigateToRoute(page, '/analytics');
     await expect(page.getByText(/Pro Plan Active/i)).toBeVisible();
     await expect(page.getByTestId('nav-upgrade-button')).not.toBeVisible();
   });

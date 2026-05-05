@@ -61,8 +61,8 @@ test.describe('Primary User Journey Matrix', () => {
       if (scenario.userType === 'pro') {
         // Pro users: Verify full engine toggling logic
         await selectTranscriptionEngine(page, scenario.mode);
-        // Verify signal persistence on body
-        await expect(page.locator('body')).toHaveAttribute('data-stt-policy', scenario.mode, { timeout: 10000 });
+        // Verify selected mode persistence on the authoritative control.
+        await expect(modeButton).toHaveAttribute('data-state', scenario.mode, { timeout: 10000 });
       } else {
         // Free users: Verify Marketing Funnel (Options are visible but disabled)
         await modeButton.click();

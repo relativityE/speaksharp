@@ -47,9 +47,7 @@ test.describe('Promo Admin Journey', () => {
             { timeout: 15000 }
         ).toBe('true');
 
-        await page.click('button:has-text("Native")');
-        const privateOption = page.locator('role=menuitemradio', { hasText: 'Private' });
-        await expect(privateOption).not.toHaveAttribute('aria-disabled', 'true');
+        await expect(page.getByTestId('stt-mode-select')).toHaveAttribute('data-state', 'private');
 
         // 8. Navigate to Analytics and verify the Pro status
         await navigateToRoute(page, '/analytics');
