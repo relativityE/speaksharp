@@ -410,6 +410,8 @@ All test scripts follow `test:<level>:<env>[:<mode>]` and CI orchestration scrip
 | `test:soak:api:cloud` | soak | cloud | — | API stress test |
 | `test:soak:ui:cloud` | soak | cloud | — | Memory/stability test |
 | `ci:full` | — | — | — | CI parity/orchestrator; must stay aligned with GitHub Actions |
+| `ci:local` | — | local | — | Alias for `ci:full`; local mimic of GitHub CI where secrets are unavailable |
+| `ci:github` | — | github | — | Alias for `ci:full`; explicit command name for GitHub CI parity discussions |
 | `ci:dispatch:deploy` | — | — | — | Dispatch deploy smoke to GH Actions |
 | `ci:dispatch:soak` | — | — | — | Dispatch soak test to GH Actions |
 
@@ -1396,8 +1398,8 @@ The project uses a tiered testing approach to balance speed, reliability, and re
 |----------|---------|-------------|---------|
 | **1. Unit Tests** | `pnpm test:unit` | `happy-dom` | Fast, isolated logic tests. Mocks all external deps. |
 | **2. Integration Tests** | `pnpm test:unit` | `happy-dom` | Component + Provider interaction. Mocks services. |
-| **3. CI Simulation (E2E)** | `pnpm ci:full` | Playwright + **MSW** | **The Default.** Full app flow with **Mocked Backend**. Fast, reliable, runs on PRs. No secrets needed. |
-| **4. Integration** | `pnpm test:int:local` | Playwright + **Real APIs** | Validates integration with **Real Supabase/Stripe**. Non-driver-dependent subset. |
+| **3. CI Simulation (E2E)** | `pnpm ci:local` / `pnpm ci:full` | Playwright + **MSW** | **The Default local gate.** Full app flow with mocked backend. Mirrors GitHub required gates as far as local credentials allow. |
+| **4. Integration** | `pnpm test:int:local` | Playwright + **Real APIs** | Validates integration with real Supabase/Stripe when live credentials are present. In normal local development, protected secrets live only in GitHub Actions, so this suite fails loudly or skips secret-gated specs rather than pretending coverage. |
 | **4b. System** | `pnpm test:system:local:headed` | Playwright + **Real HW** | Full system suite including driver-dependent STT tests. Headed Chrome required. |
 | **5. Deploy Tests** | `pnpm test:deploy` | Real App | Production deployment validation. Runs post-deploy. |
 | **6. Soak Tests** | `pnpm test:soak` | Production | Long-running load tests on production infrastructure. |
@@ -1536,7 +1538,7 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 - Runs against real Supabase with GitHub Secrets
 - Uses `liveLogin()` helper for real authentication
 - CI workflow: `Dev Integration (Real Supabase)` (`dev-real-integration.yml`)
-- Required secrets: `E2E_FREE_EMAIL`, `E2E_FREE_PASSWORD`, `SUPABASE_URL`, etc.
+- Required secrets: `E2E_FREE_EMAIL`, `E2E_FREE_PASSWORD`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `EDGE_FN_URL`, `AGENT_SECRET`, etc. These are normally available only in GitHub Actions.
 
 **4. Resilience & Health Tests** (`tests/e2e/*.e2e.spec.ts`)
 - `core.e2e.spec.ts` performs the canonical app-wide probe journey.

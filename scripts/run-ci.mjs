@@ -500,6 +500,7 @@ async function main() {
                         ], { label: 'INFRA-PROBE' });
                     } else if (impactOutput === 'ALL' || isFullMode) {
                         console.log("[CI] Running Infrastructure Probe once before sharded app journeys...");
+                        const sInfra = Date.now();
                         await runCommand('pnpm', [
                             'exec',
                             'playwright',
@@ -515,10 +516,12 @@ async function main() {
                                 PLAYWRIGHT_JSON_OUTPUT_NAME: path.join(rootDir, 'test-results/playwright/infra-results.json')
                             }
                         });
+                        stage.addSubTask('infra-probe', Date.now() - sInfra);
 
                         const totalShards = 4;
                         for (let i = 1; i <= totalShards; i++) {
                             console.log(`${ANSI.CYAN}[CI] Executing Shard ${i}/${totalShards}...${ANSI.RESET}`);
+                            const sShard = Date.now();
                             try {
                                 await runCommand('pnpm', [
                                     'exec',
@@ -541,6 +544,8 @@ async function main() {
                             } catch (err) {
                                 console.error(`${ANSI.RED}[SHARD ${i}] FAILED${ANSI.RESET}`);
                                 e2eFailed = true;
+                            } finally {
+                                stage.addSubTask(`app-shard-${i}`, Date.now() - sShard);
                             }
                         }
 

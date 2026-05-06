@@ -332,6 +332,60 @@ export async function programmaticLoginWithRoutes(
   return session;
 }
 
+export async function verifyCredentialsAndInjectSession(
+  page: Page,
+  email: string,
+  password: string,
+  userType: 'free' | 'pro' = 'pro'
+) {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !anonKey) {
+    throw new Error('[LIVE AUTH] VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required.');
+  }
+
+  setupBrowserLogging(page);
+  setupNetworkTracking(page);
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: {
+      apikey: anonKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email, password }),
+  });
+
+  const body = await response.json() as { access_token?: string; user?: unknown; error_description?: string; msg?: string };
+  if (!response.ok || !body.access_token || !body.user) {
+    throw new Error(`[LIVE AUTH] Credential verification failed (${response.status}): ${body.error_description || body.msg || 'unknown error'}`);
+  }
+
+  let projectRef = 'yxlapjuovrsvjswkwnrk';
+  try {
+    const urlObj = new URL(supabaseUrl);
+    projectRef = urlObj.hostname.split('.')[0];
+  } catch (err) {
+    logger.warn({ err }, '[LIVE AUTH] Could not parse Supabase URL for project ref.');
+  }
+
+  await setupE2EManifest(page, {
+    engineType: 'real',
+    storage: {
+      [`sb-${projectRef}-auth-token`]: JSON.stringify(body)
+    }
+  });
+
+  await page.goto('/');
+  await waitForAppReady(page);
+  await waitForProfileReady(page).catch((err) => {
+    logger.warn({ err, userType }, '[LIVE AUTH] Profile readiness did not settle before route assertions.');
+  });
+
+  return body;
+}
+
 // 5. Simulation Helpers
 export async function simulateTranscription(page: Page, text: string, isFinal: boolean = true) {
   await page.evaluate(({ transcription, final }) => {
@@ -454,4 +508,3 @@ export async function getProbe(page: Page): Promise<Array<Record<string, unknown
 export async function clearProbe(page: Page): Promise<void> {
   await page.evaluate(() => { (window as unknown as Record<string, unknown>).__E2E_PROBE__ = []; });
 }
-
