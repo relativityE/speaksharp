@@ -80,6 +80,8 @@ export class SpeechRuntimeController {
     // Session Lock (Tab Mutex)
     private lock: DistributedLock;
     private watchdogInterval: NodeJS.Timeout | null = null;
+    private watchdogVersion = 0;
+    private heartbeatVersion = 0;
     private idleTimeout: NodeJS.Timeout | null = null;
     private readonly IDLE_RECLAMATION_MS = 5 * 60 * 1000;
     private readonly WATCHDOG_PERIOD_MS = 5000;
@@ -714,20 +716,9 @@ export class SpeechRuntimeController {
                 this.service = getTranscriptionService(this.serviceCallbacks, this.lock);
             }
 
-            const mode = this.policy?.preferredMode || 'private';
-            if (this.service) {
-                await this.service.warmUp(mode);
-                if (_token.cancelled || _token.version !== this.lifecycleVersion) {
-                    return;
-                }
-
-                const strategy = this.service.getStrategy();
-                if (strategy && 'start' in strategy && 'stop' in strategy) {
-                    validateEngine(strategy as unknown as STTEngine);
-                }
-            }
-
+            pushE2EEvent('SR_START_ENTER');
             const acquired = this.lock.acquire('INITIATING');
+            pushE2EEvent('SR_LOCK_ACQUIRED');
             if (!acquired) {
                 useSessionStore.getState().setSTTStatus({
                     type: 'error',
@@ -738,8 +729,31 @@ export class SpeechRuntimeController {
             }
 
             await this.transition('INITIATING', undefined, _token);
+            pushE2EEvent('SR_AFTER_INITIATING');
             if (_token.cancelled || _token.version !== this.lifecycleVersion) {
+                await this.transition('READY', undefined, _token);
                 return;
+            }
+
+            const mode = this.policy?.preferredMode || 'private';
+            if (this.service) {
+                await this.service.warmUp(mode);
+                pushE2EEvent('SR_AFTER_WARMUP');
+                pushE2EEvent('SR_TOKEN_CHECK', {
+                    cancelled: _token.cancelled,
+                    tokenVersion: _token.version,
+                    lifecycleVersion: this.lifecycleVersion
+                });
+                if (_token.cancelled || _token.version !== this.lifecycleVersion) {
+                    pushE2EEvent('SR_ABORT_TOKEN');
+                    await this.transition('READY', undefined, _token);
+                    return;
+                }
+
+                const strategy = this.service.getStrategy();
+                if (strategy && 'start' in strategy && 'stop' in strategy) {
+                    validateEngine(strategy as unknown as STTEngine);
+                }
             }
 
             useSessionStore.getState().setStartTime(Date.now());
@@ -747,17 +761,23 @@ export class SpeechRuntimeController {
             const service = this.service;
             if (!service) throw new Error('SERVICE_MISSING');
 
+            pushE2EEvent('SR_BEFORE_ENGINE_INIT');
             await this.transition('ENGINE_INITIALIZING', undefined, _token);
+            pushE2EEvent('SR_AFTER_ENGINE_INIT');
 
             try {
+                pushE2EEvent('SR_BEFORE_START_TRANSCRIPTION');
                 await service.startTranscription(policy, userWords);
+                pushE2EEvent('SR_AFTER_START_TRANSCRIPTION');
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {
+                    await this.transition('READY', undefined, _token);
                     return;
                 }
 
                 if (service && service.fsm?.is('DOWNLOAD_REQUIRED')) {
                     this.setEngineReady(false);
                     this.service = null;
+                    await this.transition('READY', undefined, _token);
                     return;
                 }
                 this.setEngineReady(true);
@@ -767,6 +787,7 @@ export class SpeechRuntimeController {
                 const supabase = getSupabaseClient();
                 const { data: { session } } = await supabase.auth.getSession();
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {
+                    await this.transition('READY', undefined, _token);
                     return;
                 }
 
@@ -796,6 +817,7 @@ export class SpeechRuntimeController {
                     }
 
                     if (_token.cancelled || _token.version !== this.lifecycleVersion) {
+                        await this.transition('READY', undefined, _token);
                         return;
                     }
 
@@ -849,6 +871,7 @@ export class SpeechRuntimeController {
         this.service = null;
         if (svc) {
             this.stopWatchdog();
+            this.stopHeartbeat();
             svc.destroy().catch(() => { });
         }
 
@@ -1027,22 +1050,22 @@ export class SpeechRuntimeController {
 
     private startHeartbeat(sessionId: string, service: TranscriptionService): void {
         this.stopHeartbeat();
-        const version = ++this.lifecycleVersion;
+        const version = ++this.heartbeatVersion;
         let consecutiveFailures = 0;
         const scheduleNext = (immediate = false) => {
             const delay = immediate ? 0 : this.HEARTBEAT_PERIOD_MS;
             this.heartbeatInterval = setTimeout(() => {
-                if (version !== this.lifecycleVersion) return;
+                if (version !== this.heartbeatVersion) return;
                 void (async () => {
                     try {
                         const currentState = service.getState();
                         if (!sessionId || (currentState !== 'RECORDING' && currentState !== 'ENGINE_INITIALIZING')) return;
                         await heartbeatSession(sessionId, Math.round(this.HEARTBEAT_PERIOD_MS / 1000));
-                        if (version !== this.lifecycleVersion) return;
+                        if (version !== this.heartbeatVersion) return;
                         consecutiveFailures = 0; // Reset on success
                         scheduleNext();
                     } catch (error: unknown) {
-                        if (version !== this.lifecycleVersion) return;
+                        if (version !== this.heartbeatVersion) return;
                         consecutiveFailures++;
 
                         if (consecutiveFailures >= this.MAX_HEARTBEAT_FAILURES) {
@@ -1071,10 +1094,13 @@ export class SpeechRuntimeController {
     }
 
     private startWatchdog(service: TranscriptionService): void {
-        const version = ++this.lifecycleVersion;
+        const version = ++this.watchdogVersion;
         this.stopWatchdog();
         this.watchdogInterval = setInterval(() => {
-            if (version !== this.lifecycleVersion) return;
+            if (version !== this.watchdogVersion) {
+                clearInterval(this.watchdogInterval!);
+                return;
+            }
             const strategy = service.getStrategy();
             if (!strategy || !this.isEngineReady) return;
             const lastHeartbeat = service.getLastHeartbeatTimestamp();

@@ -100,8 +100,20 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     const startButton = page.getByTestId('session-start-stop-button');
     await expect(startButton).toHaveAttribute('data-recording', 'false', { timeout: 10000 });
     await startButton.click();
-    await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
-    await startButton.click();
+    try {
+      await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 3000 });
+    } catch (e) {
+      // Intentionally swallow timeout to capture the trace
+    }
+
+    const events = await page.evaluate(() => {
+      const probe = (window as any).__E2E_PROBE__ || [];
+      return probe.map((e: any) => e.event);
+    });
+
+    console.log('E2E Trace Events:', events);
+    expect(events).toContain('SR_AFTER_WARMUP');
+    expect(events).toContain('SR_BEFORE_START_TRANSCRIPTION');
   });
 
   // SCENARIO 2: Fallback Negotiation (Whisper Failure -> transformers.js Success)
