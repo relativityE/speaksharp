@@ -48,11 +48,11 @@ export default defineConfig({
     // when --coverage was passed on the CLI (enabled:false short-circuits the
     // coverage provider init in Vitest 3.x before CLI flags are applied).
     //
-    // reportsDirectory: './frontend/coverage'
+    // reportsDirectory: '../artifacts/coverage'
     //   root is set to path.resolve(__dirname, '..') = project root.
     //   Vitest resolves reportsDirectory relative to root.
-    //   run-metrics.sh reads: frontend/coverage/coverage-summary.json
-    //   Therefore this path must be './frontend/coverage' (relative to project root).
+    //   run-metrics.sh reads artifacts/coverage first, then frontend/coverage for
+    //   backward compatibility with older CI artifacts.
     //   DO NOT change this without also updating coverage_file in run-metrics.sh.
     //
     // reporter: 'json-summary' → produces coverage-summary.json (NOT 'json',

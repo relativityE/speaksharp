@@ -34,7 +34,7 @@ jobs:
           name: all-artifacts
           path: |
             frontend/dist
-            frontend/coverage
+            artifacts/coverage
             unit-metrics.json
 
   test:
@@ -107,10 +107,14 @@ jobs:
             cp -r artifacts/all-artifacts/dist frontend/
           fi
           
-          if [ -d "artifacts/all-artifacts/frontend/coverage" ]; then
+          mkdir -p artifacts
+          if [ -d "artifacts/all-artifacts/artifacts/coverage" ]; then
+            cp -r artifacts/all-artifacts/artifacts/coverage artifacts/
+          elif [ -d "artifacts/all-artifacts/frontend/coverage" ]; then
+            mkdir -p frontend
             cp -r artifacts/all-artifacts/frontend/coverage frontend/
           elif [ -d "artifacts/all-artifacts/coverage" ]; then
-            cp -r artifacts/all-artifacts/coverage frontend/
+            cp -r artifacts/all-artifacts/coverage artifacts/
           fi
           
           cp artifacts/all-artifacts/unit-metrics.json . 2>/dev/null || true
@@ -179,10 +183,14 @@ jobs:
           elif [ -d "artifacts/all-artifacts/dist" ]; then
             cp -r artifacts/all-artifacts/dist frontend/
           fi
-          if [ -d "artifacts/all-artifacts/frontend/coverage" ]; then
+          mkdir -p artifacts
+          if [ -d "artifacts/all-artifacts/artifacts/coverage" ]; then
+            cp -r artifacts/all-artifacts/artifacts/coverage artifacts/
+          elif [ -d "artifacts/all-artifacts/frontend/coverage" ]; then
+            mkdir -p frontend
             cp -r artifacts/all-artifacts/frontend/coverage frontend/
           elif [ -d "artifacts/all-artifacts/coverage" ]; then
-            cp -r artifacts/all-artifacts/coverage frontend/
+            cp -r artifacts/all-artifacts/coverage artifacts/
           fi
           cp artifacts/all-artifacts/unit-metrics.json . 2>/dev/null || true
           # test-results is only in shard artifacts, not all-artifacts
@@ -194,6 +202,7 @@ jobs:
           
           # 1. Restore Prepare Artifacts
           if [ -d "artifacts/all-artifacts" ]; then
+            cp -r artifacts/all-artifacts/artifacts/coverage/* artifacts/coverage/ 2>/dev/null || true
             cp -r artifacts/all-artifacts/frontend/coverage/* artifacts/coverage/ 2>/dev/null || true
             cp artifacts/all-artifacts/unit-metrics.json artifacts/metrics/ 2>/dev/null || true
           fi

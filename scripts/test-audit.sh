@@ -8,6 +8,9 @@ show_help() {
     echo "Usage: $0 [command] [options]"
     echo ""
     echo "Commands:"
+    echo "  prepare               Run CI prepare stage: quality, unit coverage, build"
+    echo "  test [shard]          Run CI E2E shard against prepared build"
+    echo "  report                Generate CI metrics/report from restored artifacts"
     echo "  ci-simulate           Run the full CI pipeline (Node.js Orchestrator)"
     echo "  local                 Run the full local audit (Node.js Orchestrator)"
     echo "  agent                 Run the Agent-safe repair loop (Node.js Orchestrator)"
@@ -27,6 +30,9 @@ if [ $# -eq 0 ]; then show_help; exit 1; fi
 
 for arg in "$@"; do
     if [ "$arg" = "--skip-lighthouse" ]; then SKIP_LH=true; fi
+    if [ "$arg" = "prepare" ]; then STAGE="prepare"; fi
+    if [ "$arg" = "test" ]; then STAGE="test"; fi
+    if [ "$arg" = "report" ]; then STAGE="report"; fi
     if [ "$arg" = "ci-simulate" ]; then STAGE="ci-simulate"; fi
     if [ "$arg" = "agent" ]; then STAGE="agent"; fi
     if [ "$arg" = "local" ]; then STAGE="local"; fi
@@ -36,7 +42,31 @@ for arg in "$@"; do
 done
 
 case $STAGE in
-    ci-simulate|local|agent|infra|report) 
+    prepare)
+        echo "🚀 Running CI prepare stage..."
+        ./scripts/preflight.sh
+        pnpm quality
+        pnpm exec vitest run --config frontend/vitest.config.mjs --coverage --coverage.reporter=json-summary --reporter=./scripts/vitest-ci-reporter.mjs
+        pnpm build:test
+        ;;
+    test)
+        echo "🚀 Running CI E2E shard stage..."
+        SHARD=""
+        for subarg in "$@"; do
+            if [[ "$subarg" =~ ^[0-9]+$ ]]; then SHARD="$subarg"; fi
+        done
+        if [ -n "$SHARD" ]; then
+            pnpm exec playwright test --shard="${SHARD}/4" --reporter=blob --output=test-results/playwright
+        else
+            pnpm exec playwright test --reporter=blob --output=test-results/playwright
+        fi
+        ;;
+    report)
+        echo "🚀 Running CI report stage..."
+        ./scripts/run-metrics.sh
+        node scripts/run-ci.mjs --only-report
+        ;;
+    ci-simulate|local|agent|infra) 
         echo "🚀 Delegating to Node.js CI Orchestrator..."
         node scripts/run-ci.mjs "$@"
         ;;

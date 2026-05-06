@@ -395,7 +395,7 @@ async function main() {
 
     // Converge all paths to auditModel
     try {
-        if (CI_MODE === 'ci' && process.argv.includes('--only-report')) {
+        if (process.argv.includes('--only-report')) {
             await runReport(startTime);
             return;
         }
@@ -480,28 +480,12 @@ async function main() {
                         }
                     }
 
-                    // Start Dev Server for E2E
+                    // Build once, then let Playwright's canonical webServer serve the
+                    // production-like E2E bundle on the same path as pnpm test:full.
                     const s2 = Date.now();
-                    console.log("[CI] Starting dev server for E2E...");
-                    devServer = spawn('pnpm', ['dev'], {
-                        cwd: rootDir,
-                        shell: true,
-                        env: { ...process.env, FORCE_COLOR: '1' }
-                    });
-
-                    devServer.stdout.on('data', (data) => {
-                        const line = data.toString().trim();
-                        if (line) console.log(`${ANSI.DIM}[DEV] ${line}${ANSI.RESET}`);
-                    });
-
-                    devServer.stderr.on('data', (data) => {
-                        const line = data.toString().trim();
-                        if (line) console.error(`${ANSI.RED}[DEV-ERR] ${line}${ANSI.RESET}`);
-                    });
-
-                    // Readiness Barrier
-                    await waitForHTTP('http://localhost:5173');
-                    stage.addSubTask('dev-server-up', Date.now() - s2);
+                    console.log("[CI] Building test bundle for E2E...");
+                    await runCommand('pnpm', ['build:test'], { label: 'BUILD' });
+                    stage.addSubTask('build-test', Date.now() - s2);
 
                     const workerCount = Math.min(Math.max(1, Math.floor(os.cpus().length * CI_CONFIG.WORKER_SCALING_RATIO)), CI_CONFIG.MAX_WORKERS);
 
@@ -578,12 +562,6 @@ async function main() {
                     global.__CI_TELEMETRY__.playwright = ciTelemetry.tests.playwright;
                 } finally {
                     // Cleanup
-                    if (devServer) {
-                        console.log("[CI] Stopping dev server...");
-                        execSync('pkill -9 -f vite || true', { stdio: 'ignore' });
-                        devServer = null;
-                    }
-
                     // Sync Global Telemetry for Summary (Fallback to files)
                     if (global.__CI_TELEMETRY__.vitest.total === 0) {
                         try {

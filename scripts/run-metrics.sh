@@ -37,10 +37,13 @@ else
 fi
 
 # ─── Coverage Metrics ─────────────────────────────────────────────────────────
-coverage_file="frontend/coverage/coverage-summary.json"
+coverage_file="artifacts/coverage/coverage-summary.json"
+if [ ! -f "$coverage_file" ]; then
+    coverage_file="frontend/coverage/coverage-summary.json"
+fi
 
 if [ ! -f "$coverage_file" ]; then
-    echo "⚠️ WARNING: Coverage summary not found at $coverage_file. Setting coverage to 0." >&2
+    echo "⚠️ WARNING: Coverage summary not found in artifacts/coverage or frontend/coverage. Setting coverage to 0." >&2
     coverage_statements=0
     coverage_branches=0
     coverage_functions=0
@@ -59,19 +62,28 @@ fi
 e2e_results_file="$TEST_RESULTS_DIR/playwright/results.json"
 
 if [ ! -f "$e2e_results_file" ]; then
-    if [ "${CI:-false}" = "true" ]; then
+    shard_result_files=("$TEST_RESULTS_DIR"/playwright/results-*.json)
+    if [ -f "${shard_result_files[0]}" ]; then
+        e2e_passed=$(jq -s '[.[].stats.expected // 0] | add' "${shard_result_files[@]}")
+        e2e_failed=$(jq -s '[.[].stats.unexpected // 0] | add' "${shard_result_files[@]}")
+        e2e_flaky=$(jq -s '[.[].stats.flaky // 0] | add' "${shard_result_files[@]}")
+        e2e_skipped=$(jq -s '[.[].stats.skipped // 0] | add' "${shard_result_files[@]}")
+        e2e_total=$(jq -s '[[.[].stats.expected, .[].stats.unexpected, .[].stats.flaky, .[].stats.skipped] | .[] // 0] | add' "${shard_result_files[@]}")
+        e2e_shards="{}"
+    elif [ "${CI:-false}" = "true" ]; then
         echo "❌ FATAL: $e2e_results_file not found in CI." >&2
         echo "   This means the 'Merge E2E Reports' step in the report job failed or produced no output." >&2
         echo "   Check: artifact download paths, playwright merge-reports exit code, and blob zip file naming." >&2
         exit 1
+    else
+        echo "⚠️ WARNING: E2E results file not found. Defaulting to 0 (local skip)." >&2
+        e2e_passed=0
+        e2e_failed=0
+        e2e_flaky=0
+        e2e_skipped=0
+        e2e_total=0
+        e2e_shards="{}"
     fi
-    echo "⚠️ WARNING: E2E results file not found. Defaulting to 0 (local skip)." >&2
-    e2e_passed=0
-    e2e_failed=0
-    e2e_flaky=0
-    e2e_skipped=0
-    e2e_total=0
-    e2e_shards="{}"
 else
     # Playwright JSON reporter field names (stable since v1.20):
     #   .stats.expected   → tests that passed as expected
