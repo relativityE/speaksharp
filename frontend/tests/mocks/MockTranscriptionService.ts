@@ -5,6 +5,7 @@ import { calculateTranscriptStats } from '../../src/utils/fillerWordUtils';
 import { vi } from 'vitest';
 import { TranscriptionError } from '../../src/services/transcription/errors';
 import logger from '../../src/lib/logger';
+import { speechRuntimeController } from '../../src/services/SpeechRuntimeController';
 
 export class MockTranscriptionService {
     // Static reference for tests to access the latest instance
@@ -201,17 +202,29 @@ export class MockTranscriptionService {
      * Simulate a transcript update from the service.
      */
     simulateTranscript(transcript: string, isFinal: boolean = false): void {
+        if (MockTranscriptionService.latestInstance && MockTranscriptionService.latestInstance !== this) {
+            MockTranscriptionService.latestInstance.simulateTranscript(transcript, isFinal);
+            return;
+        }
+
         console.warn(`[DIAG-MOCK] simulateTranscript called: "${transcript}" (final: ${isFinal})`);
+        const update = {
+            transcript: isFinal
+                ? { final: transcript, partial: '' }
+                : { final: '', partial: transcript }
+        };
+
         if (this.options.onTranscriptUpdate) {
             console.warn(`[DIAG-MOCK] Invoking onTranscriptUpdate for: "${transcript}"`);
-            this.options.onTranscriptUpdate({
-                transcript: isFinal
-                    ? { final: transcript, partial: '' }
-                    : { final: '', partial: transcript }
-            });
+            this.options.onTranscriptUpdate(update);
         } else {
             console.warn(`[DIAG-MOCK] ❌ No onTranscriptUpdate callback registered for: "${transcript}"`);
         }
+
+        const controllerBridge = speechRuntimeController as unknown as {
+            handleTranscriptUpdate?: (data: typeof update) => void;
+        };
+        controllerBridge.handleTranscriptUpdate?.(update);
     }
 
     /**

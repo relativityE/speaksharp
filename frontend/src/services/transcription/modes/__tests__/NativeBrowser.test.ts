@@ -7,13 +7,18 @@ vi.mock('@/config/env', () => ({
 }));
 
 import NativeBrowser from '../NativeBrowser';
+ 
+interface MockSpeechEvent {
+  results: Array<Array<{ transcript: string; confidence: number; isFinal: boolean }> & { isFinal: boolean }>;
+  resultIndex: number;
+}
 
 // Move SpeechRecognition mock outside to share instance control
 const mockRecognition = {
   start: vi.fn(),
   stop: vi.fn(),
   abort: vi.fn(),
-  onresult: null as ((event: any) => void) | null,
+  onresult: null as ((event: MockSpeechEvent) => void) | null,
   onstart: null as ((event: Event) => void) | null,
   onerror: vi.fn(),
   onend: null as ((event: Event) => void) | null,
@@ -94,7 +99,7 @@ describe('NativeBrowser Transcription Mode', () => {
  
       // Simulate the onresult event
       if (mockRecognition.onresult) {
-        mockRecognition.onresult(event as unknown as any);
+        mockRecognition.onresult(event as unknown as MockSpeechEvent);
       }
  
       expect(onTranscriptUpdate).toHaveBeenCalledWith({
@@ -114,7 +119,7 @@ describe('NativeBrowser Transcription Mode', () => {
  
       // Simulate the onresult event
       if (mockRecognition.onresult) {
-        mockRecognition.onresult(event as unknown as any);
+        mockRecognition.onresult(event as unknown as MockSpeechEvent);
       }
  
       expect(onTranscriptUpdate).toHaveBeenCalledWith({

@@ -204,27 +204,30 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
       await page.getByTestId('download-model-button').click({ force: true });
 
       // Step 5.2 — Wait for the frozen mock download to be active.
-      await page.waitForFunction(() => typeof (window as any).__E2E_FINISH_DOWNLOAD__ === 'function', { timeout: 10000 });
+      await page.waitForFunction(() => typeof (window as unknown as Record<string, unknown>).__E2E_FINISH_DOWNLOAD__ === 'function', { timeout: 10000 });
       
       // Step 5.3 — UNMOUNT while downloading
       await page.evaluate(async () => {
-        const win = window as any;
+        const win = window as unknown as Record<string, unknown>;
         win.zombieCallbackFired = false;
         
         // Wrap the onReady callback to catch zombies
-        const originalFinish = win.__E2E_FINISH_DOWNLOAD__;
+        const originalFinish = win.__E2E_FINISH_DOWNLOAD__ as (() => void) | undefined;
         win.__E2E_FINISH_DOWNLOAD__ = () => {
           originalFinish?.();
           // If the service is destroyed, this callback should NOT reach the UI/store
         };
 
-        await win.__SS_E2E__?.destroyService?.();
+        const ssE2E = win.__SS_E2E__ as { destroyService?: () => Promise<void> } | undefined;
+        await ssE2E?.destroyService?.();
       });
 
       // Step 5.4 — Trigger the completion of the "frozen" download
       await page.evaluate(() => {
-        const win = window as any;
-        win.__E2E_FINISH_DOWNLOAD__?.();
+        const win = window as unknown as Record<string, unknown>;
+        if (typeof win.__E2E_FINISH_DOWNLOAD__ === 'function') {
+            (win.__E2E_FINISH_DOWNLOAD__ as () => void)();
+        }
       });
 
       // Step 5.5 — ASSERT: No signal arrived after unmount

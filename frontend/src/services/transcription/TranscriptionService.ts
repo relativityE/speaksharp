@@ -105,6 +105,8 @@ export default class TranscriptionService {
   private lastTranscriptTime: number = 0;
   private sessionId: string | null = null;
   private runId: string | null = null;
+  private emissionsEnabled: boolean = false;
+  private pendingTranscriptQueue: TranscriptUpdate[] = [];
   private startTime: number | null = null;
   private metadata: { engineVersion: string; modelName: string; deviceType: string } | null = null;
 
@@ -259,7 +261,7 @@ export default class TranscriptionService {
         this.idempotencyKey = null; // Reset on failure
 
         // 1. Check if we have a fallback path (e.g. from cloud to native)
-        const canFallback = 
+        const canFallback =
           (this.mode !== 'native' && this.mode !== 'mock') &&
           (this.fsm.is('ENGINE_INITIALIZING') || this.fsm.is('READY'));
 
@@ -402,6 +404,10 @@ export default class TranscriptionService {
         ...this.strategyCallbacks,
         onTranscriptUpdate: (data) => {
           if (this.activeStrategyId !== tempId) return;
+          if (!this.emissionsEnabled) {
+            this.pendingTranscriptQueue.push(data);
+            return;
+          }
           this.strategyCallbacks.onTranscriptUpdate(data);
         },
         onReady: () => {
@@ -432,8 +438,8 @@ export default class TranscriptionService {
 
       // Gate 1: CACHE_MISS specific
       if (!availability.isAvailable && availability.reason === 'CACHE_MISS') {
-        if (!this.fsm.is('DOWNLOAD_REQUIRED') && !isExplicitInit 
-            && !this.fsm.is('READY') && !this.fsm.is('RECORDING')) {
+        if (!this.fsm.is('DOWNLOAD_REQUIRED') && !isExplicitInit
+          && !this.fsm.is('READY') && !this.fsm.is('RECORDING')) {
           this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
         }
 
@@ -505,10 +511,10 @@ export default class TranscriptionService {
 
       const canFallback = this.mode !== 'native' && this.mode !== 'mock';
       if (canFallback) {
-          logger.warn({ error: err }, '[TranscriptionService] Init failed, attempting native fallback');
-          return this.warmUp('native').catch(() => {
-              this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
-          });
+        logger.warn({ error: err }, '[TranscriptionService] Init failed, attempting native fallback');
+        return this.warmUp('native').catch(() => {
+          this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
+        });
       }
 
       logger.error({ mode, error }, '[TranscriptionService] Strategy preparation failed');
@@ -644,6 +650,8 @@ export default class TranscriptionService {
     this.idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
 
     logger.info({ serviceId: this.serviceId, runId: this.runId, mode }, '[TranscriptionService] 🚀 Start requested');
+    this.pendingTranscriptQueue = [];
+    this.emissionsEnabled = false;
 
     try {
       // 3. Initialize Strategy (Handles Availability & Preparation)
@@ -682,6 +690,8 @@ export default class TranscriptionService {
         strategyObj: this.strategy?.constructor?.name
       }, '[TranscriptionService] 🚦 Executing strategy start...');
 
+      this.emissionsEnabled = true;
+      this.flushPendingTranscripts();
       await this.strategy.start(this.mic!, this.options.userWords ?? []);
 
       // 🛡️ Step 4: Strict Success Coupling
@@ -706,6 +716,15 @@ export default class TranscriptionService {
       logger.error({ runId, error }, '[TranscriptionService] Strategy execution FAILED');
       this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
       throw error;
+    }
+  }
+
+  private flushPendingTranscripts(): void {
+    while (this.pendingTranscriptQueue.length > 0 && this.emissionsEnabled) {
+      const update = this.pendingTranscriptQueue.shift();
+      if (update) {
+        this.strategyCallbacks.onTranscriptUpdate(update);
+      }
     }
   }
 
@@ -1050,6 +1069,7 @@ export default class TranscriptionService {
     this.transcriptHistory = [];
     this.currentTranscript = '';
     this.partialTranscript = '';
+    this.pendingTranscriptQueue = [];
     this.modelLoadingProgress = null;
 
     // Clear strategy and mic
@@ -1110,6 +1130,7 @@ export default class TranscriptionService {
     this.transcriptHistory = [];
     this.currentTranscript = '';
     this.partialTranscript = '';
+    this.pendingTranscriptQueue = [];
 
     // Reset FSM to IDLE
     this.fsm.reset();
@@ -1239,6 +1260,11 @@ export default class TranscriptionService {
       return;
     }
 
+    if (!this.emissionsEnabled) {
+      this.pendingTranscriptQueue.push(update);
+      return;
+    }
+
     if (this.fsm.is('PAUSED')) {
       logger.debug('[TranscriptionService] Ignoring transcript update while PAUSED');
       return;
@@ -1255,17 +1281,14 @@ export default class TranscriptionService {
 
     // ✅ Mandatory E2E Sync: Directly update the store to bypass React cycle delays
     if (isBridgeActive()) {
-      const text = transcript.final || transcript.partial || '';
-      useSessionStore.getState().updateTranscript('', text);
+      useSessionStore.getState().updateTranscript(transcript.final || '', transcript.partial || '');
     }
 
     // Only forward if there's actually something left after sanitization
     if (transcript.final || transcript.partial) {
 
       if (transcript.final) {
-        this.currentTranscript = this.currentTranscript
-          ? `${this.currentTranscript} ${transcript.final}`
-          : transcript.final;
+        this.currentTranscript = transcript.final;
         this.partialTranscript = '';
       } else if (transcript.partial) {
         this.partialTranscript = transcript.partial;

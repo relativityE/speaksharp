@@ -576,6 +576,7 @@ export class SpeechRuntimeController {
         if (this.isSubscriberReady) {
             this.pushTranscriptToStore(data);
             this.subscriberCallbacks.onTranscriptUpdate?.(data);
+            this.emitTranscriptPulse(data);
         } else {
             this.emissionQueue.push(data);
         }
@@ -645,6 +646,7 @@ export class SpeechRuntimeController {
             if (data) {
                 this.pushTranscriptToStore(data);
                 this.subscriberCallbacks.onTranscriptUpdate?.(data);
+                this.emitTranscriptPulse(data);
             }
         }
         while (this.historyQueue.length > 0) {
@@ -664,7 +666,7 @@ export class SpeechRuntimeController {
 
         // 🛡️ USER_ID EMISSION GUARD: Ensure transcripts belong to the session starter
         const currentUserId = this.session?.user?.id;
-        if (this.capturedUserId && currentUserId !== this.capturedUserId) {
+        if (this.capturedUserId && currentUserId && currentUserId !== this.capturedUserId) {
             logger.warn({
                 expected: this.capturedUserId,
                 actual: currentUserId
@@ -683,6 +685,14 @@ export class SpeechRuntimeController {
         } else if (data.transcript.partial && !data.transcript.partial.startsWith('Downloading model')) {
             queueMicrotask(() => store.updateTranscript(currentTranscript, data.transcript.partial));
         }
+    }
+
+    private emitTranscriptPulse(data: TranscriptUpdate): void {
+        pushE2EEvent('TRANSCRIPT_PULSE', {
+            isFinal: Boolean(data.transcript.final),
+            hasPartial: Boolean(data.transcript.partial),
+            textLength: (data.transcript.final || data.transcript.partial || '').length,
+        });
     }
 
     private syncProvider(expectedVersion: number) {
@@ -768,6 +778,7 @@ export class SpeechRuntimeController {
 
             try {
                 pushE2EEvent('SR_BEFORE_START_TRANSCRIPTION');
+                this.isEmissionsSafe = true; // 🛡️ Coordination: Enable controller-side flush before engine start
                 await service.startTranscription(policy, userWords);
                 pushE2EEvent('SR_AFTER_START_TRANSCRIPTION');
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {

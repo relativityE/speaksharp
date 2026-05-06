@@ -1,5 +1,5 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-03
+**Last Reviewed:** 2026-05-06
 
 
 # Agent Instructions for SpeakSharp Repository
@@ -156,12 +156,12 @@ To mathematically verify STT accuracy and ensure zero-regression on NLP models (
 
 ---
 
-### 2. The Local Audit Script (Single Source of Truth for Testing)
+### 2. The Local Command Ladder (Single Source of Truth for Testing)
 
-The primary runner for all local validation is `pnpm test:all:local` (which calls `./scripts/test-audit.sh`), which is accessed via `pnpm` scripts. This script is the SSOT for running lint, type-checking, and all tests.
+The primary local release gate is `pnpm test:full`. Use the explicit command ladder from `package.json`: `pnpm test:infra` for fast health, `pnpm test:unit` for Vitest truth, `pnpm test:e2e` for the full mocked Playwright suite, `pnpm test:full` for the full local gate, and `pnpm ci:full` for CI parity/orchestration.
 
-*   **Always use this script for validation.** Do not invent your own runners or call `pnpm test` or `pnpm lint` directly for final validation.
-*   The audit script automatically runs the `pnpm preflight` check, ensuring a stable environment for the test run.
+*   **Always use these scripts for validation.** Do not invent final-validation runners.
+*   Keep `ci:full` aligned with GitHub Actions behavior before any production release.
 
 ### 3. Selective Use of `scripts/env-stabilizer.sh`
 
@@ -212,7 +212,7 @@ ___
 2.  ✅ **Codebase Context** – Inspect `/frontend/src`, `/tests` (E2E), `/frontend/tests/integration` (Real DB), `/docs` before acting.
 3.  ❌ **No Code Reversals Without Consent** – Never undo user work.
 4.  ⏱️ **Timeout Constraint** – Every command must complete within 7 minutes.
-5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `ci:full` script runs the EXACT same pipeline as GitHub CI.
+5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `ci:full` script is the CI parity/orchestrator and must be kept aligned with GitHub Actions.
 
     ```json
      "test:full": "pnpm run test:full",
@@ -231,7 +231,7 @@ ___
     **Terminology Clarification:**
     - **Infrastructure Probe**: Refers specifically to `tests/e2e/infra.probe.e2e.spec.ts`. This is the authoritative T=0 environment probe, performing a "Deterministic, Single-Path" validation (Preflight + 1 E2E Journey).
     
-    **CRITICAL:** `ci:full` is NOT a simulation - it runs the exact same commands as GitHub CI (frozen lockfile, same build, same shards). If it passes locally, CI will pass.
+    **CRITICAL:** `ci:full` is the local CI parity gate. If it diverges from GitHub Actions, repair or document the drift before release.
     
     **New Configuration Scripts (2025-11-28):**
     - `build.config.js` - Centralized port configuration (DEV: 5173, PREVIEW: 4173)
@@ -272,7 +272,7 @@ ___
     ```bash
     pnpm run ci:full
     ```
-    This runs the EXACT GitHub CI pipeline locally (frozen lockfile, sharded E2E, lighthouse). If it fails, DO NOT PUSH. Fix the issues first.
+    This runs the local CI parity/orchestrator. If it fails or diverges from GitHub Actions, DO NOT PUSH a release candidate. Fix the issues or document the parity gap first.
 
 3.  **Supabase Migration Protocol**
      Required for any PR containing a database migration:

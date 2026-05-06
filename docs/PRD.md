@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-04-27
+**Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 (SpeechRuntime Stabilized)
-**Last Updated:** 2026-05-03
+**Last Updated:** 2026-05-06
 
 ## 1. Executive Summary
 
@@ -11,7 +11,7 @@ The system is built for speed, both in user experience and development velocity.
 
 ## 2. Vision & Positioning
 *   **Vision:** To be the leading real-time speech coach for professionals, helping them communicate with confidence and clarity.
-*   **Positioning:** SpeakSharp is a real-time speech analysis tool. A key differentiator on the roadmap is a **privacy-first, private transcription mode** that will provide instant feedback without sending sensitive conversations to the cloud.
+*   **Positioning:** SpeakSharp is a real-time speech analysis tool. Its primary Pro differentiator is **privacy-first Private STT**, selected by default and backed by a WebGPU -> CPU/Transformers.js -> Native-after-failure ladder, while Cloud STT remains a first-class Pro choice.
 
 ### User Roles & Flows
 This section contains ASCII art diagrams illustrating the journey for each user role.
@@ -72,8 +72,8 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | Feature | Release | Description | Status | Unit Test |
 | :--- | :--- | :--- | :--- | :--- |
 | **Transcription** | 1 | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
-| **Cloud Server STT** | 1 | High-accuracy transcription via AssemblyAI. Hardened with **Triple-Identity Tracing** and **Atomic Orchestration**. (Pro) | ✅ Implemented | ✅ Yes |
-| **Private STT** | 1 | On-device, local-first transcription using Whisper (WebGPU/WASM). Hardened with **STTEngine Abstract Base Class**, **heartbeat monitoring**, and **AnalyticsBuffer** decoupling. (Pro) | ✅ Implemented | ✅ Yes |
+| **Cloud Server STT** | 1 | First-class Pro transcription via AssemblyAI. Hardened with **Triple-Identity Tracing** and **Atomic Orchestration**. Cloud is selectable by Pro users, but it is not treated as a fallback-only path. | ✅ Implemented | ✅ Yes |
+| **Private STT** | 1 | Recommended Pro default. On-device, local-first transcription using the Private ladder: WebGPU first, CPU/Transformers.js second, and Native only after Private cannot initialize. Hardened with **STTEngine Abstract Base Class**, **heartbeat monitoring**, and **AnalyticsBuffer** decoupling. | ✅ Implemented | ✅ Yes |
 | **Fallback STT** | 1 | Reliable fallback to native browser API for Free users and as an **auto-recovery mode** for Cloud/Private STT. Hardened with **Microtask Decoupling** and **Atomic Signal Waits**. | ✅ Implemented | ✅ Yes |
 | **UI Mode Selector** | 1 | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
 | **Session History** | 1 | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
@@ -156,7 +156,7 @@ To prevent unexpected high-bandwidth background activity and maintain explicit u
 *   **Explicit User Trigger:** Models are **never** automatically downloaded in the background. Users must explicitly click a "Download Offline Model" trigger (e.g., in the SessionPage header) to initiate the process.
 *   **Tier Gating (Upgrade Funnel):** The "Download Offline Model" trigger is visible to ALL users. For **Free Users**, the button is disabled/greyed-out to serve as a Pro-tier teaser, ideally accompanied by an upgrade tooltip. For **Pro Users**, the button is active and initiating the download flow.
 *   **FSM Integration:** The status is tracked via the `DOWNLOAD_REQUIRED` state in the `TranscriptionService` Finite State Machine (FSM).
-*   **Native Fallback:** While a model is downloading or if the user declines, the system falls back to **Native Browser STT** to ensure zero-wait recording.
+*   **Native Fallback:** Native Browser STT is the baseline/browser engine and the final fallback only after the allowed Private path cannot initialize. Cloud remains a separate first-class Pro choice, not an automatic rescue path.
 
 
 ## 4. User Experience & Feedback
@@ -211,10 +211,12 @@ To eliminate non-deterministic failures and "flakiness," the system adheres to a
 *   **API Mocking (MSW & Playwright Routes):** External services and backend APIs are mocked for deterministic testing. However, mocks are audited against real production response shapes to prevent "Green Illusion" (tests passing while production is broken).
 *   **Adversarial Audit Mandate:** All new tests must pass an adversarial review—ensuring they validate design intent (e.g., tier gating, SLOs, resilience) and would fail if production code deviates from intended behavior, even if the structural implementation remains similar.
 *   **Private STT Integration Strategy:** To ensure high-fidelity verification of the triple-engine architecture, `PrivateSTT.integration.test.ts` validates engine selection, WebGPU detection, and fallback logic. For headless CI environments, the engine automatically switches to a reliable `MockEngine` when `window.__E2E_PLAYWRIGHT__` is detected.
-*   **Single Source of Truth (`pnpm test:all:local` & `pnpm ci:full:local`):**
-    *   `pnpm test:all:local`: User-facing entry point for quick validation.
-    *   `pnpm ci:full:local`: Full simulation of the CI pipeline (including build and lighthouse), ensuring that "it works on my machine" means it works in CI.
-    *   Both run an underlying orchestration script (`test-audit.sh`) that executes all checks (lint, type-check, tests) in a parallelized, multi-stage process.
+*   **Command Ladder Single Source of Truth:**
+    *   `pnpm test:infra`: Fast local health gate.
+    *   `pnpm test:unit`: Unit and integration truth for Vitest.
+    *   `pnpm test:e2e`: Full mocked Playwright E2E suite.
+    *   `pnpm test:full`: Full local release gate: quality, unit, build, and E2E.
+    *   `pnpm ci:full`: CI parity/orchestrator; must match GitHub Actions behavior before release.
 
 ### Testing Principles
 
@@ -554,12 +556,12 @@ This section provides high-level insights into the SpeakSharp project from multi
 *   **Pro User (Authenticated):**
     *   **Price:** **$14.99 / month.** (Or $149/year).
     *   **Limit:** **2 Hours / Day** (Capped at Max 50 Hours / Month). *Max 120-Minute soft limit per session, plus a 5-minute graceful wrap-up warning.*
-    *   **Engine:** Full access to **Private STT (WebGPU)** and the premium **Cloud AI (AssemblyAI)**.
+    *   **Engine:** Full access to **Private STT** (WebGPU -> CPU/Transformers.js -> Native after Private failure), **Cloud AI (AssemblyAI)**, and Native Browser STT.
     *   **Exclusive Premium Features:** To justify the $14.99 point, Pro users receive access to features that provide massive value but cost pennies in compute:
         *   **AI Speech Coach Feedback:** Post-session comprehensive analysis powered by advanced LLMs (e.g., Gemini Flash) providing structured feedback on tone, delivery, and structure.
         *   **Clean PDF Exports:** Professional, un-watermarked PDF report generation.
         *   **Speaker Diarization:** Multi-speaker awareness for real-world meeting analysis (Cloud STT only).
-    *   **Recommendation:** As AssemblyAI costs $0.47/hr, we must default users to the Private STT engine in the code. Cloud STT should be positioned as an auxiliary fallback for users on weak hardware or when ultimate accuracy is required. We must visually incentivize the Local Engine in the UI to push variable costs toward $0.
+    *   **Recommendation:** As AssemblyAI costs $0.47/hr, Pro users should land on Private STT by default and see it as the recommended privacy-first option. Cloud STT remains a first-class selectable Pro mode for users who prefer managed cloud accuracy, speaker diarization, or stronger vocabulary support.
 
 ---
 
@@ -574,7 +576,7 @@ Before deploying, verify:
 | Item | Command | Expected Result |
 |------|---------|-----------------|
 | Whisper model files | `ls -lh frontend/public/models/` | `tiny-q8g16.bin` (~30MB), `tokenizer.json` (~2MB) |
-| Full test suite | `pnpm test:all:local` | All 539 tests passing |
+| Full test suite | `pnpm test:full` | Quality, unit tests, build, and full mocked E2E passing |
 | Production build | `pnpm build` | Builds successfully |
 | Database migrations | Check Supabase Dashboard → SQL Editor | 14 migrations applied |
 

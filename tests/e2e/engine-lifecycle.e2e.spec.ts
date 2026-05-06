@@ -80,7 +80,7 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     await page.getByTestId('download-model-button').click({ force: true });
 
     // 🛡️ FORENSIC GATE: Assert the mock is frozen in the explicit download path.
-    await page.waitForFunction(() => typeof (window as any).__E2E_FINISH_DOWNLOAD__ === 'function', { timeout: 20000 });
+    await page.waitForFunction(() => typeof (window as unknown as Record<string, unknown>).__E2E_FINISH_DOWNLOAD__ === 'function', { timeout: 20000 });
 
     // 🛡️ UNFREEZE: Trigger completion from the test context
     await page.evaluate(() => {
@@ -100,20 +100,8 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     const startButton = page.getByTestId('session-start-stop-button');
     await expect(startButton).toHaveAttribute('data-recording', 'false', { timeout: 10000 });
     await startButton.click();
-    try {
-      await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 3000 });
-    } catch (e) {
-      // Intentionally swallow timeout to capture the trace
-    }
-
-    const events = await page.evaluate(() => {
-      const probe = (window as any).__E2E_PROBE__ || [];
-      return probe.map((e: any) => e.event);
-    });
-
-    console.log('E2E Trace Events:', events);
-    expect(events).toContain('SR_AFTER_WARMUP');
-    expect(events).toContain('SR_BEFORE_START_TRANSCRIPTION');
+    await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 15000 });
+    await startButton.click();
   });
 
   // SCENARIO 2: Fallback Negotiation (Whisper Failure -> transformers.js Success)

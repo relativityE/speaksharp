@@ -11,7 +11,7 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const AUDIO_DIR = path.resolve(__dirname, '../tests/fixtures/stt-isomorphic/audio');
-const BENCHMARK_FILE = path.resolve(__dirname, '../docs/STT_BENCHMARKS.json');
+const BENCHMARK_FILE = path.resolve(__dirname, '../tests/STT_BENCHMARKS.json');
 
 const apiKey = process.env.ASSEMBLYAI_API_KEY;
 if (!apiKey) {

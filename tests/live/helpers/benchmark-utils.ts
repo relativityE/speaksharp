@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export const BENCHMARKS_PATH = path.resolve('docs/STT_BENCHMARKS.json');
+export const BENCHMARKS_PATH = path.resolve('tests/STT_BENCHMARKS.json');
 export const REGRESSION_TOLERANCE = 0.02;
 
 export const AUDIO_ARGS = [

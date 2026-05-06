@@ -1,11 +1,11 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-03
+**Last Reviewed:** 2026-05-06
 
 🔗 [Back to Outline](./OUTLINE.md)
 
 # SpeakSharp System Architecture
 
-**Version 0.6.18** | **Last Updated: 2026-05-03** (SpeechRuntime Stabilization)
+**Version 0.6.18** | **Last Updated: 2026-05-06** (SpeechRuntime Stabilization)
 
 #### Pattern 32: Unconditional Root Readiness (`main.tsx`)
 **Problem:** Non-deterministic boot hangs (45s) caused by coupling the `data-app-ready` signal to heavy, asynchronous data/STT handshakes or nested route resolution.
@@ -398,11 +398,9 @@ All test scripts follow `test:<level>:<env>[:<mode>]` and CI orchestration scrip
 | Script | Level | Env | Mode | Description |
 |--------|-------|-----|------|-------------|
 | `test:agent` | agent | local | — | Fast deterministic repair loop with TIA Map (`test-impact-map`) |
-| `test:unit:local` | unit | local | — | Vitest with coverage |
-| `test:unit:local:watch` | unit | local | watch | Vitest in watch mode |
-| `test:e2e:mock:headless` | e2e | mock | headless | Full E2E (CI default) |
-| `test:e2e:mock:headed` | e2e | mock | headed | Playwright UI mode |
-| `test:e2e:mock:debug` | e2e | mock | debug | Headed with trace |
+| `test:unit` | unit | local | — | Vitest with coverage |
+| `test:e2e` | e2e | mock | headless | Builds test bundle, then runs full Playwright E2E |
+| `playwright test --headed` | e2e | mock | headed | Headed/browser-debug execution |
 | `test:int:local` | int | local | — | Auth/upgrade/analytics against real Supabase |
 | `test:system:local:headed` | system | local | headed | Full live suite + hardware |
 | `test:deploy` | deploy | prod | — | Post-deploy smoke |
@@ -411,7 +409,7 @@ All test scripts follow `test:<level>:<env>[:<mode>]` and CI orchestration scrip
 | `test:full` | all | local | — | Full quality gate |
 | `test:soak:api:cloud` | soak | cloud | — | API stress test |
 | `test:soak:ui:cloud` | soak | cloud | — | Memory/stability test |
-| `ci:full` | — | — | — | Full CI pipeline simulation |
+| `ci:full` | — | — | — | CI parity/orchestrator; must stay aligned with GitHub Actions |
 | `ci:dispatch:deploy` | — | — | — | Dispatch deploy smoke to GH Actions |
 | `ci:dispatch:soak` | — | — | — | Dispatch soak test to GH Actions |
 
@@ -645,15 +643,19 @@ External services (Supabase, Edge Functions) are mocked via Playwright routes in
 2. **Heartbeat Resilience**: Mandatory `getLastHeartbeatTimestamp()` for health monitoring, ensuring the orchestration layer can detect and recover from silent engine crashes.
 3. **Telemetry Integration**: Automated event recording via the `AnalyticsBuffer` (Pattern 29).
 
-**Capability Detection**:
+**Capability Detection and Private Ladder**:
 1.  **WhisperTurbo:** Fast, WebGPU-accelerated engine (primary).
-2.  **TransformersJS:** Slower, CPU-based fallback (safe).
+2.  **TransformersJS:** CPU/ONNX fallback when WebGPU is unavailable or fails.
+3.  **Native Browser STT:** Parent-service fallback only after Private cannot initialize through either local engine.
 
 **Caching:**
-The `PrivateSTT` class itself does not implement caching logic; it delegates to the underlying engines (`whisper-turbo` / `transformers.js`), which handle caching of model weights in the browser (IndexedDB/CacheStorage). The "Zero Latency" feature relies on this browser-level caching.
+The `PrivateSTT` class delegates model acquisition and cache reads to the underlying browser engines (`whisper-turbo` / `transformers.js`). Model weights are cached in browser-managed storage such as IndexedDB/CacheStorage, not an arbitrary OS filepath. On Pro default Private selection, the runtime should probe browser cache availability, surface `DOWNLOAD_REQUIRED` when the model is absent, download from Hugging Face with visible progress, persist the cached model/version, then initialize.
 
 **Native Fallback:**
 If `PrivateSTT` fails to initialize both engines (or crashes), the `TranscriptionService` (the parent orchestration layer) handles the fallback to **Native Browser STT** (Web Speech API).
+
+**Pro Mode Semantics:**
+Private is the recommended/default Pro selection because it is privacy-first and has no per-minute vendor cost. Cloud/AssemblyAI remains a first-class Pro choice; UI copy and runtime logic must not describe Cloud as degraded, rescue-only, or fallback-only.
 
 **Speaker Identification (Cloud):**
 The transcription pipeline now supports **Speaker Diarization**. The `CloudAssemblyAI` engine propagates speaker labels (e.g., `Speaker A`, `Speaker B`) into the `Transcript` object, allowing the UI to render multi-party conversations.
@@ -666,7 +668,8 @@ To provide users with a meaningful "Accuracy Signal" and mathematically verify S
 - **Static Config**: Theoretical maximum accuracy ceilings for each engine are stored in `tests/STT_BENCHMARKS.json`.
 - **Acoustic Synthesis**: The script `scripts/generate-filler-audio.sh` deterministically renders 16kHz `.wav` payloads containing specific phonemes (ums, ahs) using macOS `say` and `ffmpeg`.
 - **Isolated Evaluation Engine**: `scripts/benchmark-filler-ceiling.mts` executes these raw `.wav` fixtures through specific machine engines (Whisper or AssemblyAI) to calculate an exact Word Error Rate (WER) against ground-truth filler-word counts. This pipeline is isolated from the UI UI E2E test-suite to preserve CI execution speed.
-- **Environment Gating**: While **AssemblyAI (Cloud)** and **Whisper (CPU)** are automated in CI via tiered execution, the **WhisperTurbo (WebGPU)** ceiling is human-maintained. It must be manually updated in `tests/STT_BENCHMARKS.json` when running benchmarks on a GPU-enabled developer machine. 
+- **Fixture Corpus**: The canonical audio/transcript pairs live in `tests/fixtures/stt-isomorphic/`: 10 Harvard sentence `.wav` files are paired with `harvard-sentences.ts`, and 2 filler `.wav` files are paired with `filler-sentences.ts`. The separate `tests/fixtures/speeches/` folders currently contain transcript/metadata only and are not complete audio benchmarks yet.
+- **Environment Gating**: While **AssemblyAI (Cloud)** and **Whisper (CPU)** can be benchmarked by scripts/runners, the **WhisperTurbo (WebGPU)** ceiling is a headed local hardware validation gate, not a strict CI requirement. It must be manually updated in `tests/STT_BENCHMARKS.json` when running benchmarks on a GPU-enabled developer machine. 
 - **Pro Calibration**: Live benchmarks support authenticated Pro-user credentials via `E2E_PRO_EMAIL` and `E2E_PRO_PASSWORD` to verify restricted STT modes (Private/WebGPU) and tier-specific accuracy Signal.
 - **Dynamic Scoring**: The frontend `useAnalytics` hook dynamically calculates the user's live WER and charts it against this static ceiling benchmark to show relative performance over time.
 
@@ -860,7 +863,7 @@ To avoid blocking the user experience during large model downloads (e.g., Privat
 #### Race Logic Implementation
 - **Timeout**: Enforced at **2000ms (2s)**.
 - **Path A (Hit)**: If the model is cached, initialization completes within the window, and the session begins in `private` mode immediately.
-- **Path B (Miss/Slow)**: If the model must be downloaded or initialization is slow, the 2s timeout triggers a `CACHE_MISS`. The system immediately falls back to the next available mode to ensure zero-wait recording.
+- **Path B (Miss/Slow)**: If the model is absent, the system surfaces the Private download/progress state. Native may be used only after the allowed Private initialization path fails or the user chooses a non-Private mode; Cloud is a selectable Pro mode, not an automatic fallback.
 - **Mock Handling**: Mock instances (from `TestRegistry` or `E2EConfig`) **bypass the Optimistic Entry timeout** to prevent race conditions during automated tests, ensuring deterministic behavior even on slow CI runners.
 
 ### 3.10 Forensic Signaling Infrastructure (v0.6.4)
@@ -908,7 +911,7 @@ The `private-stt.e2e.spec.ts` and `private-stt-resilience.spec.ts` tests verify 
 The resilience test suite asserts:
 1. **Immediate Intent**: "Setting up private model" toast appears within 2s (Optimistic Entry window).
 2. **Zero-Wait Session**: "Recording active" UI appears immediately using fallback mode.
-3. **Background Persistency**: The `StatusNotificationBar` persists "Downloading private model" during the fallback session.
+3. **Background Persistency**: The `StatusNotificationBar` persists "Downloading private model" during the Private provisioning flow.
 4. **Completion Milestone**: The success toast "Private model ready" appears AFTER the simulated download finishes, indicating the engine is hot-swapped or ready for the next session.
 
 
@@ -3214,12 +3217,12 @@ The filler word analysis logic (`fillerWordUtils.ts`) has been optimized to hand
 
 ## 15. Resilience Patterns (Added v5.4)
 
-### 15.1 Optimistic Entry Pattern
-To prevent "loading fatigue" when a user selects Private STT and the model is not cached, the system uses an **Optimistic Entry** strategy in `TranscriptionService.ts`:
-1.  **Race Initialization**: We start the Private engine and a 200ms timeout.
-2.  **Instant Start**: If the engine initializes (cache hit) within 200ms, the session starts directly in Private mode.
-3.  **Background Load**: If it takes longer (cache miss), we immediately fallback to the next available engine (Cloud or Native) so the user can start recording instantly.
-4.  **Silent Swap**: The Private engine continues loading in the background. Once ready, the system acknowledges it via a toast, allowing for future sessions to be private without interruption.
+### 15.1 Intentional Private Provisioning Pattern
+When a Pro user selects Private STT and the model is not cached, the system uses an explicit provisioning contract in `TranscriptionService.ts`:
+1.  **Cache Probe**: Probe browser-managed model storage through the Private engine layer.
+2.  **Instant Private Start on Hit**: If the model is cached, initialize and record in Private mode.
+3.  **Download Required on Miss**: If the model is missing, surface `DOWNLOAD_REQUIRED` and a progress UI for Hugging Face model acquisition.
+4.  **Fallback Boundary**: Try WebGPU, then CPU/Transformers.js. Native is used only after the allowed Private path fails or the user deliberately selects Native. Cloud remains a first-class Pro choice, not a fallback target.
 
 ### 15.2 Test Registry & Dependency Injection
 To ensure deterministic E2E testing of the resilience flow, we've implemented a formal **Dependency Injection** pattern:

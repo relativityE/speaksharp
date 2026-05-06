@@ -83,6 +83,15 @@ const App: React.FC = () => {
       bridge.stopRecording = () => { void getController()?.stopRecording(); };
       bridge.getFSMState = () => getService()?.fsm.getState() || 'IDLE';
       bridge.destroyService = () => sessionManager.destroySession();
+      bridge.emitTranscript = (text: string, isFinal: boolean = true) => {
+        const activeCallbacks = g.__SS_E2E__?._activeCallbacks;
+        activeCallbacks?.onTranscriptUpdate?.({
+          transcript: isFinal ? { final: text } : { partial: text },
+          isFinal,
+          isPartial: !isFinal,
+          timestamp: Date.now(),
+        });
+      };
       bridge.onStateChange = (cb) => {
         const s = getService();
         return s?.fsm.subscribe(cb);

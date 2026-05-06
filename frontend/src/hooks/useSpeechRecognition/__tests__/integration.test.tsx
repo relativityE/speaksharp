@@ -137,7 +137,7 @@ describe('useSpeechRecognition Integration', () => {
     const waitForReady = async (): Promise<void> => {
         const store = speechRuntimeController.getStore();
         if (store.getState().isReady) return;
-        
+
         for (let elapsed = 0; elapsed < 5000; elapsed += 10) {
             await vi.advanceTimersByTimeAsync(10);
             if (store.getState().isReady) return;

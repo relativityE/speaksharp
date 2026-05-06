@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.19] - 2026-05-06
+### Fixed
+- **SpeechRuntime Transcript Propagation**: Buffered early transcript updates during engine warmup/start and flushed them through the same successful path that updates user-visible transcript state and emits `TRANSCRIPT_PULSE` telemetry.
+- **Session Isolation Guard**: Preserved stale-session protection while avoiding false drops when callback registration has no current user id.
+- **E2E Transcript Bridge**: Restored `window.__SS_E2E__.emitTranscript` delivery to active transcription callbacks for deterministic mocked browser journeys.
+- **Benchmark Manifest Drift**: Normalized live benchmark helpers and AssemblyAI benchmark tooling to the canonical `tests/STT_BENCHMARKS.json` path.
+
+### Changed
+- **Pro STT UX**: Private STT is ordered as the recommended/default Pro choice, while Cloud remains a first-class selectable Pro mode.
+- **Documentation Alignment**: Updated README, PRD, Architecture, Roadmap, and Agent guidance to reflect the current command ladder, Private ladder, benchmark corpus, and verified local baseline.
+
+### Verified
+- `pnpm typecheck` clean.
+- `pnpm test:unit`: 105 files passed; 621 tests passed and 1 todo.
+- `pnpm test:e2e --project=full-suite`: 40/40 passed locally.
+- `pnpm test:full`: lint, typecheck, eslint-disable, unit, and build passed; E2E reported 39/40 with the remaining goal-setting readiness hang tracked in `ROADMAP.md`.
+
 ## [0.6.18] - 2026-05-03
 ### Added
 - **Phase 4 Stabilization**: Implemented `isBooting` lifecycle guard in `SpeechRuntimeController.ts` (S4.1) to prevent state fragmentation during infrastructure boot.
