@@ -48,6 +48,7 @@ case $STAGE in
         pnpm quality
         pnpm exec vitest run --config frontend/vitest.config.mjs --coverage --coverage.reporter=json-summary --reporter=./scripts/vitest-ci-reporter.mjs
         pnpm build:test
+        pnpm exec playwright test --project=infra-probe --workers=1 --reporter=line --output=test-results/playwright-infra
         ;;
     test)
         echo "🚀 Running CI E2E shard stage..."
@@ -56,9 +57,9 @@ case $STAGE in
             if [[ "$subarg" =~ ^[0-9]+$ ]]; then SHARD="$subarg"; fi
         done
         if [ -n "$SHARD" ]; then
-            pnpm exec playwright test --shard="${SHARD}/4" --reporter=blob --output=test-results/playwright
+            pnpm exec playwright test --project=full-suite --no-deps --shard="${SHARD}/4" --reporter=blob --output=test-results/playwright
         else
-            pnpm exec playwright test --reporter=blob --output=test-results/playwright
+            pnpm exec playwright test --project=full-suite --no-deps --reporter=blob --output=test-results/playwright
         fi
         ;;
     report)

@@ -499,6 +499,23 @@ async function main() {
                             'tests/e2e/infra.probe.e2e.spec.ts'
                         ], { label: 'INFRA-PROBE' });
                     } else if (impactOutput === 'ALL' || isFullMode) {
+                        console.log("[CI] Running Infrastructure Probe once before sharded app journeys...");
+                        await runCommand('pnpm', [
+                            'exec',
+                            'playwright',
+                            'test',
+                            '--project=infra-probe',
+                            '--workers=1',
+                            '--reporter=./scripts/playwright-telemetry-reporter.mjs',
+                            '--output=test-results/playwright-infra'
+                        ], {
+                            label: 'INFRA-PROBE',
+                            env: {
+                                ...process.env,
+                                PLAYWRIGHT_JSON_OUTPUT_NAME: path.join(rootDir, 'test-results/playwright/infra-results.json')
+                            }
+                        });
+
                         const totalShards = 4;
                         for (let i = 1; i <= totalShards; i++) {
                             console.log(`${ANSI.CYAN}[CI] Executing Shard ${i}/${totalShards}...${ANSI.RESET}`);
@@ -507,6 +524,8 @@ async function main() {
                                     'exec',
                                     'playwright',
                                     'test',
+                                    '--project=full-suite',
+                                    '--no-deps',
                                     `--workers=${workerCount}`,
                                     `--shard=${i}/${totalShards}`,
                                     '--reporter=./scripts/playwright-telemetry-reporter.mjs',
