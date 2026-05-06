@@ -135,7 +135,7 @@ export class SpeechRuntimeController {
             window.__SpeechRuntimeController__ = SpeechRuntimeController;
 
             // Fix 1 Correction: Programmatic Mode Switch
-            (window as any).__E2E_SET_MODE__ = (mode: TranscriptionMode) => {
+            (window as unknown as Record<string, unknown>).__E2E_SET_MODE__ = (mode: TranscriptionMode) => {
                 this.updatePolicy({ ...this.policy!, preferredMode: mode });
             };
         }
@@ -429,11 +429,12 @@ export class SpeechRuntimeController {
      *
      * @example
      * await controller.startRecording();
-     * await controller.whenStable();
-     * expect(store.getState().sessionId).toBeDefined();
+     * await controller.whenStable(); // FSM is now RECORDING
+     * await waitFor(() => expect(store.getState().sessionId).toBeDefined()); // Wait for projection
      */
     public async whenStable(): Promise<void> {
-        return this.commandQueue;
+        await this.commandQueue;
+        pushE2EEvent('WHEN_STABLE_RESOLVED');
     }
 
     private handleStrategyReady(): void {

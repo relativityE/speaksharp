@@ -232,11 +232,15 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     }
 
     if (this.mockEngine) {
-        logger.info('[NativeBrowser] 🧪 Using injected MockEngine');
-        if (this.mockEngine.start) await this.mockEngine.start(_mic);
-        this.isListening = true;
-        this.currentTranscript = '';
-        return;
+      logger.info('[NativeBrowser] 🧪 Using injected MockEngine');
+      if (this.mockEngine.start) await this.mockEngine.start(_mic);
+      this.isListening = true;
+      this.currentTranscript = '';
+      return;
+    }
+
+    if (this.recognition) {
+      this.recognition.start();
     }
 
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] recognition.start() called successfully.');

@@ -134,7 +134,6 @@ export const useSessionStore = create<SessionStore>((set) => {
         }),
 
     updateTranscript: (transcriptText, partial = '') => {
-        console.warn(`[DIAG-STORE] updateTranscript: "${transcriptText.substring(0, 30)}..." (partial: "${partial}")`);
         set({
             transcript: {
                 transcript: transcriptText,

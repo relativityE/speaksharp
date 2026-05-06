@@ -24,7 +24,7 @@ export class MockEngine extends STTEngine {
         super(_options);
     }
 
-    private setState(state: string): void {
+    private setState(_state: string): void {
         // NOTE: Forensic signaling (data-runtime-state) is now handled 
         // centrally by TranscriptionProvider via the store subscription.
     }

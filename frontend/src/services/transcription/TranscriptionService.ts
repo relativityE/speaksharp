@@ -243,25 +243,7 @@ export default class TranscriptionService {
     this.strategyCallbacks = {
       onTranscriptUpdate: (data) => {
         if (this.isTerminated) return;
-
-        const state = this.fsm.getState();
-        if (state !== 'RECORDING') return; // 🛡️ Strict Hardening Gate
-
-        pushE2EEvent('TRANSCRIPT_PULSE', { isFinal: !!data.transcript?.final, source: 'TranscriptionService', sessionId: this.sessionId });
-
-        const final = data.transcript?.final || '';
-        const partial = data.transcript?.partial || '';
-
-        if (final) this.currentTranscript = final;
-        if (partial) this.partialTranscript = partial;
-
-        this.options.onTranscriptUpdate?.({
-          ...data,
-          transcript: {
-            final,
-            partial: final ? '' : partial
-          }
-        });
+        this.processTranscript(data);
       },
       onModelLoadProgress: (p) => {
         if (this.isTerminated) return;

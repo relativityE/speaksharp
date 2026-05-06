@@ -188,9 +188,10 @@ export const useSessionLifecycle = () => {
                 // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
                 await speechRuntimeController.startRecording(undefined, userFillerWords);
                 posthog.capture('session_started', { mode: sttMode });
-            } catch (error: any) {
-                logger.error({ error, stack: error?.stack }, '[useSessionLifecycle] Failed to start recording');
-                setSTTStatus({ type: 'error', message: `⚠️ Failed to start recording: ${error?.message || 'Unknown'}` });
+            } catch (error) {
+                const err = error as Error;
+                logger.error({ error: err, stack: err?.stack }, '[useSessionLifecycle] Failed to start recording');
+                setSTTStatus({ type: 'error', message: `⚠️ Failed to start recording: ${err?.message || 'Unknown'}` });
             } finally {
                 isProcessingRef.current = false;
             }

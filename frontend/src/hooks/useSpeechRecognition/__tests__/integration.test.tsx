@@ -57,6 +57,19 @@ describe('useSpeechRecognition Integration', () => {
         throw new Error(`[waitForControllerState] '${targetState}' not reached after ${maxAdvanceMs}ms`);
     };
 
+    const waitForAsync = async (assertion: () => void, timeout = 5000): Promise<void> => {
+        const start = Date.now();
+        while (Date.now() - start < timeout) {
+            try {
+                assertion();
+                return;
+            } catch (e) {
+                await vi.advanceTimersByTimeAsync(50);
+            }
+        }
+        assertion(); // Final attempt to throw original error
+    };
+
     beforeEach(async () => {
         speechRuntimeController.reset();
         vi.clearAllMocks();
@@ -189,9 +202,9 @@ describe('useSpeechRecognition Integration', () => {
         });
 
         // 5. Assert — the stop handler must have captured 'Final State'
-        await speechRuntimeController.whenStable();
-        // Note: transcript property in this hook is a stats object { transcript: string, ... }
-        expect(result.current.transcript.transcript).toBe('Final State');
+        await waitForAsync(() => {
+            expect(result.current.transcript.transcript).toBe('Final State');
+        });
     });
 
     it('should handle service errors gracefully', async () => {
@@ -213,10 +226,11 @@ describe('useSpeechRecognition Integration', () => {
             }
         });
 
-        await speechRuntimeController.whenStable();
-        const status = result.current.sttStatus;
-        expect(status.type).toBe('error');
-        expect(status.message).toBe('Microphone access denied');
+        await waitForAsync(() => {
+            const status = result.current.sttStatus;
+            expect(status.type).toBe('error');
+            expect(status.message).toBe('Microphone access denied');
+        });
     });
 
     it('should capture usage limit exceeded state mid-session', async () => {
@@ -241,10 +255,11 @@ describe('useSpeechRecognition Integration', () => {
             }
         });
 
-        await speechRuntimeController.whenStable();
-        const status = result.current.sttStatus;
-        expect(status.type).toBe('error');
-        expect(status.message).toBe('Daily usage limit reached');
+        await waitForAsync(() => {
+            const status = result.current.sttStatus;
+            expect(status.type).toBe('error');
+            expect(status.message).toBe('Daily usage limit reached');
+        });
     });
 
     it('should cleanup on unmount', async () => {
@@ -320,9 +335,10 @@ describe('useSpeechRecognition Integration', () => {
             speechRuntimeController.confirmSubscriberHandshake();
         });
 
-        await speechRuntimeController.whenStable();
-        expect(result.current.chunks.length).toBe(1);
-        expect(result.current.chunks[0].transcript).toBe('Early message');
+        await waitForAsync(() => {
+            expect(result.current.chunks.length).toBe(1);
+            expect(result.current.chunks[0].transcript).toBe('Early message');
+        });
     });
 
     it('should reclaim resources after 5 minutes of inactivity', async () => {

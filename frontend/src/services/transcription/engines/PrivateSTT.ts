@@ -130,12 +130,12 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             const initResult = await (engine as unknown as IPrivateSTTEngine).init(timeoutMs, isMock);
             
             // 🛡️ Safe check: Mocks might not return a Result object
-            const isOk = initResult ? (initResult as any).isOk !== false : true;
+            const isOk = initResult ? (initResult as { isOk?: boolean }).isOk !== false : true;
             
             if (!isOk) {
                 // 🚨 DEFENSE: Purge failed registry engine before fallback
                 await (engine as unknown as IPrivateSTTEngine).terminate?.();
-                logger.warn({ engine: preferredEngine, error: initResult ? (initResult as any).error : new Error('Mock init failed') }, '[PrivateSTT] Registry engine failed to initialize. Continuing discovery...');
+                logger.warn({ engine: preferredEngine, error: initResult ? (initResult as { error?: Error }).error : new Error('Mock init failed') }, '[PrivateSTT] Registry engine failed to initialize. Continuing discovery...');
                 return Result.ok(undefined); // Allow discovery to continue
             }
             this.engine = engine as unknown as IPrivateSTTEngine;

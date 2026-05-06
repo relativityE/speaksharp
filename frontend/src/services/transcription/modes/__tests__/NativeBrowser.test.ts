@@ -13,9 +13,10 @@ const mockRecognition = {
   start: vi.fn(),
   stop: vi.fn(),
   abort: vi.fn(),
-  onresult: null as ((event: Event) => void) | null,
+  onresult: null as ((event: any) => void) | null,
+  onstart: null as ((event: Event) => void) | null,
   onerror: vi.fn(),
-  onend: vi.fn(),
+  onend: null as ((event: Event) => void) | null,
   continuous: false,
   interimResults: false,
 };
@@ -53,81 +54,106 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(mockRecognition.continuous).toBe(true);
       expect(mockRecognition.interimResults).toBe(true);
     });
-
+ 
     it('should call start on the recognition object when start is called', async () => {
       await nativeBrowser.init();
-      await nativeBrowser.start();
+      const startPromise = nativeBrowser.start();
+      
+      // Manually trigger the async onstart event
+      if (mockRecognition.onstart) mockRecognition.onstart({} as Event);
+      
+      await startPromise;
       expect(mockRecognition.start).toHaveBeenCalledTimes(1);
     });
-
+ 
     it('should call stop on the recognition object when stop is called', async () => {
       await nativeBrowser.init();
-      await nativeBrowser.start();
-      await nativeBrowser.stop();
+      
+      const startPromise = nativeBrowser.start();
+      if (mockRecognition.onstart) mockRecognition.onstart({} as Event);
+      await startPromise;
+
+      const stopPromise = nativeBrowser.stop();
+      if (mockRecognition.onend) mockRecognition.onend({} as Event);
+      await stopPromise;
+
       expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
     });
   });
-
+ 
   describe('Result Handling', () => {
     it('should handle final transcript results correctly', async () => {
       await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      if (mockRecognition.onstart) mockRecognition.onstart({} as Event);
+      await startPromise;
+
       const resultItem = { transcript: 'hello world', confidence: 0.9, isFinal: true };
       const resultList = Object.assign([resultItem], { isFinal: true });
       const event = { results: [resultList], resultIndex: 0 };
-
+ 
       // Simulate the onresult event
       if (mockRecognition.onresult) {
-        mockRecognition.onresult(event as unknown as Event);
+        mockRecognition.onresult(event as unknown as any);
       }
-
+ 
       expect(onTranscriptUpdate).toHaveBeenCalledWith({
         transcript: { final: 'hello world' },
       });
     });
-
+ 
     it('should handle interim transcript results correctly', async () => {
       await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      if (mockRecognition.onstart) mockRecognition.onstart({} as Event);
+      await startPromise;
+
       const resultItem = { transcript: 'hello', confidence: 0.8, isFinal: false };
       const resultList = Object.assign([resultItem], { isFinal: false });
       const event = { results: [resultList], resultIndex: 0 };
-
+ 
       // Simulate the onresult event
       if (mockRecognition.onresult) {
-        mockRecognition.onresult(event as unknown as Event);
+        mockRecognition.onresult(event as unknown as any);
       }
-
+ 
       expect(onTranscriptUpdate).toHaveBeenCalledWith({
         transcript: { partial: 'hello' },
       });
     });
+
     it('REGRESSION: should handle rapid onend events without redundant starts', async () => {
-      await nativeBrowser.init();
-      await nativeBrowser.start();
-
       vi.useFakeTimers();
-
-      // Simulate onend
+      await nativeBrowser.init();
+      
+      const startPromise = nativeBrowser.start();
+      if (mockRecognition.onstart) mockRecognition.onstart({} as Event);
+      await startPromise;
+ 
+      // Simulate onend (crash)
       if (mockRecognition.onend) {
         mockRecognition.onend({} as Event);
       }
-
+ 
       // Fast forward past the 50ms delay
       await vi.advanceTimersByTimeAsync(60);
-
+ 
       // Should have started again
       expect(mockRecognition.start).toHaveBeenCalledTimes(2);
-
+      
+      // Settle 2nd onstart
+      if (mockRecognition.onstart) mockRecognition.onstart({} as Event);
+ 
       // Simulate another onend immediately
       if (mockRecognition.onend) {
         mockRecognition.onend({} as Event);
       }
-
+ 
       await vi.advanceTimersByTimeAsync(60);
-
-      // Should NOT have started a 3rd time if it's already restarting or listening
-      // Actually, NativeBrowser logic uses isRestarting flag to prevent this.
+ 
+      // Should have started a 3rd time
       expect(mockRecognition.start).toHaveBeenCalledTimes(3);
-
+ 
       vi.useRealTimers();
     });
   });
