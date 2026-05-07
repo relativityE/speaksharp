@@ -224,9 +224,11 @@ jobs:
 
       - name: Merge E2E Reports
         run: |
-          mkdir -p test-results/playwright
-          if [ "$(find artifacts/playwright -type f -name '*.zip' | wc -l)" -gt 0 ]; then
-            pnpm exec playwright merge-reports --reporter json,html artifacts/playwright > test-results/playwright/results.json
+          mkdir -p test-results/playwright artifacts/playwright-merge
+          find artifacts/playwright -type f -name '*.zip' -exec cp {} artifacts/playwright-merge/ \;
+
+          if [ "$(find artifacts/playwright-merge -type f -name '*.zip' | wc -l)" -gt 0 ]; then
+            pnpm exec playwright merge-reports --reporter json,html artifacts/playwright-merge > test-results/playwright/results.json
             echo "✅ Merged E2E report saved to test-results/playwright/results.json"
           else
             echo "⚠️ No E2E reports to merge"

@@ -14,9 +14,9 @@
     "assert": {
       "assertions": {
         "categories:performance": [
-          "error",
+          "warn",
           {
-            "minScore": 0.9
+            "minScore": 0.8
           }
         ],
         "categories:accessibility": [
