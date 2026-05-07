@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-06
+**Last Updated:** 2026-05-07
 
 # Recovery Strategy
 
@@ -36,7 +36,7 @@ SpeakSharp prioritizes service restoration and data integrity over "rollback pur
 - **Database**: Reversion is DISCOURAGED. Use additive-forward migrations to fix schema issues.
 
 ### 4. Degraded Mode Behavior
-- **STT Failure**: If Cloud STT (AssemblyAI) fails, automatically transition all sessions to Private STT or Native Browser STT via a remote feature flag.
+- **STT Failure**: If Cloud STT (AssemblyAI) fails, disable Cloud start and present Private/Native as explicit alternatives. If Private STT fails, use only the defined Private ladder (WebGPU -> CPU/Transformers.js -> Native) and never silently switch to Cloud.
 - **DB Latency**: Increase `TranscriptionService` retry timeouts to 30s before flagging failure.
 
 ---

@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-06
+**Last Updated:** 2026-05-07
 
 # Runtime Configuration Verification (Launch Checklist)
 
@@ -24,12 +24,16 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 
 ## 3. Observability & Monitoring
 - [ ] **Sentry DSN**: `VITE_SENTRY_DSN` is set to the production project.
+- [ ] **Backend Sentry DSN**: `SENTRY_DSN` is set for Edge Functions if backend ingest is used.
 - [ ] **Sentry Ingest**: Verified one manual test error has been ingested in live project.
 - [ ] **Log Levels**: Production `LOG_LEVEL` is set to `info` to avoid debug overhead.
 
 ## 4. Third-Party APIs
 - [ ] **AssemblyAI**: `ASSEMBLYAI_API_KEY` using production paid-tier key.
 - [ ] **PostHog**: `VITE_POSTHOG_KEY` set to production project.
+- [ ] **AssemblyAI Token Denial**: Unauthenticated token request returns 401.
+- [ ] **AssemblyAI Token Grant**: Authenticated, in-limit Pro token request returns a short-lived token.
+- [ ] **AssemblyAI Over-Limit Denial**: Authenticated, over-limit Pro token request returns 403.
 
 ## 5. Security & Rate Limiting
 - [ ] **Rate Limits**: `rate-limiter` config set to production values (e.g., 100/min per IP).

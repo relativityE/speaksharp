@@ -76,7 +76,25 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // 3. Generate token (user is authenticated and has Pro subscription)
+    // 3. Verify usage eligibility before issuing a paid Cloud token.
+    const { data: usageLimit, error: usageError } = await supabase.rpc("check_usage_limit");
+    if (usageError) {
+      console.error("🚫 Failed to verify usage limit before AssemblyAI token issuance:", usageError.message);
+      return new Response(JSON.stringify({ error: "Unable to verify usage limit" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json", ...corsHeaders(req) },
+      });
+    }
+
+    if (usageLimit && usageLimit.can_start === false) {
+      console.warn(`🚫 Token request rejected: User ${user.id} cannot start a Cloud session`);
+      return new Response(JSON.stringify({ error: usageLimit.error ?? "Usage limit reached" }), {
+        status: 429,
+        headers: { "Content-Type": "application/json", ...corsHeaders(req) },
+      });
+    }
+
+    // 4. Generate token (user is authenticated, Pro, and usage-eligible)
     console.log(`✅ Generating AssemblyAI token for Pro user: ${user.id}`);
 
     const expiresIn = 600; // max 600 seconds

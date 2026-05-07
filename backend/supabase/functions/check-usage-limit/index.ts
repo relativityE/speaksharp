@@ -8,8 +8,6 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const FREE_TIER_LIMIT_SECONDS = 3600; // 1 hour per day (Alpha Launch Refactor)
-
 interface UsageLimitResponse {
     can_start: boolean;
     remaining_seconds: number; // -1 for unlimited (Pro)
@@ -87,17 +85,15 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
         if (rpcError) {
             console.error('RPC check_usage_limit error:', rpcError);
-            // Fail open - allow session
-            const response: UsageLimitResponse = {
-                can_start: true,
-                remaining_seconds: FREE_TIER_LIMIT_SECONDS,
-                limit_seconds: FREE_TIER_LIMIT_SECONDS,
-                used_seconds: 0,
-                subscription_status: 'unknown',
-                is_pro: false,
-                error: 'RPC failure - failing open',
-            };
-            return createSuccessResponse(response, corsHeaders);
+            return createErrorResponse(
+                ErrorCodes.DATABASE_ERROR,
+                'Unable to verify usage limit',
+                corsHeaders,
+                {
+                    can_start: false,
+                    reason: 'usage_verification_failed',
+                }
+            );
         }
 
         // Handle Promo Expiry (Legacy check, keep for now until we move it to a dedicated cron/trigger)
@@ -129,7 +125,10 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
             ErrorCodes.INTERNAL_ERROR,
             errorMessage,
             corsHeaders,
-            { can_start: true } // Fail open - allow session
+            {
+                can_start: false,
+                reason: 'usage_verification_failed',
+            }
         );
     }
 }

@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18
-**Last Updated:** 2026-05-06
+**Last Updated:** 2026-05-07
 
 # SpeakSharp Release Audit (Forensic Analysis)
 
@@ -37,11 +37,11 @@ SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestr
 - **Impact**: Direct financial loss. Power users can bypass the 50-hour cap indefinitely.
 - **Remediation**: Invoke `check_usage_limit` RPC within the token generation function.
 
-### 3. Negative Duration Exploitation (`update_user_usage` RPC)
-- **Evidence**: `20260224000000_usage_tier_refactor.sql:35`
-- **Vulnerability**: The RPC `create_session_and_update_usage` accepts a `p_duration` parameter and adds it to `usage_seconds`. It lacks a non-negative constraint. A malicious user can send a negative duration to "refund" their daily usage.
+### 3. Negative Duration Exploitation (`update_user_usage` / `heartbeat_session` RPCs)
+- **Evidence**: `backend/supabase/migrations/20260309000000_phase2_integration.sql:57` and `backend/supabase/migrations/20260309000000_phase2_integration.sql:313`
+- **Vulnerability**: The latest usage RPC path accepts duration/increment parameters and adds them to usage counters without an explicit non-negative guard. `create_session_and_update_usage` has some session-data guard behavior, but `update_user_usage` and `heartbeat_session` remain direct abuse paths if callable with negative increments.
 - **Impact**: Permanent bypass of daily/monthly quotas.
-- **Remediation**: Add `CHECK (p_duration >= 0)` constraint to the RPC parameter or logic.
+- **Remediation**: Add explicit non-negative guards to all usage mutation RPCs and back them with adversarial tests.
 
 ### 4. Promo Code Brute-Force (`apply-promo`)
 - **Evidence**: `backend/supabase/functions/apply-promo/index.ts`
@@ -88,7 +88,7 @@ SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestr
 
 ## 🏁 Final Go/No-Go Recommendations
 
-1. **NO-GO**: Do not launch until **P0 Blockers 1, 2, and 3** are resolved. These are financial liabilities.
+1. **NO-GO**: Do not launch until **all P0 blockers (1-4)** are resolved. These are financial, integrity, and unauthorized-access liabilities.
 2. **POLISH**: Resolve **P1 Defect 1** (Pro Warning) before accepting first paid users to avoid negative reviews.
 3. **HARDEN**: Implement **Fail-Closed** logic across all Edge Functions.
 4. **SYNC**: Update `PRD.md` summary tables to reflect the actual test coverage (~55%) to restore auditor trust.

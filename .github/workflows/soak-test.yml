@@ -38,7 +38,7 @@ jobs:
         run: |
           DURATION=$(grep "const SOAK_MEMORY_DURATION_MS =" tests/constants.ts | grep -oE "[0-9]+;" | tr -d ";")
           echo "Extracted Default Duration: $DURATION ms"
-          SOAK_MEMORY_DURATION_MS=$DURATION pnpm test:soak:memory
+          SOAK_MEMORY_DURATION_MS=$DURATION pnpm test:soak:ui:cloud
 
       - name: Upload test results
         if: always()

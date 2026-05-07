@@ -1,34 +1,61 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-06
+**Last Updated:** 2026-05-07
 
-# 🎙️ Manual Hardware Validation Checklist
+# Manual Hardware Validation Checklist
 
-CI validates the logic; this checklist validates the **Reality**. This MUST be completed on real devices before the launch window closes.
+CI does not validate real microphone hardware. Complete this checklist before launch. Use real devices, real browser permissions, and a real authenticated user.
 
-## 1. Desktop Browser Matrix
-Test on: Chrome (latest), Safari (latest), Firefox (latest).
+## Desktop Chrome
 
-- [ ] **Mic Permission**: Verify the browser "Allow" prompt appears and session starts only after consent.
-- [ ] **Hardware Mute**: Verify that clicking the physical "Mute" button on the mic/laptop doesn't crash the FSM (should just stop getting audio pulses).
-- [ ] **Bluetooth Switch**: While recording, disconnect Bluetooth headphones. Verify system switches to default mic or errors gracefully (no silent hangs).
-- [ ] **Private STT (WebGPU)**: Verify the "Download Required" modal appears on Chrome. Verify successful download and "Model Ready" toast.
+- [ ] Grant mic permission.
+- [ ] Deny mic permission and verify error UX.
+- [ ] Start Native STT session.
+- [ ] Stop session.
+- [ ] Save session.
+- [ ] Refresh during recording.
+- [ ] Switch STT mode only via explicit user action.
+- [ ] Start Private STT with WebGPU available.
+- [ ] If model is missing, verify explicit download/progress/ready flow.
+- [ ] Verify cached model is reused on second Private STT start.
 
-## 2. Mobile Browser Matrix (The High-Risk Zone)
-Test on: iOS Safari (mandatory), Android Chrome.
+## Desktop Safari
 
-- [ ] **Audio Session Interruption**: While recording, trigger a phone call. Verify the session pauses or stops gracefully when audio focus is lost.
-- [ ] **Backgrounding**: Start recording, then switch apps. Verify if audio continues (if intended) or stops without corrupting the session.
-- [ ] **Low Power Mode**: Verify transcription performance doesn't lag significantly under CPU throttling.
-- [ ] **Mobile RAM**: Verify `PrivateSTT` (TransformersJS) doesn't crash the tab on iOS Safari (limited RAM).
+- [ ] Grant mic permission.
+- [ ] Start/stop session.
+- [ ] Verify no crash on AudioContext initialization.
+- [ ] Verify fallback messaging.
 
-## 3. UI Stress Tests (Headed)
-- [ ] **Rapid Start/Stop**: Click "Start" and "Stop" repeatedly (10x). Verify no "Identity Hijack" or overlapping session timers.
-- [ ] **Tab Sleep**: Leave an active recording tab backgrounded for 2 minutes. Return and verify it is still recording or has timed out correctly.
-- [ ] **Network Disconnect**: While recording with Cloud STT, disable WiFi. Verify "Connection Lost" toast and successful reconnect logic.
+## Firefox
 
-## 4. Hardware Evidence Logs
+- [ ] Grant mic permission.
+- [ ] Start/stop session.
+- [ ] Verify browser compatibility messaging if unsupported.
+
+## iPhone Safari
+
+- [ ] Open app.
+- [ ] Auth flow works.
+- [ ] Mic permission prompt appears.
+- [ ] If STT unsupported, UX explains limitation.
+- [ ] Background app during recording and verify recoverable stop/pause behavior.
+
+## Bluetooth / External Mic
+
+- [ ] Start with built-in mic.
+- [ ] Start with external mic.
+- [ ] Disconnect external mic mid-session.
+- [ ] Verify recoverable error behavior.
+
+## Stress / Degraded Conditions
+
+- [ ] Rapid start/stop 10 times; verify no overlapping timers or duplicate active sessions.
+- [ ] Leave active recording tab backgrounded for 2 minutes; verify expected recording or timeout behavior.
+- [ ] Disable WiFi during Cloud STT; verify connection-loss messaging and recovery/failure path.
+- [ ] Trigger hardware mute during recording; verify no crash or unrecoverable FSM state.
+
+## Hardware Evidence Logs
 If any check fails:
 1. Capture screen recording.
 2. Export `TranscriptionService` debug logs from console.

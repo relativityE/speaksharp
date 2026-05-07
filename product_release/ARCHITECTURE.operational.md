@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-06
+**Last Updated:** 2026-05-07
 
 # Operational Architecture Invariants
 
@@ -33,6 +33,7 @@ This document defines the structural invariants and authoritative sources of tru
 ### 3. Billing Invariant
 > **Quota enforcement must fail closed.**
 - If the usage check service is unreachable, the system MUST deny the start of a new metered session.
+- Private STT MUST NOT silently fail over to Cloud STT because that changes both the user's privacy posture and the product's variable cost. Cloud may only be entered by explicit user selection.
 
 ### 4. Data Invariant
 > **Final transcripts are append-only and monotonic.**
@@ -53,3 +54,4 @@ This document defines the structural invariants and authoritative sources of tru
 ### Resource Protocol (Check-Then-Act)
 - All heavy resources (Offline Models) MUST be probed for availability before acquisition.
 - Acquisition MUST be triggered by explicit user intent, not background automation.
+- The Private STT ladder is WebGPU -> CPU/Transformers.js -> Native after Private failure. Cloud is not part of that ladder.

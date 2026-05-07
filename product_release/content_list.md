@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-06
+**Last Updated:** 2026-05-07
 
 # Operational Release Artifacts (product_release/)
 
@@ -16,7 +16,9 @@ This directory contains the authoritative release control artifacts for the Spea
 ### ✅ Verification Gates
 - **[LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md)**: The runtime configuration verification gate. Ensures environment variables and secrets are correctly set.
 - **[MANUAL_HARDWARE_VALIDATION.md](./MANUAL_HARDWARE_VALIDATION.md)**: Manual hardware/browser test protocols. Validates the "Hardware Blindspot" (Safari/Microphone/Bluetooth).
+- **[GITHUB_WORKFLOWS_AUDIT.md](./GITHUB_WORKFLOWS_AUDIT.md)**: GitHub Actions workflow utility/status audit and repair order.
 
 ### 🛠️ Decision & Recovery
 - **[RELEASE_READINESS.md](./RELEASE_READINESS.md)**: The master "Go/No-Go" gate for the production release decision.
-- **[RECOVERY_STRATEGY.md](./RECOVERY_STRATEGY.md)**: The service restoration and forward-fix playbook. Defines procedures for rapid recovery and data integrity.
+- **[RELEASE_RECOVERY.md](./RELEASE_RECOVERY.md)**: The launch-window forward-fix recovery playbook and emergency triage table.
+- **[RECOVERY_STRATEGY.md](./RECOVERY_STRATEGY.md)**: Supporting recovery doctrine. If it conflicts with `RELEASE_RECOVERY.md`, use `RELEASE_RECOVERY.md` during launch.

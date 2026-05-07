@@ -9,7 +9,7 @@ show_help() {
     echo ""
     echo "Commands:"
     echo "  prepare               Run CI prepare stage: quality, unit coverage, build"
-    echo "  test [shard]          Run CI E2E shard against prepared build"
+    echo "  test [shard]          Run CI E2E suite against prepared build; optional shard is legacy/debug only"
     echo "  report                Generate CI metrics/report from restored artifacts"
     echo "  ci-simulate           Run the full CI pipeline (Node.js Orchestrator)"
     echo "  local                 Run the full local audit (Node.js Orchestrator)"

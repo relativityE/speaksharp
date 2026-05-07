@@ -21,7 +21,7 @@ test.describe('Soak Test Coordinator: Unified Dual Architecture', () => {
 
         // Synergy: Log last benchmark date to provide context for STT accuracy observations
         try {
-            const benchmarks = JSON.parse(fs.readFileSync('docs/STT_BENCHMARKS.json', 'utf-8'));
+            const benchmarks = JSON.parse(fs.readFileSync('tests/STT_BENCHMARKS.json', 'utf-8'));
             const cloudHistory = benchmarks.engines.Cloud.history;
             if (cloudHistory && cloudHistory.length > 0) {
                 const latest = cloudHistory[cloudHistory.length - 1];
@@ -67,5 +67,4 @@ test.describe('Soak Test Coordinator: Unified Dual Architecture', () => {
         logger.info(`\n⭐ Phase 2 Complete. Soak Test Finished.\n`);
     });
 });
-
 

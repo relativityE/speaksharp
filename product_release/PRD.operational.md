@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-06
+**Last Updated:** 2026-05-07
 
 # SpeakSharp Operational PRD (The Contract)
 
@@ -17,6 +17,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 - **Billing Behavior**: Pro features MUST unlock within 10 seconds of a successful Stripe checkout.
 - **Export Reliability**: PDF exports MUST reflect the authoritative transcript stored in the database.
 - **Privacy Guarantees**: Private STT audio data MUST NOT leave the user's browser.
+- **STT Mode Consent**: Private STT MUST NOT silently switch to Cloud STT. Cloud is a first-class Pro choice, but it requires explicit user selection.
 
 ### UX Expectations
 - **Supported Browsers**: Chrome (Desktop), Safari (Desktop/iOS).
@@ -29,7 +30,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 | Scenario | Contracted Behavior |
 | :--- | :--- |
 | **Quota Service Unavailable** | **Fail-Closed**: No new sessions allowed if limit check fails. |
-| **Model Download Failure** | Notify user + Fallback to Native STT or Block session if Pro-only. |
+| **Model Download Failure** | Notify user, allow Private CPU/Native fallback where permitted, or block with retry. Do not silently route Private users to Cloud. |
 | **Stripe Webhook Delayed** | Keep user as Free until confirmed; do not grant optimistic Pro access. |
 | **Transcription Silence** | Heartbeat watchdog MUST trigger auto-reconnect or failure state within 8s. |
 | **Database Latency** | UI MUST show "Saving..." spinner until RPC confirms persistence. |

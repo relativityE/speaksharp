@@ -108,7 +108,7 @@ Deno.test('check-usage-limit edge function', async (t) => {
         assertEquals(json.daily_remaining, 0);
     });
 
-    await t.step('should handle RPC errors by failing open', async () => {
+    await t.step('should handle RPC errors by failing closed', async () => {
         const userId = 'error-user';
         const mockCreateSupabaseError = () => ({
             rpc: () => Promise.resolve({ data: null, error: { message: 'Database error' } }),
@@ -128,9 +128,10 @@ Deno.test('check-usage-limit edge function', async (t) => {
         const res = await handler(req, mockCreateSupabaseError);
         const json = await res.json();
 
-        assertEquals(res.status, 200);
-        assertEquals(json.can_start, true);
-        assertEquals(json.error, 'RPC failure - failing open');
+        assertEquals(res.status, 500);
+        assertEquals(json.error.code, 'DATABASE_ERROR');
+        assertEquals(json.error.details.can_start, false);
+        assertEquals(json.error.details.reason, 'usage_verification_failed');
     });
 
     await t.step('should handle OPTIONS request (CORS preflight)', async () => {
