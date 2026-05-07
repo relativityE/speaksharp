@@ -22,7 +22,8 @@ Deno.test('check-usage-limit edge function', async (t) => {
         const json = await res.json();
 
         assertEquals(res.status, 401);
-        assertEquals(json.error, 'Authentication failed');
+        assertEquals(json.error.code, 'AUTH_INVALID_TOKEN');
+        assertEquals(json.error.message, 'Authentication failed');
     });
 
     await t.step('should return can_start=true for free user with usage remaining', async () => {

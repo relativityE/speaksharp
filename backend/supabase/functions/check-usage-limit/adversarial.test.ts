@@ -1,96 +1,98 @@
 import { handler } from './index.ts';
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { FakeTime } from "https://deno.land/std@0.224.0/testing/time.ts";
 
-// Helper to create a fake JWT for testing
-// We intentionally remove padding to test the local parser's padding restoration logic
 function createFakeJWT(userId: string) {
     const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/=/g, '');
     const payload = btoa(JSON.stringify({ sub: userId, exp: Math.floor(Date.now() / 1000) + 3600 })).replace(/=/g, '');
     return `${header}.${payload}.signature`;
 }
 
-Deno.test("check-usage-limit adversarial boundary tests", async (t) => {
-    
-    const userId = 'test-user';
-    
-    const setupMock = (profileData: any) => () => ({
+function createMockSupabase(rpcData: Record<string, unknown>, rpcError: unknown = null) {
+    return () => ({
+        rpc: (name: string) => {
+            if (name === 'check_usage_limit') {
+                return Promise.resolve({ data: rpcData, error: rpcError });
+            }
+            return Promise.resolve({ data: null, error: null });
+        },
         from: () => ({
             select: () => ({
                 eq: () => ({
-                    single: () => Promise.resolve({
-                        data: profileData,
-                        error: null
-                    }),
-                }),
-            }),
-            update: () => ({
-                eq: () => Promise.resolve({ error: null })
+                    single: () => Promise.resolve({ data: { promo_expires_at: null }, error: null })
+                })
             })
-        }),
+        })
     }) as any;
+}
 
-    await t.step("should reset usage exactly one month after last reset", async () => {
-        const time = new FakeTime("2024-03-31T12:00:00Z");
-        try {
-            // Last reset was Feb 29 (Leap day)
-            const profileData = {
-                usage_seconds: 1500,
-                usage_reset_date: "2024-02-29T12:00:00Z",
-                subscription_status: 'free'
-            };
-            
-            const req = new Request('http://localhost/check-usage-limit', { method: 'GET', headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` } });
-            const res = await handler(req, setupMock(profileData));
-            const json = await res.json();
-            
-            // March 31 - 1 month = Feb 31 -> March 2 (in JS)
-            // Feb 29 <= March 2 is TRUE.
-            assertEquals(json.used_seconds, 0, "Usage should be reset on March 31 if last reset was Feb 29");
-            assertEquals(json.can_start, true);
-        } finally {
-            time.restore();
-        }
+Deno.test("check-usage-limit adversarial boundary tests", async (t) => {
+    const userId = 'test-user';
+
+    await t.step("should trust RPC monthly reset result at leap-day boundary", async () => {
+        const req = new Request('http://localhost/check-usage-limit', {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` }
+        });
+        const res = await handler(req, createMockSupabase({
+            can_start: true,
+            daily_remaining: 3600,
+            daily_limit: 3600,
+            monthly_remaining: 90000,
+            monthly_limit: 90000,
+            remaining_seconds: 3600,
+            used_seconds: 0,
+            subscription_status: 'free',
+            is_pro: false,
+        }));
+        const json = await res.json();
+
+        assertEquals(res.status, 200);
+        assertEquals(json.used_seconds, 0);
+        assertEquals(json.can_start, true);
     });
 
-    await t.step("should NOT reset usage if less than one month has passed", async () => {
-        const time = new FakeTime("2024-03-30T12:00:00Z");
-        try {
-            const profileData = {
-                usage_seconds: 1500,
-                usage_reset_date: "2024-03-01T12:00:00Z",
-                subscription_status: 'free'
-            };
-            
-            const req = new Request('http://localhost/check-usage-limit', { method: 'GET', headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` } });
-            const res = await handler(req, setupMock(profileData));
-            const json = await res.json();
-            
-            assertEquals(json.used_seconds, 1500, "Usage should NOT be reset yet");
-        } finally {
-            time.restore();
-        }
+    await t.step("should trust RPC no-reset result when monthly window remains active", async () => {
+        const req = new Request('http://localhost/check-usage-limit', {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` }
+        });
+        const res = await handler(req, createMockSupabase({
+            can_start: true,
+            daily_remaining: 2100,
+            daily_limit: 3600,
+            monthly_remaining: 88500,
+            monthly_limit: 90000,
+            remaining_seconds: 2100,
+            used_seconds: 1500,
+            subscription_status: 'free',
+            is_pro: false,
+        }));
+        const json = await res.json();
+
+        assertEquals(res.status, 200);
+        assertEquals(json.used_seconds, 1500);
+        assertEquals(json.monthly_remaining, 88500);
     });
-    
-    await t.step("Month rollover edge case: Oct 31 -> Sept 30", async () => {
-        // Oct 31. One month ago is Sept 30 (usually). 
-        // JS Date: Oct 31 - 1 month = Sept 31 -> Oct 1.
-        const time = new FakeTime("2024-10-31T12:00:00Z");
-        try {
-            const profileData = {
-                usage_seconds: 1800,
-                usage_reset_date: "2024-09-30T12:00:00Z", // Exactly end of last month
-                subscription_status: 'free'
-            };
-            
-            const req = new Request('http://localhost/check-usage-limit', { method: 'GET', headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` } });
-            const res = await handler(req, setupMock(profileData));
-            const json = await res.json();
-            
-            // Sept 30 <= Oct 1 is TRUE.
-            assertEquals(json.used_seconds, 0, "Usage should be reset on Oct 31 if last reset was Sept 30");
-        } finally {
-            time.restore();
-        }
+
+    await t.step("should fail closed when usage RPC cannot be called", async () => {
+        const req = new Request('http://localhost/check-usage-limit', {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` }
+        });
+        const res = await handler(req, () => ({
+            from: () => ({
+                select: () => ({
+                    eq: () => ({
+                        single: () => Promise.resolve({ data: { promo_expires_at: null }, error: null })
+                    })
+                })
+            })
+        }) as any);
+        const json = await res.json();
+
+        assertEquals(res.status, 500);
+        assertEquals(json.error.code, 'INTERNAL_ERROR');
+        assertEquals(json.error.details.can_start, false);
+        assertEquals(json.error.details.reason, 'usage_verification_failed');
     });
 });

@@ -133,14 +133,16 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     }
 }
 
-// Start the server with the real dependencies
-serve((req: Request) => {
-    const supabaseClientFactory: SupabaseClientFactory = (authHeader) =>
-        createClient(
-            Deno.env.get('SUPABASE_URL') ?? '',
-            Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-            { global: { headers: { Authorization: authHeader! } } }
-        );
+// Start the server with the real dependencies.
+if (import.meta.main) {
+    serve((req: Request) => {
+        const supabaseClientFactory: SupabaseClientFactory = (authHeader) =>
+            createClient(
+                Deno.env.get('SUPABASE_URL') ?? '',
+                Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+                { global: { headers: { Authorization: authHeader! } } }
+            );
 
-    return handler(req, supabaseClientFactory);
-});
+        return handler(req, supabaseClientFactory);
+    });
+}
