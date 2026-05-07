@@ -54,7 +54,8 @@ test.describe('Production Smoke Canary @canary', () => {
         // Standardize: If STT_MODE_SELECT testid is present, use it. Fallback to roles if needed.
         const modeSelect = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
         if (await modeSelect.isVisible()) {
-            await modeSelect.click();
+            await modeSelect.scrollIntoViewIfNeeded();
+            await modeSelect.click({ force: true });
             await page.getByTestId(TEST_IDS.STT_MODE_NATIVE).click();
         } else {
             // High-fidelity fallback for legacy UI
