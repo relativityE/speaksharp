@@ -52,7 +52,7 @@ Launch status: **NOT READY**
 | ID | Requirement | Category | Status |
 | :--- | :--- | :--- | :--- |
 | **Q1** | **Pro Session Warning UI** | UX | 🔴 **BLOCKED** |
-| **Q2** | **Safe LLM JSON Parsing** | Reliability| 🔴 **BLOCKED** |
+| **Q2** | **Safe LLM JSON Parsing** | Reliability| 🟡 **FIX APPLIED / VALIDATION PENDING** |
 | **Q3** | **Lighthouse SEO Score > 90** | Marketing | ✅ READY (91 local audit) |
 | **Q4** | **Lighthouse Perf Score Policy**| Performance| 🟡 FIX APPLIED / GITHUB RERUN PENDING (90 remains target; performance assertion is advisory for MVP) |
 

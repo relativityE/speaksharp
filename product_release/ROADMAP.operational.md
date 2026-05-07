@@ -20,7 +20,7 @@ This document tracks identified risks and their impact on the 12-hour launch win
 | **Sentry Ingest** | 🟡 PENDING | Live project ingestion untested | **High**: Blind to launch errors | No |
 | **GitHub Canary** | 🟡 FIX APPLIED / RERUN PENDING | Deploy smoke helper updated from stale `/log-in` route to `/auth/signin`; GitHub run evidence pending | **P1**: Cannot trust deployed main-branch smoke until rerun passes | No |
 | **STT Benchmarks** | 🟡 FIX APPLIED / RERUN PENDING | Benchmark workflow harness aligned to pnpm/package scripts/current specs; WER evidence pending | **P1**: Cannot validate accuracy ceilings until rerun succeeds | No |
-| **AI Parsing** | 🔴 BLOCKED | Blind JSON parsing in suggestions | **P1**: 500 error on Analytics | No |
+| **AI Parsing** | 🟡 FIX APPLIED / VALIDATION PENDING | Malformed LLM JSON now returns safe fallback suggestions locally; deploy evidence pending | **P1**: Avoids 500 error on Analytics | No |
 | **WPM Accuracy** | 🟡 PENDING | Rolling window pollution bug | **P2**: Minor metric glitch | Yes |
 
 ---

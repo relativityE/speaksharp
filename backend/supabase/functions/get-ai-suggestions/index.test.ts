@@ -3,6 +3,11 @@ import { assertEquals, assertExists } from "https://deno.land/std@0.224.0/assert
 
 // Mock the global fetch to avoid real API calls
 let fetchCount = 0;
+let mockGeminiText = JSON.stringify({
+  summary: "This is a mock summary.",
+  suggestions: [{ title: "Pacing", description: "Your pacing was a bit fast." }]
+});
+
 globalThis.fetch = async (url) => {
   if (url.toString().includes('generativelanguage.googleapis.com')) {
     fetchCount++;
@@ -10,10 +15,7 @@ globalThis.fetch = async (url) => {
       candidates: [{
         content: {
           parts: [{
-            text: JSON.stringify({
-              summary: "This is a mock summary.",
-              suggestions: [{ title: "Pacing", description: "Your pacing was a bit fast." }]
-            })
+            text: mockGeminiText
           }]
         }
       }]
@@ -27,6 +29,11 @@ globalThis.fetch = async (url) => {
 };
 
 Deno.test('get-ai-suggestions edge function', async (t) => {
+  mockGeminiText = JSON.stringify({
+    summary: "This is a mock summary.",
+    suggestions: [{ title: "Pacing", description: "Your pacing was a bit fast." }]
+  });
+
   await t.step('should return 401 if user is not authenticated', async () => {
     const failingMockSupabase = () => ({
       auth: {
@@ -201,6 +208,45 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
       assertExists(savedData.ai_suggestions);
       assertEquals(savedData.ai_suggestions.summary, "This is a mock summary.");
     } finally {
+      Deno.env.delete('GEMINI_API_KEY');
+    }
+  });
+
+  await t.step('should return safe fallback suggestions for malformed Gemini JSON', async () => {
+    Deno.env.set('GEMINI_API_KEY', 'mock-key');
+    fetchCount = 0;
+    mockGeminiText = 'Here are some thoughts, but not JSON.';
+
+    const mockCreateSupabaseProUser = () => ({
+      from: () => ({
+        select: () => {
+          const result = {
+            eq: () => result,
+            single: () => Promise.resolve({ data: { subscription_status: 'pro' }, error: null }),
+          };
+          return result;
+        },
+      }),
+    }) as any;
+
+    try {
+      const req = new Request('http://localhost/get-ai-suggestions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer fake-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: "hello malformed json" })
+      });
+      const res = await handler(req, mockCreateSupabaseProUser);
+      const json = await res.json();
+
+      assertEquals(res.status, 200);
+      assertEquals(json.degraded, true);
+      assertEquals(json.suggestions.summary, 'AI suggestions are temporarily unavailable for this session.');
+      assertEquals(fetchCount, 1);
+    } finally {
+      mockGeminiText = JSON.stringify({
+        summary: "This is a mock summary.",
+        suggestions: [{ title: "Pacing", description: "Your pacing was a bit fast." }]
+      });
       Deno.env.delete('GEMINI_API_KEY');
     }
   });

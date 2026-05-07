@@ -11,6 +11,69 @@ const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/
 
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
 
+interface SuggestionItem {
+  title: string;
+  description: string;
+}
+
+interface AISuggestions {
+  summary: string;
+  suggestions: SuggestionItem[];
+}
+
+const FALLBACK_SUGGESTIONS: AISuggestions = {
+  summary: 'AI suggestions are temporarily unavailable for this session.',
+  suggestions: [
+    {
+      title: 'Review Transcript',
+      description: 'Read through the saved transcript and compare it with your session metrics while suggestions are retried later.',
+    },
+  ],
+};
+
+function extractJsonObject(text: string): string | null {
+  const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+
+  try {
+    JSON.parse(cleaned);
+    return cleaned;
+  } catch {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start === -1 || end === -1 || end <= start) return null;
+    return cleaned.slice(start, end + 1);
+  }
+}
+
+function isSuggestionItem(value: unknown): value is SuggestionItem {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Record<string, unknown>;
+  return typeof item.title === 'string' && typeof item.description === 'string';
+}
+
+function parseSuggestions(rawText: string): AISuggestions | null {
+  const jsonText = extractJsonObject(rawText);
+  if (!jsonText) return null;
+
+  try {
+    const parsed = JSON.parse(jsonText) as unknown;
+    if (!parsed || typeof parsed !== 'object') return null;
+
+    const candidate = parsed as Record<string, unknown>;
+    if (typeof candidate.summary !== 'string') return null;
+    if (!Array.isArray(candidate.suggestions)) return null;
+    if (!candidate.suggestions.every(isSuggestionItem)) return null;
+
+    return {
+      summary: candidate.summary,
+      suggestions: candidate.suggestions,
+    };
+  } catch (error) {
+    console.error('Failed to parse AI suggestions JSON:', error);
+    return null;
+  }
+}
+
 // Define the handler with dependency injection for testability
 export async function handler(req: Request, createSupabase: SupabaseClientFactory) {
   if (req.method === 'OPTIONS') {
@@ -131,9 +194,18 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     }
 
     const responseData = await geminiResponse.json();
-    const rawText = responseData.candidates[0].content.parts[0].text;
-    const jsonText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-    const suggestions = JSON.parse(jsonText);
+    const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
+    const suggestions = typeof rawText === 'string'
+      ? parseSuggestions(rawText)
+      : null;
+
+    if (!suggestions) {
+      console.error('Gemini response did not contain valid suggestions JSON.');
+      return new Response(JSON.stringify({ suggestions: FALLBACK_SUGGESTIONS, degraded: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200,
+      });
+    }
 
     // 2. PERSISTENCE: Save the new suggestions if sessionId is provided
     if (sessionId) {
@@ -162,14 +234,16 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
   }
 }
 
-// Start the server with the real dependencies
-serve((req: Request) => {
-  const supabaseClientFactory: SupabaseClientFactory = (authHeader) =>
-    createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader! } } }
-    );
+// Start the server with the real dependencies.
+if (import.meta.main) {
+  serve((req: Request) => {
+    const supabaseClientFactory: SupabaseClientFactory = (authHeader) =>
+      createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        { global: { headers: { Authorization: authHeader! } } }
+      );
 
-  return handler(req, supabaseClientFactory);
-});
+    return handler(req, supabaseClientFactory);
+  });
+}
