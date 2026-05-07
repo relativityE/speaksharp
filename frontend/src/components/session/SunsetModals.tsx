@@ -69,7 +69,7 @@ export const SunsetModals: React.FC<SunsetModalsProps> = ({ open, onOpenChange, 
                 </AlertDialogHeader>
                 <div className="py-6 text-center text-muted-foreground">
                     {!isPro && (
-                        <p className="font-semibold text-primary">Upgrade to Pro to lock in 50 hours/month and clean PDF exports.</p>
+                        <p className="font-semibold text-primary">Upgrade to Pro to lock in 50 hours/month and advanced speech analytics.</p>
                     )}
                 </div>
             </>

@@ -55,7 +55,7 @@ Launch status: **NOT READY**
 | **Q2** | **Safe LLM JSON Parsing** | Reliability| 🟡 **FIX APPLIED / VALIDATION PENDING** |
 | **Q3** | **Lighthouse SEO Score > 90** | Marketing | ✅ READY (91 local audit) |
 | **Q4** | **Lighthouse Perf Score Policy**| Performance| 🟡 FIX APPLIED / GITHUB RERUN PENDING (90 remains target; performance assertion is advisory for MVP) |
-| **Q5** | **Request-Aware CORS on Usage Edge Function** | Security | 🔴 OPEN |
+| **Q5** | **Request-Aware CORS on Usage Edge Function** | Security | 🟡 **FIX APPLIED / VALIDATION PENDING** |
 
 ---
 
@@ -74,7 +74,7 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | **Session Persistence** | Finalized sessions persist privacy-preserving metadata, metrics, counts, words, suggestions, engine/mode, and history. Full transcript text is not stored in Supabase. | Audit v1.1 confirms transcript non-persistence is intentional privacy architecture; mocked flows cover history. | 🟡 PENDING | Verify live save/read after Native, Private, and Cloud sessions without transcript persistence. |
 | **Analytics** | WPM, clarity, filler words, pause/session history, and trends are computed from saved data. | Core analytics are covered by mocked tests; WPM rolling-window issue remains P2. | 🟡 PENDING | Browser-test session-over-session analytics and accept/defer WPM P2 explicitly. |
 | **Custom/User Words** | User words persist to Supabase and are available next session; Cloud receives boost words when explicitly selected. | Audit v1.1 identifies `keyterms_prompt` as a high-value Cloud accuracy differentiator; current live behavior unverified. | 🟡 PENDING | Live Pro test: add word, refresh/login, record Cloud session, verify persistence and keyterms behavior. |
-| **PDF Export** | Exported PDF reflects current client-side transcript/report state and persisted metrics. | PDF generation is client-side and watermarks Free/basic output; monthly Free-tier export count is not enforced. | 🟡 PENDING / P2 LIMIT GAP | Export a saved/current session and inspect transcript/metrics/watermark behavior; defer monthly limit unless positioning requires it. |
+| **PDF Export** | Exported PDF reflects current client-side transcript/report state and persisted metrics. Free/basic users may export without a count limit. All tiers, including Pro, receive SpeakSharp-branded/watermarked PDFs. | PDF generation is client-side; watermark behavior is covered by E2E signal and still needs browser inspection. | 🟡 PENDING | Export a saved/current Free/basic and Pro session; inspect transcript/metrics and watermark behavior. |
 | **Promo Pro Access** | Promo code grants select tester Pro access for the intended duration. | Promo flow exists; DB-backed attempt throttling fix is applied locally. | 🟡 VALIDATION PENDING | Deploy migration/function, verify invalid attempts throttle, then run promo signup smoke. |
 | **Billing Upgrade** | Stripe checkout upgrades user only after verified webhook. | Stripe flow has tests; live webhook/env verification pending. | 🟡 PENDING | Complete live low-value transaction and webhook smoke. |
 | **Usage Quotas** | Usage limits protect users and business costs and fail closed on uncertainty. | Local fixes now cover fail-closed usage checks, usage-aware Cloud token issuance, and negative-duration DB guards. | 🟡 VALIDATION PENDING | Run targeted tests, deploy migration/functions, and verify over-limit denial on live infrastructure. |
@@ -93,7 +93,7 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | Canary harness | Code fix pushed for login route and production origin guard. | Targeted ESLint passed before push. | Latest GitHub canary rerun must pass. |
 | AI suggestion parsing | Code fix pushed. | `deno test --no-lock --allow-env --allow-net backend/supabase/functions/get-ai-suggestions` passed. | Deploy evidence. |
 | Pro warning UI | Code fix local, pending push in current checkpoint. | `vitest ... --coverage.enabled=false frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` passed; targeted ESLint passed. | Push and review CI. |
-| Request-aware CORS | New P1 identified by audit v1.1. | `check-usage-limit` uses hardcoded `Access-Control-Allow-Origin: *`; other Edge Functions use shared `corsHeaders(req)`. | Switch to shared CORS helper and run Deno tests. |
+| Request-aware CORS | Code fix local, pending push in current checkpoint. | `check-usage-limit` now uses shared request-aware `corsHeaders(req)`; Deno tests pass locally. | Push and verify deployed Edge Function CORS headers. |
 
 ---
 
@@ -121,9 +121,8 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | **D2** | **WPM Rolling Window Fix** | Logic Accuracy | 🔴 PLANNED |
 | **D3** | **Document Console-Based PRD/SQM Metrics Workflow** | Transparency | 🟡 CLARIFIED |
 | **D4** | **Validate NOT VALID Constraints Against Existing Data** | Data Integrity | 🔴 PLANNED |
-| **D5** | **Gate Store-Creation Console Warning Behind DEV** | Polish | 🔴 PLANNED |
-| **D6** | **Free/Basic PDF Monthly Export Limit** | Conversion Leverage | 🔴 DEFERRED |
-| **D7** | **Lazy Stripe Secret Initialization** | Operability | 🔴 PLANNED |
+| **D5** | **Gate Store-Creation Console Warning Behind DEV** | Polish | 🟡 FIX APPLIED / VALIDATION PENDING |
+| **D6** | **Lazy Stripe Secret Initialization** | Operability | 🟡 FIX APPLIED / VALIDATION PENDING |
 
 ---
 

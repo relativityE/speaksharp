@@ -1,12 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.44.4';
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from '../_shared/errors.ts';
-
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { corsHeaders } from '../_shared/cors.ts';
 
 interface UsageLimitResponse {
     can_start: boolean;
@@ -60,8 +55,10 @@ function getUserIdFromAuthHeader(authHeader: string | null): string | null {
 
 // Define the handler with dependency injection for testability
 export async function handler(req: Request, createSupabase: SupabaseClientFactory) {
+    const headers = corsHeaders(req);
+
     if (req.method === 'OPTIONS') {
-        return new Response('ok', { headers: corsHeaders });
+        return new Response('ok', { headers });
     }
 
     try {
@@ -75,7 +72,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
             return createErrorResponse(
                 ErrorCodes.AUTH_INVALID_TOKEN,
                 'Authentication failed',
-                corsHeaders
+                headers
             );
         }
 
@@ -88,7 +85,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
             return createErrorResponse(
                 ErrorCodes.DATABASE_ERROR,
                 'Unable to verify usage limit',
-                corsHeaders,
+                headers,
                 {
                     can_start: false,
                     reason: 'usage_verification_failed',
@@ -112,11 +109,11 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
                 // Re-run RPC after status change
                 const { data: updatedLimit } = await supabaseClient.rpc('check_usage_limit');
-                return createSuccessResponse({ ...updatedLimit, promo_just_expired: true }, corsHeaders);
+                return createSuccessResponse({ ...updatedLimit, promo_just_expired: true }, headers);
             }
         }
 
-        return createSuccessResponse(usageLimit as UsageLimitResponse, corsHeaders);
+        return createSuccessResponse(usageLimit as UsageLimitResponse, headers);
 
     } catch (error) {
         console.error('Error checking usage limit:', error);
@@ -124,7 +121,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
         return createErrorResponse(
             ErrorCodes.INTERNAL_ERROR,
             errorMessage,
-            corsHeaders,
+            headers,
             {
                 can_start: false,
                 reason: 'usage_verification_failed',

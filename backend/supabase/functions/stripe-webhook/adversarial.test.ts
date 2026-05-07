@@ -14,10 +14,9 @@ Deno.test("stripe-webhook idempotency adversarial tests", async (t) => {
         }
     };
 
-    const setupMocks = (options: { insertStatus?: number, updateStatus?: number, existing?: boolean } = {}) => {
-        let upgradeCalledCount = 0;
-        let insertCalledCount = 0;
-        let deleteCalledCount = 0;
+    const setupMocks = (options: { skipped?: boolean, success?: boolean } = {}) => {
+        let rpcCalledCount = 0;
+        let capturedArgs: Record<string, unknown> | null = null;
 
         const stripe = {
             webhooks: {
@@ -26,44 +25,32 @@ Deno.test("stripe-webhook idempotency adversarial tests", async (t) => {
         };
 
         const supabase = {
-            from: (_table: string) => ({
-                insert: () => {
-                    insertCalledCount++;
-                    if (options.existing) return Promise.resolve({ error: { code: '23505' } });
-                    return Promise.resolve({ error: null });
-                },
-                select: () => ({
-                    eq: () => ({
-                        single: () => Promise.resolve({ data: options.existing ? { id: 1 } : null, error: options.existing ? null : { code: 'PGRST116' } })
-                    })
-                }),
-                update: () => ({
-                    eq: () => {
-                        upgradeCalledCount++;
-                        if (options.updateStatus === 500) return Promise.resolve({ error: { message: 'DB Down' } });
-                        return Promise.resolve({ error: null });
-                    }
-                }),
-                delete: () => ({
-                    eq: () => {
-                        deleteCalledCount++;
-                        return Promise.resolve({ error: null });
-                    }
-                })
-            })
+            rpc: (_fn: string, args: Record<string, unknown>) => {
+                rpcCalledCount++;
+                capturedArgs = args;
+                if (options.success === false) {
+                    return Promise.resolve({ data: { success: false, error: 'DB Down' }, error: null });
+                }
+                return Promise.resolve({
+                    data: {
+                        success: true,
+                        skipped: Boolean(options.skipped),
+                    },
+                    error: null,
+                });
+            },
         } as any;
 
         return {
             stripe,
             supabase,
-            getUpgradeCount: () => upgradeCalledCount,
-            getInsertCount: () => insertCalledCount,
-            getDeleteCount: () => deleteCalledCount
+            getRpcCount: () => rpcCalledCount,
+            getCapturedArgs: () => capturedArgs,
         };
     };
 
     await t.step("should skip processing if event is already recorded (idempotency)", async () => {
-        const { stripe, supabase, getUpgradeCount } = setupMocks({ existing: true });
+        const { stripe, supabase, getRpcCount } = setupMocks({ skipped: true });
         const req = new Request('http://localhost', {
             method: 'POST',
             headers: { 'Stripe-Signature': 'fake' },
@@ -75,11 +62,11 @@ Deno.test("stripe-webhook idempotency adversarial tests", async (t) => {
 
         assertEquals(res.status, 200);
         assertEquals(json.skipped, true);
-        assertEquals(getUpgradeCount(), 0, "Upgrade should NOT be called for duplicate event");
+        assertEquals(getRpcCount(), 1, "Atomic webhook RPC should be called once for duplicate event");
     });
 
     await t.step("should process if event is new", async () => {
-        const { stripe, supabase, getUpgradeCount } = setupMocks({ existing: false });
+        const { stripe, supabase, getCapturedArgs } = setupMocks();
         const req = new Request('http://localhost', {
             method: 'POST',
             headers: { 'Stripe-Signature': 'fake' },
@@ -91,11 +78,12 @@ Deno.test("stripe-webhook idempotency adversarial tests", async (t) => {
 
         assertEquals(res.status, 200);
         assertEquals(json.received, true);
-        assertEquals(getUpgradeCount(), 1, "Upgrade should be called exactly once");
+        assertEquals(getCapturedArgs()?.p_action, 'upgrade_to_pro');
+        assertEquals(getCapturedArgs()?.p_event_id, mockEvent.id);
     });
 
-    await t.step("should rollback idempotency record if processing fails", async () => {
-        const { stripe, supabase, getDeleteCount } = setupMocks({ existing: false, updateStatus: 500 });
+    await t.step("should fail if atomic webhook RPC reports action failure", async () => {
+        const { stripe, supabase, getRpcCount } = setupMocks({ success: false });
 
         const req = new Request('http://localhost', {
             method: 'POST',
@@ -105,6 +93,6 @@ Deno.test("stripe-webhook idempotency adversarial tests", async (t) => {
 
         const res = await handler(req, stripe, supabase, 'secret');
         assertEquals(res.status, 500);
-        assertEquals(getDeleteCount(), 1, "Should delete idempotency record on failure to allow retries");
+        assertEquals(getRpcCount(), 1, "Atomic webhook RPC owns idempotency and action rollback");
     });
 });

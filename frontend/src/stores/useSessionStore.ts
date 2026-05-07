@@ -93,7 +93,9 @@ export const useSessionStore = create<SessionStore>((set) => {
     const instanceId = Math.random().toString(36).substring(7);
     if (typeof window !== 'undefined') {
         (window as unknown as { __LAST_STORE_ID__: string }).__LAST_STORE_ID__ = instanceId;
-        console.warn(`[STORE-IDENTITY] 🏗️ SessionStore Instance Created: [${instanceId}]`);
+        if (import.meta.env.DEV) {
+            console.warn(`[STORE-IDENTITY] SessionStore Instance Created: [${instanceId}]`);
+        }
     }
 
     return {

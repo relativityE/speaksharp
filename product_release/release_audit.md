@@ -33,7 +33,7 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 | **Privacy-First Persistence** | Full transcript text is not stored in Supabase. Persisted session records contain metadata, counts, words, suggestions, engine/mode, and analysis artifacts; transcript text remains client-side for same-session report/PDF generation. | Integrated into PRD, Architecture, and Release Readiness. |
 | **CI Metrics Workflow** | Local CI/SQM metrics print to console through the metrics script; local runs do not rewrite markdown coverage tables. Stale markdown coverage display is expected unless the metrics-writing workflow intentionally updates docs. | Integrated into PRD and Release Readiness. |
 | **Cloud Boost Moat** | User-specific vocabulary sent to AssemblyAI via `keyterms_prompt` is a Pro Cloud accuracy differentiator when Cloud is explicitly selected. | Integrated into PRD and Feature Validation Matrix. |
-| **PDF Export Limit** | Free/basic monthly PDF export limit is not enforced. Because PDF generation is client-side, this is a conversion-leverage gap rather than a direct cost exposure. | Statused as P2 deferred. |
+| **PDF Export Branding** | Free/basic monthly PDF export counting is intentionally removed because generation is client-side and zero variable cost. All exported PDFs remain SpeakSharp-branded/watermarked, including Pro. | Integrated into PRD, readiness, and roadmap. |
 
 ### Remediated Code Paths Awaiting Deployment Validation
 
@@ -50,10 +50,10 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 
 | Item | Severity | Required Action |
 | :--- | :--- | :--- |
-| `check-usage-limit` uses wildcard CORS instead of the shared request-aware helper. | P1 | Switch to shared `corsHeaders(req)` and rerun Deno tests. |
+| `check-usage-limit` uses wildcard CORS instead of the shared request-aware helper. | P1 | Fix applied: switched to shared `corsHeaders(req)`; deploy header validation pending. |
 | New non-negative constraints are `NOT VALID`. | P2 | Run one-time production data audit after migration apply. |
-| Store creation warning logs unconditionally. | P2 | Gate behind development mode. |
-| Stripe webhook initializes secrets at module scope with non-null assertions. | P2/P1 if env missing | Move to lazy guarded handler initialization. |
+| Store creation warning logs unconditionally. | P2 | Fix applied: gated behind development mode. |
+| Stripe webhook initializes secrets at module scope with non-null assertions. | P2/P1 if env missing | Fix applied: moved to lazy guarded handler initialization; deploy validation pending. |
 
 ---
 

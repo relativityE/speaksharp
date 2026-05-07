@@ -93,7 +93,7 @@ Deno.test("stripe-webhook handlers", async (t) => {
     const mockSupabase = createMockSupabase({ data: null, error: { message: "RPC Error" } });
     const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
 
-    assertEquals(response.status, 400);
+    assertEquals(response.status, 500);
   });
 
   await t.step("handles skipped event", async () => {

@@ -120,17 +120,43 @@ export async function handler(
   }
 }
 
-const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY")!
-const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET")!
-const supabaseUrl = Deno.env.get("SUPABASE_URL")!
-const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+function getRequiredEnv(name: string): string {
+  const value = Deno.env.get(name)
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`)
+  }
+  return value
+}
 
-const stripe = new Stripe(stripeSecretKey, {
-  httpClient: Stripe.createFetchHttpClient(),
-})
+function createRuntime() {
+  const stripeSecretKey = getRequiredEnv("STRIPE_SECRET_KEY")
+  const webhookSecret = getRequiredEnv("STRIPE_WEBHOOK_SECRET")
+  const supabaseUrl = getRequiredEnv("SUPABASE_URL")
+  const supabaseServiceRoleKey = getRequiredEnv("SUPABASE_SERVICE_ROLE_KEY")
 
-const supabase = createClient(supabaseUrl, supabaseServiceRoleKey)
+  return {
+    webhookSecret,
+    stripe: new Stripe(stripeSecretKey, {
+      httpClient: Stripe.createFetchHttpClient(),
+    }),
+    supabase: createClient(supabaseUrl, supabaseServiceRoleKey),
+  }
+}
 
-serve(async (req) => {
-  return handler(req, stripe, supabase, webhookSecret)
-})
+if (import.meta.main) {
+  serve(async (req) => {
+    try {
+      const runtime = createRuntime()
+      return handler(req, runtime.stripe, runtime.supabase, runtime.webhookSecret)
+    } catch (err) {
+      const error = err as Error
+      console.error("[Stripe Webhook] Configuration error:", error)
+      return createErrorResponse(
+        ErrorCodes.CONFIG_MISSING_ENV,
+        "Stripe webhook is not configured",
+        {},
+        { reason: error.message }
+      )
+    }
+  })
+}

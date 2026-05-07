@@ -36,7 +36,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 | **Stripe Webhook Delayed** | Keep user as Free until confirmed; do not grant optimistic Pro access. |
 | **Transcription Silence** | Heartbeat watchdog MUST trigger auto-reconnect or failure state within 8s. |
 | **Database Latency** | UI MUST show "Saving..." spinner until RPC confirms persistence. |
-| **PDF Export Limit Missing** | Free/basic export count enforcement is a conversion-leverage gap, not a financial risk, because PDF generation is client-side. Defer unless it blocks product positioning. |
+| **PDF Export** | Do not block or count PDF exports for Free/basic users. All exported PDFs, including Pro exports, include SpeakSharp watermarking/branding. |
 
 ---
 

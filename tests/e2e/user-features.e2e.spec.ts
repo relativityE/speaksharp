@@ -17,8 +17,8 @@ test.describe('Exhaustive User Feature Matrix', () => {
     }));
   });
 
-  // SCENARIO 1: Free Tier (Restrictive Matrix)
-  test('Free Tier Matrix: Verify Session Limits, Watermarked PDF, and Feature Gating', async ({ freePage: page }) => {
+  // SCENARIO 1: Free Tier (Conversion Matrix)
+  test('Free Tier Matrix: Verify Session Limits, Branded PDF, and Feature Gating', async ({ freePage: page }) => {
     // 1. Verify Session Limit Visibility
     await navigateToRoute(page, '/session');
     await page.waitForURL('**/session');
@@ -44,11 +44,11 @@ test.describe('Exhaustive User Feature Matrix', () => {
     // 4. PRD §531: AI Coach Gating (Should NOT be visible)
     await expect(page.getByTestId('ai-suggestions-card')).not.toBeVisible();
 
-    // 5. PRD §283: Watermarked PDF Export
+    // 5. PDF export is available to every tier and always includes SpeakSharp watermarking.
     const pdfBtn = page.getByRole('button', { name: /pdf|export|download/i }).first();
     await pdfBtn.click();
 
-    // Verify E2E signal for watermark (Injected in Phase 5)
+    // Verify E2E signal for watermark
     await expect(page.locator('body')).toHaveAttribute('data-pdf-token', 'watermarked');
 
     // 6. Marketing Funnel: Upgrade buttons should be prominent
@@ -56,7 +56,7 @@ test.describe('Exhaustive User Feature Matrix', () => {
   });
 
   // SCENARIO 2: Pro Tier (Premium Matrix)
-  test('Pro Tier Matrix: Verify AI Coach, Diarization, and Clean PDF exports', async ({ proPage: page }) => {
+  test('Pro Tier Matrix: Verify AI Coach, Diarization, and Branded PDF exports', async ({ proPage: page }) => {
     // 1. Verify Pro Engine Access (Cloud/Private)
     await navigateToRoute(page, '/session');
     await page.waitForURL('**/session');
@@ -83,12 +83,12 @@ test.describe('Exhaustive User Feature Matrix', () => {
     // 4. PRD §531: AI Coach Feedback (Should BE visible in Detail View)
     await expect(page.getByTestId('ai-suggestions-card')).toBeVisible({ timeout: 15000 });
 
-    // 6. Professional PDF Export (Clean)
+    // 6. Professional PDF Export (watermarked for brand consistency)
     const pdfBtn = page.getByRole('button', { name: /pdf|export|download/i }).first();
     await pdfBtn.click();
 
-    // Verify E2E signal for clean report (Injected in Phase 5)
-    await expect(page.locator('body')).toHaveAttribute('data-pdf-token', 'clean');
+    // Verify E2E signal for watermarked report
+    await expect(page.locator('body')).toHaveAttribute('data-pdf-token', 'watermarked');
 
     // 7. Identity: Pro Badge visibility on dashboard view
     await navigateToRoute(page, '/analytics');
