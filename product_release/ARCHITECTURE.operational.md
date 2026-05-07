@@ -14,7 +14,8 @@ This document defines the structural invariants and authoritative sources of tru
 | Domain | Authoritative Source | Advisory Source (Non-Truth) |
 | :--- | :--- | :--- |
 | **Billing Limits** | Postgres Migration Schema + RPC Logic | Frontend Constants / Roadmap |
-| **Transcript State** | `useSessionStore` (Zustand) + DB `sessions` Table | Component Local State |
+| **Transcript State** | `useSessionStore` and same-session client memory | Component Local State |
+| **Session History** | DB `sessions` table metadata, counts, custom words, filler words, AI suggestions, engine/mode fields | Full transcript persistence |
 | **Quota Enforcement** | Edge Function + `check_usage_limit` RPC | Frontend Pre-checks |
 | **Session Lifecycle** | `TranscriptionFSM` State | Browser Mount/Unmount Events |
 
@@ -38,6 +39,7 @@ This document defines the structural invariants and authoritative sources of tru
 ### 4. Data Invariant
 > **Final transcripts are append-only and monotonic.**
 - Post-processing logic MUST ensures that transcript segments are ordered by absolute timestamp and are never overwritten by late partials.
+- Full transcript text MUST NOT be persisted to Supabase. Persisted session records store privacy-preserving metadata and analysis artifacts; PDFs/reports are generated from active client-side transcript state.
 
 ### 5. Subscription Invariant
 > **Unmount detaches listeners but never destroys active sessions.**
@@ -55,3 +57,7 @@ This document defines the structural invariants and authoritative sources of tru
 - All heavy resources (Offline Models) MUST be probed for availability before acquisition.
 - Acquisition MUST be triggered by explicit user intent, not background automation.
 - The Private STT ladder is WebGPU -> CPU/Transformers.js -> Native after Private failure. Cloud is not part of that ladder.
+
+### Edge Function Perimeter
+- Public Edge Functions MUST use the shared request-aware CORS helper unless a documented exception exists.
+- Secrets SHOULD be loaded lazily inside handlers or guarded with actionable error responses; module-scope non-null assertions create cold-start crash risk.

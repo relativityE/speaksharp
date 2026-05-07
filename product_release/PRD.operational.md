@@ -12,16 +12,18 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 ## 1. User-Visible Guarantees (The Contract)
 
 ### Core Persistence & Reliability
-- **Transcript Persistence**: Every finalized recording session MUST result in a persisted record in the `sessions` table.
+- **Privacy-First Session Persistence**: Every finalized recording session MUST result in a persisted `sessions` record containing metadata, metrics, counts, and analysis artifacts needed for history. Full transcript text MUST NOT be stored in Supabase; it remains in client memory for same-session report/PDF generation.
 - **Quotas Enforced**: Users are strictly capped at their daily and monthly limits (1h/day Free, 2h/day Pro).
 - **Billing Behavior**: Pro features MUST unlock within 10 seconds of a successful Stripe checkout.
-- **Export Reliability**: PDF exports MUST reflect the authoritative transcript stored in the database.
+- **Export Reliability**: PDF exports MUST reflect the active client-side transcript/report state and persisted session metrics available at export time.
 - **Privacy Guarantees**: Private STT audio data MUST NOT leave the user's browser.
 - **STT Mode Consent**: Private STT MUST NOT silently switch to Cloud STT. Cloud is a first-class Pro choice, but it requires explicit user selection.
+- **Cloud Boost**: When the user explicitly selects Cloud STT, user-specific vocabulary/custom words MAY be sent to AssemblyAI as `keyterms_prompt` to improve transcript accuracy for that user.
 
 ### UX Expectations
 - **Supported Browsers**: Chrome (Desktop), Safari (Desktop/iOS).
 - **Offline Mode**: Private STT requires an initial download but must function without internet thereafter.
+- **CI Reporting**: Local CI/SQM scripts print generated coverage and quality metrics to the console. Markdown coverage tables are not automatically rewritten during local runs.
 
 ---
 
@@ -34,6 +36,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 | **Stripe Webhook Delayed** | Keep user as Free until confirmed; do not grant optimistic Pro access. |
 | **Transcription Silence** | Heartbeat watchdog MUST trigger auto-reconnect or failure state within 8s. |
 | **Database Latency** | UI MUST show "Saving..." spinner until RPC confirms persistence. |
+| **PDF Export Limit Missing** | Free/basic export count enforcement is a conversion-leverage gap, not a financial risk, because PDF generation is client-side. Defer unless it blocks product positioning. |
 
 ---
 
@@ -48,7 +51,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 ## 4. SLO/SLA Expectations
 
 - **Session Restoration**: 95% of sessions interrupted by refresh should be resumable.
-- **Export Durability**: 99.9% success rate for PDF generation from valid session records.
+- **Export Durability**: 99.9% success rate for PDF generation from valid active transcript/report state and persisted session metrics.
 - **Uptime Assumption**: 99.5% availability for the primary recording path.
 
 ---

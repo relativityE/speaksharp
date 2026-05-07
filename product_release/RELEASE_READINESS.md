@@ -55,6 +55,7 @@ Launch status: **NOT READY**
 | **Q2** | **Safe LLM JSON Parsing** | Reliability| 🟡 **FIX APPLIED / VALIDATION PENDING** |
 | **Q3** | **Lighthouse SEO Score > 90** | Marketing | ✅ READY (91 local audit) |
 | **Q4** | **Lighthouse Perf Score Policy**| Performance| 🟡 FIX APPLIED / GITHUB RERUN PENDING (90 remains target; performance assertion is advisory for MVP) |
+| **Q5** | **Request-Aware CORS on Usage Edge Function** | Security | 🔴 OPEN |
 
 ---
 
@@ -70,10 +71,10 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | **Private Engine Ladder** | Private attempts WebGPU, then CPU/Transformers.js, then Native only after Private cannot run. | Architecture and tests cover mocked fallback negotiation; hardware-specific paths are not CI-required. | 🟡 PENDING | Validate WebGPU and forced-CPU paths locally; verify no silent Cloud fallback. |
 | **Cloud STT** | Pro users may explicitly choose Cloud as a first-class option. | Auth/pro gating exists; usage-aware token issuance fix is applied locally. | 🟡 VALIDATION PENDING | Verify over-limit denial and successful Pro token issuance after deploy. |
 | **Transcript Propagation** | Live transcript updates and `TRANSCRIPT_PULSE` telemetry come from the same successful path. | Recent SpeechRuntime fixes target this path; mocked E2E evidence exists. Latest GitHub CI is running against pushed fixes. | 🟡 GITHUB RERUN PENDING | Review latest `CI - Test Audit`; spot-check browser console during manual session. |
-| **Session Persistence** | Finalized sessions persist transcript, engine, metrics, and history. | DB schema supports transcript/engine persistence; mocked flows cover history. | 🟡 PENDING | Verify live save/read after Native, Private, and Cloud sessions. |
+| **Session Persistence** | Finalized sessions persist privacy-preserving metadata, metrics, counts, words, suggestions, engine/mode, and history. Full transcript text is not stored in Supabase. | Audit v1.1 confirms transcript non-persistence is intentional privacy architecture; mocked flows cover history. | 🟡 PENDING | Verify live save/read after Native, Private, and Cloud sessions without transcript persistence. |
 | **Analytics** | WPM, clarity, filler words, pause/session history, and trends are computed from saved data. | Core analytics are covered by mocked tests; WPM rolling-window issue remains P2. | 🟡 PENDING | Browser-test session-over-session analytics and accept/defer WPM P2 explicitly. |
-| **Custom/User Words** | User words persist to Supabase and are available next session; Cloud receives boost words. | Changelog indicates persistence and Cloud boost integration; current live behavior unverified. | 🟡 PENDING | Live Pro test: add word, refresh/login, record Cloud session, verify persistence. |
-| **PDF Export** | Exported PDF reflects authoritative saved transcript/report data. | PDF export exists and has prior E2E history; live export content not recently validated. | 🟡 PENDING | Export a saved session and inspect transcript/metrics/watermark behavior. |
+| **Custom/User Words** | User words persist to Supabase and are available next session; Cloud receives boost words when explicitly selected. | Audit v1.1 identifies `keyterms_prompt` as a high-value Cloud accuracy differentiator; current live behavior unverified. | 🟡 PENDING | Live Pro test: add word, refresh/login, record Cloud session, verify persistence and keyterms behavior. |
+| **PDF Export** | Exported PDF reflects current client-side transcript/report state and persisted metrics. | PDF generation is client-side and watermarks Free/basic output; monthly Free-tier export count is not enforced. | 🟡 PENDING / P2 LIMIT GAP | Export a saved/current session and inspect transcript/metrics/watermark behavior; defer monthly limit unless positioning requires it. |
 | **Promo Pro Access** | Promo code grants select tester Pro access for the intended duration. | Promo flow exists; DB-backed attempt throttling fix is applied locally. | 🟡 VALIDATION PENDING | Deploy migration/function, verify invalid attempts throttle, then run promo signup smoke. |
 | **Billing Upgrade** | Stripe checkout upgrades user only after verified webhook. | Stripe flow has tests; live webhook/env verification pending. | 🟡 PENDING | Complete live low-value transaction and webhook smoke. |
 | **Usage Quotas** | Usage limits protect users and business costs and fail closed on uncertainty. | Local fixes now cover fail-closed usage checks, usage-aware Cloud token issuance, and negative-duration DB guards. | 🟡 VALIDATION PENDING | Run targeted tests, deploy migration/functions, and verify over-limit denial on live infrastructure. |
@@ -92,6 +93,7 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | Canary harness | Code fix pushed for login route and production origin guard. | Targeted ESLint passed before push. | Latest GitHub canary rerun must pass. |
 | AI suggestion parsing | Code fix pushed. | `deno test --no-lock --allow-env --allow-net backend/supabase/functions/get-ai-suggestions` passed. | Deploy evidence. |
 | Pro warning UI | Code fix local, pending push in current checkpoint. | `vitest ... --coverage.enabled=false frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` passed; targeted ESLint passed. | Push and review CI. |
+| Request-aware CORS | New P1 identified by audit v1.1. | `check-usage-limit` uses hardcoded `Access-Control-Allow-Origin: *`; other Edge Functions use shared `corsHeaders(req)`. | Switch to shared CORS helper and run Deno tests. |
 
 ---
 
@@ -106,6 +108,8 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | CI validates STT flows | CI evidence | CI validates mocked orchestration; real mic, WebGPU, Safari, and hardware behavior require manual validation. | Partially true | Complete manual hardware checklist. |
 | Lighthouse performance ready | Release readiness table | Recent local audit showed Performance varying around 87-90, not 96. | Stale | Re-run release Lighthouse and set launch threshold/policy. |
 | Billing ready | Architecture / roadmap | Stripe flow has tests, but live webhook/environment verification remains pending. | Pending | Complete launch environment checklist and live webhook smoke. |
+| Full transcript is stored in DB | Older PRD/readiness wording | Audit v1.1 confirms database stores metadata/counts/analysis, not full transcript text. | Contradicted | Keep transcript non-persistence as a privacy-first product promise. |
+| PRD coverage table should update locally | Older expectation | `update-prd-metrics.mjs` writes local SQM/coverage output to console. | Clarified | Do not treat stale markdown coverage table as local CI failure. |
 
 ---
 
@@ -115,7 +119,11 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | :--- | :--- | :--- | :--- |
 | **D1** | **Purge Test-Aware Branches** | Architectural Integrity | 🔴 PLANNED |
 | **D2** | **WPM Rolling Window Fix** | Logic Accuracy | 🔴 PLANNED |
-| **D3** | **Sync PRD Coverage Table** | Transparency | 🔴 PLANNED |
+| **D3** | **Document Console-Based PRD/SQM Metrics Workflow** | Transparency | 🟡 CLARIFIED |
+| **D4** | **Validate NOT VALID Constraints Against Existing Data** | Data Integrity | 🔴 PLANNED |
+| **D5** | **Gate Store-Creation Console Warning Behind DEV** | Polish | 🔴 PLANNED |
+| **D6** | **Free/Basic PDF Monthly Export Limit** | Conversion Leverage | 🔴 DEFERRED |
+| **D7** | **Lazy Stripe Secret Initialization** | Operability | 🔴 PLANNED |
 
 ---
 

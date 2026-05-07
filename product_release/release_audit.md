@@ -7,6 +7,7 @@
 
 ## 🔴 RELEASE VERDICT: BLOCKED
 **Confidence Score**: 98% (Evidence-based codebase verification)
+**Audit v1.1 Integrated:** 2026-05-07
 
 SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestration layer. However, the backend (Edge Functions and Database RPCs) contains **P0 Financial and Security Vulnerabilities** that make the platform unfit for a commercial launch in its current state.
 
@@ -20,6 +21,39 @@ SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestr
 | **User Privacy** | 🟢 READY | LOW | On-device transcription is functional and prioritized for Pro users. |
 | **Operational Stability** | 🟡 CAUTION | MEDIUM | Stabilization churn has created "Test-Aware" production debt. |
 | **Product Integrity** | 🔴 **BLOCKED** | **HIGH** | Negative duration exploitation and promo brute-force risks. |
+
+---
+
+## Audit v1.1 Corrections & Current Status
+
+The original audit identified the correct launch blockers. Follow-up verification added these corrections and integrations:
+
+| Finding | Release-Control Impact | Current Status |
+| :--- | :--- | :--- |
+| **Privacy-First Persistence** | Full transcript text is not stored in Supabase. Persisted session records contain metadata, counts, words, suggestions, engine/mode, and analysis artifacts; transcript text remains client-side for same-session report/PDF generation. | Integrated into PRD, Architecture, and Release Readiness. |
+| **CI Metrics Workflow** | Local CI/SQM metrics print to console through the metrics script; local runs do not rewrite markdown coverage tables. Stale markdown coverage display is expected unless the metrics-writing workflow intentionally updates docs. | Integrated into PRD and Release Readiness. |
+| **Cloud Boost Moat** | User-specific vocabulary sent to AssemblyAI via `keyterms_prompt` is a Pro Cloud accuracy differentiator when Cloud is explicitly selected. | Integrated into PRD and Feature Validation Matrix. |
+| **PDF Export Limit** | Free/basic monthly PDF export limit is not enforced. Because PDF generation is client-side, this is a conversion-leverage gap rather than a direct cost exposure. | Statused as P2 deferred. |
+
+### Remediated Code Paths Awaiting Deployment Validation
+
+| Gate | Current Verification | Status |
+| :--- | :--- | :--- |
+| **G1: Fail-Closed Usage** | Code path returns `can_start: false` on RPC/internal uncertainty; Deno tests pass locally. | Fix applied; deploy validation pending. |
+| **G2: Usage-Aware Token** | AssemblyAI token issuance now checks usage eligibility before minting a paid Cloud token. | Fix applied; deploy validation pending. |
+| **G3: Negative Duration** | Forward migration rejects negative duration/increment writes and adds table constraints. | Fix applied; migration validation pending. |
+| **G4: Promo Rate Limit** | Promo application has DB-backed failed-attempt throttling and fail-closed behavior on rate-limit uncertainty. | Fix applied; deploy validation pending. |
+| **Q1: Pro Session Warning** | Pro users with finite daily remaining time receive the 5-minute warning. | Fix applied; validation pending. |
+| **Q2: Safe LLM Parsing** | Gemini suggestions use defensive parsing and safe fallback output. | Fix applied; validation pending. |
+
+### Newly Added Production Tasks
+
+| Item | Severity | Required Action |
+| :--- | :--- | :--- |
+| `check-usage-limit` uses wildcard CORS instead of the shared request-aware helper. | P1 | Switch to shared `corsHeaders(req)` and rerun Deno tests. |
+| New non-negative constraints are `NOT VALID`. | P2 | Run one-time production data audit after migration apply. |
+| Store creation warning logs unconditionally. | P2 | Gate behind development mode. |
+| Stripe webhook initializes secrets at module scope with non-null assertions. | P2/P1 if env missing | Move to lazy guarded handler initialization. |
 
 ---
 
@@ -82,7 +116,7 @@ SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestr
 
 ### 3. Contradictory Feature Claims
 - **PRD vs. Code**: `PRD.md` claims "User Filler Words" is implemented and tested. However, `PRD.md:291` marks it as "REJECTED/REVERTED" tech debt.
-- **Coverage Transparency**: `PRD.md` summary table reports **0% coverage** despite having ~600 tests. This creates a perception of project abandonment or failure for external auditors.
+- **Coverage Transparency**: Legacy PRD coverage displays may show stale values because local SQM/CI metrics print to console rather than rewriting markdown files.
 
 ---
 
@@ -91,7 +125,7 @@ SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestr
 1. **NO-GO**: Do not launch until **all P0 blockers (1-4)** are resolved. These are financial, integrity, and unauthorized-access liabilities.
 2. **POLISH**: Resolve **P1 Defect 1** (Pro Warning) before accepting first paid users to avoid negative reviews.
 3. **HARDEN**: Implement **Fail-Closed** logic across all Edge Functions.
-4. **SYNC**: Update `PRD.md` summary tables to reflect the actual test coverage (~55%) to restore auditor trust.
+4. **SYNC**: Keep product_release status tables aligned with console-based SQM/CI evidence and avoid treating stale local markdown coverage as runtime truth.
 
 **Audit Status**: 🔴 **BLOCKED**
 **Remediation Effort**: ~8-12 Engineering Hours.

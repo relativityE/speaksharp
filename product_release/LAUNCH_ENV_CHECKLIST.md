@@ -20,7 +20,7 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 - [ ] **Service Role**: `SUPABASE_SERVICE_ROLE_KEY` is correctly set in Edge Function secrets.
 - [ ] **CORS Origins**: `ALLOWED_ORIGIN` matches the production domain (e.g., `https://speaksharp.app`).
 - [ ] **Auth Redirects**: Production domain added to Supabase Auth Allow List.
-- [ ] **Storage Buckets**: `transcripts` and `audio` buckets exist with production RLS policies.
+- [ ] **Storage Buckets**: Verify any production storage buckets still used by the app have correct RLS policies. Full transcript text is not expected to be stored for launch.
 
 ## 3. Observability & Monitoring
 - [ ] **Sentry DSN**: `VITE_SENTRY_DSN` is set to the production project.
