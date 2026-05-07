@@ -1311,7 +1311,7 @@ export default class TranscriptionService {
    */
   private processModelLoadProgress(progress: number | null): void {
     this.options.onModelLoadProgress(progress);
-    const percent = progress !== null ? Math.round(progress * 100) : null;
+    const percent = progress !== null ? Math.max(0, Math.min(100, Math.round(progress > 0 && progress <= 1 ? progress * 100 : progress))) : null;
     this.modelLoadingProgress = percent; // Keep internal state in sync
     const state = (useSessionStore as unknown as {
       getState: () => {

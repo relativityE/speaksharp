@@ -67,7 +67,7 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 |---|---|---|---|---|
 | **Native STT** | Free/basic browser transcription can start, stop, save, and analyze a session. | Mocked E2E covers the primary journey; manual mic behavior is not yet complete. | 🟡 PENDING | Complete Chrome/Safari/Firefox/iPhone mic checklist. |
 | **Private STT Default** | Pro users see Private as the recommended/default STT mode. | Recent STT UX work orders Private first; mocked E2E covers orchestration. | 🟡 PENDING | Browser-test new Pro/promo user landing state. |
-| **Private Download & Cache** | Missing model shows explicit download/progress, then reuses browser cache on later starts. | Manual checklist covers missing-model and cache-reuse cases; CI does not prove real Hugging Face/cache behavior. | 🟡 PENDING | Headed Chrome validation with cache clear, first download, second cached start. |
+| **Private Download & Cache** | Missing model shows explicit download/progress, then reuses browser cache on later starts. | Code now probes Whisper Turbo's real IndexedDB model stores and normalizes progress values for UI display; CI does not prove real model-source/cache behavior. | 🟡 FIX APPLIED / BROWSER VALIDATION PENDING | Headed Chrome validation with cache clear, first download, second cached start; confirm model source contract. |
 | **Private Engine Ladder** | Private attempts WebGPU, then CPU/Transformers.js, then Native only after Private cannot run. | Architecture and tests cover mocked fallback negotiation; hardware-specific paths are not CI-required. | 🟡 PENDING | Validate WebGPU and forced-CPU paths locally; verify no silent Cloud fallback. |
 | **Cloud STT** | Pro users may explicitly choose Cloud as a first-class option. | Auth/pro gating exists; usage-aware token issuance fix is applied locally. | 🟡 VALIDATION PENDING | Verify over-limit denial and successful Pro token issuance after deploy. |
 | **Transcript Propagation** | Live transcript updates and `TRANSCRIPT_PULSE` telemetry come from the same successful path. | Recent SpeechRuntime fixes target this path; mocked E2E evidence exists. Latest GitHub CI is running against pushed fixes. | 🟡 GITHUB RERUN PENDING | Review latest `CI - Test Audit`; spot-check browser console during manual session. |
@@ -94,6 +94,7 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | AI suggestion parsing | Code fix pushed. | `deno test --no-lock --allow-env --allow-net backend/supabase/functions/get-ai-suggestions` passed. | Deploy evidence. |
 | Pro warning UI | Code fix local, pending push in current checkpoint. | `vitest ... --coverage.enabled=false frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` passed; targeted ESLint passed. | Push and review CI. |
 | Request-aware CORS | Code fix local, pending push in current checkpoint. | `check-usage-limit` now uses shared request-aware `corsHeaders(req)`; Deno tests pass locally. | Push and verify deployed Edge Function CORS headers. |
+| Private model cache/progress | Code fix local, pending push in current checkpoint. | `ModelManager` probes Whisper Turbo IndexedDB stores; store progress normalization clamps `0..1` and `0..100` inputs to UI percent. | Run targeted tests; perform headed browser cache/download validation. |
 
 ---
 

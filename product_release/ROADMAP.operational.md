@@ -22,6 +22,7 @@ This document tracks identified risks and their impact on the 12-hour launch win
 | **Stripe Secret Init** | 🟡 FIX APPLIED / VALIDATION PENDING | Webhook runtime now lazily validates secrets inside the served handler and returns actionable config errors instead of module-scope crashes | **P2/P1 if env missing**: deploy validation pending | No |
 | **GitHub Canary** | 🟡 FIX APPLIED / RERUN PENDING | Deploy smoke helper updated from stale `/log-in` route to `/auth/signin`; GitHub run evidence pending | **P1**: Cannot trust deployed main-branch smoke until rerun passes | No |
 | **STT Benchmarks** | 🟡 FIX APPLIED / RERUN PENDING | Benchmark workflow harness aligned to pnpm/package scripts/current specs; WER evidence pending | **P1**: Cannot validate accuracy ceilings until rerun succeeds | No |
+| **Private Model Cache/Progress** | 🟡 FIX APPLIED / BROWSER VALIDATION PENDING | Whisper Turbo availability now checks IndexedDB model stores and progress is normalized to UI percent; headed browser proof pending | **P1**: Required for Private STT first-use/second-use trust | No |
 | **AI Parsing** | 🟡 FIX APPLIED / VALIDATION PENDING | Malformed LLM JSON now returns safe fallback suggestions locally; deploy evidence pending | **P1**: Avoids 500 error on Analytics | No |
 | **Pro Session Warning** | 🟡 FIX APPLIED / VALIDATION PENDING | Pro users with finite daily remaining time now receive the 5-minute warning; local hook test passes | **P1**: Prevents paid-user surprise at daily cap | No |
 | **WPM Accuracy** | 🟡 PENDING | Rolling window pollution bug | **P2**: Minor metric glitch | Yes |
@@ -41,6 +42,7 @@ This document tracks identified risks and their impact on the 12-hour launch win
 6. **Benchmark Workflow Repair**: Remove stale pnpm 9 pins from `.github/workflows/benchmarks.yml`, rerun both benchmark jobs, and save WER evidence.
 7. **Usage Edge CORS**: Deploy and verify `check-usage-limit` returns request-aware CORS headers for allowed production origins.
 8. **Live Deployment Validation**: Deploy the two quota/promo migrations and updated Edge Functions, then run smoke tests for usage denial, Cloud token issuance, promo throttling, Stripe webhook, and Sentry ingest.
+9. **Private STT Cache Validation**: In headed Chrome, clear origin storage, run Private download, verify progress, restart, and confirm cached second start without false `DOWNLOAD_REQUIRED`.
 
 ---
 

@@ -89,6 +89,12 @@ const initialState: SessionState = {
     isBooting: false,
 };
 
+const normalizeModelLoadingProgress = (progress: number | null): number | null => {
+    if (progress === null || !Number.isFinite(progress)) return null;
+    const percent = progress > 0 && progress <= 1 ? progress * 100 : progress;
+    return Math.max(0, Math.min(100, Math.round(percent)));
+};
+
 export const useSessionStore = create<SessionStore>((set) => {
     const instanceId = Math.random().toString(36).substring(7);
     if (typeof window !== 'undefined') {
@@ -185,7 +191,7 @@ export const useSessionStore = create<SessionStore>((set) => {
 
     setModelLoadingProgress: (progress) => {
         set({
-            modelLoadingProgress: progress,
+            modelLoadingProgress: normalizeModelLoadingProgress(progress),
         });
     },
 
