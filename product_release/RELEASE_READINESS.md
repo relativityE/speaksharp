@@ -51,7 +51,7 @@ Launch status: **NOT READY**
 
 | ID | Requirement | Category | Status |
 | :--- | :--- | :--- | :--- |
-| **Q1** | **Pro Session Warning UI** | UX | 🔴 **BLOCKED** |
+| **Q1** | **Pro Session Warning UI** | UX | 🟡 **FIX APPLIED / VALIDATION PENDING** |
 | **Q2** | **Safe LLM JSON Parsing** | Reliability| 🟡 **FIX APPLIED / VALIDATION PENDING** |
 | **Q3** | **Lighthouse SEO Score > 90** | Marketing | ✅ READY (91 local audit) |
 | **Q4** | **Lighthouse Perf Score Policy**| Performance| 🟡 FIX APPLIED / GITHUB RERUN PENDING (90 remains target; performance assertion is advisory for MVP) |
@@ -69,7 +69,7 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | **Private Download & Cache** | Missing model shows explicit download/progress, then reuses browser cache on later starts. | Manual checklist covers missing-model and cache-reuse cases; CI does not prove real Hugging Face/cache behavior. | 🟡 PENDING | Headed Chrome validation with cache clear, first download, second cached start. |
 | **Private Engine Ladder** | Private attempts WebGPU, then CPU/Transformers.js, then Native only after Private cannot run. | Architecture and tests cover mocked fallback negotiation; hardware-specific paths are not CI-required. | 🟡 PENDING | Validate WebGPU and forced-CPU paths locally; verify no silent Cloud fallback. |
 | **Cloud STT** | Pro users may explicitly choose Cloud as a first-class option. | Auth/pro gating exists; usage-aware token issuance fix is applied locally. | 🟡 VALIDATION PENDING | Verify over-limit denial and successful Pro token issuance after deploy. |
-| **Transcript Propagation** | Live transcript updates and `TRANSCRIPT_PULSE` telemetry come from the same successful path. | Recent SpeechRuntime fixes target this path; mocked E2E evidence exists. | 🟡 PENDING | Re-run full mocked E2E after P0 fixes; spot-check browser console during manual session. |
+| **Transcript Propagation** | Live transcript updates and `TRANSCRIPT_PULSE` telemetry come from the same successful path. | Recent SpeechRuntime fixes target this path; mocked E2E evidence exists. Latest GitHub CI is running against pushed fixes. | 🟡 GITHUB RERUN PENDING | Review latest `CI - Test Audit`; spot-check browser console during manual session. |
 | **Session Persistence** | Finalized sessions persist transcript, engine, metrics, and history. | DB schema supports transcript/engine persistence; mocked flows cover history. | 🟡 PENDING | Verify live save/read after Native, Private, and Cloud sessions. |
 | **Analytics** | WPM, clarity, filler words, pause/session history, and trends are computed from saved data. | Core analytics are covered by mocked tests; WPM rolling-window issue remains P2. | 🟡 PENDING | Browser-test session-over-session analytics and accept/defer WPM P2 explicitly. |
 | **Custom/User Words** | User words persist to Supabase and are available next session; Cloud receives boost words. | Changelog indicates persistence and Cloud boost integration; current live behavior unverified. | 🟡 PENDING | Live Pro test: add word, refresh/login, record Cloud session, verify persistence. |
@@ -80,6 +80,18 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | **Accuracy Benchmarks** | Accuracy claims are backed by `.wav` plus ground-truth WER runs. | Workflow harness fixes applied locally for pnpm version, AssemblyAI command, browser benchmark specs, and canonical `tests/STT_BENCHMARKS.json` path. | 🟡 GITHUB RERUN PENDING | Rerun AssemblyAI/browser benchmarks and record WER. |
 | **Observability** | Sentry/PostHog capture launch-relevant frontend/backend events. | Instrumentation exists; live project ingest is pending. | 🟡 PENDING | Send frontend error, Edge Function error, and key product analytics events. |
 | **GitHub Canary Deploy Smoke** | Main-branch GitHub canary proves deployed auth/session/analytics path against real infrastructure. | Local helper fix now navigates to `/auth/signin`; GitHub canary has not rerun yet. | 🟡 GITHUB RERUN PENDING | Run `canary.yml` and attach run evidence. |
+
+### Latest Local Fix Status (2026-05-07)
+
+| Area | Current State | Local Evidence | Still Required |
+|---|---|---|---|
+| Quota fail-closed | Code fix pushed. | `check-usage-limit` Deno tests pass locally. | GitHub/live Edge Function validation. |
+| Cloud token usage gate | Code fix pushed. | Targeted ESLint passed before push. | Live Pro/over-limit token smoke. |
+| Negative duration guards | Forward migration pushed. | SQL review complete. | Apply migration and verify negative increments reject. |
+| Promo brute-force | Code + migration pushed. | `deno check` and targeted ESLint passed before push. | Deploy migration/function and verify throttling. |
+| Canary harness | Code fix pushed for login route and production origin guard. | Targeted ESLint passed before push. | Latest GitHub canary rerun must pass. |
+| AI suggestion parsing | Code fix pushed. | `deno test --no-lock --allow-env --allow-net backend/supabase/functions/get-ai-suggestions` passed. | Deploy evidence. |
+| Pro warning UI | Code fix local, pending push in current checkpoint. | `vitest ... --coverage.enabled=false frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` passed; targeted ESLint passed. | Push and review CI. |
 
 ---
 

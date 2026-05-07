@@ -220,20 +220,30 @@ export const useSessionLifecycle = () => {
     }, [isListening, tick]);
 
 
-    // Tier enforcement: Auto-stop and 5-minute Warning
+    // Tier enforcement: Auto-stop and 5-minute warning for any tier with a finite daily cap.
     useEffect(() => {
-        if (!isVerified || isProUser || (usageLimit && usageLimit.remaining_seconds === -1)) return;
+        if (!isVerified || !usageLimit) return;
 
-        if (isListening && usageLimit && typeof usageLimit.remaining_seconds === 'number' && usageLimit.remaining_seconds > 0) {
-            const remaining = usageLimit.remaining_seconds - elapsedTime;
+        const sourceRemaining = isProUser && typeof usageLimit.daily_remaining === 'number'
+            ? usageLimit.daily_remaining
+            : usageLimit.remaining_seconds;
+
+        if (sourceRemaining === -1 || !Number.isFinite(sourceRemaining)) return;
+
+        if (isListening && typeof sourceRemaining === 'number' && sourceRemaining > 0) {
+            const remaining = sourceRemaining - elapsedTime;
 
             // 5-minute warning (300 seconds)
             if (remaining > 0 && remaining <= 300) {
                 const minutes = Math.ceil(remaining / 60);
-                const warningMsg = `⚠️ Great practice! ${minutes} minute${minutes > 1 ? 's' : ''} remaining for today's practice limit.`;
+                const tierLabel = isProUser ? 'Pro ' : '';
+                const warningMsg = `⚠️ Great practice! ${minutes} minute${minutes > 1 ? 's' : ''} remaining for today's ${tierLabel}practice limit.`;
                 if (sttStatus.message !== warningMsg) {
                     setSTTStatus({ type: 'info', message: warningMsg });
-                    posthog.capture('session_limit_warning', { remaining_seconds: remaining });
+                    posthog.capture('session_limit_warning', {
+                        remaining_seconds: remaining,
+                        tier: isProUser ? 'pro' : 'free',
+                    });
                 }
             } else if (remaining <= 0) {
                 if (hasAutoStoppedRef.current) return;
@@ -245,7 +255,9 @@ export const useSessionLifecycle = () => {
                 setSunsetModal({ type: isMonthly ? 'monthly' : 'daily', open: true });
 
                 void handleStartStopRef.current?.({
-                    stopReason: "⛔ Daily usage limit reached."
+                    stopReason: isProUser
+                        ? "⛔ Pro daily practice limit reached."
+                        : "⛔ Daily usage limit reached."
                 });
             }
         }
