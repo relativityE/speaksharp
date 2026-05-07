@@ -18,7 +18,7 @@ Launch status: **NOT READY**
 - [ ] P0 quota fail-open fixed. Code fix applied locally; GitHub/deploy validation pending.
 - [ ] P0 Cloud token issuance checks usage limits before minting paid tokens. Code fix applied locally; GitHub/deploy validation pending.
 - [ ] P0 usage RPCs reject negative abuse-path increments. Forward migration added locally; migration validation pending.
-- [ ] P0 promo redemption has brute-force protection.
+- [ ] P0 promo redemption has brute-force protection. Code fix applied locally; migration/deploy validation pending.
 - [ ] Unit tests pass.
 - [ ] E2E tests pass.
 - [ ] Stripe live webhook verified.
@@ -42,7 +42,7 @@ Launch status: **NOT READY**
 | **G1** | **Fail-Closed Usage Logic** | Financial | 🟡 **FIX APPLIED / VALIDATION PENDING** |
 | **G2** | **Usage-Aware Token Issuance** | Revenue | 🟡 **FIX APPLIED / VALIDATION PENDING** |
 | **G3** | **Non-Negative Duration Constraint**| Integrity | 🟡 **FIX APPLIED / VALIDATION PENDING** |
-| **G4** | **Promo Rate Limiting** | Security | 🔴 **BLOCKED** |
+| **G4** | **Promo Rate Limiting** | Security | 🟡 **FIX APPLIED / VALIDATION PENDING** |
 | **G5** | **Production Secret Audit** | Security | 🟡 IN REVIEW |
 
 ---
@@ -74,7 +74,7 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | **Analytics** | WPM, clarity, filler words, pause/session history, and trends are computed from saved data. | Core analytics are covered by mocked tests; WPM rolling-window issue remains P2. | 🟡 PENDING | Browser-test session-over-session analytics and accept/defer WPM P2 explicitly. |
 | **Custom/User Words** | User words persist to Supabase and are available next session; Cloud receives boost words. | Changelog indicates persistence and Cloud boost integration; current live behavior unverified. | 🟡 PENDING | Live Pro test: add word, refresh/login, record Cloud session, verify persistence. |
 | **PDF Export** | Exported PDF reflects authoritative saved transcript/report data. | PDF export exists and has prior E2E history; live export content not recently validated. | 🟡 PENDING | Export a saved session and inspect transcript/metrics/watermark behavior. |
-| **Promo Pro Access** | Promo code grants select tester Pro access for the intended duration. | Promo flow exists; brute-force/rate-limit protection is missing. | 🔴 BLOCKED | Add brute-force protection; run promo signup smoke. |
+| **Promo Pro Access** | Promo code grants select tester Pro access for the intended duration. | Promo flow exists; DB-backed attempt throttling fix is applied locally. | 🟡 VALIDATION PENDING | Deploy migration/function, verify invalid attempts throttle, then run promo signup smoke. |
 | **Billing Upgrade** | Stripe checkout upgrades user only after verified webhook. | Stripe flow has tests; live webhook/env verification pending. | 🟡 PENDING | Complete live low-value transaction and webhook smoke. |
 | **Usage Quotas** | Usage limits protect users and business costs and fail closed on uncertainty. | Local fixes now cover fail-closed usage checks, usage-aware Cloud token issuance, and negative-duration DB guards. | 🟡 VALIDATION PENDING | Run targeted tests, deploy migration/functions, and verify over-limit denial on live infrastructure. |
 | **Accuracy Benchmarks** | Accuracy claims are backed by `.wav` plus ground-truth WER runs. | Workflow harness fixes applied locally for pnpm version, AssemblyAI command, browser benchmark specs, and canonical `tests/STT_BENCHMARKS.json` path. | 🟡 GITHUB RERUN PENDING | Rerun AssemblyAI/browser benchmarks and record WER. |
@@ -90,7 +90,7 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | Usage enforcement resolved | Roadmap / prior status docs | Local code now fails closed on `check_usage_limit` RPC/internal uncertainty; full gate evidence pending. | Validation pending | Run targeted tests and deployed Edge Function smoke. |
 | Cloud STT access is protected | Architecture / prior status docs | Local code now checks usage eligibility before AssemblyAI token issuance; full gate evidence pending. | Validation pending | Run over-limit/pro-token smoke after deploy. |
 | Negative duration abuse is blocked | RPC session guard | Forward migration adds table constraints and write-path guards for `update_user_usage` and `heartbeat_session`. | Validation pending | Apply migration and verify negative increments are rejected. |
-| Promo redemption is secure | Promo migration notes | Redemption is atomic, but apply path has no attempt counter or rate limit. | Partially true | Add brute-force protection. |
+| Promo redemption is secure | Promo migration notes | Redemption is atomic; local fix adds DB-backed failed-attempt throttling by user/IP. | Validation pending | Deploy migration/function and verify throttling behavior. |
 | CI validates STT flows | CI evidence | CI validates mocked orchestration; real mic, WebGPU, Safari, and hardware behavior require manual validation. | Partially true | Complete manual hardware checklist. |
 | Lighthouse performance ready | Release readiness table | Recent local audit showed Performance varying around 87-90, not 96. | Stale | Re-run release Lighthouse and set launch threshold/policy. |
 | Billing ready | Architecture / roadmap | Stripe flow has tests, but live webhook/environment verification remains pending. | Pending | Complete launch environment checklist and live webhook smoke. |

@@ -2,9 +2,29 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.2"
 import { PROMO_DURATION_MINUTES } from "../_shared/constants.ts"
 
+const PROMO_RATE_LIMIT_WINDOW_MINUTES = 15;
+const PROMO_RATE_LIMIT_MAX_FAILURES = 8;
+
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+function getClientIp(req: Request): string {
+    const forwardedFor = req.headers.get('x-forwarded-for');
+    if (forwardedFor) return forwardedFor.split(',')[0].trim();
+
+    return req.headers.get('cf-connecting-ip')
+        || req.headers.get('x-real-ip')
+        || 'unknown';
+}
+
+async function sha256Hex(value: string): Promise<string> {
+    const bytes = new TextEncoder().encode(value);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest))
+        .map((byte) => byte.toString(16).padStart(2, '0'))
+        .join('');
 }
 
 serve(async (req: Request) => {
@@ -88,11 +108,60 @@ serve(async (req: Request) => {
         }
 
         const { promoCode } = await req.json()
+        const normalizedPromoCode = typeof promoCode === 'string' ? promoCode.trim() : '';
+
+        if (!normalizedPromoCode) {
+            return new Response(
+                JSON.stringify({ success: false, error: 'Promo code required' }),
+                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
+        const ipHash = await sha256Hex(getClientIp(req));
+        const promoCodeHash = await sha256Hex(normalizedPromoCode.toLowerCase());
+        const windowStart = new Date(Date.now() - PROMO_RATE_LIMIT_WINDOW_MINUTES * 60_000).toISOString();
+
+        const { count: userFailures, error: userLimitError } = await adminClient
+            .from('promo_attempts')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', user.id)
+            .eq('success', false)
+            .gte('attempted_at', windowStart);
+
+        if (userLimitError) {
+            console.error('[apply-promo] Failed to verify user promo attempt limit:', userLimitError);
+            return new Response(
+                JSON.stringify({ success: false, error: 'Unable to verify promo attempt limit' }),
+                { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
+        const { count: ipFailures, error: ipLimitError } = await adminClient
+            .from('promo_attempts')
+            .select('id', { count: 'exact', head: true })
+            .eq('ip_hash', ipHash)
+            .eq('success', false)
+            .gte('attempted_at', windowStart);
+
+        if (ipLimitError) {
+            console.error('[apply-promo] Failed to verify IP promo attempt limit:', ipLimitError);
+            return new Response(
+                JSON.stringify({ success: false, error: 'Unable to verify promo attempt limit' }),
+                { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
+        if ((userFailures ?? 0) >= PROMO_RATE_LIMIT_MAX_FAILURES || (ipFailures ?? 0) >= PROMO_RATE_LIMIT_MAX_FAILURES) {
+            return new Response(
+                JSON.stringify({ success: false, error: 'Too many promo attempts. Please try again later.' }),
+                { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
 
         // --- ATOMIC REDEMPTION (RPC) ---
         // Mitigation for Database Race Condition
         const { data: result, error: rpcError } = await adminClient.rpc('redeem_promo', {
-            p_code: promoCode,
+            p_code: normalizedPromoCode,
             p_user_id: user.id
         });
 
@@ -103,10 +172,36 @@ serve(async (req: Request) => {
 
         // RPC returns standardized object: { success: boolean, error?: string, message?: string, ... }
         if (!result.success) {
+            const { error: attemptInsertError } = await adminClient.from('promo_attempts').insert({
+                user_id: user.id,
+                ip_hash: ipHash,
+                promo_code_hash: promoCodeHash,
+                success: false
+            });
+
+            if (attemptInsertError) {
+                console.error('[apply-promo] Failed to record failed promo attempt:', attemptInsertError);
+                return new Response(
+                    JSON.stringify({ success: false, error: 'Unable to record promo attempt' }),
+                    { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                );
+            }
+
             return new Response(
                 JSON.stringify({ success: false, error: result.error }),
                 { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
+        }
+
+        const { error: successAttemptInsertError } = await adminClient.from('promo_attempts').insert({
+            user_id: user.id,
+            ip_hash: ipHash,
+            promo_code_hash: promoCodeHash,
+            success: true
+        });
+
+        if (successAttemptInsertError) {
+            console.error('[apply-promo] Failed to record successful promo attempt:', successAttemptInsertError);
         }
 
         console.log(`[apply-promo] Success: ${result.message} (Is Reuse: ${result.is_reuse})`);

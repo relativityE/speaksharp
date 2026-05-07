@@ -177,7 +177,15 @@ export async function goToApp(page: Page, route: string = '/') {
   await page.goto(route);
 
   // 🛡️ STRICT ORDERING RULE: Assert origin before ANY storage/forensic access
-  await expect(page).toHaveURL(/localhost|127\.0\.0\.1/);
+  const allowedOrigin = process.env.BASE_URL
+    ? new URL(process.env.BASE_URL).origin
+    : null;
+  const currentOrigin = new URL(page.url()).origin;
+  if (allowedOrigin) {
+    expect(currentOrigin).toBe(allowedOrigin);
+  } else {
+    expect(currentOrigin).toMatch(/localhost|127\.0\.0\.1/);
+  }
 
   await waitForAppReady(page);
 }

@@ -14,6 +14,7 @@ This document tracks identified risks and their impact on the 12-hour launch win
 | Area | Status | Risk | Launch Impact | Deferred? |
 | :--- | :--- | :--- | :--- | :--- |
 | **Quota Gate** | 🟡 FIX APPLIED / VALIDATION PENDING | Fail-closed quota and usage-token fixes applied locally; deploy/test evidence pending | **Critical**: Revenue leakage | No |
+| **Promo Abuse Guard** | 🟡 FIX APPLIED / VALIDATION PENDING | DB-backed promo attempt throttling applied locally; deploy/test evidence pending | **P0**: Tester promo access can be brute-forced without this | No |
 | **Stripe Webhook**| 🟡 PENDING | Live mode end-to-end unverified | **P0**: Users cannot upgrade | No |
 | **Safari Mic** | 🟡 PENDING | Potential silent failure on resume | **P1**: Degraded mobile UX | Yes |
 | **Sentry Ingest** | 🟡 PENDING | Live project ingestion untested | **High**: Blind to launch errors | No |
