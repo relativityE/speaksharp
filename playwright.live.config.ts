@@ -22,13 +22,14 @@
  *   or via CI: gh workflow run with label 'test:live'
  */
 import { defineConfig } from '@playwright/test';
+import { fileURLToPath } from 'url';
 import { loadEnv, getChromeWithMic, baseConfig } from './playwright.base.config';
 
 loadEnv('test');
 
 // 10sec.wav: long enough to outlast WASM engine init (~20s) when combined with the
 // data-state='recording' engine-ready gate in private-stt.live.spec.ts.
-const LIVE_AUDIO_FIXTURE = 'tests/fixtures/10sec.wav';
+const LIVE_AUDIO_FIXTURE = fileURLToPath(new URL('./tests/fixtures/10sec.wav', import.meta.url));
 
 export default defineConfig({
     ...baseConfig,

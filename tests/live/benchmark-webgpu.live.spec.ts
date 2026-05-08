@@ -5,14 +5,14 @@ import { test, expect } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
 import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode } from './helpers/benchmark-utils';
-import * as path from 'path';
+import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
     launchOptions: {
         args: [
             ...AUDIO_ARGS,
             '--enable-features=WebGPU',
-            `--use-file-for-fake-audio-capture=${path.resolve('tests/fixtures/harvard_benchmark_16k.wav')}`,
+            `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_AUDIO}`,
         ]
     }
 });
