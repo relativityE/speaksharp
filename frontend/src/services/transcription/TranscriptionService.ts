@@ -511,9 +511,33 @@ export default class TranscriptionService {
         return;
       }
 
+      if (mode === 'private') {
+        logger.warn({
+          errorName: err?.constructor?.name,
+          errorMessage: err?.message,
+          errorCode: err?.code,
+        }, '[TranscriptionService] Private model setup failed. Restoring explicit retry state.');
+
+        if (!this.fsm.is('READY') && !this.fsm.is('RECORDING')) {
+          this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
+        }
+
+        this.options.onStatusChange?.({
+          type: 'download-required',
+          message: 'Private model setup did not complete.',
+          detail: 'Try the offline model download again, or switch to Native from the speech mode control.',
+          progress: 0
+        });
+        return;
+      }
+
       const canFallback = this.mode !== 'native' && this.mode !== 'mock';
       if (canFallback) {
-        logger.warn({ error: err }, '[TranscriptionService] Init failed, attempting native fallback');
+        logger.warn({
+          errorName: err?.constructor?.name,
+          errorMessage: err?.message,
+          errorCode: err?.code,
+        }, '[TranscriptionService] Init failed, attempting native fallback');
         return this.warmUp('native').catch(() => {
           this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
         });

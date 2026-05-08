@@ -129,7 +129,8 @@ export class TransformersJSEngine extends STTEngine {
                     sId: this.serviceId,
                     rId: this.runId,
                     eId: this.instanceId,
-                    err: localError,
+                    errorName: localError instanceof Error ? localError.name : typeof localError,
+                    errorMessage: localError instanceof Error ? localError.message : String(localError),
                 }, '[TransformersJS] Local model load failed. Retrying from Hugging Face.');
 
                 env.allowRemoteModels = true;
@@ -172,7 +173,13 @@ export class TransformersJSEngine extends STTEngine {
                 logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] ❌ Model load failed with "Unexpected token <". This suggests a 404 error where the server returned index.html instead of the model file.');
             }
 
-            logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, err: e }, '[TransformersJS] Failed to initialize engine.');
+            logger.error({
+                sId: this.serviceId,
+                rId: this.runId,
+                eId: this.instanceId,
+                errorName: e.name,
+                errorMessage: e.message,
+            }, '[TransformersJS] Failed to initialize engine.');
             return Result.err(e);
         }
     }
