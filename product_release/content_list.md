@@ -16,6 +16,7 @@ This directory contains the authoritative release control artifacts for the Spea
 ### ✅ Verification Gates
 - **[LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md)**: The runtime configuration verification gate. Ensures environment variables and secrets are correctly set.
 - **[MANUAL_HARDWARE_VALIDATION.md](./MANUAL_HARDWARE_VALIDATION.md)**: Manual hardware/browser test protocols. Validates the "Hardware Blindspot" (Safari/Microphone/Bluetooth).
+- **[LIVE_TEST_COMBINATIONS.md](./LIVE_TEST_COMBINATIONS.md)**: Production-browser validation matrix for tier, STT engine, cache state, browser, analytics, export, and benchmark combinations.
 - **[GITHUB_WORKFLOWS_AUDIT.md](./GITHUB_WORKFLOWS_AUDIT.md)**: GitHub Actions workflow utility/status audit and repair order.
 
 ### 🛠️ Decision & Recovery

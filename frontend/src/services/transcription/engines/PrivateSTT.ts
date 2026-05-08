@@ -32,7 +32,6 @@ import { STTEngine, validateEngine } from '@/contracts/STTEngine';
 import { PrivateSTTInitOptions } from '@/contracts/IPrivateSTT';
 import logger from '@/lib/logger';
 import { ModelManager } from '@/services/transcription/ModelManager';
-import { ENV } from '@/config/TestFlags';
 import { MicStream } from '@/services/transcription/utils/types';
 import { getEngine } from '@/services/transcription/STTRegistry';
 // Stale import removed
@@ -217,7 +216,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         // 2. Determine best available engine.
         // Launch policy: CPU/TransformersJS is the deterministic first-run path.
-        const preferredEngine: 'transformers-js' = 'transformers-js';
+        const preferredEngine = 'transformers-js' as const;
 
         // 2.5 Consult the registry first if a mock is provided
         const mockFactory = getEngine(preferredEngine)
