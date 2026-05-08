@@ -445,7 +445,8 @@ export default class TranscriptionService {
 
         this.options.onStatusChange?.({
           type: 'download-required',
-          message: 'Private model download required.',
+          message: 'Private model needs a one-time download.',
+          detail: 'Download once to use offline transcription in this browser.',
           progress: 0
         });
 
@@ -503,7 +504,8 @@ export default class TranscriptionService {
         }
         this.options.onStatusChange?.({
           type: 'download-required',
-          message: 'Private model download required.',
+          message: 'Private model needs a one-time download.',
+          detail: 'Download once to use offline transcription in this browser.',
           progress: 0
         });
         return;
@@ -1310,19 +1312,36 @@ export default class TranscriptionService {
    * Manages model progress with deterministic cleanup.
    */
   private processModelLoadProgress(progress: number | null): void {
-    this.options.onModelLoadProgress(progress);
     const percent = progress !== null ? Math.max(0, Math.min(100, Math.round(progress > 0 && progress <= 1 ? progress * 100 : progress))) : null;
+    this.options.onModelLoadProgress(percent);
     this.modelLoadingProgress = percent; // Keep internal state in sync
     const state = (useSessionStore as unknown as {
       getState: () => {
         setActiveEngine: (m: unknown) => void;
         setSTTMode: (m: unknown) => void;
         setModelLoadingProgress: (p: unknown) => void;
+        setSTTStatus: (status: SttStatus) => void;
         modelLoadingProgress: number | null;
       }
     }).getState?.();
     if (state) {
       state.setModelLoadingProgress(percent);
+      if (percent !== null) {
+        if (percent >= 100) {
+          state.setSTTStatus({
+            type: 'ready',
+            message: 'Private model cached. Ready to record.',
+            detail: 'Private STT should start without downloading next time.'
+          });
+        } else {
+          state.setSTTStatus({
+            type: 'downloading',
+            message: `Downloading private model... ${percent}%`,
+            detail: 'Keep this tab open until the model is cached.',
+            progress: percent
+          });
+        }
+      }
     }
 
     if (percent === 100) {
@@ -1403,7 +1422,21 @@ export default class TranscriptionService {
         status = { type: 'recording', message: label };
         break;
       }
-      case 'DOWNLOAD_REQUIRED': status = { type: 'download-required', message: 'Private model unavailable at first-use. Click button for one-time download.' }; break;
+      case 'DOWNLOAD_REQUIRED': status = {
+        type: 'download-required',
+        message: 'Private model needs a one-time download.',
+        detail: 'Download once to use offline transcription in this browser.'
+      }; break;
+      case 'DOWNLOADING': status = {
+        type: 'downloading',
+        message: 'Downloading private model...',
+        detail: 'Keep this tab open until the model is cached.'
+      }; break;
+      case 'DOWNLOAD_COMPLETE': status = {
+        type: 'ready',
+        message: 'Private model cached. Ready to record.',
+        detail: 'Private STT should start without downloading next time.'
+      }; break;
       case 'FAILED': status = { type: 'error', message: this.lastError?.message || 'Error occurred' }; break;
       case 'STOPPING':
       case 'CLEANING_UP': status = { type: 'idle', message: 'Stopping...' }; break;
@@ -1423,8 +1456,9 @@ export default class TranscriptionService {
     if (store) {
       const currentStatus = store.sttStatus;
       // 🛡️ SSOT GUARD: Never overwrite active recording or controller-managed errors with service-level pulses
+      const recoveryStatusTypes = new Set<SttStatus['type']>(['download-required', 'downloading', 'ready']);
       if (currentStatus?.type === 'recording' || currentStatus?.type === 'error') {
-        if (status.type !== 'recording' && status.type !== 'error') {
+        if (status.type !== 'recording' && status.type !== 'error' && !recoveryStatusTypes.has(status.type)) {
           return;
         }
       }

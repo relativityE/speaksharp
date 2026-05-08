@@ -104,7 +104,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 displayMessage = 'Error occurred';
                 break;
             case 'download-required':
-                displayMessage = 'Model Download Required';
+                displayMessage = 'Private Model Download Needed';
                 break;
             case 'downloading':
                 displayMessage = 'Downloading...';

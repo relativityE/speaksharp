@@ -77,6 +77,7 @@ export class TranscriptionFSM {
         { from: 'ENGINE_INITIALIZING', to: 'DOWNLOAD_REQUIRED', event: 'DOWNLOAD_REQUIRED' },
         { from: 'IDLE', to: 'DOWNLOAD_REQUIRED', event: 'DOWNLOAD_REQUIRED' },
         { from: 'READY', to: 'DOWNLOAD_REQUIRED', event: 'DOWNLOAD_REQUIRED' }, // Allow download required from ready
+        { from: 'FAILED', to: 'DOWNLOAD_REQUIRED', event: 'DOWNLOAD_REQUIRED' }, // Cache miss is an expected first-use recovery state
 
         { from: 'DOWNLOAD_REQUIRED', to: 'IDLE', event: 'RESET_REQUESTED' },
         { from: 'DOWNLOAD_REQUIRED', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' },

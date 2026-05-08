@@ -41,6 +41,7 @@
     "// Deploy (test:deploy:<env>)": "",
     "test:deploy": "pnpm test:deploy:prod",
     "test:deploy:prod": "cross-env BASE_URL=https://speaksharp-public.vercel.app playwright test tests/canary --config=playwright.canary.config.ts",
+    "test:deploy:promo": "cross-env BASE_URL=https://speaksharp-public.vercel.app playwright test tests/canary/promo-signup.canary.spec.ts --config=playwright.promo-canary.config.ts",
     "test:deploy:local": "playwright test tests/canary --config=playwright.canary.config.ts",
     "// Soak (test:soak:<type>:<env>)": "",
     "pretest:soak": "npx kill-port 5173 || true",
