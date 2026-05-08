@@ -45,6 +45,8 @@ export default defineConfig({
 
     // No retries — flaky live tests should be investigated, not re-run silently
     retries: 0,
+    workers: 1,
+    fullyParallel: false,
 
     reporter: process.env.CI
         ? [['blob', { outputDir: 'blob-report/live' }], ['github']]

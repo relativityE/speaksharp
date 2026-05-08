@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode } from './helpers/benchmark-utils';
 import * as path from 'path';
 
 test.use({
@@ -54,9 +54,7 @@ test('measure WhisperTurbo (WebGPU)', async ({ page }) => {
     await page.goto('/session');
     
 
-    const modeButton = page.getByTestId('stt-mode-select');
-    await modeButton.click();
-    await page.getByTestId('stt-mode-private').click();
+    await selectBenchmarkMode(page, 'private');
 
     // Ensure the WebGPU engine is fully initialized (WASM downloaded and booted) BEFORE starting
     await expect(page.locator('body')).toHaveAttribute('data-stt-engine', 'ready', { timeout: 180_000 });

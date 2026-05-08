@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_LIST_1_SENTENCES } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode } from './helpers/benchmark-utils';
 import * as path from 'path';
 
 test.use({
@@ -51,9 +51,7 @@ test('measure Native STT', async ({ page }) => {
         await page.goto('/session');
         
 
-        const modeButton = page.getByTestId('stt-mode-select');
-        await modeButton.click();
-        await page.getByTestId('stt-mode-native').click();
+        await selectBenchmarkMode(page, 'native');
 
         await page.getByTestId('session-start-stop-button').click();
         await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10_000 });

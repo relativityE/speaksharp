@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { expect, Page } from '@playwright/test';
 
 export const BENCHMARKS_PATH = path.resolve('tests/STT_BENCHMARKS.json');
 export const REGRESSION_TOLERANCE = 0.02;
@@ -50,4 +51,16 @@ export function assertNoRegression(
 
         throw new Error(errorMsg + `  Run pnpm benchmark:browser locally to investigate.`);
     }
+}
+
+export async function selectBenchmarkMode(page: Page, mode: 'native' | 'cloud' | 'private') {
+    const select = page.getByTestId('stt-mode-select');
+    await expect(select).toBeVisible({ timeout: 15_000 });
+    await select.scrollIntoViewIfNeeded();
+    await select.click({ force: true });
+
+    const option = page.getByTestId(`stt-mode-${mode}`);
+    await expect(option).toBeVisible({ timeout: 10_000 });
+    await option.click({ force: true });
+    await expect(select).toHaveAttribute('data-state', mode, { timeout: 10_000 });
 }
