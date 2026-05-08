@@ -1,6 +1,41 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { navigateToRoute, debugLog, canaryLogin } from '../e2e/helpers';
 import { ROUTES, TEST_IDS, CANARY_USER } from '../constants';
+
+async function selectNativeMode(page: Page) {
+    const modeSelect = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
+
+    if (await modeSelect.isVisible()) {
+        if ((await modeSelect.getAttribute('data-state')) === 'native') return;
+
+        await modeSelect.evaluate((el: HTMLElement) => {
+            el.scrollIntoView({ block: 'center', inline: 'center' });
+            el.dispatchEvent(new PointerEvent('pointerdown', {
+                bubbles: true,
+                cancelable: true,
+                pointerType: 'mouse',
+                button: 0,
+            }));
+            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+            el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+        });
+
+        const nativeByTestId = page.getByTestId(TEST_IDS.STT_MODE_NATIVE);
+        const nativeByRole = page.getByRole('menuitemradio', { name: /Native/i });
+        const nativeOption = (await nativeByTestId.isVisible({ timeout: 3000 }).catch(() => false))
+            ? nativeByTestId
+            : nativeByRole;
+
+        await nativeOption.click({ timeout: 5000 });
+        await expect(modeSelect).toHaveAttribute('data-state', 'native', { timeout: 5000 });
+        return;
+    }
+
+    // High-fidelity fallback for legacy UI.
+    await page.getByRole('button', { name: /Native|Cloud AI|Private|On-Device/i }).click();
+    await page.getByRole('menuitemradio', { name: /Native/i }).click();
+}
 
 
 /**
@@ -51,16 +86,7 @@ test.describe('Production Smoke Canary @canary', () => {
 
         // 3. Configure for Native STT (Free/Low Risk)
         debugLog('[CANARY] Configuring Native STT mode...');
-        // Standardize: If STT_MODE_SELECT testid is present, use it. Fallback to roles if needed.
-        const modeSelect = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
-        if (await modeSelect.isVisible()) {
-            await modeSelect.evaluate((el: HTMLElement) => el.click());
-            await page.getByTestId(TEST_IDS.STT_MODE_NATIVE).click();
-        } else {
-            // High-fidelity fallback for legacy UI
-            await page.getByRole('button', { name: /Native|Cloud AI|Private|On-Device/i }).click();
-            await page.getByRole('menuitemradio', { name: /Native/i }).click();
-        }
+        await selectNativeMode(page);
 
         // 4. Start Session
         debugLog('[CANARY] Starting session...');

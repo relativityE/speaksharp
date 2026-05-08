@@ -11,9 +11,10 @@ import {
 
 test.describe('Exhaustive User Feature Matrix', () => {
   test.beforeEach(async ({ page }) => {
-    await page.route('**/heartbeat**', route => route.fulfill({
+    await page.route('**/rest/v1/rpc/heartbeat_session', route => route.fulfill({
       status: 200,
-      body: JSON.stringify({ ok: true })
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ success: true })
     }));
   });
 
