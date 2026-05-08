@@ -47,6 +47,11 @@ describe('storage.ts', () => {
             const result = await getSessionHistory('user1');
             expect(result).toEqual(mockData);
             expect(mockSupabase.from).toHaveBeenCalledWith('sessions');
+            expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('ai_suggestions'));
+            expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('pause_metrics'));
+            expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('ground_truth'));
+            expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('transcript'));
+            expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('engine_version'));
         });
 
         it('should use default limit of 50 and offset 0', async () => {

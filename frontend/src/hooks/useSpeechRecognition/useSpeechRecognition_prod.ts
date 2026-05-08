@@ -115,6 +115,10 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         vocal.setIsActive(storeIsListening);
     }, [storeIsListening, vocal]);
 
+    useEffect(() => {
+        useSessionStore.getState().setPauseMetrics(vocal.pauseMetrics);
+    }, [vocal.pauseMetrics]);
+
     // Cleanup on unmount
     useEffect(() => {
         return () => {

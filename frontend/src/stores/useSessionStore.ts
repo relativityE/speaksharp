@@ -3,6 +3,7 @@ import { FillerCounts } from '@/utils/fillerWordUtils';
 import logger from '@/lib/logger';
 import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import { SttStatus, HistorySegment } from '@/types/transcription';
+import type { PauseMetrics } from '@/services/audio/pauseDetector';
 import { ENV } from '@/config/TestFlags';
 import { syncForensicAnchors } from '@/lib/forensicAnchors';
 
@@ -31,6 +32,7 @@ export interface SessionState {
     activeEngine: TranscriptionMode | 'none' | null;
     history: Array<HistorySegment>;
     chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean }>;
+    pauseMetrics: PauseMetrics;
     sessionSaved: boolean;
     sunsetModal: { type: 'daily' | 'monthly'; open: boolean };
     isBooting: boolean;
@@ -57,6 +59,7 @@ interface SessionActions {
     addChunk: (chunk: { transcript: string; timestamp: number; isFinal: boolean }) => void;
     appendChunk: (chunk: { transcript: string; timestamp: number; isFinal: boolean; isCorrection?: boolean }) => void;
     setChunks: (chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean; isCorrection?: boolean }>) => void;
+    setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
     setSessionSaved: (saved: boolean) => void;
     setSunsetModal: (modal: { type: 'daily' | 'monthly'; open: boolean }) => void;
@@ -84,6 +87,15 @@ const initialState: SessionState = {
     activeEngine: null,
     history: [],
     chunks: [],
+    pauseMetrics: {
+        totalPauses: 0,
+        averagePauseDuration: 0,
+        longestPause: 0,
+        pausesPerMinute: 0,
+        silencePercentage: 0,
+        transitionPauses: 0,
+        extendedPauses: 0,
+    },
     sessionSaved: false,
     sunsetModal: { type: 'daily', open: false },
     isBooting: false,
@@ -236,6 +248,11 @@ export const useSessionStore = create<SessionStore>((set) => {
     setChunks: (chunks) =>
         set({
             chunks,
+        }),
+
+    setPauseMetrics: (pauseMetrics) =>
+        set({
+            pauseMetrics,
         }),
 
     setLockHeldByOther: (held: boolean) =>

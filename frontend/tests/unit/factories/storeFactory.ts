@@ -21,6 +21,15 @@ const initialState: SessionState = {
     isLockHeldByOther: false,
     history: [],
     chunks: [],
+    pauseMetrics: {
+        totalPauses: 0,
+        averagePauseDuration: 0,
+        longestPause: 0,
+        pausesPerMinute: 0,
+        silencePercentage: 0,
+        transitionPauses: 0,
+        extendedPauses: 0,
+    },
     sessionSaved: false,
     sunsetModal: { type: 'daily', open: false },
     isBooting: false,
@@ -153,6 +162,11 @@ export function createTestSessionStore(
         setChunks: vi.fn((chunks) =>
             set({
                 chunks,
+            })),
+
+        setPauseMetrics: vi.fn((pauseMetrics) =>
+            set({
+                pauseMetrics,
             })),
             
         setIsBooting: vi.fn((isBooting) =>

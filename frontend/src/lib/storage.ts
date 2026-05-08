@@ -2,7 +2,6 @@ import { getSupabaseClient } from './supabaseClient';
 import logger from './logger';
 import type { PracticeSession } from '../types/session';
 import type { UserProfile } from '../types/user';
-import type { PostgrestError } from '@supabase/supabase-js';
 import type { AnalyticsSummary } from '../types/analytics';
 
 /**
@@ -14,6 +13,28 @@ export interface PaginationOptions {
 }
 
 const MAX_TRANSCRIPT_LENGTH = 500000; // ~500KB limit for transcript text
+const SESSION_ANALYSIS_SELECT = [
+  'id',
+  'user_id',
+  'title',
+  'duration',
+  'total_words',
+  'wpm',
+  'clarity_score',
+  'accuracy',
+  'filler_words',
+  'custom_words',
+  'pause_metrics',
+  'ai_suggestions',
+  'ground_truth',
+  'transcript',
+  'created_at',
+  'engine',
+  'engine_version',
+  'model_name',
+  'device_type',
+  'status'
+].join(', ');
 
 /**
  * Fetches the session history for a specific user with optional pagination.
@@ -39,9 +60,9 @@ export const getSessionHistory = async (
   logger.info({ requestUrl }, '[Supabase DB] Request URL');
 
   try {
-    const { data, error }: { data: PracticeSession[] | null, error: PostgrestError | null } = await supabase
+    const { data, error } = await supabase
       .from('sessions')
-      .select('id, user_id, title, duration, wpm, clarity_score, accuracy, filler_words, created_at, engine, status')
+      .select(SESSION_ANALYSIS_SELECT)
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
@@ -52,7 +73,7 @@ export const getSessionHistory = async (
       logger.error({ error }, `Error fetching session history from ${requestUrl}:`);
       throw new Error(`Failed to fetch sessions from ${requestUrl}: ${error.message}`);
     }
-    return data || [];
+    return (data || []) as unknown as PracticeSession[];
   } catch (fetchError) {
     const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError);
     logger.error({ error: fetchError, requestUrl }, '[getSessionHistory] Failed to fetch sessions');
@@ -74,9 +95,9 @@ export const getSessionById = async (sessionId: string): Promise<PracticeSession
   }
 
   try {
-    const { data, error }: { data: PracticeSession | null, error: PostgrestError | null } = await supabase
+    const { data, error } = await supabase
       .from('sessions')
-      .select('id, user_id, title, duration, wpm, clarity_score, accuracy, filler_words, created_at, engine, status')
+      .select(SESSION_ANALYSIS_SELECT)
       .eq('id', sessionId)
       .single();
 
@@ -88,7 +109,7 @@ export const getSessionById = async (sessionId: string): Promise<PracticeSession
       logger.error({ error }, `Error fetching session by ID ${sessionId}:`);
       throw new Error(`Failed to fetch session ${sessionId}: ${error.message}`);
     }
-    return data;
+    return data as unknown as PracticeSession | null;
   } catch (fetchError) {
     logger.error({ error: fetchError, sessionId }, '[getSessionById] Failed');
     throw new Error(`Failed to fetch session ${sessionId}: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`);

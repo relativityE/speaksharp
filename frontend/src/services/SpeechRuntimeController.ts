@@ -947,6 +947,13 @@ export class SpeechRuntimeController {
                         const fillerWords = countFillerWords(result.transcript, this.userWords);
                         const wpm = duration > 0 ? Math.round((result.stats.total_words / duration) * 60) : 0;
                         const accuracy = result.stats.accuracy;
+                        const wordCount = result.stats.total_words || result.transcript.split(/\s+/).filter(Boolean).length;
+                        const fillerCount = fillerWords.total?.count || 0;
+                        const fillerPercentage = wordCount > 0 ? (fillerCount / wordCount) * 100 : 0;
+                        const errorTagCount = (result.transcript.match(/\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi) || []).length;
+                        const clarityScore = wordCount > 0
+                            ? Math.max(0, Math.min(100, Math.round(100 - (fillerPercentage * 1.5) - (errorTagCount * 3))))
+                            : 100;
 
                         const store = useSessionStore.getState();
                         if (store.chunks.length === 0) {
@@ -982,9 +989,16 @@ export class SpeechRuntimeController {
 
                         logger.info({ sessionId }, '[DEBUG-STOP] updateSession starting');
                         await updateSession(sessionId, {
+                            total_words: wordCount,
                             filler_words: fillerWords as unknown as FillerCounts,
+                            custom_words: this.userWords.reduce<Record<string, { count: number }>>((acc, word) => {
+                                acc[word] = { count: fillerWords[word]?.count || 0 };
+                                return acc;
+                            }, {}),
+                            pause_metrics: store.pauseMetrics,
                             wpm,
-                            clarity_score: accuracy
+                            clarity_score: clarityScore,
+                            accuracy
                         });
                         logger.info('[DEBUG-STOP] updateSession done');
 

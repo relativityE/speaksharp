@@ -175,4 +175,44 @@ describe('STT Safeguards Unit Tests', () => {
         expect(storageMocks.completeSession).toHaveBeenCalled();
         expect((controller as unknown as { heartbeatInterval: unknown }).heartbeatInterval).toBeNull();
     });
+
+    it('should persist the full analysis snapshot when transcription stops', async () => {
+        storageMocks.saveSession.mockResolvedValue({
+            session: { id: 'sess-123' },
+            usageExceeded: false
+        });
+
+        vi.spyOn(service, 'stopTranscription').mockResolvedValue({
+            success: true,
+            transcript: 'um hello world this is a clear practice session',
+            stats: {
+                transcript: 'um hello world this is a clear practice session',
+                total_words: 8,
+                accuracy: 0.92,
+                duration: 6
+            }
+        });
+
+        await controller.warmUp();
+        await controller.startRecording();
+        controller.confirmSubscriberHandshake();
+        await controller.whenStable();
+
+        await vi.advanceTimersByTimeAsync(6000);
+        await controller.stopRecording();
+        await controller.whenStable();
+
+        expect(storageMocks.updateSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
+            total_words: 8,
+            wpm: 80,
+            accuracy: 0.92,
+            filler_words: expect.objectContaining({
+                um: expect.objectContaining({ count: 1 }),
+                total: expect.objectContaining({ count: expect.any(Number) })
+            }),
+            custom_words: expect.any(Object),
+            pause_metrics: expect.any(Object),
+            clarity_score: expect.any(Number)
+        }));
+    });
 });

@@ -15,6 +15,10 @@ export interface PracticeSession {
   accuracy?: number;
   ground_truth?: string;
   engine?: string;
+  engine_version?: string;
+  model_name?: string;
+  device_type?: string;
+  custom_words?: Record<string, unknown>;
   clarity_score?: number;
   wpm?: number;
   ai_suggestions?: {

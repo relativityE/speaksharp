@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-07
+**Last Updated:** 2026-05-08
 
 # SpeakSharp Operational PRD (The Contract)
 
@@ -12,7 +12,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 ## 1. User-Visible Guarantees (The Contract)
 
 ### Core Persistence & Reliability
-- **Privacy-First Session Persistence**: Every finalized recording session MUST result in a persisted `sessions` record containing metadata, metrics, counts, and analysis artifacts needed for history. Full transcript text MUST NOT be stored in Supabase; it remains in client memory for same-session report/PDF generation.
+- **Session Analysis Persistence**: Every finalized recording session MUST result in a persisted `sessions` record containing the analysis artifacts needed for returning-user comparison: transcript text, duration, total words, WPM, clarity, filler/custom word counts, pause metrics, AI suggestions when generated, STT engine/mode metadata, and optional ground-truth/WER fields. Transcript storage is required for WER, AI feedback cache, PDF regeneration, and session-over-session coaching until a separate redaction/encryption design is implemented.
 - **Quotas Enforced**: Users are strictly capped at their daily and monthly limits (1h/day Free, 2h/day Pro).
 - **Billing Behavior**: Pro features MUST unlock within 10 seconds of a successful Stripe checkout.
 - **Export Reliability**: PDF exports MUST reflect the active client-side transcript/report state and persisted session metrics available at export time.
