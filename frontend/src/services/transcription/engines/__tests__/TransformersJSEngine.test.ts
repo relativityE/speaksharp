@@ -132,13 +132,42 @@ describe('TransformersJSEngine (Unit)', () => {
     });
 
     it('should handle initialization errors', async () => {
-        mockPipeline.mockRejectedValueOnce(new Error('Network failure'));
+        mockPipeline
+            .mockRejectedValueOnce(new Error('Local model missing'))
+            .mockRejectedValueOnce(new Error('Network failure'));
 
         const result = await engine.init();
 
         expect(result.isOk === false).toBe(true);
         const errorResult = result as { isOk: false; error: Error };
         expect(errorResult.error.message).toContain('Network failure');
+        expect(mockPipeline).toHaveBeenLastCalledWith(
+            'automatic-speech-recognition',
+            'Xenova/whisper-tiny.en',
+            expect.objectContaining({ quantized: true })
+        );
+    });
+
+    it('falls back to Hugging Face when the bundled local model is missing or corrupt', async () => {
+        mockPipeline
+            .mockRejectedValueOnce(new Error('Unexpected token < at position 0'))
+            .mockResolvedValueOnce(async () => ({ transcript: 'Recovered via remote model' }));
+
+        const result = await engine.init();
+
+        expect(result.isOk).toBe(true);
+        expect(mockPipeline).toHaveBeenNthCalledWith(
+            1,
+            'automatic-speech-recognition',
+            'whisper-tiny.en',
+            expect.objectContaining({ quantized: true })
+        );
+        expect(mockPipeline).toHaveBeenNthCalledWith(
+            2,
+            'automatic-speech-recognition',
+            'Xenova/whisper-tiny.en',
+            expect.objectContaining({ quantized: true })
+        );
     });
 
     it('should handle transcription errors', async () => {
@@ -173,7 +202,9 @@ describe('TransformersJSEngine (Unit)', () => {
     });
 
     it('should handle "Unexpected token <" error specifically', async () => {
-        mockPipeline.mockRejectedValueOnce(new Error("Unexpected token < at position 0"));
+        mockPipeline
+            .mockRejectedValueOnce(new Error("Unexpected token < at position 0"))
+            .mockRejectedValueOnce(new Error("Remote model failed too"));
 
         const result = await engine.init();
         expect(result.isOk === false).toBe(true);
@@ -191,7 +222,9 @@ describe('TransformersJSEngine (Unit)', () => {
     });
 
     it('should handle non-Error catch during init', async () => {
-        mockPipeline.mockImplementationOnce(() => { throw "string error"; });
+        mockPipeline
+            .mockImplementationOnce(() => { throw "string error"; })
+            .mockRejectedValueOnce(new Error('Remote model failed too'));
         const result = await engine.init();
         expect(result.isOk === false).toBe(true);
     });

@@ -77,7 +77,8 @@ export class TransformersJSEngine extends STTEngine {
             env.allowLocalModels = true;
             env.localModelPath = '/models/';
 
-            // Disable remote models to ensure CI/Local stability without CDN reliance
+            // Prefer bundled assets, but allow a production Hugging Face fallback if the
+            // local model bundle is missing or corrupt.
             env.allowRemoteModels = false;
 
             // Browser cache is only available in a real browser, not Happy-DOM/Node
@@ -100,23 +101,48 @@ export class TransformersJSEngine extends STTEngine {
                 options.onModelLoadProgress(0);
             }
 
-            const loadStart = performance.now();
-            this.transcriber = await pipeline(
-                'automatic-speech-recognition',
-                'whisper-tiny.en', // Use the local directory name in public/models/
-                {
-                    // Use quantized model for faster loading
-                    quantized: true,
-                    // Use main branch for latest model structure (onnx subfolder)
-                    revision: 'main',
-                    // Progress callback
-                    progress_callback: (data: { progress?: number }) => {
-                        if (options.onModelLoadProgress && data.progress !== undefined) {
-                            options.onModelLoadProgress(data.progress);
-                        }
-                    }
+            const progress_callback = (data: { progress?: number }) => {
+                if (options.onModelLoadProgress && data.progress !== undefined) {
+                    options.onModelLoadProgress(data.progress);
                 }
-            );
+            };
+
+            const loadStart = performance.now();
+            try {
+                this.transcriber = await pipeline(
+                    'automatic-speech-recognition',
+                    'whisper-tiny.en', // Use the local directory name in public/models/
+                    {
+                        // Use quantized model for faster loading
+                        quantized: true,
+                        // Use main branch for latest model structure (onnx subfolder)
+                        revision: 'main',
+                        progress_callback
+                    }
+                );
+            } catch (localError) {
+                if (ENV.isE2E) {
+                    throw localError;
+                }
+
+                logger.warn({
+                    sId: this.serviceId,
+                    rId: this.runId,
+                    eId: this.instanceId,
+                    err: localError,
+                }, '[TransformersJS] Local model load failed. Retrying from Hugging Face.');
+
+                env.allowRemoteModels = true;
+                this.transcriber = await pipeline(
+                    'automatic-speech-recognition',
+                    'Xenova/whisper-tiny.en',
+                    {
+                        quantized: true,
+                        revision: 'main',
+                        progress_callback
+                    }
+                );
+            }
 
             const loadTime = performance.now() - loadStart;
             logger.info({
