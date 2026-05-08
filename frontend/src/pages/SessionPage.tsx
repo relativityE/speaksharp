@@ -125,27 +125,31 @@ export const SessionPage: React.FC = () => {
             className="min-h-screen bg-gradient-subtle pt-20"
         >
             {/* Page Header */}
-            <div className="text-center py-4 px-6 max-w-7xl mx-auto flex flex-col items-center gap-3">
-                <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>
-                <p className="text-xs text-muted-foreground">We'll analyze your speech patterns in real-time</p>
+            <div className="py-4 px-6 max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-3">
+                <div className="text-center md:col-start-2">
+                    <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>
+                    <p className="text-xs text-muted-foreground">We'll analyze your speech patterns in real-time</p>
+                </div>
 
                 {/* Manual Download Trigger */}
                 {isProUser && mode === 'private' && sttStatus.type === 'download-required' && (
-                    <div className="animate-in fade-in slide-in-from-top-2 duration-500" data-model-status="not-downloaded">
+                    <div className="md:col-start-3 justify-self-center md:justify-self-end animate-in fade-in slide-in-from-top-2 duration-500" data-model-status="not-downloaded">
                         <Button
                             size="sm"
-                            variant="outline"
                             onClick={() => {
                                 void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
                             }}
-                            className="gap-2 h-9 px-4 text-[10px] font-black uppercase tracking-[0.2em] bg-primary/10 border-primary/30 hover:bg-primary/20 text-primary shadow-sm hover:shadow-md transition-all group"
+                            className="gap-2 h-12 w-36 px-3 text-[10px] font-black uppercase leading-tight tracking-[0.08em] bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/25 transition-all group rounded-md"
                             data-testid="download-model-button"
                         >
                             <div className="relative">
-                                <Settings className="h-3 w-3 animate-spin-slow group-hover:scale-110 transition-transform" />
-                                <div className="absolute -top-1 -right-1 h-1.5 w-1.5 bg-primary rounded-full animate-pulse" />
+                                <Settings className="h-4 w-4 animate-spin-slow group-hover:scale-110 transition-transform" />
+                                <div className="absolute -top-1 -right-1 h-1.5 w-1.5 bg-primary-foreground rounded-full animate-pulse" />
                             </div>
-                            <span>Download Offline Model</span>
+                            <span className="flex flex-col items-start text-left">
+                                <span>Download</span>
+                                <span>Offline Model</span>
+                            </span>
                         </Button>
                     </div>
                 )}

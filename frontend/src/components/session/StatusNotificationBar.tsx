@@ -53,7 +53,7 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
     },
     'download-required': {
         icon: AlertCircle,
-        bgClass: 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-xl',
+        bgClass: 'bg-orange-500/15 border-orange-500/40 shadow-lg shadow-orange-500/10 backdrop-blur-xl',
         textClass: 'text-orange-500 font-bold',
     },
     warning: {
@@ -78,6 +78,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     const config = statusConfig[status.type];
     const Icon = config.icon;
     const isAnimated = status.type === 'initializing' || status.type === 'downloading';
+    const isProminent = status.type === 'download-required' || status.type === 'downloading' || status.type === 'error';
 
     // Secondary Status (Background Download) - Read directly from store to persist across mode changes
     const isListening = useSessionStore((s) => s.isListening);
@@ -121,7 +122,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
     return (
         <div
-            className={`flex items-center gap-4 w-full px-5 py-2 rounded-t-xl border-b border-white/5 ${config.bgClass} ${className} transition-all duration-300`}
+            className={`flex items-center gap-4 w-full px-5 ${isProminent ? 'py-3 rounded-xl border' : 'py-2 rounded-t-xl border-b'} border-white/5 ${config.bgClass} ${className} transition-all duration-300`}
             role="status"
             aria-live="polite"
             data-testid="live-session-header"
@@ -147,11 +148,11 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                     )}
                 </div>
                 <div className="flex flex-col">
-                    <span className={`text-xs font-black uppercase tracking-widest ${config.textClass}`} data-testid="status-message-text">
+                    <span className={`${isProminent ? 'text-sm' : 'text-xs'} font-black uppercase tracking-widest ${config.textClass}`} data-testid="status-message-text">
                         {displayMessage}
                     </span>
                     {status.detail && (
-                        <span className={`text-[10px] font-medium opacity-70 ${config.textClass}`}>
+                        <span className={`${isProminent ? 'text-xs' : 'text-[10px]'} font-medium opacity-75 ${config.textClass}`}>
                             {status.detail}
                         </span>
                     )}
