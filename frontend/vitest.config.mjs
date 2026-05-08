@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 import tsconfigPaths from 'vite-tsconfig-paths';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +13,9 @@ const __dirname = path.dirname(__filename);
 console.log(`[VITEST-CONFIG] 🏁 Loading from ${__filename}`);
 console.log(`[VITEST-CONFIG] 📍 __dirname: ${__dirname}`);
 console.log(`[VITEST-CONFIG] 🗺️ Alias @ -> ${path.resolve(__dirname, 'src')}`);
+
+const coverageDirectory = path.resolve(__dirname, '../artifacts/coverage');
+fs.mkdirSync(path.join(coverageDirectory, '.tmp'), { recursive: true });
 
 export default defineConfig({
   plugins: [
@@ -60,7 +64,7 @@ export default defineConfig({
       coverage: {
         enabled: true,
         provider: 'v8',
-        reportsDirectory: path.resolve(__dirname, '../artifacts/coverage'),
+        reportsDirectory: coverageDirectory,
         reporter: ['json-summary'],
       include: ['frontend/src/**/*.{ts,tsx}'],
       exclude: [

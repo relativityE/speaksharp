@@ -42,6 +42,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     // Select strictly from store (Read-Only)
     const store = useSessionStore();
     const toastIdRef = useRef<string | number | null>(null);
+    const pauseMetricsSnapshotRef = useRef<string>('');
 
     // 1. Core Service Hooks (Projections)
     const stt = useTranscriptionState(); // Already refactored to read from store
@@ -116,6 +117,10 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     }, [storeIsListening, vocal]);
 
     useEffect(() => {
+        const nextSnapshot = JSON.stringify(vocal.pauseMetrics);
+        if (pauseMetricsSnapshotRef.current === nextSnapshot) return;
+
+        pauseMetricsSnapshotRef.current = nextSnapshot;
         useSessionStore.getState().setPauseMetrics(vocal.pauseMetrics);
     }, [vocal.pauseMetrics]);
 
