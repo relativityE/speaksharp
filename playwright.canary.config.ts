@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import { fileURLToPath } from 'url';
 import { loadEnv, getChromeWithMic, baseConfig } from './playwright.base.config';
 
 /**
@@ -18,6 +19,9 @@ import { loadEnv, getChromeWithMic, baseConfig } from './playwright.base.config'
 // Load REAL Supabase credentials from .env.development
 loadEnv('development');
 
+const CANARY_AUDIO_FIXTURE = fileURLToPath(new URL('./tests/fixtures/harvard_benchmark_16k.wav', import.meta.url));
+const chromeWithMic = getChromeWithMic();
+
 export default defineConfig({
     ...baseConfig,
     testDir: './tests/canary',
@@ -33,5 +37,17 @@ export default defineConfig({
         trace: 'retain-on-failure',
     },
     // No webServer - workflow starts server via start-server-and-test (like soak)
-    projects: [{ name: 'chromium', use: getChromeWithMic() }],
+    projects: [{
+        name: 'chromium',
+        use: {
+            ...chromeWithMic,
+            launchOptions: {
+                ...chromeWithMic.launchOptions,
+                args: [
+                    ...(chromeWithMic.launchOptions.args || []),
+                    `--use-file-for-fake-audio-capture=${CANARY_AUDIO_FIXTURE}`,
+                ],
+            },
+        },
+    }],
 });
