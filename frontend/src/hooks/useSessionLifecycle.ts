@@ -15,7 +15,7 @@ import { isPro } from '@/constants/subscriptionTiers';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
-import type { TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
+import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
 
@@ -186,7 +186,8 @@ export const useSessionLifecycle = () => {
                 }
 
                 // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
-                await speechRuntimeController.startRecording(undefined, userFillerWords);
+                const selectedPolicy = buildPolicyForUser(isProUser, sttMode);
+                await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                 posthog.capture('session_started', { mode: sttMode });
             } catch (error) {
                 const err = error as Error;
