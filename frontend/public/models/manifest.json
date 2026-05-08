@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0",
-  "lastChecked": "2025-12-18T22:52:59Z",
+  "version": "1.1.0",
+  "lastChecked": "2026-05-08T21:39:20Z",
   "models": {
     "tiny-q8g16.bin": {
       "url": "https://rmbl.us/whisper-turbo/tiny-q8g16.bin",
@@ -10,6 +10,16 @@
     "tokenizer.json": {
       "url": "https://huggingface.co/openai/whisper-large-v2/raw/main/tokenizer.json",
       "size": 2480466,
+      "lastModified": null
+    },
+    "whisper-tiny.en/onnx/encoder_model_quantized.onnx": {
+      "url": "https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/onnx/encoder_model_quantized.onnx",
+      "size": 10124913,
+      "lastModified": null
+    },
+    "whisper-tiny.en/onnx/decoder_model_merged_quantized.onnx": {
+      "url": "https://huggingface.co/Xenova/whisper-tiny.en/resolve/main/onnx/decoder_model_merged_quantized.onnx",
+      "size": 30727382,
       "lastModified": null
     }
   }

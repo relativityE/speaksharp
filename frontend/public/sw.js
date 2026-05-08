@@ -129,7 +129,12 @@ self.addEventListener('fetch', (event) => {
     const isRemoteModel = !!URL_MAPPINGS[url] || (url.includes('whisper-tiny') && url.endsWith('tokenizer.json'));
 
     // 2. Check if this is a local request to our model directory
-    const isLocalModelRequest = path.startsWith('/models/') && (path.endsWith('.bin') || path.endsWith('.json'));
+    const isLocalModelRequest = path.startsWith('/models/') && (
+        path.endsWith('.bin') ||
+        path.endsWith('.json') ||
+        path.endsWith('.onnx') ||
+        path.endsWith('.txt')
+    );
 
     // 3. Bypass for internal SW fetches to avoid infinite recursion
     const isInternalFetch = url.includes('sw-internal=true');
