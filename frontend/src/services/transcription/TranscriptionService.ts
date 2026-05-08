@@ -948,10 +948,7 @@ export default class TranscriptionService {
     // Project current FSM state to sync UI status (Step 5: SSOT)
     const currentState = this.fsm.getState();
     logger.debug({ state: currentState }, '[TranscriptionService] 🔄 Projecting current state to new subscriber');
-    newOptions.onStatusChange?.({
-      type: currentState === 'FAILED' ? 'error' : 'info',
-      message: `Sync: ${currentState}`
-    });
+    this.handleStateChange(currentState);
 
     return () => {
       pushE2EEvent('UNSUBSCRIBE', { id: subscriberId, source: 'TranscriptionService', sessionId: this.sessionId });

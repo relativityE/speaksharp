@@ -82,6 +82,7 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | **Accuracy Benchmarks** | Accuracy claims are backed by `.wav` plus ground-truth WER runs. | Workflow harness fixes applied locally for pnpm version, AssemblyAI command, browser benchmark specs, and canonical `tests/STT_BENCHMARKS.json` path. | 🟡 GITHUB RERUN PENDING | Rerun AssemblyAI/browser benchmarks and record WER. |
 | **Observability** | Sentry/PostHog capture launch-relevant frontend/backend events. | Instrumentation exists; live project ingest is pending. | 🟡 PENDING | Send frontend error, Edge Function error, and key product analytics events. |
 | **GitHub Canary Deploy Smoke** | Main-branch GitHub canary proves deployed auth/session/analytics path against real infrastructure. | GitHub production canary passed after the `/auth/signin` route fix. | ✅ PASSING | Keep as required post-deploy smoke; investigate immediately if it regresses. |
+| **Session Status UX** | Users see one clear status/progress surface, with no internal FSM/debug toasts obscuring the primary flow. | 2026-05-08 live browser testing found an internal `Sync: DOWNLOAD_REQUIRED` toast covering the Private model CTA; hotfix removes the internal sync toast path. Overall layout still needs a focused UX pass after functional Private validation. | 🟡 HOTFIX APPLIED / UX PASS NEEDED | Verify no sync toast after deploy; redesign status/download/progress surfaces before wider tester rollout. |
 
 ### Latest Local Fix Status (2026-05-07)
 
