@@ -8,7 +8,10 @@ show_help() {
     echo "Usage: $0 [command] [options]"
     echo ""
     echo "Commands:"
-    echo "  prepare               Run CI prepare stage: quality, unit coverage, build"
+    echo "  prepare               Run CI prepare stage: preflight only"
+    echo "  unit                  Run quality checks and unit coverage"
+    echo "  build                 Build the test application artifact"
+    echo "  health-check          Run app health check suite once"
     echo "  test [shard]          Run CI E2E suite against prepared build; optional shard is legacy/debug only"
     echo "  report                Generate CI metrics/report from restored artifacts"
     echo "  ci-simulate           Run the full CI pipeline (Node.js Orchestrator)"
@@ -31,12 +34,15 @@ if [ $# -eq 0 ]; then show_help; exit 1; fi
 for arg in "$@"; do
     if [ "$arg" = "--skip-lighthouse" ]; then SKIP_LH=true; fi
     if [ "$arg" = "prepare" ]; then STAGE="prepare"; fi
+    if [ "$arg" = "unit" ]; then STAGE="unit"; fi
+    if [ "$arg" = "build" ]; then STAGE="build"; fi
     if [ "$arg" = "test" ]; then STAGE="test"; fi
     if [ "$arg" = "report" ]; then STAGE="report"; fi
     if [ "$arg" = "ci-simulate" ]; then STAGE="ci-simulate"; fi
     if [ "$arg" = "agent" ]; then STAGE="agent"; fi
     if [ "$arg" = "local" ]; then STAGE="local"; fi
-    if [ "$arg" = "infra" ]; then STAGE="infra"; fi
+    if [ "$arg" = "health-check" ]; then STAGE="health-check"; fi
+    if [ "$arg" = "infra" ]; then STAGE="health-check"; fi
     if [ "$arg" = "clean" ]; then STAGE="clean"; fi
     if [ "$arg" = "--help" ] || [ "$arg" = "-h" ]; then show_help; exit 0; fi
 done
@@ -45,9 +51,18 @@ case $STAGE in
     prepare)
         echo "🚀 Running CI prepare stage..."
         ./scripts/preflight.sh
+        ;;
+    unit)
+        echo "🚀 Running CI unit stage..."
         pnpm quality
         pnpm exec vitest run --config frontend/vitest.config.mjs --coverage --coverage.reporter=json-summary --reporter=./scripts/vitest-ci-reporter.mjs
+        ;;
+    build)
+        echo "🚀 Running CI build stage..."
         pnpm build:test
+        ;;
+    health-check)
+        echo "🚀 Running CI health-check stage..."
         pnpm exec playwright test --project=infra-probe --workers=1 --reporter=line --output=test-results/playwright-infra
         ;;
     test)
@@ -67,7 +82,7 @@ case $STAGE in
         ./scripts/run-metrics.sh
         node scripts/run-ci.mjs --only-report
         ;;
-    ci-simulate|local|agent|infra) 
+    ci-simulate|local|agent) 
         echo "🚀 Delegating to Node.js CI Orchestrator..."
         node scripts/run-ci.mjs "$@"
         ;;

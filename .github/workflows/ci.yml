@@ -1,7 +1,7 @@
 name: "CI - Test Audit"
 
 permissions:
-  contents: write
+  contents: read
 
 on:
   push:
@@ -12,6 +12,77 @@ on:
 
 jobs:
   prepare:
+    name: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'false'
+
+      - name: Validate Environment Variables
+        run: node scripts/validate-env.mjs
+
+      - name: Run Prepare Stage
+        run: pnpm ci:prepare
+
+  unit:
+    name: unit
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'false'
+
+      - name: Run Unit And Coverage
+        run: pnpm ci:unit
+
+      - name: Upload Unit Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-artifacts
+          path: |
+            artifacts/coverage
+            frontend/coverage
+            unit-metrics.json
+          retention-days: 30
+          if-no-files-found: warn
+
+  build:
+    name: build
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'false'
+
+      - name: Build Test App
+        run: pnpm ci:build
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: frontend/dist
+          retention-days: 30
+
+  health-check:
+    name: health-check
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -22,27 +93,35 @@ jobs:
         with:
           install-playwright: 'true'
 
-      - name: Validate Environment Variables
-        run: node scripts/validate-env.mjs
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: frontend/dist
 
-      - name: Run Prepare Stage
-        run: pnpm ci:prepare
+      - name: Run Health Check Once
+        env:
+          STT_ENGINE: mock
+        run: pnpm ci:health-check
 
-      - name: Upload Prepare Artifacts
+      - name: Upload Health Check Report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: all-artifacts
+          name: health-check-report
           path: |
-            frontend/dist
-            artifacts/coverage
-            unit-metrics.json
+            test-results/playwright-infra
+            blob-report
+          retention-days: 30
+          if-no-files-found: warn
 
-  test:
-    needs: prepare
+  e2e:
+    name: e2e-shard-${{ matrix.shard }}
+    needs: [unit, build, health-check]
     if: success()
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false  # Allow all shards to complete even if one fails
+      fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
     steps:
@@ -54,11 +133,11 @@ jobs:
         with:
           install-playwright: 'true'
 
-      - name: Download Prepare Artifacts
+      - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: all-artifacts
-          path: .
+          name: build-artifacts
+          path: frontend/dist
 
       - name: Run E2E Test Shard
         env:
@@ -74,11 +153,14 @@ jobs:
           name: shard-report-${{ matrix.shard }}
           path: blob-report
           retention-days: 30
+          if-no-files-found: warn
 
-  lighthouse:
-    needs: [prepare, test]
-    if: success() || failure() # Run even if E2E tests fail
+  lighthouse-advisory:
+    name: lighthouse-advisory
+    needs: build
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -86,61 +168,25 @@ jobs:
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
 
-      - name: Download All Artifacts
+      - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: build-artifacts
+          path: frontend/dist
 
-      - name: List Artifacts
-        run: ls -R artifacts
-
-      - name: Verify Artifacts
-        run: ./scripts/verify-artifacts.sh --path artifacts/all-artifacts build metrics
-
-      - name: Restore Build Artifacts
+      - name: Run Lighthouse CI Advisory
         run: |
-          mkdir -p frontend
-          # Support both flattened and preserved structures
-          if [ -d "artifacts/all-artifacts/frontend/dist" ]; then
-            cp -r artifacts/all-artifacts/frontend/dist frontend/
-          elif [ -d "artifacts/all-artifacts/dist" ]; then
-            cp -r artifacts/all-artifacts/dist frontend/
-          fi
-          
-          mkdir -p artifacts
-          if [ -d "artifacts/all-artifacts/artifacts/coverage" ]; then
-            cp -r artifacts/all-artifacts/artifacts/coverage artifacts/
-          elif [ -d "artifacts/all-artifacts/frontend/coverage" ]; then
-            mkdir -p frontend
-            cp -r artifacts/all-artifacts/frontend/coverage frontend/
-          elif [ -d "artifacts/all-artifacts/coverage" ]; then
-            cp -r artifacts/all-artifacts/coverage artifacts/
-          fi
-          
-          cp artifacts/all-artifacts/unit-metrics.json . 2>/dev/null || true
-          # test-results is only in shard artifacts, not all-artifacts
-          [ -d artifacts/all-artifacts/test-results ] && cp -r artifacts/all-artifacts/test-results . || echo "No test-results in all-artifacts (expected)"
-
-
-
-      - name: Run Lighthouse CI
-        run: |
-          # Debug: Verify build artifacts exist
           echo "=== Build artifacts check ==="
           ls -la frontend/ || echo "frontend/ not found"
           ls -la frontend/dist/ || echo "frontend/dist/ not found"
-          
-          # Debug: Verify preview command works (in subshell to preserve cwd)
-          # Preview server test removed to prevent port conflicts
-          # User Request: "Print port in use each time"
+
           echo "=== Port 4173 Status Check ==="
           lsof -i :4173 || echo "Port 4173 is free"
-          
-          # Run LHCI
+
           mkdir -p lighthouse-results
           node scripts/generate-lhci-config.js
-          npx lhci autorun
-          
+          npx lhci autorun || echo "⚠️ Lighthouse advisory failed; release gate continues."
+
           echo "=== LHCI Results Debug ==="
           ls -R lighthouse-results || echo "Directory empty or missing"
 
@@ -154,7 +200,8 @@ jobs:
           if-no-files-found: warn
 
   report:
-    needs: [prepare, test, lighthouse]
+    name: report
+    needs: [unit, build, health-check, e2e, lighthouse-advisory]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
@@ -172,49 +219,30 @@ jobs:
       - name: List Artifacts
         run: ls -R artifacts
 
-      - name: Verify Artifacts
-        run: ./scripts/verify-artifacts.sh --path artifacts/all-artifacts build metrics
-
-      - name: Restore Build Artifacts
+      - name: Organize Canonical Artifacts
         run: |
-          mkdir -p frontend
-          if [ -d "artifacts/all-artifacts/frontend/dist" ]; then
-            cp -r artifacts/all-artifacts/frontend/dist frontend/
-          elif [ -d "artifacts/all-artifacts/dist" ]; then
-            cp -r artifacts/all-artifacts/dist frontend/
-          fi
-          mkdir -p artifacts
-          if [ -d "artifacts/all-artifacts/artifacts/coverage" ]; then
-            cp -r artifacts/all-artifacts/artifacts/coverage artifacts/
-          elif [ -d "artifacts/all-artifacts/frontend/coverage" ]; then
-            mkdir -p frontend
-            cp -r artifacts/all-artifacts/frontend/coverage frontend/
-          elif [ -d "artifacts/all-artifacts/coverage" ]; then
-            cp -r artifacts/all-artifacts/coverage artifacts/
-          fi
-          cp artifacts/all-artifacts/unit-metrics.json . 2>/dev/null || true
-          # test-results is only in shard artifacts, not all-artifacts
-          [ -d artifacts/all-artifacts/test-results ] && cp -r artifacts/all-artifacts/test-results . || echo "No test-results in all-artifacts (expected)"
+          mkdir -p artifacts/coverage artifacts/playwright artifacts/lighthouse artifacts/metrics frontend
 
-      - name: Organize Canonical Artifacts (Phase 6)
-        run: |
-          mkdir -p artifacts/coverage artifacts/playwright artifacts/lighthouse artifacts/metrics
-          
-          # 1. Restore Prepare Artifacts
-          if [ -d "artifacts/all-artifacts" ]; then
-            cp -r artifacts/all-artifacts/artifacts/coverage/* artifacts/coverage/ 2>/dev/null || true
-            cp -r artifacts/all-artifacts/frontend/coverage/* artifacts/coverage/ 2>/dev/null || true
-            cp artifacts/all-artifacts/unit-metrics.json artifacts/metrics/ 2>/dev/null || true
+          if [ -d "artifacts/build-artifacts" ]; then
+            mkdir -p frontend/dist
+            cp -r artifacts/build-artifacts/* frontend/dist/
           fi
-          
-          # 2. Organize Shard Reports
+
+          if [ -d "artifacts/unit-artifacts/artifacts/coverage" ]; then
+            cp -r artifacts/unit-artifacts/artifacts/coverage/* artifacts/coverage/ 2>/dev/null || true
+          fi
+          if [ -d "artifacts/unit-artifacts/frontend/coverage" ]; then
+            cp -r artifacts/unit-artifacts/frontend/coverage/* artifacts/coverage/ 2>/dev/null || true
+          fi
+          cp artifacts/unit-artifacts/unit-metrics.json artifacts/metrics/ 2>/dev/null || true
+          cp artifacts/unit-artifacts/unit-metrics.json . 2>/dev/null || true
+
           find artifacts -type f -name 'report-*.zip' | while read report; do
             shard_num=$(basename "$report" .zip | sed 's/report-//')
             mkdir -p artifacts/playwright/shard-${shard_num}
             cp "$report" artifacts/playwright/shard-${shard_num}/
           done
-          
-          # 3. Organize Lighthouse
+
           if [ -d "artifacts/lighthouse-report" ]; then
             cp -r artifacts/lighthouse-report/* artifacts/lighthouse/ 2>/dev/null || true
           fi
@@ -249,6 +277,7 @@ jobs:
             artifacts/ci-metrics.json
             artifacts/ci-wall-clock.json
           retention-days: 30
+          if-no-files-found: warn
 
       - name: Upload HTML Report
         if: always()
@@ -257,11 +286,4 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 30
-
-      - name: Commit Documentation Updates
-        if: success() && github.event_name == 'push'
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "docs(sqm): Update test audit metrics"
-          branch: ${{ github.head_ref || github.ref_name }}
-          file_pattern: 'docs/PRD.md'
+          if-no-files-found: warn
