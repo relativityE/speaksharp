@@ -337,6 +337,7 @@ export async function programmaticLoginWithRoutes(
 
   await page.goto('/');
   await waitForAppReady(page);
+  await waitForProfileReady(page);
   return session;
 }
 

@@ -292,6 +292,15 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
 
     // RPC queries allowance
     await registerRoute(page, /\/rest\/v1\/rpc\/.*/, async (route) => {
+        if (/\/rest\/v1\/rpc\/heartbeat_session(\?.*)?$/.test(route.request().url())) {
+            await route.fulfill({
+                status: 200,
+                headers: SUPABASE_HEADERS,
+                body: JSON.stringify({ success: true }),
+            });
+            return;
+        }
+
         // Default RPC handler if not explicitly overridden
         const reqHeaders = route.request().headers();
         if (!reqHeaders['accept']) reqHeaders['accept'] = '*/*';

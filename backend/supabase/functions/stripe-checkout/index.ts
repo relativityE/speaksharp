@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import Stripe from "https://esm.sh/stripe@16.2.0?target=deno"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.2"
+import Stripe from "npm:stripe@16"
+import { createClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
 
 // Port configuration for local development fallback (inlined to avoid bundler issues)
@@ -55,6 +55,15 @@ serve(async (req) => {
       return createErrorResponse(
         ErrorCodes.CONFIG_MISSING_ENV,
         "Configuration Error: STRIPE_SECRET_KEY is missing",
+        corsHeaders,
+        { missing: "STRIPE_SECRET_KEY" }
+      );
+    }
+    if (!stripe) {
+      console.error('[Stripe Checkout] ❌ Stripe client failed to initialize');
+      return createErrorResponse(
+        ErrorCodes.CONFIG_MISSING_ENV,
+        "Configuration Error: Stripe client is unavailable",
         corsHeaders,
         { missing: "STRIPE_SECRET_KEY" }
       );

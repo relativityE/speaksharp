@@ -5,7 +5,7 @@
  * name 'Deno'" or ESM imports are expected - the code works correctly when deployed.
  */
 import { corsHeaders } from "../_shared/cors.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const ASSEMBLYAI_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
