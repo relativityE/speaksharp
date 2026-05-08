@@ -31,6 +31,12 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   // v0.6.1 Hardening: Move isolation logic to the base 'page' fixture
   // to ensure it executes BEFORE auth-scoped fixtures (like userPage).
   page: async ({ page }, use) => {
+    await page.route('**/rest/v1/rpc/heartbeat_session', route => route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ success: true })
+    }));
+
     // 1. Establish Origin & Reset Execution Context
     await goToApp(page, '/');
     await page.evaluate(() => {
