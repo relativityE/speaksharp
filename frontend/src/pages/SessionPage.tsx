@@ -125,13 +125,13 @@ export const SessionPage: React.FC = () => {
             className="min-h-screen bg-gradient-subtle pt-20"
         >
             {/* Page Header */}
-            <div className="relative text-center py-4 px-6 max-w-7xl mx-auto flex flex-col items-center">
+            <div className="text-center py-4 px-6 max-w-7xl mx-auto flex flex-col items-center gap-3">
                 <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>
                 <p className="text-xs text-muted-foreground">We'll analyze your speech patterns in real-time</p>
 
-                {/* Top-Right Action Area: Manual Download Trigger */}
+                {/* Manual Download Trigger */}
                 {isProUser && mode === 'private' && sttStatus.type === 'download-required' && (
-                    <div className="absolute top-4 right-6 animate-in fade-in slide-in-from-right-4 duration-500" data-model-status="not-downloaded">
+                    <div className="animate-in fade-in slide-in-from-top-2 duration-500" data-model-status="not-downloaded">
                         <Button
                             size="sm"
                             variant="outline"
