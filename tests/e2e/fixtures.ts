@@ -82,6 +82,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
           upperText.includes('ABORT') ||
           upperText.includes('PROMO') ||
           upperText.includes('RPC') ||
+          upperText.includes('HEARTBEAT') ||
           upperText.includes('PROFILE') ||
           upperText.includes('USERPROFILE') ||
           upperText.includes('FAILED_VISIBLE') ||

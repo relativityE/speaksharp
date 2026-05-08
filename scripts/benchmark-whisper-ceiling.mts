@@ -20,6 +20,65 @@ const __dirname = path.dirname(__filename);
 const AUDIO_DIR = path.resolve(__dirname, '../tests/fixtures/stt-isomorphic/audio');
 const BENCHMARK_FILE = path.resolve(__dirname, '../tests/STT_BENCHMARKS.json');
 
+async function decodePcmWav(filePath: string): Promise<Float32Array> {
+    const buffer = await fs.readFile(filePath);
+
+    if (buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WAVE') {
+        throw new Error(`Unsupported audio fixture: ${filePath} is not a RIFF/WAVE file`);
+    }
+
+    let offset = 12;
+    let channels = 0;
+    let sampleRate = 0;
+    let bitsPerSample = 0;
+    let audioFormat = 0;
+    let dataStart = -1;
+    let dataSize = 0;
+
+    while (offset + 8 <= buffer.length) {
+        const chunkId = buffer.toString('ascii', offset, offset + 4);
+        const chunkSize = buffer.readUInt32LE(offset + 4);
+        const chunkStart = offset + 8;
+
+        if (chunkId === 'fmt ') {
+            audioFormat = buffer.readUInt16LE(chunkStart);
+            channels = buffer.readUInt16LE(chunkStart + 2);
+            sampleRate = buffer.readUInt32LE(chunkStart + 4);
+            bitsPerSample = buffer.readUInt16LE(chunkStart + 14);
+        } else if (chunkId === 'data') {
+            dataStart = chunkStart;
+            dataSize = chunkSize;
+            break;
+        }
+
+        offset = chunkStart + chunkSize + (chunkSize % 2);
+    }
+
+    if (audioFormat !== 1 || bitsPerSample !== 16) {
+        throw new Error(`Unsupported WAV format in ${filePath}; expected PCM16, got format=${audioFormat}, bits=${bitsPerSample}`);
+    }
+    if (channels < 1 || dataStart < 0 || dataSize <= 0) {
+        throw new Error(`Invalid WAV data in ${filePath}`);
+    }
+    if (sampleRate !== 16000) {
+        throw new Error(`Expected 16kHz benchmark fixture, got ${sampleRate}Hz in ${filePath}`);
+    }
+
+    const frameCount = Math.floor(dataSize / (channels * 2));
+    const audio = new Float32Array(frameCount);
+
+    for (let frame = 0; frame < frameCount; frame++) {
+        let sampleSum = 0;
+        for (let channel = 0; channel < channels; channel++) {
+            const sampleOffset = dataStart + ((frame * channels + channel) * 2);
+            sampleSum += buffer.readInt16LE(sampleOffset) / 32768;
+        }
+        audio[frame] = sampleSum / channels;
+    }
+
+    return audio;
+}
+
 async function runBenchmark() {
     console.log('🚀 Starting Whisper (Transformers.js) WER Benchmark...');
 
@@ -42,8 +101,9 @@ async function runBenchmark() {
         try {
             await fs.access(filePath);
             console.log(`Processing ${sentence.id}...`);
+            const audio = await decodePcmWav(filePath);
 
-            const result = await transcriber(filePath, {
+            const result = await transcriber(audio, {
                 chunk_length_s: 30,
                 stride_length_s: 5,
             });

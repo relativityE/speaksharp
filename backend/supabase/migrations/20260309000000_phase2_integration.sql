@@ -54,6 +54,8 @@ CREATE INDEX IF NOT EXISTS idx_usage_checkpoints_session ON public.usage_checkpo
 CREATE INDEX IF NOT EXISTS idx_usage_checkpoints_user_date ON public.usage_checkpoints(user_id, created_at);
 
 -- 5. Refactor update_user_usage to handle heartbeats and dynamic limits
+DROP FUNCTION IF EXISTS public.update_user_usage(INT, TEXT);
+
 CREATE OR REPLACE FUNCTION public.update_user_usage(
   p_session_duration_seconds INT,
   p_engine_type TEXT DEFAULT 'native'

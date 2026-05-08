@@ -187,6 +187,24 @@
     ]
   },
   "pnpm": {
+    "onlyBuiltDependencies": [
+      "canvas",
+      "core-js",
+      "msw",
+      "sharp"
+    ],
+    "supportedArchitectures": {
+      "os": [
+        "current",
+        "linux",
+        "darwin"
+      ],
+      "cpu": [
+        "current",
+        "x64",
+        "arm64"
+      ]
+    },
     "overrides": {
       "rimraf": "^5.0.0",
       "node-domexception": "^2.0.2",

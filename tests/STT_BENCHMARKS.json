@@ -16,14 +16,14 @@
             "model": "WhisperTurbo (WebGPU WASM)",
             "corpus": "harvard-list-1",
             "ceiling_wer": 0.07,
-            "ceiling_accuracy_pct": 93.0,
+            "ceiling_accuracy_pct": 93,
             "environment": "local-hardware-baseline",
             "note": "Established baseline ceiling for Private STT"
           }
         ]
       },
       "cpu": {
-        "expectedAccuracy": 90,
+        "expectedAccuracy": 95.89,
         "provider": "TransformersJS",
         "history": [
           {
@@ -31,7 +31,7 @@
             "model": "TransformersJS whisper-small (ONNX CPU)",
             "corpus": "harvard-list-1",
             "ceiling_wer": 0.1,
-            "ceiling_accuracy_pct": 90.0,
+            "ceiling_accuracy_pct": 90,
             "environment": "local-cpu-baseline",
             "note": "Established baseline ceiling for Private (CPU) STT"
           }

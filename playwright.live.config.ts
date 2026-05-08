@@ -54,7 +54,7 @@ export default defineConfig({
 
     use: {
         ...baseConfig.use,
-        baseURL: 'http://localhost:5173',
+        baseURL: process.env.BASE_URL || 'http://localhost:5173',
 
         // Trace always on for live tests — failures are hard to reproduce
         trace: 'on',
