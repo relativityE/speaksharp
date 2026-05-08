@@ -42,7 +42,7 @@ export class TransformersJSEngine extends STTEngine {
     }
 
     protected async loadModel(isMock?: boolean): Promise<Result<void, Error>> {
-        const options = this.options as TranscriptionModeOptions;
+        const options = (this.options || {}) as TranscriptionModeOptions;
         if (this.transcriber) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Engine already initialized, skipping.');
             if (options.onReady) options.onReady();
@@ -159,6 +159,8 @@ export class TransformersJSEngine extends STTEngine {
             if (options.onModelLoadProgress) {
                 options.onModelLoadProgress(100);
             }
+
+            this.updateHeartbeat();
 
             if (options.onReady) {
                 options.onReady();

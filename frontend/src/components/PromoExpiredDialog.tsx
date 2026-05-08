@@ -86,7 +86,7 @@ export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, on
                 <AlertDialogHeader>
                     <AlertDialogTitle>Your Pro Trial Has Ended</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Your 30-minute Pro access has expired. Upgrade now to continue using Pro features like Private Whisper and unlimited sessions.
+                        Your temporary Pro access has expired. Upgrade now to continue using Pro features like Private Whisper and unlimited sessions.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
 

@@ -33,7 +33,7 @@ export class WhisperTurboEngine extends STTEngine {
     }
 
     protected override async onInit(_timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
-        const options = this.options as TranscriptionModeOptions;
+        const options = (this.options || {}) as TranscriptionModeOptions;
         const tStart = performance.now();
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, `[WhisperTurbo] [PERF] Initializing engine via Registry at ${new Date().toISOString()}`);
 
@@ -63,6 +63,8 @@ export class WhisperTurboEngine extends STTEngine {
             if (options.onModelLoadProgress) {
                 options.onModelLoadProgress(100);
             }
+
+            this.updateHeartbeat();
 
             if (options.onReady) {
                 options.onReady();
@@ -140,4 +142,3 @@ export class WhisperTurboEngine extends STTEngine {
         this.isInitialized = false;
     }
 }
-

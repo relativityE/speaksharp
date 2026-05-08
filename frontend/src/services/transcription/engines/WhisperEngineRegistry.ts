@@ -24,7 +24,7 @@ export class WhisperEngineRegistry {
     private static state: RegistryState = RegistryState.Idle;
     private static abortController: AbortController | null = null;
     private static initPromise: Promise<unknown> | null = null;
-    public static WARMUP_TIMEOUT = 30000; // 30 seconds default
+    public static WARMUP_TIMEOUT = 5000; // Fail fast to deterministic CPU fallback during first-use setup.
     private static progressListeners = new Set<(progress: number) => void>();
     private static heartbeatInterval: NodeJS.Timeout | null = null;
 

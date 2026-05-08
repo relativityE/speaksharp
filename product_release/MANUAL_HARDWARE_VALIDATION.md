@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-07
+**Last Updated:** 2026-05-08
 
 # Manual Hardware Validation Checklist
 
@@ -16,9 +16,10 @@ CI does not validate real microphone hardware. Complete this checklist before la
 - [ ] Save session.
 - [ ] Refresh during recording.
 - [ ] Switch STT mode only via explicit user action.
-- [ ] Start Private STT with WebGPU available.
-- [ ] If model is missing, verify explicit download/progress/ready flow.
+- [ ] Start Private STT through the launch-default CPU/Transformers.js path.
+- [ ] If model assets/cache are missing, verify explicit setup/download/progress/ready flow.
 - [ ] Verify cached model is reused on second Private STT start.
+- [ ] Separately enable/force the WebGPU/WhisperTurbo accelerated path on supported hardware and verify it either starts quickly or fails fast to an explicit recovery state.
 
 ## Desktop Safari
 

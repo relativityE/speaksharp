@@ -90,11 +90,11 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
   protected isTerminated: boolean = false;
   protected isStopped: boolean = true;
 
-  protected options: TranscriptionModeOptions | EngineCallbacks | null = null;
+  protected options: TranscriptionModeOptions | EngineCallbacks = {};
 
   constructor(options?: TranscriptionModeOptions | EngineCallbacks) {
     this.instanceId = Math.random().toString(36).substring(7);
-    this.options = options || null;
+    this.options = options || {};
   }
 
   /**

@@ -2,7 +2,7 @@ import type { ITranscriptionEngine, TranscriptionModeOptions } from './modes/typ
 import type { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPolicy';
 import NativeBrowser from './modes/NativeBrowser';
 import CloudAssemblyAI from './modes/CloudAssemblyAI';
-import { PrivateSTT } from './engines/PrivateSTT';
+import PrivateWhisper from './modes/PrivateWhisper';
 import logger from '../../lib/logger';
 
 /**
@@ -30,8 +30,7 @@ export class EngineFactory {
         engine = new CloudAssemblyAI(options);
         break;
       case 'private':
-        // PrivateSTT is itself a facade that handles Whisper/TransformersJS
-        engine = new PrivateSTT();
+        engine = new PrivateWhisper(options);
         break;
       default:
         throw new Error(`[EngineFactory] Unsupported transcription mode: ${mode}`);

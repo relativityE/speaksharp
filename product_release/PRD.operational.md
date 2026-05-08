@@ -18,6 +18,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 - **Export Reliability**: PDF exports MUST reflect the active client-side transcript/report state and persisted session metrics available at export time.
 - **Privacy Guarantees**: Private STT audio data MUST NOT leave the user's browser.
 - **STT Mode Consent**: Private STT MUST NOT silently switch to Cloud STT. Cloud is a first-class Pro choice, but it requires explicit user selection.
+- **Private STT Launch Policy**: Private STT is recommended/default for Pro users, but the v0.6.18 launch baseline prioritizes deterministic CPU/Transformers.js setup over WebGPU-first probing. WebGPU is an accelerated path only after support is verified; it is not required for first-use success.
 - **Cloud Boost**: When the user explicitly selects Cloud STT, user-specific vocabulary/custom words MAY be sent to AssemblyAI as `keyterms_prompt` to improve transcript accuracy for that user.
 
 ### UX Expectations
@@ -32,7 +33,8 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 | Scenario | Contracted Behavior |
 | :--- | :--- |
 | **Quota Service Unavailable** | **Fail-Closed**: No new sessions allowed if limit check fails. |
-| **Model Download Failure** | Notify user, allow Private CPU/Native fallback where permitted, or block with retry. Do not silently route Private users to Cloud. |
+| **Model Download Failure** | Notify user, show retry/setup status, and present Native or Cloud only as explicit user-selectable alternatives. Do not silently route Private users to Cloud. |
+| **WebGPU Unsupported/Slow** | Continue through the launch default CPU/Transformers.js Private path. WebGPU probing must fail fast and must not make a user wait before CPU setup can proceed. |
 | **Stripe Webhook Delayed** | Keep user as Free until confirmed; do not grant optimistic Pro access. |
 | **Transcription Silence** | Heartbeat watchdog MUST trigger auto-reconnect or failure state within 8s. |
 | **Database Latency** | UI MUST show "Saving..." spinner until RPC confirms persistence. |

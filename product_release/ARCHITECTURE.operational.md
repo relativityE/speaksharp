@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-07
+**Last Updated:** 2026-05-08
 
 # Operational Architecture Invariants
 
@@ -56,7 +56,8 @@ This document defines the structural invariants and authoritative sources of tru
 ### Resource Protocol (Check-Then-Act)
 - All heavy resources (Offline Models) MUST be probed for availability before acquisition.
 - Acquisition MUST be triggered by explicit user intent, not background automation.
-- The Private STT ladder is WebGPU -> CPU/Transformers.js -> Native after Private failure. Cloud is not part of that ladder.
+- For the launch baseline, Private STT MUST use the deterministic CPU/Transformers.js path first, backed by same-origin model assets and browser cache. WebGPU/WhisperTurbo is an accelerated path only after support is confidently verified or explicitly selected for validation.
+- Native is an explicit recovery/baseline alternative after Private cannot run. Cloud is not part of the Private ladder and may only be entered by explicit user selection.
 
 ### Edge Function Perimeter
 - Public Edge Functions MUST use the shared request-aware CORS helper unless a documented exception exists.

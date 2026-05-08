@@ -3,6 +3,7 @@ import type { TranscriptionMode, TranscriptionPolicy } from './TranscriptionPoli
 import type { TranscriptionModeOptions } from './modes/types';
 import NativeBrowser from './modes/NativeBrowser';
 import CloudAssemblyAI from './modes/CloudAssemblyAI';
+import PrivateWhisper from './modes/PrivateWhisper';
 import { PrivateSTT } from './engines/PrivateSTT';
 import logger from '../../lib/logger';
 import { ENV } from '../../config/TestFlags';
@@ -67,7 +68,7 @@ export class STTStrategyFactory {
         strategy = new CloudAssemblyAI(options, mockEngine) as unknown as STTStrategy;
         break;
       case 'private':
-        strategy = new PrivateSTT(options, mockEngine) as unknown as STTStrategy;
+        strategy = new PrivateWhisper(options, new PrivateSTT(options, mockEngine)) as unknown as STTStrategy;
         break;
       case 'mock':
         // Use PrivateSTT wrapper for mock as it provides the most direct engine access
@@ -84,7 +85,7 @@ export class STTStrategyFactory {
     switch (mode) {
       case 'native': return 'native-browser';
       case 'cloud': return 'assemblyai';
-      case 'private': return 'whisper-turbo';
+      case 'private': return 'transformers-js';
       case 'mock': return 'mock';
       default: return 'unknown';
     }

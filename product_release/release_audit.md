@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18
-**Last Updated:** 2026-05-07
+**Last Updated:** 2026-05-08
 
 # SpeakSharp Release Audit (Forensic Analysis)
 
@@ -30,10 +30,11 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 
 | Finding | Release-Control Impact | Current Status |
 | :--- | :--- | :--- |
-| **Privacy-First Persistence** | Full transcript text is not stored in Supabase. Persisted session records contain metadata, counts, words, suggestions, engine/mode, and analysis artifacts; transcript text remains client-side for same-session report/PDF generation. | Integrated into PRD, Architecture, and Release Readiness. |
+| **Zero-Day Coaching Persistence** | Current release contract stores the transcript/analysis snapshot needed for WER, cached AI feedback, PDF regeneration, and session-over-session coaching. Private STT still keeps audio local; transcript storage should be revisited with redaction/encryption after MVP validation. | Integrated into PRD, Architecture, and Release Readiness. |
 | **CI Metrics Workflow** | Local CI/SQM metrics print to console through the metrics script; local runs do not rewrite markdown coverage tables. Stale markdown coverage display is expected unless the metrics-writing workflow intentionally updates docs. | Integrated into PRD and Release Readiness. |
 | **Cloud Boost Moat** | User-specific vocabulary sent to AssemblyAI via `keyterms_prompt` is a Pro Cloud accuracy differentiator when Cloud is explicitly selected. | Integrated into PRD and Feature Validation Matrix. |
 | **PDF Export Branding** | Free/basic monthly PDF export counting is intentionally removed because generation is client-side and zero variable cost. All exported PDFs remain SpeakSharp-branded/watermarked, including Pro. | Integrated into PRD, readiness, and roadmap. |
+| **Private STT Launch Policy** | Private STT remains the Pro default/recommended mode, but launch now prioritizes deterministic CPU/Transformers.js setup. WebGPU/WhisperTurbo is an accelerated path after support is verified, not a blocking first-use requirement. | Integrated into PRD, Architecture, Roadmap, Release Readiness, and manual validation. |
 
 ### Remediated Code Paths Awaiting Deployment Validation
 

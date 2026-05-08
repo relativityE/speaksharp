@@ -14,7 +14,8 @@
  * Main entry point for Private STT. Automatically selects the best engine:
  * 
  * 1. In CI/Playwright: Forces TransformersJSEngine (safe)
- * 2. In production: Tries WhisperTurbo, falls back to TransformersJS on failure
+ * 2. In production: Uses deterministic TransformersJS CPU path by default
+ *    WebGPU/WhisperTurbo remains available through explicit engine override.
  * 
  * DESIGN PRINCIPLES:
  * - Single API: App only sees PrivateSTT.init() and transcribe()
@@ -35,15 +36,6 @@ import { ENV } from '@/config/TestFlags';
 import { MicStream } from '@/services/transcription/utils/types';
 import { getEngine } from '@/services/transcription/STTRegistry';
 // Stale import removed
-
-/**
- * Check if WebGPU is available for fast path
- */
-function hasWebGPU(): boolean {
-    if (typeof navigator === 'undefined') return false;
-    const nav = navigator as Navigator & { gpu?: unknown };
-    return 'gpu' in nav && !!nav.gpu;
-}
 
 /**
  * Dual-engine Private STT facade
@@ -117,7 +109,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         // 2. Registry-First Resolution (Mock-First / Environment Agnostic)
         // If the registry provides a factory for our preferred engines, use it.
-        const preferredEngine = hasWebGPU() && !ENV.disableWasm ? 'whisper-turbo' : 'transformers-js';
+        const preferredEngine = 'transformers-js';
         const factory = getEngine(preferredEngine) 
             || getEngine('transformers-js')
             || getEngine('whisper-turbo')
@@ -139,24 +131,12 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 return Result.ok(undefined); // Allow discovery to continue
             }
             this.engine = engine as unknown as IPrivateSTTEngine;
-            this._engineType = (preferredEngine === 'whisper-turbo' || preferredEngine === 'transformers-js') ? preferredEngine : 'transformers-js';
+            this._engineType = preferredEngine;
             return Result.ok(undefined);
         }
 
-        // 3. Environment-Based Discovery (Fast Path -> Safe Path)
-        const forceSafe = ENV.disableWasm;
-        const webGPUAvailable = hasWebGPU() && !forceSafe;
-
-        if (webGPUAvailable) {
-            const fastResult = await this.initFastEngine();
-            if (fastResult.isOk) return Result.ok(undefined);
-
-            const fastError = (fastResult as { isOk: false; error: Error }).error;
-            logger.warn({ sId: this.serviceId, rId: this.runId, err: fastError }, '[PrivateSTT] ⚠️ WhisperTurbo failed. Falling back to WASM...');
-        }
-
-        // 4. Safe Path (WASM/CPU)
-        logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🛡️ Initializing TransformersJS (Safe Path)...');
+        // 3. Safe Path (WASM/CPU)
+        logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🛡️ Initializing TransformersJS (Default Private Path)...');
         const safeResult = await this.initSafeEngine();
 
         if (safeResult.isOk === false) {
@@ -235,9 +215,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         const hasManifest = getEngine('whisper-turbo') || getEngine('transformers-js') || getEngine('mock');
         logger.debug({ hasManifest }, '[PrivateSTT] Base manifest check');
 
-        // 2. Determine best available engine (WebGPU preference)
-        const hasWebGPUAvailable = hasWebGPU() && !ENV.disableWasm;
-        const preferredEngine: 'whisper-turbo' | 'transformers-js' = hasWebGPUAvailable ? 'whisper-turbo' : 'transformers-js';
+        // 2. Determine best available engine.
+        // Launch policy: CPU/TransformersJS is the deterministic first-run path.
+        const preferredEngine: 'transformers-js' = 'transformers-js';
 
         // 2.5 Consult the registry first if a mock is provided
         const mockFactory = getEngine(preferredEngine)
@@ -291,7 +271,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             // 2. Production Fallback (Dynamic Import)
             logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 📦 Loading production WhisperTurbo module...');
             const { WhisperTurboEngine } = await import('./WhisperTurboEngine');
-            const engine = new WhisperTurboEngine();
+            const engine = new WhisperTurboEngine(options);
             validateEngine(engine);
             const resultRaw = await engine.init(timeoutMs, isMock);
             const result = resultRaw as unknown as Record<string, unknown>;
@@ -338,7 +318,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             // 2. Production Fallback
             logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 📦 Loading production TransformersJS module...');
             const { TransformersJSEngine } = await import('./TransformersJSEngine');
-            const engine = new TransformersJSEngine();
+            const engine = new TransformersJSEngine(options);
             validateEngine(engine);
             const resultRaw = await engine.init(timeoutMs, isMock);
             const result = resultRaw as unknown as Record<string, unknown>;

@@ -1129,6 +1129,7 @@ export class SpeechRuntimeController {
             }
             const strategy = service.getStrategy();
             if (!strategy || !this.isEngineReady) return;
+            if (this.state !== 'INITIATING' && this.state !== 'ENGINE_INITIALIZING' && this.state !== 'RECORDING') return;
             const lastHeartbeat = service.getLastHeartbeatTimestamp();
             const drift = Date.now() - lastHeartbeat;
             if (drift > this.HEARTBEAT_THRESHOLD_MS) {

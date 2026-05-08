@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-06
+**Last Updated:** 2026-05-08
 
 # 🛠️ Release Recovery Strategy
 
@@ -20,7 +20,7 @@ SpeakSharp utilizes a **Forward-Fix** doctrine. Because the system relies on sta
 | Stripe Webhook 500s | **P0** | Pause new checkouts in Stripe. Investigate Edge Function logs. |
 | Quota Fail-Open (Revenue Leak) | **P0** | Deploy "Emergency Closed" limit function (hardcode `can_start: false`). |
 | Database Connection Exhaustion | **P0** | Scale Supabase instance or terminate idle connections via Dashboard. |
-| Private STT Model 404s | **P1** | Disable Private start, explain the outage, and present Cloud/Native as explicit user-selectable alternatives. Do not silently switch a Private session to Cloud. |
+| Private STT Model 404s | **P1** | Disable or retry the CPU/Transformers.js Private setup, explain the outage, and present Cloud/Native as explicit user-selectable alternatives. Do not silently switch a Private session to Cloud. |
 | Transcript Data Loss | **P1** | Switch `TranscriptionService` to "Aggressive Persistence" mode (save every 5s). |
 
 ## 1. Emergency Rollback Criteria

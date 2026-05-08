@@ -133,7 +133,7 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(gotType, `[TRACE-PSTT] wrong engine type — ${traceEnv}, gotType=${gotType}`).toBe('mock');
     });
 
-    it('selects WhisperTurboEngine (Fast Path) when WebGPU is available', async () => {
+    it('selects TransformersJSEngine by default even when WebGPU is available', async () => {
         if (window.__SS_E2E__) {
             window.__SS_E2E__.isActive = true;
             window.__SS_E2E__.engineType = 'real';
@@ -144,7 +144,7 @@ describe('PrivateSTT (Routing Logic)', () => {
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         await pstt.init();
 
-        expect(pstt.getEngineType()).toBe('whisper-turbo');
+        expect(pstt.getEngineType()).toBe('transformers-js');
     });
 
     it('selects TransformersJSEngine (Safe Path) when WebGPU is missing', async () => {
@@ -161,7 +161,7 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(pstt.getEngineType()).toBe('transformers-js');
     });
 
-    it('selects WhisperTurboEngine (Fast Path) when WebGPU is available (Re-verification)', async () => {
+    it('selects WhisperTurboEngine only with explicit forceEngine override', async () => {
         // Must set engineType='real' so ENV.disableWasm=false, enabling the GPU path
         if (window.__SS_E2E__) {
             window.__SS_E2E__.isActive = true;
@@ -170,7 +170,7 @@ describe('PrivateSTT (Routing Logic)', () => {
         Object.defineProperty(navigator, 'gpu', { value: {}, writable: true, configurable: true });
 
         const { PrivateSTT } = await import('../PrivateSTT');
-        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'whisper-turbo' } as never);
         await pstt.init();
 
         expect(pstt.getEngineType()).toBe('whisper-turbo');

@@ -33,6 +33,7 @@ describe('SpeechRuntimeController: Heartbeat Watchdog', () => {
 
     (controller as { service: unknown }).service = mockService;
     (controller as { isEngineReady: boolean }).isEngineReady = true;
+    (controller as { state: string }).state = 'RECORDING';
   });
 
   afterEach(() => {
