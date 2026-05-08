@@ -1,0 +1,25 @@
+name: Generate One-Time Promo Code
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate-promo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'false'
+
+      - name: Generate One-Time Promo Code
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PROMO_GEN_ADMIN_SECRET: ${{ secrets.PROMO_GEN_ADMIN_SECRET }}
+        run: pnpm generate-promo

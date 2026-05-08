@@ -77,16 +77,21 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+          PROMO_GEN_ADMIN_SECRET: ${{ secrets.PROMO_GEN_ADMIN_SECRET }}
         run: |
           if [ -z "$AGENT_SECRET" ]; then
             echo "❌ AGENT_SECRET not available in GitHub Secrets!"
             exit 1
           fi
+          if [ -z "$PROMO_GEN_ADMIN_SECRET" ]; then
+            echo "❌ PROMO_GEN_ADMIN_SECRET not available in GitHub Secrets!"
+            exit 1
+          fi
           cd backend/supabase
           # Set the secret in Supabase Cloud
           # Using wildcard or multiple origins if needed, but here we set the canonical production URL.
-          npx supabase secrets set AGENT_SECRET="$AGENT_SECRET" ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5173" --project-ref "$SUPABASE_PROJECT_ID"
-          echo "✅ AGENT_SECRET and ALLOWED_ORIGIN synchronized to Supabase"
+          npx supabase secrets set AGENT_SECRET="$AGENT_SECRET" PROMO_GEN_ADMIN_SECRET="$PROMO_GEN_ADMIN_SECRET" ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5173" --project-ref "$SUPABASE_PROJECT_ID"
+          echo "✅ AGENT_SECRET, PROMO_GEN_ADMIN_SECRET, and ALLOWED_ORIGIN synchronized to Supabase"
 
       - name: Deploy Edge Functions
         env:

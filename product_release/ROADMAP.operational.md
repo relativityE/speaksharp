@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-06
+**Last Updated:** 2026-05-08
 
 # Release Risk Tracker (Operational Roadmap)
 
@@ -51,4 +51,4 @@ This document tracks identified risks and their impact on the 12-hour launch win
 - High-concurrency performance tuning.
 - Visual polish and non-critical UI transitions.
 - Multi-tab synchronization features.
-- Free -> Basic migration and pricing rename.
+- Free -> Basic migration and pricing rename until after the MVP test-release baseline is green, tagged, and impounded. Stripe test-mode prices can validate a future paid Basic checkout without real charges, but Basic still requires app copy, DB/Edge Function semantics, tests, and live Price ID alignment before production use.

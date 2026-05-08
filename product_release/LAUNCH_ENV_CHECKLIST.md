@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-07
+**Last Updated:** 2026-05-08
 
 # Runtime Configuration Verification (Launch Checklist)
 
@@ -14,6 +14,7 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 - [ ] **Webhook Endpoint**: Production URL `https://[PROJECT].supabase.co/functions/v1/stripe-webhook` is registered.
 - [ ] **Webhook Secret**: `STRIPE_WEBHOOK_SECRET` matches the production dashboard.
 - [ ] **Price IDs**: `VITE_STRIPE_PRO_PRICE_ID` matches the production product ID.
+- [ ] **Future Basic Pricing**: Stripe test-mode Product/Price IDs may be used to validate the deferred Basic checkout path without real charges. Do not treat test-mode Basic pricing as production-ready until the Free -> Basic app migration, Edge Function semantics, tests, and live Price ID are aligned.
 
 ## 2. Backend Infrastructure (Supabase)
 - [ ] **Project URL**: `VITE_SUPABASE_URL` points to the production instance.
@@ -38,6 +39,7 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 ## 5. Security & Rate Limiting
 - [ ] **Rate Limits**: `rate-limiter` config set to production values (e.g., 100/min per IP).
 - [ ] **SSL/TLS**: Production domain has a valid, active certificate.
+- [ ] **Promo Generator Secret**: `PROMO_GEN_ADMIN_SECRET` is set in Supabase Edge Function secrets and GitHub Actions if production promo generation is run from CI. Without this secret, `pnpm generate-promo` cannot mint tester promo codes through the admin Edge Function.
 
 ---
 
