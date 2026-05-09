@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-08
+**Last Updated:** 2026-05-09
 
 # Release Risk Tracker (Operational Roadmap)
 
@@ -34,8 +34,8 @@ This document tracks identified risks and their impact on the 12-hour launch win
 
 ## 📅 Pre-Launch Hardening (12-Hour Sprint)
 
-1. **Fix Fail-Open Quota**: Modify `check-usage-limit` to return `403/503` on error.
-2. **Harden AI Suggestions**: Add schema validation/safe-parse to Gemini response handling.
+1. **Validate Fail-Closed Quota**: Verify the deployed `check-usage-limit` function returns fail-closed responses on RPC/internal uncertainty.
+2. **Validate AI Suggestions**: Verify the deployed Gemini suggestion path returns safe fallback output on malformed responses and does not 500 the analytics page.
 3. **Stripe Verification**: Complete a live $0.50 transaction to verify webhook parity.
 4. **Env Verification**: Complete the [LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md).
 5. **Canary Repair**: Align `canaryLogin` with the real sign-in route, run GitHub `canary.yml`, and save run evidence.

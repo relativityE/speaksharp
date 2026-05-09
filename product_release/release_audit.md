@@ -18,7 +18,7 @@ SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestr
 | Category | Status | Risk Level | Rationale |
 | :--- | :--- | :--- | :--- |
 | **Financial Security** | 🟡 **FIX APPLIED / DEPLOY VALIDATION PENDING** | **CRITICAL** | Local code now fails closed and gates Cloud token issuance, but production deployment evidence is still required. |
-| **User Privacy** | 🟢 READY | LOW | On-device transcription is functional and prioritized for Pro users. |
+| **User Privacy** | 🟡 FIX APPLIED / LIVE VALIDATION PENDING | LOW | On-device transcription is prioritized for Pro users; Private CPU transcript/save/history still needs deployed browser validation before tester release. |
 | **Operational Stability** | 🟡 CAUTION | MEDIUM | Stabilization churn has created "Test-Aware" production debt. |
 | **Product Integrity** | 🟡 **FIX APPLIED / DEPLOY VALIDATION PENDING** | **HIGH** | Negative duration guards and promo brute-force protection are applied locally; migration/function deployment evidence is still required. |
 
@@ -68,31 +68,31 @@ This evidence lowers the current risk from "unfixed code" to "deployment and liv
 
 ---
 
-## 🚨 P0 Release Blockers (Must Fix)
+## 🚨 P0 Release Blockers (Fix Applied; Must Validate)
 
 ### 1. Quota Fail-Open Vulnerability (`check-usage-limit`)
 - **Evidence**: `backend/supabase/functions/check-usage-limit/index.ts:133`
-- **Vulnerability**: The function returns `can_start: true` in the catch-all error handler. During database latency or Supabase outages, all users (Free & Pro) bypass usage gates entirely.
+- **Original Vulnerability**: The function returned `can_start: true` in the catch-all error handler. During database latency or Supabase outages, all users (Free & Pro) could bypass usage gates entirely.
 - **Impact**: Unlimited free usage of expensive Cloud STT ($0.47/hr).
-- **Remediation**: Transition to **Fail-Closed** logic. Return `can_start: false` and a `503 Service Unavailable` on error.
+- **Current Status**: Fix applied locally and Edge Function deploy workflow is green; live fail-closed smoke still required.
 
 ### 2. Cloud STT Token Abuse (`assemblyai-token`)
 - **Evidence**: `backend/supabase/functions/assemblyai-token/index.ts`
-- **Vulnerability**: The token generator verifies `subscription_status === 'pro'` but **does not verify usage seconds**. A Pro user who has exceeded their 50-hour monthly limit can still generate a valid token and record for hours.
+- **Original Vulnerability**: The token generator verified `subscription_status === 'pro'` but did not verify usage seconds. A Pro user who exceeded their monthly limit could still generate a valid token and record for hours.
 - **Impact**: Direct financial loss. Power users can bypass the 50-hour cap indefinitely.
-- **Remediation**: Invoke `check_usage_limit` RPC within the token generation function.
+- **Current Status**: Fix applied locally; live successful-token and over-limit denial smoke still required.
 
 ### 3. Negative Duration Exploitation (`update_user_usage` / `heartbeat_session` RPCs)
 - **Evidence**: `backend/supabase/migrations/20260309000000_phase2_integration.sql:57` and `backend/supabase/migrations/20260309000000_phase2_integration.sql:313`
-- **Vulnerability**: The latest usage RPC path accepts duration/increment parameters and adds them to usage counters without an explicit non-negative guard. `create_session_and_update_usage` has some session-data guard behavior, but `update_user_usage` and `heartbeat_session` remain direct abuse paths if callable with negative increments.
+- **Original Vulnerability**: The usage RPC path accepted duration/increment parameters and added them to usage counters without an explicit non-negative guard. `create_session_and_update_usage` had some session-data guard behavior, but `update_user_usage` and `heartbeat_session` remained direct abuse paths if callable with negative increments.
 - **Impact**: Permanent bypass of daily/monthly quotas.
-- **Remediation**: Add explicit non-negative guards to all usage mutation RPCs and back them with adversarial tests.
+- **Current Status**: Forward migration and write-path guards are present; migration apply and negative-increment smoke still required.
 
 ### 4. Promo Code Brute-Force (`apply-promo`)
 - **Evidence**: `backend/supabase/functions/apply-promo/index.ts`
-- **Vulnerability**: Promo codes are predictable 7-digit integers. The Edge Function lacks rate limiting or brute-force protection. A script can guess valid codes in minutes.
+- **Original Vulnerability**: Promo codes are predictable 7-digit integers and the Edge Function lacked rate limiting or brute-force protection. A script could guess valid codes in minutes.
 - **Impact**: Unauthorized Pro tier access.
-- **Remediation**: Implement a DB-backed attempt counter per IP/User and add exponential backoff.
+- **Current Status**: DB-backed throttling and one-time redemption protections are present; live throttling/reuse smoke must remain part of tester-readiness validation.
 
 ---
 
