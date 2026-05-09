@@ -95,6 +95,6 @@ export const baseConfig: Partial<PlaywrightTestConfig> = {
         ignoreHTTPSErrors: true,
         screenshot: 'only-on-failure',
         trace: 'retain-on-failure',
-        video: 'retain-on-failure',
+        video: 'off',
     },
 };

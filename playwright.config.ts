@@ -57,7 +57,7 @@ export default defineConfig({
 
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    video: 'off',
   },
   updateSnapshots: process.env.CI ? 'missing' : 'none',
   // ✅ CRITICAL: Web server configuration
