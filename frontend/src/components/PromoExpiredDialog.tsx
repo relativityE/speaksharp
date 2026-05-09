@@ -14,6 +14,8 @@ import { getSupabaseClient } from "@/lib/supabaseClient";
 import logger from "@/lib/logger";
 import { toast } from '@/lib/toast';
 import { useQueryClient } from '@tanstack/react-query';
+import { useAuthProvider } from '@/contexts/AuthProvider';
+import { useNavigate } from 'react-router-dom';
 
 interface PromoExpiredDialogProps {
     open: boolean;
@@ -29,6 +31,8 @@ export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, on
     const [promoCode, setPromoCode] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const queryClient = useQueryClient();
+    const { signOut } = useAuthProvider();
+    const navigate = useNavigate();
 
     const handleUpgrade = async () => {
         try {
@@ -77,6 +81,12 @@ export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, on
         }
     };
 
+    const handleSwitchAccount = async () => {
+        await signOut();
+        onOpenChange(false);
+        navigate('/auth/signin', { replace: true });
+    };
+
     return (
         <AlertDialog open={open} onOpenChange={onOpenChange}>
             <AlertDialogContent>
@@ -120,6 +130,13 @@ export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, on
                     )}
                     <div className="flex gap-2 justify-end w-full sm:w-auto">
                         <AlertDialogCancel data-testid="promo-expired-continue-free">Continue as Free</AlertDialogCancel>
+                        <Button
+                            variant="outline"
+                            onClick={() => { void handleSwitchAccount(); }}
+                            data-testid="promo-expired-switch-account"
+                        >
+                            Switch account
+                        </Button>
                         <Button onClick={() => { void handleUpgrade(); }} data-testid="promo-expired-upgrade-button">Upgrade to Pro</Button>
                     </div>
                 </AlertDialogFooter>

@@ -137,6 +137,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
   protected override async onStart(_mic: MicStream | undefined, userWords: string[] = []): Promise<void> {
     if (this.isListening) return;
+    this.updateOptions({ userWords });
 
     // Use injected mock if available
     if (this.mockEngine) {

@@ -49,6 +49,8 @@ const STATIC_FILLER_PATTERNS: FillerPatterns = {
 // Cache for compiled user word regex patterns
 const userWordRegexCache = new Map<string, RegExp>();
 
+const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // Single-item cache for the NLP document to avoid redundant parsing of the same text
 let lastTextForNlp: string | null = null;
 let lastNlpDoc: ReturnType<typeof nlp> | null = null;
@@ -95,7 +97,7 @@ export const createFillerPatterns = (userWords: string[] = []): FillerPatterns =
     userWords.forEach((word) => {
         let regex = userWordRegexCache.get(word);
         if (!regex) {
-            regex = new RegExp(`\\b(${word})\\b`, 'gi');
+            regex = new RegExp(`(?:^|\\W)(${escapeRegExp(word)})(?=$|\\W)`, 'gi');
             userWordRegexCache.set(word, regex);
         }
         patterns[word] = regex;

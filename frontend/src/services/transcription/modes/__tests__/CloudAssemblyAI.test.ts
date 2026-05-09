@@ -100,6 +100,26 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         expect(onReady).toHaveBeenCalled();
     });
 
+    it('should include custom words in keyterms_prompt when Cloud starts with user words', async () => {
+        await mode.init();
+        await mode.start(undefined, ['CanaryBoostTest', 'Productization']);
+
+        const socket = LAST_SOCKET();
+        expect(socket).toBeDefined();
+
+        const decodedUrl = decodeURIComponent(socket.url);
+        expect(decodedUrl).toContain('keyterms_prompt=CanaryBoostTest,Productization');
+    });
+
+    it('should omit keyterms_prompt when Cloud starts without user words', async () => {
+        await mode.init();
+        await mode.start();
+
+        const socket = LAST_SOCKET();
+        expect(socket).toBeDefined();
+        expect(socket.url).not.toContain('keyterms_prompt');
+    });
+
     it('Pillar 2: should ignore events from zombie connections (Identity Hardening)', async () => {
         await mode.init();
         await mode.start();

@@ -523,8 +523,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         return sessions.map(s => ({
             id: s!.id,
             created_at: s!.created_at,
-            wpm: s!.duration > 0 && s!.total_words ? Math.round((s!.total_words / s!.duration) * 60) : 0,
-            clarity_score: s!.accuracy ? Math.round(s!.accuracy * 100) : 0,
+            wpm: s!.wpm ?? (s!.duration > 0 && s!.total_words ? Math.round((s!.total_words / s!.duration) * 60) : 0),
+            clarity_score: s!.clarity_score ?? (s!.accuracy ? Math.round(s!.accuracy * 100) : 0),
             filler_count: Object.values(s!.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0),
             duration_seconds: s!.duration,
         })) as [{ id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }, { id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }];
@@ -534,8 +534,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         if (!sessionHistory || sessionHistory.length < 2) return [];
         return sessionHistory.slice(0, 10).reverse().map(s => ({
             date: formatDate(s.created_at),
-            wpm: s.duration > 0 && s.total_words ? Math.round((s.total_words / s.duration) * 60) : 0,
-            clarity: s.accuracy ? Math.round(s.accuracy * 100) : 0,
+            wpm: s.wpm ?? (s.duration > 0 && s.total_words ? Math.round((s.total_words / s.duration) * 60) : 0),
+            clarity: s.clarity_score ?? (s.accuracy ? Math.round(s.accuracy * 100) : 0),
             fillers: Object.values(s.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0),
         }));
     }, [sessionHistory]);

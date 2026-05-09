@@ -69,9 +69,10 @@ export default defineConfig({
             use: {
                 ...getChromeWithMic(),
                 launchOptions: {
+                    ...getChromeWithMic().launchOptions,
                     args: [
+                        ...(getChromeWithMic().launchOptions?.args ?? []),
                         // Audio injection: feed .wav file into the fake capture device
-                        '--use-fake-device-for-media-stream',
                         `--use-file-for-fake-audio-capture=${LIVE_AUDIO_FIXTURE}`,
 
                         // Disable automation detection (can block getUserMedia)

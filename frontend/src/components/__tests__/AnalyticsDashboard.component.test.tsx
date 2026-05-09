@@ -1,4 +1,4 @@
-import { render, screen } from '../../../tests/support/test-utils';
+import { fireEvent, render, screen } from '../../../tests/support/test-utils';
 import { AnalyticsDashboard } from '../AnalyticsDashboard';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import React from 'react';
@@ -62,6 +62,7 @@ const mockStats = {
 const mockSessionHistory = [
     {
         id: 'session-1',
+        user_id: 'test-user',
         created_at: '2023-01-01T10:00:00Z',
         duration: 600,
         total_words: 1200,
@@ -115,5 +116,43 @@ describe('AnalyticsDashboard', () => {
         // Verify session list is rendered
         const sessionItems = screen.getAllByTestId(/session-history-item-/);
         expect(sessionItems.length).toBeGreaterThan(0);
+    });
+
+    it('uses persisted WPM and clarity values for session comparison instead of recalculating legacy fields', () => {
+        renderComponent({
+            sessionHistory: [
+                {
+                    id: 'session-1',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 120,
+                    wpm: 111,
+                    clarity_score: 77,
+                    filler_words: { um: { count: 2 } },
+                    accuracy: 0.9,
+                },
+                {
+                    id: 'session-2',
+                    user_id: 'test-user',
+                    created_at: '2023-01-02T10:00:00Z',
+                    duration: 60,
+                    total_words: 140,
+                    wpm: 123,
+                    clarity_score: 88,
+                    filler_words: { um: { count: 1 } },
+                    accuracy: 0.95,
+                },
+            ],
+        });
+
+        screen.getAllByRole('checkbox').forEach((checkbox) => fireEvent.click(checkbox));
+        fireEvent.click(screen.getByRole('button', { name: /compare selected/i }));
+
+        expect(screen.getByText('Session Comparison')).toBeInTheDocument();
+        expect(screen.getAllByText('111').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('123').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('77%').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('88%').length).toBeGreaterThan(0);
     });
 });
