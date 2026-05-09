@@ -102,6 +102,36 @@ describe('generateSessionPdf', () => {
     expect(savedPdf.filename).toContain('session_20250923');
   });
 
+  it('excludes synthetic total filler rows and preserves zero pause metrics', async () => {
+    await generateSessionPdf({
+      ...mockSession,
+      filler_words: {
+        um: { count: 2 },
+        like: { count: 3 },
+        total: { count: 5 },
+      },
+      pause_metrics: {
+        silencePercentage: 0,
+        transitionPauses: 0,
+        extendedPauses: 0,
+        longestPause: 0,
+      },
+    } as unknown as Session);
+
+    expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      body: expect.arrayContaining([
+        ['Silence Percentage', '0.0%'],
+        ['Short Pauses (0.5-1.5s)', '0'],
+        ['Long Pauses (>1.5s)', '0'],
+        ['Longest Pause', '0.0s'],
+      ])
+    }));
+
+    expect(autoTable).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({
+      body: [['um', 2], ['like', 3]]
+    }));
+  });
+
   it('handles sessions with no filler words', async () => {
     const noFillers = { ...mockSession, filler_words: null };
     await generateSessionPdf(noFillers as unknown as Session);

@@ -27,3 +27,5 @@ jobs:
           supabase functions deploy check-usage-limit --project-ref $PROJECT_ID
           supabase functions deploy create-user --project-ref $PROJECT_ID --no-verify-jwt
           supabase functions deploy assemblyai-token --project-ref $PROJECT_ID --no-verify-jwt
+          supabase functions deploy get-ai-suggestions --project-ref $PROJECT_ID
+          supabase functions deploy stripe-checkout --project-ref $PROJECT_ID

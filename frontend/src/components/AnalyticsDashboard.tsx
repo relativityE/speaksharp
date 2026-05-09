@@ -139,6 +139,12 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
 const DEFAULT_SELECTED_CARDS = ['total_sessions', 'speaking_pace', 'filler_words_per_min', 'total_practice_time'];
 const STORAGE_KEY = 'speaksharp_selected_stat_cards';
 
+const sumFillerCounts = (fillerWords?: PracticeSession['filler_words'] | null): number =>
+    Object.entries(fillerWords || {}).reduce(
+        (sum, [word, data]) => word === 'total' ? sum : sum + (data.count || 0),
+        0
+    );
+
 // --- Analysis Slide Configuration ---
 // Available analysis visualization tools for the main carousel
 // Add new charts/tools here
@@ -221,7 +227,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className
 );
 
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro: _isPro, isSelected, onToggleSelect, profileName }) => {
-    const totalFillers = Object.values(session.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0);
+    const totalFillers = sumFillerCounts(session.filler_words);
     const durationMins = Math.floor(session.duration / 60);
     const durationSecs = session.duration % 60;
     const durationStr = `${durationMins}:${durationSecs.toString().padStart(2, '0')}`;
@@ -525,7 +531,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             created_at: s!.created_at,
             wpm: s!.wpm ?? (s!.duration > 0 && s!.total_words ? Math.round((s!.total_words / s!.duration) * 60) : 0),
             clarity_score: s!.clarity_score ?? (s!.accuracy ? Math.round(s!.accuracy * 100) : 0),
-            filler_count: Object.values(s!.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0),
+            filler_count: sumFillerCounts(s!.filler_words),
             duration_seconds: s!.duration,
         })) as [{ id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }, { id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }];
     }, [selectedSessions, sessionHistory]);
@@ -536,7 +542,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             date: formatDate(s.created_at),
             wpm: s.wpm ?? (s.duration > 0 && s.total_words ? Math.round((s.total_words / s.duration) * 60) : 0),
             clarity: s.clarity_score ?? (s.accuracy ? Math.round(s.accuracy * 100) : 0),
-            fillers: Object.values(s.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0),
+            fillers: sumFillerCounts(s.filler_words),
         }));
     }, [sessionHistory]);
 
@@ -575,7 +581,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         <StatCard
                             icon={<TrendingUp />}
                             label="Filler Words"
-                            value={Object.values(targetSession.filler_words || {}).reduce((sum, data) => sum + (data.count || 0), 0)}
+                            value={sumFillerCounts(targetSession.filler_words)}
                             testId={TEST_IDS.FILLER_COUNT_VALUE}
                         />
                     </div>

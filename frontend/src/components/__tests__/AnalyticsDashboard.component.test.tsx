@@ -155,4 +155,29 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getAllByText('77%').length).toBeGreaterThan(0);
         expect(screen.getAllByText('88%').length).toBeGreaterThan(0);
     });
+
+    it('does not double-count synthetic total filler rows in session detail metrics', () => {
+        renderComponent({
+            sessionId: 'session-1',
+            sessionHistory: [
+                {
+                    id: 'session-1',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 120,
+                    wpm: 120,
+                    clarity_score: 90,
+                    filler_words: {
+                        um: { count: 2 },
+                        like: { count: 3 },
+                        total: { count: 5 },
+                    },
+                    transcript: 'um like like like words',
+                },
+            ],
+        });
+
+        expect(screen.getByTestId('filler-count-value')).toHaveTextContent('5');
+    });
 });

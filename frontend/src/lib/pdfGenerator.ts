@@ -16,6 +16,14 @@ interface jsPDFInternal {
 
 import { toast } from '@/lib/toast';
 
+const formatOptionalNumber = (value: number | null | undefined, formatter: (value: number) => string, fallback = 'N/A') =>
+  typeof value === 'number' ? formatter(value) : fallback;
+
+const getFillerTableData = (fillerWords: Session['filler_words']) =>
+  Object.entries(fillerWords || {})
+    .filter(([word]) => word !== 'total')
+    .map(([word, data]) => [word, data.count]);
+
 export const generateSessionPdf = async (session: Session, username: string = 'User', _isPro: boolean = false) => {
   const identifier = username && username !== 'User' ? username : session.user_id;
 
@@ -44,10 +52,10 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
     const analyticsData = [
       ['Metric', 'Value'],
       ['Speaking Pace (WPM)', session.wpm?.toString() || 'N/A'],
-      ['Silence Percentage', session.pause_metrics?.silencePercentage ? `${session.pause_metrics.silencePercentage.toFixed(1)}%` : 'N/A'],
-      ['Short Pauses (0.5-1.5s)', session.pause_metrics?.transitionPauses?.toString() || '0'],
-      ['Long Pauses (>1.5s)', session.pause_metrics?.extendedPauses?.toString() || '0'],
-      ['Longest Pause', session.pause_metrics?.longestPause ? `${session.pause_metrics.longestPause.toFixed(1)}s` : 'N/A'],
+      ['Silence Percentage', formatOptionalNumber(session.pause_metrics?.silencePercentage, value => `${value.toFixed(1)}%`)],
+      ['Short Pauses (0.5-1.5s)', formatOptionalNumber(session.pause_metrics?.transitionPauses, value => value.toString(), '0')],
+      ['Long Pauses (>1.5s)', formatOptionalNumber(session.pause_metrics?.extendedPauses, value => value.toString(), '0')],
+      ['Longest Pause', formatOptionalNumber(session.pause_metrics?.longestPause, value => `${value.toFixed(1)}s`)],
     ];
 
     autoTable(doc, {
@@ -58,7 +66,7 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
     });
 
     if (session.filler_words) {
-      const tableData = Object.entries(session.filler_words).map(([word, data]) => [word, data.count]);
+      const tableData = getFillerTableData(session.filler_words);
       autoTable(doc, {
         startY: (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10,
         head: [['Filler Word', 'Frequency']],

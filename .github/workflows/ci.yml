@@ -57,6 +57,27 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  edge-tests:
+    name: edge-tests
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'false'
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Run Edge Function Tests
+        run: pnpm test:edge
+
   build:
     name: build
     needs: prepare
@@ -117,7 +138,7 @@ jobs:
 
   e2e:
     name: e2e-shard-${{ matrix.shard }}
-    needs: [unit, build, health-check]
+    needs: [unit, edge-tests, build, health-check]
     if: success()
     runs-on: ubuntu-latest
     strategy:
@@ -203,7 +224,7 @@ jobs:
 
   report:
     name: report
-    needs: [unit, build, health-check, e2e, lighthouse-advisory]
+    needs: [unit, edge-tests, build, health-check, e2e, lighthouse-advisory]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
