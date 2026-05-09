@@ -168,14 +168,14 @@ describe('Navigation', () => {
             expect(screen.getAllByText('Home')).toHaveLength(2);
         });
 
-        it('should highlight Session link when on session page', () => {
+        it('should highlight Session link when on session page without rendering duplicate mobile nav', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } },
                 signOut: mockSignOut,
             } as unknown as AuthProvider.AuthContextType);
 
             renderNavigation('/session');
-            expect(screen.getAllByText('Session')).toHaveLength(2);
+            expect(screen.getAllByText('Session')).toHaveLength(1);
         });
 
         it('should highlight Analytics link when on analytics page', () => {
