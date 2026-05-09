@@ -13,7 +13,7 @@ import { CI_CONFIG } from './scripts/ci.config.js';
 // Load test environment variables
 loadEnv('test');
 const TIMEOUT_MULTIPLIER = parseInt(process.env.CI_TIMEOUT_MULTIPLIER ?? '1');
-const BASE_URL = 'http://localhost:4173';
+const BASE_URL = `http://${process.env.E2E_HOST || '127.0.0.1'}:${process.env.E2E_PORT || '4173'}`;
 
 export default defineConfig({
   ...baseConfig,

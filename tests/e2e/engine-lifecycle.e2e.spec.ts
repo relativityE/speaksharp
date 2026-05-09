@@ -76,8 +76,12 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     const modeButton = page.getByTestId('stt-mode-select');
     await expect(modeButton).toHaveAttribute('data-state', 'private', { timeout: 15000 });
 
-    // Trigger explicit model download before starting a recording.
-    await page.getByTestId('download-model-button').click({ force: true });
+    // Trigger explicit model download before starting a recording. In some
+    // runs, private warm-up has already entered the frozen download path.
+    const downloadButton = page.getByTestId('download-model-button');
+    if (await downloadButton.isVisible().catch(() => false)) {
+      await downloadButton.click({ force: true });
+    }
 
     // 🛡️ FORENSIC GATE: Assert the mock is frozen in the explicit download path.
     await page.waitForFunction(() => typeof (window as unknown as Record<string, unknown>).__E2E_FINISH_DOWNLOAD__ === 'function', { timeout: 20000 });
@@ -142,10 +146,7 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
 
     await navigateToRoute(page, '/session');
     // Forensic Readiness Gate (Invariant I3)
-    await expect.poll(
-      async () => await page.getAttribute('html', 'data-engine-ready'),
-      { timeout: 15000 }
-    ).toBe('true');
+    await waitForModelReady(page, 15000);
     await expect(page.getByTestId('stt-mode-select')).toHaveAttribute('data-state', 'private', { timeout: 15000 });
 
     await page.getByTestId('session-start-stop-button').click();

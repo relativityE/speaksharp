@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { goToPublicRoute, navigateToRoute } from './helpers';
+import { goToPublicRoute, navigateToRoute, waitForProfileReady } from './helpers';
 
 /**
  * Promo Admin Journey E2E Test
@@ -40,14 +40,11 @@ test.describe('Promo Admin Journey', () => {
         });
         await expect(page).toHaveURL(/\/session/);
 
-        // 7. Verify Pro features are visible
-        // Forensic Readiness Gate (Invariant I3)
-        await expect.poll(
-            async () => await page.getAttribute('html', 'data-stt-ready'),
-            { timeout: 15000 }
-        ).toBe('true');
+        // 7. Verify Pro features are visible. This is an entitlement/UI
+        // assertion, so wait for profile hydration rather than engine startup.
+        await waitForProfileReady(page, 15000);
 
-        await expect(page.getByTestId('stt-mode-select')).toHaveAttribute('data-state', 'private');
+        await expect(page.getByTestId('stt-mode-select')).toHaveAttribute('data-state', 'private', { timeout: 15000 });
 
         // 8. Navigate to Analytics and verify the Pro status
         await navigateToRoute(page, '/analytics');

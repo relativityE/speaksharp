@@ -58,6 +58,7 @@ export const useSessionLifecycle = () => {
     // Guards to prevent double stops in the same session
     const hasAutoStoppedRef = useRef(false);
     const hasVADStoppedRef = useRef(false);
+    const modeSourceRef = useRef<'default' | 'user' | null>(null);
 
     const speechConfig = useMemo(() => ({
         userWords: userFillerWords,
@@ -304,12 +305,19 @@ export const useSessionLifecycle = () => {
         return () => clearInterval(checkInactivity);
     }, [isListening, transcript.transcript]);
 
-    // Mode sync: Ensure UI and Engine mode stay aligned
+    // Mode sync: follow the profile-derived default until the user explicitly
+    // chooses a mode. This prevents a pre-profile native default from latching
+    // for Pro users after profile hydration.
     useEffect(() => {
-        if (isVerified && !sttMode) {
+        if (
+            isVerified &&
+            !isListening &&
+            (!sttMode || (modeSourceRef.current === 'default' && sttMode !== defaultMode))
+        ) {
+            modeSourceRef.current = 'default';
             setSTTMode(defaultMode);
         }
-    }, [isVerified, sttMode, defaultMode, setSTTMode]);
+    }, [isVerified, isListening, sttMode, defaultMode, setSTTMode]);
 
     useEffect(() => {
         if (isListening && activeEngine && activeEngine !== 'none' && activeEngine !== effectiveMode) {
@@ -362,6 +370,7 @@ export const useSessionLifecycle = () => {
         activeMode,
         mode: effectiveMode,
         setMode: (m: TranscriptionMode) => {
+            modeSourceRef.current = 'user';
             setSTTMode(m);
             speechRuntimeController.updatePolicy(buildPolicyForUser(isProUser, m));
             speechRuntimeController.syncForensicState();

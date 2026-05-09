@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18
-**Last Updated:** 2026-05-08
+**Last Updated:** 2026-05-09
 
 # SpeakSharp Release Audit (Forensic Analysis)
 
@@ -9,7 +9,7 @@
 **Confidence Score**: 98% (Evidence-based codebase verification)
 **Audit v1.1 Integrated:** 2026-05-07
 
-SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestration layer. However, the backend (Edge Functions and Database RPCs) contains **P0 Financial and Security Vulnerabilities** that make the platform unfit for a commercial launch in its current state.
+SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestration layer. The P0 backend remediation work is present in the current local code, and the local test gate is now green. The platform remains blocked for commercial launch until those fixes are pushed, proven in GitHub CI, deployed, and validated against live infrastructure.
 
 ---
 
@@ -17,10 +17,10 @@ SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestr
 
 | Category | Status | Risk Level | Rationale |
 | :--- | :--- | :--- | :--- |
-| **Financial Security** | 🔴 **BLOCKED** | **CRITICAL** | Quota fail-open and token-abuse vulnerabilities allow unlimited Cloud STT costs. |
+| **Financial Security** | 🟡 **FIX APPLIED / DEPLOY VALIDATION PENDING** | **CRITICAL** | Local code now fails closed and gates Cloud token issuance, but production deployment evidence is still required. |
 | **User Privacy** | 🟢 READY | LOW | On-device transcription is functional and prioritized for Pro users. |
 | **Operational Stability** | 🟡 CAUTION | MEDIUM | Stabilization churn has created "Test-Aware" production debt. |
-| **Product Integrity** | 🔴 **BLOCKED** | **HIGH** | Negative duration exploitation and promo brute-force risks. |
+| **Product Integrity** | 🟡 **FIX APPLIED / DEPLOY VALIDATION PENDING** | **HIGH** | Negative duration guards and promo brute-force protection are applied locally; migration/function deployment evidence is still required. |
 
 ---
 
@@ -46,6 +46,16 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 | **G4: Promo Rate Limit** | Promo application has DB-backed failed-attempt throttling and fail-closed behavior on rate-limit uncertainty. | Fix applied; deploy validation pending. |
 | **Q1: Pro Session Warning** | Pro users with finite daily remaining time receive the 5-minute warning. | Fix applied; validation pending. |
 | **Q2: Safe LLM Parsing** | Gemini suggestions use defensive parsing and safe fallback output. | Fix applied; validation pending. |
+
+### Current Local Test Evidence (2026-05-09)
+
+| Gate | Result | Release Meaning |
+| :--- | :--- | :--- |
+| `pnpm ci:unit` | ✅ Passed: `106` files, `627 passed | 1 todo`. | Local unit/type/lint truth is green. |
+| `pnpm test:e2e` | ✅ Passed: `40 passed`, `0 failed`, `0 flaky`. | Local mocked orchestration is green. |
+| Promo expired component regression | ✅ Passed: `15/15`. | The visible-browser expired-promo dismissal bug has local coverage. |
+
+This evidence lowers the current risk from "unfixed code" to "deployment and live-validation pending." It does not make the product launch-ready by itself.
 
 ### Newly Added Production Tasks
 

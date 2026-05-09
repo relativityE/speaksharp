@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { navigateToRoute, mockLiveTranscript, attachLiveTranscript, waitForE2EEvent } from './helpers';
+import { navigateToRoute, mockLiveTranscript, attachLiveTranscript, waitForE2EEvent, waitForModelReady } from './helpers';
 import { ROUTES, TEST_IDS } from '../constants';
 
 test.describe('User Filler Words UI & Detection (Local)', () => {
@@ -87,10 +87,7 @@ test.describe('User Filler Words UI & Detection (Local)', () => {
 
         // 5. Ensure Native Mode is selected
         // Forensic Readiness Gate (Invariant I3)
-        await expect.poll(
-            async () => await userPage.getAttribute('html', 'data-engine-ready'),
-            { timeout: 15000 }
-        ).toBe('true');
+        await waitForModelReady(userPage, 15000);
 
         const modeTrigger = userPage.getByTestId(TEST_IDS.STT_MODE_SELECT);
         if (await modeTrigger.isVisible()) {

@@ -330,6 +330,7 @@ export async function programmaticLoginWithRoutes(
   await setupE2EManifest(page, {
     engineType: 'mock',
     debug: !!debug,
+    userType,
     storage: {
       [localStorageKey]: JSON.stringify(session)
     }
@@ -498,7 +499,17 @@ export async function waitForTranscriptionService(page: Page, event: string = 'E
  */
 export async function waitForModelReady(page: Page, timeout: number = 30000) {
   await page.waitForFunction(() => {
-    return document.documentElement.getAttribute('data-model-status') === 'ready';
+    const root = document.documentElement;
+    const runtimeState = root.getAttribute('data-runtime-state');
+    const sttReady = root.getAttribute('data-stt-ready');
+    const legacyModelStatus = root.getAttribute('data-model-status');
+
+    return (
+      sttReady === 'true' ||
+      runtimeState === 'READY' ||
+      runtimeState === 'RECORDING' ||
+      legacyModelStatus === 'ready'
+    );
   }, { timeout });
 }
 

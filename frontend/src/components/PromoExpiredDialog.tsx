@@ -66,8 +66,6 @@ export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, on
             // Refresh user profile to reflect new status
             await queryClient.invalidateQueries({ queryKey: ['userProfile'] });
             onOpenChange(false); // Close dialog
-
-            toast.error("Invalid or expired promo code.");
         } catch (err: unknown) {
             logger.error({ err }, 'Error applying promo code:');
             const msg = err instanceof Error ? err.message : "Failed to apply promo code";

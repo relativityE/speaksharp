@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-08
 **Version:** v0.6.18
-**Last Updated:** 2026-05-08
+**Last Updated:** 2026-05-09
 
 # Live Test Combinations Matrix
 
@@ -67,10 +67,10 @@ A path is green only when all required checks pass:
 
 | Area | Status | Notes |
 |---|---|---|
-| Automated CI baseline | 🟡 Local unit green / GitHub pending | Local `pnpm ci:unit` is green: lint, typecheck, eslint-disable scan, coverage run, and `106` test files / `627 passed | 1 todo`. Latest pushed GitHub `CI - Test Audit` remains red until current fixes are pushed and proven. |
+| Automated CI baseline | 🟡 Local unit + mocked E2E green / GitHub pending | Local `pnpm ci:unit` is green: lint, typecheck, eslint-disable scan, coverage run, and `106` test files / `627 passed | 1 todo`. Local `pnpm test:e2e` is also green with `40 passed`, `0 failed`, `0 flaky`. Latest pushed GitHub `CI - Test Audit` remains red until current fixes are pushed and proven. |
 | Production canary | 🟢 Passing | GitHub production canary passed on main after the route/runtime fixes; keep required for deployed smoke. |
-| Promo path | 🟡 Mocked green / live QA pending | Mocked promo E2E passes `8/8` after switching the stale readiness gate to `data-stt-ready`. One-time live promo generation/redeem/reuse rejection passed previously; current visible-browser/live feature QA still pending. |
+| Promo path | 🟡 Mocked green / live QA pending | Mocked promo E2E is aligned to profile hydration for entitlement checks rather than engine readiness, and the full mocked suite now passes `40/40` with `0 flaky`. One-time live promo generation/redeem/reuse rejection passed previously; current visible-browser/live feature QA still pending. |
 | Private CPU path | 🟡 Fix applied / live validation pending | Same-origin assets load locally; live transcript/save/history not yet green. |
 | Cloud path | 🟡 Validation pending | Token issuance is usage-gated in code; live successful/over-quota checks pending. |
 | Analytics return path | 🟡 Validation pending | E2E/unit coverage exists; live returning-user comparison still pending. |
-| Expired promo path | 🟡 Bug found / fix local | 2026-05-09 visible-browser test found `Continue as Free` did not dismiss the expired Pro dialog, blocking sign-out/signup navigation. Local fix adds current-session dismissal; deploy/live verification pending. |
+| Expired promo path | 🟡 Bug found / fix local | 2026-05-09 visible-browser test found `Continue as Free` did not dismiss the expired Pro dialog, blocking sign-out/signup navigation. Local fix adds current-session dismissal and targeted component tests pass; deploy/live verification pending. |

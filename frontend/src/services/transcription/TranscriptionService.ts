@@ -23,6 +23,7 @@ import { pushE2EEvent, isBridgeActive } from '@/lib/e2eProbe';
 import { FailureManager } from './FailureManager';
 import { MicStream } from './utils/types';
 import { STT_CONFIG } from '@/config';
+import { ENV } from '@/config/TestFlags';
 import { sessionManager } from './SessionManager';
 import { DistributedLock } from '@/lib/DistributedLock';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
@@ -249,12 +250,21 @@ export default class TranscriptionService {
       },
       onModelLoadProgress: (p) => {
         if (this.isTerminated) return;
-        this.modelLoadingProgress = p;
-        this.options.onModelLoadProgress?.(p);
+        this.processModelLoadProgress(p);
       },
       onReady: () => {
         if (this.isTerminated) return;
+        if (this.mode === 'private' && this.modelLoadingProgress !== null) {
+          this.processModelLoadProgress(100);
+        }
         this.options.onReady?.();
+      },
+      onStatusChange: (status) => {
+        if (this.isTerminated) return;
+        if (typeof status.progress === 'number') {
+          this.processModelLoadProgress(status.progress);
+        }
+        this.options.onStatusChange?.(status);
       },
       onError: (error) => {
         if (this.isTerminated) return;
@@ -417,6 +427,10 @@ export default class TranscriptionService {
         onModelLoadProgress: (p) => {
           if (this.activeStrategyId !== tempId) return;
           this.strategyCallbacks.onModelLoadProgress?.(p);
+        },
+        onStatusChange: (status) => {
+          if (this.activeStrategyId !== tempId) return;
+          this.strategyCallbacks.onStatusChange?.(status);
         },
         onError: (err) => {
           if (this.activeStrategyId !== tempId) return;
@@ -679,6 +693,13 @@ export default class TranscriptionService {
 
     const requestedMode = this.policy.preferredMode || 'private';
     const { mode, isMock } = STTNegotiator.negotiate(this.policy, requestedMode);
+
+    const hasMic = await this.ensureMicReadyForStart();
+    if (!hasMic) {
+      if ((this.fsm.is('DOWNLOAD_REQUIRED') || this.fsm.is('FAILED')) && this.mode !== 'mock') return;
+      throw this.micError || new Error('MIC_STREAM_UNAVAILABLE');
+    }
+
     this.runId = Math.random().toString(36).substring(7);
     this.idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
 
@@ -749,6 +770,38 @@ export default class TranscriptionService {
       this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
       throw error;
     }
+  }
+
+  private async ensureMicReadyForStart(): Promise<boolean> {
+    if (this.mic) return true;
+
+    try {
+      if (this.options.mockMic) {
+        this.mic = this.options.mockMic;
+      } else if (ENV.isE2E) {
+        this.mic = this.createE2EMockMic();
+      } else {
+        this.mic = await createMicStream();
+      }
+      return true;
+    } catch (error) {
+      this.micError = error as Error;
+      this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
+      return false;
+    }
+  }
+
+  private createE2EMockMic(): MicStream {
+    const mediaStream = typeof MediaStream !== 'undefined' ? new MediaStream() : ({} as MediaStream);
+    return {
+      state: 'ready',
+      sampleRate: 16000,
+      onFrame: () => () => { },
+      offFrame: () => { },
+      stop: () => { },
+      close: () => { },
+      _mediaStream: mediaStream
+    };
   }
 
   private flushPendingTranscripts(): void {

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupE2EManifest, navigateToRoute, getProbe, programmaticLoginWithRoutes } from '../helpers';
+import { setupE2EManifest, navigateToRoute, getProbe, programmaticLoginWithRoutes, waitForModelReady } from '../helpers';
 import { registerMockInE2E } from '../../helpers/testRegistry.helpers';
 import type { E2EWindow } from '../helpers/setupE2EManifest';
 
@@ -191,17 +191,18 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
       await navigateToRoute(page, '/session');
 
       // Forensic Readiness Gate (Invariant I3)
-      await expect.poll(
-        async () => await page.getAttribute('html', 'data-engine-ready'),
-        { timeout: 15000 }
-      ).toBe('true');
+      await waitForModelReady(page, 15000);
 
       // Pro sessions default to Private; assert that state directly so the
       // probe remains focused on the download/unmount race.
       await expect(page.getByTestId('stt-mode-select')).toHaveAttribute('data-state', 'private', { timeout: 15000 });
 
-      // Trigger the explicit download path before unmounting.
-      await page.getByTestId('download-model-button').click({ force: true });
+      // Trigger the explicit download path before unmounting. Automatic warm-up
+      // may already have entered the same frozen mock download path.
+      const downloadButton = page.getByTestId('download-model-button');
+      if (await downloadButton.isVisible().catch(() => false)) {
+        await downloadButton.click({ force: true });
+      }
 
       // Step 5.2 — Wait for the frozen mock download to be active.
       await page.waitForFunction(() => typeof (window as unknown as Record<string, unknown>).__E2E_FINISH_DOWNLOAD__ === 'function', { timeout: 10000 });

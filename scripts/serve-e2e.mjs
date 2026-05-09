@@ -21,8 +21,10 @@ app.get('*', (req, res) => {
   res.sendFile(resolve('frontend/dist/index.html'));
 });
 
-// Explicit localhost binding — resolving storage access denials seen on 127.0.0.1
-app.listen(4173, 'localhost', () => {
-  console.log('🚀 [E2E Server] Running at http://localhost:4173');
+const host = process.env.E2E_HOST || '127.0.0.1';
+const port = Number(process.env.E2E_PORT || 4173);
+
+app.listen(port, host, () => {
+  console.log(`🚀 [E2E Server] Running at http://${host}:${port}`);
   console.log('🛡️  [Security] COOP: same-origin | COEP: credentialless');
 });

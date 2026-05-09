@@ -26,7 +26,7 @@ The objective is not to keep every historical workflow alive. The objective is t
 
 | Workflow | Intended Purpose | Trigger | Required For Test Release? | Current Status | Keep/Fix/Defer/Retire | Evidence Needed |
 |---|---|---|---|---|---|---|
-| `.github/workflows/ci.yml` | Primary quality gate: prepare, mocked E2E shards, Lighthouse, SQM/report aggregation. | Push, PR, manual | Yes | 🔴 FAILING ON LAST PUSH | **Keep + fix now** | Latest pushed run failed in the unit/report path. Local fixes are in progress; do not mark ready until GitHub run is green with unit, mocked E2E, build, artifact aggregation, and Lighthouse policy outcome. |
+| `.github/workflows/ci.yml` | Primary quality gate: prepare, mocked E2E shards, Lighthouse, SQM/report aggregation. | Push, PR, manual | Yes | 🟡 LOCAL PARITY GREEN / GITHUB RERUN PENDING | **Keep + prove now** | Latest pushed run failed before the current local fixes. Local parity is now green: `pnpm ci:unit` passed and `pnpm test:e2e` passed `40/40` with `0 flaky`. Do not mark ready until GitHub run is green with unit, mocked E2E, build, artifact aggregation, and Lighthouse policy outcome. |
 | `.github/workflows/canary.yml` | Production deployed smoke: provision canary user, login, Native session, save/read. | Main push, daily schedule, manual | Yes | 🟢 PASSING | **Keep required** | Latest main-branch scheduled and push canaries pass against `https://speaksharp-public.vercel.app`; keep as deployed smoke because it caught real route/runtime drift. |
 | `.github/workflows/deploy-supabase-migrations.yml` | Manual production DB migration and Edge Function deployment. | Manual only | Yes, before backend release | 🟡 FIX APPLIED / RERUN PENDING | **Fix or split** | Valid YAML plus successful dry/manual run with migration summary. |
 | `.github/workflows/deploy-edge-functions.yml` | Deploy Edge Functions on main push/manual. | Main push, manual | Yes if used instead of migration workflow deploy step | 🟡 DUPLICATIVE | **Consolidate decision needed** | Explicit owner: either this deploys functions, or migration workflow does, not both ambiguously. |
@@ -51,7 +51,7 @@ The objective is not to keep every historical workflow alive. The objective is t
 | Duplicate Edge Function deploy paths | Both `deploy-edge-functions.yml` and `deploy-supabase-migrations.yml` deploy Edge Functions. | Risk of partial/stale deploys and unclear owner. | Pick one authoritative production function deploy path. |
 | Canary scope ambiguity | `playwright.canary.config.ts` only matches `smoke.canary.spec.ts`; `user-filler-words.canary.spec.ts` is not part of `test:deploy:prod`. | Passing canary does not validate Cloud user-word boost. | Keep smoke slim, but document Cloud/user-words canary as separate manual/live test if desired. |
 
-Local repair status on 2026-05-07: stale workflow strings were removed from executable workflow/test code, workflow YAML parses locally, and targeted script/backend lint passed. GitHub Actions reruns are still required before any row can be marked READY.
+Local repair status on 2026-05-09: stale workflow strings were removed from executable workflow/test code, workflow YAML parses locally, targeted script/backend lint passed, local `pnpm ci:unit` passed, and local `pnpm test:e2e` passed `40/40` with `0 flaky`. GitHub Actions reruns are still required before any row can be marked READY.
 
 ---
 
@@ -98,4 +98,4 @@ Local repair status on 2026-05-07: stale workflow strings were removed from exec
 
 Current GitHub workflow status: **NOT RELEASE-READY**.
 
-Reason: required deployed smoke, backend deploy, CI Lighthouse policy, benchmark, and soak workflow fixes are applied locally but do not yet have GitHub run evidence.
+Reason: the local release gate is green, but required GitHub CI, backend deploy, benchmark, soak, and post-deploy canary evidence must be rerun after the current fixes are pushed.
