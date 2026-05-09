@@ -363,6 +363,7 @@ export const useSessionLifecycle = () => {
         mode: effectiveMode,
         setMode: (m: TranscriptionMode) => {
             setSTTMode(m);
+            speechRuntimeController.updatePolicy(buildPolicyForUser(isProUser, m));
             speechRuntimeController.syncForensicState();
         },
         recordingIntent: isRecordingIntent,
