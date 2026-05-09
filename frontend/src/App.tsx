@@ -159,7 +159,7 @@ const App: React.FC = () => {
         position="top-right"
         expand={false}
         duration={5000}
-        offset="25vh"
+        offset="5rem"
       />
       <ProfileGuard>
         <RouteReadinessManager />

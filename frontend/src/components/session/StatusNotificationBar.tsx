@@ -13,7 +13,7 @@ interface StatusNotificationBarProps {
 const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string }> = {
     idle: {
         icon: Info,
-        bgClass: 'glass border-white/5 shadow-sm',
+        bgClass: 'bg-card/95 border-border shadow-sm',
         textClass: 'text-muted-foreground font-semibold',
     },
     initializing: {
@@ -28,7 +28,7 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
     },
     ready: {
         icon: CheckCircle2,
-        bgClass: 'bg-emerald-500/10 border-emerald-500/20 shadow-sm backdrop-blur-xl',
+        bgClass: 'bg-card/95 border-emerald-500/35 shadow-sm backdrop-blur-xl',
         textClass: 'text-emerald-500 font-bold',
     },
     recording: {
@@ -63,7 +63,7 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
     },
     info: {
         icon: Info,
-        bgClass: 'glass border-primary/20 shadow-sm backdrop-blur-xl',
+        bgClass: 'bg-card/95 border-primary/20 shadow-sm backdrop-blur-xl',
         textClass: 'text-primary font-bold',
     },
 };
@@ -122,7 +122,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
     return (
         <div
-            className={`flex items-center gap-4 w-full px-5 ${isProminent ? 'py-3 rounded-xl border' : 'py-2 rounded-t-xl border-b'} border-white/5 ${config.bgClass} ${className} transition-all duration-300`}
+            className={`flex items-center gap-4 w-full px-5 ${isProminent ? 'py-4' : 'py-3'} rounded-xl border ${config.bgClass} ${className} transition-all duration-300`}
             role="status"
             aria-live="polite"
             data-testid="live-session-header"
@@ -148,7 +148,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                     )}
                 </div>
                 <div className="flex flex-col">
-                    <span className={`${isProminent ? 'text-sm' : 'text-xs'} font-black uppercase tracking-widest ${config.textClass}`} data-testid="status-message-text">
+                    <span className={`${isProminent ? 'text-sm' : 'text-[13px]'} font-black uppercase tracking-[0.14em] ${config.textClass}`} data-testid="status-message-text">
                         {displayMessage}
                     </span>
                     {status.detail && (

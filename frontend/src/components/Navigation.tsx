@@ -65,7 +65,7 @@ const Navigation = () => {
   ];
 
   const MobileNav = () => (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-card/95 border-t border-border shadow-card z-50 p-2">
+    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-card/95 border-t border-border shadow-card z-40 p-2">
       <div className="flex justify-around items-center">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
@@ -93,7 +93,7 @@ const Navigation = () => {
 
   return (
     <>
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
+      <nav className="fixed top-0 left-0 right-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
@@ -180,7 +180,7 @@ const Navigation = () => {
       </nav>
 
       {/* Mobile Navigation */}
-      {session && <MobileNav />}
+      {session && location.pathname !== '/session' && <MobileNav />}
     </>
   );
 };

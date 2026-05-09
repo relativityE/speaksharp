@@ -86,15 +86,15 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
-            <div className={`bg-primary/5 border border-primary/20 rounded-2xl p-8 shadow-[0_0_40px_-10px_rgba(251,191,36,0.15)] relative z-10 h-full flex flex-col items-center justify-center text-center gap-4 ${className}`} data-testid="live-recording-card">
+            <div className={`bg-card/85 border border-border/80 rounded-xl p-8 shadow-card relative z-10 h-full flex flex-col items-center justify-center text-center gap-5 ${className}`} data-testid="live-recording-card">
 
                 {/* Visual Center with Left Controls */}
-                <div className="flex items-center justify-center gap-6 w-full translate-x-[-10px]"> {/* Offset to visually center the mic/timer duo */}
+                <div className="flex items-center justify-center gap-7 w-full">
 
                     {/* Left Column Stack: Secure + Selector */}
                     <div className="flex flex-col items-start gap-1 flex-shrink-0 min-w-0">
-                        <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[7px] font-black text-emerald-500 uppercase tracking-tighter" data-state="secure">
-                            <Shield className="h-2 w-2 fill-emerald-500/10" />
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-[10px] font-black text-emerald-500 uppercase tracking-[0.1em]" data-state="secure">
+                            <Shield className="h-2.5 w-2.5 fill-emerald-500/10" />
                             <span>SECURE</span>
                         </div>
 
@@ -103,7 +103,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-6 px-1.5 gap-1 text-[9px] uppercase tracking-widest font-black text-muted-foreground hover:text-foreground hover:bg-background/40 rounded border border-primary/10 transition-all font-mono"
+                                    className="h-9 px-3.5 gap-1.5 text-[11px] uppercase tracking-[0.12em] font-black text-foreground hover:text-foreground hover:bg-background/50 rounded-md border border-border/80 transition-all font-mono"
                                     title={isListening ? "Cannot change mode during recording" : "Select mode"}
                                     data-testid={TEST_IDS.STT_MODE_SELECT}
                                     data-state={mode}
@@ -154,9 +154,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                                     data-recording={isRecordingSignal}
                                     aria-label="Start Recording"
-                                    className="w-11 h-11 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-elegant hover:scale-105 transition-all duration-300 p-0"
+                                    className="w-14 h-14 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-elegant hover:scale-105 transition-all duration-300 p-0"
                                 >
-                                    <Mic className="w-5 h-5" />
+                                    <Mic className="w-6 h-6" />
                                 </Button>
                             ) : (
                                 <Button
@@ -165,9 +165,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                                     data-recording={isRecordingSignal}
                                     aria-label="Stop Recording"
-                                    className="w-11 h-11 rounded-full bg-primary hover:bg-primary/80 text-primary-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"
+                                    className="w-14 h-14 rounded-full bg-primary hover:bg-primary/80 text-primary-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"
                                 >
-                                    <Square className="w-4 h-4 fill-current" />
+                                    <Square className="w-5 h-5 fill-current" />
                                 </Button>
                             )}
                         </div>
@@ -177,9 +177,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             <div className="text-4xl font-mono font-bold text-foreground tracking-tighter tabular-nums leading-none">
                                 {formattedTime}
                             </div>
-                            <div className="mt-1 inline-flex items-center gap-1.5 py-0.5 px-2 rounded-full bg-muted/5 border border-muted/10 opacity-60">
+                            <div className="mt-2 inline-flex items-center gap-1.5 py-1 px-3 rounded-full bg-muted/30 border border-border/60">
                                 <div className={`h-1 w-1 rounded-full ${isListening ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/30'}`} />
-                                <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-[0.2em]" data-testid="stt-status-label">
+                                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.14em]" data-testid="stt-status-label">
                                     {_statusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Syncing") : "Engine Ready"))}
                                 </span>
                             </div>
@@ -191,7 +191,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                 </div>
 
                 {/* Stream Indicator (Refined) */}
-                <div className="h-4 w-full max-w-[140px] flex items-center justify-center gap-0.5 overflow-hidden opacity-30">
+                <div className="h-4 w-full max-w-[140px] flex items-center justify-center gap-0.5 overflow-hidden opacity-45">
                     {isIndicatorVisible && (
                         <div
                             className="flex items-center gap-0.5"

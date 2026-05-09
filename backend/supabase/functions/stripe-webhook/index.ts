@@ -1,6 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import Stripe from "npm:stripe@16"
-import { createClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
 
 type SupabaseClient = any;
@@ -128,7 +126,13 @@ function getRequiredEnv(name: string): string {
   return value
 }
 
-function createRuntime() {
+async function createRuntime() {
+  const stripeModule = "npm:stripe@16"
+  const supabaseModule = "npm:@supabase/supabase-js@2"
+  const [{ default: Stripe }, { createClient }] = await Promise.all([
+    import(stripeModule),
+    import(supabaseModule),
+  ])
   const stripeSecretKey = getRequiredEnv("STRIPE_SECRET_KEY")
   const webhookSecret = getRequiredEnv("STRIPE_WEBHOOK_SECRET")
   const supabaseUrl = getRequiredEnv("SUPABASE_URL")
@@ -144,9 +148,12 @@ function createRuntime() {
 }
 
 if (import.meta.main) {
+  let runtimePromise: ReturnType<typeof createRuntime> | null = null
+
   serve(async (req) => {
     try {
-      const runtime = createRuntime()
+      runtimePromise ??= createRuntime()
+      const runtime = await runtimePromise
       return handler(req, runtime.stripe, runtime.supabase, runtime.webhookSecret)
     } catch (err) {
       const error = err as Error

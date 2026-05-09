@@ -168,7 +168,7 @@ export const SessionPage: React.FC = () => {
             </div>
 
             {/* Main Content Grid — Symmetrically Aligned */}
-            <div className="max-w-7xl mx-auto px-6 pb-6 mt-0">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">
                 <div className="grid lg:grid-cols-3 gap-6 pt-6">
 
                     {/* === ROW 1: Half-Height (Recording + Pause | Live Stats) === */}

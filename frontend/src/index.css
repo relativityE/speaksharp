@@ -11,13 +11,13 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 220 16% 26%;
+    --background: 220 14% 34%;
     --foreground: 210 40% 98%;
 
-    --card: 220 16% 28%;
+    --card: 220 13% 39%;
     --card-foreground: 210 40% 98%;
 
-    --popover: 220 16% 28%;
+    --popover: 220 13% 39%;
     --popover-foreground: 210 40% 98%;
 
     --primary: 40 85% 55%;
@@ -26,8 +26,8 @@ All colors MUST be HSL.
     --secondary: 220 12% 34%;
     --secondary-foreground: 210 40% 96%;
 
-    --muted: 220 14% 30%;
-    --muted-foreground: 220 14% 62%;
+    --muted: 220 12% 42%;
+    --muted-foreground: 220 12% 78%;
 
     --accent: 160 45% 38%;
     --accent-foreground: 0 0% 100%;
@@ -38,8 +38,8 @@ All colors MUST be HSL.
     --success: 160 60% 45%;
     --success-foreground: 0 0% 100%;
 
-    --border: 220 14% 30%;
-    --input: 220 14% 30%;
+    --border: 220 12% 48%;
+    --input: 220 12% 42%;
     --ring: 40 85% 55%;
 
     --radius: 0.75rem;
@@ -62,23 +62,23 @@ All colors MUST be HSL.
     --gradient-primary: linear-gradient(135deg, hsl(40 85% 55%), hsl(30 90% 55%));
     --gradient-secondary: linear-gradient(135deg, hsl(40 85% 55%), hsl(25 90% 55%));
     --gradient-hero: linear-gradient(135deg, hsl(40 90% 60%), hsl(30 90% 55%), hsl(20 85% 50%));
-    --gradient-subtle: linear-gradient(180deg, hsl(220 18% 18%) 0%, hsl(220 18% 22%) 100%);
+    --gradient-subtle: linear-gradient(180deg, hsl(220 14% 34%) 0%, hsl(220 13% 30%) 100%);
 
     --shadow-elegant: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
     --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 
-    /* Standardized Toast Offset */
-    --toast-offset-top: 96px;
+    /* Keep transient toasts visible without covering persistent headers/status bars. */
+    --toast-offset-top: 4.75rem;
   }
 
   .dark {
-    --background: 220 16% 26%;
+    --background: 220 14% 34%;
     --foreground: 210 40% 98%;
 
-    --card: 220 16% 28%;
+    --card: 220 13% 39%;
     --card-foreground: 210 40% 98%;
 
-    --popover: 220 16% 28%;
+    --popover: 220 13% 39%;
     --popover-foreground: 210 40% 98%;
 
     --primary: 40 85% 55%;
@@ -87,8 +87,8 @@ All colors MUST be HSL.
     --secondary: 220 12% 34%;
     --secondary-foreground: 210 40% 96%;
 
-    --muted: 220 14% 30%;
-    --muted-foreground: 220 14% 62%;
+    --muted: 220 12% 42%;
+    --muted-foreground: 220 12% 78%;
 
     --accent: 160 45% 38%;
     --accent-foreground: 0 0% 100%;
@@ -99,8 +99,8 @@ All colors MUST be HSL.
     --success: 160 60% 45%;
     --success-foreground: 0 0% 100%;
 
-    --border: 220 14% 30%;
-    --input: 220 14% 30%;
+    --border: 220 12% 48%;
+    --input: 220 12% 42%;
     --ring: 40 85% 55%;
 
     --radius: 0.75rem;
@@ -156,13 +156,13 @@ All colors MUST be HSL.
 
 .bg-gradient-radial {
   background-image:
-    radial-gradient(at 30% 20%, hsl(40 85% 55% / 0.06) 0%, rgba(0, 0, 0, 0) 50%),
-    radial-gradient(at 70% 80%, hsl(25 90% 55% / 0.04) 0%, rgba(0, 0, 0, 0) 50%);
+    radial-gradient(at 30% 20%, hsl(40 85% 55% / 0.035) 0%, rgba(0, 0, 0, 0) 50%),
+    radial-gradient(at 70% 80%, hsl(25 90% 55% / 0.025) 0%, rgba(0, 0, 0, 0) 50%);
 }
 
 .bg-grid {
-  background-image: linear-gradient(hsl(220 14% 40% / 0.22) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(220 14% 40% / 0.22) 1px, transparent 1px);
+  background-image: linear-gradient(hsl(220 12% 62% / 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(220 12% 62% / 0.14) 1px, transparent 1px);
   background-size: 60px 60px;
 }
 
@@ -177,12 +177,25 @@ All colors MUST be HSL.
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
-  /* 
-   * Anti-Jarring Toast Positioning 
-   * Ensures the container is positioned statically BEFORE the first toast enters.
+  /*
+   * Toast Positioning
+   * Toasts stay high enough to be noticed, but offset below the fixed nav and
+   * constrained so they do not blanket the page header or session status bar.
    */
   [data-sonner-toaster][data-position="top-right"] {
     top: var(--toast-offset-top) !important;
+    right: 1rem !important;
+    width: min(22rem, calc(100vw - 2rem)) !important;
+    z-index: 60 !important;
+  }
+
+  @media (max-width: 767px) {
+    [data-sonner-toaster][data-position="top-right"] {
+      top: calc(4.5rem + env(safe-area-inset-top)) !important;
+      right: 0.75rem !important;
+      left: auto !important;
+      width: min(18rem, calc(100vw - 1.5rem)) !important;
+    }
   }
 }
 
