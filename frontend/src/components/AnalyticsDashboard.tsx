@@ -145,6 +145,12 @@ const sumFillerCounts = (fillerWords?: PracticeSession['filler_words'] | null): 
         0
     );
 
+const formatEngineLabel = (session: PracticeSession): string => {
+    const mode = session.engine || 'Unknown';
+    const details = [session.model_name, session.engine_version, session.device_type].filter(Boolean);
+    return details.length > 0 ? `${mode} (${details.join(', ')})` : mode;
+};
+
 // --- Analysis Slide Configuration ---
 // Available analysis visualization tools for the main carousel
 // Add new charts/tools here
@@ -629,6 +635,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 </div>
                             </CardHeader>
                             <CardContent className="space-y-4">
+                                <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-muted-foreground">
+                                    <span className="uppercase tracking-wider">STT Engine</span>
+                                    <span className="rounded-md border border-border bg-muted/40 px-2 py-1 text-foreground" data-testid="session-engine-metadata">
+                                        {formatEngineLabel(targetSession)}
+                                    </span>
+                                </div>
                                 <div className="p-4 bg-muted/30 rounded-lg min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
                                     {targetSession.transcript || "No transcript available for this session."}
                                 </div>

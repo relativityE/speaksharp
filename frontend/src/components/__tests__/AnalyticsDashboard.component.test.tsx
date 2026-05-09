@@ -180,4 +180,28 @@ describe('AnalyticsDashboard', () => {
 
         expect(screen.getByTestId('filler-count-value')).toHaveTextContent('5');
     });
+
+    it('shows saved STT engine metadata in the session detail view', () => {
+        renderComponent({
+            sessionId: 'session-1',
+            sessionHistory: [
+                {
+                    id: 'session-1',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 120,
+                    engine: 'private',
+                    engine_version: 'transformers-js-2.17',
+                    model_name: 'whisper-tiny.en',
+                    device_type: 'cpu',
+                    transcript: 'hello world',
+                },
+            ],
+        });
+
+        expect(screen.getByTestId('session-engine-metadata')).toHaveTextContent(
+            'private (whisper-tiny.en, transformers-js-2.17, cpu)'
+        );
+    });
 });

@@ -84,7 +84,10 @@ describe('generateSessionPdf', () => {
     // Verify first call: Vocal Analytics
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
       startY: 70,
-      body: expect.arrayContaining([['Metric', 'Value']])
+      body: expect.arrayContaining([
+        ['Metric', 'Value'],
+        ['STT Engine', 'Unknown'],
+      ])
     }));
 
     // Verify second call: Filler words table
@@ -105,6 +108,10 @@ describe('generateSessionPdf', () => {
   it('excludes synthetic total filler rows and preserves zero pause metrics', async () => {
     await generateSessionPdf({
       ...mockSession,
+      engine: 'private',
+      model_name: 'whisper-tiny.en',
+      engine_version: 'transformers-js-2.17',
+      device_type: 'cpu',
       filler_words: {
         um: { count: 2 },
         like: { count: 3 },
@@ -120,6 +127,7 @@ describe('generateSessionPdf', () => {
 
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
       body: expect.arrayContaining([
+        ['STT Engine', 'private (whisper-tiny.en, transformers-js-2.17, cpu)'],
         ['Silence Percentage', '0.0%'],
         ['Short Pauses (0.5-1.5s)', '0'],
         ['Long Pauses (>1.5s)', '0'],
