@@ -41,6 +41,8 @@ export const useSessionLifecycle = () => {
     const setSTTMode = useSessionStore(state => state.setSTTMode);
     const sunsetModal = useSessionStore(state => state.sunsetModal);
     const setSunsetModal = useSessionStore(state => state.setSunsetModal);
+    const defaultMode: TranscriptionMode = isProUser ? 'private' : 'native';
+    const effectiveMode: TranscriptionMode = sttMode ?? defaultMode;
 
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const isProcessingRef = useRef(false);
@@ -186,9 +188,10 @@ export const useSessionLifecycle = () => {
                 }
 
                 // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
-                const selectedPolicy = buildPolicyForUser(isProUser, sttMode);
+                const latestMode = useSessionStore.getState().sttMode ?? defaultMode;
+                const selectedPolicy = buildPolicyForUser(isProUser, latestMode);
                 await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
-                posthog.capture('session_started', { mode: sttMode });
+                posthog.capture('session_started', { mode: latestMode });
             } catch (error) {
                 const err = error as Error;
                 logger.error({ error: err, stack: err?.stack }, '[useSessionLifecycle] Failed to start recording');
@@ -197,7 +200,7 @@ export const useSessionLifecycle = () => {
                 isProcessingRef.current = false;
             }
         }
-    }, [isListening, elapsedTime, updateStreak, queryClient, isProUser, usageLimit, sttMode, isLockHeldByOther, setSTTStatus, userFillerWords, runtimeState]);
+    }, [isListening, elapsedTime, updateStreak, queryClient, isProUser, usageLimit, defaultMode, isLockHeldByOther, setSTTStatus, userFillerWords, runtimeState]);
 
     // ✅ Keep the stable ref up to date with the latest callback
     handleStartStopRef.current = handleStartStop;
@@ -303,24 +306,30 @@ export const useSessionLifecycle = () => {
 
     // Mode sync: Ensure UI and Engine mode stay aligned
     useEffect(() => {
-        if (isListening && activeEngine && activeEngine !== 'none' && activeEngine !== sttMode) {
+        if (isVerified && !sttMode) {
+            setSTTMode(defaultMode);
+        }
+    }, [isVerified, sttMode, defaultMode, setSTTMode]);
+
+    useEffect(() => {
+        if (isListening && activeEngine && activeEngine !== 'none' && activeEngine !== effectiveMode) {
             setSTTMode(activeEngine as TranscriptionMode);
         }
-    }, [isListening, activeEngine, sttMode, setSTTMode]);
+    }, [isListening, activeEngine, effectiveMode, setSTTMode]);
 
     const warmUpTriggered = useRef<string | null>(null);
 
     // Engine Warm-up: Pre-initialize engines when mode is selected
     useEffect(() => {
-        pushE2EEvent('SESSION_LIFECYCLE_RENDER', { sttMode, isListening });
+        pushE2EEvent('SESSION_LIFECYCLE_RENDER', { sttMode: effectiveMode, isListening });
 
-        if (sttMode && !isListening && warmUpTriggered.current !== sttMode) {
-            warmUpTriggered.current = sttMode;
-            pushE2EEvent('SESSION_LIFECYCLE_WARMUP', { mode: sttMode });
-            logger.info(`[useSessionLifecycle] Mode set to ${sttMode} - triggering warm-up`);
-            void speechRuntimeController.warmUp(sttMode);
+        if (effectiveMode && !isListening && warmUpTriggered.current !== effectiveMode) {
+            warmUpTriggered.current = effectiveMode;
+            pushE2EEvent('SESSION_LIFECYCLE_WARMUP', { mode: effectiveMode });
+            logger.info(`[useSessionLifecycle] Mode set to ${effectiveMode} - triggering warm-up`);
+            void speechRuntimeController.warmUp(effectiveMode);
         }
-    }, [sttMode, isListening]);
+    }, [effectiveMode, isListening]);
 
     useEffect(() => {
         return () => {
@@ -351,7 +360,7 @@ export const useSessionLifecycle = () => {
         sttStatus,
         modelLoadingProgress,
         activeMode,
-        mode: sttMode,
+        mode: effectiveMode,
         setMode: (m: TranscriptionMode) => {
             setSTTMode(m);
             speechRuntimeController.syncForensicState();
@@ -369,7 +378,7 @@ export const useSessionLifecycle = () => {
         fillerData,
         isProUser,
         activeEngine,
-        isButtonDisabled: !['IDLE', 'READY', 'RECORDING', 'FAILED', 'ENGINE_INITIALIZING'].includes(runtimeState), // Permitting ENGINE_INITIALIZING allows "Stop" (Cancel) during downloads.
+        isButtonDisabled: !['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED', 'ENGINE_INITIALIZING'].includes(runtimeState), // Permitting ENGINE_INITIALIZING allows "Stop" (Cancel) during downloads.
         showPromoExpiredDialog: !!usageLimit?.promo_just_expired,
         usageLimit,
         history,

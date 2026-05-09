@@ -55,7 +55,7 @@ case $STAGE in
     unit)
         echo "🚀 Running CI unit stage..."
         pnpm quality
-        pnpm exec vitest run --config frontend/vitest.config.mjs --coverage --coverage.reporter=json-summary --reporter=./scripts/vitest-ci-reporter.mjs
+        pnpm exec vitest run --config frontend/vitest.config.mjs --coverage --coverage.reporter=json-summary --reporter=default --reporter=./scripts/vitest-ci-reporter.mjs
         ;;
     build)
         echo "🚀 Running CI build stage..."

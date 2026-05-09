@@ -26,8 +26,8 @@ export default defineConfig({
     use: {
         ...baseConfig.use,
         baseURL: urls.dev,
-        video: 'off', // No video - performance focused
-        trace: 'off',
+        video: 'retain-on-failure',
+        trace: 'retain-on-failure',
         actionTimeout: 15_000,
         navigationTimeout: 30_000,
     },

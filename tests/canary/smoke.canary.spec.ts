@@ -6,29 +6,31 @@ async function selectNativeMode(page: Page) {
     const modeSelect = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
 
     if (await modeSelect.isVisible()) {
-        if ((await modeSelect.getAttribute('data-state')) === 'native') return;
+        if ((await modeSelect.getAttribute('data-state')) !== 'native') {
+            await modeSelect.evaluate((el: HTMLElement) => {
+                el.scrollIntoView({ block: 'center', inline: 'center' });
+                el.dispatchEvent(new PointerEvent('pointerdown', {
+                    bubbles: true,
+                    cancelable: true,
+                    pointerType: 'mouse',
+                    button: 0,
+                }));
+                el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+                el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
+                el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+            });
 
-        await modeSelect.evaluate((el: HTMLElement) => {
-            el.scrollIntoView({ block: 'center', inline: 'center' });
-            el.dispatchEvent(new PointerEvent('pointerdown', {
-                bubbles: true,
-                cancelable: true,
-                pointerType: 'mouse',
-                button: 0,
-            }));
-            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
-            el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 }));
-            el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
-        });
+            const nativeByTestId = page.getByTestId(TEST_IDS.STT_MODE_NATIVE);
+            const nativeByRole = page.getByRole('menuitemradio', { name: /Native/i });
+            const nativeOption = (await nativeByTestId.isVisible({ timeout: 3000 }).catch(() => false))
+                ? nativeByTestId
+                : nativeByRole;
 
-        const nativeByTestId = page.getByTestId(TEST_IDS.STT_MODE_NATIVE);
-        const nativeByRole = page.getByRole('menuitemradio', { name: /Native/i });
-        const nativeOption = (await nativeByTestId.isVisible({ timeout: 3000 }).catch(() => false))
-            ? nativeByTestId
-            : nativeByRole;
+            await nativeOption.click({ timeout: 5000 });
+        }
 
-        await nativeOption.click({ timeout: 5000 });
         await expect(modeSelect).toHaveAttribute('data-state', 'native', { timeout: 5000 });
+        await expect(page.locator('body')).toHaveAttribute('data-stt-policy', 'native', { timeout: 5000 });
         return;
     }
 

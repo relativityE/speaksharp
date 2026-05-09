@@ -151,7 +151,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: shard-report-${{ matrix.shard }}
-          path: blob-report
+          path: |
+            blob-report
+            test-results/playwright
           retention-days: 30
           if-no-files-found: warn
 
