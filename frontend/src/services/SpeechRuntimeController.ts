@@ -675,6 +675,10 @@ export class SpeechRuntimeController {
         }
 
         if (data.transcript.final) {
+            const lastChunk = store.chunks[store.chunks.length - 1];
+            if (lastChunk?.isFinal && lastChunk.transcript === data.transcript.final) {
+                return;
+            }
             const newFullText = currentTranscript ? `${currentTranscript} ${data.transcript.final}` : data.transcript.final;
             store.updateTranscript(newFullText, '');
             store.addChunk({
@@ -1058,7 +1062,7 @@ export class SpeechRuntimeController {
             }, this.lock);
         }
 
-        if (options.skipIfDownloadPending && this.service.fsm?.is('DOWNLOAD_REQUIRED') && this.service.getStrategy()) {
+        if (options.skipIfDownloadPending && this.service.fsm?.is('DOWNLOAD_REQUIRED')) {
             return;
         }
 
@@ -1068,8 +1072,16 @@ export class SpeechRuntimeController {
         // Lifecycle check after async warmUp — abort if unmounted
         if (version !== this.lifecycleVersion) return;
 
+        if (options.skipIfDownloadPending && this.service.fsm?.is('DOWNLOAD_REQUIRED')) {
+            return;
+        }
+
         const strategy = this.service.getStrategy();
         if (!strategy) {
+            if (options.skipIfDownloadPending) {
+                logger.debug({ mode }, '[SpeechRuntimeController] Warm-up completed without an active strategy; recording start remains the strict boundary.');
+                return;
+            }
             throw new Error('STT_STRATEGY_MISSING_AFTER_ENSURE_READY');
         }
     }

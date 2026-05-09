@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type TranscriptionService from '../TranscriptionService';
-import { SpeechRuntimeController } from '../../SpeechRuntimeController';
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
 import type { NavigateFunction } from 'react-router-dom';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
@@ -8,6 +7,7 @@ import { STT_CONFIG } from '../../../config';
 import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
 import { EngineType } from '../../../contracts/IPrivateSTTEngine';
+import type { TranscriptionPolicy } from '../TranscriptionPolicy';
 
 /**
  * @file SttSafeguards.test.ts
@@ -29,12 +29,21 @@ type MockedStorage = {
 
 describe('STT Safeguards Unit Tests', () => {
     let service: TranscriptionService;
-    let controller: SpeechRuntimeController;
+    let controller: import('../../SpeechRuntimeController').SpeechRuntimeController;
+    let SpeechRuntimeControllerClass: typeof import('../../SpeechRuntimeController').SpeechRuntimeController;
     let ENV: { isTest: boolean };
     let storageMocks: MockedStorage;
 
     const mockMic = { stop: vi.fn(), onFrame: () => () => { } };
     const mockNavigate = vi.fn();
+    const mockPolicy: TranscriptionPolicy = {
+        allowNative: true,
+        allowCloud: false,
+        allowPrivate: true,
+        preferredMode: 'mock',
+        allowFallback: false,
+        executionIntent: 'unit-safeguard'
+    };
 
     let tsModule: { 
         resetTranscriptionService: () => Promise<void>; 
@@ -45,8 +54,9 @@ describe('STT Safeguards Unit Tests', () => {
         // Step 1: Deterministic Reset
         await setupStrictZero();
         vi.useFakeTimers();
-        SpeechRuntimeController.__resetForTests();
-        controller = SpeechRuntimeController.getInstance();
+        SpeechRuntimeControllerClass = (await import('../../SpeechRuntimeController')).SpeechRuntimeController;
+        SpeechRuntimeControllerClass.__resetForTests();
+        controller = SpeechRuntimeControllerClass.getInstance();
 
         // Step 2: Supabase Mocking
         window.supabase = {
@@ -70,6 +80,8 @@ describe('STT Safeguards Unit Tests', () => {
         const flagsModule = await import('../../../config/TestFlags');
         ENV = flagsModule.ENV;
 
+        await tsModule.resetTranscriptionService();
+
         const { sttRegistry } = await import('../STTRegistry');
         
         class MockEngine extends STTEngine {
@@ -87,22 +99,13 @@ describe('STT Safeguards Unit Tests', () => {
         sttRegistry.register('transformers-js', () => new MockEngine());
         sttRegistry.register('mock', () => new MockEngine());
 
-        await tsModule.resetTranscriptionService();
-
         service = tsModule.getTranscriptionService({
             onTranscriptUpdate: vi.fn(),
             onModelLoadProgress: vi.fn(),
             onReady: vi.fn(),
             navigate: mockNavigate as unknown as NavigateFunction,
             getAssemblyAIToken: vi.fn().mockResolvedValue('mock-token'),
-            policy: {
-                allowNative: true,
-                allowCloud: true,
-                allowPrivate: true,
-                preferredMode: 'private',
-                allowFallback: true,
-                executionIntent: 'test'
-            },
+            policy: mockPolicy,
             session: { user: { id: 'user-123' } } as unknown as Session,
             mockMic: mockMic as unknown as import('../utils/types').MicStream
         });
@@ -118,7 +121,7 @@ describe('STT Safeguards Unit Tests', () => {
         if (tsModule) {
             await tsModule.resetTranscriptionService();
         }
-        SpeechRuntimeController.__resetForTests();
+        SpeechRuntimeControllerClass?.__resetForTests();
         delete (window as unknown as { supabase: unknown }).supabase;
         vi.clearAllMocks();
     });
@@ -130,8 +133,7 @@ describe('STT Safeguards Unit Tests', () => {
             usageExceeded: false 
         });
 
-        await controller.warmUp();
-        await controller.startRecording(); 
+        await controller.startRecording(mockPolicy); 
         await controller.whenStable();
 
         expect(service.getSessionId()).toBe('test-session-id');
@@ -144,8 +146,7 @@ describe('STT Safeguards Unit Tests', () => {
             usageExceeded: false 
         });
 
-        await controller.warmUp();
-        await controller.startRecording();
+        await controller.startRecording(mockPolicy);
         controller.confirmSubscriberHandshake(); 
         await controller.whenStable();
 
@@ -161,8 +162,7 @@ describe('STT Safeguards Unit Tests', () => {
             usageExceeded: false 
         });
 
-        await controller.warmUp();
-        await controller.startRecording();
+        await controller.startRecording(mockPolicy);
         controller.confirmSubscriberHandshake(); 
         await controller.whenStable();
 
@@ -193,8 +193,7 @@ describe('STT Safeguards Unit Tests', () => {
             }
         });
 
-        await controller.warmUp();
-        await controller.startRecording();
+        await controller.startRecording(mockPolicy);
         controller.confirmSubscriberHandshake();
         await controller.whenStable();
 

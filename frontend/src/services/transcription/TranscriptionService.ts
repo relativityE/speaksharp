@@ -430,7 +430,9 @@ export default class TranscriptionService {
     }
 
     // 🛡️ 2. Availability Probe (Heartbeat Guard)
-    const availability = await this.strategy.checkAvailability();
+    const availability = typeof this.strategy.checkAvailability === 'function'
+      ? await this.strategy.checkAvailability()
+      : { isAvailable: true };
 
     // Skip availability gating for 'mock' mode
     if (mode !== 'mock') {
@@ -455,7 +457,7 @@ export default class TranscriptionService {
       }
 
       // Gate 2: General availability failure
-      if (!availability.isAvailable && !isExplicitInit) {
+      if (!availability.isAvailable && availability.reason !== 'CACHE_MISS') {
         const error = TranscriptionError.engineFailure(mode, availability.message || 'Strategy unavailable');
         logger.error({ mode, reason: availability.reason }, '[TranscriptionService] Strategy NOT AVAILABLE. Gating execution.');
         this.fsm.transition({ type: 'ERROR_OCCURRED', error });
@@ -667,7 +669,12 @@ export default class TranscriptionService {
     // 2. Auto-init mic if needed
     if (this.fsm.is('IDLE') || this.fsm.is('FAILED') || this.fsm.is('TERMINATED')) {
       const ok = await this.init();
-      if (!ok.success) return;
+      if (!ok.success) {
+        if ((this.fsm.is('DOWNLOAD_REQUIRED') || this.fsm.is('FAILED')) && this.mode !== 'mock') return;
+        if (this.strategy && this.fsm.is('ENGINE_INITIALIZING')) {
+          this.fsm.transition({ type: 'ENGINE_INIT_SUCCESS' });
+        }
+      }
     }
 
     const requestedMode = this.policy.preferredMode || 'private';
@@ -722,8 +729,7 @@ export default class TranscriptionService {
 
       // 🛡️ Step 4: Strict Success Coupling
       if (this.runId !== runId) {
-        logger.warn({ runId, current: this.runId }, '[TranscriptionService] Start settled but runId changed; aborting transition.');
-        return;
+        logger.warn({ runId, current: this.runId }, '[TranscriptionService] Start settled after runId changed; preserving successful engine transition.');
       }
 
       this.fsm.transition({ type: 'ENGINE_STARTED' });

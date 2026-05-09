@@ -55,6 +55,8 @@ case $STAGE in
     unit)
         echo "🚀 Running CI unit stage..."
         pnpm quality
+        rm -rf artifacts/coverage
+        mkdir -p artifacts/coverage/.tmp
         pnpm exec vitest run --config frontend/vitest.config.mjs --coverage --coverage.reporter=json-summary --reporter=default --reporter=./scripts/vitest-ci-reporter.mjs
         ;;
     build)

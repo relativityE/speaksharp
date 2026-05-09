@@ -25,8 +25,24 @@ export function validateEngine(engine: unknown): asserts engine is IPrivateSTTEn
   }
 
   const required: Array<keyof IPrivateSTTEngine> = [
-    'init', 'start', 'stop', 'pause', 'resume', 'destroy'
+    'init', 'start', 'stop'
   ];
+
+  // Optional lifecycle methods are defaulted before validation so lightweight
+  // adapters can still satisfy the runtime contract.
+  const record = engine as Record<string, unknown>;
+  if (typeof record.terminate !== 'function') {
+    record.terminate = async () => { logger.debug('STT_ENGINE_TERMINATE_NOOP: Using default no-op'); };
+  }
+  if (typeof record.destroy !== 'function') {
+    record.destroy = async () => { logger.debug('STT_ENGINE_DESTROY_NOOP: Using default no-op'); };
+  }
+  if (typeof record.pause !== 'function') {
+    record.pause = async () => { logger.debug('STT_ENGINE_PAUSE_NOOP: Using default no-op'); };
+  }
+  if (typeof record.resume !== 'function') {
+    record.resume = async () => { logger.debug('STT_ENGINE_RESUME_NOOP: Using default no-op'); };
+  }
 
   /**
    * Prototype-Safe Method Check:
@@ -61,20 +77,6 @@ export function validateEngine(engine: unknown): asserts engine is IPrivateSTTEn
     }
   }
 
-  // Optional: Provide default no-op for lifecycle methods if not present
-  const record = engine as Record<string, unknown>;
-  if (typeof record.terminate !== 'function') {
-    record.terminate = async () => { logger.debug('STT_ENGINE_TERMINATE_NOOP: Using default no-op'); };
-  }
-  if (typeof record.destroy !== 'function') {
-    record.destroy = async () => { logger.debug('STT_ENGINE_DESTROY_NOOP: Using default no-op'); };
-  }
-  if (typeof record.pause !== 'function') {
-    record.pause = async () => { logger.debug('STT_ENGINE_PAUSE_NOOP: Using default no-op'); };
-  }
-  if (typeof record.resume !== 'function') {
-    record.resume = async () => { logger.debug('STT_ENGINE_RESUME_NOOP: Using default no-op'); };
-  }
 }
 
 export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngine {

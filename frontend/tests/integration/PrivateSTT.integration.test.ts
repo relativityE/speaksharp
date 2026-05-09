@@ -109,7 +109,7 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         expect(mockInit).toHaveBeenCalled();
     });
 
-    it('should select WhisperTurbo when WebGPU is available', async () => {
+    it('should prefer TransformersJS CPU path by default even when WebGPU is available', async () => {
         const mockInstance = new StubWhisperTurbo();
         const { privateSTT, sttRegistry } = await setupTest(
             { engineType: 'real' },
@@ -124,7 +124,7 @@ describe('PrivateSTT Integration (Facade Logic)', () => {
         const result = await privateSTT.init();
 
         expect(result.isOk).toBe(true);
-        expect(privateSTT.getEngineType()).toBe('whisper-turbo');
+        expect(privateSTT.getEngineType()).toBe('transformers-js');
     });
 
     it('should fallback to TransformersJS if WhisperTurbo fails', async () => {

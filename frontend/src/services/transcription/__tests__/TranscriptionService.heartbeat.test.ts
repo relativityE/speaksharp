@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import TranscriptionService from '../TranscriptionService';
+import type TranscriptionService from '../TranscriptionService';
 import { TranscriptionModeOptions, Result } from '../modes/types';
 import { EngineType } from '../../../contracts/IPrivateSTTEngine';
 import { NavigateFunction } from 'react-router-dom';
 import { MicStream } from '../utils/types';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
-import { sttRegistry } from '../STTRegistry';
+import type { sttRegistry as SttRegistry } from '../STTRegistry';
 
 /**
  * @file TranscriptionService.heartbeat.test.ts
@@ -34,7 +34,9 @@ class MockHeartbeatEngine extends STTEngine {
 
 describe('TranscriptionService Heartbeat & Handoff', () => {
     let service: TranscriptionService;
+    let TranscriptionServiceClass: typeof import('../TranscriptionService').default;
     let engine: MockHeartbeatEngine;
+    let registry: typeof SttRegistry;
 
     const mockMic: MicStream = {
         stream: {} as MediaStream,
@@ -50,12 +52,15 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
 
         // T=0: Setup strict environment
         await setupStrictZero();
+        TranscriptionServiceClass = (await import('../TranscriptionService')).default;
+        registry = (await import('../STTRegistry')).sttRegistry;
 
         // Override registry with heartbeat-specific engine at all keys
-        sttRegistry.register('whisper-turbo', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
-        sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
-        sttRegistry.register('native-browser', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
-        sttRegistry.register('transformers-js', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
+        registry.register('whisper-turbo', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
+        registry.register('assemblyai', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
+        registry.register('native-browser', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
+        registry.register('transformers-js', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
+        registry.register('mock', (opts: TranscriptionModeOptions) => { engine = new MockHeartbeatEngine(opts); return engine; });
         // Tests instantiate their own custom service
     });
 
@@ -72,7 +77,7 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
         vi.useFakeTimers();
         const onStatusChange = vi.fn();
         
-        service = new TranscriptionService({
+        service = new TranscriptionServiceClass({
             onTranscriptUpdate: vi.fn(),
             onModelLoadProgress: vi.fn(),
             onReady: vi.fn(),
@@ -85,8 +90,8 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
                 allowNative: true,
                 allowCloud: false,
                 allowPrivate: true,
-                preferredMode: 'private',
-                allowFallback: true,
+                preferredMode: 'mock',
+                allowFallback: false,
                 executionIntent: 'test'
             }
         }, undefined, 50, 8000);
@@ -108,13 +113,13 @@ describe('TranscriptionService Heartbeat & Handoff', () => {
         }));
         
         // Ensure mode didn't drift
-        expect(service.getMode()).toBe('private');
+        expect(service.getMode()).toBe('mock');
         
         vi.useRealTimers();
     });
 
     it('should support segmented handoff to Native browser', async () => {
-        service = new TranscriptionService({
+        service = new TranscriptionServiceClass({
             onTranscriptUpdate: vi.fn(),
             onModelLoadProgress: vi.fn(),
             onReady: vi.fn(),

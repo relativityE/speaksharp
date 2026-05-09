@@ -29,6 +29,7 @@ import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
  */
 export const SessionPage: React.FC = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isPromoExpiredDismissed, setIsPromoExpiredDismissed] = useState(false);
     const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
 
@@ -63,6 +64,12 @@ export const SessionPage: React.FC = () => {
             transcriptContainerRef.current.scrollTop = transcriptContainerRef.current.scrollHeight;
         }
     }, [transcriptContent]);
+
+    useEffect(() => {
+        if (!showPromoExpiredDialog) {
+            setIsPromoExpiredDismissed(false);
+        }
+    }, [showPromoExpiredDialog]);
 
 
     if (!metrics) return <SessionPageSkeleton />;
@@ -291,8 +298,12 @@ export const SessionPage: React.FC = () => {
 
             {/* Promo Expired Dialog */}
             <PromoExpiredDialog
-                open={showPromoExpiredDialog}
-                onOpenChange={() => { }} // Controlled by hook data
+                open={showPromoExpiredDialog && !isPromoExpiredDismissed}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setIsPromoExpiredDismissed(true);
+                    }
+                }}
             />
         </main>
     );

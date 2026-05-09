@@ -24,15 +24,15 @@ describe('STTEngine Contract Validation (structural-only)', () => {
         const invalidEngine = {
             init: async () => Result.ok(undefined),
             start: async () => {},
-            stop: async () => {},
+            // stop is missing
             pause: async () => {},
-            // resume is missing
+            resume: async () => {},
             getEngineType: () => 'mock',
             destroy: async () => {}
         };
 
         expect(() => validateEngine(invalidEngine)).toThrow(/STT_ENGINE_INVALID/);
-        expect(() => validateEngine(invalidEngine)).toThrow(/missing required method 'resume'/);
+        expect(() => validateEngine(invalidEngine)).toThrow(/missing required method 'stop'/);
     });
 
     it('should fail if engine is not an object', () => {

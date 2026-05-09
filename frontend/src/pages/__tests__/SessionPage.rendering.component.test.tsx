@@ -8,7 +8,7 @@ vi.mock('@sentry/react', () => ({
     captureException: vi.fn(),
 }));
 
-import { render, screen, cleanup } from '../../../tests/support/test-utils';
+import { render, screen, cleanup, fireEvent } from '../../../tests/support/test-utils';
 import { SessionPage } from '../SessionPage';
 import * as SessionLifecycleHook from '@/hooks/useSessionLifecycle';
 
@@ -86,7 +86,14 @@ vi.mock('@/components/session/MobileActionBar', () => ({
 }));
 
 vi.mock('@/components/PromoExpiredDialog', () => ({
-    PromoExpiredDialog: () => <div data-testid="promo-expired-dialog">Promo Expired Dialog</div>,
+    PromoExpiredDialog: ({ open, onOpenChange }: { open: boolean, onOpenChange: (open: boolean) => void }) => (
+        open ? (
+            <div data-testid="promo-expired-dialog">
+                Promo Expired Dialog
+                <button data-testid="promo-expired-continue-free" onClick={() => onOpenChange(false)}>Continue as Free</button>
+            </div>
+        ) : null
+    ),
 }));
 
 vi.mock('@/components/session/SessionPageSkeleton', () => ({
@@ -176,6 +183,51 @@ describe('SessionPage Rendering', () => {
         // The settings button is passed as headerAction to FillerWordsCard
         expect(screen.getByTestId('add-custom-word-button')).toBeInTheDocument();
         expect(screen.getByText('Custom')).toBeInTheDocument();
+    });
+
+    it('dismisses the expired promo dialog for the current page session', () => {
+        mockUseSessionLifecycle.mockReturnValue({
+            ...defaultLifecycle,
+            showPromoExpiredDialog: true,
+            isProUser: false,
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+
+        render(<SessionPage />);
+
+        expect(screen.getByTestId('promo-expired-dialog')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByTestId('promo-expired-continue-free'));
+
+        expect(screen.queryByTestId('promo-expired-dialog')).not.toBeInTheDocument();
+    });
+
+    it('shows a later expired promo dialog after the expiry condition clears and returns', () => {
+        mockUseSessionLifecycle.mockReturnValue({
+            ...defaultLifecycle,
+            showPromoExpiredDialog: true,
+            isProUser: false,
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+
+        const { rerender } = render(<SessionPage />);
+
+        fireEvent.click(screen.getByTestId('promo-expired-continue-free'));
+        expect(screen.queryByTestId('promo-expired-dialog')).not.toBeInTheDocument();
+
+        mockUseSessionLifecycle.mockReturnValue({
+            ...defaultLifecycle,
+            showPromoExpiredDialog: false,
+            isProUser: false,
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+        rerender(<SessionPage />);
+
+        mockUseSessionLifecycle.mockReturnValue({
+            ...defaultLifecycle,
+            showPromoExpiredDialog: true,
+            isProUser: false,
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+        rerender(<SessionPage />);
+
+        expect(screen.getByTestId('promo-expired-dialog')).toBeInTheDocument();
     });
 });
 

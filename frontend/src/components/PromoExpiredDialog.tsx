@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import {
     AlertDialog,
-    AlertDialogAction,
     AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
@@ -123,7 +122,7 @@ export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, on
                     )}
                     <div className="flex gap-2 justify-end w-full sm:w-auto">
                         <AlertDialogCancel data-testid="promo-expired-continue-free">Continue as Free</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => { void handleUpgrade(); }} data-testid="promo-expired-upgrade-button">Upgrade to Pro</AlertDialogAction>
+                        <Button onClick={() => { void handleUpgrade(); }} data-testid="promo-expired-upgrade-button">Upgrade to Pro</Button>
                     </div>
                 </AlertDialogFooter>
             </AlertDialogContent>

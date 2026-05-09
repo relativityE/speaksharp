@@ -67,10 +67,10 @@ A path is green only when all required checks pass:
 
 | Area | Status | Notes |
 |---|---|---|
-| Automated CI baseline | 🔴 Failing | Latest failure is lint in `PrivateSTT.ts`; fix in progress. |
-| Production canary | 🔴 Failing | Login succeeds, but canary cannot stop because start/stop button becomes disabled. Needs root-cause fix. |
-| Promo path | 🟡 Partially proven | One-time promo generation/redeem/reuse rejection passed previously; current visible-browser/live feature QA still pending. |
+| Automated CI baseline | 🟡 Local unit green / GitHub pending | Local `pnpm ci:unit` is green: lint, typecheck, eslint-disable scan, coverage run, and `106` test files / `627 passed | 1 todo`. Latest pushed GitHub `CI - Test Audit` remains red until current fixes are pushed and proven. |
+| Production canary | 🟢 Passing | GitHub production canary passed on main after the route/runtime fixes; keep required for deployed smoke. |
+| Promo path | 🟡 Mocked green / live QA pending | Mocked promo E2E passes `8/8` after switching the stale readiness gate to `data-stt-ready`. One-time live promo generation/redeem/reuse rejection passed previously; current visible-browser/live feature QA still pending. |
 | Private CPU path | 🟡 Fix applied / live validation pending | Same-origin assets load locally; live transcript/save/history not yet green. |
 | Cloud path | 🟡 Validation pending | Token issuance is usage-gated in code; live successful/over-quota checks pending. |
 | Analytics return path | 🟡 Validation pending | E2E/unit coverage exists; live returning-user comparison still pending. |
-
+| Expired promo path | 🟡 Bug found / fix local | 2026-05-09 visible-browser test found `Continue as Free` did not dismiss the expired Pro dialog, blocking sign-out/signup navigation. Local fix adds current-session dismissal; deploy/live verification pending. |

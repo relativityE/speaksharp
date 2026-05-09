@@ -66,6 +66,7 @@ export default defineConfig({
         provider: 'v8',
         reportsDirectory: coverageDirectory,
         reporter: ['json-summary'],
+      clean: false,
       include: ['frontend/src/**/*.{ts,tsx}'],
       exclude: [
         'frontend/src/**/*.test.{ts,tsx}',

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import TranscriptionService from '../TranscriptionService';
+import type TranscriptionService from '../TranscriptionService';
 import { NavigateFunction } from 'react-router-dom';
-import { sttRegistry } from '../STTRegistry';
+import type { sttRegistry as SttRegistry } from '../STTRegistry';
 import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
 import { MicStream } from '../utils/types';
@@ -16,14 +16,18 @@ import { setupStrictZero } from '../../../../../tests/setupStrictZero';
 
 describe('TranscriptionService Max Attempts', () => {
     let service: TranscriptionService;
+    let TranscriptionServiceClass: typeof import('../TranscriptionService').default;
+    let registry: typeof SttRegistry;
 
     beforeEach(async () => {
         vi.useFakeTimers();
         
         // 1. Setup T=0 Environment
         await setupStrictZero();
+        TranscriptionServiceClass = (await import('../TranscriptionService')).default;
+        registry = (await import('../STTRegistry')).sttRegistry;
 
-        service = new TranscriptionService({
+        service = new TranscriptionServiceClass({
             onTranscriptUpdate: vi.fn(),
             onModelLoadProgress: vi.fn(),
             onReady: vi.fn(),
@@ -55,7 +59,7 @@ describe('TranscriptionService Max Attempts', () => {
         vi.restoreAllMocks();
     });
 
-    it('should block Private transcription after max failures but respect No Implicit Fallback', async () => {
+    it('should preserve Private retry state after setup failures without implicit Cloud fallback', async () => {
         // 1. Setup Mock Engine that always fails init
         class FailureEngine extends STTEngine {
             public override readonly type = 'transformers-js' as EngineType;
@@ -75,21 +79,22 @@ describe('TranscriptionService Max Attempts', () => {
         }
 
         const mockEngine = new FailureEngine();
-        sttRegistry.register('whisper-turbo', () => mockEngine);
+        registry.register('whisper-turbo', () => mockEngine);
+        registry.register('transformers-js', () => mockEngine);
 
         await service.init();
         
         // 3. Trigger 3 consecutive failures
         for (let i = 0; i < 3; i++) {
             await service.startTranscription();
-            expect(service.getState()).toBe('FAILED');
+            expect(service.getState()).toBe('DOWNLOAD_REQUIRED');
         }
 
         // 4. Verification of "No Implicit Fallback"
         // Mode remains 'private' despite failures, conforming to Phase 4.3 invariant
         expect(service.getMode()).toBe('private');
         
-        // Final State should be FAILED
-        expect(service.getState()).toBe('FAILED');
+        // Final state should remain explicit retry/download, not an implicit Cloud fallback.
+        expect(service.getState()).toBe('DOWNLOAD_REQUIRED');
     });
 });

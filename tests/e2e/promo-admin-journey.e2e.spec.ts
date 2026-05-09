@@ -43,7 +43,7 @@ test.describe('Promo Admin Journey', () => {
         // 7. Verify Pro features are visible
         // Forensic Readiness Gate (Invariant I3)
         await expect.poll(
-            async () => await page.getAttribute('html', 'data-engine-ready'),
+            async () => await page.getAttribute('html', 'data-stt-ready'),
             { timeout: 15000 }
         ).toBe('true');
 

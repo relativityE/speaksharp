@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-07
 **Version:** v0.6.18
-**Last Updated:** 2026-05-07
+**Last Updated:** 2026-05-09
 
 # GitHub Workflow Utility Audit
 
@@ -26,8 +26,8 @@ The objective is not to keep every historical workflow alive. The objective is t
 
 | Workflow | Intended Purpose | Trigger | Required For Test Release? | Current Status | Keep/Fix/Defer/Retire | Evidence Needed |
 |---|---|---|---|---|---|---|
-| `.github/workflows/ci.yml` | Primary quality gate: prepare, mocked E2E shards, Lighthouse, SQM/report aggregation. | Push, PR, manual | Yes | 🟡 FIX APPLIED / RERUN PENDING | **Keep + verify** | Recent green run with unit, mocked E2E, build, artifact aggregation, and Lighthouse policy outcome. |
-| `.github/workflows/canary.yml` | Production deployed smoke: provision canary user, login, Native session, save/read. | Main push, daily schedule, manual | Yes | 🟡 FIX APPLIED / RERUN PENDING | **Fix** | Run passes against `https://speaksharp-public.vercel.app`; artifact link saved. |
+| `.github/workflows/ci.yml` | Primary quality gate: prepare, mocked E2E shards, Lighthouse, SQM/report aggregation. | Push, PR, manual | Yes | 🔴 FAILING ON LAST PUSH | **Keep + fix now** | Latest pushed run failed in the unit/report path. Local fixes are in progress; do not mark ready until GitHub run is green with unit, mocked E2E, build, artifact aggregation, and Lighthouse policy outcome. |
+| `.github/workflows/canary.yml` | Production deployed smoke: provision canary user, login, Native session, save/read. | Main push, daily schedule, manual | Yes | 🟢 PASSING | **Keep required** | Latest main-branch scheduled and push canaries pass against `https://speaksharp-public.vercel.app`; keep as deployed smoke because it caught real route/runtime drift. |
 | `.github/workflows/deploy-supabase-migrations.yml` | Manual production DB migration and Edge Function deployment. | Manual only | Yes, before backend release | 🟡 FIX APPLIED / RERUN PENDING | **Fix or split** | Valid YAML plus successful dry/manual run with migration summary. |
 | `.github/workflows/deploy-edge-functions.yml` | Deploy Edge Functions on main push/manual. | Main push, manual | Yes if used instead of migration workflow deploy step | 🟡 DUPLICATIVE | **Consolidate decision needed** | Explicit owner: either this deploys functions, or migration workflow does, not both ambiguously. |
 | `.github/workflows/benchmarks.yml` | STT ceiling measurement for AssemblyAI and browser engines. | Weekly schedule, manual | Yes for accuracy claims; not required for every PR | 🟡 FIX APPLIED / RERUN PENDING | **Fix as manual/non-blocking release evidence** | AssemblyAI, Native, Private CPU, and headed WebGPU WER evidence recorded. |
@@ -42,7 +42,7 @@ The objective is not to keep every historical workflow alive. The objective is t
 
 | Area | Evidence | Impact | Fix Direction |
 |---|---|---|---|
-| Canary login route | `tests/e2e/helpers.ts` navigates to `/log-in`; app routes sign-in at `/auth/signin`. | `canary.yml` cannot prove deployed auth/session path. | Update helper or canary-specific login to use the real route, then rerun `canary.yml`. |
+| Canary login route | `tests/e2e/helpers.ts` previously navigated to `/log-in`; app routes sign-in at `/auth/signin`. | Fixed; current production canary passes. | Keep canary required and investigate immediately on regression. |
 | Supabase deploy YAML | `.github/workflows/deploy-supabase-migrations.yml` uses `run: \|pab` near line 44. | Workflow cannot parse, so production migration/deploy path is unavailable. | Replace with valid multiline block syntax and validate workflow. |
 | Benchmark pnpm mismatch | `.github/workflows/benchmarks.yml` pins pnpm 9 while `package.json` declares `pnpm@10.29.1`. | Benchmark jobs fail before measuring WER. | Remove explicit pnpm version pins and let `packageManager` control version. |
 | Benchmark command drift | `benchmarks.yml` calls `pnpm benchmark:cloud`; package script is `benchmark:assemblyai`. | Benchmark will fail after pnpm setup is fixed. | Update workflow command to current script name. |
@@ -86,7 +86,7 @@ Local repair status on 2026-05-07: stale workflow strings were removed from exec
 ## Immediate CI/Deploy Repair Order
 
 1. Fix `deploy-supabase-migrations.yml` YAML syntax so backend deploy can run.
-2. Fix `canaryLogin` route and rerun `canary.yml`.
+2. Keep `canary.yml` green after each deploy; latest run is passing.
 3. Decide the authoritative Edge Function deploy path and remove/disable ambiguity.
 4. Fix benchmark workflow setup, command names, and benchmark spec targets.
 5. Fix or defer `soak-test.yml` command drift.

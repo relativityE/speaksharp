@@ -126,8 +126,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             if (!isOk) {
                 // 🚨 DEFENSE: Purge failed registry engine before fallback
                 await (engine as unknown as IPrivateSTTEngine).terminate?.();
-                logger.warn({ engine: preferredEngine, error: initResult ? (initResult as { error?: Error }).error : new Error('Mock init failed') }, '[PrivateSTT] Registry engine failed to initialize. Continuing discovery...');
-                return Result.ok(undefined); // Allow discovery to continue
+                const error = initResult ? (initResult as { error?: Error }).error : new Error('Registry engine failed to initialize');
+                logger.warn({ engine: preferredEngine, error }, '[PrivateSTT] Registry engine failed to initialize.');
+                return { isOk: false, error: error || new Error('Registry engine failed to initialize') };
             }
             this.engine = engine as unknown as IPrivateSTTEngine;
             this._engineType = preferredEngine;
@@ -174,7 +175,6 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     protected async onDestroy(): Promise<void> {
-        if (this.isTerminated) return;
         if (this.engine) {
             try { await this.engine.destroy(); } catch (e) { logger.warn({ e }, '[PrivateSTT] Engine destroy failed'); }
             this.engine = null;
