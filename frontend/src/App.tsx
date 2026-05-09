@@ -46,6 +46,7 @@ const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage'));
 const SignInPage = React.lazy(() => import('./pages/SignInPage'));
 const AuthPage = React.lazy(() => import('./pages/AuthPage'));
 const DesignSystemPage = React.lazy(() => import('./pages/DesignSystemPage'));
+const PricingPage = React.lazy(() => import('./pages/PricingPage').then(module => ({ default: module.PricingPage })));
 
 const PageLoader = () => (
   <div className="flex h-[50vh] w-full items-center justify-center">
@@ -173,6 +174,7 @@ const App: React.FC = () => {
                 <AnimatePresence mode="wait">
                   <Routes location={location} key={location.pathname}>
                     <Route path="/" element={<PageTransition><Index /></PageTransition>} />
+                    <Route path="/pricing" element={<PageTransition><PricingPage /></PageTransition>} />
                     <Route path="/design" element={<PageTransition><DesignSystemPage /></PageTransition>} />
                     <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
                     <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />

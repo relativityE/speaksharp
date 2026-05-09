@@ -38,14 +38,14 @@ const features = [
   {
     icon: <Mic className="size-8" />,
     title: "Real-time Analysis",
-    description: "Get instant feedback on your speech patterns, filler words, and clarity as you speak.",
+    description: "Get live practice feedback on speech patterns, filler words, and clarity as you speak.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-primary",
   },
   {
     icon: <BarChart3 className="size-8" />,
     title: "Progress Tracking",
-    description: "Monitor your improvement over time with detailed analytics and personalized insights.",
+    description: "Review saved sessions and compare speaking metrics as you practice over time.",
     iconBgColor: "bg-primary/20",
     iconTextColor: "text-primary",
   },
@@ -77,7 +77,7 @@ export const FeaturesSection = () => {
               Everything you need to <span className="text-gradient-warm">practice</span>
             </h2>
             <p className="text-lg text-muted-foreground leading-relaxed max-w-[800px] mt-4">
-              SpeakSharp provides a suite of tools designed to make you a more confident and articulate public speaker.
+              SpeakSharp provides a suite of tools designed for focused speech practice, review, and coaching feedback.
             </p>
           </div>
         </motion.div>

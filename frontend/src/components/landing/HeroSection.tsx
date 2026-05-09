@@ -60,7 +60,7 @@ export const HeroSection = () => {
               variants={itemVariants}
               className="text-lg text-muted-foreground leading-relaxed max-w-xl font-medium"
             >
-              Transform your communication skills with real-time feedback, filler word detection, and AI-powered insights that help you speak with confidence.
+              Practice with live feedback, filler word detection, and coaching insights that help you track patterns and speak with more confidence.
             </motion.p>
 
             {/* Buttons + Trust badges share the same max-width so edges align */}
@@ -88,7 +88,7 @@ export const HeroSection = () => {
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-primary" />
-                  <span>Instant feedback</span>
+                  <span>Live feedback</span>
                 </div>
               </motion.div>
             </div>

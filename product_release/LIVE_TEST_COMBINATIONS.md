@@ -61,7 +61,16 @@ A path is green only when all required checks pass:
 | WPM/clarity/pause analytics | Required | Required | Not separate if CPU passes | Required |
 | Session-over-session comparison | Required | Required | Not separate if CPU passes | Required |
 | PDF export with watermark | Required | Required | Not separate if CPU passes | Required |
-| WER benchmark evidence | Required | Required | Required for acceleration claim | Required |
+| WER benchmark evidence | 🔴 Required; currently no valid numeric baseline | 🔴 Required; fixture/reference mismatch blocks a trustworthy run | Required for acceleration claim; hardware-specific | 🔴 Required; current manifest has no benchmark history |
+
+### STT Benchmark Truth Status (2026-05-09)
+
+| Engine | Current User-Facing Status | Known Blocker | Required Evidence |
+|---|---|---|---|
+| Cloud / AssemblyAI | Must not show an authoritative ceiling until rerun. | `tests/STT_BENCHMARKS.json` has `expectedAccuracy` but no history-backed WER. | `pnpm benchmark:assemblyai` with `ASSEMBLYAI_API_KEY`, recorded average WER, and manifest history entry. |
+| Native Browser | Must show "not benchmarked" until rerun. | Current history has `trials: 0` and null WER. | Browser benchmark with fake WAV input, successful transcript, average WER, and manifest history entry. |
+| Private CPU / Transformers.js | Must show "not benchmarked" until rerun. | Browser benchmark compares a short/mismatched audio fixture to the full Harvard reference; manifest expected/history values conflict. | Fixed fixture/reference mapping, successful CPU transcript, WER, and manifest history entry for the actual CPU runtime. |
+| Private WebGPU / WhisperTurbo | Acceleration evidence only; not launch-blocking if CPU path is green. | Hardware/browser-specific and cannot be generalized to all users. | Headed local WebGPU run on supported hardware, recorded as acceleration evidence rather than a blanket Private ceiling. |
 
 ## Current Status
 

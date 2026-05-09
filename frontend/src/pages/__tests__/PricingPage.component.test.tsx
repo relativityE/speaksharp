@@ -62,12 +62,12 @@ describe('PricingPage', () => {
         it('should render Pro tier features', () => {
             renderPricingPage();
 
-            expect(screen.getByText('Unlimited practice time')).toBeInTheDocument();
-            expect(screen.getByText('Advanced analytics')).toBeInTheDocument();
+            expect(screen.getByText('Up to 2 hours/day and 50 hours/month')).toBeInTheDocument();
+            expect(screen.getByText('Practice analytics and trends')).toBeInTheDocument();
             expect(screen.getByText('Save all sessions')).toBeInTheDocument();
-            expect(screen.getByText('Export data as PDF')).toBeInTheDocument();
+            expect(screen.getByText('Export watermarked PDF reports')).toBeInTheDocument();
             expect(screen.getByText('Private transcription')).toBeInTheDocument();
-            expect(screen.getByText('AI-powered feedback (coming soon)')).toBeInTheDocument();
+            expect(screen.getByText('AI-assisted feedback')).toBeInTheDocument();
         });
 
         it('should render CTA buttons', () => {

@@ -76,6 +76,8 @@ describe('STTAccuracyVsBenchmark', () => {
 
         render(<STTAccuracyVsBenchmark />);
         expect(screen.getByText('Dynamic STT Accuracy vs Ceiling')).toBeInTheDocument();
+        expect(screen.getByText('Provide ground truth transcripts and current WER benchmark runs to compare STT accuracy.')).toBeInTheDocument();
+        expect(screen.queryByText('Theoretical Max')).not.toBeInTheDocument();
     });
 
     it('should render empty state when no ground truth data exists', () => {
@@ -100,7 +102,7 @@ describe('STTAccuracyVsBenchmark', () => {
         } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
-        expect(screen.getByText('Provide ground truth transcripts to see your accuracy benchmarked against STT ceilings.')).toBeInTheDocument();
+        expect(screen.getByText('Provide ground truth transcripts and current WER benchmark runs to compare STT accuracy.')).toBeInTheDocument();
     });
 
     it('should render specific session view when URL has sessionId parameter', () => {
@@ -139,9 +141,11 @@ describe('STTAccuracyVsBenchmark', () => {
         } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
-        expect(screen.getByText(/Session Accuracy vs/)).toBeInTheDocument();
+        expect(screen.getByText('Session STT Accuracy')).toBeInTheDocument();
         const engineEls = screen.getAllByText(/Private/);
         expect(engineEls.length).toBeGreaterThan(0);
         expect(screen.getByText(/This session used the/)).toBeInTheDocument();
+        expect(screen.getByText('Current WER benchmark evidence is not available for this STT runtime yet.')).toBeInTheDocument();
+        expect(screen.queryByText(/Theoretical Max/)).not.toBeInTheDocument();
     });
 });

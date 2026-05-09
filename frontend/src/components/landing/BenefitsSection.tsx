@@ -4,12 +4,12 @@ import { Button } from '@/components/ui/button';
 import { CheckCircle2 } from 'lucide-react';
 
 const benefits = [
-    "Reduce filler words by up to 80%",
+    "Track filler words over time",
     "Track progress over time",
-    "Professional presentation skills",
-    "Improve speaking confidence",
-    "AI-powered insights",
-    "Real-time feedback",
+    "Practice presentation skills",
+    "Build speaking confidence",
+    "AI-assisted insights",
+    "Live practice feedback",
 ];
 
 const itemVariants = {
@@ -43,7 +43,7 @@ export const BenefitsSection = () => {
                         </span>
                     </h2>
                     <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                        Join thousands of professionals who have improved their speaking confidence.
+                        Practice with structured feedback that helps you notice patterns and build stronger speaking habits.
                     </p>
                 </motion.div>
 

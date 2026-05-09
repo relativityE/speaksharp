@@ -12,24 +12,48 @@ import benchmarkDataRaw from '../../../../tests/STT_BENCHMARKS.json';
 interface BenchmarkEntry {
     expectedAccuracy?: number | null;
     provider?: string;
-    webgpu?: { expectedAccuracy: number; provider: string };
-    cpu?: { expectedAccuracy: number; provider: string };
+    history?: BenchmarkHistoryEntry[];
+    webgpu?: BenchmarkVariant;
+    cpu?: BenchmarkVariant;
+}
+
+interface BenchmarkHistoryEntry {
+    ceiling_wer?: number | null;
+    ceiling_accuracy_pct?: number | null;
+}
+
+interface BenchmarkVariant {
+    expectedAccuracy?: number | null;
+    provider?: string;
+    history?: BenchmarkHistoryEntry[];
 }
 
 const STT_BENCHMARKS = benchmarkDataRaw.engines as Record<string, BenchmarkEntry>;
 
-const getEngineCeiling = (engine: string): number => {
+const hasVerifiedBenchmark = (entry?: BenchmarkVariant | BenchmarkEntry): entry is BenchmarkVariant | BenchmarkEntry => {
+    if (!entry || typeof entry.expectedAccuracy !== 'number') return false;
+
+    const latest = entry.history?.[entry.history.length - 1];
+    if (!latest) return false;
+
+    return typeof latest.ceiling_wer === 'number' && typeof latest.ceiling_accuracy_pct === 'number';
+};
+
+const getEngineBenchmark = (engine: string): number | null => {
     // Standardize key (Cloud, Private, Native)
     const key = engine.charAt(0).toUpperCase() + engine.slice(1);
     const entry = STT_BENCHMARKS[key];
-    if (!entry) return 90;
+    if (!entry) return null;
 
-    // Handle nested Private structure (webgpu/cpu)
+    // Private has CPU and WebGPU variants. Until session metadata identifies the
+    // runtime, do not present a blanket WebGPU/CPU ceiling as authoritative.
     if (key === 'Private') {
-        return entry.webgpu?.expectedAccuracy || entry.cpu?.expectedAccuracy || 90;
+        return null;
     }
 
-    return entry.expectedAccuracy || 90;
+    if (!hasVerifiedBenchmark(entry)) return null;
+
+    return entry.expectedAccuracy ?? null;
 };
 
 /**
@@ -71,7 +95,25 @@ export const STTAccuracyVsBenchmark: React.FC = () => {
         // accuracyData is already scoped to this session by useAnalytics
         const accuracy = accuracyData[0]?.accuracy || 0;
         const engine = specificSession.engine;
-        const ceiling = getEngineCeiling(engine);
+        const ceiling = getEngineBenchmark(engine);
+
+        if (ceiling === null) {
+            return (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Session STT Accuracy</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex h-[160px] items-center justify-center rounded-xl border-2 border-dashed border-border px-4 text-center text-sm text-muted-foreground">
+                            Current WER benchmark evidence is not available for this STT runtime yet.
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2 text-center">
+                            This session used the <strong>{engine}</strong> engine. Benchmarks appear only after a current WER-backed run exists for the same runtime.
+                        </p>
+                    </CardContent>
+                </Card>
+            );
+        }
 
         const data = [
             {
@@ -110,8 +152,8 @@ export const STTAccuracyVsBenchmark: React.FC = () => {
     // 2. Dashboard Trend View (Vertical Bars)
     const enrichedData = accuracyData.map(d => ({
         ...d,
-        ceiling: getEngineCeiling(d.engine)
-    }));
+        ceiling: getEngineBenchmark(d.engine)
+    })).filter(d => d.ceiling !== null);
 
     return (
         <Card>
@@ -131,7 +173,7 @@ export const STTAccuracyVsBenchmark: React.FC = () => {
                     </ResponsiveContainer>
                 ) : (
                     <div className="flex items-center justify-center h-[200px] text-muted-foreground text-sm border-2 border-dashed border-border rounded-xl">
-                        Provide ground truth transcripts to see your accuracy benchmarked against STT ceilings.
+                        Provide ground truth transcripts and current WER benchmark runs to compare STT accuracy.
                     </div>
                 )}
             </CardContent>

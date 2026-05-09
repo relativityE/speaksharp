@@ -11,7 +11,7 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 220 18% 22%;
+    --background: 220 16% 26%;
     --foreground: 210 40% 98%;
 
     --card: 220 16% 28%;
@@ -23,14 +23,14 @@ All colors MUST be HSL.
     --primary: 40 85% 55%;
     --primary-foreground: 0 0% 10%;
 
-    --secondary: 40 85% 55%;
-    --secondary-foreground: 0 0% 10%;
+    --secondary: 220 12% 34%;
+    --secondary-foreground: 210 40% 96%;
 
     --muted: 220 14% 30%;
     --muted-foreground: 220 14% 62%;
 
-    --accent: 40 85% 55%;
-    --accent-foreground: 0 0% 10%;
+    --accent: 160 45% 38%;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 63% 31%;
     --destructive-foreground: 210 40% 98%;
@@ -72,7 +72,7 @@ All colors MUST be HSL.
   }
 
   .dark {
-    --background: 220 18% 22%;
+    --background: 220 16% 26%;
     --foreground: 210 40% 98%;
 
     --card: 220 16% 28%;
@@ -84,14 +84,14 @@ All colors MUST be HSL.
     --primary: 40 85% 55%;
     --primary-foreground: 0 0% 10%;
 
-    --secondary: 40 85% 55%;
-    --secondary-foreground: 0 0% 10%;
+    --secondary: 220 12% 34%;
+    --secondary-foreground: 210 40% 96%;
 
     --muted: 220 14% 30%;
     --muted-foreground: 220 14% 62%;
 
-    --accent: 40 85% 55%;
-    --accent-foreground: 0 0% 10%;
+    --accent: 160 45% 38%;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 63% 31%;
     --destructive-foreground: 210 40% 98%;
@@ -156,13 +156,13 @@ All colors MUST be HSL.
 
 .bg-gradient-radial {
   background-image:
-    radial-gradient(at 30% 20%, hsl(40 85% 55% / 0.12) 0%, rgba(0, 0, 0, 0) 50%),
-    radial-gradient(at 70% 80%, hsl(25 90% 55% / 0.08) 0%, rgba(0, 0, 0, 0) 50%);
+    radial-gradient(at 30% 20%, hsl(40 85% 55% / 0.06) 0%, rgba(0, 0, 0, 0) 50%),
+    radial-gradient(at 70% 80%, hsl(25 90% 55% / 0.04) 0%, rgba(0, 0, 0, 0) 50%);
 }
 
 .bg-grid {
-  background-image: linear-gradient(hsl(220 14% 30% / 0.5) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(220 14% 30% / 0.5) 1px, transparent 1px);
+  background-image: linear-gradient(hsl(220 14% 40% / 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(220 14% 40% / 0.22) 1px, transparent 1px);
   background-size: 60px 60px;
 }
 
