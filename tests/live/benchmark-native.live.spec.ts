@@ -3,7 +3,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
-import { HARVARD_LIST_1_SENTENCES } from '../fixtures/stt-isomorphic/harvard-sentences';
+import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
 import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
@@ -64,7 +64,7 @@ test('measure Native STT', async ({ page }) => {
             expect(currentWordCount).toBeGreaterThan(5);
         }).toPass({ timeout: 15_000 });
 
-        await page.waitForTimeout(10_000);
+        await page.waitForTimeout(22_000);
 
         await page.getByTestId('session-start-stop-button').click();
         await expect(page.getByTestId('transcript-container')).not.toBeEmpty({ timeout: 15_000 });
@@ -74,7 +74,7 @@ test('measure Native STT', async ({ page }) => {
             .replace(/[^\w\s]/g, '')
             .trim();
 
-        const referenceText = HARVARD_LIST_1_SENTENCES.slice(0, 5).join(' ');
+        const referenceText = HARVARD_FULL;
         const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
         const referenceWordCount = referenceText.split(/\s+/).length;
 
@@ -102,7 +102,7 @@ test('measure Native STT', async ({ page }) => {
     benchmarks.engines.Native.expectedAccuracy = accuracyPct;
     benchmarks.engines.Native.history.push({
         timestamp: new Date().toISOString(),
-        corpus: 'harvard-list-1-first5',
+        corpus: 'harvard-list-1',
         trials: trialWers.length,
         ceiling_wer: parseFloat(meanWer.toFixed(4)),
         ceiling_accuracy_pct: accuracyPct,

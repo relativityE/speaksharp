@@ -23,26 +23,26 @@ speak() {
     fi
 }
 
-speak "The birch canoe slid on the smooth planks." \
+speak "The stale smell of old beer lingers." \
     "$FIXTURE_DIR/harvard_01_16k.wav"
 
-speak "The birch canoe slid on the smooth planks. \
-       Glue the sheet to the dark blue background. \
-       It is easy to tell the depth of a well. \
-       These days a chicken leg is a rare dish. \
-       Rice is often served in round bowls." \
+speak "The stale smell of old beer lingers. \
+       A dash of pepper spoils beef stew. \
+       The swan dive was far short of perfect. \
+       The box was thrown beside the parked truck. \
+       The twister left no trace of the town." \
     "$FIXTURE_DIR/harvard_sentences_16k.wav"
 
-speak "The birch canoe slid on the smooth planks. \
-       Glue the sheet to the dark blue background. \
-       It is easy to tell the depth of a well. \
-       These days a chicken leg is a rare dish. \
-       Rice is often served in round bowls. \
-       The juice of lemons makes fine punch. \
+speak "The stale smell of old beer lingers. \
+       A dash of pepper spoils beef stew. \
+       The swan dive was far short of perfect. \
        The box was thrown beside the parked truck. \
-       The hogs were fed chopped corn and garbage. \
-       Four hours of steady work faced us. \
-       Large size in stockings is hard to sell." \
+       The twister left no trace of the town. \
+       They told wild tales to frighten him. \
+       We find joy in the simplest things. \
+       The puppy chewed up the new shoes. \
+       A smooth road makes driving pleasant. \
+       The quick brown fox jumps over the lazy dog." \
     "$FIXTURE_DIR/harvard_benchmark_16k.wav"
 
 echo "✅ Fixtures generated. Validating..."
