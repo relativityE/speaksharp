@@ -1,24 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen, render, fireEvent, waitFor } from '../../../tests/support/test-utils';
+import { screen, render, fireEvent } from '../../../tests/support/test-utils';
 import { PromoExpiredDialog } from '../PromoExpiredDialog';
 
 describe('PromoExpiredDialog', () => {
-    it('lets expired promo users switch accounts instead of being trapped', async () => {
-        const signOut = vi.fn().mockResolvedValue(undefined);
+    it('shows only the two primary choices and lets expired promo users continue as free', async () => {
         const onOpenChange = vi.fn();
 
         render(<PromoExpiredDialog open={true} onOpenChange={onOpenChange} />, {
             route: '/session',
-            authMock: {
-                signOut,
-            },
         });
 
-        fireEvent.click(screen.getByTestId('promo-expired-switch-account'));
+        expect(screen.getByTestId('promo-expired-continue-free')).toBeInTheDocument();
+        expect(screen.getByTestId('promo-expired-upgrade-button')).toBeInTheDocument();
+        expect(screen.queryByText(/have a promo code/i)).not.toBeInTheDocument();
+        expect(screen.queryByTestId('promo-expired-switch-account')).not.toBeInTheDocument();
 
-        await waitFor(() => {
-            expect(signOut).toHaveBeenCalledTimes(1);
-        });
+        fireEvent.click(screen.getByTestId('promo-expired-continue-free'));
+
         expect(onOpenChange).toHaveBeenCalledWith(false);
     });
 });

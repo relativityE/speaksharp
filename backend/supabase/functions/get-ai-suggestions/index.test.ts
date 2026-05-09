@@ -3,6 +3,7 @@ import { assertEquals, assertExists } from "https://deno.land/std@0.224.0/assert
 
 // Mock the global fetch to avoid real API calls
 let fetchCount = 0;
+let mockGeminiMode: 'ok' | 'malformed' | 'error' | 'throw' = 'ok';
 let mockGeminiText = JSON.stringify({
   summary: "This is a mock summary.",
   suggestions: [{ title: "Pacing", description: "Your pacing was a bit fast." }]
@@ -11,6 +12,12 @@ let mockGeminiText = JSON.stringify({
 globalThis.fetch = async (url) => {
   if (url.toString().includes('generativelanguage.googleapis.com')) {
     fetchCount++;
+    if (mockGeminiMode === 'throw') {
+      throw new Error('network down');
+    }
+    if (mockGeminiMode === 'error') {
+      return new Response('upstream unavailable', { status: 503 });
+    }
     const mockApiResponse = {
       candidates: [{
         content: {
@@ -29,6 +36,7 @@ globalThis.fetch = async (url) => {
 };
 
 Deno.test('get-ai-suggestions edge function', async (t) => {
+  mockGeminiMode = 'ok';
   mockGeminiText = JSON.stringify({
     summary: "This is a mock summary.",
     suggestions: [{ title: "Pacing", description: "Your pacing was a bit fast." }]
@@ -215,6 +223,7 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
   await t.step('should return safe fallback suggestions for malformed Gemini JSON', async () => {
     Deno.env.set('GEMINI_API_KEY', 'mock-key');
     fetchCount = 0;
+    mockGeminiMode = 'malformed';
     mockGeminiText = 'Here are some thoughts, but not JSON.';
 
     const mockCreateSupabaseProUser = () => ({
@@ -243,10 +252,47 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
       assertEquals(json.suggestions.summary, 'AI suggestions are temporarily unavailable for this session.');
       assertEquals(fetchCount, 1);
     } finally {
+      mockGeminiMode = 'ok';
       mockGeminiText = JSON.stringify({
         summary: "This is a mock summary.",
         suggestions: [{ title: "Pacing", description: "Your pacing was a bit fast." }]
       });
+      Deno.env.delete('GEMINI_API_KEY');
+    }
+  });
+
+  await t.step('should return safe fallback suggestions when Gemini is unavailable', async () => {
+    Deno.env.set('GEMINI_API_KEY', 'mock-key');
+    fetchCount = 0;
+    mockGeminiMode = 'error';
+
+    const mockCreateSupabaseProUser = () => ({
+      from: () => ({
+        select: () => {
+          const result = {
+            eq: () => result,
+            single: () => Promise.resolve({ data: { subscription_status: 'pro' }, error: null }),
+          };
+          return result;
+        },
+      }),
+    }) as any;
+
+    try {
+      const req = new Request('http://localhost/get-ai-suggestions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer fake-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: "hello unavailable model" })
+      });
+      const res = await handler(req, mockCreateSupabaseProUser);
+      const json = await res.json();
+
+      assertEquals(res.status, 200);
+      assertEquals(json.degraded, true);
+      assertEquals(json.suggestions.summary, 'AI suggestions are temporarily unavailable for this session.');
+      assertEquals(fetchCount, 1);
+    } finally {
+      mockGeminiMode = 'ok';
       Deno.env.delete('GEMINI_API_KEY');
     }
   });

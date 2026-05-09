@@ -59,6 +59,7 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 | Supabase migration deploy | ✅ Manual runs `25576997106` and `25573238473` passed on 2026-05-08. | Deploy workflow evidence is green; live DB behavior still needs smoke checks. |
 | Live promo entitlement | 🟡 Entitlement worked; Private artifact path blocked. | Promo Pro access was granted, and the Private CPU model was served/initialized, but save failed with `engine_not_allowed_for_tier`. Deploy/retest `backend/supabase/migrations/20260509000000_allow_private_engine_for_pro.sql`. |
 | Promo expired component regression | 🟡 Local fixes / deploy + live smoke pending. | The visible-browser expired-promo trap has local coverage. Local backend fixes now deny stale expired-promo Pro access on Cloud token and DB session/heartbeat paths; deploy/live smoke is still pending. |
+| Pause/Cloud audio-frame regression | 🟡 Local fix / live analytics proof pending. | Live review found pause metrics could remain flat because Native/Cloud did not centrally pump mic frames into analytics, and Cloud's streaming `processAudio()` path was not called. Local fix pumps mic frames to analytics for non-Private modes and forwards Cloud frames to the streaming engine; targeted regression coverage and typecheck pass. |
 
 This evidence lowers the current risk from "unfixed code/workflows" to "live-validation pending." It does not make the product launch-ready by itself.
 

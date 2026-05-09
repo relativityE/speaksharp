@@ -90,6 +90,7 @@ export default class TranscriptionService {
   private failureManager: FailureManager;
   public strategy: STTStrategy | null = null;
   private mic: MicStream | null = null;
+  private micFrameDisposer: (() => void) | null = null;
   private micError: Error | null = null;
   private watchdogTimer: NodeJS.Timeout | null = null;
   private isFrozen: boolean = false;
@@ -746,6 +747,7 @@ export default class TranscriptionService {
 
       this.emissionsEnabled = true;
       this.flushPendingTranscripts();
+      this.attachMicFramePump(mode);
       await this.strategy.start(this.mic!, this.options.userWords ?? []);
 
       // 🛡️ Step 4: Strict Success Coupling
@@ -770,6 +772,36 @@ export default class TranscriptionService {
       this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
       throw error;
     }
+  }
+
+  private attachMicFramePump(mode: TranscriptionMode): void {
+    this.detachMicFramePump();
+
+    if (!this.mic || typeof this.mic.onFrame !== 'function') return;
+
+    const strategy = this.strategy as (STTStrategy & { processAudio?: (data: Float32Array) => void }) | null;
+    const shouldForwardToStrategy = mode === 'cloud' && typeof strategy?.processAudio === 'function';
+    const shouldAnalyzeFrames = mode !== 'private';
+
+    if (!shouldForwardToStrategy && !shouldAnalyzeFrames) return;
+
+    this.micFrameDisposer = this.mic.onFrame((frame: Float32Array) => {
+      const clonedFrame = frame.slice(0);
+
+      if (shouldAnalyzeFrames) {
+        this.options.onAudioData?.(clonedFrame);
+      }
+
+      if (shouldForwardToStrategy) {
+        strategy?.processAudio?.(clonedFrame);
+      }
+    });
+  }
+
+  private detachMicFramePump(): void {
+    if (!this.micFrameDisposer) return;
+    this.micFrameDisposer();
+    this.micFrameDisposer = null;
   }
 
   private async ensureMicReadyForStart(): Promise<boolean> {
@@ -842,6 +874,7 @@ export default class TranscriptionService {
       let transcript = '';
       if (this.strategy) {
         await this.strategy.stop();
+        this.detachMicFramePump();
         transcript = await this.strategy.getTranscript();
       }
 
@@ -944,6 +977,7 @@ export default class TranscriptionService {
       this.stopWatchdog();
 
       if (this.mic) {
+        this.detachMicFramePump();
         this.mic.stop();
         this.mic = null;
       }
@@ -1134,6 +1168,7 @@ export default class TranscriptionService {
     logger.info({ sId: this.serviceId, targetState }, '[TranscriptionService] ☢️ NUCLEAR RESET: Clearing all async state and buffers');
 
     this.stopWatchdog();
+    this.detachMicFramePump();
 
     // Clear ephemeral session state
     this.mode = null;
@@ -1196,6 +1231,7 @@ export default class TranscriptionService {
    */
   public resetEphemeralState(): void {
     logger.info('[TranscriptionService] 🧪 Resetting ephemeral state for isolation');
+    this.detachMicFramePump();
 
     this.policy = PROD_FREE_POLICY;
     this.mode = null;

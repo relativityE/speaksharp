@@ -51,6 +51,18 @@ describe('PauseDetector', () => {
         expect(metrics.longestPause).toBeGreaterThanOrEqual(0.6); // 600ms
     });
 
+    it('should include an active pause in metrics before speech resumes', () => {
+        const silentFrame = new Float32Array(1024).fill(0);
+
+        pauseDetector.processAudioFrame(silentFrame);
+        vi.advanceTimersByTime(2000);
+
+        const metrics = pauseDetector.getMetrics();
+        expect(metrics.totalPauses).toBe(1);
+        expect(metrics.longestPause).toBeGreaterThanOrEqual(2);
+        expect(metrics.extendedPauses).toBe(1);
+    });
+
     it('should ignore short silences', () => {
         const silentFrame = new Float32Array(1024).fill(0);
         const loudFrame = new Float32Array(1024).fill(0.5);

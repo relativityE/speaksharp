@@ -136,6 +136,74 @@ describe('TranscriptionService', () => {
         expect(service.getState()).toBe('READY');
     });
 
+    it('should pump cloud microphone frames into analytics and the streaming engine', async () => {
+        const { sttRegistry } = await import('../STTRegistry');
+        sttRegistry.clear();
+
+        let frameListener: ((frame: Float32Array) => void) | null = null;
+        const disposeFrameListener = vi.fn();
+        const onAudioData = vi.fn();
+
+        class MockCloudEngine extends STTEngine {
+            public override readonly type = 'cloud' as EngineType;
+            public async checkAvailability() { return { isAvailable: true }; }
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() {}
+            protected async onStop() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok(''); }
+            public override getEngineType() { return 'cloud' as EngineType; }
+        }
+
+        sttRegistry.register('assemblyai', (options) => new MockCloudEngine(options));
+
+        const cloudService = new (TranscriptionServiceClass as unknown as new (o: TranscriptionServiceOptions) => TranscriptionService)({
+            onTranscriptUpdate: mockOnTranscriptUpdate,
+            onModelLoadProgress: mockOnModelLoadProgress,
+            onReady: mockOnReady,
+            onAudioData,
+            session: null,
+            navigate: vi.fn(),
+            getAssemblyAIToken: mockGetToken,
+            policy: {
+                allowNative: false,
+                allowCloud: true,
+                allowPrivate: false,
+                preferredMode: 'cloud',
+                allowFallback: false,
+                executionIntent: 'test-cloud-audio-pump'
+            } as TranscriptionPolicy,
+            mockMic: {
+                stream: {} as MediaStream,
+                stop: vi.fn(),
+                clone: vi.fn(),
+                onFrame: vi.fn((listener: (frame: Float32Array) => void) => {
+                    frameListener = listener;
+                    return disposeFrameListener;
+                }),
+            } as unknown as MicStream
+        });
+
+        try {
+            await cloudService.startTranscription();
+            expect(frameListener).toBeTypeOf('function');
+
+            const processAudioSpy = vi.spyOn(
+                cloudService.strategy as unknown as { processAudio: (data: Float32Array) => void },
+                'processAudio'
+            );
+            const frame = new Float32Array([0.05, 0.2, 0.3]);
+
+            const emitFrame = frameListener as unknown as (data: Float32Array) => void;
+            emitFrame(frame);
+
+            expect(onAudioData).toHaveBeenCalledWith(expect.any(Float32Array));
+            expect(processAudioSpy).toHaveBeenCalledWith(expect.any(Float32Array));
+        } finally {
+            await cloudService.destroy();
+        }
+    });
+
     it('should handle unavailable private initialization without throwing', async () => {
         const { sttRegistry } = await import('../STTRegistry');
         

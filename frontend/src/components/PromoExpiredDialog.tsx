@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
     AlertDialog,
     AlertDialogCancel,
@@ -9,13 +8,9 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { getSupabaseClient } from "@/lib/supabaseClient";
 import logger from "@/lib/logger";
 import { toast } from '@/lib/toast';
-import { useQueryClient } from '@tanstack/react-query';
-import { useAuthProvider } from '@/contexts/AuthProvider';
-import { useNavigate } from 'react-router-dom';
 
 interface PromoExpiredDialogProps {
     open: boolean;
@@ -27,13 +22,6 @@ interface PromoExpiredDialogProps {
  * Prompts them to either upgrade to a paid plan or continue as Free.
  */
 export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, onOpenChange }) => {
-    const [showPromo, setShowPromo] = useState(false);
-    const [promoCode, setPromoCode] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const queryClient = useQueryClient();
-    const { signOut } = useAuthProvider();
-    const navigate = useNavigate();
-
     const handleUpgrade = async () => {
         try {
             const supabase = getSupabaseClient();
@@ -53,38 +41,8 @@ export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, on
         }
     };
 
-    const handlePromoSubmit = async () => {
-        if (!promoCode.trim()) return;
-        setIsSubmitting(true);
-        try {
-            const supabase = getSupabaseClient();
-            if (!supabase) throw new Error("Supabase client not available");
-
-            const { data, error } = await supabase.functions.invoke('apply-promo', {
-                body: { promoCode }
-            });
-
-            if (error) throw error;
-
-            toast.success(data.message || "Promo code applied successfully!");
-            // Refresh user profile to reflect new status
-            await queryClient.invalidateQueries({ queryKey: ['userProfile'] });
-            onOpenChange(false); // Close dialog
-        } catch (err: unknown) {
-            logger.error({ err }, 'Error applying promo code:');
-            const msg = err instanceof Error ? err.message : "Failed to apply promo code";
-            // If the error object has a 'message' property from Supabase Functions invoke
-            // It often comes as an Error object with the JSON response
-            toast.error(msg);
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    const handleSwitchAccount = async () => {
-        await signOut();
+    const handleContinue = () => {
         onOpenChange(false);
-        navigate('/auth/signin', { replace: true });
     };
 
     return (
@@ -97,48 +55,21 @@ export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, on
                     </AlertDialogDescription>
                 </AlertDialogHeader>
 
-                {showPromo && (
-                    <div className="py-2 space-y-2 animate-in fade-in zoom-in-95 duration-200">
-                        <div className="flex gap-2">
-                            <Input
-                                placeholder="Enter promo code"
-                                value={promoCode}
-                                onChange={(e) => setPromoCode(e.target.value)}
-                                className="h-8 text-sm"
-                            />
-                            <Button
-                                size="sm"
-                                onClick={() => { void handlePromoSubmit(); }}
-                                disabled={isSubmitting || !promoCode.trim()}
-                            >
-                                {isSubmitting ? 'Applying...' : 'Apply'}
-                            </Button>
-                        </div>
-                    </div>
-                )}
-
-                <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-                    {!showPromo && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-xs text-muted-foreground mr-auto"
-                            onClick={() => setShowPromo(true)}
-                        >
-                            Have a promo code?
-                        </Button>
-                    )}
-                    <div className="flex gap-2 justify-end w-full sm:w-auto">
-                        <AlertDialogCancel data-testid="promo-expired-continue-free">Continue as Free</AlertDialogCancel>
-                        <Button
-                            variant="outline"
-                            onClick={() => { void handleSwitchAccount(); }}
-                            data-testid="promo-expired-switch-account"
-                        >
-                            Switch account
-                        </Button>
-                        <Button onClick={() => { void handleUpgrade(); }} data-testid="promo-expired-upgrade-button">Upgrade to Pro</Button>
-                    </div>
+                <AlertDialogFooter className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <AlertDialogCancel
+                        className="m-0 w-full"
+                        onClick={handleContinue}
+                        data-testid="promo-expired-continue-free"
+                    >
+                        Continue as Free
+                    </AlertDialogCancel>
+                    <Button
+                        className="w-full"
+                        onClick={() => { void handleUpgrade(); }}
+                        data-testid="promo-expired-upgrade-button"
+                    >
+                        Upgrade to Pro
+                    </Button>
                 </AlertDialogFooter>
             </AlertDialogContent>
         </AlertDialog>

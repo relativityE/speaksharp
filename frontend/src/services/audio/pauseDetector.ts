@@ -104,8 +104,20 @@ export class PauseDetector {
      */
     public getMetrics(): PauseMetrics {
         const sessionDurationSeconds = (Date.now() - this.sessionStartTime) / 1000;
+        const pauses = [...this.pauses];
 
-        if (this.pauses.length === 0) {
+        if (this.isSilent && this.currentPauseStart !== null) {
+            const now = Date.now();
+            const pauseDuration = now - this.currentPauseStart;
+            if (pauseDuration >= this.minPauseDuration) {
+                pauses.push({
+                    start: this.currentPauseStart,
+                    end: now,
+                });
+            }
+        }
+
+        if (pauses.length === 0) {
             return {
                 totalPauses: 0,
                 averagePauseDuration: 0,
@@ -117,7 +129,7 @@ export class PauseDetector {
             };
         }
 
-        const pauseDurations = this.pauses.map(p => (p.end - p.start) / 1000); // convert to seconds
+        const pauseDurations = pauses.map(p => (p.end - p.start) / 1000); // convert to seconds
         const totalPauseDuration = pauseDurations.reduce((sum, duration) => sum + duration, 0);
 
         const transitionPauses = pauseDurations.filter(d => d >= 0.5 && d <= 1.5).length;
@@ -128,10 +140,10 @@ export class PauseDetector {
             : 0;
 
         return {
-            totalPauses: this.pauses.length,
-            averagePauseDuration: totalPauseDuration / this.pauses.length,
+            totalPauses: pauses.length,
+            averagePauseDuration: totalPauseDuration / pauses.length,
             longestPause: Math.max(...pauseDurations),
-            pausesPerMinute: (sessionDurationSeconds / 60) > 0 ? this.pauses.length / (sessionDurationSeconds / 60) : 0,
+            pausesPerMinute: (sessionDurationSeconds / 60) > 0 ? pauses.length / (sessionDurationSeconds / 60) : 0,
             silencePercentage,
             transitionPauses,
             extendedPauses,

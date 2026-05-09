@@ -179,25 +179,30 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       }
     `;
 
-    const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-      }),
-    });
+    let suggestions: AISuggestions | null = null;
 
-    if (!geminiResponse.ok) {
-      const errorBody = await geminiResponse.text();
-      console.error('Gemini API request failed:', errorBody);
-      throw new Error(`Gemini API error: ${geminiResponse.statusText}`);
+    try {
+      const geminiResponse = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+      });
+
+      if (!geminiResponse.ok) {
+        const errorBody = await geminiResponse.text();
+        console.error('Gemini API request failed:', errorBody);
+      } else {
+        const responseData = await geminiResponse.json();
+        const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
+        suggestions = typeof rawText === 'string'
+          ? parseSuggestions(rawText)
+          : null;
+      }
+    } catch (error) {
+      console.error('Gemini API request failed:', error);
     }
-
-    const responseData = await geminiResponse.json();
-    const rawText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
-    const suggestions = typeof rawText === 'string'
-      ? parseSuggestions(rawText)
-      : null;
 
     if (!suggestions) {
       console.error('Gemini response did not contain valid suggestions JSON.');
