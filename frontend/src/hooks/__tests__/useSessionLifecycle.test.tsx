@@ -408,4 +408,40 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             });
         });
     });
+
+    it('should force expired promo or downgraded users back to native mode and clear stale private errors', async () => {
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: false,
+            sttStatus: { type: 'error', message: 'Error occurred' },
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useProfile).mockReturnValue({
+            profile: {
+                id: 'test-user',
+                subscription_status: 'free',
+                email: 'test@example.com'
+            } as UserProfile,
+            isVerified: true
+        });
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await waitFor(() => {
+            expect(mockStore.getState().sttMode).toBe('native');
+            expect(mockStore.getState().sttStatus).toEqual({
+                type: 'ready',
+                message: 'Ready to record'
+            });
+        });
+    });
 });

@@ -309,6 +309,15 @@ export const useSessionLifecycle = () => {
     // chooses a mode. This prevents a pre-profile native default from latching
     // for Pro users after profile hydration.
     useEffect(() => {
+        if (isVerified && !isListening && !isProUser && sttMode && sttMode !== 'native') {
+            modeSourceRef.current = 'default';
+            setSTTMode('native');
+            if (sttStatus.type === 'error') {
+                setSTTStatus({ type: 'ready', message: 'Ready to record' });
+            }
+            return;
+        }
+
         if (
             isVerified &&
             !isListening &&
@@ -317,7 +326,7 @@ export const useSessionLifecycle = () => {
             modeSourceRef.current = 'default';
             setSTTMode(defaultMode);
         }
-    }, [isVerified, isListening, sttMode, defaultMode, setSTTMode]);
+    }, [isVerified, isListening, isProUser, sttMode, sttStatus.type, defaultMode, setSTTMode, setSTTStatus]);
 
     useEffect(() => {
         if (isListening && activeEngine && activeEngine !== 'none' && activeEngine !== effectiveMode) {
