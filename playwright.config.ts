@@ -97,7 +97,7 @@ export default defineConfig({
     {
       name: 'full-suite',
       testMatch: ['tests/e2e/**/*.spec.ts'],
-      testIgnore: ['**/infra.probe.e2e.spec.ts', '**/*.live.spec.ts'],
+      testIgnore: ['**/infra.probe.e2e.spec.ts', '**/dump-ground/**', '**/*.live.spec.ts'],
       dependencies: ['infra-probe'],
       snapshotPathTemplate: '{testDir}/{testFileDir}/{testFileName}-snapshots/{arg}-{projectName}{ext}',
       use: {
