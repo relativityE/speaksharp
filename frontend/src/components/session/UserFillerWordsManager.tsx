@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Plus, X } from 'lucide-react';
 import { useUserFillerWords } from '@/hooks/useUserFillerWords';
-import { VOCABULARY_LIMITS } from '@/config';
 import logger from '../../lib/logger';
 
 interface UserFillerWordsManagerProps {
@@ -19,15 +18,11 @@ export const UserFillerWordsManager: React.FC<UserFillerWordsManagerProps> = ({ 
         removeWord,
         isAdding,
         isRemoving,
+        maxWords,
         error: addError // Hook returns error as 'error', mapping to addError
     } = useUserFillerWords();
 
-    // Simplified dynamic capacity: Start at 100, expand in 100-word increments as needed
     const currentCount = vocabulary.length;
-    const maxWords = Math.max(
-        VOCABULARY_LIMITS.BASE_CAPACITY,
-        (Math.floor(currentCount / 100) + 1) * 100
-    );
     const isAtLimit = currentCount >= maxWords;
 
     const handleSubmit = (e: FormEvent<HTMLFormElement>) => {

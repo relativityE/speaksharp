@@ -105,7 +105,7 @@ export const GoalsSection: React.FC = () => {
                 </div>
 
                 <div className="pt-4 mt-2 border-t border-border/50">
-                    <p className={`text-sm text-center font-medium ${weeklySessions >= weeklyGoal ? 'text-emerald-500' : 'text-muted-foreground'}`}>
+                    <p className={`text-sm text-center font-medium ${weeklySessions >= weeklyGoal ? 'text-success' : 'text-muted-foreground'}`}>
                         {getEncouragementMessage()}
                     </p>
                 </div>

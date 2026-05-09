@@ -107,7 +107,7 @@ export const EditGoalsDialog: React.FC<EditGoalsDialogProps> = ({ goals, onSave 
                 </div>
                 <DialogFooter className="flex items-center justify-between sm:justify-between">
                     {showSuccess ? (
-                        <span className="text-sm text-emerald-500 font-medium" data-testid="goals-save-success">
+                        <span className="text-sm text-success font-medium" data-testid="goals-save-success">
                             ✓ Goals saved!
                         </span>
                     ) : <span />}

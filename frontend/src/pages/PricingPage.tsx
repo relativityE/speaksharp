@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { getSupabaseClient } from '@/lib/supabaseClient';
@@ -64,24 +64,35 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
   };
 
   return (
-    <Card className={`flex flex-col ${tier.isPopular ? 'border-primary' : ''}`}>
-      <CardHeader>
-        <CardTitle>{tier.name}</CardTitle>
+    <Card className={`relative flex h-full flex-col border-border/70 bg-card/95 shadow-xl ${tier.isPopular ? 'border-primary shadow-primary/15' : ''}`}>
+      {tier.isPopular && (
+        <div className="absolute right-5 top-5 inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground shadow-sm">
+          <Zap className="h-3 w-3" />
+          Best for testers
+        </div>
+      )}
+      <CardHeader className="p-6 pb-4">
+        <CardTitle className="text-2xl">{tier.name}</CardTitle>
         <CardDescription>{tier.priceDescription}</CardDescription>
-        <div className="text-4xl font-bold">{tier.price}</div>
+        <div className="text-4xl font-bold tracking-tight">{tier.price}</div>
       </CardHeader>
-      <CardContent className="flex-grow">
+      <CardContent className="flex-grow px-6">
         <ul className="space-y-2">
           {tier.features.map((feature, i) => (
-            <li key={i} className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-green-500" />
-              <span>{feature}</span>
+            <li key={i} className="flex items-start gap-2 text-sm leading-relaxed">
+              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+              <span className="text-foreground/95">{feature}</span>
             </li>
           ))}
         </ul>
       </CardContent>
       <div className="p-6">
-        <Button onClick={() => { void handleUpgrade(); }} className="w-full" disabled={tier.name === 'Free'}>
+        <Button
+          onClick={() => { void handleUpgrade(); }}
+          className="w-full"
+          variant={tier.isPopular ? 'default' : 'outline'}
+          disabled={tier.name === 'Free'}
+        >
           {tier.cta}
         </Button>
       </div>
@@ -94,12 +105,12 @@ export const PricingPage: React.FC = () => {
 
   if (!stripeStatus.available && stripeStatus.reason !== 'Checking...') {
     return (
-      <div className="container mx-auto py-24 text-center">
-        <div className="max-w-md mx-auto p-8 border rounded-xl bg-card shadow-sm">
-          <AlertTriangle className="mx-auto h-12 w-12 text-yellow-500 mb-4" />
+      <div className="min-h-screen bg-gradient-subtle px-4 pt-28 text-center">
+        <div className="max-w-md mx-auto p-8 border border-border/70 rounded-lg bg-card shadow-sm">
+          <AlertTriangle className="mx-auto h-12 w-12 text-primary mb-4" />
           <h3 className="text-2xl font-bold">Payment System Unavailable</h3>
           <p className="text-muted-foreground mt-2">{stripeStatus.reason}</p>
-          <div className="mt-6 p-4 border rounded-lg bg-yellow-50/50 text-left">
+          <div className="mt-6 p-4 border border-primary/25 rounded-lg bg-primary/10 text-left">
             <p className="font-semibold mb-2">How to fix:</p>
             <ul className="list-disc list-inside space-y-1 text-sm">
               <li>Disable ad-blockers for this site</li>
@@ -120,14 +131,14 @@ export const PricingPage: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto py-12">
-      <div className="text-center mb-12">
-        <h1 className="text-4xl font-bold">Find the plan that's right for you</h1>
-        <p className="text-xl text-muted-foreground mt-4">
-          Whether you're just starting out or a seasoned pro, we have a plan for you.
+    <div className="min-h-screen bg-gradient-subtle px-4 pb-16 pt-28">
+      <div className="mx-auto max-w-4xl text-center mb-10">
+        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Choose your SpeakSharp plan</h1>
+        <p className="text-base text-muted-foreground mt-3 sm:text-lg">
+          Start with browser transcription, then upgrade when you need private models, AI feedback, and deeper history.
         </p>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2">
         {tiers.map((tier) => (
           <PricingCard key={tier.name} tier={tier} />
         ))}

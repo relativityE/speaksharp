@@ -64,11 +64,12 @@ test.describe('Promo Admin Journey', () => {
         // 3. Submit
         await page.click('[data-testid="sign-up-submit"]');
 
-        // 4. Verify RED BOLD inline error
+        // 4. Verify prominent inline error
         const inlineError = page.locator('[data-testid="signup-inline-error"]');
         await expect(inlineError).toBeVisible();
-        await expect(inlineError).toHaveClass(/text-red-600/);
-        await expect(inlineError).toHaveClass(/font-bold/);
+        await expect(inlineError).toHaveAttribute('role', 'alert');
+        await expect(inlineError).toHaveClass(/text-destructive/);
+        await expect(inlineError).toHaveClass(/font-semibold/);
         
         // 5. Ensure NO redirect happens
         await expect(page).not.toHaveURL(/\/session/);

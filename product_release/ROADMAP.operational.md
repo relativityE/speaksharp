@@ -13,14 +13,14 @@ This document tracks identified risks and their impact on the 12-hour launch win
 
 | Area | Status | Risk | Launch Impact | Deferred? |
 | :--- | :--- | :--- | :--- | :--- |
-| **Quota Gate** | 🟡 CI/DEPLOY GREEN / LIVE VALIDATION PENDING | Fail-closed quota and usage-token fixes are in `9dff649`; GitHub CI and Edge Function deploy are green, but live fail-closed/token smoke is pending | **Critical**: Revenue leakage | No |
+| **Quota Gate** | 🟡 CI/DEPLOY GREEN / LIVE VALIDATION PENDING | Fail-closed quota and usage-token fixes are present; GitHub CI and Edge Function deploy are green on `56ce972`, but live fail-closed/token smoke is pending | **Critical**: Revenue leakage | No |
 | **Promo Abuse Guard** | 🟡 CI/DEPLOY GREEN / LIVE VALIDATION PENDING | DB-backed promo attempt throttling is present; GitHub CI/deploy evidence is green, but live throttling/reuse smoke is pending | **P0**: Tester promo access can be brute-forced without this | No |
 | **Stripe Webhook**| 🟡 PENDING | Live mode end-to-end unverified | **P0**: Users cannot upgrade | No |
 | **Safari Mic** | 🟡 PENDING | Potential silent failure on resume | **P1**: Degraded mobile UX | Yes |
 | **Sentry Ingest** | 🟡 PENDING | Live project ingestion untested | **High**: Blind to launch errors | No |
 | **Usage Edge CORS** | 🟡 CI/DEPLOY GREEN / HEADER VALIDATION PENDING | `check-usage-limit` now uses the shared request-aware CORS helper; Edge Function deploy is green, but deployed header validation is pending | **P1**: JWT still required, but attack surface should match other Edge Functions | No |
 | **Stripe Secret Init** | 🟡 CI/DEPLOY GREEN / LIVE WEBHOOK PENDING | Webhook runtime now lazily validates secrets inside the served handler and returns actionable config errors instead of module-scope crashes; deploy evidence is green, but live webhook/env smoke is pending | **P2/P1 if env missing**: live validation pending | No |
-| **GitHub Canary** | ✅ PASSING | Deploy smoke helper updated from stale `/log-in` route to `/auth/signin`; production canary passed on `9dff649` | **P1**: Keep this green after every deploy | No |
+| **GitHub Canary** | ✅ PASSING | Deploy smoke helper updated from stale `/log-in` route to `/auth/signin`; production canary passed on `56ce972` | **P1**: Keep this green after every deploy | No |
 | **STT Benchmarks** | 🔴 BLOCKED / TRUTHFUL UI PATCH LOCAL | Benchmark workflow harness exists, but current manifest data is stale/incomplete and browser benchmark audio/reference mapping must be corrected before WER values can be trusted | **P0 for user-facing benchmark claims / P1 for controlled tester release if hidden as not benchmarked** | No |
 | **Private Model Cache/Progress** | 🟡 FIX APPLIED / LIVE TRANSCRIPT VALIDATION PENDING | Launch policy is CPU/Transformers.js first for deterministic Private setup; WebGPU/WhisperTurbo is an accelerated validation path. CPU model assets are locally load-proven and progress/cache fixes are applied, but live transcript/save/history proof is pending. | **P1**: Required for Private STT first-use/second-use trust | No |
 | **Theme / Toast UX** | 🟡 LOCAL POLISH / VISUAL SMOKE PENDING | UI review kept amber as the brand/action color but found severity states, card borders, and the dark glow/grid were too visually noisy; local polish separates toast severity colors, softens shell effects, and normalizes card borders | **P1**: Prevents tester confusion during status/progress flows | No |
@@ -39,7 +39,7 @@ This document tracks identified risks and their impact on the 12-hour launch win
 2. **Validate AI Suggestions**: Verify the deployed Gemini suggestion path returns safe fallback output on malformed responses and does not 500 the analytics page.
 3. **Stripe Verification**: Complete a live $0.50 transaction to verify webhook parity.
 4. **Env Verification**: Complete the [LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md).
-5. **Canary Maintenance**: Keep GitHub `canary.yml` green after deploys; latest green evidence is `9dff649`.
+5. **Canary Maintenance**: Keep GitHub `canary.yml` green after deploys; latest green evidence is `56ce972`.
 6. **Benchmark Workflow Repair**: Remove stale pnpm 9 pins from `.github/workflows/benchmarks.yml`, rerun both benchmark jobs, and save WER evidence.
 7. **Usage Edge CORS**: Deploy and verify `check-usage-limit` returns request-aware CORS headers for allowed production origins.
 8. **Live Deployment Validation**: Deploy the two quota/promo migrations and updated Edge Functions, then run smoke tests for usage denial, Cloud token issuance, promo throttling, Stripe webhook, and Sentry ingest.

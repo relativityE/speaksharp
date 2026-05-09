@@ -154,12 +154,12 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background font-sans antialiased bg-gradient-radial relative">
-      <div className="fixed inset-0 bg-grid opacity-20 pointer-events-none" />
+      <div className="fixed inset-0 bg-grid opacity-25 pointer-events-none" />
       <Toaster
         position="top-right"
         expand={false}
         duration={5000}
-        offset="5rem"
+        offset="var(--toast-offset-top)"
       />
       <ProfileGuard>
         <RouteReadinessManager />

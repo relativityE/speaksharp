@@ -141,6 +141,15 @@ export default class TranscriptionService {
     syncEngineReady(ready);
   }
 
+  private canFallbackToNative(): boolean {
+    return Boolean(
+      this.policy.allowFallback &&
+      this.policy.allowNative &&
+      this.mode !== 'native' &&
+      this.mode !== 'mock'
+    );
+  }
+
   /**
    * Serializes async operations to prevent concurrent initialization races.
    */
@@ -273,7 +282,7 @@ export default class TranscriptionService {
 
         // 1. Check if we have a fallback path (e.g. from cloud to native)
         const canFallback =
-          (this.mode !== 'native' && this.mode !== 'mock') &&
+          this.canFallbackToNative() &&
           (this.fsm.is('ENGINE_INITIALIZING') || this.fsm.is('READY'));
 
         if (canFallback) {
@@ -548,7 +557,7 @@ export default class TranscriptionService {
         return;
       }
 
-      const canFallback = this.mode !== 'native' && this.mode !== 'mock';
+      const canFallback = this.canFallbackToNative();
       if (canFallback) {
         logger.warn({
           errorName: err?.constructor?.name,

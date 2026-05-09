@@ -41,7 +41,7 @@ export const HeroSection = () => {
             animate="visible"
           >
             <motion.div variants={itemVariants}>
-              <Badge className="w-fit glass text-primary border-none px-4 py-1.5 text-[10px] font-black uppercase tracking-[0.2em] flex items-center gap-2 rounded-full">
+              <Badge className="w-fit glass text-primary border-none px-4 py-1.5 text-[11px] font-semibold flex items-center gap-2 rounded-full">
                 <Sparkles className="size-3 fill-current" />
                 AI-Powered Speaking Coach
               </Badge>
@@ -65,19 +65,19 @@ export const HeroSection = () => {
 
             {/* Buttons + Trust badges share the same max-width so edges align */}
             <div className="max-w-md w-full pt-6 space-y-4">
-              <motion.div variants={itemVariants} className="flex gap-4">
-                <Button variant="secondary" size="lg" className="flex-1 bg-primary text-primary-foreground font-bold h-14 rounded-xl shadow-[0_4px_14px_0_rgba(251,191,36,0.39)] hover:shadow-[0_6px_20px_rgba(251,191,36,0.23)] hover:bg-primary/90 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 text-base border border-primary/50" asChild>
+              <motion.div variants={itemVariants} className="flex flex-col gap-3 sm:flex-row sm:gap-4">
+                <Button variant="secondary" size="lg" className="flex-1 bg-primary text-primary-foreground font-bold h-14 rounded-md shadow-[0_4px_14px_0_rgba(251,191,36,0.39)] hover:shadow-[0_6px_20px_rgba(251,191,36,0.23)] hover:bg-primary/90 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 text-base border border-primary/50" asChild>
                   <Link to="/auth/signup" data-testid="start-free-session-button" className="flex items-center justify-center gap-2">
                     Start Speaking
                     <ArrowRight className="size-5" />
                   </Link>
                 </Button>
-                <Button size="lg" className="flex-1 bg-white/5 border border-white/20 text-foreground font-bold h-14 rounded-xl shadow-[0_4px_14px_0_rgba(0,0,0,0.1)] hover:bg-white/10 hover:border-white/30 hover:shadow-[0_6px_20px_rgba(255,255,255,0.05)] hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 text-base backdrop-blur-md" asChild>
+                <Button size="lg" className="flex-1 bg-white/5 border border-border/70 text-foreground font-bold h-14 rounded-md shadow-[0_4px_14px_0_rgba(0,0,0,0.1)] hover:bg-white/10 hover:border-white/30 hover:shadow-[0_6px_20px_rgba(255,255,255,0.05)] hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 text-base backdrop-blur-md" asChild>
                   <Link to="/analytics">View Analytics</Link>
                 </Button>
               </motion.div>
 
-              <motion.div variants={itemVariants} className="flex items-center justify-between text-sm text-foreground/80 font-medium">
+              <motion.div variants={itemVariants} className="grid grid-cols-1 gap-2 text-sm text-foreground/85 font-medium sm:grid-cols-3">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-primary" />
                   <span>Free to start</span>

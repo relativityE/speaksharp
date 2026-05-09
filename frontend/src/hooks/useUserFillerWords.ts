@@ -15,6 +15,30 @@ interface UserWord {
     user_id: string;
 }
 
+export const normalizeUserFillerWord = (word: string): string => word.trim().toLowerCase();
+
+export const validateUserFillerWord = (
+    word: string,
+    existingWords: Array<Pick<UserWord, 'word'>>,
+    maxWords: number,
+    isPro: boolean
+): string => {
+    const cleanedWord = normalizeUserFillerWord(word);
+    if (!cleanedWord) throw new Error('Word cannot be empty');
+
+    const exists = existingWords.some(w => normalizeUserFillerWord(w.word) === cleanedWord);
+    if (exists) throw new Error('Word already in list');
+
+    if (existingWords.length >= maxWords) {
+        throw new Error(isPro
+            ? `Pro limit reached (${maxWords} words).`
+            : `Free limit reached (${maxWords} words). Upgrade to Pro to add more.`
+        );
+    }
+
+    return cleanedWord;
+};
+
 export const useUserFillerWords = () => {
     const { session } = useAuthProvider();
     const queryClient = useQueryClient();
@@ -51,21 +75,7 @@ export const useUserFillerWords = () => {
         mutationFn: async (word: string) => {
             if (!session?.user?.id) throw new Error('No user logged in');
 
-            // 1. Validation (Clean word)
-            const cleanedWord = word.trim().toLowerCase();
-            if (!cleanedWord) throw new Error('Word cannot be empty');
-
-            // 2. Check duplicates (Case insensitive)
-            const exists = userFillerWords.some(w => w.word.toLowerCase() === cleanedWord.toLowerCase());
-            if (exists) throw new Error('Word already in list');
-
-            // 3. Limit Check
-            if (userFillerWords.length >= MAX_WORDS) {
-                throw new Error(isPro
-                    ? `Pro limit reached (${MAX_WORDS} words).`
-                    : `Free limit reached (${MAX_WORDS} words). Upgrade to Pro to add more.`
-                );
-            }
+            const cleanedWord = validateUserFillerWord(word, userFillerWords, MAX_WORDS, isPro);
 
             if (!session?.user?.id) throw new Error('No user session');
 

@@ -679,6 +679,14 @@ export class SpeechRuntimeController {
             if (lastChunk?.isFinal && lastChunk.transcript === data.transcript.final) {
                 return;
             }
+            if (currentTranscript.trim() === data.transcript.final.trim()) {
+                store.addChunk({
+                    transcript: data.transcript.final || '',
+                    timestamp: Date.now(),
+                    isFinal: true
+                });
+                return;
+            }
             const newFullText = currentTranscript ? `${currentTranscript} ${data.transcript.final}` : data.transcript.final;
             store.updateTranscript(newFullText, '');
             store.addChunk({
@@ -948,27 +956,32 @@ export class SpeechRuntimeController {
 
                     if (result && sessionId) {
                         const duration = startTime ? (Date.now() - startTime) / 1000 : 0;
-                        const fillerWords = countFillerWords(result.transcript, this.userWords);
-                        const wpm = duration > 0 ? Math.round((result.stats.total_words / duration) * 60) : 0;
+                        const store = useSessionStore.getState();
+                        const chunkTranscript = store.chunks.map(chunk => chunk.transcript).join(' ').trim();
+                        const storeTranscript = store.transcript.transcript.trim();
+                        const resultTranscript = result.transcript?.trim() || '';
+                        const finalTranscript = [resultTranscript, chunkTranscript, storeTranscript]
+                            .sort((a, b) => b.split(/\s+/).filter(Boolean).length - a.split(/\s+/).filter(Boolean).length)[0] || '';
+                        const fillerWords = countFillerWords(finalTranscript, this.userWords);
+                        const wordCount = result.stats.total_words || finalTranscript.split(/\s+/).filter(Boolean).length;
+                        const wpm = duration > 0 ? Math.round((wordCount / duration) * 60) : 0;
                         const accuracy = result.stats.accuracy;
-                        const wordCount = result.stats.total_words || result.transcript.split(/\s+/).filter(Boolean).length;
                         const fillerCount = fillerWords.total?.count || 0;
                         const fillerPercentage = wordCount > 0 ? (fillerCount / wordCount) * 100 : 0;
-                        const errorTagCount = (result.transcript.match(/\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi) || []).length;
+                        const errorTagCount = (finalTranscript.match(/\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi) || []).length;
                         const clarityScore = wordCount > 0
                             ? Math.max(0, Math.min(100, Math.round(100 - (fillerPercentage * 1.5) - (errorTagCount * 3))))
                             : 100;
 
-                        const store = useSessionStore.getState();
                         if (store.chunks.length === 0) {
                             store.setChunks([{
-                                transcript: result.transcript,
+                                transcript: finalTranscript,
                                 timestamp: startTime || Date.now(),
                                 isFinal: true
                             }]);
-                        } else if (result.transcript && result.transcript.length > store.transcript.transcript.length) {
+                        } else if (finalTranscript && finalTranscript.length > store.transcript.transcript.length) {
                             store.appendChunk({
-                                transcript: result.transcript,
+                                transcript: finalTranscript,
                                 timestamp: Date.now(),
                                 isFinal: true,
                                 isCorrection: true
@@ -986,7 +999,7 @@ export class SpeechRuntimeController {
 
                         await completeSession(sessionId, {
                             status: 'completed',
-                            transcript: result.transcript,
+                            transcript: finalTranscript,
                             duration: Math.round(duration)
                         });
                         if (token.cancelled || token.version !== this.lifecycleVersion) return null;

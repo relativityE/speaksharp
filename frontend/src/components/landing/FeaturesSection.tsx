@@ -24,8 +24,8 @@ const itemVariants = {
 
 const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description, iconBgColor, iconTextColor }) => (
   <motion.div variants={itemVariants} className="h-full group cursor-pointer">
-    <div className="p-8 h-full rounded-2xl bg-card border border-white/5 transition-all duration-400 hover:-translate-y-2 hover:shadow-[0_20px_40px_-15px_rgba(251,191,36,0.1)] hover:border-primary/20">
-      <div className={`w-16 h-16 rounded-2xl flex items-center justify-center ${iconBgColor} ${iconTextColor} mb-6 group-hover:scale-110 group-hover:bg-primary/30 transition-all duration-400`}>
+    <div className="p-8 h-full rounded-lg bg-card border border-border/60 transition-all duration-400 hover:-translate-y-1 hover:shadow-[0_20px_40px_-15px_rgba(251,191,36,0.1)] hover:border-primary/30">
+      <div className={`w-16 h-16 rounded-lg flex items-center justify-center ${iconBgColor} ${iconTextColor} mb-6 group-hover:scale-105 group-hover:bg-primary/30 transition-all duration-400`}>
         {icon}
       </div>
       <h3 className="text-xl font-bold text-foreground group-hover:text-primary transition-colors duration-400">{title}</h3>

@@ -86,15 +86,15 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
-            <div className={`bg-card/85 border border-border/80 rounded-xl p-8 shadow-card relative z-10 h-full flex flex-col items-center justify-center text-center gap-5 ${className}`} data-testid="live-recording-card">
+            <div className={`bg-card/85 border border-border/80 rounded-lg p-6 sm:p-8 shadow-card relative z-10 h-full flex flex-col items-center justify-center text-center gap-5 ${className}`} data-testid="live-recording-card">
 
                 {/* Visual Center with Left Controls */}
-                <div className="flex items-center justify-center gap-7 w-full">
+                <div className="flex flex-col items-center justify-center gap-5 w-full sm:flex-row sm:gap-7">
 
                     {/* Left Column Stack: Secure + Selector */}
-                    <div className="flex flex-col items-start gap-1 flex-shrink-0 min-w-0">
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-[10px] font-black text-emerald-500 uppercase tracking-[0.1em]" data-state="secure">
-                            <Shield className="h-2.5 w-2.5 fill-emerald-500/10" />
+                    <div className="flex flex-col items-center gap-1 flex-shrink-0 min-w-0 sm:items-start">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-success/12 border border-success/30 text-[10px] font-semibold text-success" data-state="secure">
+                            <Shield className="h-2.5 w-2.5 fill-success/10" />
                             <span>SECURE</span>
                         </div>
 
@@ -103,7 +103,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-9 px-3.5 gap-1.5 text-[11px] uppercase tracking-[0.12em] font-black text-foreground hover:text-foreground hover:bg-background/50 rounded-md border border-border/80 transition-all font-mono"
+                                    className="h-9 px-3.5 gap-1.5 text-[11px] font-semibold text-foreground hover:text-foreground hover:bg-background/50 rounded-md border border-border/80 transition-all"
                                     title={isListening ? "Cannot change mode during recording" : "Select mode"}
                                     data-testid={TEST_IDS.STT_MODE_SELECT}
                                     data-state={mode}
@@ -178,7 +178,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 {formattedTime}
                             </div>
                             <div className="mt-2 inline-flex items-center gap-1.5 py-1 px-3 rounded-full bg-muted/30 border border-border/60">
-                                <div className={`h-1 w-1 rounded-full ${isListening ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/30'}`} />
+                                <div className={`h-1.5 w-1.5 rounded-full ${isListening ? 'bg-primary animate-pulse' : 'bg-muted-foreground/30'}`} />
                                 <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.14em]" data-testid="stt-status-label">
                                     {_statusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Syncing") : "Engine Ready"))}
                                 </span>

@@ -132,6 +132,39 @@ describe('UserFillerWordsManager Integration', () => {
             const addButton = screen.getByRole('button', { name: /add word/i });
             expect(addButton).toBeInTheDocument();
         });
+
+        it('uses the hook word limit for the counter and disabled state', async () => {
+            const words = Array.from({ length: 10 }, (_, index) => ({
+                id: `free-word-${index}`,
+                word: `freeword${index}`,
+                user_id: 'free-user',
+                created_at: new Date().toISOString(),
+            }));
+
+            vi.mocked(useUserFillerWords).mockReturnValue({
+                userFillerWords: words.map(word => word.word),
+                fullVocabularyObjects: words,
+                isLoading: false,
+                error: null,
+                addWord: mockAddWord,
+                removeWord: mockRemoveWord,
+                isAdding: false,
+                isRemoving: false,
+                count: 10,
+                maxWords: 10,
+                isPro: false
+            } as unknown as ReturnType<typeof useUserFillerWords>);
+
+            render(
+                <MockAuthProvider value={mockAuthContextValue}>
+                    <UserFillerWordsManager />
+                </MockAuthProvider>
+            );
+
+            expect(screen.getByText('(10/10)')).toBeInTheDocument();
+            expect(screen.getByTestId('user-filler-words-input')).toBeDisabled();
+            expect(screen.getByRole('button', { name: /add word/i })).toBeDisabled();
+        });
     });
 
     describe('Authenticated User', () => {

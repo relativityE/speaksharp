@@ -47,24 +47,24 @@ export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, on
 
     return (
         <AlertDialog open={open} onOpenChange={onOpenChange}>
-            <AlertDialogContent>
+            <AlertDialogContent className="border-border/70 bg-card sm:max-w-md">
                 <AlertDialogHeader>
-                    <AlertDialogTitle>Your Pro Trial Has Ended</AlertDialogTitle>
-                    <AlertDialogDescription>
+                    <AlertDialogTitle className="text-foreground">Your Pro Trial Has Ended</AlertDialogTitle>
+                    <AlertDialogDescription className="text-muted-foreground">
                         Your temporary Pro access has expired. Upgrade now to continue using Pro features like Private Whisper and unlimited sessions.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
 
-                <AlertDialogFooter className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <AlertDialogFooter className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:space-x-0">
                     <AlertDialogCancel
-                        className="m-0 w-full"
+                        className="m-0 h-11 w-full justify-center"
                         onClick={handleContinue}
                         data-testid="promo-expired-continue-free"
                     >
                         Continue as Free
                     </AlertDialogCancel>
                     <Button
-                        className="w-full"
+                        className="h-11 w-full"
                         onClick={() => { void handleUpgrade(); }}
                         data-testid="promo-expired-upgrade-button"
                     >

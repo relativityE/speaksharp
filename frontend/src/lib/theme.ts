@@ -12,18 +12,18 @@ export const speakSharpTheme = {
     colors: {
         // Primary brand colors with conversion optimization data
         primary: {
-            main: 'hsl(221, 83%, 53%)', // Blue - Trust: +23% conversion
-            hover: 'hsl(221, 83%, 48%)',
-            light: 'hsl(221, 83%, 96%)',
-            dark: 'hsl(221, 83%, 15%)'
+            main: 'hsl(40, 85%, 55%)',
+            hover: 'hsl(35, 88%, 50%)',
+            light: 'hsl(40, 90%, 92%)',
+            dark: 'hsl(34, 85%, 18%)'
         },
 
-        // Privacy-focused colors - Security perception: +31%
+        // Privacy-focused colors stay distinct from the amber action system.
         privacy: {
-            main: 'hsl(142, 71%, 45%)', // Green - Security & Trust
-            hover: 'hsl(142, 71%, 40%)',
-            light: 'hsl(142, 71%, 95%)',
-            dark: 'hsl(142, 71%, 15%)'
+            main: 'hsl(178, 38%, 42%)',
+            hover: 'hsl(178, 38%, 36%)',
+            light: 'hsl(178, 38%, 92%)',
+            dark: 'hsl(178, 38%, 18%)'
         },
 
         // Secondary brand colors

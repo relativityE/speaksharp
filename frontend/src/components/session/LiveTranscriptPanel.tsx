@@ -29,7 +29,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
 
     return (
         <div
-            className={`bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col ${className}`}
+            className={`bg-card border border-border rounded-lg p-4 shadow-sm flex flex-col ${className}`}
             data-testid={TEST_IDS.TRANSCRIPT_PANEL}
         >
             <div className="flex items-center gap-2 mb-2">
@@ -38,7 +38,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             </div>
             <div
                 ref={containerRef}
-                className="flex-1 overflow-y-auto p-3 rounded-lg bg-muted/30 leading-relaxed transition-all min-h-[160px]"
+                className="flex-1 overflow-y-auto p-3 rounded-lg bg-muted/22 leading-relaxed transition-all min-h-[160px]"
                 data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
                 aria-live="polite"
                 aria-label="Live transcript of your speech"
@@ -51,13 +51,13 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/5 border border-white/10 shadow-sm">
                                 {segment.mode === 'private' ? (
                                     <>
-                                        <Lock className="h-3 w-3 text-emerald-500" />
-                                        <span className="text-[10px] font-black uppercase tracking-tighter text-emerald-500">Chapter {idx + 1}: Private</span>
+                                        <Lock className="h-3 w-3 text-success" />
+                                        <span className="text-[10px] font-semibold text-success">Chapter {idx + 1}: Private</span>
                                     </>
                                 ) : (
                                     <>
-                                        <Cloud className="h-3 w-3 text-sky-400" />
-                                        <span className="text-[10px] font-black uppercase tracking-tighter text-sky-400">Chapter {idx + 1}: Cloud</span>
+                                        <Cloud className="h-3 w-3 text-accent" />
+                                        <span className="text-[10px] font-semibold text-accent">Chapter {idx + 1}: Cloud</span>
                                     </>
                                 )}
                             </div>
@@ -72,9 +72,9 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 {/* Engine Handoff Separator */}
                 {history.length > 0 && transcript.trim() !== '' && (
                     <div className="flex items-center gap-4 my-6 select-none pointer-events-none">
-                        <div className="flex-1 h-px bg-gradient-to-r from-transparent via-orange-500/30 to-transparent" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-500/50">Engine Handoff</span>
-                        <div className="flex-1 h-px bg-gradient-to-r from-transparent via-orange-500/30 to-transparent" />
+                        <div className="flex-1 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
+                        <span className="text-[10px] font-semibold text-primary/80">Engine Handoff</span>
+                        <div className="flex-1 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
                     </div>
                 )}
 

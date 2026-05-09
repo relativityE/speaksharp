@@ -17,6 +17,19 @@ interface UsageLimitResponse {
 
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
 
+type PromoProfile = {
+    promo_expires_at?: string | null;
+    stripe_subscription_id?: string | null;
+    subscription_id?: string | null;
+};
+
+function hasPaidStripeSubscription(profile: PromoProfile | null): boolean {
+    return Boolean(
+        profile?.stripe_subscription_id?.trim() ||
+        profile?.subscription_id?.trim()
+    );
+}
+
 /**
  * Local JWT parsing to extract user ID without a network call.
  * This saves ~50-100ms by avoiding a redundant round-trip to Supabase Auth.
@@ -96,14 +109,14 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
         // Handle Promo Expiry (Legacy check, keep for now until we move it to a dedicated cron/trigger)
         const { data: profile } = await supabaseClient
             .from('user_profiles')
-            .select('promo_expires_at')
+            .select('promo_expires_at,stripe_subscription_id,subscription_id')
             .eq('id', userId)
             .single();
 
         if (profile?.promo_expires_at) {
             const now = new Date();
             const expiry = new Date(profile.promo_expires_at);
-            if (expiry < now) {
+            if (expiry < now && !hasPaidStripeSubscription(profile as PromoProfile)) {
                 console.log(`[check-usage-limit] Promo expired for user ${userId}`);
                 await supabaseClient.from('user_profiles').update({ subscription_status: 'free' }).eq('id', userId);
 

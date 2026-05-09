@@ -10,61 +10,72 @@ interface StatusNotificationBarProps {
     className?: string;
 }
 
-const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string }> = {
+const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string; iconClass: string }> = {
     idle: {
         icon: Info,
-        bgClass: 'bg-card/95 border-border shadow-sm',
-        textClass: 'text-muted-foreground font-semibold',
+        bgClass: 'bg-card/88 border-border/70 shadow-sm backdrop-blur-xl',
+        textClass: 'text-muted-foreground',
+        iconClass: 'text-muted-foreground',
     },
     initializing: {
         icon: Loader2,
-        bgClass: 'bg-primary/10 border-primary/20 shadow-glow backdrop-blur-xl',
-        textClass: 'text-primary font-bold',
+        bgClass: 'bg-card/92 border-primary/35 shadow-sm backdrop-blur-xl',
+        textClass: 'text-foreground',
+        iconClass: 'text-primary',
     },
     downloading: {
         icon: Loader2,
-        bgClass: 'bg-primary/20 border-primary/30 shadow-cyan-glow backdrop-blur-2xl',
-        textClass: 'text-primary font-bold',
+        bgClass: 'bg-card/92 border-primary/45 shadow-md shadow-primary/10 backdrop-blur-xl',
+        textClass: 'text-foreground',
+        iconClass: 'text-primary',
     },
     ready: {
         icon: CheckCircle2,
-        bgClass: 'bg-card/95 border-emerald-500/35 shadow-sm backdrop-blur-xl',
-        textClass: 'text-emerald-500 font-bold',
+        bgClass: 'bg-card/90 border-success/45 shadow-sm backdrop-blur-xl',
+        textClass: 'text-foreground',
+        iconClass: 'text-success',
     },
     recording: {
         icon: Info,
-        bgClass: 'bg-secondary/10 border-secondary/20 shadow-yellow-glow backdrop-blur-xl animate-pulse',
-        textClass: 'text-secondary font-bold',
+        bgClass: 'bg-card/92 border-primary/45 shadow-md shadow-primary/10 backdrop-blur-xl',
+        textClass: 'text-foreground',
+        iconClass: 'text-primary',
     },
     paused: {
         icon: Info,
-        bgClass: 'bg-amber-500/10 border-amber-500/20 shadow-sm backdrop-blur-xl',
-        textClass: 'text-amber-500 font-bold',
+        bgClass: 'bg-card/90 border-primary/35 shadow-sm backdrop-blur-xl',
+        textClass: 'text-foreground',
+        iconClass: 'text-primary',
     },
     fallback: {
         icon: AlertTriangle,
-        bgClass: 'bg-orange-500/10 border-orange-500/20 shadow-sm backdrop-blur-xl',
-        textClass: 'text-orange-500 font-bold',
+        bgClass: 'bg-card/90 border-primary/40 shadow-sm backdrop-blur-xl',
+        textClass: 'text-foreground',
+        iconClass: 'text-primary',
     },
     error: {
         icon: AlertCircle,
-        bgClass: 'bg-destructive/10 border-destructive/20 shadow-sm backdrop-blur-xl',
-        textClass: 'text-destructive font-bold',
+        bgClass: 'bg-card/92 border-destructive/45 shadow-sm backdrop-blur-xl',
+        textClass: 'text-foreground',
+        iconClass: 'text-destructive',
     },
     'download-required': {
         icon: AlertCircle,
-        bgClass: 'bg-orange-500/15 border-orange-500/40 shadow-lg shadow-orange-500/10 backdrop-blur-xl',
-        textClass: 'text-orange-500 font-bold',
+        bgClass: 'bg-card/92 border-primary/50 shadow-md shadow-primary/10 backdrop-blur-xl',
+        textClass: 'text-foreground',
+        iconClass: 'text-primary',
     },
     warning: {
         icon: AlertTriangle,
-        bgClass: 'bg-orange-500/10 border-orange-500/20 shadow-glow-orange backdrop-blur-xl animate-pulse',
-        textClass: 'text-orange-500 font-bold',
+        bgClass: 'bg-card/92 border-primary/45 shadow-sm backdrop-blur-xl',
+        textClass: 'text-foreground',
+        iconClass: 'text-primary',
     },
     info: {
         icon: Info,
-        bgClass: 'bg-card/95 border-primary/20 shadow-sm backdrop-blur-xl',
-        textClass: 'text-primary font-bold',
+        bgClass: 'bg-card/88 border-primary/30 shadow-sm backdrop-blur-xl',
+        textClass: 'text-foreground',
+        iconClass: 'text-primary',
     },
 };
 
@@ -122,7 +133,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
     return (
         <div
-            className={`flex items-center gap-4 w-full px-5 ${isProminent ? 'py-4' : 'py-3'} rounded-xl border ${config.bgClass} ${className} transition-all duration-300`}
+            className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 w-full px-4 sm:px-5 ${isProminent ? 'py-4' : 'py-3'} rounded-lg border ${config.bgClass} ${className} transition-all duration-300`}
             role="status"
             aria-live="polite"
             data-testid="live-session-header"
@@ -132,27 +143,27 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             data-session-saved={displayMessage?.includes('✓') || status.message?.includes('✓')}
         >
             {/* Primary Status Indicator */}
-            <div className="flex items-center gap-3" data-testid="session-status-indicator">
-                <div className="relative">
+            <div className="flex min-w-0 items-start gap-3" data-testid="session-status-indicator">
+                <div className="relative mt-0.5 shrink-0">
                     {emoji ? (
                         <span className="text-xl leading-none" role="img" aria-label="status-icon">{emoji}</span>
                     ) : (
-                        <Icon className={`h-5 w-5 ${config.textClass} ${isAnimated ? 'animate-spin' : ''}`} />
+                        <Icon className={`h-5 w-5 ${config.iconClass} ${isAnimated ? 'animate-spin' : ''}`} />
                     )}
 
                     {/* Vault Mode Indicator (Padlock) */}
                     {activeEngine === 'private' && (
                         <div className="absolute -top-1 -right-1 bg-background rounded-full p-0.5 shadow-sm border border-white/10" title="Vault Mode: On-Device Processing">
-                            <Lock className="h-2 w-2 text-emerald-500 fill-emerald-500/20" />
+                            <Lock className="h-2 w-2 text-success fill-success/20" />
                         </div>
                     )}
                 </div>
-                <div className="flex flex-col">
-                    <span className={`${isProminent ? 'text-sm' : 'text-[13px]'} font-black uppercase tracking-[0.14em] ${config.textClass}`} data-testid="status-message-text">
+                <div className="flex min-w-0 flex-col">
+                    <span className={`${isProminent ? 'text-sm' : 'text-[13px]'} font-semibold leading-snug ${config.textClass}`} data-testid="status-message-text">
                         {displayMessage}
                     </span>
                     {status.detail && (
-                        <span className={`${isProminent ? 'text-xs' : 'text-[10px]'} font-medium opacity-75 ${config.textClass}`}>
+                        <span className={`${isProminent ? 'text-xs' : 'text-[11px]'} font-normal leading-snug text-muted-foreground`}>
                             {status.detail}
                         </span>
                     )}
@@ -162,40 +173,39 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             {status.isFrozen && (
                 <button
                     onClick={() => { void speechRuntimeController.switchToNative(); }}
-                    className="ml-4 px-4 py-1.5 bg-orange-500 text-white text-[10px] font-black uppercase tracking-widest rounded-full shadow-lg hover:bg-orange-600 transition-all active:scale-95 border border-white/20 animate-bounce"
+                    className="sm:ml-4 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-md shadow-md hover:bg-primary/90 transition-all active:scale-95 border border-primary/30"
                     data-action="switch-to-native"
                 >
                     Switch to Native (Free)
                 </button>
             )}
 
-            <div className="flex-1" />
+            <div className="hidden sm:block flex-1" />
 
             {/* Secondary Status Indicator (Background Task) - Far Right */}
             {hasSecondary && (
                 <div
-                    className="flex items-center gap-4 pl-4 border-l border-white/10"
+                    className="flex w-full items-center gap-3 border-t border-white/10 pt-3 sm:w-auto sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0"
                     data-testid="background-task-indicator"
                 >
-                    <div className="flex flex-col items-end">
-                        <span className={`text-[10px] font-bold uppercase tracking-wider ${config.textClass}`}>
+                    <div className="flex flex-col sm:items-end">
+                        <span className="text-[11px] font-semibold text-foreground">
                             Private Model
                         </span>
-                        <span className={`text-[9px] font-medium opacity-60 ${config.textClass}`}>
+                        <span className="text-[10px] font-normal text-muted-foreground">
                             {modelLoadingProgress === 100 ? 'Cached' : 'Downloading...'}
                         </span>
                     </div>
-                    <div className="flex items-center gap-3 w-32">
+                    <div className="flex min-w-0 flex-1 items-center gap-3 sm:w-32 sm:flex-none">
                         <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden shadow-inner">
                             <div
-                                className="h-full bg-current transition-all duration-500 ease-out shadow-[0_0_10px_rgba(255,255,255,0.3)]"
+                                className="h-full bg-primary transition-all duration-500 ease-out"
                                 style={{
                                     width: `${modelLoadingProgress}%`,
-                                    backgroundColor: 'currentColor'
                                 }}
                             />
                         </div>
-                        <span className={`text-[10px] font-black ${config.textClass} min-w-[30px] text-right tabular-nums`}>
+                        <span className="min-w-[30px] text-right text-[11px] font-semibold tabular-nums text-foreground">
                             {Math.round(modelLoadingProgress)}%
                         </span>
                     </div>

@@ -146,7 +146,7 @@ export const SessionPage: React.FC = () => {
                             onClick={() => {
                                 void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
                             }}
-                            className="gap-2 h-12 w-36 px-3 text-[10px] font-black uppercase leading-tight tracking-[0.08em] bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/25 transition-all group rounded-md"
+                            className="gap-2 h-11 w-full min-w-40 px-4 text-xs font-semibold leading-tight bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/25 transition-all group rounded-md sm:w-auto"
                             data-testid="download-model-button"
                         >
                             <div className="relative">
@@ -163,7 +163,7 @@ export const SessionPage: React.FC = () => {
             </div>
 
             {/* Status Bar - Spans full width of the main content area */}
-            <div className="max-w-7xl mx-auto px-6 mb-0">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
                 <StatusNotificationBar status={displayStatus} className="shadow-lg" />
             </div>
 
@@ -198,7 +198,7 @@ export const SessionPage: React.FC = () => {
                         <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
                             <PauseMetricsDisplay
                                 metrics={pauseMetrics}
-                                className="min-h-half bg-background/40 border border-white/5 rounded-xl"
+                                className="min-h-half bg-card/70 border border-border/60 rounded-lg"
                             />
                         </LocalErrorBoundary>
                     </div>
@@ -213,14 +213,14 @@ export const SessionPage: React.FC = () => {
                             <ClarityScoreCard
                                 clarityScore={metrics.clarityScore}
                                 clarityLabel={metrics.clarityLabel}
-                                className="bg-background/40 border border-white/5 rounded-xl h-full"
+                                className="bg-card/70 border border-border/60 rounded-lg h-full"
                             />
                         </LocalErrorBoundary>
                         <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
                             <SpeakingRateCard
                                 wpm={metrics.wpm}
                                 wpmLabel={metrics.wpmLabel}
-                                className="bg-background/40 border border-white/5 rounded-xl h-full"
+                                className="bg-card/70 border border-border/60 rounded-lg h-full"
                             />
                         </LocalErrorBoundary>
                     </div>
@@ -234,7 +234,7 @@ export const SessionPage: React.FC = () => {
                                 history={history}
                                 isListening={isListening}
                                 containerRef={transcriptContainerRef}
-                                className="min-h-double bg-background/40 border border-white/5 rounded-xl h-full"
+                                className="min-h-double bg-card/70 border border-border/60 rounded-lg h-full"
                             />
                         </LocalErrorBoundary>
                     </div>
@@ -245,14 +245,14 @@ export const SessionPage: React.FC = () => {
                             <FillerWordsCard
                                 fillerCount={metrics.fillerCount}
                                 fillerData={fillerData}
-                                className="min-h-double bg-background/40 border border-white/5 rounded-xl h-full"
+                                className="min-h-double bg-card/70 border border-border/60 rounded-lg h-full"
                                 headerAction={
                                     <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
                                         <PopoverTrigger asChild>
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                className="text-primary underline-offset-4 hover:underline"
+                                                className="text-primary underline-offset-4 hover:bg-primary/10 hover:text-primary"
                                                 data-testid="add-custom-word-button"
                                             >
                                                 <Settings className="h-4 w-4" />
@@ -271,7 +271,7 @@ export const SessionPage: React.FC = () => {
                     {/* === ROW 3: Full-Width Quick Tips === */}
                     <div className="lg:col-span-3">
                         <LocalErrorBoundary isolationKey="speaking-tips" componentName="SpeakingTipsCard">
-                            <SpeakingTipsCard className="bg-background/40 border border-white/5 rounded-xl compact" />
+                            <SpeakingTipsCard className="bg-card/70 border border-border/60 rounded-lg compact" />
                         </LocalErrorBoundary>
                     </div>
 

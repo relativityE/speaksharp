@@ -25,12 +25,12 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
     onSwitchToNative,
 }) => {
     return (
-        <div className="fixed bottom-0 left-0 right-0 px-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))] bg-background/90 backdrop-blur-lg md:hidden z-40 flex flex-col items-center gap-3 shadow-[0_-10px_30px_rgba(0,0,0,0.5)] safe-area-bottom before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-primary/50 before:to-transparent">
+        <div className="fixed bottom-0 left-0 right-0 px-4 pt-3 pb-[calc(0.875rem+env(safe-area-inset-bottom))] bg-popover/95 backdrop-blur-xl md:hidden z-40 flex flex-col items-center gap-2.5 shadow-[0_-10px_30px_rgba(0,0,0,0.28)] safe-area-bottom before:absolute before:inset-x-0 before:top-0 before:h-[1px] before:bg-gradient-to-r before:from-transparent before:via-border before:to-transparent">
             {isFrozen && (
                 <Button
                     onClick={onSwitchToNative}
                     variant="outline"
-                    className="w-full max-w-sm h-10 bg-orange-500/10 border-orange-500/50 text-orange-500 font-bold uppercase tracking-widest animate-pulse"
+                    className="h-10 w-full max-w-sm bg-primary/10 border-primary/50 text-primary font-semibold"
                     data-action="switch-to-native-mobile"
                 >
                     Switch to Native (Free)
@@ -40,7 +40,7 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
                 onClick={onStartStop}
                 size="lg"
                 variant={isListening ? 'destructive' : 'default'}
-                className="w-full max-w-sm h-12 text-lg font-semibold shadow-lg"
+                className="h-12 w-full max-w-sm text-base font-semibold shadow-lg"
                 disabled={isButtonDisabled || modelLoadingProgress !== null}
                 data-testid={`${TEST_IDS.SESSION_START_STOP_BUTTON}-mobile`}
             >

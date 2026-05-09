@@ -260,15 +260,15 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4 pt-20 relative overflow-hidden">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-subtle p-4 pt-20 relative overflow-hidden">
       {/* Background Elements */}
       <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-background z-0" />
       <div className="absolute top-0 left-0 w-full h-full bg-[url('/assets/grid-pattern.svg')] opacity-[0.03] z-0 pointer-events-none" />
 
       <div className="relative z-10 w-full max-w-md space-y-6">
-        <h2 className="text-center text-2xl font-semibold text-muted-foreground">Master your communication skills</h2>
+        <h2 className="text-center text-2xl font-semibold text-foreground">Master your communication skills</h2>
 
-        <Card className="border-border/50 shadow-xl bg-card/95 backdrop-blur-sm">
+        <Card className="border-border/70 shadow-xl bg-card/95 backdrop-blur-sm">
           <CardHeader className="space-y-1 text-center pb-8">
             <CardTitle className="text-2xl font-bold tracking-tight">
               {view === 'sign_in' && 'Welcome back'}
@@ -353,7 +353,7 @@ export default function AuthPage() {
                       <button
                         type="button"
                         onClick={() => setShowPromoField(!showPromoField)}
-                        className="text-sm font-normal text-secondary hover:text-secondary-light transition-colors flex items-center gap-1"
+                        className="text-sm font-medium text-primary hover:text-primary/85 transition-colors flex items-center gap-1"
                       >
                         {showPromoField ? 'Hide promo code field' : "🎁 Have a promo code? Click here!"}
 
@@ -378,7 +378,7 @@ export default function AuthPage() {
                           />
                           {inlineError && (
                             <p
-                              className="text-red-600 font-bold text-xs mt-1 animate-in fade-in-50"
+                              className="text-destructive font-semibold text-xs mt-1 animate-in fade-in-50"
                               data-testid="signup-inline-error"
                               role="alert"
                             >
@@ -398,7 +398,7 @@ export default function AuthPage() {
                 )}
 
                 {message && (
-                  <div className="p-3 rounded-md bg-green-500/10 text-green-600 text-sm font-medium animate-in fade-in-50 text-center">
+                  <div className="p-3 rounded-md bg-success/12 text-success border border-success/30 text-sm font-medium animate-in fade-in-50 text-center">
                     {message}
                   </div>
                 )}

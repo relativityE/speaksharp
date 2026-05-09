@@ -214,7 +214,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className
             </div>
             {/* Trend placeholder - could be passed as prop later */}
             {label.includes('Pace') && (
-                <span className="flex items-center gap-1 text-sm text-emerald-500 font-medium">
+                <span className="flex items-center gap-1 text-sm text-success font-medium">
                     <TrendingUp className="w-4 h-4" />
                     Target: 130-150
                 </span>
@@ -276,7 +276,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                     <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">WPM</p>
                 </div>
                 <div className="text-center">
-                    <p className={`font-bold text-lg ${totalFillers <= 3 ? "text-emerald-500" : "text-secondary"}`}>
+                    <p className={`font-bold text-lg ${totalFillers <= 3 ? "text-success" : "text-primary"}`}>
                         {totalFillers}
                     </p>
                     <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Fillers</p>
@@ -712,7 +712,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         <h2 className="text-lg font-semibold text-foreground">Overview</h2>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm" className="gap-2 hover:bg-secondary hover:text-gray-900">
+                                <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-primary">
                                     <Settings className="h-4 w-4" />
                                     <span className="hidden sm:inline">Customize Stats</span>
                                 </Button>
@@ -759,7 +759,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         </div>
                         <DropdownMenu open={isAnalysisMenuOpen} onOpenChange={setIsAnalysisMenuOpen}>
                             <DropdownMenuTrigger asChild onMouseEnter={openAnalysisMenu} onMouseLeave={closeAnalysisMenu}>
-                                <Button variant="ghost" size="sm" className="gap-2 hover:bg-secondary hover:text-gray-900">
+                                <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-primary">
                                     <Settings className="h-4 w-4" />
                                     <span className="hidden sm:inline">Customize Analysis</span>
                                 </Button>
@@ -871,7 +871,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
                         {/* Session History Section - Moved below carousel */}
                         <div id="session-history-section">
-                            <Card className="bg-card border-border p-6 rounded-2xl shadow-sm">
+                            <Card className="bg-card border-border/70 p-6 rounded-lg shadow-sm">
                                 <div className="flex items-center justify-between mb-6">
                                     <div>
                                         <h2 className="text-xl font-bold text-foreground">Export Reports</h2>

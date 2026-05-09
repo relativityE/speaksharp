@@ -136,6 +136,16 @@ async function runBenchmark() {
     // Update STT_BENCHMARKS.json
     const benchmarkData = JSON.parse(await fs.readFile(BENCHMARK_FILE, 'utf-8'));
     benchmarkData.engines.Private.cpu.expectedAccuracy = parseFloat(averageAccuracy.toFixed(2));
+    benchmarkData.engines.Private.cpu.history = benchmarkData.engines.Private.cpu.history || [];
+    benchmarkData.engines.Private.cpu.history.push({
+        timestamp: new Date().toISOString(),
+        model: 'TransformersJS whisper-tiny.en (Node CPU)',
+        corpus: 'harvard-list-1',
+        trials: successCount,
+        ceiling_wer: parseFloat(averageWer.toFixed(4)),
+        ceiling_accuracy_pct: parseFloat(averageAccuracy.toFixed(2)),
+        environment: 'node-cpu-baseline',
+    });
 
     await fs.writeFile(BENCHMARK_FILE, JSON.stringify(benchmarkData, null, 2), 'utf-8');
     console.log('✅ Updated STT_BENCHMARKS.json Private (CPU) ceiling');

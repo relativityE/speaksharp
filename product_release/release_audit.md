@@ -9,7 +9,7 @@
 **Confidence Score**: 98% (Evidence-based codebase verification)
 **Audit v1.1 Integrated:** 2026-05-07
 
-SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestration layer. The P0 backend remediation work is present in `9dff649`, GitHub `CI - Test Audit` is green on that commit, and canary/Edge Function deploy evidence is green. Live promo entitlement now proves Pro access can be granted, but the Private save path failed with the database error `engine_not_allowed_for_tier`; migration `backend/supabase/migrations/20260509000000_allow_private_engine_for_pro.sql` is pending deploy/retest. A follow-up backend review found expired promo users need fail-closed checks on Pro-only Cloud/session paths, not only the `check-usage-limit` wrapper; local fixes now cover AssemblyAI token issuance and add DB effective-tier migration `backend/supabase/migrations/20260509010000_enforce_effective_promo_tier.sql`. The platform remains blocked for commercial launch until the live feature matrix, live quota/token/promo smokes, Stripe/Sentry checks, and hardware/browser validation are complete.
+SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestration layer. The P0 backend remediation work is present, GitHub `CI - Test Audit` is green on `56ce972`, and canary/Edge Function deploy evidence is green on the same commit. Live promo entitlement now proves Pro access can be granted, but the Private save path failed with the database error `engine_not_allowed_for_tier`; migration `backend/supabase/migrations/20260509000000_allow_private_engine_for_pro.sql` is pending deploy/retest. A follow-up backend review found expired promo users need fail-closed checks on Pro-only Cloud/session paths, not only the `check-usage-limit` wrapper; local fixes now cover AssemblyAI token issuance and add DB effective-tier migration `backend/supabase/migrations/20260509010000_enforce_effective_promo_tier.sql`. The platform remains blocked for commercial launch until the live feature matrix, live quota/token/promo smokes, Stripe/Sentry checks, and hardware/browser validation are complete.
 
 ---
 
@@ -40,12 +40,12 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 
 | Gate | Current Verification | Status |
 | :--- | :--- | :--- |
-| **G1: Fail-Closed Usage** | Code path returns `can_start: false` on RPC/internal uncertainty; GitHub CI and Edge Function deploy are green on `9dff649`. | Live fail-closed smoke pending. |
-| **G2: Usage-Aware Token** | AssemblyAI token issuance now checks usage eligibility before minting a paid Cloud token; GitHub CI and Edge Function deploy are green on `9dff649`. | Live successful-token and over-limit denial smoke pending. |
+| **G1: Fail-Closed Usage** | Code path returns `can_start: false` on RPC/internal uncertainty; GitHub CI and Edge Function deploy are green on `56ce972`. | Live fail-closed smoke pending. |
+| **G2: Usage-Aware Token** | AssemblyAI token issuance now checks usage eligibility before minting a paid Cloud token; GitHub CI and Edge Function deploy are green on `56ce972`. | Live successful-token and over-limit denial smoke pending. |
 | **G3: Negative Duration** | Forward migration rejects negative duration/increment writes and adds table constraints; Supabase migration deploy has successful manual runs from 2026-05-08. | Deployed negative-increment smoke pending. |
 | **G4: Promo Rate Limit** | Promo application has DB-backed failed-attempt throttling and fail-closed behavior on rate-limit uncertainty; CI/deploy evidence is green. | Live throttling/reuse smoke pending. |
-| **Q1: Pro Session Warning** | Pro users with finite daily remaining time receive the 5-minute warning; GitHub CI is green on `9dff649`. | Live/manual validation pending. |
-| **Q2: Safe LLM Parsing** | Gemini suggestions use defensive parsing and safe fallback output; GitHub CI/deploy evidence is green on `9dff649`. | Live suggestion smoke pending. |
+| **Q1: Pro Session Warning** | Pro users with finite daily remaining time receive the 5-minute warning; GitHub CI is green on `56ce972`. | Live/manual validation pending. |
+| **Q2: Safe LLM Parsing** | Gemini suggestions use defensive parsing and safe fallback output; GitHub CI/deploy evidence is green on `56ce972`. | Live suggestion smoke pending. |
 
 ### Current Test Evidence (2026-05-09)
 
@@ -53,9 +53,9 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 | :--- | :--- | :--- |
 | `pnpm ci:unit` | ✅ Passed: `106` files, `627 passed | 1 todo`. | Local unit/type/lint truth is green. |
 | `pnpm test:e2e` | ✅ Passed: `40 passed`, `0 failed`, `0 flaky`. | Local mocked orchestration is green. |
-| GitHub `CI - Test Audit` | ✅ Passed on `9dff649`, run `25602605844`. | Pushed mocked CI gate is green. |
-| Production canary | ✅ Passed on `9dff649`, run `25602605839`. | Deployed Native smoke is green. |
-| Edge Function deploy | ✅ Passed on `9dff649`, run `25602605834`. | Current Edge Function deploy workflow is green. |
+| GitHub `CI - Test Audit` | ✅ Passed on `56ce972`, run `25610699098`. | Pushed mocked CI gate is green. |
+| Production canary | ✅ Passed on `56ce972`, run `25610699109`. | Deployed Native smoke is green. |
+| Edge Function deploy | ✅ Passed on `56ce972`, run `25610699101`. | Current Edge Function deploy workflow is green. |
 | Supabase migration deploy | ✅ Manual runs `25576997106` and `25573238473` passed on 2026-05-08. | Deploy workflow evidence is green; live DB behavior still needs smoke checks. |
 | Live promo entitlement | 🟡 Entitlement worked; Private artifact path blocked. | Promo Pro access was granted, and the Private CPU model was served/initialized, but save failed with `engine_not_allowed_for_tier`. Deploy/retest `backend/supabase/migrations/20260509000000_allow_private_engine_for_pro.sql`. |
 | Promo expired component regression | 🟡 Local fixes / deploy + live smoke pending. | The visible-browser expired-promo trap has local coverage. Local backend fixes now deny stale expired-promo Pro access on Cloud token and DB session/heartbeat paths; deploy/live smoke is still pending. |

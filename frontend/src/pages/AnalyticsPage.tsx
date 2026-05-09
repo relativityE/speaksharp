@@ -48,25 +48,25 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
             {!isSessionView && !isPro && (
                 <button
                     onClick={onUpgrade}
-                    className="w-full flex items-center justify-between bg-secondary hover:bg-secondary/90 text-white px-6 py-3 rounded-xl shadow-md transform transition-all hover:-translate-y-0.5"
+                    className="w-full flex flex-col gap-3 rounded-lg border border-primary/35 bg-card/90 px-4 py-4 text-left shadow-md transition-all hover:border-primary/60 hover:bg-card sm:flex-row sm:items-center sm:justify-between sm:px-6"
                     data-testid="analytics-page-upgrade-button"
                 >
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-white/20 rounded-lg">
-                            <Mic className="w-5 h-5 text-white" />
+                        <div className="rounded-lg bg-primary/15 p-2">
+                            <Mic className="w-5 h-5 text-primary" />
                         </div>
                         <div className="text-left">
                             <span className="font-bold block text-base">Free Plan</span>
-                            <span className="text-xs text-white/90 hidden sm:inline">Upgrade for unlimited practice & advanced metrics</span>
+                            <span className="text-xs text-muted-foreground sm:inline">Upgrade for private transcription, AI feedback, and deeper history</span>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2 font-bold bg-white text-secondary px-4 py-2 rounded-lg text-sm">
+                    <div className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground sm:w-auto">
                         Upgrade
                     </div>
                 </button>
             )}
             {!isSessionView && isPro && (
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 text-primary font-medium border border-primary/20">
+                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/12 text-primary font-medium border border-primary/30">
                     <span>✨ Pro Plan Active</span>
                 </div>
             )}
@@ -200,7 +200,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
 
 export const AnalyticsPage: React.FC = () => {
     return (
-        <div className="min-h-screen bg-background pt-20">
+        <div className="min-h-screen bg-gradient-subtle pt-20">
             <div className="max-w-7xl mx-auto px-6 py-8">
                 <AuthenticatedAnalyticsView />
             </div>

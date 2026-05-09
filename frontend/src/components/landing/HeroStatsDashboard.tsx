@@ -101,7 +101,7 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
         <div className={`relative ${className}`}>
             {/* Main Dashboard Card */}
             <motion.div
-                className="bg-white/[0.06] backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl p-6 md:p-8"
+                className="bg-card/80 backdrop-blur-xl rounded-lg border border-border/60 shadow-2xl p-6 md:p-8"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.5, ease: "easeOut" }}
@@ -109,7 +109,7 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
                 {/* Header */}
                 <div className="flex items-center justify-between mb-8 pb-4 border-b border-white/5">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
                             <Mic className="w-5 h-5 text-primary" />
                         </div>
                         <div>
@@ -117,7 +117,7 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
                             <div className="text-xs font-medium text-primary">Real-time analysis</div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-success/10 border border-success/20">
+                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-success/12 border border-success/25">
                         <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
                         <span className="text-[10px] font-bold text-success uppercase tracking-wider">Live</span>
                     </div>
@@ -126,7 +126,7 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 gap-4 mb-8">
                     <StatCard value={clarityCount} suffix="%" label="Clarity" delay={0.1} colorClass="text-primary" />
-                    <StatCard value={fillersCount} label="Fillers" delay={0.2} colorClass="text-secondary" />
+                    <StatCard value={fillersCount} label="Fillers" delay={0.2} colorClass="text-primary" />
                     <StatCard value={wpmCount} label="WPM" delay={0.3} colorClass="text-primary" />
                     <StatCard value={demoStats.duration} label="Duration" delay={0.4} colorClass="text-secondary" />
                 </div>

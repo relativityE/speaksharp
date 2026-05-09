@@ -409,3 +409,54 @@ BEGIN
     );
 END;
 $$;
+
+CREATE OR REPLACE FUNCTION public.heartbeat_session(
+    p_session_id UUID,
+    p_incremental_seconds INT
+) RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_usage_check JSONB;
+    v_engine_type TEXT;
+BEGIN
+    IF p_incremental_seconds IS NULL OR p_incremental_seconds < 0 THEN
+        RETURN jsonb_build_object('success', false, 'error', 'invalid_duration');
+    END IF;
+
+    SELECT engine INTO v_engine_type
+    FROM public.sessions
+    WHERE id = p_session_id AND user_id = auth.uid();
+
+    IF v_engine_type IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'session_not_found');
+    END IF;
+
+    v_usage_check := public.update_user_usage(p_incremental_seconds, v_engine_type);
+
+    IF NOT (v_usage_check->>'success')::BOOLEAN THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', v_usage_check->>'error',
+            'subscription_status', v_usage_check->>'subscription_status'
+        );
+    END IF;
+
+    UPDATE public.sessions
+    SET
+        duration = duration + p_incremental_seconds,
+        expires_at = now() + interval '5 minutes',
+        updated_at = now()
+    WHERE id = p_session_id AND user_id = auth.uid();
+
+    INSERT INTO public.usage_checkpoints (session_id, user_id, incremental_seconds, engine_type)
+    VALUES (p_session_id, auth.uid(), p_incremental_seconds, v_engine_type);
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'subscription_status', v_usage_check->>'subscription_status'
+    );
+END;
+$$;

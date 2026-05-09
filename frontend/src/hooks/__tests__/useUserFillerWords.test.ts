@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { useUserFillerWords } from '../useUserFillerWords';
+import { useUserFillerWords, validateUserFillerWord } from '../useUserFillerWords';
 
 // Mock dependencies
 vi.mock('../../contexts/AuthProvider', () => ({
@@ -80,4 +80,26 @@ describe('useUserFillerWords', () => {
         expect(typeof result.current.removeWord).toBe('function');
     });
 
+});
+
+describe('validateUserFillerWord', () => {
+    it('normalizes added words before persistence', () => {
+        expect(validateUserFillerWord('  AntigravityUI  ', [], 100, true)).toBe('antigravityui');
+    });
+
+    it('rejects duplicate words case-insensitively', () => {
+        expect(() => validateUserFillerWord(
+            'BASICALLY',
+            [{ word: 'basically' }],
+            100,
+            true
+        )).toThrow('Word already in list');
+    });
+
+    it('rejects words beyond the configured free limit', () => {
+        const existingWords = Array.from({ length: 10 }, (_, index) => ({ word: `word${index}` }));
+
+        expect(() => validateUserFillerWord('overflow', existingWords, 10, false))
+            .toThrow('Free limit reached (10 words). Upgrade to Pro to add more.');
+    });
 });
