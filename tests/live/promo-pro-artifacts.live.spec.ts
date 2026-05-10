@@ -1,4 +1,5 @@
-import { test, expect, type Page, type Response } from '@playwright/test';
+import { test, expect, type Page, type Response, type TestInfo } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
@@ -79,7 +80,7 @@ test.describe.serial('Deployed promo Pro artifact path @live', () => {
     await expect(page).toHaveURL(/\/analytics\/[^/]+$/, { timeout: 20_000 });
     await expect(page.getByTestId('ai-suggestions-card')).toBeVisible({ timeout: 20_000 });
     await assertAiSuggestionsUsable(page);
-    await assertPdfExport(page);
+    await assertPdfExport(page, test.info());
   });
 });
 
@@ -222,20 +223,45 @@ async function expectNonErrorResponse(response: Response, label: string) {
   }
 }
 
-async function assertPdfExport(page: Page) {
+async function assertPdfExport(page: Page, testInfo: TestInfo) {
   const pdfButton = page.getByRole('button', { name: /pdf|export|download/i }).first();
   await expect(pdfButton).toBeVisible({ timeout: 20_000 });
 
-  const downloadPromise = page.waitForEvent('download', { timeout: 15_000 })
-    .then((download) => download.suggestedFilename())
-    .catch(() => null);
+  const downloadPromise = page.waitForEvent('download', { timeout: 15_000 });
 
   await pdfButton.click();
-  const downloadedFileName = await downloadPromise;
+  const download = await downloadPromise;
+  const downloadedFileName = download.suggestedFilename();
+  expect(downloadedFileName).toMatch(/^session_\d{8}_\d{6}_[A-Za-z0-9_]+\.pdf$/);
 
-  if (downloadedFileName) {
-    expect(downloadedFileName).toMatch(/\.pdf$/i);
-  } else {
-    await expect(page.locator('body')).toHaveAttribute('data-pdf-token', 'watermarked', { timeout: 10_000 });
-  }
+  const artifactPath = testInfo.outputPath(downloadedFileName);
+  await download.saveAs(artifactPath);
+  await testInfo.attach('session-pdf', { path: artifactPath, contentType: 'application/pdf' });
+
+  const pdfText = await extractPdfText(artifactPath);
+  expect(pdfText).toContain('SpeakSharp Session Report');
+  expect(pdfText).toContain('Transcript');
+  expect(pdfText).toMatch(/swan dive|park truck|pepper|twister|quick brown fox/i);
+
+  console.log(`LIVE_PDF_EXPORT_EVIDENCE ${JSON.stringify({
+    filename: downloadedFileName,
+    artifact: artifactPath,
+    textIncludesTranscript: /swan dive|park truck|pepper|twister|quick brown fox/i.test(pdfText),
+    textLength: pdfText.length,
+  })}`);
+}
+
+async function extractPdfText(path: string) {
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const bytes = await readFile(path);
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(bytes) }).promise;
+  const pageTexts = await Promise.all(Array.from({ length: pdf.numPages }, async (_, index) => {
+    const page = await pdf.getPage(index + 1);
+    const textContent = await page.getTextContent();
+    return textContent.items
+      .map((item) => ('str' in item ? (item as { str: string }).str : ''))
+      .join(' ');
+  }));
+
+  return pageTexts.join('\n').trim();
 }
