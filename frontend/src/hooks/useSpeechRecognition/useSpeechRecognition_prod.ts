@@ -12,6 +12,7 @@ import { useFillerWords } from './useFillerWords';
 import { useTranscriptionControl } from './useTranscriptionControl';
 import { useTranscriptionCallbacks } from './useTranscriptionCallbacks';
 import { useVocalAnalysis } from '../useVocalAnalysis';
+import { useUsageLimit } from '../useUsageLimit';
 import { API_CONFIG } from '../../config';
 import type { UseSpeechRecognitionProps, TranscriptStats, TranscriptionPolicy, Chunk } from './types';
 import type { SttStatus } from '@/types/transcription';
@@ -19,6 +20,7 @@ import { E2E_DETERMINISTIC_NATIVE, buildPolicyForUser } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
+import { isPro } from '@/constants/subscriptionTiers';
 
 // Error handling helper
 function handleTranscriptionError(err: Error) {
@@ -37,6 +39,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     const userVocabulary = useMemo(() => props.userVocabulary || [], [props.userVocabulary]);
     const { session } = props;
     const { profile } = useProfile();
+    const { data: usageLimit } = useUsageLimit();
     const navigate = useNavigate();
 
     // Select strictly from store (Read-Only)
@@ -60,9 +63,12 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     const {
         isReady: storeIsReady,
         sttStatus,
+        sttMode,
         modelLoadingProgress,
         elapsedTime,
     } = store;
+    const isEffectiveProUser = isPro(usageLimit?.subscription_status ?? profile?.subscription_status);
+    const effectivePolicyMode = isEffectiveProUser ? sttMode : 'native';
     useTranscriptionControl();
     const filler = useFillerWords(finalChunks as unknown as Chunk[], storeTranscript.partial, userWords);
     const vocal = useVocalAnalysis();
@@ -100,7 +106,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         session: session ?? null,
         navigate,
         userWords: userVocabulary,
-        policy: buildPolicyForUser(profile?.subscription_status === 'pro', null),
+        policy: buildPolicyForUser(isEffectiveProUser, effectivePolicyMode),
         onReady: () => {
             logger.info('[useSpeechRecognition] Service ready signal received');
         },
