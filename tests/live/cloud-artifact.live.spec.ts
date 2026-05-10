@@ -9,7 +9,7 @@ const TRANSCRIPT_PATTERN = /\b(stale|beer|pepper|beef|swan|park|twister|wild|pup
 const PLACEHOLDER_TRANSCRIPT_PATTERN = /\b(words appear here|listening)\b/i;
 const ASSEMBLYAI_CONCURRENCY_PATTERN = /too many concurrent sessions/i;
 
-test.describe.configure({ mode: 'serial' });
+test.describe.configure({ mode: 'serial', retries: 0 });
 
 test.use({
   permissions: ['microphone'],
@@ -105,8 +105,9 @@ async function waitForLiveFixtureTranscript(
     const providerConcurrencyEvent = cloudConsoleEvents.find((entry) => ASSEMBLYAI_CONCURRENCY_PATTERN.test(entry));
     if (providerConcurrencyEvent) {
       throw new Error(
-        `AssemblyAI provider concurrency/leaked-session failure: received "Too many concurrent sessions". ` +
-        `This classifies the live Cloud failure as provider streaming limit or teardown/parallelism leakage, not transcript correctness evidence.\n` +
+        `AssemblyAI provider new-session rate limit: received "Too many concurrent sessions". ` +
+        `This classifies the live Cloud failure as provider/account concurrency unless it reproduces after a 5-10 minute cooldown with only this Cloud smoke running. ` +
+        `Do not treat this as transcript correctness evidence; preserve teardown and rerun one Cloud smoke after cooldown.\n` +
         `Provider event: ${providerConcurrencyEvent}\n${JSON.stringify(snapshot, null, 2)}`
       );
     }

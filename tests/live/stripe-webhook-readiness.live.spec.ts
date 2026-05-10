@@ -70,7 +70,7 @@ test('deployed Stripe webhook accepts a signed no-op Stripe event', async () => 
         'Content-Type': 'application/json',
         'Stripe-Signature': `t=${timestamp},v1=${signature}`,
       },
-      data: payload,
+      data: Buffer.from(payload, 'utf8'),
     });
     const body = await response.json().catch(() => null) as {
       received?: boolean;

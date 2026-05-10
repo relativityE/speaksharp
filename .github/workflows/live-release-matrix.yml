@@ -162,6 +162,8 @@ jobs:
           E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
           E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
+        # Cloud streaming is provider-limited. Keep one smoke, one worker, no immediate retries.
+        # After AssemblyAI 1008/3009 "Too many concurrent sessions", wait 5-10 minutes before rerun.
         run: pnpm exec playwright test tests/live/cloud-artifact.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
       - name: Upload Cloud Artifacts
