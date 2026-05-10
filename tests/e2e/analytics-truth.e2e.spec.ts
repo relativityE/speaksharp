@@ -1,6 +1,7 @@
 import { test, expect } from './fixtures';
 import {
   navigateToRoute,
+  openSessionDetailFromHistoryItem,
   programmaticLoginWithRoutes,
   selectTranscriptionEngine,
   simulateTranscription,
@@ -59,9 +60,7 @@ test(`Gate 2 mocked ${mode}: analytics values change from transcript events and 
 
   const latestSession = page.getByTestId(/session-history-item-/).first();
   await expect(latestSession).toContainText('3');
-  await latestSession.click();
-
-  await expect(page).toHaveURL(/\/analytics\/session-/);
+  await openSessionDetailFromHistoryItem(page, latestSession);
   await expect(page.getByTestId(TEST_IDS.STAT_CARD_SPEAKING_PACE).locator('.text-3xl').first()).not.toHaveText('0');
   await expect(page.getByTestId(TEST_IDS.CLARITY_SCORE_VALUE)).toContainText('%');
   await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('3');
@@ -85,8 +84,7 @@ test(`Gate 2 mocked ${mode}: session detail can return to dashboard`, async ({ p
   await waitForFeature(page, 'analytics');
 
   const latestSession = page.getByTestId(/session-history-item-/).first();
-  await latestSession.click();
-  await expect(page).toHaveURL(/\/analytics\/session-/);
+  await openSessionDetailFromHistoryItem(page, latestSession);
   await page.getByRole('link', { name: /Back to Dashboard/i }).click();
   await expect(page).toHaveURL('/analytics');
 });

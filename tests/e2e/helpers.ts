@@ -6,7 +6,7 @@
  * ALIGNED WITH PRESCRIPTIVE MODEL v1.1
  */
 
-import { type Page, expect } from '@playwright/test';
+import { type Locator, type Page, expect } from '@playwright/test';
 import { setupE2EManifest, type E2EWindow } from './helpers/setupE2EManifest';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 import { createMockSession } from '../../frontend/src/mocks/test-user-utils';
@@ -196,6 +196,22 @@ export const goToPublicRoute = goToApp;
 export const goToInfrastructureRoute = goToApp;
 /** @deprecated Use goToApp instead. Maintained for spec compatibility during migration. */
 export const navigateToRoute = goToApp;
+
+export async function openSessionDetailFromHistoryItem(page: Page, historyItem: Locator) {
+  const sessionHref = await historyItem.evaluate((element) => {
+    const self = element instanceof HTMLAnchorElement ? element : null;
+    const detailLink =
+      element.querySelector<HTMLAnchorElement>('[data-testid^="session-detail-link-"]') ??
+      element.querySelector<HTMLAnchorElement>('a[href^="/analytics/session-"]') ??
+      element.querySelector<HTMLAnchorElement>('a[href^="/analytics/"]');
+
+    return self?.getAttribute('href') ?? detailLink?.getAttribute('href') ?? null;
+  });
+
+  expect(sessionHref).toMatch(/^\/analytics\/session-/);
+  await navigateToRoute(page, sessionHref!);
+  await page.waitForURL('**/analytics/session-*');
+}
 
 
 

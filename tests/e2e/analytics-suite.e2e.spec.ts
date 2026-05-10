@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { navigateToRoute, attachLiveTranscript, waitForFeature } from './helpers';
+import { navigateToRoute, attachLiveTranscript, openSessionDetailFromHistoryItem, waitForFeature } from './helpers';
 
 /**
  * CONSOLIDATED ANALYTICS SUITE (v1.6)
@@ -40,7 +40,7 @@ test.describe('Analytics Suite & Data Matrix', () => {
     const firstSession = page.getByTestId(/session-history-item-/).first();
     
     if (await firstSession.isVisible()) {
-      await firstSession.click();
+      await openSessionDetailFromHistoryItem(page, firstSession);
 
       // Verify Detail View URL and Header
       await expect(page).toHaveURL(/\/analytics\/[a-zA-Z0-9-]+/);
