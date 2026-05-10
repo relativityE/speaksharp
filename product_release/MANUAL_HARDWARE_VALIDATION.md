@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-08
+**Last Updated:** 2026-05-10
 
 # Manual Hardware Validation Checklist
 
@@ -11,9 +11,10 @@ CI does not validate real microphone hardware. Complete this checklist before la
 
 - [ ] Grant mic permission.
 - [ ] Deny mic permission and verify error UX.
-- [ ] Login as Pro, select Native, grant mic, speak for 10-15 seconds, and confirm transcript appears live.
-- [ ] Stop Native session.
-- [ ] Save Native session.
+- [ ] Login as Pro, select Native Browser STT, grant mic, speak a clear 10-15 second sentence, and confirm non-placeholder transcript text appears live.
+- [ ] Record the exact browser/version and the sentence spoken.
+- [ ] Stop Native session and confirm the UI returns to the ready/start state.
+- [ ] Save Native session and record the visible success/status text.
 - [ ] Confirm Native session history appears after reload.
 - [ ] Confirm Native analytics changed from baseline after save.
 - [ ] Refresh during recording.
@@ -62,6 +63,8 @@ CI does not validate real microphone hardware. Complete this checklist before la
 - [ ] Trigger hardware mute during recording; verify no crash or unrecoverable FSM state.
 
 ## Hardware Evidence Logs
+Native Browser STT launch proof must come from real Chrome microphone behavior. GitHub Chromium fake-audio only counts as readiness/no-crash/save diagnostics because Web Speech transcript production is browser/vendor dependent.
+
 If any check fails:
 1. Capture screen recording.
 2. Export `TranscriptionService` debug logs from console.

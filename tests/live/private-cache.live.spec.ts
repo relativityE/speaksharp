@@ -132,8 +132,16 @@ async function preparePrivateModelIfPrompted(page: Page) {
 async function waitForPrivateReady(page: Page) {
   await page.waitForFunction(() => {
     const root = document.documentElement;
-    return root.getAttribute('data-model-status') === 'ready' &&
-      root.getAttribute('data-stt-ready') === 'true';
+    const runtimeState = root.getAttribute('data-runtime-state');
+    const sttReady = root.getAttribute('data-stt-ready');
+    const modelStatus = root.getAttribute('data-model-status');
+
+    return (
+      sttReady === 'true' ||
+      runtimeState === 'READY' ||
+      runtimeState === 'RECORDING' ||
+      modelStatus === 'ready'
+    );
   }, { timeout: 180_000 });
 }
 

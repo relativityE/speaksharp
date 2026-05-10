@@ -478,11 +478,30 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         vi.mocked(useProfile).mockReturnValue({
             profile: {
                 id: 'test-user',
-                subscription_status: 'free',
+                subscription_status: 'pro',
                 email: 'test@example.com'
             } as UserProfile,
             isVerified: true
         });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                daily_remaining: 3600,
+                daily_limit: 3600,
+                monthly_remaining: 3600,
+                monthly_limit: 3600,
+                remaining_seconds: 3600,
+                can_start: true,
+                subscription_status: 'free',
+                is_pro: false,
+                streak_count: 0,
+                promo_just_expired: true,
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
 
         renderHook(() => useSessionLifecycle(), {
             wrapper: ({ children }) => (

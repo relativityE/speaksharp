@@ -33,7 +33,7 @@ export const useSessionLifecycle = () => {
     const activeEngine = useSessionStore(state => state.activeEngine);
     const { runtimeState } = useTranscriptionContext();
 
-    const isProUser = isPro(profile?.subscription_status);
+    const isProUser = isPro(usageLimit?.subscription_status ?? profile?.subscription_status);
 
     const sttStatus = useSessionStore(state => state.sttStatus);
     const setSTTStatus = useSessionStore(state => state.setSTTStatus);
