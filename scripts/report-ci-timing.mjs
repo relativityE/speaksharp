@@ -36,9 +36,92 @@ const flattenSpecs = (suite, prefix = []) => {
   ];
 };
 
+const loadPlaywrightResults = () => {
+  const paths = [
+    'test-results/playwright/results.json',
+    'test-results/playwright-results.json',
+  ];
+  for (const filePath of paths) {
+    const data = loadJson(filePath);
+    if (data) return data;
+  }
+  return null;
+};
+
+const collectPlaywrightTests = () => {
+  const results = loadPlaywrightResults();
+  if (!results) return [];
+
+  if (Array.isArray(results.tests)) {
+    return results.tests.map((test) => ({
+      title: test.title,
+      file: test.file || test.title?.match(/([^ ›]+\.spec\.[jt]sx?)/)?.[1] || '',
+      durationMs: test.duration || 0,
+      status: test.status || test.outcome || '',
+      attempts: test.attempts || (test.retries != null ? test.retries + 1 : 1),
+      retryOverheadMs: test.retryOverheadMs || 0,
+    }));
+  }
+
+  if (!results.suites) return [];
+  return results.suites
+    .flatMap((suite) => flattenSpecs(suite))
+    .flatMap((spec) => (spec.tests || []).map((test) => {
+      const attempts = test.results || [];
+      return {
+        title: [...(spec.titlePath || []), spec.title].filter(Boolean).join(' › '),
+        file: spec.file || '',
+        durationMs: attempts.reduce((sum, result) => sum + (result.duration || 0), 0),
+        status: test.status || '',
+        attempts: attempts.length || 1,
+        retryOverheadMs: attempts.slice(1).reduce((sum, result) => sum + (result.duration || 0), 0),
+      };
+    }));
+};
+
+const collectSlowPlaywrightFiles = (tests) => {
+  const byFile = new Map();
+  for (const test of tests) {
+    const file = test.file || 'unknown';
+    const existing = byFile.get(file) || { file, durationMs: 0, tests: 0, retryOverheadMs: 0 };
+    existing.durationMs += test.durationMs || 0;
+    existing.retryOverheadMs += test.retryOverheadMs || 0;
+    existing.tests += 1;
+    byFile.set(file, existing);
+  }
+  return [...byFile.values()].sort((a, b) => b.durationMs - a.durationMs);
+};
+
+const collectVitestSummary = () => {
+  const results = loadJson('test-results/unit/results.json');
+  if (!results) return null;
+  return {
+    durationMs: results.totalDuration || 0,
+    totalTests: results.numTotalTests || 0,
+    failedTests: results.numFailedTests || 0,
+    note: Array.isArray(results.testResults)
+      ? ''
+      : 'Vitest artifact is aggregate-only; enable verbose/json file detail to rank individual unit tests.',
+  };
+};
+
 const collectPlaywrightFailures = () => {
-  const results = loadJson('test-results/playwright/results.json');
-  if (!results?.suites) return [];
+  const results = loadPlaywrightResults();
+  if (!results) return [];
+
+  if (Array.isArray(results.tests)) {
+    return results.tests
+      .filter((test) => ['failed', 'timedOut', 'unexpected'].includes(test.status) || test.outcome === 'unexpected')
+      .map((test) => ({
+        shard: test.shard || 'unknown shard',
+        file: test.file || test.title?.match(/([^ ›]+\.spec\.[jt]sx?)/)?.[1] || '',
+        title: test.title,
+        status: test.status || test.outcome,
+        error: test.error || '',
+      }));
+  }
+
+  if (!results.suites) return [];
 
   return results.suites
     .flatMap((suite) => flattenSpecs(suite))
@@ -142,6 +225,10 @@ const main = async () => {
   const shardDurations = jobSummaries
     .filter((job) => /^e2e-shard-\d+$/.test(job.name))
     .map((job) => ({ shard: job.name.replace('e2e-shard-', ''), durationMs: job.durationMs, conclusion: job.conclusion }));
+  const playwrightTests = collectPlaywrightTests();
+  const topSlowPlaywrightTests = [...playwrightTests].sort((a, b) => b.durationMs - a.durationMs).slice(0, 10);
+  const topSlowPlaywrightFiles = collectSlowPlaywrightFiles(playwrightTests).slice(0, 10);
+  const vitestSummary = collectVitestSummary();
   const failures = collectPlaywrightFailures();
 
   const report = {
@@ -150,6 +237,9 @@ const main = async () => {
     slowestJob,
     slowestStep,
     shardDurations,
+    topSlowPlaywrightTests,
+    topSlowPlaywrightFiles,
+    vitestSummary,
     jobs: jobSummaries,
     failures,
   };
@@ -165,6 +255,23 @@ const main = async () => {
     shardDurations.forEach((shard) => {
       console.log(`    - shard ${shard.shard}: ${fmt(shard.durationMs)} (${shard.conclusion || 'running'})`);
     });
+  }
+  if (topSlowPlaywrightTests.length > 0) {
+    console.log('  Slowest Playwright tests:');
+    topSlowPlaywrightTests.slice(0, 10).forEach((test, index) => {
+      const retry = test.retryOverheadMs > 0 ? `, retry overhead ${fmt(test.retryOverheadMs)}` : '';
+      console.log(`    ${index + 1}. ${fmt(test.durationMs)} - ${test.title}${retry}`);
+    });
+  }
+  if (topSlowPlaywrightFiles.length > 0) {
+    console.log('  Slowest Playwright files:');
+    topSlowPlaywrightFiles.slice(0, 5).forEach((file, index) => {
+      console.log(`    ${index + 1}. ${fmt(file.durationMs)} - ${file.file} (${file.tests} tests)`);
+    });
+  }
+  if (vitestSummary) {
+    console.log(`  Vitest total : ${fmt(vitestSummary.durationMs)} (${vitestSummary.totalTests} tests, ${vitestSummary.failedTests} failed)`);
+    if (vitestSummary.note) console.log(`    ${vitestSummary.note}`);
   }
   if (failures.length > 0) {
     console.log('  Failures     :');
