@@ -62,7 +62,7 @@ describe('TransformersJSEngine (Unit)', () => {
         mockPipeline.mockReset();
         mockEnv.allowLocalModels = false;
 
-        // Default mock implementation - returns { transcript } matching TranscriptionResult interface
+        // Default mock implementation - mirrors transformers.js ASR output shape.
         mockPipeline.mockImplementation(async (_task, _model, options) => {
             // Trigger the progress callback to satisfy the "trigger progress" test case
             if (options?.progress_callback) {
@@ -72,7 +72,7 @@ describe('TransformersJSEngine (Unit)', () => {
             // Return a mock transcriber function
             return async (audio: Float32Array) => {
                 if (!(audio instanceof Float32Array)) throw new Error('Invalid input');
-                return { transcript: 'Mocked transcription result' };
+                return { text: 'Mocked transcription result' };
             };
         });
     });
@@ -119,7 +119,35 @@ describe('TransformersJSEngine (Unit)', () => {
         expect(result.isOk).toBe(true);
         // Cast to success type to access .data strictly
         const successResult = result as unknown as { isOk: true; data: string };
-        expect(successResult.data).toBeTruthy();
+        expect(successResult.data).toBe('Mocked transcription result');
+    });
+
+    it('should read transformers.js ASR text output shape', async () => {
+        mockPipeline.mockImplementationOnce(async () => {
+            return async () => ({ text: 'And so my fellow Americans' });
+        });
+
+        await engine.init();
+
+        const result = await engine.transcribe(new Float32Array(16000));
+
+        expect(result.isOk).toBe(true);
+        const successResult = result as unknown as { isOk: true; data: string };
+        expect(successResult.data).toBe('And so my fellow Americans');
+    });
+
+    it('should keep backward compatibility with legacy transcript output shape', async () => {
+        mockPipeline.mockImplementationOnce(async () => {
+            return async () => ({ transcript: 'Legacy transcription result' });
+        });
+
+        await engine.init();
+
+        const result = await engine.transcribe(new Float32Array(16000));
+
+        expect(result.isOk).toBe(true);
+        const successResult = result as unknown as { isOk: true; data: string };
+        expect(successResult.data).toBe('Legacy transcription result');
     });
 
     it('should fail if transcriber is not initialized', async () => {
@@ -151,7 +179,7 @@ describe('TransformersJSEngine (Unit)', () => {
     it('falls back to Hugging Face when the bundled local model is missing or corrupt', async () => {
         mockPipeline
             .mockRejectedValueOnce(new Error('Unexpected token < at position 0'))
-            .mockResolvedValueOnce(async () => ({ transcript: 'Recovered via remote model' }));
+            .mockResolvedValueOnce(async () => ({ text: 'Recovered via remote model' }));
 
         const result = await engine.init();
 

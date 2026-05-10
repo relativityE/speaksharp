@@ -225,6 +225,7 @@ export class TransformersJSEngine extends STTEngine {
         try {
             const start = performance.now();
             interface TranscriptionResult {
+                text?: string;
                 transcript?: string;
             }
             const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, {
@@ -241,13 +242,14 @@ export class TransformersJSEngine extends STTEngine {
                 event: 'inference_complete',
                 latency_ms: Math.round(latency),
                 audio_length_s: audio.length / 16000,
-                engine: 'transformersjs'
+                engine: 'transformersjs',
+                result_shape: typeof result === 'string' ? 'string' : Object.keys(result).sort().join(',')
             }, '[TransformersJS] Transcription complete.');
 
             // Extract transcript from result
             const transcript = typeof result === 'string'
                 ? result
-                : (result as TranscriptionResult).transcript ?? '';
+                : (result as TranscriptionResult).text ?? (result as TranscriptionResult).transcript ?? '';
 
             this.currentTranscript = transcript; // Sync with orchestrator buffer
             this.updateHeartbeat();
