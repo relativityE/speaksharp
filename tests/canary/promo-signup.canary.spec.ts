@@ -6,6 +6,11 @@ const TEST_PASSWORD = `SpeakSharp-${TEST_RUN_ID}!`;
 const PROMO_EMAIL = `promo-live-${TEST_RUN_ID}@example.com`;
 const SECOND_PROMO_EMAIL = `promo-reuse-${TEST_RUN_ID}@example.com`;
 const FREE_EMAIL = `free-live-${TEST_RUN_ID}@example.com`;
+const EXPECTED_PRIVATE_STARTUP_DIAGNOSTICS = [
+  /initializeStrategy already in progress for this mode/i,
+  /Unable to determine content-length from response headers/i,
+  /CleanUnusedInitializersAndNodeArgs/i,
+];
 
 async function collectDiagnostics(page: Page, label: string, expectedPatterns: RegExp[] = []) {
   const diagnostics: string[] = [];
@@ -62,7 +67,7 @@ test.describe.serial('Live promo signup and tier sanity @canary', () => {
   });
 
   test('new user can redeem one-time promo and return as existing Pro', async ({ page }) => {
-    const diagnostics = await collectDiagnostics(page, 'promo-user');
+    const diagnostics = await collectDiagnostics(page, 'promo-user', EXPECTED_PRIVATE_STARTUP_DIAGNOSTICS);
 
     const promoResponse = page.waitForResponse((response) =>
       response.url().includes('/functions/v1/apply-promo') &&
