@@ -143,6 +143,9 @@ jobs:
   live-cloud-artifact:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    concurrency:
+      group: live-cloud-assemblyai-streaming
+      cancel-in-progress: false
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -159,7 +162,7 @@ jobs:
           E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
           E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
-        run: pnpm exec playwright test tests/live/cloud-artifact.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+        run: pnpm exec playwright test tests/live/cloud-artifact.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
       - name: Upload Cloud Artifacts
         if: always()
