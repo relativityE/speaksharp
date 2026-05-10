@@ -7,18 +7,12 @@ permissions:
   contents: read
 
 jobs:
-  live-release-matrix:
+  generate-promo:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.promo.outputs.code }}
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'true'
-
       - name: Generate Live Promo Code
         id: promo
         env:
@@ -49,6 +43,18 @@ jobs:
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "Generated one-time promo code for this live matrix run." >> "$GITHUB_STEP_SUMMARY"
 
+  live-custom-words:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
       - name: Run Live Custom Words Persistence
         env:
           VITE_USE_LIVE_DB: 'true'
@@ -57,6 +63,29 @@ jobs:
           E2E_FREE_PASSWORD: ${{ secrets.E2E_FREE_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/user-filler-words-persistence.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
+      - name: Upload Custom Words Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-custom-words-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14
+
+  live-native-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
 
       - name: Run Native Live Preflight Probe
         env:
@@ -67,19 +96,43 @@ jobs:
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/analytics-live-native-probe.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
+      - name: Upload Native Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-native-preflight-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14
+
+  live-promo-private-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: generate-promo
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
       - name: Run Promo Pro Private Artifact Trace
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
           BASE_URL: https://speaksharp-public.vercel.app/
-          PROMO_CODE: ${{ steps.promo.outputs.code }}
+          PROMO_CODE: ${{ needs.generate-promo.outputs.code }}
         run: pnpm exec playwright test tests/live/promo-pro-artifacts.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
-      - name: Upload Live Matrix Artifacts
+      - name: Upload Promo Private Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: live-release-matrix-artifacts
+          name: live-promo-private-artifacts
           path: |
             blob-report/live/
             playwright-report/
