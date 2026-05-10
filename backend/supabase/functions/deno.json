@@ -1,0 +1,8 @@
+{
+  "nodeModulesDir": "auto",
+  "imports": {
+    "std/http/server": "https://deno.land/std@0.168.0/http/server.ts",
+    "stripe": "npm:stripe@16",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2"
+  }
+}
