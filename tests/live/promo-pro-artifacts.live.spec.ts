@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
-import { collectBenchmarkPreconditionSnapshot } from './helpers/benchmark-utils';
+import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot } from './helpers/benchmark-utils';
+import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
 const PROMO_CODE = process.env.PROMO_CODE;
@@ -12,6 +13,12 @@ const PLACEHOLDER_TRANSCRIPT_PATTERN = /\b(words appear here|listening)\b/i;
 test.use({
   permissions: ['microphone'],
   baseURL: BASE_URL,
+  launchOptions: {
+    args: [
+      ...AUDIO_ARGS,
+      `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_AUDIO}`,
+    ],
+  },
 });
 
 test.describe.serial('Deployed promo Pro artifact path @live', () => {

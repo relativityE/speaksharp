@@ -15,6 +15,13 @@ test.use({
 test('native live STT analytics probe without mocked transcript injection', async ({ page }) => {
   test.setTimeout(120_000);
 
+  const testEmail = process.env.E2E_PRO_EMAIL;
+  const testPassword = process.env.E2E_PRO_PASSWORD;
+
+  if (!testEmail || !testPassword) {
+    throw new Error('E2E_PRO_EMAIL and E2E_PRO_PASSWORD are required for the native live preflight probe.');
+  }
+
   const evidence: Record<string, unknown> = {
     mode: 'native',
     transcriptSource: HARVARD_BENCHMARK_AUDIO,
@@ -32,7 +39,18 @@ test('native live STT analytics probe without mocked transcript injection', asyn
     }
   });
 
-  await page.goto('/session?devBypass=true');
+  await page.goto('/auth/signin');
+  await page.waitForSelector('[data-testid="auth-form"]', { timeout: 15_000 });
+  await page.getByTestId('email-input').fill(testEmail);
+  await page.getByTestId('password-input').fill(testPassword);
+
+  const loginPromise = page.waitForResponse(response =>
+    response.url().includes('/auth/v1/token') && response.request().method() === 'POST'
+  );
+  await page.getByTestId('sign-in-submit').click();
+  await loginPromise;
+
+  await page.goto('/session');
   await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 45_000 });
 
   await selectBenchmarkMode(page, 'native');
@@ -63,7 +81,7 @@ test('native live STT analytics probe without mocked transcript injection', asyn
 
   evidence.saved = await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false);
 
-  await page.goto('/analytics?devBypass=true');
+  await page.goto('/analytics');
   await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 45_000 });
   await page.reload();
   await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 45_000 });
