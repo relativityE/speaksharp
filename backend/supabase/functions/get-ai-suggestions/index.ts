@@ -143,9 +143,9 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     const apiKey = Deno.env.get('GEMINI_API_KEY');
     if (!apiKey) {
       console.error('GEMINI_API_KEY is not set.');
-      return new Response(JSON.stringify({ error: 'The server is not configured for AI suggestions. Please contact support.' }), {
+      return new Response(JSON.stringify({ suggestions: FALLBACK_SUGGESTIONS, degraded: true }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 500,
+        status: 200,
       });
     }
 

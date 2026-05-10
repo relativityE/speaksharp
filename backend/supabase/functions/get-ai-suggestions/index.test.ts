@@ -128,6 +128,39 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
     }
   });
 
+  await t.step('should return safe fallback suggestions when Gemini API key is missing', async () => {
+    Deno.env.delete('GEMINI_API_KEY');
+    fetchCount = 0;
+
+    const mockCreateSupabaseProUser = () => ({
+      auth: {
+        getUser: () => Promise.resolve({ data: { user: { id: 'pro-user' } }, error: null }),
+      },
+      from: () => ({
+        select: () => {
+          const result = {
+            eq: () => result,
+            single: () => Promise.resolve({ data: { subscription_status: 'pro' }, error: null }),
+          };
+          return result;
+        },
+      }),
+    }) as any;
+
+    const req = new Request('http://localhost/get-ai-suggestions', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer fake-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transcript: "hello missing key" })
+    });
+    const res = await handler(req, mockCreateSupabaseProUser);
+    const json = await res.json();
+
+    assertEquals(res.status, 200);
+    assertEquals(json.degraded, true);
+    assertEquals(json.suggestions.summary, 'AI suggestions are temporarily unavailable for this session.');
+    assertEquals(fetchCount, 0);
+  });
+
   await t.step('should return cached suggestions if available', async () => {
     Deno.env.set('GEMINI_API_KEY', 'mock-key');
     fetchCount = 0;
