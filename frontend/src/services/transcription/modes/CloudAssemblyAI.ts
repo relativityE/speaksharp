@@ -54,6 +54,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   // Connection State Machine
   private connectionId: number = 0;
   private flushPromise: Promise<void> | null = null;
+  private sentAudioChunks: number = 0;
+  private receivedMessageCounts: Record<string, number> = {};
 
   // Reconnection logic
   private reconnectionAttempts: number = 0;
@@ -149,6 +151,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     this.currentTranscript = '';
     this.reconnectionAttempts = 0;
     this.isReconnect = false;
+    this.sentAudioChunks = 0;
+    this.receivedMessageCounts = {};
     
     // Only connect if not mocked
     if (!this.mockEngine) {
@@ -267,6 +271,13 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       }
 
       const data = await response.json();
+      logger.info({
+        sId: this.serviceId,
+        rId: this.instanceId,
+        eId: this.instanceId,
+        status: response.status,
+        hasToken: typeof data.token === 'string' && data.token.length > 0,
+      }, '[CloudAssemblyAI] token fetched');
       return data.token;
 
     } catch (error) {
@@ -337,6 +348,12 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
         }
 
         this.updateConnectionState('connected');
+        logger.info({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          eId: this.instanceId,
+          queuedAudioChunks: this.audioQueue.length,
+        }, '[CloudAssemblyAI] WebSocket open');
         this.reconnectionAttempts = 0; // Reset counters on successful connection
         this.updateHeartbeat();
 
@@ -396,6 +413,17 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   }
 
   private handleMessage(data: AssemblyAIMessage) {
+    this.receivedMessageCounts[data.message_type] = (this.receivedMessageCounts[data.message_type] ?? 0) + 1;
+    logger.info({
+      sId: this.serviceId,
+      rId: this.instanceId,
+      eId: this.instanceId,
+      messageType: data.message_type,
+      textLength: data.text?.length ?? 0,
+      counts: this.receivedMessageCounts,
+      error: data.error,
+    }, '[CloudAssemblyAI] message received');
+
     switch (data.message_type) {
       case 'SessionBegins':
         logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] Session started. ID: ${data.session_id}`);
@@ -549,6 +577,17 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
       if (this.socket && this.socket.readyState === WebSocket.OPEN) {
         this.socket.send(JSON.stringify({ audio_data: base64 }));
+        this.sentAudioChunks++;
+        if (this.sentAudioChunks === 1 || this.sentAudioChunks % 25 === 0) {
+          logger.info({
+            sId: this.serviceId,
+            rId: this.instanceId,
+            eId: this.instanceId,
+            sentAudioChunks: this.sentAudioChunks,
+            samples: audioData.length,
+            base64Length: base64.length,
+          }, '[CloudAssemblyAI] audio chunk sent');
+        }
       }
     } catch (err) {
       logger.error({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId, err }, '[CloudAssemblyAI] Error processing audio chunk');

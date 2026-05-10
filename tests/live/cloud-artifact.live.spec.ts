@@ -22,6 +22,13 @@ test.use({
 test('Pro Cloud live STT can transcribe, save, and show analytics history', async ({ page }) => {
   test.skip(!BASE_URL || !E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'BASE_URL and E2E Pro credentials are required.');
 
+  page.on('console', (message) => {
+    const text = message.text();
+    if (/CloudAssemblyAI|assemblyai-token|TranscriptionService|SpeechRuntime|WebSocket|transcript/i.test(text)) {
+      console.log(`[browser:${message.type()}] ${text}`);
+    }
+  });
+
   await signInAsPro(page);
   await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
   await expect(page.getByTestId('pro-badge')).toBeVisible({ timeout: 20_000 });
