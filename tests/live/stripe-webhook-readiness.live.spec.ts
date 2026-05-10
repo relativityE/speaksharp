@@ -1,5 +1,5 @@
 import { test, expect, request as playwrightRequest } from '@playwright/test';
-import Stripe from 'stripe';
+import { createHmac } from 'node:crypto';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
@@ -61,15 +61,15 @@ test('deployed Stripe webhook accepts a signed no-op Stripe event', async () => 
       },
     });
     expect(STRIPE_WEBHOOK_SECRET, 'GitHub STRIPE_WEBHOOK_SECRET must be a Stripe webhook signing secret.').toMatch(/^whsec_/);
-    const signatureHeader = Stripe.webhooks.generateTestHeaderString({
-      payload,
-      secret: STRIPE_WEBHOOK_SECRET!,
-    });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = createHmac('sha256', STRIPE_WEBHOOK_SECRET!)
+      .update(`${timestamp}.${payload}`, 'utf8')
+      .digest('hex');
 
     const response = await context.post('/functions/v1/stripe-webhook', {
       headers: {
         'Content-Type': 'application/json',
-        'Stripe-Signature': signatureHeader,
+        'Stripe-Signature': `t=${timestamp},v1=${signature}`,
       },
       data: Buffer.from(payload, 'utf8'),
     });
