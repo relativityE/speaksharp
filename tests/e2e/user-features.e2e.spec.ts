@@ -77,9 +77,13 @@ test.describe('Exhaustive User Feature Matrix', () => {
     await page.waitForSelector('[data-testid^="session-history-item-"]', { timeout: 15000 });
 
     // 🛡️ CRITICAL: Select the latest session from the history to enter the Detail View
-    // We target the first history item in the list
+    // We target the first history item in the list. Use the stable href instead of
+    // relying on click hit-testing during dashboard re-renders.
     const latestSession = page.getByTestId(/session-history-item-/i).first();
-    await latestSession.click();
+    const sessionHref = await latestSession.getAttribute('href');
+    expect(sessionHref).toMatch(/^\/analytics\/session-/);
+    await navigateToRoute(page, sessionHref!);
+    await page.waitForURL('**/analytics/session-*');
 
     // 4. PRD §531: AI Coach Feedback (Should BE visible in Detail View)
     await expect(page.getByTestId('ai-suggestions-card')).toBeVisible({ timeout: 15000 });
