@@ -163,3 +163,16 @@ export async function expectBenchmarkRecordingStarted(page: Page, label: string)
         throw new Error(`Benchmark recording precondition failed for ${label}\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
     }
 }
+
+export async function expectBenchmarkTranscriptOutput(page: Page, label: string, timeout = 20_000, minWords = 5) {
+    try {
+        await expect(async () => {
+            const text = await page.getByTestId('transcript-container').textContent() ?? '';
+            const currentWordCount = text.trim().split(/\s+/).filter(w => w.length > 2).length;
+            expect(currentWordCount).toBeGreaterThan(minWords);
+        }).toPass({ timeout });
+    } catch (error) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-transcript-output-missing`);
+        throw new Error(`Benchmark transcript precondition failed for ${label}: transcript did not exceed ${minWords} words before WER\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+    }
+}
