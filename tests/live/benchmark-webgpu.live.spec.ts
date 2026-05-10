@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, waitForPrivateEngineReady } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -47,17 +47,14 @@ test('measure WhisperTurbo (WebGPU)', async ({ page }) => {
     await page.getByTestId('sign-in-submit').click();
     await loginPromise;
 
-    // Test Behavior: Wait for explicit auth signal (Sign Out button) since app-main is always rendered
-    await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15_000 });
-
-    // Navigate to the session page where the STT WASM engines actually initialize
-    await page.goto('/session');
+    // Navigate to the session page where the STT WASM engines actually initialize.
+    await waitForBenchmarkSession(page);
     
 
     await selectBenchmarkMode(page, 'private');
 
-    // Ensure the WebGPU engine is fully initialized (WASM downloaded and booted) BEFORE starting
-    await expect(page.locator('body')).toHaveAttribute('data-stt-engine', 'ready', { timeout: 180_000 });
+    // Ensure the WebGPU engine is fully initialized (WASM downloaded and booted) BEFORE starting.
+    await waitForPrivateEngineReady(page, 180_000);
 
     await page.getByTestId('session-start-stop-button').click();
     await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10_000 });

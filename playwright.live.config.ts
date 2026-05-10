@@ -23,9 +23,16 @@
  */
 import { defineConfig } from '@playwright/test';
 import { fileURLToPath } from 'url';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
 import { loadEnv, getChromeWithMic, baseConfig } from './playwright.base.config';
 
 loadEnv('test');
+dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
+const liveViteMode = process.env.LIVE_VITE_MODE || 'development';
+process.env.VITE_USE_LIVE_DB = process.env.VITE_USE_LIVE_DB || 'true';
+process.env.VITE_SKIP_MSW = process.env.VITE_SKIP_MSW || 'true';
+process.env.VITE_TEST_MODE = process.env.VITE_TEST_MODE || 'false';
 
 // Use a checked-in PCM WAV fixture with known ground truth. Do not point live
 // STT validation at external downloads or local machine paths.
@@ -90,7 +97,7 @@ export default defineConfig({
     ],
 
     webServer: {
-        command: 'pnpm run dev --port 5173',
+        command: `cd frontend && pnpm vite --port 5173 --mode ${liveViteMode} --logLevel error`,
         port: 5173,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

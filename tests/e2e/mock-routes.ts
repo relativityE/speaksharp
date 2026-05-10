@@ -351,6 +351,39 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         });
     });
 
+    // POST /rest/v1/rpc/complete_session
+    await registerRoute(page, '**/rest/v1/rpc/complete_session', async (route) => {
+        const page = route.request().frame()?.page();
+        if (!page) return route.continue();
+        const state = getPageState(page);
+
+        const body = JSON.parse(route.request().postData() || '{}');
+        const {
+            p_session_id,
+            p_status = 'completed',
+            p_final_transcript,
+            p_final_duration,
+            p_reason,
+        } = body;
+
+        const idx = state.sessions.findIndex((s: { id: string }) => s.id === p_session_id);
+        if (idx !== -1) {
+            state.sessions[idx] = {
+                ...state.sessions[idx],
+                status: p_status,
+                transcript: p_final_transcript ?? state.sessions[idx].transcript,
+                duration: p_final_duration ?? state.sessions[idx].duration,
+                status_reason: p_reason ?? state.sessions[idx].status_reason,
+            };
+        }
+
+        await route.fulfill({
+            status: 200,
+            headers: SUPABASE_HEADERS,
+            body: JSON.stringify({ success: true, final_status: p_status }),
+        });
+    });
+
 
     // GET/POST /rest/v1/user_filler_words
     await registerRoute(page, /\/rest\/v1\/user_filler_words(\?.*)?/, async (route) => {

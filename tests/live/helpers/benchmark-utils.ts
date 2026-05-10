@@ -53,14 +53,45 @@ export function assertNoRegression(
     }
 }
 
+export async function waitForBenchmarkSession(page: Page) {
+    await page.goto('/session');
+    await expect(page.getByTestId('stt-mode-select')).toBeVisible({ timeout: 20_000 });
+}
+
 export async function selectBenchmarkMode(page: Page, mode: 'native' | 'cloud' | 'private') {
     const select = page.getByTestId('stt-mode-select');
     await expect(select).toBeVisible({ timeout: 15_000 });
     await select.scrollIntoViewIfNeeded();
-    await select.click({ force: true });
 
-    const option = page.getByTestId(`stt-mode-${mode}`);
-    await expect(option).toBeVisible({ timeout: 10_000 });
-    await option.click({ force: true });
-    await expect(select).toHaveAttribute('data-state', mode, { timeout: 10_000 });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        await select.click({ force: true });
+
+        const option = page.getByTestId(`stt-mode-${mode}`);
+        await expect(option).toBeVisible({ timeout: 10_000 });
+        await option.click({ force: true });
+
+        try {
+            await expect(select).toHaveAttribute('data-state', mode, { timeout: 5_000 });
+            return;
+        } catch (error) {
+            if (attempt === 3) {
+                throw error;
+            }
+            await page.waitForTimeout(750);
+        }
+    }
+}
+
+export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {
+    await page.waitForFunction(() => {
+        const root = document.documentElement;
+        const runtimeState = root.getAttribute('data-runtime-state');
+        const sttReady = root.getAttribute('data-stt-ready');
+
+        return (
+            sttReady === 'true' ||
+            runtimeState === 'READY' ||
+            runtimeState === 'RECORDING'
+        );
+    }, { timeout });
 }

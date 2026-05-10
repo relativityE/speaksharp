@@ -61,16 +61,16 @@ A path is green only when all required checks pass:
 | WPM/clarity/pause analytics | Required | Required | Not separate if CPU passes | Required |
 | Session-over-session comparison | Required | Required | Not separate if CPU passes | Required |
 | PDF export with watermark | Required | Required | Not separate if CPU passes | Required |
-| WER benchmark evidence | 🔴 Required; currently no valid numeric baseline | 🔴 Required; fixture/reference mismatch blocks a trustworthy run | Required for acceleration claim; hardware-specific | 🔴 Required; current manifest has no benchmark history |
+| WER benchmark evidence | 🔴 Required; no valid Native WER yet | ✅ Private CPU measured at 4.11% WER / 95.89% accuracy | Required for acceleration claim; no valid WebGPU WER yet | ✅ Cloud measured at 0.00% WER / 100.00% accuracy |
 
-### STT Benchmark Truth Status (2026-05-09)
+### STT Benchmark Truth Status (2026-05-10)
 
 | Engine | Current User-Facing Status | Known Blocker | Required Evidence |
 |---|---|---|---|
-| Cloud / AssemblyAI | Must not show an authoritative ceiling until rerun. | `tests/STT_BENCHMARKS.json` has `expectedAccuracy` but no history-backed WER. | `pnpm benchmark:cloud` with `ASSEMBLYAI_API_KEY`, recorded average WER, and manifest history entry. |
-| Native Browser | Must show "not benchmarked" until rerun. | Current history has `trials: 0` and null WER. Local fake-audio run did not produce enough transcript for a valid score. | Browser benchmark with fake WAV input, successful transcript, average WER, and manifest history entry. |
-| Private CPU / Transformers.js | Must show "not benchmarked" until rerun. | Fixture/reference mapping is locally corrected, but local run was blocked by mock `.env.test` credentials (`Invalid API key`); manifest expected/history values still conflict until rerun. | Successful CPU transcript with real Pro benchmark credentials, WER, and manifest history entry for the actual CPU runtime. |
-| Private WebGPU / WhisperTurbo | Acceleration evidence only; not launch-blocking if CPU path is green. | Hardware/browser-specific and cannot be generalized to all users. | Headed local WebGPU run on supported hardware, recorded as acceleration evidence rather than a blanket Private ceiling. |
+| Cloud / AssemblyAI | ✅ Benchmark-backed. | GitHub `STT Ceiling Benchmarks` run `25622187317` succeeded for AssemblyAI across 10 Harvard fixtures with 0.00% WER / 100.00% accuracy. Workflow was run with `write_results=false`, so the repo manifest still needs a recorded history entry before user-facing benchmark display relies on it. | Commit/record the benchmark history entry or rerun with `write_results=true`. |
+| Native Browser | Must show "not benchmarked" until rerun. | Browser benchmark now runs in real/live mode and starts recording, but Chromium fake-audio/Web Speech produced only placeholder/insufficient transcript, so no meaningful WER can be recorded. | Browser benchmark with fake WAV input producing enough transcript for a valid WER, or a manually headed Chrome evidence run if Web Speech cannot consume fake audio reliably. |
+| Private CPU / Transformers.js | ✅ Benchmark-backed for Node CPU baseline. | Local `pnpm benchmark:whisper` succeeded with real repo Harvard WAV fixtures: 4.11% WER / 95.89% accuracy using `TransformersJS whisper-tiny.en (Node CPU)`. Browser CPU path still needs live proof because the browser benchmark account/harness was previously blocked by test/mock mode and Pro entitlement. | Keep Node CPU baseline recorded; run browser Private CPU transcript/save/cache proof with a Pro/promo account before claiming browser Private fully green. |
+| Private WebGPU / WhisperTurbo | Acceleration evidence only; not launch-blocking if CPU path is green. | Harness now uses authoritative `<html>` readiness anchors instead of stale `body[data-stt-engine]`, but WebGPU still lacks a valid WER run. Hardware/browser-specific results cannot be generalized to all users. | Headed local WebGPU run on supported hardware, recorded as acceleration evidence rather than a blanket Private ceiling. |
 
 ## Current Status
 
@@ -80,12 +80,12 @@ A path is green only when all required checks pass:
 | Production canary | ✅ Passed post-deploy on `1ea2b099` | `deploy-supabase-migrations.yml` run `25620857952` passed, then `canary.yml` run `25620877113` passed. |
 | Promo path | 🟡 Core live path verified / full artifact pending | Promo `1193119` granted Pro and reuse was rejected. Promo `4132867` granted Pro via Edge Function. Fresh non-promo signup/free behavior passed. Full promo artifact browser path still needs valid audio fixture and analytics/PDF proof. |
 | Private CPU path | 🟡 DB/RPC persistence verified / browser transcript pending | Post-deploy DB/RPC smoke saved/read a `private` session for a promo Pro user with transcript, WPM, filler words, and clarity. The invalid `tests/fixtures/10sec.wav` HTML fixture has been removed; live configs now inject the real `tests/fixtures/harvard_benchmark_16k.wav` fixture. Browser transcript/cache proof remains pending. |
-| Native path | 🔴 Mocked analytics persistence not green / real live not green | Analytics-truth testing showed in-session WPM/fillers changed, but persisted history/detail still showed stale/default values. Native benchmark fake-audio produced only one meaningful word, so no valid WER. |
+| Native path | 🟡 Mocked analytics persistence improved / real live WER not green | Focused mocked analytics persistence now passes for Native/Cloud stats, transcript excerpt, engine metadata, reload, and PDF watermark token. Native browser benchmark now runs in real/live mode and starts recording, but Web Speech/fake-audio still does not produce enough transcript for a valid WER. |
 | Cloud path | 🟡 Token gate partially live-verified / analytics pending | Live Free user received HTTP 403 from `assemblyai-token`; live active promo-Pro received HTTP 200 token with `expires_in:600`. Over-limit and expired-promo denial remain pending. Real Cloud analytics still requires a non-mocked live harness. |
 | Analytics return path | 🟡 Local reset fix / live not green | Earlier live review found persisted analytics could diverge from live session values and rolling WPM could inherit old chunks. Local fix now resets transcript/chunks/filler/pause state at accepted recording start. Full mocked/live validation remains open. |
 | Expired promo path | 🟡 Deployed / live seeded smoke pending | Dialog is simplified to two aligned choices; backend guards now cover expired promo-only Cloud token and DB session/heartbeat paths. Effective-tier migration is deployed, but live seeded expired-promo smoke remains pending. |
 | Toast/status/mobile UX | 🟡 Local fix / browser smoke pending | UI polish is pushed in `0d5f2cef`; production canary/CI are running. Manual visual pass still required after Vercel serves the new bundle. |
-| STT WER evidence | 🔴 Not green | GitHub benchmark run `25611403312` failed. No new valid WER values exist for Cloud, Native, Private CPU, or WebGPU. |
+| STT WER evidence | 🟡 Partial | Cloud is measured at 0.00% WER / 100.00% accuracy. Private CPU Node baseline is measured at 4.11% WER / 95.89% accuracy. Native and WebGPU still lack valid WER because browser benchmark execution has not produced enough real transcript output. |
 
 ## Validation Harness Findings
 

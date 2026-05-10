@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from '@/lib/toast';
@@ -242,9 +242,8 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
     const clarity = session.clarity_score ?? (session.accuracy ? (session.accuracy * 100) : 0);
 
     return (
-        <NavLink
-            to={`/analytics/${session.id}`}
-            className="group flex flex-col md:flex-row items-center justify-between p-4 bg-muted/30 rounded-xl hover:bg-muted/50 transition-all border border-transparent hover:border-border mb-3 last:mb-0"
+        <div
+            className="group flex flex-col md:flex-row items-center justify-between p-4 bg-muted/30 rounded-xl hover:bg-muted/50 transition-colors border border-transparent hover:border-border mb-3 last:mb-0"
             data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}
         >
             <div className="flex items-center gap-4 w-full md:w-auto mb-4 md:mb-0">
@@ -256,18 +255,23 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                         aria-label={`Select session for comparison`}
                     />
                 </div>
-                <div className="w-12 h-12 bg-secondary/20 rounded-xl flex items-center justify-center shrink-0">
-                    <Mic className="w-6 h-6 text-secondary" />
-                </div>
-                <div>
-                    <p className="font-semibold text-foreground text-base truncate max-w-[200px]">{session.title || 'Practice Session'}</p>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Clock className="w-3 h-3" />
-                        <span>{durationStr} duration</span>
-                        <span className="text-muted-foreground/50">•</span>
-                        <span>{formatDateTime(session.created_at)}</span>
+                <NavLink
+                    to={`/analytics/${session.id}`}
+                    className="flex min-w-0 items-center gap-4 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                    <div className="w-12 h-12 bg-secondary/20 rounded-xl flex items-center justify-center shrink-0">
+                        <Mic className="w-6 h-6 text-secondary" />
                     </div>
-                </div>
+                    <div>
+                        <p className="font-semibold text-foreground text-base truncate max-w-[200px]">{session.title || 'Practice Session'}</p>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Clock className="w-3 h-3" />
+                            <span>{durationStr} duration</span>
+                            <span className="text-muted-foreground/50">•</span>
+                            <span>{formatDateTime(session.created_at)}</span>
+                        </div>
+                    </div>
+                </NavLink>
             </div>
 
             <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end px-4 md:px-0">
@@ -290,7 +294,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                     <Button
                         variant="secondary"
                         size="sm"
-                        className="gap-2 hover:bg-primary hover:text-primary-foreground transition-all shadow-sm"
+                        className="gap-2 hover:bg-primary hover:text-primary-foreground transition-colors shadow-sm"
                             onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
@@ -319,7 +323,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                     <Download className="h-4 w-4" /> Download Session PDF
                 </Button>
             </div>
-        </NavLink>
+        </div>
     );
 };
 
@@ -518,7 +522,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         }
     };
 
-    const toggleSessionSelection = (sessionId: string) => {
+    const toggleSessionSelection = useCallback((sessionId: string) => {
         setSelectedSessions(prev =>
             prev.includes(sessionId)
                 ? prev.filter(id => id !== sessionId)
@@ -526,7 +530,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     ? [...prev, sessionId]
                     : prev
         );
-    };
+    }, []);
 
     const selectedSessionData = useMemo(() => {
         if (selectedSessions.length !== 2 || !sessionHistory) return null;

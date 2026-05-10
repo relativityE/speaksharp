@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -41,14 +41,13 @@ test('measure Native STT', async ({ page }) => {
     await page.getByTestId('sign-in-submit').click();
     await loginPromise;
 
-    // Test Behavior: Wait for explicit auth signal (Sign Out button) since app-main is always rendered
-    await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 15_000 });
+    await waitForBenchmarkSession(page);
 
     const trialWers: number[] = [];
 
     for (let trial = 1; trial <= TRIAL_COUNT; trial++) {
 
-        await page.goto('/session');
+        await waitForBenchmarkSession(page);
         
 
         await selectBenchmarkMode(page, 'native');

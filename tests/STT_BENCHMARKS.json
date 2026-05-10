@@ -34,6 +34,15 @@
             "ceiling_accuracy_pct": 90,
             "environment": "local-cpu-baseline",
             "note": "Established baseline ceiling for Private (CPU) STT"
+          },
+          {
+            "timestamp": "2026-05-10T06:48:46.580Z",
+            "model": "TransformersJS whisper-tiny.en (Node CPU)",
+            "corpus": "harvard-list-1",
+            "trials": 10,
+            "ceiling_wer": 0.0411,
+            "ceiling_accuracy_pct": 95.89,
+            "environment": "node-cpu-baseline"
           }
         ]
       }
