@@ -16,7 +16,7 @@ export async function handler(
   const body = await req.text()
 
   try {
-    const event = await stripe.webhooks.constructEvent(
+    const event = await stripe.webhooks.constructEventAsync(
       body,
       signature,
       webhookSecret
