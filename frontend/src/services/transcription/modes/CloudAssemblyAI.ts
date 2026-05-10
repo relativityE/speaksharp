@@ -59,6 +59,9 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   // Connection State Machine
   private connectionId: number = 0;
   private flushPromise: Promise<void> | null = null;
+  private receivedAudioFrames: number = 0;
+  private queuedAudioFrames: number = 0;
+  private droppedAudioFrames: number = 0;
   private sentAudioChunks: number = 0;
   private receivedMessageCounts: Record<string, number> = {};
 
@@ -331,11 +334,19 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
       // 🚀 PERFORMANCE: Add STT Word Boosting for user words (Fixes Domain 4)
       const vocabulary = this.modeOptions?.userWords || [];
-      const keytermsParam = vocabulary.length > 0
-        ? `&keyterms_prompt=${encodeURIComponent(vocabulary.join(','))}`
-        : '';
+      const connectionParams = new URLSearchParams({
+        sample_rate: '16000',
+        encoding: 'pcm_s16le',
+        speech_model: 'universal-streaming-english',
+        format_turns: 'true',
+        token,
+      });
 
-      const wsUrl = `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&speech_model=universal-streaming-english&token=${encodeURIComponent(token)}${keytermsParam}&speaker_labels=true`;
+      if (vocabulary.length > 0) {
+        connectionParams.set('keyterms_prompt', vocabulary.join(','));
+      }
+
+      const wsUrl = `wss://streaming.assemblyai.com/v3/ws?${connectionParams.toString()}`;
 
       const ws = new WebSocket(wsUrl);
       this.socket = ws;
@@ -587,12 +598,31 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   public processAudio(audioData: Float32Array): void {
     if (!this.isListening) return;
 
+    this.receivedAudioFrames++;
+    if (this.receivedAudioFrames === 1 || this.receivedAudioFrames % 25 === 0) {
+      logger.info({
+        sId: this.serviceId,
+        rId: this.instanceId,
+        eId: this.instanceId,
+        receivedAudioFrames: this.receivedAudioFrames,
+        sentAudioChunks: this.sentAudioChunks,
+        queuedAudioFrames: this.queuedAudioFrames,
+        droppedAudioFrames: this.droppedAudioFrames,
+        samples: audioData.length,
+        socketReadyState: this.socket?.readyState ?? null,
+        connectionState: this.connectionState,
+      }, '[CloudAssemblyAI] processAudio frame received');
+    }
+
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       void this.sendAudioChunk(audioData);
     } else {
       // Buffer audio if connecting
       if (this.audioQueue.length < 500) { // Limit queue size (~50s @ 100ms chunks)
         this.audioQueue.push(audioData);
+        this.queuedAudioFrames++;
+      } else {
+        this.droppedAudioFrames++;
       }
     }
   }

@@ -6,6 +6,8 @@ import { TEST_IDS } from '@/constants/testIds';
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuthProvider } from "@/contexts/AuthProvider";
 import { useUserProfile } from "@/hooks/useUserProfile";
+import { useUsageLimit } from "@/hooks/useUsageLimit";
+import { isPro } from "@/constants/subscriptionTiers";
 import logger from "@/lib/logger";
 
 const Navigation = () => {
@@ -13,7 +15,10 @@ const Navigation = () => {
   const navigate = useNavigate();
   const { session, signOut } = useAuthProvider();
   const { data: profile } = useUserProfile();
+  const { data: usageLimit } = useUsageLimit();
   const [isUpgrading, setIsUpgrading] = useState(false);
+  const effectiveSubscriptionStatus = usageLimit?.subscription_status ?? profile?.subscription_status;
+  const isEffectiveProUser = isPro(effectiveSubscriptionStatus);
 
   const handleSignOut = async () => {
     await signOut();
@@ -89,7 +94,7 @@ const Navigation = () => {
   );
 
 
-  const isFreeUser = session && profile?.subscription_status === 'free';
+  const isFreeUser = session && !isEffectiveProUser;
 
   return (
     <>
@@ -146,7 +151,7 @@ const Navigation = () => {
                       )}
                     </Button>
                   )}
-                  {session && profile?.subscription_status === 'pro' && (
+                  {session && isEffectiveProUser && (
                     <Badge
                       variant="secondary"
                       className="bg-gradient-primary text-primary-foreground border-none shadow-sm animate-in fade-in zoom-in duration-300 px-3 py-1"

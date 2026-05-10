@@ -94,6 +94,7 @@ export default class TranscriptionService {
   public strategy: STTStrategy | null = null;
   private mic: MicStream | null = null;
   private micFrameDisposer: (() => void) | null = null;
+  private micFramePumpCount: number = 0;
   private micError: Error | null = null;
   private watchdogTimer: NodeJS.Timeout | null = null;
   private isFrozen: boolean = false;
@@ -806,8 +807,20 @@ export default class TranscriptionService {
 
     if (!shouldForwardToStrategy && !shouldAnalyzeFrames) return;
 
+    this.micFramePumpCount = 0;
     this.micFrameDisposer = this.mic.onFrame((frame: Float32Array) => {
       const clonedFrame = frame.slice(0);
+      this.micFramePumpCount++;
+
+      if (shouldForwardToStrategy && (this.micFramePumpCount === 1 || this.micFramePumpCount % 25 === 0)) {
+        logger.info({
+          sId: this.serviceId,
+          rId: this.runId,
+          mode,
+          frames: this.micFramePumpCount,
+          samples: clonedFrame.length,
+        }, '[TranscriptionService] cloud mic frame forwarded');
+      }
 
       if (shouldAnalyzeFrames) {
         this.options.onAudioData?.(clonedFrame);
