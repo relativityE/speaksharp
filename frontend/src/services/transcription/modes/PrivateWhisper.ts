@@ -60,6 +60,9 @@ declare global {
 // import { toast } from '../../../lib/toast';
 
 type Status = 'uninitialized' | 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
+const PRIVATE_STT_SAMPLE_RATE = 16_000;
+const MIN_TRANSCRIPTION_SECONDS = 4;
+const MIN_TRANSCRIPTION_SAMPLES = PRIVATE_STT_SAMPLE_RATE * MIN_TRANSCRIPTION_SECONDS;
 
 /**
  * Utility to clear the Whisper model cache from IndexedDB.
@@ -267,7 +270,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] Streaming started.');
   }
 
-  private async processAudio(): Promise<void> {
+  private async processAudio({ force = false }: { force?: boolean } = {}): Promise<void> {
     this.updateHeartbeat();
     if (this.isProcessing) {
       return; // Already processing, skip
@@ -282,6 +285,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     try {
       // Concatenate all chunks using shared utility
       const concatenated = concatenateFloat32Arrays(this.audioChunks);
+
+      if (!force && concatenated.length < MIN_TRANSCRIPTION_SAMPLES) {
+        return;
+      }
 
       // Feed frame to PauseDetector for metrics and state
       this.pauseDetector.processAudioFrame(concatenated);
@@ -380,7 +387,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.cleanupFrameListener();
 
     // Process any remaining audio
-    await this.processAudio();
+    await this.processAudio({ force: true });
 
     this.status = 'stopped';
   }

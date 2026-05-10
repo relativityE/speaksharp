@@ -103,9 +103,9 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         expect(mockMic.onFrame).toHaveBeenCalled();
         expect(frameCallback).toBeDefined();
 
-        // Simulate audio frames (must be non-silent to pass VAD)
+        // Simulate enough audio for the production batching threshold.
         if (frameCallback) {
-            frameCallback(new Float32Array(16000).fill(0.5));
+            frameCallback(new Float32Array(64000).fill(0.5));
         }
 
         // Fast forward 1.1 seconds to trigger interval (1000ms loop)
@@ -163,8 +163,8 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         await privateWhisper.start(mockMic);
 
-        // Simulate audio frame (high amplitude squares)
-        const audioFrame = new Float32Array(16000).fill(0.5);
+        // Simulate audio frame (high amplitude squares) above the batching threshold.
+        const audioFrame = new Float32Array(64000).fill(0.5);
         if (frameCallback) {
             frameCallback(audioFrame);
         }
@@ -195,15 +195,15 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         await privateWhisper.start(mockMic);
 
-        // 1. Send first frame
-        if (frameCallback) frameCallback(new Float32Array(8000).fill(0.5));
+        // 1. Send first frame above the production batching threshold
+        if (frameCallback) frameCallback(new Float32Array(64000).fill(0.5));
 
         // 2. Trigger processing at 500ms
         await vi.advanceTimersByTimeAsync(500);
         expect(mocks.transcribe).toHaveBeenCalledTimes(1);
 
         // 3. CRITICAL: While "thinking" (it's awaiting the 200ms mock delay), send more audio
-        if (frameCallback) frameCallback(new Float32Array(8000).fill(0.1));
+        if (frameCallback) frameCallback(new Float32Array(64000).fill(0.1));
 
         // 4. Advance past the 200ms think time + microtask flush
         await vi.advanceTimersByTimeAsync(250);

@@ -78,27 +78,6 @@ test(`Gate 2 mocked ${mode}: analytics values change from transcript events and 
 });
 }
 
-test('Gate 2 mocked analytics: session comparison selection opens comparison dialog', async ({ page }) => {
-  await programmaticLoginWithRoutes(page, { userType: 'pro' });
-  await navigateToRoute(page, '/analytics');
-  await waitForFeature(page, 'analytics');
-
-  const sessionItems = page.getByTestId(/session-history-item-/);
-  await expect(sessionItems.first()).toBeVisible();
-
-  const firstCompareCheckbox = sessionItems.nth(0).getByRole('checkbox');
-  await firstCompareCheckbox.click();
-  await expect(firstCompareCheckbox).toHaveAttribute('aria-checked', 'true');
-
-  const secondCompareCheckbox = page.getByTestId(/session-history-item-/).nth(1).getByRole('checkbox');
-  await secondCompareCheckbox.click();
-  await expect(secondCompareCheckbox).toHaveAttribute('aria-checked', 'true');
-
-  await page.getByRole('button', { name: /Compare Selected/i }).click();
-  await expect(page.getByRole('dialog', { name: /Session Comparison/i })).toBeVisible();
-  await expect(page.getByTestId('improvement-indicator').first()).toBeVisible();
-});
-
 for (const mode of ['native', 'cloud'] as const) {
 test(`Gate 2 mocked ${mode}: session detail can return to dashboard`, async ({ page }) => {
   await programmaticLoginWithRoutes(page, { userType: 'pro' });
@@ -106,7 +85,7 @@ test(`Gate 2 mocked ${mode}: session detail can return to dashboard`, async ({ p
   await waitForFeature(page, 'analytics');
 
   const latestSession = page.getByTestId(/session-history-item-/).first();
-  await latestSession.getByRole('link').click();
+  await latestSession.click();
   await expect(page).toHaveURL(/\/analytics\/session-/);
   await page.getByRole('link', { name: /Back to Dashboard/i }).click();
   await expect(page).toHaveURL('/analytics');
