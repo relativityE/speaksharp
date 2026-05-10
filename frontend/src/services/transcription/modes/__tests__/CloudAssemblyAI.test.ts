@@ -93,6 +93,8 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         const socket = LAST_SOCKET();
         const trace = `isE2E=${isE2E}, instances=${instanceCount}, socketUrl=${socket?.url ?? 'UNDEFINED'}`;
         expect(socket, `[TRACE-P1] socket is undefined — ${trace}`).toBeDefined();
+        expect(socket.url, `[TRACE-P1] expected AssemblyAI v3 WebSocket path — ${trace}`).toContain('wss://streaming.assemblyai.com/v3/ws?');
+        expect(socket.url, `[TRACE-P1] expected Universal Streaming model in URL — ${trace}`).toContain('speech_model=universal-streaming-english');
         // fetchToken() returns the mock fetch token
         expect(socket.url, `[TRACE-P1] expected mock token in URL — ${trace}`).toContain('token=temp-assemblyai-token');
         
@@ -165,6 +167,24 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         socket.simulateMessage({ message_type: 'PartialTranscript', text: 'Hello' });
         expect(heartbeatSpy).toHaveBeenCalled();
         expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { partial: 'Hello' } });
+    });
+
+    it('should handle AssemblyAI v3 Turn messages', async () => {
+        await mode.init();
+        await mode.start();
+        const socket = LAST_SOCKET();
+        socket.simulateOpen();
+
+        socket.simulateMessage({ type: 'Turn', transcript: 'Hello from v3', end_of_turn: false });
+        expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { partial: 'Hello from v3' } });
+
+        socket.simulateMessage({ type: 'Turn', transcript: 'Hello from v3 final.', end_of_turn: true });
+        expect(onTranscriptUpdate).toHaveBeenCalledWith({
+            transcript: {
+                final: 'Hello from v3 final.',
+                speaker: undefined,
+            },
+        });
     });
 
     it('Pillar 4: should handle connection loss with exponential backoff', async () => {
