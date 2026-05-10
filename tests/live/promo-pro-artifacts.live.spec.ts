@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
+import { collectBenchmarkPreconditionSnapshot } from './helpers/benchmark-utils';
 
 const BASE_URL = process.env.BASE_URL;
 const PROMO_CODE = process.env.PROMO_CODE;
@@ -33,6 +34,16 @@ test.describe.serial('Deployed promo Pro artifact path @live', () => {
   });
 
   test('fresh promo signup can record, save, analyze, request AI feedback, and export PDF', async ({ page }) => {
+    await page.addInitScript(() => {
+      (window as unknown as { __PRIVATE_TRANSCRIPT_TRACE__?: boolean }).__PRIVATE_TRANSCRIPT_TRACE__ = true;
+    });
+    page.on('console', (message) => {
+      const text = message.text();
+      if (/\[PRIVATE_TRACE\]|PrivateWhisper|TranscriptionService|TRANSCRIPT_PULSE|SpeechRuntime|Supabase DB/i.test(text)) {
+        console.log(`[browser:${message.type()}] ${text}`);
+      }
+    });
+
     await signUpWithPromo(page, TEST_EMAIL, TEST_PASSWORD, PROMO_CODE!);
 
     await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
@@ -106,7 +117,7 @@ async function recordPrivateSessionUntilTranscript(page: Page) {
   await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
 
   const transcriptContainer = page.getByTestId('transcript-container');
-  await waitForLiveFixtureTranscript(transcriptContainer);
+  await waitForLiveFixtureTranscript(page, transcriptContainer);
 
   await page.waitForTimeout(1_000);
   await startStopButton.click();
@@ -114,20 +125,27 @@ async function recordPrivateSessionUntilTranscript(page: Page) {
   await expect(page.getByText(/Session saved/i)).toBeVisible({ timeout: 45_000 });
 }
 
-async function waitForLiveFixtureTranscript(transcriptContainer: ReturnType<Page['getByTestId']>) {
-  await expect(async () => {
-    const text = normalizeTranscript(await transcriptContainer.textContent());
+async function waitForLiveFixtureTranscript(page: Page, transcriptContainer: ReturnType<Page['getByTestId']>) {
+  let lastText = '';
+  try {
+    await expect(async () => {
+      const text = normalizeTranscript(await transcriptContainer.textContent());
+      lastText = text;
 
-    expect(
-      text,
-      'Private recording must surface real live-audio fixture transcript text before save/history assertions.'
-    ).toMatch(TRANSCRIPT_PATTERN);
+      expect(
+        text,
+        'Private recording must surface real live-audio fixture transcript text before save/history assertions.'
+      ).toMatch(TRANSCRIPT_PATTERN);
 
-    expect(
-      isPlaceholderOnlyTranscript(text),
-      `Placeholder transcript text is not valid evidence: "${text}"`
-    ).toBe(false);
-  }).toPass({ timeout: 90_000 });
+      expect(
+        isPlaceholderOnlyTranscript(text),
+        `Placeholder transcript text is not valid evidence: "${text}"`
+      ).toBe(false);
+    }).toPass({ timeout: 90_000 });
+  } catch (error) {
+    const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-live-transcript-timeout');
+    throw new Error(`Private live transcript did not appear before timeout. Last transcript="${lastText}"\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function normalizeTranscript(text: string | null) {

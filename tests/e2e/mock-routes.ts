@@ -290,9 +290,17 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         });
     });
 
-    // RPC queries allowance
+    // RPC queries allowance. Keep this generic handler from swallowing the
+    // stateful session RPC mocks registered below.
     await registerRoute(page, /\/rest\/v1\/rpc\/.*/, async (route) => {
-        if (/\/rest\/v1\/rpc\/heartbeat_session(\?.*)?$/.test(route.request().url())) {
+        const requestUrl = route.request().url();
+        if (/\/rest\/v1\/rpc\/create_session_and_update_usage(\?.*)?$/.test(requestUrl) ||
+            /\/rest\/v1\/rpc\/complete_session(\?.*)?$/.test(requestUrl)) {
+            await route.fallback();
+            return;
+        }
+
+        if (/\/rest\/v1\/rpc\/heartbeat_session(\?.*)?$/.test(requestUrl)) {
             await route.fulfill({
                 status: 200,
                 headers: SUPABASE_HEADERS,

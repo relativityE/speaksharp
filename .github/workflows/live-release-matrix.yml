@@ -1,0 +1,87 @@
+name: Live Release Matrix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-release-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Generate Live Promo Code
+        id: promo
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          PROMO_GEN_ADMIN_SECRET: ${{ secrets.PROMO_GEN_ADMIN_SECRET }}
+        run: |
+          set -euo pipefail
+
+          HTTP_STATUS=$(curl -sS -o /tmp/promo_response.json -w "%{http_code}" \
+            -X POST "${SUPABASE_URL}/functions/v1/apply-promo/generate" \
+            -H "Content-Type: application/json" \
+            -H "X-Promo-Admin-Key: ${PROMO_GEN_ADMIN_SECRET}" \
+            -d '{}')
+
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "Promo generation failed with HTTP $HTTP_STATUS"
+            cat /tmp/promo_response.json
+            exit 1
+          fi
+
+          CODE=$(jq -r '.code' /tmp/promo_response.json)
+          if [ -z "$CODE" ] || [ "$CODE" = "null" ]; then
+            echo "Promo generation did not return a code"
+            cat /tmp/promo_response.json
+            exit 1
+          fi
+
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Generated one-time promo code for this live matrix run." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run Live Custom Words Persistence
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          E2E_FREE_EMAIL: ${{ secrets.E2E_FREE_EMAIL }}
+          E2E_FREE_PASSWORD: ${{ secrets.E2E_FREE_PASSWORD }}
+          BASE_URL: https://speaksharp-public.vercel.app/
+        run: pnpm exec playwright test tests/live/user-filler-words-persistence.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
+      - name: Run Native Live Preflight Probe
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
+          E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
+          BASE_URL: https://speaksharp-public.vercel.app/
+        run: pnpm exec playwright test tests/live/analytics-live-native-probe.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
+      - name: Run Promo Pro Private Artifact Trace
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          BASE_URL: https://speaksharp-public.vercel.app/
+          PROMO_CODE: ${{ steps.promo.outputs.code }}
+        run: pnpm exec playwright test tests/live/promo-pro-artifacts.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
+      - name: Upload Live Matrix Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-release-matrix-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14

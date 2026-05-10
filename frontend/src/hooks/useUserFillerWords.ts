@@ -15,16 +15,42 @@ interface UserWord {
     user_id: string;
 }
 
-export const normalizeUserFillerWord = (word: string): string => word.trim().toLowerCase();
+const MAX_USER_FILLER_WORD_LENGTH = 50;
+const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001F\u007F]/;
+const SAFE_CUSTOM_WORD_PATTERN = /^[\p{L}\p{N}'’\- ]+$/u;
+
+export const normalizeUserFillerWord = (word: unknown): string => {
+    if (typeof word !== 'string') throw new Error('Word must be text');
+    return word.trim().replace(/\s+/g, ' ').toLowerCase();
+};
+
+const isUserWord = (value: unknown): value is UserWord => {
+    const candidate = value as Partial<UserWord> | null;
+    return Boolean(
+        candidate &&
+        typeof candidate.id === 'string' &&
+        typeof candidate.word === 'string' &&
+        candidate.word.trim().length > 0
+    );
+};
+
+export const sanitizeUserFillerWords = (words: unknown): UserWord[] =>
+    Array.isArray(words) ? words.filter(isUserWord) : [];
 
 export const validateUserFillerWord = (
-    word: string,
+    word: unknown,
     existingWords: Array<Pick<UserWord, 'word'>>,
     maxWords: number,
     isPro: boolean
 ): string => {
     const cleanedWord = normalizeUserFillerWord(word);
     if (!cleanedWord) throw new Error('Word cannot be empty');
+    if (cleanedWord.length > MAX_USER_FILLER_WORD_LENGTH) {
+        throw new Error(`Word must be ${MAX_USER_FILLER_WORD_LENGTH} characters or fewer`);
+    }
+    if (!SAFE_CUSTOM_WORD_PATTERN.test(cleanedWord) || CONTROL_CHARACTER_PATTERN.test(cleanedWord)) {
+        throw new Error('Use letters, numbers, spaces, hyphens, or apostrophes only.');
+    }
 
     const exists = existingWords.some(w => normalizeUserFillerWord(w.word) === cleanedWord);
     if (exists) throw new Error('Word already in list');
@@ -64,7 +90,7 @@ export const useUserFillerWords = () => {
                 logger.error({ err: error }, '[useUserFillerWords] Error fetching');
                 throw error;
             }
-            return data as UserWord[];
+            return sanitizeUserFillerWords(data);
         },
         enabled: !!session?.user?.id,
         // Cache invalidation strategy
@@ -91,10 +117,13 @@ export const useUserFillerWords = () => {
             return data;
         },
         onSuccess: (newItem) => {
+            const sanitizedItem = sanitizeUserFillerWords(Array.isArray(newItem) ? newItem : [newItem])[0] ?? null;
             // Manually update cache with authoritative data from DB
             queryClient.setQueryData(['user-filler-words', session?.user?.id], (old: UserWord[] = []) => {
-                return [...old, newItem];
+                const existingWords = sanitizeUserFillerWords(old);
+                return sanitizedItem ? [...existingWords, sanitizedItem] : existingWords;
             });
+            void queryClient.invalidateQueries({ queryKey: ['user-filler-words', session?.user?.id] });
             toast.success('Word added to detection list');
         },
         onError: (err: Error) => {
@@ -137,18 +166,19 @@ export const useUserFillerWords = () => {
 
     // Memoize the mapped array to ensure referential stability
     // This prevents infinite render loops in consumers like SessionPage
-    const simpleWords = useMemo(() => userFillerWords.map(v => v.word), [userFillerWords]);
+    const fullVocabularyObjects = useMemo(() => sanitizeUserFillerWords(userFillerWords), [userFillerWords]);
+    const simpleWords = useMemo(() => fullVocabularyObjects.map(v => v.word), [fullVocabularyObjects]);
 
     return {
         userFillerWords: simpleWords, // Return stable reference
-        fullVocabularyObjects: userFillerWords, // Return full objects for UI (Need IDs for delete)
+        fullVocabularyObjects, // Return full objects for UI (Need IDs for delete)
         isLoading,
         error,
         addWord: addWordMutation.mutate,
         removeWord: removeWordMutation.mutate,
         isAdding: addWordMutation.isPending,
         isRemoving: removeWordMutation.isPending,
-        count: userFillerWords.length,
+        count: fullVocabularyObjects.length,
         maxWords: MAX_WORDS,
         isPro
     };

@@ -53,9 +53,58 @@ export function assertNoRegression(
     }
 }
 
+export async function collectBenchmarkPreconditionSnapshot(page: Page, label: string) {
+    return page.evaluate((snapshotLabel) => {
+        const root = document.documentElement;
+        const bodyText = document.body?.innerText?.replace(/\s+/g, ' ').trim().slice(0, 500) ?? '';
+        const modeSelect = document.querySelector('[data-testid="stt-mode-select"]') as HTMLElement | null;
+        const startButton = document.querySelector('[data-testid="session-start-stop-button"]') as HTMLElement | null;
+        const transcript = document.querySelector('[data-testid="transcript-container"]')?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 240) ?? '';
+        const profileText = document.querySelector('[data-testid="pro-badge"], [data-testid="nav-upgrade-button"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null;
+
+        return {
+            label: snapshotLabel,
+            url: window.location.href,
+            title: document.title,
+            root: {
+                appReady: root.getAttribute('data-app-ready'),
+                runtimeState: root.getAttribute('data-runtime-state'),
+                sttReady: root.getAttribute('data-stt-ready'),
+                modelStatus: root.getAttribute('data-model-status'),
+                sessionPersisted: root.getAttribute('data-session-persisted'),
+            },
+            browser: {
+                hasMediaDevices: Boolean(navigator.mediaDevices),
+                hasGetUserMedia: Boolean(navigator.mediaDevices?.getUserMedia),
+                hasWebGPU: Boolean('gpu' in navigator),
+                userAgent: navigator.userAgent,
+            },
+            ui: {
+                modeSelectPresent: Boolean(modeSelect),
+                modeSelectState: modeSelect?.getAttribute('data-state') ?? null,
+                startButtonPresent: Boolean(startButton),
+                startButtonDisabled: startButton?.hasAttribute('disabled') ?? null,
+                startButtonRecording: startButton?.getAttribute('data-recording') ?? null,
+                profileText,
+                transcript,
+                bodyText,
+            },
+        };
+    }, label).catch((error) => ({
+        label,
+        snapshotError: error instanceof Error ? error.message : String(error),
+        url: page.url(),
+    }));
+}
+
 export async function waitForBenchmarkSession(page: Page) {
     await page.goto('/session');
-    await expect(page.getByTestId('stt-mode-select')).toBeVisible({ timeout: 20_000 });
+    try {
+        await expect(page.getByTestId('stt-mode-select')).toBeVisible({ timeout: 20_000 });
+    } catch (error) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'benchmark-session-selector-missing');
+        throw new Error(`Benchmark session precondition failed: stt-mode-select missing\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 
 export async function selectBenchmarkMode(page: Page, mode: 'native' | 'cloud' | 'private') {
@@ -83,15 +132,29 @@ export async function selectBenchmarkMode(page: Page, mode: 'native' | 'cloud' |
 }
 
 export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {
-    await page.waitForFunction(() => {
-        const root = document.documentElement;
-        const runtimeState = root.getAttribute('data-runtime-state');
-        const sttReady = root.getAttribute('data-stt-ready');
+    try {
+        await page.waitForFunction(() => {
+            const root = document.documentElement;
+            const runtimeState = root.getAttribute('data-runtime-state');
+            const sttReady = root.getAttribute('data-stt-ready');
 
-        return (
-            sttReady === 'true' ||
-            runtimeState === 'READY' ||
-            runtimeState === 'RECORDING'
-        );
-    }, { timeout });
+            return (
+                sttReady === 'true' ||
+                runtimeState === 'READY' ||
+                runtimeState === 'RECORDING'
+            );
+        }, { timeout });
+    } catch (error) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-engine-ready-timeout');
+        throw new Error(`Private engine readiness precondition failed\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+export async function expectBenchmarkRecordingStarted(page: Page, label: string) {
+    try {
+        await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10_000 });
+    } catch (error) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-recording-not-started`);
+        throw new Error(`Benchmark recording precondition failed for ${label}\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+    }
 }

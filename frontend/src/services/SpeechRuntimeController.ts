@@ -30,8 +30,12 @@ declare global {
         __SpeechRuntimeController__?: typeof SpeechRuntimeController;
         STTEngine?: typeof STTEngine;
         Result?: typeof Result;
+        __PRIVATE_TRANSCRIPT_TRACE__?: boolean;
     }
 }
+
+const isPrivateTranscriptTraceEnabled = () =>
+    typeof window !== 'undefined' && Boolean(window.__PRIVATE_TRANSCRIPT_TRACE__);
 
 export type RuntimeState =
     | 'IDLE'
@@ -697,6 +701,13 @@ export class SpeechRuntimeController {
             if (lastChunk?.isFinal && lastChunk.transcript === data.transcript.final) {
                 return;
             }
+            if (isPrivateTranscriptTraceEnabled()) {
+                logger.info({
+                    currentLength: currentTranscript.length,
+                    finalLength: data.transcript.final.length,
+                    chunkCount: store.chunks.length,
+                }, '[PRIVATE_TRACE] store_final_transcript_apply');
+            }
             if (currentTranscript.trim() === data.transcript.final.trim()) {
                 store.addChunk({
                     transcript: data.transcript.final || '',
@@ -713,6 +724,12 @@ export class SpeechRuntimeController {
                 isFinal: true
             });
         } else if (data.transcript.partial && !data.transcript.partial.startsWith('Downloading model')) {
+            if (isPrivateTranscriptTraceEnabled()) {
+                logger.info({
+                    currentLength: currentTranscript.length,
+                    partialLength: data.transcript.partial.length,
+                }, '[PRIVATE_TRACE] store_partial_transcript_apply');
+            }
             queueMicrotask(() => store.updateTranscript(currentTranscript, data.transcript.partial));
         }
     }

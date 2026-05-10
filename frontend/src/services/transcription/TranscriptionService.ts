@@ -38,10 +38,13 @@ import {
 declare global {
   interface Window {
     __TRANSCRIPTION_SERVICE_INTERNAL__?: TranscriptionService;
+    __PRIVATE_TRANSCRIPT_TRACE__?: boolean;
   }
 }
 
 // Singleton managed via SessionManager
+const isPrivateTranscriptTraceEnabled = () =>
+  typeof window !== 'undefined' && Boolean(window.__PRIVATE_TRANSCRIPT_TRACE__);
 
 /**
  * @deprecated Use SpeechRuntimeController as the sole manager of service instances.
@@ -256,6 +259,15 @@ export default class TranscriptionService {
     this.strategyCallbacks = {
       onTranscriptUpdate: (data) => {
         if (this.isTerminated) return;
+        if (isPrivateTranscriptTraceEnabled()) {
+          logger.info({
+            serviceId: this.serviceId,
+            mode: this.mode,
+            isFinal: Boolean(data.transcript.final),
+            hasPartial: Boolean(data.transcript.partial),
+            textLength: (data.transcript.final || data.transcript.partial || '').length,
+          }, '[PRIVATE_TRACE] service_transcript_callback');
+        }
         this.processTranscript(data);
       },
       onModelLoadProgress: (p) => {

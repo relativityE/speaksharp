@@ -50,6 +50,7 @@ test.describe('Live user filler words persistence', () => {
         await page.getByTestId(TEST_IDS.USER_FILLER_WORDS_INPUT).fill(word);
         await page.getByTestId('user-filler-words-add-button').click();
         await addResponse;
+        await openCustomWords(page);
         await expect(page.getByTestId('filler-word-badge').filter({ hasText: word })).toBeVisible({ timeout: 10000 });
 
         await page.keyboard.press('Escape');

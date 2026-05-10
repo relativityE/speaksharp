@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { AUDIO_ARGS, selectBenchmarkMode } from './helpers/benchmark-utils';
+import { AUDIO_ARGS, selectBenchmarkMode, collectBenchmarkPreconditionSnapshot, expectBenchmarkRecordingStarted } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -36,7 +36,11 @@ test('native live STT analytics probe without mocked transcript injection', asyn
   await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 45_000 });
 
   await selectBenchmarkMode(page, 'native');
+  evidence.preflight = await collectBenchmarkPreconditionSnapshot(page, 'native-live-before-start');
+  console.log(`NATIVE_LIVE_PREFLIGHT ${JSON.stringify(evidence.preflight)}`);
+
   await page.getByTestId('session-start-stop-button').click();
+  await expectBenchmarkRecordingStarted(page, 'native-live-probe');
   await expect(page.getByTestId('session-start-stop-button')).toHaveAttribute('data-recording', 'true', { timeout: 30_000 });
 
   await page.waitForTimeout(18_000);

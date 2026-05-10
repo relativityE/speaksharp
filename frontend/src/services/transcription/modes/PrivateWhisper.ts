@@ -54,6 +54,7 @@ declare global {
     __E2E_PLAYWRIGHT__?: boolean;
     __PrivateWhisper_INT_TEST__?: PrivateWhisper;
     __e2e_stt_engine_ready_fired__?: boolean;
+    __PRIVATE_TRANSCRIPT_TRACE__?: boolean;
   }
 }
 // Toast removed from here to centralized UI layer
@@ -63,6 +64,9 @@ type Status = 'uninitialized' | 'idle' | 'loading' | 'transcribing' | 'stopped' 
 const PRIVATE_STT_SAMPLE_RATE = 16_000;
 const MIN_TRANSCRIPTION_SECONDS = 4;
 const MIN_TRANSCRIPTION_SAMPLES = PRIVATE_STT_SAMPLE_RATE * MIN_TRANSCRIPTION_SECONDS;
+
+const isPrivateTranscriptTraceEnabled = () =>
+  typeof window !== 'undefined' && Boolean(window.__PRIVATE_TRANSCRIPT_TRACE__);
 
 /**
  * Utility to clear the Whisper model cache from IndexedDB.
@@ -253,6 +257,15 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       const clonedFrame = frame.slice(0);
       this.audioChunks.push(clonedFrame);
 
+      if (isPrivateTranscriptTraceEnabled()) {
+        logger.info({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          frameSamples: clonedFrame.length,
+          bufferedChunks: this.audioChunks.length,
+        }, '[PRIVATE_TRACE] audio_frame_in');
+      }
+
       // Pass raw audio to analysis hooks (Pause Detection)
       if (this.onAudioData) {
         this.onAudioData(clonedFrame);
@@ -285,6 +298,15 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     try {
       // Concatenate all chunks using shared utility
       const concatenated = concatenateFloat32Arrays(this.audioChunks);
+      if (isPrivateTranscriptTraceEnabled()) {
+        logger.info({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          force,
+          chunks: this.audioChunks.length,
+          samples: concatenated.length,
+        }, '[PRIVATE_TRACE] processor_output');
+      }
 
       if (!force && concatenated.length < MIN_TRANSCRIPTION_SAMPLES) {
         return;
@@ -322,7 +344,23 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       this.audioChunks.length = 0;
 
       // Perform transcription using the PrivateSTT facade
+      if (isPrivateTranscriptTraceEnabled()) {
+        logger.info({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          samples: processedAudio.length,
+        }, '[PRIVATE_TRACE] model_inference_start');
+      }
       const result = await this.privateSTT.transcribe(processedAudio);
+      if (isPrivateTranscriptTraceEnabled()) {
+        logger.info({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          ok: result.isOk,
+          textLength: result.isOk ? (result.data || '').length : 0,
+          error: result.isOk ? null : result.error?.message,
+        }, '[PRIVATE_TRACE] model_inference_result');
+      }
 
       if (result.isOk === false) {
         throw result.error;
@@ -335,6 +373,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         logger.info({ sId: this.serviceId, rId: this.instanceId, newText, latencyMs: (performance.now() - tStart).toFixed(2) }, '[PrivateWhisper] ✨ Transcription success');
         this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${newText}` : newText;
         if (this.onTranscriptUpdate) {
+          if (isPrivateTranscriptTraceEnabled()) {
+            logger.info({
+              sId: this.serviceId,
+              rId: this.instanceId,
+              textLength: newText.length,
+            }, '[PRIVATE_TRACE] transcript_callback_emit');
+          }
           this.onTranscriptUpdate({ transcript: { final: newText } });
         }
       }

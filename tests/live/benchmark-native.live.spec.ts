@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, expectBenchmarkRecordingStarted, collectBenchmarkPreconditionSnapshot } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -51,9 +51,10 @@ test('measure Native STT', async ({ page }) => {
         
 
         await selectBenchmarkMode(page, 'native');
+        console.log(`NATIVE_BENCHMARK_PREFLIGHT ${JSON.stringify(await collectBenchmarkPreconditionSnapshot(page, `native-trial-${trial}-before-start`))}`);
 
         await page.getByTestId('session-start-stop-button').click();
-        await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10_000 });
+        await expectBenchmarkRecordingStarted(page, `native-trial-${trial}`);
 
         // Fast-fail: assert the engine is producing output during the recording window
         // We use word count because transcript-container shows placeholder text ("Listening...")

@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, waitForPrivateEngineReady } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, waitForPrivateEngineReady, expectBenchmarkRecordingStarted } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -59,7 +59,7 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
     await waitForPrivateEngineReady(page, 180_000);
 
     await page.getByTestId('session-start-stop-button').click();
-    await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10_000 });
+    await expectBenchmarkRecordingStarted(page, 'private-cpu');
 
     // Fast-fail: assert the engine is producing output during the recording window
     // We use word count because transcript-container shows placeholder text ("Listening...")

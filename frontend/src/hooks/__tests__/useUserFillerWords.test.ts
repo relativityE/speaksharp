@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { useUserFillerWords, validateUserFillerWord } from '../useUserFillerWords';
+import { sanitizeUserFillerWords, useUserFillerWords, validateUserFillerWord } from '../useUserFillerWords';
 
 // Mock dependencies
 vi.mock('../../contexts/AuthProvider', () => ({
@@ -50,7 +50,15 @@ vi.mock('@tanstack/react-query', () => {
             setQueryData: mockSetQueryData
         }),
         useQuery: () => {
-            return { data: [{ id: '1', word: 'basically' }], isLoading: false, error: null };
+            return {
+                data: [
+                    { id: '1', word: 'basically' },
+                    { id: 'malformed' },
+                    null
+                ],
+                isLoading: false,
+                error: null
+            };
         },
         useMutation: () => {
             return { mutate: mockMutate, isPending: false };
@@ -82,7 +90,29 @@ describe('useUserFillerWords', () => {
 
 });
 
+describe('sanitizeUserFillerWords', () => {
+    it('drops malformed rows before they reach regex/highlight logic', () => {
+        expect(sanitizeUserFillerWords([
+            { id: '1', word: 'basically', user_id: 'u1', created_at: 'now' },
+            { id: '2' },
+            { word: 'missing-id' },
+            null
+        ])).toEqual([{ id: '1', word: 'basically', user_id: 'u1', created_at: 'now' }]);
+    });
+});
+
 describe('validateUserFillerWord', () => {
+    it('allows non-dictionary custom terms', () => {
+        expect(validateUserFillerWord('customboost', [], 100, true)).toBe('customboost');
+        expect(validateUserFillerWord('um-hmm', [], 100, true)).toBe('um-hmm');
+        expect(validateUserFillerWord('like I said', [], 100, true)).toBe('like i said');
+        expect(validateUserFillerWord("speaker's note", [], 100, true)).toBe("speaker's note");
+    });
+
+    it('normalizes whitespace and casing for matching', () => {
+        expect(validateUserFillerWord('  Custom   Boost  ', [], 100, true)).toBe('custom boost');
+    });
+
     it('normalizes added words before persistence', () => {
         expect(validateUserFillerWord('  AntigravityUI  ', [], 100, true)).toBe('antigravityui');
     });
@@ -101,5 +131,13 @@ describe('validateUserFillerWord', () => {
 
         expect(() => validateUserFillerWord('overflow', existingWords, 10, false))
             .toThrow('Free limit reached (10 words). Upgrade to Pro to add more.');
+    });
+
+    it('rejects unsafe or malformed custom terms', () => {
+        expect(() => validateUserFillerWord(null, [], 100, true)).toThrow('Word must be text');
+        expect(() => validateUserFillerWord('bad\u0000word', [], 100, true)).toThrow('letters, numbers, spaces, hyphens, or apostrophes');
+        expect(() => validateUserFillerWord('<script>alert(1)</script>', [], 100, true)).toThrow('letters, numbers, spaces, hyphens, or apostrophes');
+        expect(() => validateUserFillerWord('.*', [], 100, true)).toThrow('letters, numbers, spaces, hyphens, or apostrophes');
+        expect(() => validateUserFillerWord('a'.repeat(51), [], 100, true)).toThrow('50 characters or fewer');
     });
 });
