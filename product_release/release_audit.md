@@ -43,7 +43,7 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 | **G1: Fail-Closed Usage** | Deployed `check-usage-limit` returns structured 401 for missing auth and `can_start:true` only for authenticated Free happy path. | RPC/DB-error fail-closed simulation still pending. |
 | **G2: Usage-Aware Token** | Live Free user gets HTTP 403; live active promo-Pro user gets HTTP 200 token with `expires_in:600`. | Over-limit and expired-promo token denial still pending. |
 | **G3: Negative Duration** | Live `update_user_usage(-100, 'native')` returned `{"error":"invalid_duration","success":false}`. | Passed for direct negative-duration RPC. |
-| **G4: Promo Rate Limit** | Live one-time promo generation/redemption passed; reused promo code was rejected. | 9-wrong-code throttling still pending. |
+| **G4: Promo Rate Limit** | Live one-time promo generation/redemption passed; reused promo code was rejected. GitHub `Live Release Matrix` run `25635969309` proved 9 wrong-code attempts returned `[400,400,400,400,400,400,400,400,429]`. | Passed for live wrong-code throttle. |
 | **Q1: Pro Session Warning** | Pro users with finite daily remaining time receive the 5-minute warning; GitHub CI is green on `56ce972`. | Live/manual validation pending. |
 | **Q2: Safe LLM Parsing** | Gemini suggestions use defensive parsing and safe fallback output; GitHub CI/deploy evidence is green on `56ce972`. | Live suggestion smoke pending. |
 

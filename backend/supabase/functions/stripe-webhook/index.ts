@@ -16,11 +16,7 @@ export async function handler(
   const body = await req.text()
 
   try {
-    const event = await stripe.webhooks.constructEventAsync(
-      body,
-      signature,
-      webhookSecret
-    )
+    const event = await constructStripeEvent(stripe, body, signature, webhookSecret)
 
     console.log(`[Stripe Webhook] Received event: ${event.type} (${event.id})`)
 
@@ -118,6 +114,19 @@ export async function handler(
       {}
     )
   }
+}
+
+async function constructStripeEvent(
+  stripe: StripeClient,
+  body: string,
+  signature: string | null,
+  webhookSecret: string
+) {
+  if (typeof stripe.webhooks.constructEventAsync === "function") {
+    return await stripe.webhooks.constructEventAsync(body, signature, webhookSecret)
+  }
+
+  return stripe.webhooks.constructEvent(body, signature, webhookSecret)
 }
 
 function getRequiredEnv(name: string): string {
