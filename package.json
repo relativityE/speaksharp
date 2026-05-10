@@ -57,6 +57,7 @@
     "ci:infra": "pnpm ci:health-check",
     "ci:test": "node scripts/pnpm-only.mjs && ./scripts/test-audit.sh test",
     "ci:report": "./scripts/test-audit.sh report",
+    "ci:timing": "node scripts/report-ci-timing.mjs",
     "ci:github": "node scripts/run-ci.mjs --full",
     "ci:full": "pnpm ci:github",
     "ci:local": "pnpm ci:github",

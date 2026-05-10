@@ -291,6 +291,12 @@ jobs:
       - name: Aggregate CI Metrics
         run: node scripts/aggregate-ci.mjs
 
+      - name: Report CI Timing And Failures
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/report-ci-timing.mjs
+
       - name: Upload CI Metrics
         if: always()
         uses: actions/upload-artifact@v4
@@ -299,6 +305,7 @@ jobs:
           path: |
             artifacts/ci-metrics.json
             artifacts/ci-wall-clock.json
+            artifacts/ci-job-timing.json
           retention-days: 30
           if-no-files-found: warn
 
