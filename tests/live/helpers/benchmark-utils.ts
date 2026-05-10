@@ -109,7 +109,12 @@ export async function waitForBenchmarkSession(page: Page) {
 
 export async function selectBenchmarkMode(page: Page, mode: 'native' | 'cloud' | 'private') {
     const select = page.getByTestId('stt-mode-select');
-    await expect(select).toBeVisible({ timeout: 15_000 });
+    try {
+        await expect(select).toBeVisible({ timeout: 15_000 });
+    } catch (error) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `select-${mode}-selector-missing`);
+        throw new Error(`Benchmark mode selection precondition failed for ${mode}: stt-mode-select missing\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+    }
     await select.scrollIntoViewIfNeeded();
 
     for (let attempt = 1; attempt <= 3; attempt++) {
