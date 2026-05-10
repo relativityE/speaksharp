@@ -129,7 +129,7 @@ async function recordPrivateSessionUntilTranscript(page: Page) {
   await page.waitForTimeout(1_000);
   await startStopButton.click();
   await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 45_000 });
-  await expect(page.getByText(/Session saved/i)).toBeVisible({ timeout: 45_000 });
+  await expect(page.getByTestId('status-message-text')).toContainText(/Session saved/i, { timeout: 45_000 });
 }
 
 async function waitForLiveFixtureTranscript(page: Page, transcriptContainer: ReturnType<Page['getByTestId']>) {
