@@ -4,7 +4,6 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const BASE_URL = process.env.BASE_URL ?? 'https://speaksharp-public.vercel.app/';
 const RUN_ID = Date.now();
 const PASSWORD = `SpeakSharp-Live-${RUN_ID}!`;
 
@@ -107,7 +106,7 @@ async function requestAssemblyToken(email: string) {
     throw new Error(`Failed to sign in ${email}: ${error?.message ?? 'missing session token'}`);
   }
 
-  const context = await playwrightRequest.newContext({ baseURL: BASE_URL });
+  const context = await playwrightRequest.newContext({ baseURL: SUPABASE_URL });
   try {
     const response = await context.post('/functions/v1/assemblyai-token', {
       headers: { Authorization: `Bearer ${data.session.access_token}` },

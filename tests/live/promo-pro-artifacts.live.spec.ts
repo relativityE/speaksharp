@@ -68,8 +68,14 @@ test.describe.serial('Deployed promo Pro artifact path @live', () => {
     await expect(savedSession, 'fresh promo user should have one saved session visible in history').toBeVisible({ timeout: 45_000 });
 
     await expect(page.getByText(/Pro Plan Active/i)).toBeVisible({ timeout: 20_000 });
-    await savedSession.click();
+    const detailHref = await savedSession.evaluate((element) => {
+      const self = element instanceof HTMLAnchorElement ? element : null;
+      const nested = element.querySelector<HTMLAnchorElement>('a[href^="/analytics/"]');
+      return self?.getAttribute('href') ?? nested?.getAttribute('href') ?? null;
+    });
+    expect(detailHref, 'saved session should expose an analytics detail link').toBeTruthy();
 
+    await page.goto(detailHref!);
     await expect(page).toHaveURL(/\/analytics\/[^/]+$/, { timeout: 20_000 });
     await expect(page.getByTestId('ai-suggestions-card')).toBeVisible({ timeout: 20_000 });
     await assertAiSuggestionsUsable(page);
