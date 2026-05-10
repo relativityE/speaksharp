@@ -16,8 +16,18 @@ interface UserWord {
 }
 
 const MAX_USER_FILLER_WORD_LENGTH = 50;
-const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001F\u007F]/;
 const SAFE_CUSTOM_WORD_PATTERN = /^[\p{L}\p{N}'’\- ]+$/u;
+
+const hasControlCharacter = (value: string): boolean => {
+    for (let index = 0; index < value.length; index += 1) {
+        const code = value.charCodeAt(index);
+        if (code <= 31 || code === 127) {
+            return true;
+        }
+    }
+
+    return false;
+};
 
 export const normalizeUserFillerWord = (word: unknown): string => {
     if (typeof word !== 'string') throw new Error('Word must be text');
@@ -48,7 +58,7 @@ export const validateUserFillerWord = (
     if (cleanedWord.length > MAX_USER_FILLER_WORD_LENGTH) {
         throw new Error(`Word must be ${MAX_USER_FILLER_WORD_LENGTH} characters or fewer`);
     }
-    if (!SAFE_CUSTOM_WORD_PATTERN.test(cleanedWord) || CONTROL_CHARACTER_PATTERN.test(cleanedWord)) {
+    if (!SAFE_CUSTOM_WORD_PATTERN.test(cleanedWord) || hasControlCharacter(cleanedWord)) {
         throw new Error('Use letters, numbers, spaces, hyphens, or apostrophes only.');
     }
 

@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Response } from '@playwright/test';
 import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot } from './helpers/benchmark-utils';
-import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
+import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
 const PROMO_CODE = process.env.PROMO_CODE;
@@ -16,7 +16,7 @@ test.use({
   launchOptions: {
     args: [
       ...AUDIO_ARGS,
-      `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_AUDIO}`,
+      `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_LONG_AUDIO}`,
     ],
   },
 });

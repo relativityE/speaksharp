@@ -1,13 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { AUDIO_ARGS, selectBenchmarkMode, collectBenchmarkPreconditionSnapshot, expectBenchmarkRecordingStarted } from './helpers/benchmark-utils';
-import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
+import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
   permissions: ['microphone'],
   launchOptions: {
     args: [
       ...AUDIO_ARGS,
-      `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_AUDIO}`,
+      `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_LONG_AUDIO}`,
     ],
   },
 });
@@ -24,7 +24,7 @@ test('native live STT analytics probe without mocked transcript injection', asyn
 
   const evidence: Record<string, unknown> = {
     mode: 'native',
-    transcriptSource: HARVARD_BENCHMARK_AUDIO,
+    transcriptSource: HARVARD_BENCHMARK_LONG_AUDIO,
     transcriptAppeared: false,
     statsChanged: false,
     saved: false,
@@ -56,6 +56,11 @@ test('native live STT analytics probe without mocked transcript injection', asyn
   await selectBenchmarkMode(page, 'native');
   evidence.preflight = await collectBenchmarkPreconditionSnapshot(page, 'native-live-before-start');
   console.log(`NATIVE_LIVE_PREFLIGHT ${JSON.stringify(evidence.preflight)}`);
+
+  const profileText = ((evidence.preflight as { ui?: { profileText?: string | null } }).ui?.profileText ?? '').trim();
+  if (profileText !== 'PRO') {
+    throw new Error(`Native live preflight requires a Pro account before Start\n${JSON.stringify(evidence, null, 2)}`);
+  }
 
   await page.getByTestId('session-start-stop-button').click();
   await expectBenchmarkRecordingStarted(page, 'native-live-probe');

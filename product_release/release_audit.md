@@ -18,7 +18,7 @@ SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestr
 | Category | Status | Risk Level | Rationale |
 | :--- | :--- | :--- | :--- |
 | **Financial Security** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **CRITICAL** | Free Cloud-token denial and active promo-Pro token issuance are live-confirmed; over-limit and expired-promo denial remain pending. |
-| **User Privacy** | 🟡 DB SAVE VERIFIED / BROWSER TRANSCRIPT PENDING | LOW | Private DB policy now allows Pro `engine='private'` save/readback. Browser Private transcript/cache validation remains pending because the live audio fixture is invalid. |
+| **User Privacy** | 🟡 DB SAVE VERIFIED / BROWSER TRANSCRIPT PENDING | LOW | Private DB policy now allows Pro `engine='private'` save/readback. Browser Private trace now proves audio frames and model inference happen, but the model returned empty text on the short fixture; live probes now use a 122.514s speech fixture and emit audio RMS/peak for the next retest. |
 | **Operational Stability** | 🟡 CAUTION | MEDIUM | Stabilization churn has created "Test-Aware" production debt. |
 | **Product Integrity** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **HIGH** | Negative duration rejection and promo one-time/reuse behavior are live-confirmed; wrong-code throttling remains pending. |
 
@@ -51,9 +51,9 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 
 | Gate | Result | Release Meaning |
 | :--- | :--- | :--- |
-| `pnpm ci:unit` | ✅ Passed locally on 2026-05-10: `108` files, `645 passed | 1 todo`. | Local unit/type/lint truth is green after pricing-test and usage-gate fixes. |
+| `pnpm test:unit` | ✅ Passed locally on 2026-05-10: `108` files, `649 passed | 1 todo`. | Local unit coverage is green after the custom-words lint fix. |
 | `pnpm test:e2e` | ✅ Passed: `40 passed`, `0 failed`, `0 flaky`. | Local mocked orchestration is green. |
-| GitHub `CI - Test Audit` | 🔴 Latest `208be4ac` run `25621064008` failed. | Failure is stale pricing-page unit expectations plus report-stage artifact handling when E2E is skipped. Local fixes are applied; required GitHub CI is not green until rerun passes. |
+| GitHub `CI - Test Audit` | 🔴 Latest `10582935` run `25631918280` failed. | Only `unit` failed: ESLint `no-control-regex` in `useUserFillerWords.ts`; E2E shards were skipped. Local lint/type/unit are green after the fix, but required GitHub CI is not green until rerun passes. |
 | Production canary | ✅ Passed post-deploy on `1ea2b099` run `25620877113`, and on `208be4ac` run `25621064004`. | Deployed Native smoke is green after migration/function deploy. |
 | Supabase migration + function deploy | ✅ Passed on `1ea2b099`, run `25620857952`. | Required migrations/functions were deployed together. |
 | Vercel frontend | ✅ Serving `1ea2b099`. | Bundle reports `VITE_VERCEL_GIT_COMMIT_SHA=1ea2b099ae5115174a1f792e25a334128330b950`. |

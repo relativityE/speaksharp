@@ -68,6 +68,25 @@ const MIN_TRANSCRIPTION_SAMPLES = PRIVATE_STT_SAMPLE_RATE * MIN_TRANSCRIPTION_SE
 const isPrivateTranscriptTraceEnabled = () =>
   typeof window !== 'undefined' && Boolean(window.__PRIVATE_TRANSCRIPT_TRACE__);
 
+function summarizeAudioEnergy(audio: Float32Array) {
+  let sumSquares = 0;
+  let peak = 0;
+
+  for (let i = 0; i < audio.length; i += 1) {
+    const sample = audio[i] ?? 0;
+    const abs = Math.abs(sample);
+    sumSquares += sample * sample;
+    if (abs > peak) {
+      peak = abs;
+    }
+  }
+
+  return {
+    rms: audio.length > 0 ? Math.sqrt(sumSquares / audio.length) : 0,
+    peak,
+  };
+}
+
 /**
  * Utility to clear the Whisper model cache from IndexedDB.
  * Used for self-repair when browser locks occur.
@@ -299,12 +318,15 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       // Concatenate all chunks using shared utility
       const concatenated = concatenateFloat32Arrays(this.audioChunks);
       if (isPrivateTranscriptTraceEnabled()) {
+        const energy = summarizeAudioEnergy(concatenated);
         logger.info({
           sId: this.serviceId,
           rId: this.instanceId,
           force,
           chunks: this.audioChunks.length,
           samples: concatenated.length,
+          rms: Number(energy.rms.toFixed(6)),
+          peak: Number(energy.peak.toFixed(6)),
         }, '[PRIVATE_TRACE] processor_output');
       }
 
@@ -345,10 +367,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
       // Perform transcription using the PrivateSTT facade
       if (isPrivateTranscriptTraceEnabled()) {
+        const energy = summarizeAudioEnergy(processedAudio);
         logger.info({
           sId: this.serviceId,
           rId: this.instanceId,
           samples: processedAudio.length,
+          rms: Number(energy.rms.toFixed(6)),
+          peak: Number(energy.peak.toFixed(6)),
         }, '[PRIVATE_TRACE] model_inference_start');
       }
       const result = await this.privateSTT.transcribe(processedAudio);
