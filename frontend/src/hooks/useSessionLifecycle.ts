@@ -148,7 +148,7 @@ export const useSessionLifecycle = () => {
             hasAutoStoppedRef.current = false;
             hasVADStoppedRef.current = false;
 
-            if (!isProUser && usageLimit && !usageLimit.can_start) {
+            if (usageLimit && !usageLimit.can_start) {
                 const errorMsg = usageLimit.error || 'Daily usage limit reached.';
                 const prefix = errorMsg.startsWith('⚠️') || errorMsg.startsWith('⛔') ? '' : '⛔ ';
                 setSTTStatus({ type: 'error', message: `${prefix}${errorMsg}` });

@@ -31,8 +31,8 @@ describe('PricingPage', () => {
         it('should render the pricing page header', () => {
             renderPricingPage();
 
-            expect(screen.getByText("Find the plan that's right for you")).toBeInTheDocument();
-            expect(screen.getByText(/Whether you're just starting out/)).toBeInTheDocument();
+            expect(screen.getByText('Choose your SpeakSharp plan')).toBeInTheDocument();
+            expect(screen.getByText(/Start with browser transcription/)).toBeInTheDocument();
         });
 
         it('should render Free tier', () => {
@@ -177,7 +177,7 @@ describe('PricingPage', () => {
             // Find the grid container
             const gridContainer = screen.getByText('Free').closest('.grid');
             expect(gridContainer).toHaveClass('grid-cols-1');
-            expect(gridContainer).toHaveClass('md:grid-cols-3');
+            expect(gridContainer).toHaveClass('md:grid-cols-2');
         });
     });
 });

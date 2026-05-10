@@ -640,6 +640,24 @@ export class SpeechRuntimeController {
         this.subscriberCallbacks.onAudioData?.(data);
     }
 
+    private resetAnalysisStateForNewRecording(): void {
+        const store = useSessionStore.getState();
+        store.updateTranscript('', '');
+        store.updateFillerData({});
+        store.setChunks([]);
+        store.setPauseMetrics({
+            totalPauses: 0,
+            averagePauseDuration: 0,
+            longestPause: 0,
+            pausesPerMinute: 0,
+            silencePercentage: 0,
+            transitionPauses: 0,
+            extendedPauses: 0,
+        });
+        store.setElapsedTime(0);
+        store.setSessionSaved(false);
+    }
+
     private flushQueues() {
         while (this.emissionQueue.length > 0) {
             const data = this.emissionQueue.shift();
@@ -750,6 +768,8 @@ export class SpeechRuntimeController {
                 await this.transition('FAILED', undefined, _token);
                 return;
             }
+
+            this.resetAnalysisStateForNewRecording();
 
             await this.transition('INITIATING', undefined, _token);
             pushE2EEvent('SR_AFTER_INITIATING');

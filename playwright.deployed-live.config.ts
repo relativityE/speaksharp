@@ -13,7 +13,7 @@ import { loadEnv, getChromeWithMic, baseConfig } from './playwright.base.config'
 
 loadEnv('test');
 
-const LIVE_AUDIO_FIXTURE = fileURLToPath(new URL('./tests/fixtures/10sec.wav', import.meta.url));
+const LIVE_AUDIO_FIXTURE = fileURLToPath(new URL('./tests/fixtures/harvard_benchmark_16k.wav', import.meta.url));
 const chromeWithMic = getChromeWithMic();
 
 export default defineConfig({

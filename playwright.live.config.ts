@@ -27,9 +27,9 @@ import { loadEnv, getChromeWithMic, baseConfig } from './playwright.base.config'
 
 loadEnv('test');
 
-// 10sec.wav: long enough to outlast WASM engine init (~20s) when combined with the
-// data-state='recording' engine-ready gate in private-stt.live.spec.ts.
-const LIVE_AUDIO_FIXTURE = fileURLToPath(new URL('./tests/fixtures/10sec.wav', import.meta.url));
+// Use a checked-in PCM WAV fixture with known ground truth. Do not point live
+// STT validation at external downloads or local machine paths.
+const LIVE_AUDIO_FIXTURE = fileURLToPath(new URL('./tests/fixtures/harvard_benchmark_16k.wav', import.meta.url));
 
 export default defineConfig({
     ...baseConfig,

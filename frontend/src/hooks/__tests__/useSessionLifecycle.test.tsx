@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { useSessionLifecycle } from '../useSessionLifecycle';
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest';
 import { useSessionStore } from '@/stores/useSessionStore';
@@ -406,6 +406,62 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 type: 'info',
                 message: "⚠️ Great practice! 5 minutes remaining for today's Pro practice limit."
             });
+        });
+    });
+
+    it('should honor can_start=false for stale Pro or expired promo users', async () => {
+        vi.mocked(useProfile).mockReturnValue({
+            profile: {
+                id: 'test-user',
+                subscription_status: 'pro',
+                email: 'test@example.com'
+            } as UserProfile,
+            isVerified: true
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                daily_remaining: 0,
+                daily_limit: 7200,
+                monthly_remaining: 0,
+                monthly_limit: 180000,
+                remaining_seconds: 0,
+                can_start: false,
+                subscription_status: 'free',
+                is_pro: false,
+                streak_count: 0,
+                error: 'Promo access expired'
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        const mockStore = createTestSessionStore({
+            isListening: false,
+            runtimeState: 'READY',
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await act(async () => {
+            await result.current.handleStartStop();
+        });
+
+        expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
+        expect(mockStore.getState().sttStatus).toEqual({
+            type: 'error',
+            message: '⛔ Promo access expired'
         });
     });
 

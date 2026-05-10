@@ -57,7 +57,7 @@ declare global {
     }
 }
 
-// 10sec.wav replaces test_speech_16k.wav (2.4s).
+// Live configs inject harvard_benchmark_16k.wav, a checked-in PCM fixture.
 // Root cause: --use-file-for-fake-audio-capture streams from T=0; WASM init takes ~20s.
 // The 2.4s file was exhausted before the engine was ready. 10s guarantees audio is
 // still playing when data-state='recording' fires. (Expert-confirmed fix.)

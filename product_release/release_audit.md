@@ -9,7 +9,7 @@
 **Confidence Score**: 98% (Evidence-based codebase verification)
 **Audit v1.1 Integrated:** 2026-05-07
 
-SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestration layer. The P0 backend remediation work is deployed on `1ea2b099`: `deploy-supabase-migrations.yml` run `25620857952` passed, and post-deploy `canary.yml` run `25620877113` passed. Live smoke now verifies Free Cloud-token denial, active promo-Pro Cloud-token issuance, negative-duration rejection, one-time promo redemption/reuse rejection, request-aware usage CORS, and DB/RPC Private session save/readback. The platform remains blocked for commercial launch until CI report aggregation is fixed, browser-level Private transcript/cache is validated with a real audio fixture, analytics persistence is proven across Native/Cloud/Private, and Stripe/Sentry/manual hardware checks are complete.
+SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestration layer. The P0 backend remediation work is deployed on `1ea2b099`: `deploy-supabase-migrations.yml` run `25620857952` passed, and post-deploy canary runs `25620877113` and `25621064004` passed. Live smoke now verifies Free Cloud-token denial, active promo-Pro Cloud-token issuance, negative-duration rejection, one-time promo redemption/reuse rejection, request-aware usage CORS, and DB/RPC Private session save/readback. The platform remains blocked for commercial launch until the local CI fixes are pushed and GitHub CI passes, browser-level Private transcript/cache is validated with the corrected real audio fixture, analytics persistence is proven across Native/Cloud/Private, and Stripe/Sentry/manual hardware checks are complete.
 
 ---
 
@@ -51,10 +51,10 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 
 | Gate | Result | Release Meaning |
 | :--- | :--- | :--- |
-| `pnpm ci:unit` | ✅ Passed: `106` files, `627 passed | 1 todo`. | Local unit/type/lint truth is green. |
+| `pnpm ci:unit` | ✅ Passed locally on 2026-05-10: `108` files, `645 passed | 1 todo`. | Local unit/type/lint truth is green after pricing-test and usage-gate fixes. |
 | `pnpm test:e2e` | ✅ Passed: `40 passed`, `0 failed`, `0 flaky`. | Local mocked orchestration is green. |
-| GitHub `CI - Test Audit` | 🔴 Latest `1ea2b099` run `25611616096` failed. | Failure is report aggregation: `test-results/playwright/results.json` missing after no E2E reports to merge. Required CI is not green. |
-| Production canary | ✅ Passed post-deploy on `1ea2b099`, run `25620877113`. | Deployed Native smoke is green after migration/function deploy. |
+| GitHub `CI - Test Audit` | 🔴 Latest `208be4ac` run `25621064008` failed. | Failure is stale pricing-page unit expectations plus report-stage artifact handling when E2E is skipped. Local fixes are applied; required GitHub CI is not green until rerun passes. |
+| Production canary | ✅ Passed post-deploy on `1ea2b099` run `25620877113`, and on `208be4ac` run `25621064004`. | Deployed Native smoke is green after migration/function deploy. |
 | Supabase migration + function deploy | ✅ Passed on `1ea2b099`, run `25620857952`. | Required migrations/functions were deployed together. |
 | Vercel frontend | ✅ Serving `1ea2b099`. | Bundle reports `VITE_VERCEL_GIT_COMMIT_SHA=1ea2b099ae5115174a1f792e25a334128330b950`. |
 | Targeted local regression set | ✅ Passed: `38/38`. | Promo dialog, status bar, STT orchestration, Cloud mode, pause detector, analytics dashboard, and PDF export are green at focused unit/component level. |
@@ -65,7 +65,7 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 | Live promo entitlement | 🟡 Core entitlement green; browser artifact path blocked by fixture. | Promo `1193119` granted Pro and failed reuse as expected; promo `4132867` granted Pro through the Edge Function. DB/RPC Private save/readback works. Full browser transcript path is blocked until the live audio fixture is corrected. |
 | Promo expired component regression | 🟡 Local fixes / deploy + live smoke pending. | The visible-browser expired-promo trap has local coverage. Local backend fixes now deny stale expired-promo Pro access on Cloud token and DB session/heartbeat paths; deploy/live smoke is still pending. |
 | Pause/Cloud audio-frame regression | 🟡 Local fix / live analytics proof pending. | Live review found pause metrics could remain flat because Native/Cloud did not centrally pump mic frames into analytics, and Cloud's streaming `processAudio()` path was not called. Local fix pumps mic frames to analytics for non-Private modes and forwards Cloud frames to the streaming engine; targeted regression coverage and typecheck pass. |
-| Live audio fixture | 🔴 Validation harness blocked. | `tests/fixtures/10sec.wav` is an HTML document, not valid WAV audio; browser Private transcript/WER validation must use a real fixture such as `tests/fixtures/harvard_benchmark_16k.wav`. |
+| Live audio fixture | 🟡 Local fix applied / browser proof pending. | Invalid `tests/fixtures/10sec.wav` HTML fixture was removed; live configs now inject `tests/fixtures/harvard_benchmark_16k.wav`, a real 16 kHz PCM WAV. Browser Private transcript/WER validation still must be run. |
 
 This evidence lowers the current risk from "unfixed code/workflows" to "live-validation pending." It does not make the product launch-ready by itself.
 
@@ -74,7 +74,7 @@ This evidence lowers the current risk from "unfixed code/workflows" to "live-val
 | Item | Severity | Required Action |
 | :--- | :--- | :--- |
 | `check-usage-limit` uses wildcard CORS instead of the shared request-aware helper. | P1 | Fixed and live-validated: production OPTIONS echoes `https://speaksharp-public.vercel.app`. |
-| `apply-promo` still uses wildcard CORS. | P2/P1 hardening | Confirmed live: OPTIONS returns `Access-Control-Allow-Origin: *`. Keep as hardening unless broader CORS policy requires immediate uniformity. |
+| `apply-promo` still uses wildcard CORS. | P2/P1 hardening | Local fix applied: `apply-promo` now uses shared request-aware CORS and structured internal errors. `deno check` and `pnpm test:edge` pass; deploy/header validation pending. |
 | New non-negative constraints are `NOT VALID`. | P2 | Run one-time production data audit after migration apply. |
 | Store creation warning logs unconditionally. | P2 | Fix applied: gated behind development mode. |
 | Stripe webhook initializes secrets at module scope with non-null assertions. | P2/P1 if env missing | Fix applied: moved to lazy guarded handler initialization; deploy workflow is green, live webhook/env validation pending. |
@@ -135,8 +135,9 @@ This evidence lowers the current risk from "unfixed code/workflows" to "live-val
 
 ### 2. Rolling WPM Pollution
 - **Evidence**: `useSessionMetrics.ts:51`
-- **Finding**: WPM calculation uses `Date.now()` against a persistent `chunks` array that is not cleared in `startRecording`.
-- **Bug**: A new session started within 15 seconds of a previous session will include the previous session's speed in its initial "Rolling WPM".
+- **Finding**: WPM calculation uses `Date.now()` against a persistent `chunks` array that was not cleared in `startRecording`.
+- **Bug**: A new session started within 15 seconds of a previous session could include the previous session's speed in its initial "Rolling WPM".
+- **Current Status**: Local fix resets transcript/chunks/filler/pause state after the recording lock is acquired and before engine init. Live analytics validation remains pending.
 
 ### 3. Contradictory Feature Claims
 - **PRD vs. Code**: `PRD.md` claims "User Filler Words" is implemented and tested. However, `PRD.md:291` marks it as "REJECTED/REVERTED" tech debt.

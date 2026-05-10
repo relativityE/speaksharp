@@ -1,14 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "npm:@supabase/supabase-js@2"
 import { PROMO_DURATION_MINUTES } from "../_shared/constants.ts"
+import { corsHeaders } from "../_shared/cors.ts"
 
 const PROMO_RATE_LIMIT_WINDOW_MINUTES = 15;
 const PROMO_RATE_LIMIT_MAX_FAILURES = 8;
-
-const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
 
 function getClientIp(req: Request): string {
     const forwardedFor = req.headers.get('x-forwarded-for');
@@ -28,8 +24,10 @@ async function sha256Hex(value: string): Promise<string> {
 }
 
 serve(async (req: Request) => {
+    const requestCorsHeaders = corsHeaders(req);
+
     if (req.method === 'OPTIONS') {
-        return new Response('ok', { headers: corsHeaders })
+        return new Response('ok', { headers: requestCorsHeaders })
     }
 
     try {
@@ -69,8 +67,8 @@ serve(async (req: Request) => {
             if (!adminSecret || !isMatch(requestSecret, adminSecret)) {
                 console.error(`[apply-promo] Unauthorized generation attempt.`);
                 return new Response(
-                    JSON.stringify({ error: 'Unauthorized: Admin secret required' }),
-                    { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                    JSON.stringify({ success: false, error: 'Unauthorized: Admin secret required', code: 'UNAUTHORIZED' }),
+                    { status: 401, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
                 )
             }
 
@@ -92,7 +90,7 @@ serve(async (req: Request) => {
 
             return new Response(
                 JSON.stringify(newPromo),
-                { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                { status: 200, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
             )
         }
 
@@ -102,8 +100,8 @@ serve(async (req: Request) => {
         if (userError || !user) {
             console.error('Auth Error:', userError);
             return new Response(
-                JSON.stringify({ error: `Auth Failed: ${userError?.message || 'No User Found'}` }),
-                { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                JSON.stringify({ success: false, error: `Auth Failed: ${userError?.message || 'No User Found'}`, code: 'AUTH_FAILED' }),
+                { status: 401, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
             )
         }
 
@@ -113,7 +111,7 @@ serve(async (req: Request) => {
         if (!normalizedPromoCode) {
             return new Response(
                 JSON.stringify({ success: false, error: 'Promo code required' }),
-                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                { status: 400, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
             );
         }
 
@@ -132,7 +130,7 @@ serve(async (req: Request) => {
             console.error('[apply-promo] Failed to verify user promo attempt limit:', userLimitError);
             return new Response(
                 JSON.stringify({ success: false, error: 'Unable to verify promo attempt limit' }),
-                { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                { status: 503, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
             );
         }
 
@@ -147,14 +145,14 @@ serve(async (req: Request) => {
             console.error('[apply-promo] Failed to verify IP promo attempt limit:', ipLimitError);
             return new Response(
                 JSON.stringify({ success: false, error: 'Unable to verify promo attempt limit' }),
-                { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                { status: 503, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
             );
         }
 
         if ((userFailures ?? 0) >= PROMO_RATE_LIMIT_MAX_FAILURES || (ipFailures ?? 0) >= PROMO_RATE_LIMIT_MAX_FAILURES) {
             return new Response(
                 JSON.stringify({ success: false, error: 'Too many promo attempts. Please try again later.' }),
-                { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                { status: 429, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
             );
         }
 
@@ -183,13 +181,13 @@ serve(async (req: Request) => {
                 console.error('[apply-promo] Failed to record failed promo attempt:', attemptInsertError);
                 return new Response(
                     JSON.stringify({ success: false, error: 'Unable to record promo attempt' }),
-                    { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                    { status: 503, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
                 );
             }
 
             return new Response(
                 JSON.stringify({ success: false, error: result.error }),
-                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                { status: 400, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
             );
         }
 
@@ -208,14 +206,14 @@ serve(async (req: Request) => {
 
         return new Response(
             JSON.stringify(result),
-            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            { status: 200, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
         );
 
     } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
         return new Response(
-            JSON.stringify({ error: msg }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            JSON.stringify({ success: false, error: msg, code: 'INTERNAL_ERROR' }),
+            { status: 500, headers: { ...requestCorsHeaders, 'Content-Type': 'application/json' } }
         )
     }
 })

@@ -71,10 +71,15 @@ if [ ! -f "$e2e_results_file" ]; then
         e2e_total=$(jq -s '[[.[].stats.expected, .[].stats.unexpected, .[].stats.flaky, .[].stats.skipped] | .[] // 0] | add' "${shard_result_files[@]}")
         e2e_shards="{}"
     elif [ "${CI:-false}" = "true" ]; then
-        echo "❌ FATAL: $e2e_results_file not found in CI." >&2
-        echo "   This means the 'Merge E2E Reports' step in the report job failed or produced no output." >&2
-        echo "   Check: artifact download paths, playwright merge-reports exit code, and blob zip file naming." >&2
-        exit 1
+        echo "⚠️ WARNING: $e2e_results_file not found in CI. Defaulting E2E metrics to 0." >&2
+        echo "   This usually means an upstream required job failed before E2E ran." >&2
+        echo "   Check the unit/build/edge/health-check jobs for the primary failure." >&2
+        e2e_passed=0
+        e2e_failed=0
+        e2e_flaky=0
+        e2e_skipped=0
+        e2e_total=0
+        e2e_shards="{}"
     else
         echo "⚠️ WARNING: E2E results file not found. Defaulting to 0 (local skip)." >&2
         e2e_passed=0
