@@ -102,7 +102,7 @@ describe('generateSessionPdf', () => {
     expect(savedPdf.text).toContain('(Duration: 5 minutes) Tj');
     expect(savedPdf.text).toContain('(Transcript) Tj');
     expect(savedPdf.text).toContain('(This is a test transcript.) Tj');
-    expect(savedPdf.filename).toMatch(/^session_20250923_\d{6}_TestUser\.pdf$/);
+    expect(savedPdf.filename).toBe('session_20250923_TestUser.pdf');
   });
 
   it('excludes synthetic total filler rows and preserves zero pause metrics', async () => {

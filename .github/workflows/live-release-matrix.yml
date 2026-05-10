@@ -188,6 +188,7 @@ jobs:
       - name: Run Stripe Webhook Readiness Proof
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
         run: pnpm exec playwright test tests/live/stripe-webhook-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
       - name: Upload Stripe Webhook Artifacts

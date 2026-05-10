@@ -232,7 +232,7 @@ async function assertPdfExport(page: Page, testInfo: TestInfo) {
   await pdfButton.click();
   const download = await downloadPromise;
   const downloadedFileName = download.suggestedFilename();
-  expect(downloadedFileName).toMatch(/^session_\d{8}_\d{6}_[A-Za-z0-9_]+\.pdf$/);
+  expect(downloadedFileName).toMatch(/^session_\d{8}_[A-Za-z0-9_]+\.pdf$/);
 
   const artifactPath = testInfo.outputPath(downloadedFileName);
   await download.saveAs(artifactPath);

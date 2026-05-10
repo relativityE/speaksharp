@@ -111,8 +111,8 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
       doc.setTextColor(0, 0, 0);
     }
 
-    // Use a friendly filename: session_date_time_identifier.pdf
-    const dateStr = format(parseISO(session.created_at), 'yyyyMMdd_HHmmss');
+    // Use a friendly filename: session_YYYYMMDD_username.pdf
+    const dateStr = format(parseISO(session.created_at), 'yyyyMMdd');
     const sanitizedIdentifier = identifier.replace(/[^a-zA-Z0-9]/g, '_');
     const filename = `session_${dateStr}_${sanitizedIdentifier}.pdf`;
 
