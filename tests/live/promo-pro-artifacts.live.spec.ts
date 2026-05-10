@@ -7,7 +7,7 @@ const PROMO_CODE = process.env.PROMO_CODE;
 const RUN_ID = Date.now();
 const TEST_EMAIL = `promo-pro-artifacts-${RUN_ID}@example.com`;
 const TEST_PASSWORD = `SpeakSharp-${RUN_ID}!`;
-const TRANSCRIPT_PATTERN = /\b(ask|not|country|fellow|americans|speech|test)\b/i;
+const TRANSCRIPT_PATTERN = /\b(stale|beer|pepper|beef|swan|park|twister|wild|puppy|quick|brown|fox)\b/i;
 const PLACEHOLDER_TRANSCRIPT_PATTERN = /\b(words appear here|listening)\b/i;
 
 test.use({

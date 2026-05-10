@@ -11,9 +11,11 @@ CI does not validate real microphone hardware. Complete this checklist before la
 
 - [ ] Grant mic permission.
 - [ ] Deny mic permission and verify error UX.
-- [ ] Start Native STT session.
-- [ ] Stop session.
-- [ ] Save session.
+- [ ] Login as Pro, select Native, grant mic, speak for 10-15 seconds, and confirm transcript appears live.
+- [ ] Stop Native session.
+- [ ] Save Native session.
+- [ ] Confirm Native session history appears after reload.
+- [ ] Confirm Native analytics changed from baseline after save.
 - [ ] Refresh during recording.
 - [ ] Switch STT mode only via explicit user action.
 - [ ] Start Private STT through the launch-default CPU/Transformers.js path.
@@ -24,9 +26,11 @@ CI does not validate real microphone hardware. Complete this checklist before la
 ## Desktop Safari
 
 - [ ] Grant mic permission.
-- [ ] Start/stop session.
+- [ ] Login as Pro, select Native, and verify whether browser speech recognition is supported.
+- [ ] If supported, speak for 10-15 seconds and confirm transcript appears live.
+- [ ] Stop/save session and confirm history/analytics update.
 - [ ] Verify no crash on AudioContext initialization.
-- [ ] Verify fallback messaging.
+- [ ] If unsupported or unreliable, document the browser support limitation and verify fallback messaging.
 
 ## Firefox
 
@@ -39,6 +43,7 @@ CI does not validate real microphone hardware. Complete this checklist before la
 - [ ] Open app.
 - [ ] Auth flow works.
 - [ ] Mic permission prompt appears.
+- [ ] Optional for launch: verify Native transcript if browser speech recognition is supported.
 - [ ] If STT unsupported, UX explains limitation.
 - [ ] Background app during recording and verify recoverable stop/pause behavior.
 
