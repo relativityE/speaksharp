@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18
-**Last Updated:** 2026-05-09
+**Last Updated:** 2026-05-10
 
 # SpeakSharp Release Audit (Forensic Analysis)
 
@@ -9,7 +9,7 @@
 **Confidence Score**: 98% (Evidence-based codebase verification)
 **Audit v1.1 Integrated:** 2026-05-07
 
-SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestration layer. The P0 backend remediation work is present, GitHub `CI - Test Audit` was green on `56ce972`, and a new checkpoint commit `0d5f2cef` has been pushed with promo entitlement hardening, benchmark command cleanup, UI/UX polish, STT fallback privacy enforcement, and analytics-truth probes. Edge Function deploy is green on `0d5f2cef`; CI and canary are running at the time of this update. Live promo entitlement can grant Pro access, but the real Private save/history path and analytics persistence remain blocked until the latest DB/function changes are deployed and live-smoked. The platform remains blocked for commercial launch until live STT, analytics persistence, WER benchmark evidence, live quota/token/promo smokes, Stripe/Sentry checks, and hardware/browser validation are complete.
+SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestration layer. The P0 backend remediation work is deployed on `1ea2b099`: `deploy-supabase-migrations.yml` run `25620857952` passed, and post-deploy `canary.yml` run `25620877113` passed. Live smoke now verifies Free Cloud-token denial, active promo-Pro Cloud-token issuance, negative-duration rejection, one-time promo redemption/reuse rejection, request-aware usage CORS, and DB/RPC Private session save/readback. The platform remains blocked for commercial launch until CI report aggregation is fixed, browser-level Private transcript/cache is validated with a real audio fixture, analytics persistence is proven across Native/Cloud/Private, and Stripe/Sentry/manual hardware checks are complete.
 
 ---
 
@@ -17,10 +17,10 @@ SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestr
 
 | Category | Status | Risk Level | Rationale |
 | :--- | :--- | :--- | :--- |
-| **Financial Security** | 🟡 **CI/DEPLOY GREEN / LIVE VALIDATION PENDING** | **CRITICAL** | Code now fails closed and gates Cloud token issuance; CI and deploy evidence are green, but live fail-closed/token smoke is still required. |
-| **User Privacy** | 🟡 FIX APPLIED / LIVE SAVE RETEST PENDING | LOW | Private CPU model assets are served and the engine initializes, but transcript/save/history are not yet proven; the live promo Private save failed on `engine_not_allowed_for_tier` until the Pro private-engine migration is deployed. |
+| **Financial Security** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **CRITICAL** | Free Cloud-token denial and active promo-Pro token issuance are live-confirmed; over-limit and expired-promo denial remain pending. |
+| **User Privacy** | 🟡 DB SAVE VERIFIED / BROWSER TRANSCRIPT PENDING | LOW | Private DB policy now allows Pro `engine='private'` save/readback. Browser Private transcript/cache validation remains pending because the live audio fixture is invalid. |
 | **Operational Stability** | 🟡 CAUTION | MEDIUM | Stabilization churn has created "Test-Aware" production debt. |
-| **Product Integrity** | 🟡 **CI/DEPLOY GREEN / LIVE VALIDATION PENDING** | **HIGH** | Negative duration guards and promo brute-force protection are present; deploy evidence is green, but deployed negative-increment and promo-throttle/reuse smokes are still required. |
+| **Product Integrity** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **HIGH** | Negative duration rejection and promo one-time/reuse behavior are live-confirmed; wrong-code throttling remains pending. |
 
 ---
 
@@ -40,10 +40,10 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 
 | Gate | Current Verification | Status |
 | :--- | :--- | :--- |
-| **G1: Fail-Closed Usage** | Code path returns `can_start: false` on RPC/internal uncertainty; GitHub CI and Edge Function deploy are green on `56ce972`. | Live fail-closed smoke pending. |
-| **G2: Usage-Aware Token** | AssemblyAI token issuance now checks usage eligibility before minting a paid Cloud token; GitHub CI and Edge Function deploy are green on `56ce972`. | Live successful-token and over-limit denial smoke pending. |
-| **G3: Negative Duration** | Forward migration rejects negative duration/increment writes and adds table constraints; Supabase migration deploy has successful manual runs from 2026-05-08. | Deployed negative-increment smoke pending. |
-| **G4: Promo Rate Limit** | Promo application has DB-backed failed-attempt throttling and fail-closed behavior on rate-limit uncertainty; CI/deploy evidence is green. | Live throttling/reuse smoke pending. |
+| **G1: Fail-Closed Usage** | Deployed `check-usage-limit` returns structured 401 for missing auth and `can_start:true` only for authenticated Free happy path. | RPC/DB-error fail-closed simulation still pending. |
+| **G2: Usage-Aware Token** | Live Free user gets HTTP 403; live active promo-Pro user gets HTTP 200 token with `expires_in:600`. | Over-limit and expired-promo token denial still pending. |
+| **G3: Negative Duration** | Live `update_user_usage(-100, 'native')` returned `{"error":"invalid_duration","success":false}`. | Passed for direct negative-duration RPC. |
+| **G4: Promo Rate Limit** | Live one-time promo generation/redemption passed; reused promo code was rejected. | 9-wrong-code throttling still pending. |
 | **Q1: Pro Session Warning** | Pro users with finite daily remaining time receive the 5-minute warning; GitHub CI is green on `56ce972`. | Live/manual validation pending. |
 | **Q2: Safe LLM Parsing** | Gemini suggestions use defensive parsing and safe fallback output; GitHub CI/deploy evidence is green on `56ce972`. | Live suggestion smoke pending. |
 
@@ -53,18 +53,19 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 | :--- | :--- | :--- |
 | `pnpm ci:unit` | ✅ Passed: `106` files, `627 passed | 1 todo`. | Local unit/type/lint truth is green. |
 | `pnpm test:e2e` | ✅ Passed: `40 passed`, `0 failed`, `0 flaky`. | Local mocked orchestration is green. |
-| GitHub `CI - Test Audit` | ✅ Passed on `56ce972`, run `25610699098`. | Pushed mocked CI gate is green. |
-| Production canary | ✅ Passed on `56ce972`, run `25610699109`. | Deployed Native smoke is green. |
-| Edge Function deploy | ✅ Passed on `56ce972`, run `25610699101`. | Current Edge Function deploy workflow is green. |
-| Checkpoint push `0d5f2cef` | 🟡 Running | `Deploy Edge Functions` passed on run `25611572619`; `CI - Test Audit` run `25611572605` and `Production Canary Smoke Test` run `25611572608` are in progress. |
+| GitHub `CI - Test Audit` | 🔴 Latest `1ea2b099` run `25611616096` failed. | Failure is report aggregation: `test-results/playwright/results.json` missing after no E2E reports to merge. Required CI is not green. |
+| Production canary | ✅ Passed post-deploy on `1ea2b099`, run `25620877113`. | Deployed Native smoke is green after migration/function deploy. |
+| Supabase migration + function deploy | ✅ Passed on `1ea2b099`, run `25620857952`. | Required migrations/functions were deployed together. |
+| Vercel frontend | ✅ Serving `1ea2b099`. | Bundle reports `VITE_VERCEL_GIT_COMMIT_SHA=1ea2b099ae5115174a1f792e25a334128330b950`. |
 | Targeted local regression set | ✅ Passed: `38/38`. | Promo dialog, status bar, STT orchestration, Cloud mode, pause detector, analytics dashboard, and PDF export are green at focused unit/component level. |
 | Edge entitlement/token tests | ✅ Passed: `2` files, `15` steps. | Expired promo-only downgrade, paid Pro stale-promo protection, over-quota Cloud denial, and fail-closed usage/token behavior are covered locally. |
 | Local promo E2E gate | ✅ Passed: `8/8`. | Rebuilt local artifact plus promo-admin journey and infra probe passed. |
 | STT Ceiling Benchmarks | 🔴 Failed on run `25611403312`. | No valid new WER produced. CPU benchmark failed at auth/readiness (`nav-sign-out-button` missing); Native fake-audio produced only one meaningful word, so WER would be meaningless. |
 | Supabase migration deploy | ✅ Manual runs `25576997106` and `25573238473` passed on 2026-05-08. | Deploy workflow evidence is green; live DB behavior still needs smoke checks. |
-| Live promo entitlement | 🟡 Entitlement worked; Private artifact path blocked. | Promo Pro access was granted, and the Private CPU model was served/initialized, but save failed with `engine_not_allowed_for_tier`. Deploy/retest `backend/supabase/migrations/20260509000000_allow_private_engine_for_pro.sql`. |
+| Live promo entitlement | 🟡 Core entitlement green; browser artifact path blocked by fixture. | Promo `1193119` granted Pro and failed reuse as expected; promo `4132867` granted Pro through the Edge Function. DB/RPC Private save/readback works. Full browser transcript path is blocked until the live audio fixture is corrected. |
 | Promo expired component regression | 🟡 Local fixes / deploy + live smoke pending. | The visible-browser expired-promo trap has local coverage. Local backend fixes now deny stale expired-promo Pro access on Cloud token and DB session/heartbeat paths; deploy/live smoke is still pending. |
 | Pause/Cloud audio-frame regression | 🟡 Local fix / live analytics proof pending. | Live review found pause metrics could remain flat because Native/Cloud did not centrally pump mic frames into analytics, and Cloud's streaming `processAudio()` path was not called. Local fix pumps mic frames to analytics for non-Private modes and forwards Cloud frames to the streaming engine; targeted regression coverage and typecheck pass. |
+| Live audio fixture | 🔴 Validation harness blocked. | `tests/fixtures/10sec.wav` is an HTML document, not valid WAV audio; browser Private transcript/WER validation must use a real fixture such as `tests/fixtures/harvard_benchmark_16k.wav`. |
 
 This evidence lowers the current risk from "unfixed code/workflows" to "live-validation pending." It does not make the product launch-ready by itself.
 
@@ -72,7 +73,8 @@ This evidence lowers the current risk from "unfixed code/workflows" to "live-val
 
 | Item | Severity | Required Action |
 | :--- | :--- | :--- |
-| `check-usage-limit` uses wildcard CORS instead of the shared request-aware helper. | P1 | Fix applied: switched to shared `corsHeaders(req)`; Edge Function deploy is green, deployed header validation pending. |
+| `check-usage-limit` uses wildcard CORS instead of the shared request-aware helper. | P1 | Fixed and live-validated: production OPTIONS echoes `https://speaksharp-public.vercel.app`. |
+| `apply-promo` still uses wildcard CORS. | P2/P1 hardening | Confirmed live: OPTIONS returns `Access-Control-Allow-Origin: *`. Keep as hardening unless broader CORS policy requires immediate uniformity. |
 | New non-negative constraints are `NOT VALID`. | P2 | Run one-time production data audit after migration apply. |
 | Store creation warning logs unconditionally. | P2 | Fix applied: gated behind development mode. |
 | Stripe webhook initializes secrets at module scope with non-null assertions. | P2/P1 if env missing | Fix applied: moved to lazy guarded handler initialization; deploy workflow is green, live webhook/env validation pending. |

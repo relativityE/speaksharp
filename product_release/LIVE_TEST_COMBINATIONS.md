@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-08
 **Version:** v0.6.18
-**Last Updated:** 2026-05-09
+**Last Updated:** 2026-05-10
 
 # Live Test Combinations Matrix
 
@@ -76,13 +76,21 @@ A path is green only when all required checks pass:
 
 | Area | Status | Notes |
 |---|---|---|
-| Automated CI baseline | 🟡 Running on latest pushed commit | `CI - Test Audit` passed on `56ce972` (run `25610699098`). New checkpoint `0d5f2cef` is pushed; CI run `25611572605` is in progress. |
-| Production canary | 🟡 Running on `0d5f2cef` | Previous canary passed on `56ce972` (run `25610699109`). New canary run `25611572608` is in progress; Edge Function deploy run `25611572619` passed. |
-| Promo path | 🟡 Mocked green / live fixture blocked | Local promo E2E gate passed `8/8`; Edge entitlement/token tests passed `2` files, `15` steps. Live promo/reuse/expired-smoke remains blocked without a usable `PROMO_CODE` or live seeded fixture. |
-| Private CPU path | 🔴 Mocked orchestration partial / real live not green | Mocked primary journey exposed persistence-anchor failures. Real Private CPU transcript/save/history is not proven. STT benchmark CPU run failed at auth/readiness before WER. |
+| Automated CI baseline | 🔴 Latest GitHub report job failed | `CI - Test Audit` passed on `56ce972` (run `25610699098`), but latest `1ea2b099` run `25611616096` failed because the report job could not find `test-results/playwright/results.json` after no E2E reports were merged. |
+| Production canary | ✅ Passed post-deploy on `1ea2b099` | `deploy-supabase-migrations.yml` run `25620857952` passed, then `canary.yml` run `25620877113` passed. |
+| Promo path | 🟡 Core live path verified / full artifact pending | Promo `1193119` granted Pro and reuse was rejected. Promo `4132867` granted Pro via Edge Function. Fresh non-promo signup/free behavior passed. Full promo artifact browser path still needs valid audio fixture and analytics/PDF proof. |
+| Private CPU path | 🟡 DB/RPC persistence verified / browser transcript pending | Post-deploy DB/RPC smoke saved/read a `private` session for a promo Pro user with transcript, WPM, filler words, and clarity. Real browser Private transcript/cache validation is blocked because `tests/fixtures/10sec.wav` is an HTML document, not valid WAV audio. |
 | Native path | 🔴 Mocked analytics persistence not green / real live not green | Analytics-truth testing showed in-session WPM/fillers changed, but persisted history/detail still showed stale/default values. Native benchmark fake-audio produced only one meaningful word, so no valid WER. |
-| Cloud path | 🔴 Mocked persistence not green / real live not green | Cloud token gating has local unit coverage, but Cloud mocked persistence failed and real Cloud analytics requires a true non-mocked live harness. |
+| Cloud path | 🟡 Token gate partially live-verified / analytics pending | Live Free user received HTTP 403 from `assemblyai-token`; live active promo-Pro received HTTP 200 token with `expires_in:600`. Over-limit and expired-promo denial remain pending. Real Cloud analytics still requires a non-mocked live harness. |
 | Analytics return path | 🔴 Not green | Agent Gate 2 found persisted analytics can diverge from live session values (`8WPM`, `0Fillers`, `100%Clarity` after live values changed). Patch probes are present, but full mocked/live validation remains open. |
-| Expired promo path | 🟡 Local fix / deploy + live smoke pending | Dialog is simplified to two aligned choices; backend guards now cover expired promo-only Cloud token and DB session/heartbeat paths. Live seeded expired-promo smoke remains pending. |
+| Expired promo path | 🟡 Deployed / live seeded smoke pending | Dialog is simplified to two aligned choices; backend guards now cover expired promo-only Cloud token and DB session/heartbeat paths. Effective-tier migration is deployed, but live seeded expired-promo smoke remains pending. |
 | Toast/status/mobile UX | 🟡 Local fix / browser smoke pending | UI polish is pushed in `0d5f2cef`; production canary/CI are running. Manual visual pass still required after Vercel serves the new bundle. |
 | STT WER evidence | 🔴 Not green | GitHub benchmark run `25611403312` failed. No new valid WER values exist for Cloud, Native, Private CPU, or WebGPU. |
+
+## Validation Harness Findings
+
+| Finding | Impact | Status |
+|---|---|---|
+| `tests/fixtures/10sec.wav` is HTML text, not WAV audio. | Blocks trustworthy browser Private transcript, WER, and fake-mic live validation. | 🔴 Must point live Playwright config/tests to a real app-contained fixture such as `tests/fixtures/harvard_benchmark_16k.wav`. |
+| Full promo canary treats benign Private model/ONNX warnings as fatal diagnostics. | Full promo canary failed after Pro redemption/return succeeded. | 🟡 Core promo behavior verified separately; diagnostics allowlist should be tightened before making this spec required. |
+| `apply-promo` returns wildcard CORS. | Hardening inconsistency with `check-usage-limit`; not a quota/privacy/session-save P0. | 🟡 Confirmed live; fix with shared request-aware CORS after current P0 validation unless policy requires immediate uniformity. |
