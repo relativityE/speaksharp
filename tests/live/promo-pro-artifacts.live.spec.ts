@@ -207,10 +207,17 @@ async function assertAiSuggestionsUsable(page: Page) {
 }
 
 async function expectNonErrorResponse(response: Response, label: string) {
-  expect(response.status(), `${label} should not return a server error`).toBeLessThan(500);
+  const responseBody = await response.text().catch(() => '');
+  console.log(`${label.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_LIVE_RESPONSE ${JSON.stringify({
+    url: response.url(),
+    status: response.status(),
+    body: responseBody.slice(0, 1000),
+  })}`);
+
+  expect(response.status(), `${label} should not return a server error: ${responseBody}`).toBeLessThan(500);
 
   if (response.ok()) {
-    const body = await response.json().catch(() => null) as { error?: unknown } | null;
+    const body = responseBody ? JSON.parse(responseBody) as { error?: unknown } : null;
     expect(body?.error, `${label} response body should not include an error`).toBeFalsy();
   }
 }

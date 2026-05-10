@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot } from './helpers/benchmark-utils';
+import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
@@ -43,15 +43,7 @@ async function signInAsPro(page: Page) {
 }
 
 async function selectCloudMode(page: Page) {
-  const modeSelect = page.getByTestId('stt-mode-select');
-  await expect(modeSelect).toBeVisible({ timeout: 30_000 });
-
-  if ((await modeSelect.getAttribute('data-state')) !== 'cloud') {
-    await modeSelect.click();
-    await page.getByTestId('stt-mode-cloud').click();
-  }
-
-  await expect(modeSelect).toHaveAttribute('data-state', 'cloud', { timeout: 15_000 });
+  await selectBenchmarkMode(page, 'cloud');
 }
 
 async function recordCloudSessionUntilTranscript(page: Page) {

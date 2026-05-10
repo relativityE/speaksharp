@@ -172,6 +172,32 @@ jobs:
             test-results/live/
           retention-days: 14
 
+  live-stripe-webhook-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+
+      - name: Run Stripe Webhook Readiness Proof
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: pnpm exec playwright test tests/live/stripe-webhook-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+
+      - name: Upload Stripe Webhook Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-stripe-webhook-readiness-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14
+
   live-promo-private-artifact:
     runs-on: ubuntu-latest
     timeout-minutes: 25
