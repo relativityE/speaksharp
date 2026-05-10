@@ -1,5 +1,5 @@
 import { test, expect, request as playwrightRequest } from '@playwright/test';
-import { createHmac } from 'node:crypto';
+import Stripe from 'stripe';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
@@ -60,15 +60,16 @@ test('deployed Stripe webhook accepts a signed no-op Stripe event', async () => 
         },
       },
     });
-    const timestamp = Math.floor(Date.now() / 1000);
-    const signature = createHmac('sha256', STRIPE_WEBHOOK_SECRET!)
-      .update(`${timestamp}.${payload}`, 'utf8')
-      .digest('hex');
+    expect(STRIPE_WEBHOOK_SECRET, 'GitHub STRIPE_WEBHOOK_SECRET must be a Stripe webhook signing secret.').toMatch(/^whsec_/);
+    const signatureHeader = Stripe.webhooks.generateTestHeaderString({
+      payload,
+      secret: STRIPE_WEBHOOK_SECRET!,
+    });
 
     const response = await context.post('/functions/v1/stripe-webhook', {
       headers: {
         'Content-Type': 'application/json',
-        'Stripe-Signature': `t=${timestamp},v1=${signature}`,
+        'Stripe-Signature': signatureHeader,
       },
       data: Buffer.from(payload, 'utf8'),
     });
@@ -84,6 +85,7 @@ test('deployed Stripe webhook accepts a signed no-op Stripe event', async () => 
       received: body?.received ?? null,
       skipped: body?.skipped ?? false,
       errorCode: body?.error?.code ?? null,
+      errorMessage: body?.error?.message ?? null,
     };
     console.log(`LIVE_STRIPE_SIGNED_WEBHOOK_EVIDENCE ${JSON.stringify(evidence)}`);
 
