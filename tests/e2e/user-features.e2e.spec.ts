@@ -76,11 +76,15 @@ test.describe('Exhaustive User Feature Matrix', () => {
     // 🛡️ Deterministic Layout Barrier: Wait for the session history list to resolve
     await page.waitForSelector('[data-testid^="session-history-item-"]', { timeout: 15000 });
 
-    // 🛡️ CRITICAL: Select the latest session from the history to enter the Detail View
-    // We target the first history item in the list. Use the stable href instead of
-    // relying on click hit-testing during dashboard re-renders.
+    // 🛡️ CRITICAL: Open the latest session through the row's real interactive link.
+    // The history item wrapper is not a stable anchor contract, so support both
+    // wrapper-link and nested-link renderings.
     const latestSession = page.getByTestId(/session-history-item-/i).first();
-    const sessionHref = await latestSession.getAttribute('href');
+    const sessionHref = await latestSession.evaluate((element) => {
+      const self = element instanceof HTMLAnchorElement ? element : null;
+      const nested = element.querySelector<HTMLAnchorElement>('a[href^="/analytics/session-"]');
+      return self?.getAttribute('href') ?? nested?.getAttribute('href') ?? null;
+    });
     expect(sessionHref).toMatch(/^\/analytics\/session-/);
     await navigateToRoute(page, sessionHref!);
     await page.waitForURL('**/analytics/session-*');

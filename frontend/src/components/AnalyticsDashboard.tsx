@@ -257,6 +257,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                 </div>
                 <NavLink
                     to={`/analytics/${session.id}`}
+                    data-testid={`session-detail-link-${session.id}`}
                     className="flex min-w-0 items-center gap-4 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                     <div className="w-12 h-12 bg-secondary/20 rounded-xl flex items-center justify-center shrink-0">
