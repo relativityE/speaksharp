@@ -1,6 +1,7 @@
 import React, { useEffect, useState, ReactNode } from 'react';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
+import { getEffectiveSubscriptionStatus } from '@/constants/subscriptionTiers';
 import { syncProfileReady } from '@/lib/forensicAnchors';
 import logger from '@/lib/logger';
 import ProfileContext from '@/contexts/ProfileContext';
@@ -51,7 +52,7 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
     useEffect(() => {
         if (!profile?.id) return; // Wait for stable auth
 
-        const tier = profile.subscription_status || 'free';
+        const tier = getEffectiveSubscriptionStatus(null, profile);
 
         logger.info({
             subscriptionStatus: tier,
@@ -69,7 +70,15 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
         return () => {
             syncProfileReady(false);
         };
-    }, [profile?.id, profile?.subscription_status, selectedMode]);
+    }, [
+        profile?.id,
+        profile?.subscription_status,
+        profile?.promo_expires_at,
+        profile?.stripe_subscription_id,
+        profile?.subscription_id,
+        profile,
+        selectedMode,
+    ]);
 
     const contextValue: TranscriptionContextValue = {
         isReady: ready,

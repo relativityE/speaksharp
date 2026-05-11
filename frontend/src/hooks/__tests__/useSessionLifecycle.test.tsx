@@ -174,6 +174,7 @@ vi.mock('../useUserFillerWords', () => ({
 
 vi.mock('@/constants/subscriptionTiers', () => ({
     isPro: vi.fn((status: string | undefined) => status === 'pro'),
+    getEffectiveSubscriptionStatus: vi.fn((usageStatus: string | undefined, profile: { subscription_status?: string } | null | undefined) => usageStatus ?? profile?.subscription_status ?? 'free'),
 }));
 
 vi.mock('@/services/transcription/TranscriptionPolicy', () => ({

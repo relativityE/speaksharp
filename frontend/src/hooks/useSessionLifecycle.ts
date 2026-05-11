@@ -11,7 +11,7 @@ import { useSessionMetrics } from './useSessionMetrics';
 import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
 import { useStreak } from './useStreak';
 import { useUserFillerWords } from './useUserFillerWords';
-import { isPro } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionTiers';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
@@ -33,7 +33,8 @@ export const useSessionLifecycle = () => {
     const activeEngine = useSessionStore(state => state.activeEngine);
     const { runtimeState } = useTranscriptionContext();
 
-    const isProUser = isPro(usageLimit?.subscription_status ?? profile?.subscription_status);
+    const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
+    const isProUser = isPro(effectiveSubscriptionStatus);
 
     const sttStatus = useSessionStore(state => state.sttStatus);
     const setSTTStatus = useSessionStore(state => state.setSTTStatus);

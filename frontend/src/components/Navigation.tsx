@@ -7,7 +7,7 @@ import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuthProvider } from "@/contexts/AuthProvider";
 import { useUserProfile } from "@/hooks/useUserProfile";
 import { useUsageLimit } from "@/hooks/useUsageLimit";
-import { isPro } from "@/constants/subscriptionTiers";
+import { getEffectiveSubscriptionStatus, isPro } from "@/constants/subscriptionTiers";
 import logger from "@/lib/logger";
 
 const Navigation = () => {
@@ -17,7 +17,7 @@ const Navigation = () => {
   const { data: profile } = useUserProfile();
   const { data: usageLimit } = useUsageLimit();
   const [isUpgrading, setIsUpgrading] = useState(false);
-  const effectiveSubscriptionStatus = usageLimit?.subscription_status ?? profile?.subscription_status;
+  const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
   const isEffectiveProUser = isPro(effectiveSubscriptionStatus);
 
   const handleSignOut = async () => {

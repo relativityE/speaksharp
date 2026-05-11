@@ -20,7 +20,7 @@ import { E2E_DETERMINISTIC_NATIVE, buildPolicyForUser } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
-import { isPro } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionTiers';
 
 // Error handling helper
 function handleTranscriptionError(err: Error) {
@@ -67,7 +67,8 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         modelLoadingProgress,
         elapsedTime,
     } = store;
-    const isEffectiveProUser = isPro(usageLimit?.subscription_status ?? profile?.subscription_status);
+    const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
+    const isEffectiveProUser = isPro(effectiveSubscriptionStatus);
     const effectivePolicyMode = isEffectiveProUser ? sttMode : 'native';
     useTranscriptionControl();
     const filler = useFillerWords(finalChunks as unknown as Chunk[], storeTranscript.partial, userWords);

@@ -4,6 +4,8 @@ import {
     TIER_LIMITS,
     isPro,
     isFree,
+    getEffectiveSubscriptionStatus,
+    isExpiredPromoOnlyProfile,
     getTierLabel,
     getTierLimits,
     getDailyLimit,
@@ -44,6 +46,39 @@ describe('subscriptionTiers', () => {
 
         it('returns false for null', () => {
             expect(isFree(null)).toBe(false);
+        });
+    });
+
+    describe('effective promo tier', () => {
+        it('treats expired promo-only Pro profiles as Free before usage refresh completes', () => {
+            const profile = {
+                subscription_status: 'pro',
+                promo_expires_at: '2024-01-01T00:00:00.000Z',
+            };
+
+            expect(isExpiredPromoOnlyProfile(profile)).toBe(true);
+            expect(getEffectiveSubscriptionStatus(null, profile)).toBe('free');
+        });
+
+        it('keeps paid Pro profiles Pro even with an old promo timestamp', () => {
+            const profile = {
+                subscription_status: 'pro',
+                promo_expires_at: '2024-01-01T00:00:00.000Z',
+                stripe_subscription_id: 'sub_paid',
+            };
+
+            expect(isExpiredPromoOnlyProfile(profile)).toBe(false);
+            expect(getEffectiveSubscriptionStatus(null, profile)).toBe('pro');
+        });
+
+        it('lets usage-limit effective status override stale profile state', () => {
+            const profile = {
+                subscription_status: 'pro',
+                promo_expires_at: '2999-01-01T00:00:00.000Z',
+            };
+
+            expect(getEffectiveSubscriptionStatus('free', profile)).toBe('free');
+            expect(getEffectiveSubscriptionStatus('pro', { subscription_status: 'free' })).toBe('pro');
         });
     });
 

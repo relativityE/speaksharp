@@ -20,6 +20,40 @@ export function isPro(_subscriptionStatus: string | undefined | null): boolean {
     // return true; // FORCE PRO FOR TESTING (Unblocking Private STT)
 }
 
+type TierProfile = {
+    subscription_status?: string | null;
+    promo_expires_at?: string | null;
+    stripe_subscription_id?: string | null;
+    subscription_id?: string | null;
+} | null | undefined;
+
+/**
+ * Promo-only Pro users must fall back to the baseline tier immediately after
+ * expiry, even before the usage-limit query has refreshed the effective tier.
+ */
+export function isExpiredPromoOnlyProfile(profile: TierProfile, nowMs = Date.now()): boolean {
+    if (!isPro(profile?.subscription_status) || !profile?.promo_expires_at) return false;
+    if (profile.stripe_subscription_id || profile.subscription_id) return false;
+
+    const expiresAtMs = Date.parse(profile.promo_expires_at);
+    return Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs;
+}
+
+export function getEffectiveSubscriptionStatus(
+    usageLimitStatus?: string | null,
+    profile?: TierProfile
+): SubscriptionTier {
+    if (usageLimitStatus) {
+        return isPro(usageLimitStatus) ? SUBSCRIPTION_TIERS.PRO : SUBSCRIPTION_TIERS.FREE;
+    }
+
+    if (isExpiredPromoOnlyProfile(profile)) {
+        return SUBSCRIPTION_TIERS.FREE;
+    }
+
+    return isPro(profile?.subscription_status) ? SUBSCRIPTION_TIERS.PRO : SUBSCRIPTION_TIERS.FREE;
+}
+
 /**
  * Check if a subscription status indicates Free tier
  */

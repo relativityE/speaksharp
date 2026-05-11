@@ -325,7 +325,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
     });
 
     // POST /rest/v1/rpc/create_session_and_update_usage
-    await registerRoute(page, '**/rest/v1/rpc/create_session_and_update_usage', async (route) => {
+    await registerRoute(page, /\/rest\/v1\/rpc\/create_session_and_update_usage(\?.*)?$/, async (route) => {
         const page = route.request().frame()?.page();
         if (!page) return route.continue();
         const state = getPageState(page);
@@ -360,7 +360,7 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
     });
 
     // POST /rest/v1/rpc/complete_session
-    await registerRoute(page, '**/rest/v1/rpc/complete_session', async (route) => {
+    await registerRoute(page, /\/rest\/v1\/rpc\/complete_session(\?.*)?$/, async (route) => {
         const page = route.request().frame()?.page();
         if (!page) return route.continue();
         const state = getPageState(page);
