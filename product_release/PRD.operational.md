@@ -20,6 +20,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 - **STT Mode Consent**: Private STT MUST NOT silently switch to Cloud STT. Cloud is a first-class Pro choice, but it requires explicit user selection.
 - **Private STT Launch Policy**: Private STT is recommended/default for Pro users, but the v0.6.18 launch baseline prioritizes deterministic CPU/Transformers.js setup over WebGPU-first probing. WebGPU is an accelerated path only after support is verified; it is not required for first-use success.
 - **Cloud Boost**: When the user explicitly selects Cloud STT, user-specific vocabulary/custom words MAY be sent to AssemblyAI as `keyterms_prompt` to improve transcript accuracy for that user.
+- **Cloud Streaming Audio Contract**: Cloud STT MUST send AssemblyAI PCM audio chunks between 50 ms and 1000 ms long. At the declared 16 kHz sample rate, this means each binary WebSocket payload MUST contain 800-16000 samples. SpeakSharp uses 100 ms chunks (1600 samples) as the default live-microphone target. Sending raw browser callback frames directly is prohibited because tiny frames can be interpreted by AssemblyAI as invalid input duration and rejected before transcription.
 
 ### UX Expectations
 - **Supported Browsers**: Chrome (Desktop), Safari (Desktop/iOS).
@@ -39,6 +40,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 | **Transcription Silence** | Heartbeat watchdog MUST trigger auto-reconnect or failure state within 8s. |
 | **Database Latency** | UI MUST show "Saving..." spinner until RPC confirms persistence. |
 | **PDF Export** | Do not block or count PDF exports for Free/basic users. All exported PDFs, including Pro exports, include SpeakSharp watermarking/branding. |
+| **Cloud Chunk Contract Violation** | Treat AssemblyAI `Input Duration Violation` / close code `3007` as an audio chunking defect until proven otherwise. Evidence must include chunk sample counts, WebSocket close code/reason, provider error text, and whether transcript callbacks reached the UI. |
 
 ---
 
@@ -61,4 +63,5 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 ## 5. Metrics & Success Criteria
 - **Conversion Rate**: Target 2% from Free to Pro.
 - **STT Accuracy**: WER < 10% for Private, < 8% for Cloud.
+- **Cloud Live Proof**: Cloud release validation requires a live transcript against the canonical `.wav` fixture and matching ground-truth text. Token `200` and WebSocket open are readiness evidence only; success requires non-placeholder transcript text and WER < 8%.
 - **Retention**: > 30% Day-7 retention for active practitioners.

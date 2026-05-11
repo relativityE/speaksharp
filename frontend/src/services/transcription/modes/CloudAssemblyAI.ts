@@ -34,6 +34,15 @@ interface AssemblyAIMessage {
 // Internal connection state tracking
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
+const ASSEMBLYAI_SAMPLE_RATE = 16000;
+// AssemblyAI requires each binary audio WebSocket payload to contain 50-1000ms
+// of PCM audio. At 16kHz that is 800-16000 samples; we send 100ms chunks.
+// Do not send raw browser callback frames directly: they can be ~2-3ms and
+// trigger provider "Input Duration Violation" errors before transcription starts.
+const MIN_STREAMING_CHUNK_MS = 100;
+const MIN_STREAMING_CHUNK_SAMPLES = Math.floor((ASSEMBLYAI_SAMPLE_RATE * MIN_STREAMING_CHUNK_MS) / 1000);
+const MAX_QUEUED_AUDIO_FRAMES = 4000;
+
 /**
  * ARCHITECTURE:
  * TranscriptionService generates a runId (e.g., abc-123) every time you click record. 
@@ -54,6 +63,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   private socket: WebSocket | null = null;
   private isListening: boolean = false;
   private audioQueue: Float32Array[] = [];
+  private pendingAudioFrames: Float32Array[] = [];
+  private pendingAudioSamples: number = 0;
   private connectionState: ConnectionState = 'disconnected';
 
   // Connection State Machine
@@ -161,6 +172,9 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     this.isReconnect = false;
     this.sentAudioChunks = 0;
     this.receivedMessageCounts = {};
+    this.audioQueue = [];
+    this.pendingAudioFrames = [];
+    this.pendingAudioSamples = 0;
     
     // Only connect if not mocked
     if (!this.mockEngine) {
@@ -590,6 +604,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     }
 
     this.audioQueue = []; // Clear queue
+    this.pendingAudioFrames = [];
+    this.pendingAudioSamples = 0;
     this.updateConnectionState('disconnected');
   }
 
@@ -615,16 +631,62 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     }
 
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      void this.sendAudioChunk(audioData);
+      this.bufferAudioFrame(audioData);
+      this.scheduleAudioFlush();
     } else {
       // Buffer audio if connecting
-      if (this.audioQueue.length < 500) { // Limit queue size (~50s @ 100ms chunks)
+      if (this.audioQueue.length < MAX_QUEUED_AUDIO_FRAMES) {
         this.audioQueue.push(audioData);
         this.queuedAudioFrames++;
       } else {
         this.droppedAudioFrames++;
       }
     }
+  }
+
+  private bufferAudioFrame(audioData: Float32Array): void {
+    if (audioData.length === 0) return;
+    // Buffer tiny mic callbacks until they meet AssemblyAI's minimum duration.
+    this.pendingAudioFrames.push(audioData);
+    this.pendingAudioSamples += audioData.length;
+  }
+
+  private takeBufferedAudioChunk(sampleCount: number): Float32Array {
+    const chunk = new Float32Array(sampleCount);
+    let offset = 0;
+
+    while (offset < sampleCount && this.pendingAudioFrames.length > 0) {
+      const frame = this.pendingAudioFrames[0];
+      const remaining = sampleCount - offset;
+
+      if (frame.length <= remaining) {
+        chunk.set(frame, offset);
+        offset += frame.length;
+        this.pendingAudioFrames.shift();
+      } else {
+        chunk.set(frame.subarray(0, remaining), offset);
+        this.pendingAudioFrames[0] = frame.subarray(remaining);
+        offset += remaining;
+      }
+    }
+
+    this.pendingAudioSamples = Math.max(0, this.pendingAudioSamples - offset);
+    return offset === sampleCount ? chunk : chunk.subarray(0, offset);
+  }
+
+  private scheduleAudioFlush(): void {
+    if (this.flushPromise) return;
+
+    this.flushPromise = this._doFlush().finally(() => {
+      this.flushPromise = null;
+      if (
+        this.isListening &&
+        this.socket?.readyState === WebSocket.OPEN &&
+        (this.audioQueue.length > 0 || this.pendingAudioSamples >= MIN_STREAMING_CHUNK_SAMPLES)
+      ) {
+        this.scheduleAudioFlush();
+      }
+    });
   }
 
   private async sendAudioChunk(audioData: Float32Array) {
@@ -653,8 +715,10 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   }
 
   private async flushAudioQueue() {
-    this.flushPromise = this._doFlush();
-    await this.flushPromise;
+    this.scheduleAudioFlush();
+    if (this.flushPromise) {
+      await this.flushPromise;
+    }
   }
 
   private async _doFlush() {
@@ -665,8 +729,15 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     while (this.audioQueue.length > 0) {
       const chunk = this.audioQueue.shift();
       if (chunk) {
-        await this.sendAudioChunk(chunk);
+        this.bufferAudioFrame(chunk);
       }
+    }
+
+    while (
+      this.pendingAudioSamples >= MIN_STREAMING_CHUNK_SAMPLES &&
+      this.socket?.readyState === WebSocket.OPEN
+    ) {
+      await this.sendAudioChunk(this.takeBufferedAudioChunk(MIN_STREAMING_CHUNK_SAMPLES));
     }
   }
 

@@ -158,6 +158,14 @@ To prevent unexpected high-bandwidth background activity and maintain explicit u
 *   **FSM Integration:** The status is tracked via the `DOWNLOAD_REQUIRED` state in the `TranscriptionService` Finite State Machine (FSM).
 *   **Native Fallback:** Native Browser STT is the baseline/browser engine and the final fallback only after the allowed Private path cannot initialize. Cloud remains a separate first-class Pro choice, not an automatic rescue path.
 
+### 3.6 Cloud STT Streaming Contract
+
+AssemblyAI Cloud STT uses binary WebSocket streaming with `sample_rate=16000` and `encoding=pcm_s16le`. Every audio payload sent to AssemblyAI MUST represent 50-1000 ms of audio. At 16 kHz, that means 800-16000 PCM samples per WebSocket audio message.
+
+SpeakSharp targets 100 ms live microphone chunks (1600 samples) before sending to AssemblyAI. Browser audio callbacks may deliver much smaller frames, so Cloud STT MUST buffer those frames before converting and sending them. Sending raw callback frames directly can produce provider errors such as `Input Duration Violation` or WebSocket close code `3007`, and must be treated as a Cloud audio chunking defect rather than transcript correctness evidence.
+
+Cloud release evidence MUST prove more than token and WebSocket readiness: live validation requires non-placeholder transcript text from the canonical `.wav` fixture, comparison to its ground-truth transcript, and WER < 8%.
+
 
 ## 4. User Experience & Feedback
 
@@ -324,6 +332,7 @@ To ensure the "Gold Standard" of production readiness, the project enforces the 
 ### Official Vendor API Limits (Free Tier)
 To ensure test stability and prevent accidental overages, SpeakSharp strictly adheres to the following vendor free-tier constraints:
 - **AssemblyAI WebSockets (Cloud STT):** Maximum of **5 concurrent streaming sessions** per minute. Exceeding this causes `1008 Unauthorized Connection` errors. (Note: Paid accounts scale to 100+ concurrent).
+- **AssemblyAI Audio Payload Duration:** Cloud STT WebSocket binary audio payloads must contain 50-1000 ms of audio. At SpeakSharp's 16 kHz Cloud sample rate, each payload must contain 800-16000 PCM samples. The implementation uses 100 ms / 1600-sample chunks for live microphone streaming.
 - **Supabase Edge Functions:** 
   - Maximum **500,000 invocations** per month.
   - Maximum **150 seconds** execution duration (wall clock limit).

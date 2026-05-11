@@ -3,8 +3,19 @@ import CloudAssemblyAI from '../CloudAssemblyAI';
 import { Session } from '@supabase/supabase-js';
 // Removed unused TranscriptionModeOptions, Transcript imports
 
+vi.mock('../../utils/AudioProcessor', () => ({
+    floatToInt16Async: vi.fn(async (float32Array: Float32Array) => {
+        const result = new Int16Array(float32Array.length);
+        return { result, base64: 'mock-base64' };
+    }),
+}));
+
 // Mock WebSocket
 class MockWebSocket {
+    public static CONNECTING = 0;
+    public static OPEN = 1;
+    public static CLOSING = 2;
+    public static CLOSED = 3;
     public url: string;
     public onopen: (() => void) | null = null;
     public onmessage: ((event: { data: string }) => void) | null = null;
@@ -167,6 +178,26 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         socket.simulateMessage({ message_type: 'PartialTranscript', text: 'Hello' });
         expect(heartbeatSpy).toHaveBeenCalled();
         expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { partial: 'Hello' } });
+    });
+
+    it('buffers small audio frames into provider-valid streaming chunks before sending', async () => {
+        await mode.init();
+        await mode.start();
+        const socket = LAST_SOCKET();
+        socket.simulateOpen();
+
+        for (let i = 0; i < 37; i++) {
+            mode.processAudio(new Float32Array(43));
+        }
+        await mode.waitForFlush();
+        expect(socket.send).not.toHaveBeenCalled();
+
+        mode.processAudio(new Float32Array(43));
+        await mode.waitForFlush();
+
+        expect(socket.send).toHaveBeenCalledTimes(1);
+        const sentPayload = socket.send.mock.calls[0][0] as ArrayBuffer;
+        expect(sentPayload.byteLength).toBe(3200);
     });
 
     it('should handle AssemblyAI v3 Turn messages', async () => {
