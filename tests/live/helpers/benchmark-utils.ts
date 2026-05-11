@@ -2,6 +2,37 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { expect, Page } from '@playwright/test';
 
+type BenchmarkPreconditionSnapshot = {
+    label: string;
+    url: string;
+    title?: string;
+    root?: {
+        appReady: string | null;
+        runtimeState: string | null;
+        sttReady: string | null;
+        modelStatus: string | null;
+        sessionPersisted: string | null;
+    };
+    browser?: {
+        hasMediaDevices: boolean;
+        hasGetUserMedia: boolean;
+        hasWebGPU: boolean;
+        userAgent: string;
+    };
+    ui?: {
+        modeSelectPresent: boolean;
+        modeSelectState: string | null;
+        startButtonPresent: boolean;
+        startButtonDisabled: boolean | null;
+        startButtonRecording: string | null;
+        profileText: string | null;
+        transcript: string;
+        bodyText: string;
+    };
+    runtime?: Record<string, unknown> | null;
+    snapshotError?: string;
+};
+
 export const BENCHMARKS_PATH = path.resolve('tests/STT_BENCHMARKS.json');
 export const REGRESSION_TOLERANCE = 0.02;
 
@@ -53,7 +84,7 @@ export function assertNoRegression(
     }
 }
 
-export async function collectBenchmarkPreconditionSnapshot(page: Page, label: string) {
+export async function collectBenchmarkPreconditionSnapshot(page: Page, label: string): Promise<BenchmarkPreconditionSnapshot> {
     return page.evaluate((snapshotLabel) => {
         const root = document.documentElement;
         const bodyText = document.body?.innerText?.replace(/\s+/g, ' ').trim().slice(0, 500) ?? '';
@@ -61,6 +92,9 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
         const startButton = document.querySelector('[data-testid="session-start-stop-button"]') as HTMLElement | null;
         const transcript = document.querySelector('[data-testid="transcript-container"]')?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 240) ?? '';
         const profileText = document.querySelector('[data-testid="pro-badge"], [data-testid="nav-upgrade-button"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null;
+        const debugWindow = window as Window & {
+            __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown>;
+        };
 
         return {
             label: snapshotLabel,
@@ -89,12 +123,36 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
                 transcript,
                 bodyText,
             },
+            runtime: typeof debugWindow.__SPEECH_RUNTIME_DEBUG__ === 'function'
+                ? debugWindow.__SPEECH_RUNTIME_DEBUG__()
+                : null,
         };
     }, label).catch((error) => ({
         label,
         snapshotError: error instanceof Error ? error.message : String(error),
         url: page.url(),
     }));
+}
+
+export async function assertPreStartMode(page: Page, mode: 'native' | 'cloud' | 'private') {
+    try {
+        await expect(async () => {
+            const snapshot = await collectBenchmarkPreconditionSnapshot(page, `pre-start-${mode}`);
+            const runtime = snapshot && typeof snapshot === 'object' && 'runtime' in snapshot
+                ? snapshot.runtime as Record<string, unknown> | null
+                : null;
+            const policy = runtime?.policy as Record<string, unknown> | undefined;
+
+            expect(snapshot.ui?.modeSelectState, `PRE_START_MODE_STATE selector must remain ${mode}`).toBe(mode);
+            expect(snapshot.root?.runtimeState, 'PRE_START_MODE_STATE runtime should be ready or idle before Start').toMatch(/READY|IDLE/);
+            expect(runtime?.controllerPreferredMode, `PRE_START_MODE_STATE controller policy must prefer ${mode}`).toBe(mode);
+            expect(policy?.preferredMode, `PRE_START_MODE_STATE policy preferredMode must be ${mode}`).toBe(mode);
+            expect(runtime?.serviceMode, `PRE_START_MODE_STATE service mode must be ${mode}`).toBe(mode);
+        }).toPass({ timeout: 15_000, intervals: [500, 1_000, 2_000] });
+    } catch (error) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `PRE_START_MODE_STATE_${mode}`);
+        throw new Error(`PRE_START_MODE_STATE failed for ${mode}\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 
 export async function waitForBenchmarkSession(page: Page) {

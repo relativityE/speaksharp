@@ -28,6 +28,7 @@ declare global {
         __E2E_UNHANDLED_REJECTIONS__?: unknown[];
         __TRANSCRIPTION_SERVICE__?: SpeechRuntimeController;
         __SpeechRuntimeController__?: typeof SpeechRuntimeController;
+        __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown>;
         STTEngine?: typeof STTEngine;
         Result?: typeof Result;
         __PRIVATE_TRANSCRIPT_TRACE__?: boolean;
@@ -137,6 +138,16 @@ export class SpeechRuntimeController {
             window.Result = Result;
             window.__TRANSCRIPTION_SERVICE__ = this;
             window.__SpeechRuntimeController__ = SpeechRuntimeController;
+            window.__SPEECH_RUNTIME_DEBUG__ = () => ({
+                controllerState: this.state,
+                policy: this.policy,
+                controllerPreferredMode: this.policy?.preferredMode ?? null,
+                serviceMode: this.service?.getMode?.() ?? null,
+                serviceState: this.service?.getState?.() ?? null,
+                sessionId: this.sessionId,
+                lifecycleVersion: this.lifecycleVersion,
+                transcriptLength: this.getStoreTranscriptLength(),
+            });
 
             // Fix 1 Correction: Programmatic Mode Switch
             (window as unknown as Record<string, unknown>).__E2E_SET_MODE__ = (mode: TranscriptionMode) => {

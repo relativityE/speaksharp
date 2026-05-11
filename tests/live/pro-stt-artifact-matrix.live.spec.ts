@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Response, type TestInfo } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
+import { AUDIO_ARGS, assertPreStartMode, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
@@ -44,6 +44,7 @@ test.describe.serial('Pro STT artifact path matrix @live', () => {
       await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
       await expect(page.getByTestId('pro-badge')).toBeVisible({ timeout: 30_000 });
       await selectBenchmarkMode(page, mode);
+      await assertPreStartMode(page, mode);
 
       const transcript = await recordUntilFixtureTranscript(page, mode, consoleEvents);
       const detailHref = await openLatestAnalyticsDetail(page);
@@ -89,6 +90,7 @@ async function recordUntilFixtureTranscript(page: Page, mode: SttMode, consoleEv
   if (mode === 'private') {
     await preparePrivateModelIfPrompted(page);
   }
+  await assertPreStartMode(page, mode);
 
   const startStopButton = page.getByTestId('session-start-stop-button');
   await expect(startStopButton).toBeVisible({ timeout: 30_000 });
