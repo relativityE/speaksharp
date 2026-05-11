@@ -200,6 +200,19 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         expect(sentPayload.byteLength).toBe(3200);
     });
 
+    it('treats Cloud audio frames as heartbeat activity while provider messages are quiet', async () => {
+        const heartbeatSpy = vi.spyOn(mode, 'updateHeartbeat');
+        await mode.init();
+        await mode.start();
+        const socket = LAST_SOCKET();
+        socket.simulateOpen();
+
+        heartbeatSpy.mockClear();
+        mode.processAudio(new Float32Array(43));
+
+        expect(heartbeatSpy).toHaveBeenCalledTimes(1);
+    });
+
     it('should handle AssemblyAI v3 Turn messages', async () => {
         await mode.init();
         await mode.start();

@@ -614,6 +614,11 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   public processAudio(audioData: Float32Array): void {
     if (!this.isListening) return;
 
+    // Audio frames are Cloud engine liveness, even when the provider is quiet
+    // between transcript messages. Without this, the runtime watchdog can
+    // terminate an active streaming session before stop/save completes.
+    this.updateHeartbeat();
+
     this.receivedAudioFrames++;
     if (this.receivedAudioFrames === 1 || this.receivedAudioFrames % 25 === 0) {
       logger.info({
