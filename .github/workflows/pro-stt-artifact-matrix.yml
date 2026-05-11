@@ -2,6 +2,17 @@ name: Pro STT Artifact Matrix
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Optional STT mode to run independently: private, cloud, native. Leave blank for full matrix.'
+        required: false
+        type: choice
+        default: all
+        options:
+          - all
+          - private
+          - cloud
+          - native
 
 permissions:
   contents: read
@@ -30,10 +41,16 @@ jobs:
           E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
           E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
+          STT_ARTIFACT_MODE: ${{ github.event.inputs.mode || 'all' }}
         # Cloud streaming is provider-limited. This matrix is serial, workers=1, retries=0.
         # A "Too many concurrent sessions" Cloud result is provider/account concurrency unless
         # it reproduces after a 5-10 minute cooldown with only this workflow running.
-        run: pnpm exec playwright test tests/live/pro-stt-artifact-matrix.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
+        run: |
+          if [ "$STT_ARTIFACT_MODE" = "all" ]; then
+            pnpm exec playwright test tests/live/pro-stt-artifact-matrix.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
+          else
+            pnpm exec playwright test tests/live/pro-stt-artifact-matrix.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1 -g "Pro ${STT_ARTIFACT_MODE}"
+          fi
 
       - name: Upload Pro STT Artifact Matrix Evidence
         if: always()
