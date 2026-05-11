@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-08
 **Version:** v0.6.18
-**Last Updated:** 2026-05-10
+**Last Updated:** 2026-05-11
 
 # Live Test Combinations Matrix
 
@@ -19,6 +19,30 @@ A path is green only when all required checks pass:
 6. Analytics/export behavior matches the tier and STT mode.
 
 ## Current Launch Leftovers
+
+### 2026-05-11 Handoff: Cloud/Pro Blocker Busting
+
+| Gate | Status | Evidence | Next Action |
+|---|---|---|---|
+| Cloud mode authority | ✅ Fixed | Commit `cafcad8f` preserves explicit Cloud selection during late profile/policy sync. Focused Cloud traces after the fix show Cloud stays selected through Start. | Keep `PRE_START_MODE_STATE` assertion in the live artifact harness. |
+| Cloud transport | ✅ Proved | Run `25687338083` trace: Cloud WebSocket opened, mic frames forwarded, audio chunks sent, and AssemblyAI emitted `Turn` transcript messages up to `textLength:71`. | Do not revisit token, WebSocket, chunking, or WER unless a future trace regresses this gate. |
+| Cloud session creation gate | ✅ Patch deployed / needs full-path rerun | Commit `1b9d1667` adds migration `20260511100000_expire_stale_active_sessions.sql`; migration workflow `25687248801` succeeded. The next focused Cloud run moved past the prior generic `Usage limit exceeded`/stale active-session bucket. | Keep exact usage error logging. If this regresses, use the session-creation decision table before changing Cloud STT. |
+| Cloud stop/save | 🟡 Fix applied / live rerun pending | Run `25687338083` stopped while controller/service were still `RECORDING`, but `CLOUD_SAVE_DECISION` reported `willSave:false`, `reasonIfNot: empty_transcript`, with `resultTranscriptLength:0`, `chunkTranscriptLength:0`, `storeTranscriptLength:0`. Provider transcript existed only as live partial turns. Commit pending in this handoff makes `TranscriptionService.stopTranscription()` preserve latest partial transcript when no provider final exists; focused unit tests passed 9/9. | Push and rerun `Pro STT Artifact Matrix` with `mode=cloud`. Required pass: transcript -> Stop -> `Session saved` -> analytics detail -> AI feedback -> PDF text proof. |
+| Cloud analytics/AI/PDF | 🔴 Not reached after latest fix | Because save chose `empty_transcript`, the latest Cloud run did not reach history, analytics detail, AI feedback, or PDF export. | Run Cloud-only matrix after deploy; do not mark these green from Private evidence. |
+| Private Pro | ✅ Strongest Pro path | Run `25634578516` proved Private transcript/save/history/Gemini/PDF. Run `25642824527` proved first-start cache, second-start reuse, no second download prompt, and second recording start/stop. | Keep Private in release reruns; no open P0 after current evidence. |
+| Native | 🟡 Manual Chrome proof required | GitHub fake audio is not valid evidence for Web Speech transcript. Automated Native remains readiness/save/no-crash only. | Manual desktop Chrome: real mic, Pro login, select Native, speak 10-15 seconds, observe transcript, Stop/Save, history/analytics. Verify Safari support or document limitation. |
+
+#### Cloud Decision Table Result
+
+| Evidence Row | Latest Observed Result | Meaning | Fix Direction |
+|---|---|---|---|
+| `CLOUD_WS_CLOSE` before Stop with non-manual close | Not observed in latest failing run. | Not the active blocker. | No WebSocket lifecycle patch. |
+| `CLOUD_WS_CLOSE` after Stop with `isManualStop=false` | Not observed in latest failing run. | Not the active blocker. | No manual-stop ordering patch. |
+| `FAILED_VISIBLE` heartbeat/watchdog while transcript exists | Not observed in latest failing run. | Not the active blocker. | No watchdog policy patch. |
+| Stop entry shows `TERMINATED` and transcript exists | Not observed. Stop entry was `controllerState: RECORDING`, `serviceState: RECORDING`. | Stop path was reachable. | No save-from-terminated patch yet. |
+| Save decision `willSave=false` due state mismatch | Not observed. Reason was `empty_transcript`, not state. | State gate is not the latest blocker. | No runtime-state save-gate patch. |
+| Provider transcript received but save transcript length is 0 | ✅ Observed. AssemblyAI `Turn` text reached `textLength:71`, but `CLOUD_SAVE_DECISION` had `empty_transcript`. | Finalization source mismatch: visible provider partials were not used as save transcript. | Patch finalization to use authoritative latest service partial when no provider final exists. |
+| Cloud provider sends error payload | Not observed in latest failing run. | Provider did not reject this run. | No provider/API escalation from this evidence. |
 
 | Priority | Item | Status | Evidence / Next Action |
 |---|---|---|---|

@@ -101,6 +101,18 @@ describe('TranscriptionService Pause/Resume', () => {
     }));
   });
 
+  it('should preserve latest partial transcript when stopping without provider final text', async () => {
+    vi.mocked(mockStrategy.getTranscript).mockResolvedValue('');
+    await moveToRecording();
+
+    const callbacks = vi.mocked(STTStrategyFactory.create).mock.calls[0][1];
+    callbacks.onTranscriptUpdate({ transcript: { partial: 'Visible cloud transcript' } });
+
+    const result = await service.stopTranscription();
+
+    expect(result?.transcript).toBe('Visible cloud transcript');
+  });
+
   it('should prevent pause if not in RECORDING state', async () => {
     expect(service.getState()).toBe('IDLE');
     await service.pauseTranscription();

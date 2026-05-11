@@ -909,7 +909,11 @@ export default class TranscriptionService {
       if (this.strategy) {
         await this.strategy.stop();
         this.detachMicFramePump();
-        transcript = await this.strategy.getTranscript();
+        const strategyTranscript = (await this.strategy.getTranscript()).trim();
+        // Streaming providers can expose useful live text as partial turns until
+        // the final turn arrives. Stop/save must preserve that visible transcript
+        // instead of treating a missing provider final as an empty session.
+        transcript = strategyTranscript || this.currentTranscript || this.partialTranscript;
       }
 
       const duration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
@@ -1189,9 +1193,10 @@ export default class TranscriptionService {
    */
   public async getTranscript(): Promise<string> {
     if (this.isDestroyed || !this.strategy) {
-      return this.currentTranscript || '';
+      return this.currentTranscript || this.partialTranscript || '';
     }
-    return this.strategy.getTranscript();
+    const strategyTranscript = await this.strategy.getTranscript();
+    return strategyTranscript || this.currentTranscript || this.partialTranscript || '';
   }
 
   /**
