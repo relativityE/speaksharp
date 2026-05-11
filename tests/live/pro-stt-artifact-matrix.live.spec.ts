@@ -268,14 +268,26 @@ async function stopRecordingAndWaitForSettled(page: Page) {
 
   const startStopButton = page.getByTestId('session-start-stop-button');
   const buttonVisible = await startStopButton.isVisible({ timeout: 3_000 }).catch(() => false);
-  const mode = await page.getByTestId('stt-mode-select').getAttribute('data-state').catch(() => null) as SttMode | null;
+  const mode = await readCurrentMode(page);
 
-  if (buttonVisible && (await startStopButton.getAttribute('data-recording').catch(() => null)) === 'true') {
+  if (!buttonVisible) return;
+
+  if ((await startStopButton.getAttribute('data-recording').catch(() => null)) === 'true') {
     await startStopButton.click({ timeout: 5_000 }).catch(() => undefined);
     await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 15_000 }).catch(() => undefined);
   }
 
   await waitForRecordingSettled(page, mode ?? 'native');
+}
+
+async function readCurrentMode(page: Page): Promise<SttMode | null> {
+  if (page.isClosed()) return null;
+
+  return page.evaluate(() => {
+    const modeSelect = document.querySelector('[data-testid="stt-mode-select"]');
+    const value = modeSelect?.getAttribute('data-state');
+    return value === 'private' || value === 'cloud' || value === 'native' ? value : null;
+  }).catch(() => null);
 }
 
 async function waitForRecordingSettled(page: Page, mode: SttMode) {

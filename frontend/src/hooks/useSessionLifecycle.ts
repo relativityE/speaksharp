@@ -321,7 +321,7 @@ export const useSessionLifecycle = () => {
         if (
             isVerified &&
             !isListening &&
-            (!sttMode || (modeSourceRef.current === 'default' && sttMode !== defaultMode))
+            (!sttMode || (modeSourceRef.current !== 'user' && sttMode !== defaultMode))
         ) {
             modeSourceRef.current = 'default';
             setSTTMode(defaultMode);
