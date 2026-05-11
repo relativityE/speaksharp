@@ -10,7 +10,7 @@ const MODES = ['private', 'cloud', 'native'] as const;
 const TRANSCRIPT_PATTERN = /\b(stale|beer|pepper|beef|swan|park|twister|wild|puppy|quick|brown|fox)\b/i;
 const PLACEHOLDER_TRANSCRIPT_PATTERN = /\b(words appear here|listening)\b/i;
 const ASSEMBLYAI_CONCURRENCY_PATTERN = /too many concurrent sessions/i;
-const MIN_SAVEABLE_RECORDING_MS = 5_000;
+const MIN_SAVEABLE_RECORDING_MS = 7_000;
 
 type SttMode = typeof MODES[number];
 
