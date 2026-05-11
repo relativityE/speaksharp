@@ -461,13 +461,35 @@ export class SpeechRuntimeController {
         syncEngineReady(ready);
     }
 
-    private async transition(newState: RuntimeState, _error?: Error, token?: LifecycleToken): Promise<void> {
+    private getStoreTranscriptLength(): number {
+        const store = useSessionStore.getState();
+        const chunkTranscript = store.chunks.map(chunk => chunk.transcript).join(' ').trim();
+        const storeTranscript = store.transcript.transcript.trim();
+        return Math.max(chunkTranscript.length, storeTranscript.length);
+    }
+
+    private async transition(newState: RuntimeState, error?: Error, token?: LifecycleToken): Promise<void> {
         const previousState = this.state;
         this.state = newState;
         this.syncProvider(this.lifecycleVersion);
 
         logger.info({ from: previousState, to: newState }, '[SpeechRuntimeController] \u{26A1} Transition');
         const store = useSessionStore.getState();
+        if (newState === 'FAILED_VISIBLE') {
+            logger.warn({
+                source: 'SpeechRuntimeController',
+                from: previousState,
+                to: 'FAILED_VISIBLE',
+                reason: error?.message ?? null,
+                mode: this.service?.getMode?.() ?? this.policy?.preferredMode ?? null,
+                hasService: Boolean(this.service),
+                serviceState: this.service?.getState?.() ?? null,
+                sessionId: this.sessionId,
+                transcriptLength: this.getStoreTranscriptLength(),
+                lifecycleVersion: this.lifecycleVersion,
+                tokenVersion: token?.version ?? null,
+            }, '[CLOUD_LIFECYCLE_FAIL]');
+        }
 
         const isExitTransition =
             newState === 'IDLE' ||
@@ -963,6 +985,20 @@ export class SpeechRuntimeController {
 
     public async stopRecording(): Promise<unknown> {
         return this.enqueue(async (token) => {
+            const stopEntryMode = this.service?.getMode?.() ?? this.policy?.preferredMode ?? null;
+            if (stopEntryMode === 'cloud') {
+                logger.warn({
+                    controllerState: this.state,
+                    mode: stopEntryMode,
+                    hasService: Boolean(this.service),
+                    serviceState: this.service?.getState?.() ?? null,
+                    wasRecording: this.state === 'RECORDING',
+                    sessionId: this.sessionId,
+                    transcriptLength: this.getStoreTranscriptLength(),
+                    lifecycleVersion: this.lifecycleVersion,
+                }, '[CLOUD_STOP_ENTRY]');
+            }
+
             const canStop =
                 this.state === 'RECORDING' ||
                 this.state === 'ENGINE_INITIALIZING' ||
@@ -970,7 +1006,20 @@ export class SpeechRuntimeController {
                 this.state === 'FAILED' ||
                 this.state === 'FAILED_VISIBLE';
 
-            if (!canStop) return null;
+            if (!canStop) {
+                if (stopEntryMode === 'cloud') {
+                    logger.warn({
+                        willSave: false,
+                        reasonIfNot: 'cannot_stop_from_current_state',
+                        mode: stopEntryMode,
+                        controllerState: this.state,
+                        serviceState: this.service?.getState?.() ?? null,
+                        transcriptLength: this.getStoreTranscriptLength(),
+                        sessionId: this.sessionId,
+                    }, '[CLOUD_SAVE_DECISION]');
+                }
+                return null;
+            }
             const wasRecording = this.state === 'RECORDING';
             await this.transition('STOPPING', undefined, token);
             if (token.cancelled || token.version !== this.lifecycleVersion) return null;
@@ -979,6 +1028,17 @@ export class SpeechRuntimeController {
                 this.stopWatchdog();
                 const service = this.service;
                 if (!service) {
+                    if (stopEntryMode === 'cloud') {
+                        logger.warn({
+                            willSave: false,
+                            reasonIfNot: 'missing_service',
+                            mode: stopEntryMode,
+                            controllerState: this.state,
+                            serviceState: null,
+                            transcriptLength: this.getStoreTranscriptLength(),
+                            sessionId: this.sessionId,
+                        }, '[CLOUD_SAVE_DECISION]');
+                    }
                     await this.transition('READY', undefined, token);
                     return null;
                 }
@@ -999,6 +1059,23 @@ export class SpeechRuntimeController {
                         const resultTranscript = result.transcript?.trim() || '';
                         const finalTranscript = [resultTranscript, chunkTranscript, storeTranscript]
                             .sort((a, b) => b.split(/\s+/).filter(Boolean).length - a.split(/\s+/).filter(Boolean).length)[0] || '';
+                        if ((service.getMode?.() ?? stopEntryMode) === 'cloud') {
+                            logger.warn({
+                                willSave: Boolean(result && sessionId && finalTranscript),
+                                reasonIfNot: !result ? 'missing_stop_result' : !sessionId ? 'missing_session_id' : !finalTranscript ? 'empty_transcript' : null,
+                                transcriptLength: finalTranscript.length,
+                                duration,
+                                mode: service.getMode?.() ?? stopEntryMode,
+                                serviceState: service.getState?.() ?? null,
+                                controllerState: this.state,
+                                wasRecording,
+                                resultSuccess: result.success ?? null,
+                                resultTranscriptLength: resultTranscript.length,
+                                chunkTranscriptLength: chunkTranscript.length,
+                                storeTranscriptLength: storeTranscript.length,
+                                sessionId,
+                            }, '[CLOUD_SAVE_DECISION]');
+                        }
                         const fillerWords = countFillerWords(finalTranscript, this.userWords);
                         const wordCount = result.stats.total_words || finalTranscript.split(/\s+/).filter(Boolean).length;
                         const wpm = duration > 0 ? Math.round((wordCount / duration) * 60) : 0;

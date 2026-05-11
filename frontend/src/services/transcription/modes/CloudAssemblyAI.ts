@@ -75,6 +75,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   private droppedAudioFrames: number = 0;
   private sentAudioChunks: number = 0;
   private receivedMessageCounts: Record<string, number> = {};
+  private isManualStop: boolean = false;
 
   // Reconnection logic
   private reconnectionAttempts: number = 0;
@@ -167,6 +168,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     }
 
     this.isListening = true;
+    this.isManualStop = false;
     this.currentTranscript = '';
     this.reconnectionAttempts = 0;
     this.isReconnect = false;
@@ -186,6 +188,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
   protected async onStop(): Promise<void> {
     logger.info({ sId: this.serviceId, rId: this.runId }, '[CloudAssemblyAI] Stopping connection...');
+    this.isManualStop = true;
     this.isListening = false;
     await this.closeConnection();
   }
@@ -210,6 +213,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[CloudAssemblyAI] 🛑 Destroying engine');
     
     // Nuclear Cleanup: Kill timers and socket immediately
+    this.isManualStop = true;
     this.isListening = false;
 
     if (this.reconnectTimer) {
@@ -231,6 +235,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     if (this.isTerminated) return;
     
     logger.info({ sId: this.serviceId, rId: this.instanceId }, '[CloudAssemblyAI] 🛑 Nuclear termination requested');
+    this.isManualStop = true;
     this.isListening = false;
 
     if (this.reconnectTimer) {
@@ -412,7 +417,21 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       ws.onclose = (event) => {
         if (currentConnectionId !== this.connectionId) return;
 
-        logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId, code: event.code, reason: event.reason }, `[CloudAssemblyAI] WebSocket closed (ID: ${currentConnectionId}).`);
+        logger.warn({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          eId: this.instanceId,
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+          isManualStop: this.isManualStop,
+          isListening: this.isListening,
+          connectionState: this.connectionState,
+          reconnectAttempts: this.reconnectionAttempts,
+          sentAudioChunks: this.sentAudioChunks,
+          receivedMessageCounts: this.receivedMessageCounts,
+          currentTranscriptLength: this.currentTranscript.length,
+        }, '[CLOUD_WS_CLOSE]');
         
         if (this.socket === ws) {
           this.socket = null;
@@ -427,7 +446,19 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
       ws.onerror = (event) => {
         if (currentConnectionId !== this.connectionId) return;
-        logger.error({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId, event }, `[CloudAssemblyAI] WebSocket error (ID: ${currentConnectionId}).`);
+        logger.error({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          eId: this.instanceId,
+          event,
+          isManualStop: this.isManualStop,
+          isListening: this.isListening,
+          connectionState: this.connectionState,
+          reconnectAttempts: this.reconnectionAttempts,
+          sentAudioChunks: this.sentAudioChunks,
+          receivedMessageCounts: this.receivedMessageCounts,
+          currentTranscriptLength: this.currentTranscript.length,
+        }, '[CLOUD_WS_ERROR]');
 
         // 🛡️ RELIABILITY: Trigger reconnection logic on error (Fixes Domain 3)
         if (this.isListening) {
