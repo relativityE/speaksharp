@@ -10,7 +10,8 @@ const TRANSCRIPT_PATTERN = /\b(stale|beer|pepper|beef|swan|park|twister|wild|pup
 const PLACEHOLDER_TRANSCRIPT_PATTERN = /\b(words appear here|listening)\b/i;
 const ASSEMBLYAI_CONCURRENCY_PATTERN = /too many concurrent sessions/i;
 const CLOUD_WER_THRESHOLD = 0.08;
-const MIN_WER_WORDS = 8;
+const MIN_WER_WORDS = 24;
+const MIN_RECORDING_MS = 7_000;
 
 test.describe.configure({ mode: 'serial', retries: 0 });
 
@@ -76,9 +77,12 @@ async function recordCloudSessionUntilTranscript(page: Page, cloudConsoleEvents:
   );
 
   await startStopButton.click();
+  const recordingStartedAt = Date.now();
   const tokenResponse = await tokenResponsePromise;
   expect(tokenResponse.status(), `assemblyai-token response: ${await tokenResponse.text().catch(() => '')}`).toBe(200);
   await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
+
+  await page.waitForTimeout(Math.max(0, MIN_RECORDING_MS - (Date.now() - recordingStartedAt)));
 
   const transcriptContainer = page.getByTestId('transcript-container');
   const transcript = await waitForLiveFixtureTranscript(page, transcriptContainer, cloudConsoleEvents);
