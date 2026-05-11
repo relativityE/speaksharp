@@ -21,6 +21,7 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
 
     const useStore = injectedStore || useSessionStore;
     const runtimeState = useStore((state) => state.runtimeState);
+    const selectedMode = useStore((state) => state.sttMode);
     const [ready, setReady] = useState(false);
 
 
@@ -54,10 +55,12 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
 
         logger.info({
             subscriptionStatus: tier,
+            selectedMode,
             intent: 'Syncing policy and setting E2E gate'
         }, '[TranscriptionProvider] Syncing policy');
 
-        const newPolicy = buildPolicyForUser(tier === 'pro');
+        const isPro = tier === 'pro';
+        const newPolicy = buildPolicyForUser(isPro, isPro ? selectedMode : null);
         speechRuntimeController.updatePolicy(newPolicy);
         
         // 🛡️ Forensic Barrier: Signal profile hydration and policy sync are complete
@@ -66,7 +69,7 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
         return () => {
             syncProfileReady(false);
         };
-    }, [profile?.id, profile?.subscription_status]);
+    }, [profile?.id, profile?.subscription_status, selectedMode]);
 
     const contextValue: TranscriptionContextValue = {
         isReady: ready,
