@@ -915,7 +915,9 @@ export class SpeechRuntimeController {
                         return;
                     }
 
-                    if (saveResult?.usageExceeded) throw new Error('Usage limit exceeded');
+                    if (saveResult?.usageExceeded) {
+                        throw new Error(`Usage limit exceeded${saveResult.usageError ? `: ${saveResult.usageError}` : ''}`);
+                    }
 
                     const currentState = this.getState();
                     if (dbSession && service && (

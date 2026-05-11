@@ -132,7 +132,7 @@ export const saveSession = async (
   engineType: string = 'native',
   idempotencyKey?: string,
   metadata?: { engineVersion?: string; modelName?: string; deviceType?: string }
-): Promise<{ session: PracticeSession | null, usageExceeded: boolean }> => {
+): Promise<{ session: PracticeSession | null, usageExceeded: boolean, usageError?: string }> => {
   const supabase = getSupabaseClient();
   if (!sessionData || !sessionData.user_id) {
     logger.error('Save Session: Session data and user ID are required.');
@@ -163,6 +163,7 @@ export const saveSession = async (
   return {
     session: data?.new_session || null,
     usageExceeded: data?.usage_exceeded || false,
+    usageError: data?.error,
   };
 };
 
