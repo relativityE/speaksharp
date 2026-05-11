@@ -330,12 +330,13 @@ export class SpeechRuntimeController {
     }
 
     public updatePolicy(policy: TranscriptionPolicy): void {
-        this.policy = policy;
+        const effectivePolicy = this.preserveAllowedCloudSelection(policy);
+        this.policy = effectivePolicy;
         if (this.service) {
-            void this.service.updatePolicy(policy);
+            void this.service.updatePolicy(effectivePolicy);
             
             // Re-warm with new policy — strategy was nulled by service.updatePolicy()
-            const currentMode = policy.preferredMode ?? 'private';
+            const currentMode = effectivePolicy.preferredMode ?? 'private';
             void this.enqueue(async (token) => {
                 // Token check FIRST
                 if (token.cancelled || token.version !== this.lifecycleVersion) return; 
@@ -349,6 +350,29 @@ export class SpeechRuntimeController {
                 if (token.cancelled || token.version !== this.lifecycleVersion) return;
             });
         }
+    }
+
+    private preserveAllowedCloudSelection(policy: TranscriptionPolicy): TranscriptionPolicy {
+        const selectedMode = useSessionStore.getState().sttMode;
+        if (selectedMode !== 'cloud' || !policy.allowCloud || policy.preferredMode === 'cloud') {
+            return policy;
+        }
+
+        const effectivePolicy = {
+            ...policy,
+            preferredMode: 'cloud' as const,
+            allowFallback: false,
+            executionIntent: `${policy.executionIntent ?? 'policy'}-cloud-preserved`,
+        };
+
+        logger.info({
+            from: policy.executionIntent,
+            to: effectivePolicy.executionIntent,
+            previousPreferredMode: policy.preferredMode,
+            selectedMode,
+        }, '[SpeechRuntimeController] Preserving allowed Cloud mode selection');
+
+        return effectivePolicy;
     }
 
     public startLockWatchdog(): void {

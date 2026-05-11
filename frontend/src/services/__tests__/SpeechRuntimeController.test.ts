@@ -39,6 +39,8 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { state: string }).state = 'IDLE';
         (controller as unknown as { initialized: boolean }).initialized = true;
         const stubService = {
+            updatePolicy: vi.fn().mockResolvedValue(undefined),
+            warmUp: vi.fn().mockResolvedValue(undefined),
             destroy: async () => {
                 // ✅ Absolute clear to prevent heartbeat recursion
                 vi.clearAllTimers();
@@ -52,6 +54,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { service: unknown }).service = stubService;
 
         // Reset stores
+        useSessionStore.getState().resetSession();
         useSessionStore.getState().setRuntimeState('IDLE');
         useSessionStore.getState().setSTTStatus({ type: 'idle', message: 'Ready' });
 
@@ -136,5 +139,47 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         (controller as unknown as { transition: (s: string) => void }).transition('TERMINATED');
 
         expect(store.activeEngine).toBe(null);
+    });
+
+    it('preserves an allowed explicit Cloud selection during late Pro policy sync', () => {
+        const store = useSessionStore.getState();
+        store.setSTTMode('cloud');
+
+        controller.updatePolicy({
+            allowNative: true,
+            allowCloud: true,
+            allowPrivate: true,
+            preferredMode: 'private',
+            allowFallback: true,
+            executionIntent: 'prod-pro-default',
+        });
+
+        const service = (controller as unknown as { service: { updatePolicy: ReturnType<typeof vi.fn> } }).service;
+        expect(service.updatePolicy).toHaveBeenCalledWith(expect.objectContaining({
+            preferredMode: 'cloud',
+            allowFallback: false,
+            executionIntent: 'prod-pro-default-cloud-preserved',
+        }));
+    });
+
+    it('does not preserve Cloud when the effective policy disallows it', () => {
+        const store = useSessionStore.getState();
+        store.setSTTMode('cloud');
+
+        controller.updatePolicy({
+            allowNative: true,
+            allowCloud: false,
+            allowPrivate: false,
+            preferredMode: 'native',
+            allowFallback: false,
+            executionIntent: 'prod-free',
+        });
+
+        const service = (controller as unknown as { service: { updatePolicy: ReturnType<typeof vi.fn> } }).service;
+        expect(service.updatePolicy).toHaveBeenCalledWith(expect.objectContaining({
+            preferredMode: 'native',
+            allowFallback: false,
+            executionIntent: 'prod-free',
+        }));
     });
 });
