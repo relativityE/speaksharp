@@ -1,0 +1,47 @@
+name: Pro STT Artifact Matrix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-pro-stt-artifact-matrix
+  cancel-in-progress: false
+
+jobs:
+  pro-stt-artifact-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Run Serialized Pro STT Artifact Matrix
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
+          E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
+          BASE_URL: https://speaksharp-public.vercel.app/
+        # Cloud streaming is provider-limited. This matrix is serial, workers=1, retries=0.
+        # A "Too many concurrent sessions" Cloud result is provider/account concurrency unless
+        # it reproduces after a 5-10 minute cooldown with only this workflow running.
+        run: pnpm exec playwright test tests/live/pro-stt-artifact-matrix.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
+
+      - name: Upload Pro STT Artifact Matrix Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pro-stt-artifact-matrix-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14

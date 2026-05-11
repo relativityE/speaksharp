@@ -117,23 +117,55 @@ export async function selectBenchmarkMode(page: Page, mode: 'native' | 'cloud' |
     }
     await select.scrollIntoViewIfNeeded();
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
-        await select.click({ force: true });
+    const deadline = Date.now() + 45_000;
+    let attempt = 0;
+    let lastOptionState: unknown = null;
+
+    while (Date.now() < deadline) {
+        attempt++;
+        await select.click({ force: true }).catch(() => undefined);
 
         const option = page.getByTestId(`stt-mode-${mode}`);
-        await expect(option).toBeVisible({ timeout: 10_000 });
-        await option.click({ force: true });
+        const visible = await option.isVisible({ timeout: 2_000 }).catch(() => false);
+        const enabled = visible
+            ? await option.evaluate((element) => {
+                const htmlElement = element as HTMLElement;
+                return (
+                    htmlElement.getAttribute('aria-disabled') !== 'true' &&
+                    !htmlElement.hasAttribute('disabled') &&
+                    !htmlElement.hasAttribute('data-disabled')
+                );
+            }).catch(() => false)
+            : false;
 
-        try {
-            await expect(select).toHaveAttribute('data-state', mode, { timeout: 5_000 });
-            return;
-        } catch (error) {
-            if (attempt === 3) {
-                throw error;
+        lastOptionState = { attempt, visible, enabled };
+
+        if (visible && enabled) {
+            await option.click({ force: true });
+
+            try {
+                await expect(select).toHaveAttribute('data-state', mode, { timeout: 5_000 });
+                return;
+            } catch (error) {
+                lastOptionState = {
+                    attempt,
+                    visible,
+                    enabled,
+                    selectedState: await select.getAttribute('data-state').catch(() => null),
+                    error: error instanceof Error ? error.message : String(error),
+                };
             }
-            await page.waitForTimeout(750);
         }
+
+        await page.keyboard.press('Escape').catch(() => undefined);
+        await page.waitForTimeout(1_000);
     }
+
+    const snapshot = await collectBenchmarkPreconditionSnapshot(page, `select-${mode}-option-unavailable`);
+    throw new Error(`Benchmark mode selection precondition failed for ${mode}: option was not selectable before timeout\n${JSON.stringify({
+        lastOptionState,
+        snapshot,
+    }, null, 2)}`);
 }
 
 export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {

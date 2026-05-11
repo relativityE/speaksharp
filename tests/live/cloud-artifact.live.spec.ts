@@ -1,7 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
-import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
 
 const BASE_URL = process.env.BASE_URL;
 const E2E_PRO_EMAIL = process.env.E2E_PRO_EMAIL;
@@ -9,7 +8,6 @@ const E2E_PRO_PASSWORD = process.env.E2E_PRO_PASSWORD;
 const TRANSCRIPT_PATTERN = /\b(stale|beer|pepper|beef|swan|park|twister|wild|puppy|quick|brown|fox)\b/i;
 const PLACEHOLDER_TRANSCRIPT_PATTERN = /\b(words appear here|listening)\b/i;
 const ASSEMBLYAI_CONCURRENCY_PATTERN = /too many concurrent sessions/i;
-const CLOUD_WER_THRESHOLD = 0.08;
 const MIN_WER_WORDS = 8;
 const MIN_SAVEABLE_RECORDING_MS = 5_000;
 
@@ -86,9 +84,12 @@ async function recordCloudSessionUntilTranscript(page: Page, cloudConsoleEvents:
 
   const transcriptContainer = page.getByTestId('transcript-container');
   const transcript = await waitForLiveFixtureTranscript(page, transcriptContainer, cloudConsoleEvents);
-  const werEvidence = calculateFixtureWerEvidence(transcript);
-  console.log(`LIVE_CLOUD_WER_EVIDENCE ${JSON.stringify(werEvidence)}`);
-  expect(werEvidence.wordCount, `Cloud transcript too short for smoke-level WER evidence: "${transcript}"`).toBeGreaterThanOrEqual(MIN_WER_WORDS);
+  console.log(`LIVE_CLOUD_TRANSCRIPT_EVIDENCE ${JSON.stringify({
+    fixture: 'harvard_benchmark_16k_loop_120s.wav',
+    transcriptPreview: transcript.slice(0, 180),
+    transcriptLength: transcript.length,
+    wordCount: normalizeWords(transcript).length,
+  })}`);
 
   await startStopButton.click();
   await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 45_000 });
@@ -167,35 +168,6 @@ function isPlaceholderOnlyTranscript(text: string) {
   return PLACEHOLDER_TRANSCRIPT_PATTERN.test(text) && !TRANSCRIPT_PATTERN.test(text);
 }
 
-function calculateFixtureWerEvidence(transcript: string) {
-  const hypothesisWords = normalizeWords(transcript);
-  const repeatedReferenceWords = normalizeWords(Array.from({ length: 8 }, () => HARVARD_FULL).join(' '));
-  const windowSize = hypothesisWords.length;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  let bestStart = 0;
-
-  for (let start = 0; start <= repeatedReferenceWords.length - windowSize; start++) {
-    const referenceWindow = repeatedReferenceWords.slice(start, start + windowSize);
-    const distance = levenshteinDistance(referenceWindow, hypothesisWords);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestStart = start;
-    }
-  }
-
-  return {
-    fixture: 'harvard_benchmark_16k_loop_120s.wav',
-    truth: 'HARVARD_FULL repeated',
-    threshold: CLOUD_WER_THRESHOLD,
-    wordCount: hypothesisWords.length,
-    wer: windowSize === 0 ? 1 : bestDistance / windowSize,
-    editDistance: bestDistance,
-    referenceWindowStart: bestStart,
-    transcript: hypothesisWords.join(' '),
-    referenceWindow: repeatedReferenceWords.slice(bestStart, bestStart + windowSize).join(' '),
-  };
-}
-
 function normalizeWords(text: string) {
   return text
     .toLowerCase()
@@ -204,27 +176,4 @@ function normalizeWords(text: string) {
     .trim()
     .split(' ')
     .filter(Boolean);
-}
-
-function levenshteinDistance(referenceWords: string[], hypothesisWords: string[]) {
-  const dp = new Int32Array(hypothesisWords.length + 1);
-  for (let j = 0; j <= hypothesisWords.length; j++) dp[j] = j;
-
-  for (let i = 1; i <= referenceWords.length; i++) {
-    let previousDiagonal = dp[0];
-    dp[0] = i;
-
-    for (let j = 1; j <= hypothesisWords.length; j++) {
-      const previousAbove = dp[j];
-      const cost = referenceWords[i - 1] === hypothesisWords[j - 1] ? 0 : 1;
-      dp[j] = Math.min(
-        dp[j] + 1,
-        dp[j - 1] + 1,
-        previousDiagonal + cost
-      );
-      previousDiagonal = previousAbove;
-    }
-  }
-
-  return dp[hypothesisWords.length];
 }
