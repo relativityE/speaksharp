@@ -10,3 +10,7 @@ project_id = "yxlapjuovrsvjswkwnrk"
 [functions.create-user]
   entrypoint = "./functions/create-user/index.ts"
   verify_jwt = false
+
+[functions.observability-smoke]
+  entrypoint = "./functions/observability-smoke/index.ts"
+  verify_jwt = false

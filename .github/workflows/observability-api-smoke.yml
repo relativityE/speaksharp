@@ -1,0 +1,52 @@
+name: Observability API Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sentry-frontend-dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prove Sentry frontend ingest via Sentry API
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: node scripts/live-observability-proof.mjs --target=frontend-sentry
+
+  sentry-edge-dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prove Edge Function Sentry ingest via Sentry API
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          OBSERVABILITY_SMOKE_SECRET: ${{ secrets.OBSERVABILITY_SMOKE_SECRET }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: node scripts/live-observability-proof.mjs --target=edge-sentry
+
+  posthog-launch-event:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prove PostHog launch event via PostHog Query API
+        env:
+          POSTHOG_PROJECT_API_KEY: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
+          POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
+          POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
+          POSTHOG_INGEST_HOST: ${{ secrets.POSTHOG_INGEST_HOST }}
+          POSTHOG_API_HOST: ${{ secrets.POSTHOG_API_HOST }}
+        run: node scripts/live-observability-proof.mjs --target=posthog

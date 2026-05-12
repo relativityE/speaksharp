@@ -1,0 +1,64 @@
+name: Tester feedback
+description: Capture controlled tester issues when Sentry/PostHog readback is unavailable or incomplete.
+title: "[Tester]: "
+labels: ["tester-feedback", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for controlled tester trial issues. Include enough detail for release triage without exposing secrets.
+  - type: input
+    id: tester
+    attributes:
+      label: Tester identifier
+      description: Email, GitHub handle, or assigned tester ID.
+    validations:
+      required: true
+  - type: dropdown
+    id: flow
+    attributes:
+      label: Flow
+      options:
+        - Sign in / sign up
+        - Promo / upgrade
+        - Native STT
+        - Private STT
+        - Cloud STT
+        - Session save
+        - History / analytics
+        - AI feedback
+        - PDF export
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - P0 blocks tester from continuing
+        - P1 degraded or confusing
+        - P2 polish
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open production URL...\n2. Select...\n3. Click..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs actual
+      placeholder: "Expected:\nActual:"
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Screenshots, browser/version, transcript snippet, session time, URL path, console/network notes.
+    validations:
+      required: false

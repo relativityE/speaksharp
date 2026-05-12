@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-06
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-10
+**Last Updated:** 2026-05-12
 
 # Manual Hardware Validation Checklist
 
@@ -9,14 +9,14 @@ CI does not validate real microphone hardware. Complete this checklist before la
 
 ## Desktop Chrome
 
-- [ ] Grant mic permission.
+- [x] Grant mic permission.
 - [ ] Deny mic permission and verify error UX.
-- [ ] Login as Pro, select Native Browser STT, grant mic, speak a clear 10-15 second sentence, and confirm non-placeholder transcript text appears live.
-- [ ] Record the exact browser/version and the sentence spoken.
-- [ ] Stop Native session and confirm the UI returns to the ready/start state.
-- [ ] Save Native session and record the visible success/status text.
-- [ ] Confirm Native session history appears after reload.
-- [ ] Confirm Native analytics changed from baseline after save.
+- [x] Login as Pro, select Native Browser STT, grant mic, speak a clear 10-15 second sentence, and confirm non-placeholder transcript text appears live.
+- [x] Record the exact browser/version and the sentence spoken.
+- [x] Stop Native session and confirm the UI returns to the ready/start state.
+- [x] Save Native session and record the visible success/status text.
+- [x] Confirm Native session history appears after reload.
+- [x] Confirm Native analytics changed from baseline after save.
 - [ ] Refresh during recording.
 - [ ] Switch STT mode only via explicit user action.
 - [ ] Start Private STT through the launch-default CPU/Transformers.js path.
@@ -64,6 +64,16 @@ CI does not validate real microphone hardware. Complete this checklist before la
 
 ## Hardware Evidence Logs
 Native Browser STT launch proof must come from real Chrome microphone behavior. GitHub Chromium fake-audio only counts as readiness/no-crash/save diagnostics because Web Speech transcript production is browser/vendor dependent.
+
+2026-05-12 Chrome production proof:
+
+- Browser: Google Chrome via Playwright `channel=chrome`, headed.
+- Mic path: real browser `getUserMedia`, no fake audio flags.
+- Account: fresh promo sign-up `native-proof-1778546140280@example.com`.
+- Spoken sentence attempted: `Native Chrome microphone proof. The quick brown fox reads clear speech for SpeakSharp release validation.`
+- Live transcript: non-placeholder transcript appeared from the real mic path; captured sample was ambient speech rather than the scripted sentence, so `transcriptMatchesScript=false`.
+- Stop/save/history/analytics: all true.
+- Evidence file: `/private/tmp/native-chrome-proof.json`.
 
 If any check fails:
 1. Capture screen recording.
