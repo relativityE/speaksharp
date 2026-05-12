@@ -6,11 +6,17 @@ This is a controlled tester release process, not an enterprise certification aud
 
 ## Gate Summary
 
+The everyday CI workflow remains `.github/workflows/ci.yml` and is intentionally not the full release certification suite. RC gates are release-time controls:
+
+- Run the full release suite with `pnpm run audit` or the manually dispatched `Release Candidate Gates` workflow.
+- Run an individual gate at any time with `pnpm rc:gate:1:product`, `pnpm rc:gate:2:sast`, `pnpm rc:gate:3:dast`, `pnpm rc:gate:4:sca`, or `pnpm rc:gate:5:ux`.
+- Do not add these full RC gates to the push/PR main CI path unless a gate graduates into everyday correctness.
+
 | RC Gate | Name | Blocks Tester Release? | Maintained Regression Evidence |
 |---|---|---:|---|
-| Gate 1 | Product truth gate | Yes | `CI - Test Audit`, `Expired Promo Live Smoke`, `Pro STT Artifact Matrix`, deploy/canary workflows, Native Chrome mic proof |
-| Gate 2 | SAST / code review | Yes if P0 found | `pnpm quality`, `pnpm test:edge`, entitlement/token/quota unit tests, env/test-mode tests |
-| Gate 3 | DAST / running app review | Yes if P0 found | Live Playwright workflows against production URLs and Supabase Edge Functions |
+| Gate 1 | Product truth gate | Yes | `pnpm rc:gate:1:product`, `CI - Test Audit`, `Expired Promo Live Smoke`, `Pro STT Artifact Matrix`, deploy/canary workflows, Native Chrome mic proof |
+| Gate 2 | SAST / code review | Yes if P0 found | `pnpm rc:gate:2:sast`, `pnpm quality`, `pnpm test:edge`, entitlement/token/quota unit tests, env/test-mode tests, frontend secret scan |
+| Gate 3 | DAST / running app review | Yes if P0 found | `pnpm rc:gate:3:dast`, live Playwright tests against production URLs and Supabase Edge Functions |
 | Gate 4 | SCA / dependency review | Yes only for critical exploitable risk | `pnpm audit --audit-level critical` plus GitHub Actions/runtime warning review |
 | Gate 5 | UX smoke | Yes if onboarding/core flow is unusable | Canary, primary/user-feature/error-state E2E, Native browser-dependent manual wording check |
 
@@ -26,6 +32,8 @@ Required maintained tests and workflows:
 | Pro Private artifact/cache path | `.github/workflows/private-cache-live-smoke.yml`, `tests/live/private-cache.live.spec.ts` | Private starts, caches, saves, and remains usable on second start |
 | Native Chrome mic | `scripts/manual-native-chrome-proof.mjs` | Real Chrome `getUserMedia`, live transcript, stop/save, history, analytics |
 | CI/deploy/canary | `.github/workflows/ci.yml`, `.github/workflows/deploy-edge-functions.yml`, production canary workflow | Latest release commit has green CI, deploy, and canary |
+| Session save/history/analytics retrieval | `tests/e2e/analytics-truth.e2e.spec.ts`, `tests/e2e/user-features.e2e.spec.ts`, `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Saved transcript appears in history/detail, analytics values survive reload/export, Cloud PDF includes transcript text |
+| Custom filler words save/retrieval | `tests/live/user-filler-words-persistence.live.spec.ts`, `tests/e2e/user-filler-words.e2e.spec.ts`, `frontend/src/utils/__tests__/fillerWordUtils.test.ts` | Custom words persist, reload, and affect analysis without regex/query breakage |
 
 ## Gate 2 - SAST / Code Review
 
@@ -40,16 +48,27 @@ Required maintained tests:
 | Test/E2E mode leakage | `frontend/src/config/__tests__/env.test.ts`, CI production build validation | Test-only branches are gated by test mode and not production assumptions |
 | Secrets server-side only | `scripts/validate-env.mjs`, `frontend/src/main.tsx`, Edge Function tests | Provider secret keys are not required as frontend `VITE_*` values; frontend uses DSN/project public keys only |
 | Stripe open redirect/origin spoofing | `tests/live/stripe-security.canary.spec.ts` | Client-supplied origin does not control checkout return origin |
+| Stripe webhook replay/idempotency | `backend/supabase/functions/stripe-webhook/adversarial.test.ts` | Duplicate webhook event is skipped by the atomic RPC path |
+| Custom words injection / regex abuse | `frontend/src/utils/__tests__/fillerWordUtils.test.ts` | Malformed custom words cannot crash analysis or create unsafe regex behavior |
+| CORS misconfiguration | `backend/supabase/functions/_shared/cors.test.ts` | Trusted origins are echoed and untrusted origins are not |
+| Refresh/concurrency during recording | `frontend/src/services/transcription/__tests__/TranscriptionService.race.test.ts`, `frontend/src/services/transcription/__tests__/TranscriptionService.zombie.test.ts`, `frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` | Stale recording callbacks cannot overwrite the active run or corrupt lifecycle state |
+| Denied mic permission | `frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx`, `frontend/src/services/transcription/modes/__tests__/NativeBrowser.test.ts`, `product_release/MANUAL_HARDWARE_VALIDATION.md` | Permission denial becomes a user-visible error path and is also checked manually before release |
 
 Gate command set:
 
 ```bash
 pnpm quality
+pnpm rc:sast:secrets
 pnpm test:edge
 pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
   frontend/src/config/__tests__/env.test.ts \
   frontend/src/constants/__tests__/subscriptionTiers.test.ts \
-  frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx
+  frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx \
+  frontend/src/services/transcription/__tests__/TranscriptionPolicy.test.ts \
+  frontend/src/services/transcription/__tests__/TranscriptionService.race.test.ts \
+  frontend/src/services/transcription/__tests__/TranscriptionService.zombie.test.ts \
+  frontend/src/utils/__tests__/fillerWordUtils.test.ts \
+  frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx
 ```
 
 ## Gate 3 - DAST / Running App
@@ -59,10 +78,23 @@ Required maintained live workflows:
 | Running-App Risk | Workflow / Test | Required Evidence |
 |---|---|---|
 | Expired promo downgrade trap | `Expired Promo Live Smoke` | Dialog dismisses, effective tier is `free`, stored status is `free`, mode is Native |
-| Cloud token denied for expired/over-quota | `tests/live/cloud-token-gates.live.spec.ts` | Expired promo returns 403, over-quota returns 429, no token issued |
+| Invalid auth | `tests/live/cloud-token-gates.live.spec.ts`, `backend/supabase/functions/assemblyai-token/index.test.ts` | Missing/invalid auth returns 401 and no token issued |
+| Cloud token denied for Free/expired/over-quota | `tests/live/cloud-token-gates.live.spec.ts` | Free and expired promo return 403, over-quota returns 429, no token issued |
+| Promo brute force | `tests/live/promo-throttle.live.spec.ts` | Ninth wrong promo attempt returns 429 for the same user |
 | Cloud Pro artifact path | `Pro STT Artifact Matrix` with `mode=cloud` | Transcript -> save -> history/detail -> AI -> PDF text |
 | Stripe checkout/webhook readiness | `tests/live/stripe-checkout-readiness.live.spec.ts`, `tests/live/stripe-webhook-readiness.live.spec.ts` | Test-mode checkout/webhook path completes without production-charge assumptions |
+| Stripe webhook replay | `backend/supabase/functions/stripe-webhook/adversarial.test.ts` | Duplicate event skips mutation through idempotent RPC result |
+| Custom filler words live persistence | `tests/live/user-filler-words-persistence.live.spec.ts` | Filler words save, reload, and are retrievable for the same user |
+| Denied mic permission | `product_release/MANUAL_HARDWARE_VALIDATION.md`, `frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx` | Browser-denied mic path is documented and produces a visible error |
+| Refresh during recording | `tests/e2e/analytics-truth.e2e.spec.ts`, lifecycle unit tests in Gate 2 | Saved analytics/history survive reload; stale recording callbacks are unit-guarded |
 | Canary user path | Production canary workflow | Production URL can be exercised with provisioned user |
+
+Gate command set:
+
+```bash
+pnpm rc:dast:local
+pnpm rc:dast:live
+```
 
 ## Gate 4 - SCA / Dependency Review
 
@@ -87,8 +119,9 @@ Required maintained checks:
 | User does not know what to click first | Canary + primary journey smoke | Session entry and recording CTA are reachable |
 | STT mode is unclear | `tests/e2e/user-features.e2e.spec.ts`, Native manual checklist | Private/Cloud/Native selection is visible and current mode is inspectable |
 | Expired promo copy traps user | `tests/live/expired-promo-denial.live.spec.ts` | Continue as Basic/Free-safe action dismisses dialog and lands in safe state |
-| Native support expectations | Tester instructions and manual Native proof | Native is explicitly Chrome/browser-dependent |
+| Native support expectations | Tester instructions and manual Native proof | Native is explicitly Chrome/browser-dependent and included only with Chrome proof |
 | Errors are actionable | `tests/e2e/error-states.e2e.spec.ts` | User sees recoverable state, not only internal diagnostics |
+| Private first-use setup | `tests/e2e/user-features.e2e.spec.ts`, `tests/live/private-cache.live.spec.ts` | Private setup/cache path is understandable enough to start and rerun without stale cache failure |
 
 Automated UX smoke is green when `pnpm rc:gate:5:ux` passes. Subjective copy polish can continue as P2, but it should not reopen release-critical code unless the smoke finds an unusable onboarding/core-flow issue.
 

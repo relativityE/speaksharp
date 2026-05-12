@@ -29,7 +29,29 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     );
   });
 
-  test('denies expired promo-only Pro and over-quota Pro before minting AssemblyAI token', async () => {
+  test('denies missing auth before minting AssemblyAI token', async () => {
+    const result = await requestAssemblyTokenWithoutAuth();
+    const evidence = {
+      missingAuth: summarizeTokenResult(result),
+    };
+    console.log(`LIVE_CLOUD_TOKEN_MISSING_AUTH_EVIDENCE ${JSON.stringify(evidence)}`);
+
+    expect(result.status, JSON.stringify(evidence)).toBe(401);
+    expect(result.body?.token, JSON.stringify(evidence)).toBeFalsy();
+  });
+
+  test('denies free, expired promo-only Pro, and over-quota Pro before minting AssemblyAI token', async () => {
+    const freeUser = await createLiveUser(admin, `cloud-free-${RUN_ID}@example.com`, {
+      subscription_status: 'free',
+      promo_expires_at: null,
+      daily_usage_seconds: 0,
+      native_usage_seconds: 0,
+      cloud_usage_seconds: 0,
+      stripe_subscription_id: null,
+      subscription_id: null,
+    });
+    createdUsers.push(freeUser);
+
     const expiredPromoUser = await createLiveUser(admin, `cloud-expired-promo-${RUN_ID}@example.com`, {
       subscription_status: 'pro',
       promo_expires_at: '2024-01-01T00:00:00.000Z',
@@ -52,17 +74,23 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     });
     createdUsers.push(overQuotaUser);
 
+    const freeResult = await requestAssemblyToken(freeUser.email);
     const expiredResult = await requestAssemblyToken(expiredPromoUser.email);
     const overQuotaResult = await requestAssemblyToken(overQuotaUser.email);
 
     const evidence = {
+      free: summarizeTokenResult(freeResult),
       expiredPromo: summarizeTokenResult(expiredResult),
       overQuota: summarizeTokenResult(overQuotaResult),
     };
     console.log(`LIVE_CLOUD_TOKEN_GATE_EVIDENCE ${JSON.stringify(evidence)}`);
 
+    expect(freeResult.status, JSON.stringify(evidence)).toBe(403);
+    expect(freeResult.body?.error, JSON.stringify(evidence)).toMatch(/pro subscription required/i);
+    expect(freeResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
     expect(expiredResult.status, JSON.stringify(evidence)).toBe(403);
     expect(expiredResult.body?.error, JSON.stringify(evidence)).toMatch(/promo access expired/i);
+    expect(expiredResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
     expect(overQuotaResult.status, JSON.stringify(evidence)).toBe(429);
     expect(overQuotaResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
   });
@@ -110,6 +138,19 @@ async function requestAssemblyToken(email: string) {
   try {
     const response = await context.post('/functions/v1/assemblyai-token', {
       headers: { Authorization: `Bearer ${data.session.access_token}` },
+      data: {},
+    });
+    const body = await response.json().catch(() => null) as { error?: string; token?: string } | null;
+    return { status: response.status(), body };
+  } finally {
+    await context.dispose();
+  }
+}
+
+async function requestAssemblyTokenWithoutAuth() {
+  const context = await playwrightRequest.newContext({ baseURL: SUPABASE_URL });
+  try {
+    const response = await context.post('/functions/v1/assemblyai-token', {
       data: {},
     });
     const body = await response.json().catch(() => null) as { error?: string; token?: string } | null;

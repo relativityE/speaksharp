@@ -1,0 +1,113 @@
+name: Release Candidate Gates
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Production or preview URL for live/UX gates
+        required: false
+        default: https://speaksharp-public.vercel.app
+      gate:
+        description: Gate to run
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - gate-1-product
+          - gate-2-sast
+          - gate-3-dast
+          - gate-4-sca
+          - gate-5-ux
+
+permissions:
+  contents: read
+
+jobs:
+  gate-1-product:
+    name: Gate 1 - Product Truth
+    if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-1-product' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+      - name: Run Product Truth Gate
+        env:
+          EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+          STT_ENGINE: mock
+          BASE_URL: ${{ github.event.inputs.base_url }}
+        run: pnpm rc:gate:1:product
+
+  gate-2-sast:
+    name: Gate 2 - SAST / OWASP Code Review
+    if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-2-sast' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'false'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Run SAST Gate
+        run: pnpm rc:gate:2:sast
+
+  gate-3-dast:
+    name: Gate 3 - DAST / Running App
+    if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-3-dast' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+      - name: Run DAST Gate
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY }}
+          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
+          E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
+          EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+        run: pnpm rc:gate:3:dast
+
+  gate-4-sca:
+    name: Gate 4 - SCA / Dependency Review
+    if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-4-sca' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'false'
+      - name: Run SCA Gate
+        run: pnpm rc:gate:4:sca
+
+  gate-5-ux:
+    name: Gate 5 - UX Smoke
+    if: ${{ github.event.inputs.gate == 'all' || github.event.inputs.gate == 'gate-5-ux' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+      - name: Run UX Gate
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          STT_ENGINE: mock
+        run: pnpm rc:gate:5:ux
