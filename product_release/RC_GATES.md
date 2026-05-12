@@ -8,8 +8,9 @@ This is a controlled tester release process, not an enterprise certification aud
 
 The everyday CI workflow remains `.github/workflows/ci.yml` and is intentionally not the full release certification suite. RC gates are release-time controls:
 
-- Run the full release suite with `pnpm run audit` or the manually dispatched `Release Candidate Gates` workflow.
+- Run the automated RC command suite with `pnpm run audit` or the manually dispatched `Release Candidate Gates` workflow.
 - Run an individual gate at any time with `pnpm rc:gate:1:product`, `pnpm rc:gate:2:sast`, `pnpm rc:gate:3:dast`, `pnpm rc:gate:4:sca`, or `pnpm rc:gate:5:ux`.
+- Gate 1 includes external workflow and manual evidence that is recorded in the release matrix, not all launched by `pnpm run audit`.
 - Do not add these full RC gates to the push/PR main CI path unless a gate graduates into everyday correctness.
 
 | RC Gate | Name | Blocks Tester Release? | Maintained Regression Evidence |
