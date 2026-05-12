@@ -68,7 +68,20 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           install-playwright: 'true'
-      - name: Run DAST Gate
+      - name: Run DAST Local Gate
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
+          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
+          E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
+          EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
+          AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+        run: pnpm rc:dast:local
+      - name: Run DAST Live Gate
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -76,12 +89,12 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY }}
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
           E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
           E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
           EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
-        run: pnpm rc:gate:3:dast
+        run: pnpm rc:dast:live
 
   gate-4-sca:
     name: Gate 4 - SCA / Dependency Review
@@ -108,6 +121,5 @@ jobs:
           install-playwright: 'true'
       - name: Run UX Gate
         env:
-          BASE_URL: ${{ github.event.inputs.base_url }}
           STT_ENGINE: mock
         run: pnpm rc:gate:5:ux
