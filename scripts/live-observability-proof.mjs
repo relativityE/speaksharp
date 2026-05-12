@@ -27,6 +27,7 @@ async function proveFrontendSentry() {
   requireEnv('SENTRY_PROJECT');
 
   const eventId = createSentryEventId();
+  logSentryConfig('frontend', dsn, eventId);
   await sendSentryEnvelope(dsn, {
     event_id: eventId,
     timestamp: new Date().toISOString(),
@@ -61,6 +62,7 @@ async function proveEdgeSentry() {
   requireEnv('SENTRY_ORG');
   requireEnv('SENTRY_PROJECT');
 
+  console.log(`OBS_SMOKE edge function target=${redactUrl(supabaseUrl)}/functions/v1/observability-smoke proofId=${proofId}`);
   const response = await fetch(`${supabaseUrl.replace(/\/$/, '')}/functions/v1/observability-smoke`, {
     method: 'POST',
     headers: {
@@ -76,6 +78,7 @@ async function proveEdgeSentry() {
     throw new Error(`Edge Sentry smoke failed HTTP ${response.status}: ${bodyText.slice(0, 500)}`);
   }
 
+  console.log(`OBS_SMOKE edge function response status=${response.status} ingestStatus=${body.ingestStatus ?? 'unknown'} eventId=${body.eventId}`);
   const event = await pollSentryEvent(body.eventId, 'edge');
   return {
     eventId: body.eventId,
@@ -93,6 +96,7 @@ async function provePostHog() {
   const ingestHost = (process.env.POSTHOG_INGEST_HOST ?? process.env.VITE_POSTHOG_HOST ?? apiHost).replace(/\/$/, '');
   const distinctId = `launch-observability-${proofId}`;
 
+  console.log(`OBS_SMOKE posthog ingestHost=${redactUrl(ingestHost)} apiHost=${redactUrl(apiHost)} projectId=${projectId} proofId=${proofId}`);
   const captureResponse = await fetch(`${ingestHost}/capture/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -112,6 +116,8 @@ async function provePostHog() {
     throw new Error(`PostHog capture failed HTTP ${captureResponse.status}: ${body.slice(0, 500)}`);
   }
 
+  const captureBody = await captureResponse.text().catch(() => '');
+  console.log(`OBS_SMOKE posthog capture accepted status=${captureResponse.status} body=${captureBody.slice(0, 160)}`);
   const row = await pollPostHogEvent({ apiHost, personalApiKey, projectId, proofId });
   return {
     event: row[0],
@@ -140,6 +146,9 @@ async function sendSentryEnvelope(dsn, event) {
     const body = await response.text().catch(() => '');
     throw new Error(`Sentry ingest failed HTTP ${response.status}: ${body.slice(0, 500)}`);
   }
+
+  const body = await response.text().catch(() => '');
+  console.log(`OBS_SMOKE sentry envelope accepted host=${redactUrl(parsed.envelopeUrl)} projectId=${parsed.projectId} status=${response.status} body=${body.slice(0, 160)}`);
 }
 
 async function pollSentryEvent(eventId, expectedSurface) {
@@ -147,8 +156,10 @@ async function pollSentryEvent(eventId, expectedSurface) {
   const org = encodeURIComponent(process.env.SENTRY_ORG);
   const project = encodeURIComponent(process.env.SENTRY_PROJECT);
   const url = `${apiBase}/api/0/projects/${org}/${project}/events/${eventId}/`;
+  let attempts = 0;
 
   return poll(async () => {
+    attempts += 1;
     const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}`,
@@ -156,7 +167,10 @@ async function pollSentryEvent(eventId, expectedSurface) {
       },
     });
 
-    if (response.status === 404) return null;
+    if (response.status === 404) {
+      logPollMiss('sentry', attempts, `status=404 eventId=${eventId} surface=${expectedSurface} api=${redactUrl(url)}`);
+      return null;
+    }
     const bodyText = await response.text();
     if (!response.ok) {
       throw new Error(`Sentry API read failed HTTP ${response.status}: ${bodyText.slice(0, 500)}`);
@@ -165,6 +179,7 @@ async function pollSentryEvent(eventId, expectedSurface) {
     const event = parseJson(bodyText);
     const tags = new Map((event.tags ?? []).map((tag) => [tag.key, tag.value]));
     if (tags.get('proof_id') !== proofId || tags.get('surface') !== expectedSurface) {
+      logPollMiss('sentry', attempts, `status=${response.status} eventId=${eventId} proofTag=${tags.get('proof_id') ?? 'missing'} surfaceTag=${tags.get('surface') ?? 'missing'}`);
       return null;
     }
 
@@ -184,7 +199,9 @@ async function pollPostHogEvent({ apiHost, personalApiKey, projectId, proofId })
     LIMIT 1
   `;
 
+  let attempts = 0;
   return poll(async () => {
+    attempts += 1;
     const response = await fetch(`${apiHost}/api/projects/${encodeURIComponent(projectId)}/query/`, {
       method: 'POST',
       headers: {
@@ -206,7 +223,11 @@ async function pollPostHogEvent({ apiHost, personalApiKey, projectId, proofId })
     }
 
     const body = parseJson(bodyText);
-    return body?.results?.[0] ?? null;
+    const row = body?.results?.[0] ?? null;
+    if (!row) {
+      logPollMiss('posthog', attempts, `status=${response.status} resultCount=${body?.results?.length ?? 'missing'} api=${redactUrl(apiHost)}`);
+    }
+    return row;
   }, `PostHog event ${proofId}`);
 }
 
@@ -231,7 +252,7 @@ function parseSentryDsn(dsn) {
   const url = new URL(dsn);
   const projectId = url.pathname.split('/').filter(Boolean).at(-1);
   if (!projectId) throw new Error('SENTRY_DSN is missing a project id path segment');
-  return { envelopeUrl: `${url.origin}/api/${projectId}/envelope/` };
+  return { envelopeUrl: `${url.origin}/api/${projectId}/envelope/`, projectId };
 }
 
 function createSentryEventId() {
@@ -264,4 +285,25 @@ function assertSafeProofId(value) {
     throw new Error(`Unsafe proof id: ${value}`);
   }
   return value;
+}
+
+function logSentryConfig(surface, dsn, eventId) {
+  const parsed = parseSentryDsn(dsn);
+  const apiBase = process.env.SENTRY_API_BASE ?? 'https://us.sentry.io';
+  console.log(`OBS_SMOKE sentry surface=${surface} eventId=${eventId} ingest=${redactUrl(parsed.envelopeUrl)} apiBase=${redactUrl(apiBase)} projectId=${parsed.projectId}`);
+}
+
+function logPollMiss(provider, attempts, details) {
+  if (attempts === 1 || attempts % 6 === 0) {
+    console.log(`OBS_SMOKE ${provider} poll miss attempt=${attempts} ${details}`);
+  }
+}
+
+function redactUrl(value) {
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}${url.pathname.replace(/[a-f0-9]{24,}/gi, '<id>')}`;
+  } catch {
+    return String(value).replace(/[a-f0-9]{24,}/gi, '<id>');
+  }
 }
