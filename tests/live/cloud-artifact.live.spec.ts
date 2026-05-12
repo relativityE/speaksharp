@@ -9,7 +9,7 @@ const TRANSCRIPT_PATTERN = /\b(stale|beer|pepper|beef|swan|park|twister|wild|pup
 const PLACEHOLDER_TRANSCRIPT_PATTERN = /\b(words appear here|listening)\b/i;
 const ASSEMBLYAI_CONCURRENCY_PATTERN = /too many concurrent sessions/i;
 const MIN_WER_WORDS = 8;
-const MIN_SAVEABLE_RECORDING_MS = 5_000;
+const MIN_SAVEABLE_RECORDING_MS = 7_000;
 
 test.describe.configure({ mode: 'serial', retries: 0 });
 
@@ -80,7 +80,7 @@ async function recordCloudSessionUntilTranscript(page: Page, cloudConsoleEvents:
   expect(tokenResponse.status(), `assemblyai-token response: ${await tokenResponse.text().catch(() => '')}`).toBe(200);
   await expect(startStopButton).toHaveAttribute('data-recording', 'true', { timeout: 45_000 });
 
-  await page.waitForTimeout(Math.max(0, MIN_SAVEABLE_RECORDING_MS - (Date.now() - recordingStartedAt)));
+  await waitForSaveableRecordingDuration(page, recordingStartedAt);
 
   const transcriptContainer = page.getByTestId('transcript-container');
   const transcript = await waitForLiveFixtureTranscript(page, transcriptContainer, cloudConsoleEvents);
@@ -126,6 +126,21 @@ async function waitForLiveFixtureTranscript(
     }
     throw new Error(`Cloud live transcript did not appear before timeout. Last transcript="${lastText}"\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+async function waitForSaveableRecordingDuration(page: Page, recordingStartedAt: number) {
+  const minimumSeconds = Math.ceil(MIN_SAVEABLE_RECORDING_MS / 1000);
+  await page.waitForTimeout(Math.max(0, MIN_SAVEABLE_RECORDING_MS - (Date.now() - recordingStartedAt)));
+
+  await page.waitForFunction((minSeconds) => {
+    const storeApi = (window as unknown as {
+      __SESSION_STORE_API__?: { getState?: () => { elapsedTime?: number } };
+    }).__SESSION_STORE_API__;
+    const elapsedTime = storeApi?.getState?.().elapsedTime;
+    return typeof elapsedTime === 'number' && elapsedTime >= minSeconds;
+  }, minimumSeconds, { timeout: 15_000 }).catch(async () => {
+    await page.waitForTimeout(5_000);
+  });
 }
 
 async function stopCloudRecordingAndWaitForDisconnect(page: Page) {

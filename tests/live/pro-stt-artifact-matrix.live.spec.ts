@@ -116,8 +116,8 @@ async function recordUntilFixtureTranscript(page: Page, mode: SttMode, consoleEv
   const transcriptContainer = page.getByTestId('transcript-container');
   const transcript = await waitForLiveFixtureTranscript(page, mode, transcriptContainer, consoleEvents);
 
-  // Product save policy requires at least five seconds of recording before save.
-  await page.waitForTimeout(Math.max(0, MIN_SAVEABLE_RECORDING_MS - (Date.now() - recordingStartedAt)));
+  // Product save policy reads the app's elapsed-time store, not Playwright's wall clock.
+  await waitForSaveableRecordingDuration(page, recordingStartedAt);
 
   await startStopButton.click();
   await expect(startStopButton).toHaveAttribute('data-recording', 'false', { timeout: 45_000 });
@@ -157,6 +157,21 @@ async function waitForLiveFixtureTranscript(
 
     throw new Error(`${mode} live transcript did not appear before timeout. Last transcript="${lastText}"\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+async function waitForSaveableRecordingDuration(page: Page, recordingStartedAt: number) {
+  const minimumSeconds = Math.ceil(MIN_SAVEABLE_RECORDING_MS / 1000);
+  await page.waitForTimeout(Math.max(0, MIN_SAVEABLE_RECORDING_MS - (Date.now() - recordingStartedAt)));
+
+  await page.waitForFunction((minSeconds) => {
+    const storeApi = (window as unknown as {
+      __SESSION_STORE_API__?: { getState?: () => { elapsedTime?: number } };
+    }).__SESSION_STORE_API__;
+    const elapsedTime = storeApi?.getState?.().elapsedTime;
+    return typeof elapsedTime === 'number' && elapsedTime >= minSeconds;
+  }, minimumSeconds, { timeout: 15_000 }).catch(async () => {
+    await page.waitForTimeout(5_000);
+  });
 }
 
 async function openLatestAnalyticsDetail(page: Page) {
