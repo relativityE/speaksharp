@@ -64,7 +64,7 @@ These tenets govern all stabilization and hardening work in the SpeakSharp repos
 *   **Kill the Zombie**: Always unconditionally terminate async processes (watchdogs, intervals) in reset cycles to prevent "state poisoning."
 
 ### 🛠️ 4. Development & Testing Workflow
-*   **Closed-Loop Status**: Update the `implementation_plan.md` status and pause for approval after *every* discrete step.
+*   **Closed-Loop Status**: Keep the user-facing plan/status current during multi-step work. Pause for approval only when a change is risky, destructive, or requires a product/release decision.
 *   **Baseline Transparency**: Use mechanical tallies (pass/fail) to prove convergence at each milestone.
 *   **Tech Debt Isolation**: Log design smells for later paydown; never allow them to drift the stabilization sequence.
 
@@ -158,7 +158,9 @@ To mathematically verify STT accuracy and ensure zero-regression on NLP models (
 
 ### 2. The Local Command Ladder (Single Source of Truth for Testing)
 
-The primary local release gate is `pnpm test:full`. Use the explicit command ladder from `package.json`: `pnpm test:infra` for fast health, `pnpm test:unit` for Vitest truth, `pnpm test:e2e` for the full mocked Playwright suite, `pnpm test:full` for the full local gate, and `pnpm ci:full` for CI parity/orchestration.
+The primary daily local gate is `pnpm test:full`. Use the explicit command ladder from `package.json`: `pnpm test:infra` for fast health, `pnpm test:unit` for Vitest truth, `pnpm test:e2e` for the full mocked Playwright suite, `pnpm test:full` for the full local gate, and `pnpm ci:full` / `pnpm ci:github` for CI parity/orchestration.
+
+Release-candidate validation is separate from daily CI. Use `pnpm rc:gates` or `pnpm run audit` for the full RC suite, and `pnpm rc:gate:1:product` through `pnpm rc:gate:5:ux` for targeted gate checks. Do not add full RC gates to the main push/PR CI pipeline unless the team explicitly promotes that coverage into everyday correctness.
 
 *   **Always use these scripts for validation.** Do not invent final-validation runners.
 *   Keep `ci:full` aligned with GitHub Actions behavior before any production release.
@@ -209,29 +211,33 @@ ___
     *   **STT Engine Contract Enforcement**: All engines MUST extend the `STTEngine` abstract base class, ensuring a deterministic lifecycle (`start`, `stop`) and heartbeat monitoring. See `STTEngine.ts` or `PrivateSTT.ts`.
     *   **Analytics Decoupling**: Telemetry events MUST be buffered via `AnalyticsBuffer` to prevent blocking the UI thread or readiness signals. See `AnalyticsBuffer.ts`.
     *   **Forensic Signaling Infrastructure**: Use `e2eProbe.ts` as the single authoritative source for internal state telemetry. Never add new `window` properties or custom bridge methods directly to service logic.
-2.  ✅ **Codebase Context** – Inspect `/frontend/src`, `/tests` (E2E), `/frontend/tests/integration` (Real DB), `/docs` before acting.
+2.  ✅ **Codebase Context** – Inspect `/frontend/src`, `/tests` (E2E/live/support), `/frontend/tests/integration` (legacy integration tests), `/backend/supabase/functions`, and `/docs` before acting.
 3.  ❌ **No Code Reversals Without Consent** – Never undo user work.
 4.  ⏱️ **Timeout Constraint** – Every command must complete within 7 minutes.
-5.  ✅ **Approved Scripts** – Use the following `package.json` scripts for validation and development. The `ci:full` script is the CI parity/orchestrator and must be kept aligned with GitHub Actions.
+5.  ✅ **Approved Scripts** – Use the current `package.json` scripts for validation and development. The important entry points are:
 
-    ```json
-     "test:full": "pnpm run test:full",
-     "ci:full": "pnpm run ci:full",
-     "test": "pnpm test:infra",
-     "dev": "pnpm run dev",
-     "build": "pnpm run build",
-     "pw:install": "pnpm run pw:install",
-     "pw:install:all": "pnpm run pw:install:all"
-    ```
-    
-    **Script Taxonomy:** All test scripts follow `test:<level>:<env>[:<mode>]`. See `ARCHITECTURE.md` for the full reference.
+    | Purpose | Command |
+    |---|---|
+    | Local development | `pnpm dev` |
+    | Production build | `pnpm build` |
+    | Fast default health check | `pnpm test` / `pnpm test:infra` |
+    | Unit truth | `pnpm test:unit` |
+    | Edge Function tests | `pnpm test:edge` |
+    | Full mocked local gate | `pnpm test:full` |
+    | CI parity/orchestrator | `pnpm ci:full` / `pnpm ci:github` |
+    | Full RC gate suite | `pnpm rc:gates` / `pnpm run audit` |
+    | Individual RC gates | `pnpm rc:gate:1:product` through `pnpm rc:gate:5:ux` |
+    | Playwright Chromium install | `pnpm pw:install` |
+    | All Playwright browsers | `pnpm pw:install:all` |
+
+    **Script Taxonomy:** Use `test:*` for development checks, `ci:*` for CI parity/orchestration, and `rc:*` for release-candidate gates. See `README.md` and `product_release/RC_GATES.md` for the current command reference.
     
     **Playwright Browsers:** Browser installation is NOT automatic. After `pnpm install`, run `pnpm pw:install` to install Chromium for E2E testing.
     
     **Terminology Clarification:**
     - **Infrastructure Probe**: Refers specifically to `tests/e2e/infra.probe.e2e.spec.ts`. This is the authoritative T=0 environment probe, performing a "Deterministic, Single-Path" validation (Preflight + 1 E2E Journey).
     
-    **CRITICAL:** `ci:full` is the local CI parity gate. If it diverges from GitHub Actions, repair or document the drift before release.
+    **CRITICAL:** `ci:full` is the local CI parity gate. RC gates are a separate release-time layer. If either diverges from the documented GitHub workflows, repair or document the drift before release.
     
     **New Configuration Scripts (2025-11-28):**
     - `build.config.js` - Centralized port configuration (DEV: 5173, PREVIEW: 4173)
@@ -270,7 +276,7 @@ ___
 2.  **Mandatory Pre-Push Validation**
     Before pushing to `main`, you MUST run:
     ```bash
-    pnpm run ci:full
+    pnpm ci:full
     ```
     This runs the local CI parity/orchestrator. If it fails or diverges from GitHub Actions, DO NOT PUSH a release candidate. Fix the issues or document the parity gap first.
 
@@ -278,7 +284,7 @@ ___
      Required for any PR containing a database migration:
      - [ ] Ran: `pnpm supabase gen types typescript --local > frontend/src/types/database.types.ts`
      - [ ] Updated mock factories in `tests/support/factories/` to include new columns
-     - [ ] Ran contract tests: `pnpm test -- --grep "Mock Parity"`
+     - [ ] Ran relevant factory/mock parity checks for the touched data path. Prefer targeted Vitest or Playwright specs over passing unsupported grep flags through `pnpm test`.
      - [ ] Verified mock headers match PostgREST spec for any new .single() queries
  
  4.  **Documentation (SSOT)**
