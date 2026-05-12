@@ -176,7 +176,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                     className="sm:ml-4 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-md shadow-md hover:bg-primary/90 transition-all active:scale-95 border border-primary/30"
                     data-action="switch-to-native"
                 >
-                    Switch to Native (Free)
+                    Switch to Native (Basic)
                 </button>
             )}
 

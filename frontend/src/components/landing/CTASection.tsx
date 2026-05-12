@@ -21,7 +21,7 @@ export const CTASection = () => {
                             asChild
                         >
                             <Link to="/auth/signup" className="flex items-center gap-2">
-                                Start Free Session
+                                Start Basic Session
                                 <ArrowRight className="size-4" />
                             </Link>
                         </Button>

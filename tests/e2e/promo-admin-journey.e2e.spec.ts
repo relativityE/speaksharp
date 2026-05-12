@@ -49,7 +49,7 @@ test.describe('Promo Admin Journey', () => {
         // 8. Navigate to Analytics and verify the Pro status
         await navigateToRoute(page, '/analytics');
         await expect(page.locator('text=Pro Plan Active')).toBeVisible();
-        await expect(page.locator('text=Free Plan')).not.toBeVisible();
+        await expect(page.locator('text=Basic Plan')).not.toBeVisible();
     });
 
     test('shows inline error when promo fails with no valid credentials (validation phase)', async ({ mockedPage: page }) => {
@@ -98,6 +98,6 @@ test.describe('Promo Admin Journey', () => {
         await expect(page).toHaveURL(/\/session/, { timeout: 15000 });
 
         // 7. Verify EXACT toast message from spec
-        await expect(page.getByText("Promo code invalid. You've been signed up as a free user.")).toBeVisible();
+        await expect(page.getByText("Promo code invalid. You've been signed up on the Basic plan.")).toBeVisible();
     });
 });

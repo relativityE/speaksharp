@@ -83,7 +83,7 @@ export const BenefitsSection = () => {
                         className="bg-secondary text-secondary-foreground font-bold px-8 h-12 rounded-full hover:bg-secondary/90 transition-all text-base"
                         asChild
                     >
-                        <Link to="/auth/signup">Get Started Free</Link>
+                        <Link to="/auth/signup">Get Started with Basic</Link>
                     </Button>
                 </motion.div>
             </div>

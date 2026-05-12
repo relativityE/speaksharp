@@ -55,7 +55,7 @@ export function getEffectiveSubscriptionStatus(
 }
 
 /**
- * Check if a subscription status indicates Free tier
+ * Check if a subscription status indicates the baseline tier
  */
 export function isFree(subscriptionStatus: string | undefined | null): boolean {
     return subscriptionStatus === SUBSCRIPTION_TIERS.FREE;
@@ -65,7 +65,7 @@ export function isFree(subscriptionStatus: string | undefined | null): boolean {
  * Get tier label for display
  */
 export function getTierLabel(subscriptionStatus: string | undefined | null): string {
-    return isPro(subscriptionStatus) ? 'Pro' : 'Free';
+    return isPro(subscriptionStatus) ? 'Pro' : 'Basic';
 }
 
 /**

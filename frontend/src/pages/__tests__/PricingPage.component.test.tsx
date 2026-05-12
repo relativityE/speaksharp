@@ -35,12 +35,12 @@ describe('PricingPage', () => {
             expect(screen.getByText(/Start with browser transcription/)).toBeInTheDocument();
         });
 
-        it('should render Free tier', () => {
+        it('should render Basic tier', () => {
             renderPricingPage();
 
-            expect(screen.getByText('Free')).toBeInTheDocument();
+            expect(screen.getByText('Basic')).toBeInTheDocument();
             expect(screen.getByText('$0')).toBeInTheDocument();
-            expect(screen.getByText('For basic use')).toBeInTheDocument();
+            expect(screen.getByText('For browser practice')).toBeInTheDocument();
         });
 
         it('should render Pro tier', () => {
@@ -51,7 +51,7 @@ describe('PricingPage', () => {
             expect(screen.getByText('per month')).toBeInTheDocument();
         });
 
-        it('should render Free tier features', () => {
+        it('should render Basic tier features', () => {
             renderPricingPage();
 
             expect(screen.getByText(/mins of practice per month/)).toBeInTheDocument();
@@ -73,16 +73,16 @@ describe('PricingPage', () => {
         it('should render CTA buttons', () => {
             renderPricingPage();
 
-            expect(screen.getByText('Continue with Free')).toBeInTheDocument();
+            expect(screen.getByText('Continue with Basic')).toBeInTheDocument();
             expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
         });
     });
 
     describe('Button States', () => {
-        it('should disable Free tier button', () => {
+        it('should disable Basic tier button', () => {
             renderPricingPage();
 
-            const freeButton = screen.getByText('Continue with Free');
+            const freeButton = screen.getByText('Continue with Basic');
             expect(freeButton).toBeDisabled();
         });
 
@@ -175,7 +175,7 @@ describe('PricingPage', () => {
             renderPricingPage();
 
             // Find the grid container
-            const gridContainer = screen.getByText('Free').closest('.grid');
+            const gridContainer = screen.getByText('Basic').closest('.grid');
             expect(gridContainer).toHaveClass('grid-cols-1');
             expect(gridContainer).toHaveClass('md:grid-cols-2');
         });

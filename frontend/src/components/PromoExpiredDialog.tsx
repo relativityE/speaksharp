@@ -19,7 +19,7 @@ interface PromoExpiredDialogProps {
 
 /**
  * Dialog shown when a user's promo Pro access expires.
- * Prompts them to either upgrade to a paid plan or continue as Free.
+ * Prompts them to either upgrade to a paid plan or continue on Basic.
  */
 export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, onOpenChange }) => {
     const handleUpgrade = async () => {
@@ -61,7 +61,7 @@ export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, on
                         onClick={handleContinue}
                         data-testid="promo-expired-continue-free"
                     >
-                        Continue as Free
+                        Continue as Basic
                     </AlertDialogCancel>
                     <Button
                         className="h-11 w-full"

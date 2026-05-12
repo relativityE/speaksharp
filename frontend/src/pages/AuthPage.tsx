@@ -196,7 +196,7 @@ export default function AuthPage() {
 
           if (!promoResult && promoCode.trim()) {
             // Promo failed but user is authenticated — notify and continue
-            toast.error("Promo code invalid. You've been signed up as a free user.");
+            toast.error("Promo code invalid. You've been signed up on the Basic plan.");
             // We proceed to setSession below
           }
         }
@@ -331,7 +331,7 @@ export default function AuthPage() {
                         className={`cursor-pointer rounded-lg border-2 p-3 transition-all ${selectedPlan === 'free' ? 'border-primary bg-primary/5' : 'border-border hover:border-border/80'}`}
                       >
                         <div className="flex items-center justify-between mb-1">
-                          <span className="font-bold">Free</span>
+                          <span className="font-bold">Basic</span>
                           {selectedPlan === 'free' && <div className="h-2 w-2 rounded-full bg-primary" />}
                         </div>
                         <p className="text-[10px] text-muted-foreground leading-tight">Native Browser</p>

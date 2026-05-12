@@ -33,7 +33,7 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
                     className="h-10 w-full max-w-sm bg-primary/10 border-primary/50 text-primary font-semibold"
                     data-action="switch-to-native-mobile"
                 >
-                    Switch to Native (Free)
+                    Switch to Native (Basic)
                 </Button>
             )}
             <Button

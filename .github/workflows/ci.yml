@@ -29,8 +29,39 @@ jobs:
       - name: Run Prepare Stage
         run: pnpm ci:prepare
 
-  unit:
-    name: unit
+  unit-shard:
+    name: unit-shard-${{ matrix.shard }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'false'
+
+      - name: Run Unit Shard
+        run: pnpm ci:unit:shard ${{ matrix.shard }} 4
+
+      - name: Upload Unit Shard Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-shard-${{ matrix.shard }}-artifacts
+          path: |
+            test-results/unit
+            unit-metrics.json
+          retention-days: 30
+          if-no-files-found: warn
+
+  unit-coverage:
+    name: unit-coverage
     needs: prepare
     runs-on: ubuntu-latest
     steps:
@@ -42,7 +73,7 @@ jobs:
         with:
           install-playwright: 'false'
 
-      - name: Run Unit And Coverage
+      - name: Run Unit Coverage
         run: pnpm ci:unit
 
       - name: Upload Unit Artifacts
@@ -138,7 +169,7 @@ jobs:
 
   e2e:
     name: e2e-shard-${{ matrix.shard }}
-    needs: [unit, edge-tests, build, health-check]
+    needs: [unit-shard, edge-tests, build, health-check]
     if: success()
     runs-on: ubuntu-latest
     strategy:
@@ -224,7 +255,7 @@ jobs:
 
   report:
     name: report
-    needs: [unit, edge-tests, build, health-check, e2e, lighthouse-advisory]
+    needs: [unit-shard, unit-coverage, edge-tests, build, health-check, e2e, lighthouse-advisory]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:

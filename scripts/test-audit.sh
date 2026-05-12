@@ -10,6 +10,7 @@ show_help() {
     echo "Commands:"
     echo "  prepare               Run CI prepare stage: preflight only"
     echo "  unit                  Run quality checks and unit coverage"
+    echo "  unit-shard [n] [total] Run one sharded Vitest unit slice"
     echo "  build                 Build the test application artifact"
     echo "  health-check          Run app health check suite once"
     echo "  test [shard]          Run CI E2E suite against prepared build; optional shard is legacy/debug only"
@@ -35,6 +36,7 @@ for arg in "$@"; do
     if [ "$arg" = "--skip-lighthouse" ]; then SKIP_LH=true; fi
     if [ "$arg" = "prepare" ]; then STAGE="prepare"; fi
     if [ "$arg" = "unit" ]; then STAGE="unit"; fi
+    if [ "$arg" = "unit-shard" ]; then STAGE="unit-shard"; fi
     if [ "$arg" = "build" ]; then STAGE="build"; fi
     if [ "$arg" = "test" ]; then STAGE="test"; fi
     if [ "$arg" = "report" ]; then STAGE="report"; fi
@@ -58,6 +60,25 @@ case $STAGE in
         rm -rf artifacts/coverage
         mkdir -p artifacts/coverage/.tmp
         pnpm exec vitest run --config frontend/vitest.config.mjs --coverage --coverage.reporter=json-summary --reporter=default --reporter=./scripts/vitest-ci-reporter.mjs
+        ;;
+    unit-shard)
+        echo "🚀 Running CI unit shard stage..."
+        UNIT_SHARD=""
+        UNIT_SHARD_TOTAL=""
+        for subarg in "$@"; do
+            if [[ "$subarg" =~ ^[0-9]+$ ]]; then
+                if [ -z "$UNIT_SHARD" ]; then
+                    UNIT_SHARD="$subarg"
+                else
+                    UNIT_SHARD_TOTAL="$subarg"
+                fi
+            fi
+        done
+        if [ -z "$UNIT_SHARD" ] || [ -z "$UNIT_SHARD_TOTAL" ]; then
+            echo "Usage: $0 unit-shard [n] [total]" >&2
+            exit 1
+        fi
+        pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false --shard="${UNIT_SHARD}/${UNIT_SHARD_TOTAL}" --reporter=default --reporter=./scripts/vitest-ci-reporter.mjs
         ;;
     build)
         echo "🚀 Running CI build stage..."

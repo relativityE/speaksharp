@@ -52,6 +52,7 @@
     "// CI Orchestration (ci:<intent>:<target>)": "",
     "ci:prepare": "node scripts/pnpm-only.mjs && ./scripts/test-audit.sh prepare",
     "ci:unit": "node scripts/pnpm-only.mjs && ./scripts/test-audit.sh unit",
+    "ci:unit:shard": "node scripts/pnpm-only.mjs && ./scripts/test-audit.sh unit-shard",
     "ci:build": "node scripts/pnpm-only.mjs && ./scripts/test-audit.sh build",
     "ci:health-check": "node scripts/pnpm-only.mjs && ./scripts/test-audit.sh health-check",
     "ci:infra": "pnpm ci:health-check",

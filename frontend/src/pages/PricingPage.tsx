@@ -17,11 +17,11 @@ interface Tier {
 
 const tiers: Tier[] = [
   {
-    name: 'Free',
+    name: 'Basic',
     price: '$0',
-    priceDescription: 'For basic use',
+    priceDescription: 'For browser practice',
     features: [`Up to ${SUBSCRIPTION_LIMITS.FREE_MONTHLY_MINUTES} mins of practice per month`, 'Basic analytics', 'Save last 5 sessions'],
-    cta: 'Continue with Free',
+    cta: 'Continue with Basic',
   },
   {
     name: 'Pro',
@@ -91,7 +91,7 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
           onClick={() => { void handleUpgrade(); }}
           className="w-full"
           variant={tier.isPopular ? 'default' : 'outline'}
-          disabled={tier.name === 'Free'}
+          disabled={tier.name === 'Basic'}
         >
           {tier.cta}
         </Button>

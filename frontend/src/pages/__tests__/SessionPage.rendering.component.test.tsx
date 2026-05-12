@@ -90,7 +90,7 @@ vi.mock('@/components/PromoExpiredDialog', () => ({
         open ? (
             <div data-testid="promo-expired-dialog">
                 Promo Expired Dialog
-                <button data-testid="promo-expired-continue-free" onClick={() => onOpenChange(false)}>Continue as Free</button>
+                <button data-testid="promo-expired-continue-free" onClick={() => onOpenChange(false)}>Continue as Basic</button>
             </div>
         ) : null
     ),

@@ -56,7 +56,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
                             <Mic className="w-5 h-5 text-primary" />
                         </div>
                         <div className="text-left">
-                            <span className="font-bold block text-base">Free Plan</span>
+                            <span className="font-bold block text-base">Basic Plan</span>
                             <span className="text-xs text-muted-foreground sm:inline">Upgrade for private transcription, AI feedback, and deeper history</span>
                         </div>
                     </div>

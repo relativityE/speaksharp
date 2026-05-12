@@ -130,7 +130,7 @@ describe('validateUserFillerWord', () => {
         const existingWords = Array.from({ length: 10 }, (_, index) => ({ word: `word${index}` }));
 
         expect(() => validateUserFillerWord('overflow', existingWords, 10, false))
-            .toThrow('Free limit reached (10 words). Upgrade to Pro to add more.');
+            .toThrow('Basic limit reached (10 words). Upgrade to Pro to add more.');
     });
 
     it('rejects unsafe or malformed custom terms', () => {

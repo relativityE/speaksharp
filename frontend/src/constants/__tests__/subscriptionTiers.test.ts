@@ -87,13 +87,13 @@ describe('subscriptionTiers', () => {
             expect(getTierLabel('pro')).toBe('Pro');
         });
 
-        it('returns "Free" for free users', () => {
-            expect(getTierLabel('free')).toBe('Free');
+        it('returns "Basic" for free users', () => {
+            expect(getTierLabel('free')).toBe('Basic');
         });
 
-        it('returns "Free" for null/undefined', () => {
-            expect(getTierLabel(null)).toBe('Free');
-            expect(getTierLabel(undefined)).toBe('Free');
+        it('returns "Basic" for null/undefined', () => {
+            expect(getTierLabel(null)).toBe('Basic');
+            expect(getTierLabel(undefined)).toBe('Basic');
         });
     });
 

@@ -27,7 +27,7 @@ test.describe('Exhaustive User Feature Matrix', () => {
     await expect(startButton).toBeVisible();
 
     // Check for Free-Tier Limit messaging
-    await expect(page.getByText(/1-hour free training window/i)).toBeHidden(); // Modal shouldn't show yet
+    await expect(page.getByText(/1-hour Basic training window/i)).toBeHidden(); // Modal shouldn't show yet
 
     // 2. STT Engine Gating: Should only allow Native
     await expect(page.getByTestId('engine-select-cloud')).not.toBeVisible();

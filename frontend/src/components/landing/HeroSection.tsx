@@ -80,7 +80,7 @@ export const HeroSection = () => {
               <motion.div variants={itemVariants} className="grid grid-cols-1 gap-2 text-sm text-foreground/85 font-medium sm:grid-cols-3">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-primary" />
-                  <span>Free to start</span>
+                  <span>Basic to start</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-primary" />
