@@ -9,11 +9,11 @@ runs:
   using: 'composite'
   steps:
     - name: Setup pnpm
-      uses: pnpm/action-setup@v4
+      uses: pnpm/action-setup@v6
       # Version is read from package.json "packageManager" field
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: '22'
         cache: 'pnpm'
@@ -24,7 +24,7 @@ runs:
         echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
     - name: Setup pnpm cache
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ${{ env.STORE_PATH }}
         key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -57,6 +57,6 @@ runs:
       run: pnpm exec playwright install --with-deps chromium
 
     - name: Setup Supabase CLI
-      uses: supabase/setup-cli@v1
+      uses: supabase/setup-cli@v2
       with:
         version: latest

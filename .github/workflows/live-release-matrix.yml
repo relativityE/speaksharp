@@ -48,7 +48,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
@@ -80,7 +80,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
@@ -112,7 +112,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
@@ -145,7 +145,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
@@ -178,7 +178,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
@@ -214,7 +214,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
@@ -248,7 +248,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
@@ -280,7 +280,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
@@ -307,7 +307,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
@@ -337,7 +337,7 @@ jobs:
     needs: generate-promo
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Environment
         uses: ./.github/actions/setup-environment
