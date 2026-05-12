@@ -68,7 +68,7 @@ export const HeroSection = () => {
               <motion.div variants={itemVariants} className="flex flex-col gap-3 sm:flex-row sm:gap-4">
                 <Button variant="secondary" size="lg" className="flex-1 bg-primary text-primary-foreground font-bold h-14 rounded-md shadow-[0_4px_14px_0_rgba(251,191,36,0.39)] hover:shadow-[0_6px_20px_rgba(251,191,36,0.23)] hover:bg-primary/90 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 text-base border border-primary/50" asChild>
                   <Link to="/auth/signup" data-testid="start-free-session-button" className="flex items-center justify-center gap-2">
-                    Start Speaking
+                    Start Practice Session
                     <ArrowRight className="size-5" />
                   </Link>
                 </Button>

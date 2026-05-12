@@ -106,7 +106,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 displayMessage = 'Ready';
                 break;
             case 'recording': {
-                displayMessage = status.message || 'Recording active';
+                displayMessage = status.message || 'Recording - speak naturally';
                 break;
             }
             case 'ready':
@@ -116,10 +116,10 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 displayMessage = 'Error occurred';
                 break;
             case 'download-required':
-                displayMessage = 'Private Model Download Needed';
+                displayMessage = 'Private setup needed';
                 break;
             case 'downloading':
-                displayMessage = 'Downloading...';
+                displayMessage = 'Downloading private model...';
                 break;
             case 'info':
                 displayMessage = 'Information';

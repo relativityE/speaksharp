@@ -135,7 +135,7 @@ export const SessionPage: React.FC = () => {
             <div className="py-4 px-6 max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-3">
                 <div className="text-center md:col-start-2">
                     <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>
-                    <p className="text-xs text-muted-foreground">We'll analyze your speech patterns in real-time</p>
+                    <p className="text-xs text-muted-foreground">Record, review, and track your speaking patterns</p>
                 </div>
 
                 {/* Manual Download Trigger */}
@@ -158,6 +158,9 @@ export const SessionPage: React.FC = () => {
                                 <span>Offline Model</span>
                             </span>
                         </Button>
+                        <p className="mt-2 max-w-48 text-center text-[11px] leading-snug text-muted-foreground md:text-right">
+                            One-time private setup. Your transcription runs locally after download.
+                        </p>
                     </div>
                 )}
             </div>

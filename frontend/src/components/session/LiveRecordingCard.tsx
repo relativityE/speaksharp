@@ -78,10 +78,16 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const isTooShort = isListening && elapsedSeconds > 0 && elapsedSeconds < MIN_SESSION_DURATION_SECONDS;
     const getModeLabel = (m: RecordingMode) => {
         switch (m) {
-            case 'native': return 'Native Browser';
+            case 'native': return 'Browser';
             case 'private': return 'Private';
             case 'cloud': return 'Cloud';
         }
+    };
+    const modeDescriptions: Record<RecordingMode, string> = {
+        native: 'Browser transcription. Availability varies by browser.',
+        private: 'Private local transcription after one-time model setup.',
+        cloud: 'High-reliability cloud transcription processed externally.',
+        mock: 'Test transcription mode.',
     };
 
     return (
@@ -115,14 +121,14 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="start" className="min-w-[140px]">
                                 <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
-                                    <DropdownMenuRadioItem value="native" className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_NATIVE}>Native Browser</DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem value="native" className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_NATIVE}>Browser transcription</DropdownMenuRadioItem>
                                     <DropdownMenuRadioItem 
                                         value="private" 
                                         className="text-xs uppercase" 
                                         data-testid={TEST_IDS.STT_MODE_PRIVATE}
                                         disabled={!isProUser}
                                     >
-                                        Private {!isProUser ? '(Pro)' : ''}
+                                        Private local {!isProUser ? '(Pro)' : ''}
                                     </DropdownMenuRadioItem>
                                     <DropdownMenuRadioItem 
                                         value="cloud" 
@@ -130,11 +136,14 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                         data-testid={TEST_IDS.STT_MODE_CLOUD}
                                         disabled={!isProUser}
                                     >
-                                        Cloud {!isProUser ? '(Pro)' : ''}
+                                        Cloud transcription {!isProUser ? '(Pro)' : ''}
                                     </DropdownMenuRadioItem>
                                 </DropdownMenuRadioGroup>
                             </DropdownMenuContent>
                         </DropdownMenu>
+                        <p className="max-w-48 text-center text-[10px] leading-snug text-muted-foreground sm:text-left">
+                            {modeDescriptions[mode]}
+                        </p>
                     </div>
 
                     {/* Proportional Vertical Stack: Mic + Timer */}
@@ -180,7 +189,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             <div className="mt-2 inline-flex items-center gap-1.5 py-1 px-3 rounded-full bg-muted/30 border border-border/60">
                                 <div className={`h-1.5 w-1.5 rounded-full ${isListening ? 'bg-primary animate-pulse' : 'bg-muted-foreground/30'}`} />
                                 <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.14em]" data-testid="stt-status-label">
-                                    {_statusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Syncing") : "Engine Ready"))}
+                                    {_statusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}
                                 </span>
                             </div>
                         </div>

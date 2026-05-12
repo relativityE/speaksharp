@@ -28,7 +28,7 @@ test.describe('Promo Admin Journey', () => {
         await page.fill('[data-testid="password-input"]', 'password123');
 
         // 4. Reveal and enter bypass code
-        await page.click('text=🎁 Have a promo code? Click here!');
+        await page.getByText(/Have a promo code/i).click();
         await page.fill('[data-testid="promo-code-input"]', 'MOCK-PROMO-123');
 
         // 5. Submit signup
@@ -58,7 +58,7 @@ test.describe('Promo Admin Journey', () => {
         await page.waitForSelector('[data-testid="email-input"]');
 
         // 2. Reveal and enter invalid promo BUT NO credentials
-        await page.click('text=🎁 Have a promo code? Click here!');
+        await page.getByText(/Have a promo code/i).click();
         await page.fill('[data-testid="promo-code-input"]', 'INVALID-PROMO');
         
         // 3. Submit
@@ -88,7 +88,7 @@ test.describe('Promo Admin Journey', () => {
         await page.fill('[data-testid="password-input"]', 'password123');
 
         // 4. Fill in INVALID promo
-        await page.click('text=🎁 Have a promo code? Click here!');
+        await page.getByText(/Have a promo code/i).click();
         await page.fill('[data-testid="promo-code-input"]', 'INVALID-PROMO');
         
         // 5. Submit

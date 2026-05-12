@@ -150,7 +150,7 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
                     >
                         <Link to="/auth/signup">
                             <Mic className="w-5 h-5" />
-                            Start Speaking
+                            Start Practice Session
                         </Link>
                     </Button>
                 </motion.div>

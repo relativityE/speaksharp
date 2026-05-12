@@ -52,7 +52,7 @@ const getWindow = (): SSE2EWindow => (typeof window !== 'undefined' ? (window as
 export const ENV = {
   // --- MODERN INTERFACE (Strangler Pattern Core) ---
   get isE2E(): boolean {
-    return !!getWindow().__SS_E2E__?.isActive;
+    return import.meta.env.MODE !== 'production' && !!getWindow().__SS_E2E__?.isActive;
   },
   get isUnit(): boolean {
     return typeof globalThis !== 'undefined' && globalThis.__TEST__ === true;

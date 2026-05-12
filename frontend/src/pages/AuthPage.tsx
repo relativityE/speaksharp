@@ -355,7 +355,7 @@ export default function AuthPage() {
                         onClick={() => setShowPromoField(!showPromoField)}
                         className="text-sm font-medium text-primary hover:text-primary/85 transition-colors flex items-center gap-1"
                       >
-                        {showPromoField ? 'Hide promo code field' : "🎁 Have a promo code? Click here!"}
+                        {showPromoField ? 'Hide promo code field' : "Have a promo code? Click here!"}
 
                       </button>
 
