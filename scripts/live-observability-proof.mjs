@@ -168,7 +168,7 @@ async function confirmSentryEvent(eventId, expectedSurface) {
 }
 
 async function pollSentryProofSearch(eventId, expectedSurface) {
-  const apiBase = (process.env.SENTRY_API_BASE ?? 'https://us.sentry.io').replace(/\/$/, '');
+  const apiBase = getSentryApiBase();
   const org = encodeURIComponent(process.env.SENTRY_ORG);
   const dsnProjectId = process.env.SENTRY_DSN ? parseSentryDsn(process.env.SENTRY_DSN).projectId : null;
   const projectCandidates = [...new Set(['-1', dsnProjectId].filter(Boolean))];
@@ -394,8 +394,18 @@ function buildSyntheticException(surface) {
 
 function logSentryConfig(surface, dsn, eventId) {
   const parsed = parseSentryDsn(dsn);
-  const apiBase = process.env.SENTRY_API_BASE ?? 'https://us.sentry.io';
-  console.log(`OBS_SMOKE sentry surface=${surface} eventId=${eventId} ingest=${redactUrl(parsed.envelopeUrl)} apiBase=${redactUrl(apiBase)} projectId=${parsed.projectId}`);
+  const apiBase = getSentryApiBase();
+  const apiUrl = new URL(apiBase);
+  console.log(`OBS_SMOKE sentry surface=${surface} eventId=${eventId} ingest=${redactUrl(parsed.envelopeUrl)} apiHost=${apiUrl.host} apiPath=${apiUrl.pathname || '/'} projectId=${parsed.projectId}`);
+}
+
+function getSentryApiBase() {
+  const raw = process.env.SENTRY_API_BASE ?? 'https://us.sentry.io';
+  const url = new URL(raw);
+  url.pathname = url.pathname.replace(/\/api\/0\/?$/, '').replace(/\/$/, '');
+  url.search = '';
+  url.hash = '';
+  return url.toString().replace(/\/$/, '');
 }
 
 function logPollMiss(provider, attempts, details) {
