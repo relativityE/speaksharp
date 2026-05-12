@@ -189,55 +189,64 @@ async function pollSentryProofSearch(eventId, expectedSurface) {
     attempts += 1;
 
     for (const project of projectCandidates) {
-    for (const { mode, query } of queries) {
-      const params = new URLSearchParams({
-        project,
-        statsPeriod: '1h',
-        sort: '-timestamp',
-        query,
-      });
-      for (const field of ['eventID', 'title', 'message', 'project', 'timestamp', 'environment', 'level', 'tags[proof_id]', 'tags[surface]', 'tags[component]']) {
-        params.append('field', field);
+      for (const { mode, query } of queries) {
+        for (const endpoint of ['events', 'issues']) {
+          const params = new URLSearchParams({
+            project,
+            statsPeriod: '1h',
+            sort: endpoint === 'events' ? '-timestamp' : 'date',
+            query,
+          });
+          if (endpoint === 'events') {
+            for (const field of ['eventID', 'title', 'message', 'project', 'timestamp', 'environment', 'level', 'tags[proof_id]', 'tags[surface]', 'tags[component]']) {
+              params.append('field', field);
+            }
+          }
+
+          const url = `${apiBase}/api/0/organizations/${org}/${endpoint}/?${params}`;
+          const response = await fetch(url, {
+            headers: {
+              Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}`,
+              Accept: 'application/json',
+            },
+          });
+          const bodyText = await response.text();
+          logApiResponse(`sentry-${endpoint}`, attempts, response.status, bodyText);
+
+          if (response.status === 404) {
+            logPollMiss(`sentry-${endpoint}`, attempts, `status=404 endpoint=${endpoint} mode=${mode} projectParam=${project} query="${query}" api=${redactUrl(url)}`);
+            continue;
+          }
+          if (response.status === 403) {
+            throw new Error(`Sentry ${endpoint} proof search forbidden HTTP 403: token lacks search scope or org access. ${bodyText.slice(0, 500)}`);
+          }
+          if (!response.ok) {
+            throw new Error(`Sentry ${endpoint} proof search failed HTTP ${response.status}: ${bodyText.slice(0, 500)}`);
+          }
+
+          const body = parseJson(bodyText);
+          const rows = getSentrySearchRows(body);
+          const match = rows.find((row) => sentryProofRowMatches(row, {
+            eventId,
+            expectedSurface,
+            endpoint,
+            mode,
+          })) ?? null;
+
+          if (match) {
+            console.log(`OBS_SMOKE sentry proof search success endpoint=${endpoint} eventId=${match.eventID ?? match.id ?? eventId} surface=${expectedSurface} mode=${mode} projectParam=${project} query="${query}" project=${match.project ?? process.env.SENTRY_PROJECT} title="${match.title ?? match.message ?? ''}"`);
+            return {
+              eventID: match.eventID ?? match.id ?? eventId,
+              title: match.title ?? null,
+              message: match.message ?? null,
+              projectSlug: match.project ?? process.env.SENTRY_PROJECT,
+              raw: match,
+            };
+          }
+
+          logPollMiss(`sentry-${endpoint}`, attempts, `status=${response.status} resultCount=${rows.length} endpoint=${endpoint} mode=${mode} projectParam=${project} query="${query}" api=${redactUrl(url)}`);
+        }
       }
-
-      const url = `${apiBase}/api/0/organizations/${org}/events/?${params}`;
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}`,
-          Accept: 'application/json',
-        },
-      });
-      const bodyText = await response.text();
-      logApiResponse('sentry-search', attempts, response.status, bodyText);
-
-      if (response.status === 403) {
-        throw new Error(`Sentry proof search forbidden HTTP 403: token lacks event search scope or org access. ${bodyText.slice(0, 500)}`);
-      }
-      if (!response.ok) {
-        throw new Error(`Sentry proof search failed HTTP ${response.status}: ${bodyText.slice(0, 500)}`);
-      }
-
-      const body = parseJson(bodyText);
-      const rows = getSentryEventRows(body);
-      const match = rows.find((row) => sentryProofRowMatches(row, {
-        eventId,
-        expectedSurface,
-        mode,
-      })) ?? null;
-
-      if (match) {
-        console.log(`OBS_SMOKE sentry proof search success eventId=${match.eventID ?? match.id ?? eventId} surface=${expectedSurface} mode=${mode} projectParam=${project} query="${query}" project=${match.project ?? process.env.SENTRY_PROJECT} title="${match.title ?? match.message ?? ''}"`);
-        return {
-          eventID: match.eventID ?? match.id ?? eventId,
-          title: match.title ?? null,
-          message: match.message ?? null,
-          projectSlug: match.project ?? process.env.SENTRY_PROJECT,
-          raw: match,
-        };
-      }
-
-      logPollMiss('sentry-search', attempts, `status=${response.status} resultCount=${rows.length} mode=${mode} projectParam=${project} query="${query}" api=${redactUrl(url)}`);
-    }
     }
 
     return null;
@@ -289,13 +298,13 @@ async function pollPostHogEvent({ apiHost, personalApiKey, projectId, proofId })
   }, `PostHog event ${proofId}`, Number(process.env.POSTHOG_POLL_TIMEOUT_MS ?? process.env.OBSERVABILITY_POLL_TIMEOUT_MS ?? 900_000));
 }
 
-function getSentryEventRows(body) {
+function getSentrySearchRows(body) {
   if (Array.isArray(body)) return body;
   if (Array.isArray(body?.data)) return body.data;
   return [];
 }
 
-function sentryProofRowMatches(row, { eventId, expectedSurface, mode }) {
+function sentryProofRowMatches(row, { eventId, expectedSurface, endpoint, mode }) {
   const rowText = JSON.stringify(row);
   const hasProof = rowText.includes(proofId);
   const hasSurface = rowText.includes(expectedSurface);
@@ -304,7 +313,9 @@ function sentryProofRowMatches(row, { eventId, expectedSurface, mode }) {
   const hasError = rowText.includes('error');
 
   if (mode === 'proof_id') {
-    return hasProof && hasSurface && hasComponent && hasProduction && hasError;
+    return endpoint === 'issues'
+      ? hasProof || (hasSurface && hasComponent && hasProduction && hasError)
+      : hasProof && hasSurface && hasComponent && hasProduction && hasError;
   }
 
   return hasProof
