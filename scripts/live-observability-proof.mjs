@@ -89,8 +89,8 @@ async function provePostHog() {
   const projectApiKey = requireEnv('POSTHOG_PROJECT_API_KEY', ['VITE_POSTHOG_KEY']);
   const personalApiKey = requireEnv('POSTHOG_PERSONAL_API_KEY');
   const projectId = requireEnv('POSTHOG_PROJECT_ID');
-  const ingestHost = (process.env.POSTHOG_INGEST_HOST ?? process.env.VITE_POSTHOG_HOST ?? 'https://us.i.posthog.com').replace(/\/$/, '');
   const apiHost = (process.env.POSTHOG_API_HOST ?? 'https://us.posthog.com').replace(/\/$/, '');
+  const ingestHost = (process.env.POSTHOG_INGEST_HOST ?? process.env.VITE_POSTHOG_HOST ?? apiHost).replace(/\/$/, '');
   const distinctId = `launch-observability-${proofId}`;
 
   const captureResponse = await fetch(`${ingestHost}/capture/`, {

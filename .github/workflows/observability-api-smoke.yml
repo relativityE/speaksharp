@@ -20,6 +20,7 @@ jobs:
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
           SENTRY_API_BASE: ${{ secrets.SENTRY_API_BASE }}
+          OBSERVABILITY_POLL_TIMEOUT_MS: 300000
         run: node scripts/live-observability-proof.mjs --target=frontend-sentry
 
   sentry-edge-dashboard:
@@ -36,6 +37,7 @@ jobs:
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
           SENTRY_API_BASE: ${{ secrets.SENTRY_API_BASE }}
+          OBSERVABILITY_POLL_TIMEOUT_MS: 300000
         run: node scripts/live-observability-proof.mjs --target=edge-sentry
 
   posthog-launch-event:
@@ -51,4 +53,5 @@ jobs:
           POSTHOG_PROJECT_ID: ${{ secrets.POSTHOG_PROJECT_ID }}
           POSTHOG_INGEST_HOST: ${{ secrets.POSTHOG_INGEST_HOST }}
           POSTHOG_API_HOST: ${{ secrets.POSTHOG_API_HOST }}
+          OBSERVABILITY_POLL_TIMEOUT_MS: 300000
         run: node scripts/live-observability-proof.mjs --target=posthog

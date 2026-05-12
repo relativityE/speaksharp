@@ -107,8 +107,8 @@ Required GitHub repository secrets:
 | `POSTHOG_PROJECT_API_KEY` | Captures synthetic PostHog launch event |
 | `POSTHOG_PERSONAL_API_KEY` | Queries PostHog events through API |
 | `POSTHOG_PROJECT_ID` | PostHog project ID for query endpoint |
-| `POSTHOG_INGEST_HOST` | Optional; defaults to `https://us.i.posthog.com` |
 | `POSTHOG_API_HOST` | Optional; defaults to `https://us.posthog.com` |
+| `POSTHOG_INGEST_HOST` | Optional; defaults to `POSTHOG_API_HOST` when set, otherwise `https://us.posthog.com` |
 | `OBSERVABILITY_SMOKE_SECRET` | Authenticates the deployed Edge observability smoke function |
 
 Required Supabase Edge Function secrets:
