@@ -125,7 +125,6 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     ```bash
     pnpm setup
     ```
-    > **Tip:** For a complete development setup (dependencies + Playwright browsers), you can run `pnpm dev:init`.
     
 4.  **Verify Environment Health (Required):**
     ```bash
@@ -235,41 +234,74 @@ If you find yourself in a state where `node_modules` is missing and `pnpm instal
  
 ---
  
-## How to Test (Zero-Debt Audit Suite)
+## How to Test
 
-This project uses a unified testing strategy exposed through explicit `pnpm` commands. Local validation and GitHub CI must remain aligned; any drift between `test:full`, `ci:full`, and workflow YAML is tracked as release-blocking tech debt.
+This project uses explicit `pnpm` commands for daily development, GitHub CI parity, and release-candidate validation. The everyday CI pipeline stays fast and runs from `.github/workflows/ci.yml`; the full RC gate suite is run only at release time or gate-by-gate when a specific risk needs proof.
 
 ### Behavioral Integrity Mandate
 We have pivoted to **Black-Box Behavioral Testing**. We test user-facing requirements (Accuracy, Privacy, Speed) rather than internal implementation details. Tests target stable `[data-state]` and `[data-action]` attributes, ensuring resilience against CSS/HTML restructuring.
 
-All test scripts follow a strict **Level : Env : Mode** taxonomy: `test:<level>:<env>[:<mode>]`
+Use `test:*` for development checks, `ci:*` for CI parity/orchestration, and `rc:*` for release-candidate gates.
 
-### The Canonical Test Commands
+### Core Commands
 
-*   **Run the infrastructure environmental probe (Recommended):**
-    ```bash
-    pnpm test:infra
-    ```
+| Need | Command | Purpose |
+|---|---|---|
+| Install exact dependencies | `pnpm setup` | Runs `pnpm install --frozen-lockfile`. |
+| Verify local environment | `pnpm preflight` | Checks Node, pnpm, and dependency health. |
+| Start local app | `pnpm dev` | Runs Vite in test mode on port `5173`. |
+| Install Chromium for tests | `pnpm pw:install` | Installs the browser needed by Playwright. |
+| Install all Playwright browsers | `pnpm pw:install:all` | Optional broader browser install. |
+| Production build | `pnpm build` | Validates production bundle and required env. |
+| Test build | `pnpm build:test` | Builds the app for mocked E2E. |
+| Preview build | `pnpm preview` / `pnpm preview:test` | Serves an existing build locally. |
 
-*   **Run the complete local quality gate (Recommended before any commit):**
-    ```bash
-    pnpm test:full
-    ```
+### Development Validation
 
-*   **Run only the unit tests:**
-    ```bash
-    pnpm test:unit
-    ```
+| Need | Command | Purpose |
+|---|---|---|
+| Default fast health check | `pnpm test` | Alias for `pnpm test:infra`. |
+| Infra probe | `pnpm test:infra` | Quality, unit, test build, and the infra Playwright probe. |
+| Unit tests | `pnpm test:unit` | Vitest suite. |
+| Edge Function tests | `pnpm test:edge` | Deno tests for Supabase Edge Functions. |
+| Mocked E2E | `pnpm test:e2e` | Builds test app and runs Playwright. |
+| Full local validation | `pnpm test:full` | Quality, unit, test build, and full mocked E2E. |
+| Lint/type/static quality | `pnpm quality` | Lint, TypeScript, and eslint-disable policy. |
+
+### CI Parity
+
+| Need | Command | Purpose |
+|---|---|---|
+| Local CI orchestrator | `pnpm ci:github` | Runs `scripts/run-ci.mjs --full`. |
+| Alias | `pnpm ci:full` | Same as `ci:github`. |
+| Alias | `pnpm ci:local` | Same as `ci:github`. |
+| Unit shard | `pnpm ci:unit:shard <shard> <total>` | Runs one unit shard, matching GitHub CI shape. |
+| CI timing report | `pnpm ci:timing` | Reports CI job timing deltas. |
+
+### Release Candidate Gates
+
+RC gates are not part of the main push/PR pipeline. They are release controls and can be run as a full suite or individually.
+
+| Gate | Command | Purpose |
+|---|---|---|
+| Full RC suite | `pnpm run audit` | Runs all five RC gates. |
+| Full RC suite | `pnpm rc:gates` | Same release gate suite without using the overloaded `audit` word. |
+| Gate 1 | `pnpm rc:gate:1:product` | Product truth gate and CI parity. |
+| Gate 2 | `pnpm rc:gate:2:sast` | SAST/OWASP code-risk tests. |
+| Gate 3 | `pnpm rc:gate:3:dast` | Local and live running-app DAST checks. |
+| Gate 4 | `pnpm rc:gate:4:sca` | Critical dependency audit. |
+| Gate 5 | `pnpm rc:gate:5:ux` | UX smoke tests. |
+| Secret scan only | `pnpm rc:sast:secrets` | Confirms provider secrets are not referenced by frontend runtime files. |
+| Local DAST only | `pnpm rc:dast:local` | Mocked app DAST slice. |
+| Live DAST only | `pnpm rc:dast:live` | Production/deployed live DAST slice. |
+
+The same gates are available as a manual GitHub workflow: **Release Candidate Gates** (`.github/workflows/rc-gates.yml`).
 
 ### Software Quality Metrics (SQM)
 
 This section provides an up-to-date snapshot of the project's software quality. Local runs print SQM to the console; GitHub CI owns the automated PRD metrics update.
 
-**Verified Local Baseline** (2026-05-06):
-- **Typecheck:** `pnpm typecheck` clean.
-- **Unit:** `pnpm test:unit` reports `105 passed (105)` files and `621 passed | 1 todo (622)` tests.
-- **E2E:** `pnpm test:e2e` reports 40/40 mocked E2E when counting the infra probe plus full app suite.
-- **Local CI Mimic:** `pnpm ci:full --skip-lighthouse` reports 5/5 infra probe plus 35/35 full app suite, `621 / 622` unit tests, `66.34%` coverage, and SQM `73 / 100`.
+Current release evidence lives in `product_release/` and GitHub Actions run artifacts. Do not treat old README timing/count snapshots as release proof.
 
 **Lighthouse Scores** (2026-05-06 local audit):
 - **Performance:** 87-90%
@@ -279,139 +311,37 @@ This section provides an up-to-date snapshot of the project's software quality. 
 - **Policy:** Lighthouse runs locally and in GitHub, but its threshold policy still needs final release tuning because Performance varies around the current 90% target.
 
 For detailed test metrics, coverage, and E2E results, see the latest [PRD.md Software Quality Metrics](./docs/PRD.md#software-quality-metrics-sqm) section.
-The test runner automatically generates a Software Quality Metrics report.
-*   When run locally (e.g., `pnpm test:full` or `pnpm test:infra`), a summary is printed to your console.
-*   When run in CI, the full report is automatically generated and committed to `docs/PRD.md`.
 
-### Scripts Reference
+### Live, Deploy, Soak, And Ops
 
-This project provides multiple pnpm scripts for different use cases. All test scripts follow `test:<level>:<env>[:<mode>]`.
+| Need | Command | Purpose |
+|---|---|---|
+| Real Supabase integration slice | `pnpm test:int:local` | Auth, upgrade, and analytics live specs. Requires live credentials. |
+| Full local live/system suite | `pnpm test:system:local:headed` | Live Playwright specs with local Chrome/audio constraints. |
+| Production canary | `pnpm test:deploy` | Runs production canary specs. |
+| Local canary | `pnpm test:deploy:local` | Runs canary specs against local app. |
+| Promo canary | `pnpm test:deploy:promo` | Runs promo signup canary. |
+| Dispatch deploy canary | `pnpm ci:dispatch:deploy` | Starts the GitHub canary workflow. Requires `gh` auth. |
+| Backend soak | `pnpm test:soak:api:cloud` | API stress path. Requires live env. |
+| UI soak | `pnpm test:soak:ui:cloud` | Playwright soak path. Requires live env. |
+| Verify soak users | `pnpm test:soak:verify:local` | Checks live soak test users. |
+| Dispatch soak | `pnpm ci:dispatch:soak` | Starts the GitHub soak workflow. |
+| Dispatch and wait for soak | `pnpm ci:dispatch:soak:wait` | Starts soak and waits for result. |
+| Generate promo code | `pnpm generate-promo` | Calls the admin promo generator. Requires `PROMO_GEN_ADMIN_SECRET`. |
+| Download Private STT model | `pnpm model:download` | Downloads Whisper model assets. |
+| Benchmark Private | `pnpm benchmark:whisper` | Node CPU Private STT benchmark. |
+| Benchmark Cloud | `pnpm benchmark:cloud` | AssemblyAI benchmark. |
+| Benchmark browser STT | `pnpm benchmark:browser` | Browser Native/Private benchmark specs. |
 
-### Testing & Validation
+### Debugging And Recovery
 
-**🎯 Want to run the full CI simulation locally?**
-```bash
-pnpm ci:local
-```
-- Runs the local CI orchestrator for frozen lockfile parity, quality checks, unit tests, build, E2E, artifact/report aggregation, and Lighthouse where configured.
-- Must be kept in parity with GitHub Actions before release.
-- Alias: `pnpm ci:full`.
-- **Use before:** Major commits, PRs
-
-**☁️ Want the GitHub CI parity command name?**
-```bash
-pnpm ci:github
-```
-- Alias for the same orchestrator as `ci:local`; GitHub Actions still runs the protected workflow stages with repository secrets.
-- Local runs cannot validate secret-protected live auth, analytics provisioning, AssemblyAI, or deploy smoke unless those credentials are intentionally provided locally.
-
-**🚀 Want quick validation during development?**
-```bash
-pnpm test:infra
-```
-- Runs preflight, build, and the **Infrastructure Probe** Journey
-- **Infrastructure probe verifies:** Homepage, Session Flow, Transcription, and Analytics persistence.
-- **Use for:** Rapid "critical path" verification.
-
-**⚡ Want the fastest local feedback (unit tests only)?**
-```bash
-pnpm test
-```
-- Alias for `test:unit:local`. Runs Vitest with coverage.
-- **Use for:** TDD, component development
-
-**🧪 Want to run the complete E2E suite?**
-```bash
-pnpm test:full
-```
-- Runs quality checks + full E2E suite (all test files)
-- **Use for:** Final validation before merge
-
-**🔬 Want to run integration tests against real Supabase?**
-```bash
-pnpm test:int:local
-```
-- Runs auth, upgrade, analytics-journey specs against real Supabase (no hardware needed)
-- Requires live credentials (`E2E_FREE_EMAIL`, `E2E_FREE_PASSWORD`, `EDGE_FN_URL`, `AGENT_SECRET`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`). In normal development these secrets are available only in GitHub Actions, so local runs may validate the harness while skipping or failing loudly on protected credentials.
-- **Use for:** Validating real API integrations
-
-**🖥️ Want to run full system tests (real DB + real STT + hardware)?**
-```bash
-pnpm test:system:local:headed
-```
-- All `tests/live/*.spec.ts` in headed Chrome with real Whisper/Native STT
-- Requires `.env.development` with live credentials + audio hardware
-- **Use for:** Full-stack integration verification
-
-**🐦 Want to verify Staging/Production deployment?**
-```bash
-pnpm test:deploy          # Production (default)
-pnpm test:deploy:local    # Against localhost:5173
-```
-- Runs smoke tests against the deployed URL (production by default).
-- **Use for:** Post-deployment verification.
-
-**☁️ Want to dispatch cloud test suites?**
-```bash
-pnpm ci:dispatch:deploy   # Deploy smoke on GitHub Actions
-pnpm ci:dispatch:soak     # Soak test on GitHub Actions
-```
-- Each dispatches a single workflow. Requires `gh` CLI authenticated.
-- **Use for:** Triggering tests that require GitHub secrets.
-
-### E2E Debugging
-
-**🐛 Want to debug E2E tests interactively?**
-```bash
-pnpm test:e2e:mock:headed    # Playwright UI mode
-pnpm test:e2e:mock:debug     # Headed mode with trace
-```
-
-**🔦 Want to run Lighthouse audits?**
-```bash
-pnpm lighthouse:ci
-```
-
-### Soak & Load Testing
-
-**🌊 Want to stress test the backend APIs?**
-```bash
-pnpm test:soak:api:cloud
-```
-- Runs a lightweight Node.js load test against standard APIs (Auth, Session, Edge Functions).
-- Bypasses UI to simulate high concurrency (default: 10 concurrent users).
-- **Configuration:** Control user counts with `NUM_FREE_USERS=N` and `NUM_PRO_USERS=N` in `.env`.
-
-**⏳ Want to verify UI stability over time?**
-```bash
-pnpm test:soak:ui:cloud
-```
-- Runs Playwright-based soak tests to check for memory leaks and UI stability.
-
-**📡 Want to run soak tests remotely (GitHub Actions)?**
-```bash
-pnpm ci:dispatch:soak
-pnpm ci:dispatch:soak:wait   # Wait for completion
-```
-- Dispatches the "Soak Test" workflow to GitHub Actions (secure execution).
-
-### Build & Preview
-
-**📦 Want to build for production?**
-```bash
-pnpm build
-```
-
-**📦 Want to build for E2E testing?**
-```bash
-pnpm build:test
-```
-
-**👀 Want to preview the production build?**
-```bash
-pnpm preview
-pnpm preview:test    # For test mode
-```
+| Need | Command | Purpose |
+|---|---|---|
+| Playwright UI/debug mode | `pnpm exec playwright test --ui` | Interactive Playwright debugging. |
+| Headed E2E | `pnpm exec playwright test --headed` | Headed browser run. |
+| Clear test/build caches | `pnpm reset:cache` | Non-destructive test-audit clean. |
+| Nuclear local cache clean | `pnpm reset:clean` | Kills stale processes and clears caches. |
+| Rebase/pull recovery | `pnpm reset:git` | Runs the repository pull-fix helper. |
 
 ### Continuous Integration (CI)
 
