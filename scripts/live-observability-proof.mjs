@@ -171,16 +171,16 @@ async function pollSentryProofSearch(eventId, expectedSurface) {
   const apiBase = getSentryApiBase();
   const org = encodeURIComponent(process.env.SENTRY_ORG);
   const dsnProjectId = process.env.SENTRY_DSN ? parseSentryDsn(process.env.SENTRY_DSN).projectId : null;
-  const projectCandidates = [...new Set(['-1', dsnProjectId].filter(Boolean))];
+  const projectCandidates = [...new Set([dsnProjectId, '-1'].filter(Boolean))];
   const message = `SpeakSharp ${expectedSurface} observability smoke ${proofId}`;
   const queries = [
     {
       mode: 'proof_id',
-      query: `proof_id:"${proofId}" surface:${expectedSurface} component:live-observability-proof level:error environment:production`,
+      query: `proof_id:${proofId}`,
     },
     {
       mode: 'message',
-      query: `"${message}" surface:${expectedSurface} component:live-observability-proof level:error environment:production`,
+      query: message,
     },
   ];
   let attempts = 0;
@@ -190,7 +190,7 @@ async function pollSentryProofSearch(eventId, expectedSurface) {
 
     for (const project of projectCandidates) {
       for (const { mode, query } of queries) {
-        for (const endpoint of ['events', 'issues']) {
+        for (const endpoint of ['issues', 'events']) {
           const params = new URLSearchParams({
             project,
             statsPeriod: '1h',
@@ -203,7 +203,7 @@ async function pollSentryProofSearch(eventId, expectedSurface) {
             }
           }
 
-          const url = `${apiBase}/api/0/organizations/${org}/${endpoint}/?${params}`;
+          const url = `${apiBase}/organizations/${org}/${endpoint}/?${params}`;
           const response = await fetch(url, {
             headers: {
               Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}`,
@@ -411,9 +411,10 @@ function logSentryConfig(surface, dsn, eventId) {
 }
 
 function getSentryApiBase() {
-  const raw = process.env.SENTRY_API_BASE ?? 'https://us.sentry.io';
+  const raw = process.env.SENTRY_API_BASE ?? 'https://sentry.io/api/0';
   const url = new URL(raw);
-  url.pathname = url.pathname.replace(/\/api\/0\/?$/, '').replace(/\/$/, '');
+  const normalizedPath = url.pathname.replace(/\/$/, '');
+  url.pathname = normalizedPath.endsWith('/api/0') ? normalizedPath : `${normalizedPath}/api/0`;
   url.search = '';
   url.hash = '';
   return url.toString().replace(/\/$/, '');
