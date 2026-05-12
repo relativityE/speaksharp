@@ -159,7 +159,19 @@ async function sendSentryEnvelope(dsn, event) {
 }
 
 async function confirmSentryEvent(eventId, expectedSurface) {
-  const resolved = await pollSentryEventIdResolver(eventId, expectedSurface);
+  let resolved;
+  try {
+    resolved = await pollSentryEventIdResolver(eventId, expectedSurface);
+  } catch (error) {
+    console.log(`OBS_SMOKE sentry resolver did not confirm eventId=${eventId}; falling back to proof_id/message search. reason="${error?.message ?? String(error)}"`);
+    const fallback = await pollSentryProofSearch(eventId, expectedSurface);
+    return {
+      ...fallback,
+      method: 'proof-search',
+      projectSlug: fallback.projectSlug ?? process.env.SENTRY_PROJECT,
+    };
+  }
+
   const detail = await fetchResolvedSentryEvent(eventId, expectedSurface, resolved);
   return {
     ...detail,
@@ -167,6 +179,72 @@ async function confirmSentryEvent(eventId, expectedSurface) {
     projectSlug: resolved.projectSlug,
     resolved,
   };
+}
+
+async function pollSentryProofSearch(eventId, expectedSurface) {
+  const apiBase = (process.env.SENTRY_API_BASE ?? 'https://us.sentry.io').replace(/\/$/, '');
+  const org = encodeURIComponent(process.env.SENTRY_ORG);
+  const message = `SpeakSharp ${expectedSurface} observability smoke ${proofId}`;
+  const queries = [
+    `proof_id:${proofId} surface:${expectedSurface}`,
+    `"${message}"`,
+  ];
+  let attempts = 0;
+
+  return poll(async () => {
+    attempts += 1;
+
+    for (const query of queries) {
+      const params = new URLSearchParams({
+        project: '-1',
+        statsPeriod: '1h',
+        sort: '-timestamp',
+        query,
+      });
+      for (const field of ['eventID', 'title', 'message', 'project', 'timestamp']) {
+        params.append('field', field);
+      }
+
+      const url = `${apiBase}/api/0/organizations/${org}/events/?${params}`;
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}`,
+          Accept: 'application/json',
+        },
+      });
+      const bodyText = await response.text();
+      logApiResponse('sentry-search', attempts, response.status, bodyText);
+
+      if (response.status === 403) {
+        throw new Error(`Sentry proof search forbidden HTTP 403: token lacks event search scope or org access. ${bodyText.slice(0, 500)}`);
+      }
+      if (!response.ok) {
+        throw new Error(`Sentry proof search failed HTTP ${response.status}: ${bodyText.slice(0, 500)}`);
+      }
+
+      const body = parseJson(bodyText);
+      const rows = Array.isArray(body?.data) ? body.data : [];
+      const match = rows.find((row) => {
+        const rowText = JSON.stringify(row);
+        return rowText.includes(proofId) || row.eventID === eventId || row.id === eventId;
+      }) ?? rows[0] ?? null;
+
+      if (match) {
+        console.log(`OBS_SMOKE sentry proof search success eventId=${match.eventID ?? match.id ?? eventId} surface=${expectedSurface} query="${query}" project=${match.project ?? process.env.SENTRY_PROJECT} title="${match.title ?? match.message ?? ''}"`);
+        return {
+          eventID: match.eventID ?? match.id ?? eventId,
+          title: match.title ?? null,
+          message: match.message ?? null,
+          projectSlug: match.project ?? process.env.SENTRY_PROJECT,
+          raw: match,
+        };
+      }
+
+      logPollMiss('sentry-search', attempts, `status=${response.status} resultCount=${rows.length} query="${query}" api=${redactUrl(url)}`);
+    }
+
+    return null;
+  }, `Sentry proof search ${proofId}`);
 }
 
 async function pollSentryEventIdResolver(eventId, expectedSurface) {
@@ -303,11 +381,11 @@ async function pollPostHogEvent({ apiHost, personalApiKey, projectId, proofId })
       logPollMiss('posthog', attempts, `status=${response.status} resultCount=${body?.results?.length ?? 'missing'} api=${redactUrl(apiHost)}`);
     }
     return row;
-  }, `PostHog event ${proofId}`);
+  }, `PostHog event ${proofId}`, Number(process.env.POSTHOG_POLL_TIMEOUT_MS ?? process.env.OBSERVABILITY_POLL_TIMEOUT_MS ?? 900_000));
 }
 
-async function poll(callback, label) {
-  const deadline = Date.now() + Number(process.env.OBSERVABILITY_POLL_TIMEOUT_MS ?? 120_000);
+async function poll(callback, label, timeoutMs = Number(process.env.OBSERVABILITY_POLL_TIMEOUT_MS ?? 120_000)) {
+  const deadline = Date.now() + timeoutMs;
   let lastError;
   let attempts = 0;
 
