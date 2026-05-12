@@ -7,6 +7,10 @@ on:
         description: Production or preview URL for live/UX gates
         required: false
         default: https://speaksharp-public.vercel.app
+      stripe_webhook_secret_sha256:
+        description: Optional Supabase STRIPE_WEBHOOK_SECRET SHA-256 digest for equality proof
+        required: false
+        default: a3f5b0be67a3e8c24d7eaae36deef5649dba96fa18d00e4ef6fdeb05309ad937
       gate:
         description: Gate to run
         required: true
@@ -78,11 +82,18 @@ jobs:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
           E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
           EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
         run: pnpm rc:dast:local
+      - name: Verify Stripe Webhook Secret Digest
+        env:
+          SECRET_DIGEST_LABEL: STRIPE_WEBHOOK_SECRET
+          SECRET_VALUE: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          EXPECTED_SHA256: ${{ github.event.inputs.stripe_webhook_secret_sha256 }}
+        run: node scripts/verify-secret-digest.mjs
       - name: Run DAST Live Gate
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}
@@ -92,6 +103,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
           E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
           EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
