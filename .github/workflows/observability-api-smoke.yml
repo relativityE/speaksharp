@@ -9,7 +9,7 @@ permissions:
 jobs:
   sentry-frontend-dashboard:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -20,12 +20,12 @@ jobs:
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
           SENTRY_API_BASE: ${{ secrets.SENTRY_API_BASE }}
-          OBSERVABILITY_POLL_TIMEOUT_MS: 300000
+          SENTRY_SEARCH_POLL_TIMEOUT_MS: 900000
         run: node scripts/live-observability-proof.mjs --target=frontend-sentry
 
   sentry-edge-dashboard:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -33,11 +33,12 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           OBSERVABILITY_SMOKE_SECRET: ${{ secrets.OBSERVABILITY_SMOKE_SECRET }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
           SENTRY_API_BASE: ${{ secrets.SENTRY_API_BASE }}
-          OBSERVABILITY_POLL_TIMEOUT_MS: 300000
+          SENTRY_SEARCH_POLL_TIMEOUT_MS: 900000
         run: node scripts/live-observability-proof.mjs --target=edge-sentry
 
   posthog-launch-event:

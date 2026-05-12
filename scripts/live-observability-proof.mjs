@@ -159,49 +159,44 @@ async function sendSentryEnvelope(dsn, event) {
 }
 
 async function confirmSentryEvent(eventId, expectedSurface) {
-  let resolved;
-  try {
-    resolved = await pollSentryEventIdResolver(eventId, expectedSurface);
-  } catch (error) {
-    console.log(`OBS_SMOKE sentry resolver did not confirm eventId=${eventId}; falling back to proof_id/message search. reason="${error?.message ?? String(error)}"`);
-    const fallback = await pollSentryProofSearch(eventId, expectedSurface);
-    return {
-      ...fallback,
-      method: 'proof-search',
-      projectSlug: fallback.projectSlug ?? process.env.SENTRY_PROJECT,
-    };
-  }
-
-  const detail = await fetchResolvedSentryEvent(eventId, expectedSurface, resolved);
+  const detail = await pollSentryProofSearch(eventId, expectedSurface);
   return {
     ...detail,
-    method: detail ? 'eventid-resolver+project-event' : 'eventid-resolver',
-    projectSlug: resolved.projectSlug,
-    resolved,
+    method: 'proof-search',
+    projectSlug: detail.projectSlug ?? process.env.SENTRY_PROJECT,
   };
 }
 
 async function pollSentryProofSearch(eventId, expectedSurface) {
   const apiBase = (process.env.SENTRY_API_BASE ?? 'https://us.sentry.io').replace(/\/$/, '');
   const org = encodeURIComponent(process.env.SENTRY_ORG);
+  const dsnProjectId = process.env.SENTRY_DSN ? parseSentryDsn(process.env.SENTRY_DSN).projectId : null;
+  const projectCandidates = [...new Set(['-1', dsnProjectId].filter(Boolean))];
   const message = `SpeakSharp ${expectedSurface} observability smoke ${proofId}`;
   const queries = [
-    `proof_id:${proofId} surface:${expectedSurface}`,
-    `"${message}"`,
+    {
+      mode: 'proof_id',
+      query: `proof_id:"${proofId}" surface:${expectedSurface} component:live-observability-proof level:error environment:production`,
+    },
+    {
+      mode: 'message',
+      query: `"${message}" surface:${expectedSurface} component:live-observability-proof level:error environment:production`,
+    },
   ];
   let attempts = 0;
 
   return poll(async () => {
     attempts += 1;
 
-    for (const query of queries) {
+    for (const project of projectCandidates) {
+    for (const { mode, query } of queries) {
       const params = new URLSearchParams({
-        project: '-1',
+        project,
         statsPeriod: '1h',
         sort: '-timestamp',
         query,
       });
-      for (const field of ['eventID', 'title', 'message', 'project', 'timestamp']) {
+      for (const field of ['eventID', 'title', 'message', 'project', 'timestamp', 'environment', 'level', 'tags[proof_id]', 'tags[surface]', 'tags[component]']) {
         params.append('field', field);
       }
 
@@ -223,14 +218,15 @@ async function pollSentryProofSearch(eventId, expectedSurface) {
       }
 
       const body = parseJson(bodyText);
-      const rows = Array.isArray(body?.data) ? body.data : [];
-      const match = rows.find((row) => {
-        const rowText = JSON.stringify(row);
-        return rowText.includes(proofId) || row.eventID === eventId || row.id === eventId;
-      }) ?? rows[0] ?? null;
+      const rows = getSentryEventRows(body);
+      const match = rows.find((row) => sentryProofRowMatches(row, {
+        eventId,
+        expectedSurface,
+        mode,
+      })) ?? null;
 
       if (match) {
-        console.log(`OBS_SMOKE sentry proof search success eventId=${match.eventID ?? match.id ?? eventId} surface=${expectedSurface} query="${query}" project=${match.project ?? process.env.SENTRY_PROJECT} title="${match.title ?? match.message ?? ''}"`);
+        console.log(`OBS_SMOKE sentry proof search success eventId=${match.eventID ?? match.id ?? eventId} surface=${expectedSurface} mode=${mode} projectParam=${project} query="${query}" project=${match.project ?? process.env.SENTRY_PROJECT} title="${match.title ?? match.message ?? ''}"`);
         return {
           eventID: match.eventID ?? match.id ?? eventId,
           title: match.title ?? null,
@@ -240,103 +236,12 @@ async function pollSentryProofSearch(eventId, expectedSurface) {
         };
       }
 
-      logPollMiss('sentry-search', attempts, `status=${response.status} resultCount=${rows.length} query="${query}" api=${redactUrl(url)}`);
+      logPollMiss('sentry-search', attempts, `status=${response.status} resultCount=${rows.length} mode=${mode} projectParam=${project} query="${query}" api=${redactUrl(url)}`);
+    }
     }
 
     return null;
-  }, `Sentry proof search ${proofId}`);
-}
-
-async function pollSentryEventIdResolver(eventId, expectedSurface) {
-  const apiBase = (process.env.SENTRY_API_BASE ?? 'https://us.sentry.io').replace(/\/$/, '');
-  const org = encodeURIComponent(process.env.SENTRY_ORG);
-  const url = `${apiBase}/api/0/organizations/${org}/eventids/${eventId}/`;
-  let attempts = 0;
-
-  return poll(async () => {
-    attempts += 1;
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}`,
-        Accept: 'application/json',
-      },
-    });
-
-    const bodyText = await response.text();
-    logApiResponse('sentry', attempts, response.status, bodyText);
-
-    if (response.status === 404) {
-      logPollMiss('sentry', attempts, `resolver status=404 eventId=${eventId} surface=${expectedSurface} classification=event_not_indexed_or_wrong_org api=${redactUrl(url)}`);
-      return null;
-    }
-
-    if (response.status === 403) {
-      throw new Error(`Sentry event ID resolver forbidden HTTP 403: token lacks org/project read scope or org access. ${bodyText.slice(0, 500)}`);
-    }
-
-    if (!response.ok) {
-      throw new Error(`Sentry event ID resolver failed HTTP ${response.status}: ${bodyText.slice(0, 500)}`);
-    }
-
-    const resolved = parseJson(bodyText);
-    const projectSlug = getResolvedSentryProjectSlug(resolved);
-    if (!projectSlug) {
-      logPollMiss('sentry', attempts, `resolver status=${response.status} eventId=${eventId} surface=${expectedSurface} classification=resolved_without_project body=${redactBody(bodyText).slice(0, 500)}`);
-      return null;
-    }
-
-    console.log(`OBS_SMOKE sentry resolver success eventId=${eventId} surface=${expectedSurface} project=${projectSlug} issue=${resolved.groupId ?? resolved.group?.id ?? 'unknown'} url=${resolved.url ?? 'none'}`);
-    return {
-      raw: resolved,
-      projectSlug,
-      groupId: resolved.groupId ?? resolved.group?.id ?? null,
-      eventId: resolved.eventId ?? resolved.event_id ?? eventId,
-    };
-  }, `Sentry event resolver ${eventId}`);
-}
-
-async function fetchResolvedSentryEvent(eventId, expectedSurface, resolved) {
-  const apiBase = (process.env.SENTRY_API_BASE ?? 'https://us.sentry.io').replace(/\/$/, '');
-  const org = encodeURIComponent(process.env.SENTRY_ORG);
-  const project = encodeURIComponent(resolved.projectSlug);
-  const candidates = [...new Set([resolved.eventId, eventId].filter(Boolean))];
-
-  for (const candidate of candidates) {
-    const url = `${apiBase}/api/0/projects/${org}/${project}/events/${encodeURIComponent(candidate)}/`;
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${process.env.SENTRY_AUTH_TOKEN}`,
-        Accept: 'application/json',
-      },
-    });
-
-    const bodyText = await response.text();
-    console.log(`OBS_SMOKE sentry resolved detail response eventId=${candidate} status=${response.status} api=${redactUrl(url)} body=${redactBody(bodyText).slice(0, 500)}`);
-
-    if (response.status === 404) continue;
-    if (response.status === 403) {
-      throw new Error(`Sentry resolved project event fetch forbidden HTTP 403 for project ${resolved.projectSlug}: ${bodyText.slice(0, 500)}`);
-    }
-    if (!response.ok) {
-      throw new Error(`Sentry resolved project event fetch failed HTTP ${response.status}: ${bodyText.slice(0, 500)}`);
-    }
-
-    const event = parseJson(bodyText);
-    const tags = new Map((event.tags ?? []).map((tag) => [tag.key, tag.value]));
-    if (tags.get('proof_id') !== proofId || tags.get('surface') !== expectedSurface) {
-      console.log(`OBS_SMOKE sentry resolved detail tag mismatch eventId=${candidate} proofTag=${tags.get('proof_id') ?? 'missing'} surfaceTag=${tags.get('surface') ?? 'missing'}`);
-      continue;
-    }
-
-    return event;
-  }
-
-  console.log(`OBS_SMOKE sentry resolver confirmed eventId=${eventId}, but detailed project event endpoint did not return a matching event. Treating resolver as primary proof.`);
-  return {
-    title: resolved.raw?.title ?? resolved.raw?.message ?? null,
-    message: resolved.raw?.message ?? null,
-    projectSlug: resolved.projectSlug,
-  };
+  }, `Sentry proof search ${proofId}`, Number(process.env.SENTRY_SEARCH_POLL_TIMEOUT_MS ?? process.env.OBSERVABILITY_POLL_TIMEOUT_MS ?? 900_000));
 }
 
 async function pollPostHogEvent({ apiHost, personalApiKey, projectId, proofId }) {
@@ -382,6 +287,32 @@ async function pollPostHogEvent({ apiHost, personalApiKey, projectId, proofId })
     }
     return row;
   }, `PostHog event ${proofId}`, Number(process.env.POSTHOG_POLL_TIMEOUT_MS ?? process.env.OBSERVABILITY_POLL_TIMEOUT_MS ?? 900_000));
+}
+
+function getSentryEventRows(body) {
+  if (Array.isArray(body)) return body;
+  if (Array.isArray(body?.data)) return body.data;
+  return [];
+}
+
+function sentryProofRowMatches(row, { eventId, expectedSurface, mode }) {
+  const rowText = JSON.stringify(row);
+  const hasProof = rowText.includes(proofId);
+  const hasSurface = rowText.includes(expectedSurface);
+  const hasComponent = rowText.includes('live-observability-proof');
+  const hasProduction = rowText.includes('production');
+  const hasError = rowText.includes('error');
+
+  if (mode === 'proof_id') {
+    return hasProof && hasSurface && hasComponent && hasProduction && hasError;
+  }
+
+  return hasProof
+    && hasSurface
+    && hasComponent
+    && hasProduction
+    && hasError
+    && (row.eventID === eventId || row.id === eventId || rowText.includes(`SpeakSharp ${expectedSurface} observability smoke ${proofId}`));
 }
 
 async function poll(callback, label, timeoutMs = Number(process.env.OBSERVABILITY_POLL_TIMEOUT_MS ?? 120_000)) {
@@ -434,15 +365,6 @@ function parseJson(text) {
   } catch {
     return null;
   }
-}
-
-function getResolvedSentryProjectSlug(resolved) {
-  if (!resolved || typeof resolved !== 'object') return null;
-  return resolved.projectSlug
-    ?? resolved.project?.slug
-    ?? resolved.project?.name
-    ?? resolved.project
-    ?? null;
 }
 
 function assertSafeProofId(value) {
