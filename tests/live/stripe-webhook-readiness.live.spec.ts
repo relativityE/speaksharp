@@ -1,5 +1,5 @@
 import { test, expect, request as playwrightRequest } from '@playwright/test';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
@@ -65,13 +65,14 @@ test('deployed Stripe webhook accepts a signed no-op Stripe event', async () => 
     const signature = createHmac('sha256', STRIPE_WEBHOOK_SECRET!)
       .update(`${timestamp}.${payload}`, 'utf8')
       .digest('hex');
+    const payloadSha256 = createHash('sha256').update(payload, 'utf8').digest('hex');
 
     const response = await context.post('/functions/v1/stripe-webhook', {
       headers: {
         'Content-Type': 'application/json',
         'Stripe-Signature': `t=${timestamp},v1=${signature}`,
       },
-      data: Buffer.from(payload, 'utf8'),
+      data: payload,
     });
     const body = await response.json().catch(() => null) as {
       received?: boolean;
@@ -82,6 +83,8 @@ test('deployed Stripe webhook accepts a signed no-op Stripe event', async () => 
     const evidence = {
       status: response.status(),
       eventId,
+      payloadBytes: Buffer.byteLength(payload, 'utf8'),
+      payloadSha256,
       received: body?.received ?? null,
       skipped: body?.skipped ?? false,
       errorCode: body?.error?.code ?? null,
