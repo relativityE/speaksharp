@@ -34,6 +34,7 @@ async function proveFrontendSentry() {
     platform: 'javascript',
     level: 'error',
     message: `SpeakSharp frontend observability smoke ${proofId}`,
+    exception: buildSyntheticException('frontend'),
     environment: process.env.SENTRY_ENVIRONMENT ?? 'production',
     tags: {
       proof_id: proofId,
@@ -47,6 +48,7 @@ async function proveFrontendSentry() {
   });
 
   const event = await pollSentryEvent(eventId, 'frontend');
+  console.log(`OBS_SMOKE sentry readback success surface=frontend eventId=${eventId} title="${event.title ?? event.message ?? ''}"`);
   return {
     eventId,
     apiConfirmed: true,
@@ -80,6 +82,7 @@ async function proveEdgeSentry() {
 
   console.log(`OBS_SMOKE edge function response status=${response.status} ingestStatus=${body.ingestStatus ?? 'unknown'} eventId=${body.eventId}`);
   const event = await pollSentryEvent(body.eventId, 'edge');
+  console.log(`OBS_SMOKE sentry readback success surface=edge eventId=${body.eventId} title="${event.title ?? event.message ?? ''}"`);
   return {
     eventId: body.eventId,
     apiConfirmed: true,
@@ -119,6 +122,7 @@ async function provePostHog() {
   const captureBody = await captureResponse.text().catch(() => '');
   console.log(`OBS_SMOKE posthog capture accepted status=${captureResponse.status} body=${captureBody.slice(0, 160)}`);
   const row = await pollPostHogEvent({ apiHost, personalApiKey, projectId, proofId });
+  console.log(`OBS_SMOKE posthog readback success event=${row[0]} distinctId=${row[1]} proofId=${row[2]} timestamp=${row[3]}`);
   return {
     event: row[0],
     distinctId: row[1],
@@ -144,6 +148,7 @@ async function sendSentryEnvelope(dsn, event) {
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
+    console.log(`OBS_SMOKE sentry envelope rejected host=${redactUrl(parsed.envelopeUrl)} projectId=${parsed.projectId} status=${response.status} body=${body.slice(0, 500)}`);
     throw new Error(`Sentry ingest failed HTTP ${response.status}: ${body.slice(0, 500)}`);
   }
 
@@ -172,6 +177,7 @@ async function pollSentryEvent(eventId, expectedSurface) {
       return null;
     }
     const bodyText = await response.text();
+    logApiResponse('sentry', attempts, response.status, bodyText);
     if (!response.ok) {
       throw new Error(`Sentry API read failed HTTP ${response.status}: ${bodyText.slice(0, 500)}`);
     }
@@ -218,6 +224,7 @@ async function pollPostHogEvent({ apiHost, personalApiKey, projectId, proofId })
     });
 
     const bodyText = await response.text();
+    logApiResponse('posthog', attempts, response.status, bodyText);
     if (!response.ok) {
       throw new Error(`PostHog API query failed HTTP ${response.status}: ${bodyText.slice(0, 500)}`);
     }
@@ -234,13 +241,16 @@ async function pollPostHogEvent({ apiHost, personalApiKey, projectId, proofId })
 async function poll(callback, label) {
   const deadline = Date.now() + Number(process.env.OBSERVABILITY_POLL_TIMEOUT_MS ?? 120_000);
   let lastError;
+  let attempts = 0;
 
   while (Date.now() < deadline) {
+    attempts += 1;
     try {
       const result = await callback();
       if (result) return result;
     } catch (error) {
       lastError = error;
+      logPollError(label, attempts, error);
     }
     await new Promise((resolve) => setTimeout(resolve, 5_000));
   }
@@ -287,6 +297,24 @@ function assertSafeProofId(value) {
   return value;
 }
 
+function buildSyntheticException(surface) {
+  return {
+    values: [{
+      type: 'SpeakSharpObservabilitySmoke',
+      value: `Synthetic ${surface} observability readback probe ${proofId}`,
+      stacktrace: {
+        frames: [{
+          filename: 'scripts/live-observability-proof.mjs',
+          function: `prove-${surface}-observability-readback`,
+          lineno: 1,
+          colno: 1,
+          in_app: true,
+        }],
+      },
+    }],
+  };
+}
+
 function logSentryConfig(surface, dsn, eventId) {
   const parsed = parseSentryDsn(dsn);
   const apiBase = process.env.SENTRY_API_BASE ?? 'https://us.sentry.io';
@@ -299,6 +327,18 @@ function logPollMiss(provider, attempts, details) {
   }
 }
 
+function logApiResponse(provider, attempts, status, bodyText) {
+  if (attempts === 1 || status >= 400 || attempts % 6 === 0) {
+    console.log(`OBS_SMOKE ${provider} api response attempt=${attempts} status=${status} body=${redactBody(bodyText).slice(0, 500)}`);
+  }
+}
+
+function logPollError(label, attempts, error) {
+  const message = error?.message ?? String(error);
+  const stack = error?.stack ? String(error.stack).split('\n').slice(0, 8).join(' | ') : 'no stack';
+  console.log(`OBS_SMOKE poll error label="${label}" attempt=${attempts} message="${message}" stack="${stack}"`);
+}
+
 function redactUrl(value) {
   try {
     const url = new URL(value);
@@ -306,4 +346,11 @@ function redactUrl(value) {
   } catch {
     return String(value).replace(/[a-f0-9]{24,}/gi, '<id>');
   }
+}
+
+function redactBody(value) {
+  return String(value)
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer <redacted>')
+    .replace(/"api_key"\s*:\s*"[^"]+"/g, '"api_key":"<redacted>"')
+    .replace(/"token"\s*:\s*"[^"]+"/g, '"token":"<redacted>"');
 }
