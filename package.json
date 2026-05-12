@@ -68,6 +68,8 @@
     "rc:gate:3:dast": "pnpm test:e2e",
     "rc:gate:4:sca": "pnpm audit --audit-level critical",
     "rc:gate:5:ux": "pnpm build:test && pnpm exec playwright test tests/e2e/primary-journey.e2e.spec.ts tests/e2e/user-features.e2e.spec.ts tests/e2e/error-states.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line",
+    "rc:gates": "pnpm rc:gate:1:product && pnpm rc:gate:2:sast && pnpm rc:gate:3:dast && pnpm rc:gate:4:sca && pnpm rc:gate:5:ux",
+    "audit": "pnpm rc:gates",
     "test:agent": "node scripts/pnpm-only.mjs && ./scripts/test-audit.sh agent",
     "reset:cache": "./scripts/test-audit.sh clean",
     "reset:clean": "./scripts/test-audit.sh clean --nuclear",
