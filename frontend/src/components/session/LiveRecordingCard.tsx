@@ -78,13 +78,13 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const isTooShort = isListening && elapsedSeconds > 0 && elapsedSeconds < MIN_SESSION_DURATION_SECONDS;
     const getModeLabel = (m: RecordingMode) => {
         switch (m) {
-            case 'native': return 'Browser';
+            case 'native': return 'Native Browser';
             case 'private': return 'Private';
             case 'cloud': return 'Cloud';
         }
     };
     const modeDescriptions: Record<RecordingMode, string> = {
-        native: 'Browser transcription. Availability varies by browser.',
+        native: 'Uses your browser speech recognition. Availability varies.',
         private: 'Private local transcription after one-time model setup.',
         cloud: 'High-reliability cloud transcription processed externally.',
         mock: 'Test transcription mode.',
@@ -123,7 +123,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
                                     <DropdownMenuRadioItem value="native" className="items-start py-2.5" data-testid={TEST_IDS.STT_MODE_NATIVE}>
                                         <span className="flex flex-col gap-0.5">
-                                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Browser transcription</span>
+                                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Native browser transcription</span>
                                             <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
                                                 Uses your browser speech recognition. Availability varies.
                                             </span>

@@ -256,7 +256,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                                 data-testid="session-start-stop-button"
                                 className={`relative z-10 w-48 h-16 text-lg font-bold rounded-full shadow-xl transition-all duration-300 ${!isListening && 'hover:scale-105'}`}
                             >
-                                {isListening ? <><Square className="w-5 h-5 mr-2" /> Stop Session</> : (isModelLoading || isConnecting ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> {isConnecting ? 'Connecting...' : 'Initializing...'}</> : <><Mic className="w-5 h-5 mr-2" /> Start Practice Session</>)}
+                                {isListening ? <><Square className="w-5 h-5 mr-2" /> Stop Session</> : (isModelLoading || isConnecting ? <><Loader2 className="w-5 h-5 mr-2 animate-spin" /> {isConnecting ? 'Connecting...' : 'Initializing...'}</> : <><Mic className="w-5 h-5 mr-2" /> Start Speaking</>)}
                             </Button>
                         </div>
                     </div>

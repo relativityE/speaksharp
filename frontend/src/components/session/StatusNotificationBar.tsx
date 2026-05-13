@@ -153,7 +153,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
                     {/* Vault Mode Indicator (Padlock) */}
                     {activeEngine === 'private' && (
-                        <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow-sm border border-border" title="Private mode: local transcription">
+                        <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow-sm border border-border" title="Vault Mode: On-Device Processing">
                             <Lock className="h-2 w-2 text-success fill-success/20" />
                         </div>
                     )}
