@@ -115,8 +115,6 @@ export class TransformersJSEngine extends STTEngine {
                     {
                         // Use quantized model for faster loading
                         quantized: true,
-                        // Use main branch for latest model structure (onnx subfolder)
-                        revision: 'main',
                         progress_callback
                     }
                 );

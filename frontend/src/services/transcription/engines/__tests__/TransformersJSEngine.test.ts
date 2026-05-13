@@ -104,6 +104,7 @@ describe('TransformersJSEngine (Unit)', () => {
             'whisper-tiny.en',
             expect.objectContaining({ quantized: true })
         );
+        expect(mockPipeline.mock.calls[0]?.[2]).not.toEqual(expect.objectContaining({ revision: 'main' }));
         expect(callbacks.onModelLoadProgress).toHaveBeenCalledWith(0);
         expect(callbacks.onReady).toHaveBeenCalled();
         expect(mockEnv.allowLocalModels).toBe(true);
@@ -190,6 +191,7 @@ describe('TransformersJSEngine (Unit)', () => {
             'whisper-tiny.en',
             expect.objectContaining({ quantized: true })
         );
+        expect(mockPipeline.mock.calls[0]?.[2]).not.toEqual(expect.objectContaining({ revision: 'main' }));
         expect(mockPipeline).toHaveBeenNthCalledWith(
             2,
             'automatic-speech-recognition',
