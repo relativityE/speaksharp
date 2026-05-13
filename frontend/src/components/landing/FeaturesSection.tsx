@@ -24,11 +24,11 @@ const itemVariants = {
 
 const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description, iconBgColor, iconTextColor }) => (
   <motion.div variants={itemVariants} className="h-full group cursor-pointer">
-    <div className="p-8 h-full rounded-lg bg-card border border-border/60 transition-all duration-400 hover:-translate-y-1 hover:shadow-[0_20px_40px_-15px_rgba(251,191,36,0.1)] hover:border-primary/30">
+    <div className="p-8 h-full rounded-lg bg-white border border-border transition-all duration-400 hover:-translate-y-1 hover:shadow-card hover:border-primary/30">
       <div className={`w-16 h-16 rounded-lg flex items-center justify-center ${iconBgColor} ${iconTextColor} mb-6 group-hover:scale-105 group-hover:bg-primary/30 transition-all duration-400`}>
         {icon}
       </div>
-      <h3 className="text-xl font-bold text-foreground group-hover:text-primary transition-colors duration-400">{title}</h3>
+      <h3 className="text-xl font-bold text-foreground transition-colors duration-400">{title}</h3>
       <p className="text-sm text-muted-foreground mt-3 leading-relaxed">{description}</p>
     </div>
   </motion.div>
@@ -74,7 +74,7 @@ export const FeaturesSection = () => {
               Key Features
             </span>
             <h2 className="text-3xl sm:text-5xl font-bold text-foreground leading-tight tracking-tight mt-4">
-              Everything you need to <span className="text-gradient-warm">practice</span>
+              Everything you need to <span className="text-primary">practice</span>
             </h2>
             <p className="text-lg text-muted-foreground leading-relaxed max-w-[800px] mt-4">
               SpeakSharp provides a suite of tools designed for focused speech practice, review, and coaching feedback.

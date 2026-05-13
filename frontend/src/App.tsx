@@ -56,6 +56,21 @@ const PageLoader = () => (
 
 const App: React.FC = () => {
   const location = useLocation();
+  const [isMobileViewport, setIsMobileViewport] = React.useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+  );
+  const isSessionRoute = location.pathname.startsWith('/session');
+  const toastOffset = isMobileViewport
+    ? "5.25rem"
+    : (isSessionRoute ? "1.5rem" : "4.75rem");
+
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 767px)');
+    const updateViewport = () => setIsMobileViewport(query.matches);
+    updateViewport();
+    query.addEventListener('change', updateViewport);
+    return () => query.removeEventListener('change', updateViewport);
+  }, []);
 
   // --- E2E AUTHORITATIVE SIGNALING ---
 
@@ -154,12 +169,13 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background font-sans antialiased bg-gradient-radial relative">
-      <div className="fixed inset-0 bg-grid opacity-25 pointer-events-none" />
+      <div className="fixed inset-0 bg-grid opacity-35 pointer-events-none" />
       <Toaster
-        position="top-right"
+        position={isMobileViewport ? "top-center" : (isSessionRoute ? "bottom-right" : "top-right")}
         expand={false}
-        duration={5000}
-        offset="var(--toast-offset-top)"
+        duration={3500}
+        visibleToasts={isMobileViewport || isSessionRoute ? 1 : 2}
+        offset={toastOffset}
       />
       <ProfileGuard>
         <RouteReadinessManager />

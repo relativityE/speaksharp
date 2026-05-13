@@ -69,7 +69,7 @@ export const STT_CONFIG = {
 
 
 export const UI_CONFIG = {
-  MIN_TOAST_LENGTH_SECS: 5,
+  DEFAULT_TOAST_LENGTH_SECS: 3.5,
 } as const;
 
 // Rate limiting configuration
@@ -78,4 +78,3 @@ export const RATE_LIMIT_CONFIG = {
   ASSEMBLYAI_TOKEN_INTERVAL_MS: 0,  // Minimum ms between token requests (0 = disabled)
   ASSEMBLYAI_TOKEN_MAX_CALLS: 5,    // Max calls per minute (matches AssemblyAI's limit)
 } as const;
-

@@ -8,7 +8,7 @@ const cardVariants = cva(
     variants: {
       variant: {
         default: "p-6",
-        feature: "p-8 group hover:border-primary/20 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1",
+        feature: "p-8 group hover:border-primary/35 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1",
         testimonial: "p-8",
         pricing: "p-8 relative",
       },

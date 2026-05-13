@@ -11,124 +11,126 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 218 16% 39%;
-    --foreground: 210 40% 98%;
+    --background: 220 20% 97%;
+    --foreground: 221 39% 11%;
 
-    --card: 218 15% 46%;
-    --card-foreground: 210 40% 98%;
+    --card: 0 0% 100%;
+    --card-foreground: 221 39% 11%;
 
-    --popover: 218 15% 43%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 221 39% 11%;
 
-    --primary: 40 85% 55%;
-    --primary-foreground: 0 0% 10%;
+    --primary: 38 92% 50%;
+    --primary-foreground: 221 39% 11%;
 
-    --secondary: 218 13% 34%;
-    --secondary-foreground: 210 40% 96%;
+    --secondary: 210 17% 96%;
+    --secondary-foreground: 221 39% 11%;
 
-    --muted: 218 13% 50%;
-    --muted-foreground: 214 18% 84%;
+    --muted: 210 17% 95%;
+    --muted-foreground: 220 9% 46%;
 
-    --accent: 192 34% 40%;
+    --accent: 176 77% 26%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 63% 31%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 210 40% 98%;
 
-    --success: 178 38% 42%;
+    --success: 160 84% 30%;
     --success-foreground: 0 0% 100%;
 
-    --border: 218 12% 60%;
-    --input: 218 13% 43%;
-    --ring: 40 85% 55%;
+    --border: 215 18% 87%;
+    --input: 215 18% 87%;
+    --ring: 38 92% 50%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 220 18% 18%;
-    --sidebar-foreground: 210 40% 95%;
-    --sidebar-primary: 40 85% 55%;
-    --sidebar-primary-foreground: 0 0% 10%;
-    --sidebar-accent: 40 85% 55%;
-    --sidebar-accent-foreground: 0 0% 10%;
-    --sidebar-border: 220 14% 28%;
-    --sidebar-ring: 40 85% 55%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 221 39% 11%;
+    --sidebar-primary: 38 92% 50%;
+    --sidebar-primary-foreground: 221 39% 11%;
+    --sidebar-accent: 210 17% 95%;
+    --sidebar-accent-foreground: 221 39% 11%;
+    --sidebar-border: 215 18% 87%;
+    --sidebar-ring: 38 92% 50%;
 
-    --chart-1: 40 85% 55%;
-    --chart-2: 25 90% 55%;
-    --chart-3: 178 38% 42%;
-    --chart-4: 218 14% 68%;
-    --chart-5: 0 63% 31%;
+    --chart-1: 38 92% 50%;
+    --chart-2: 176 77% 26%;
+    --chart-3: 160 84% 30%;
+    --chart-4: 220 9% 46%;
+    --chart-5: 0 72% 51%;
 
-    --gradient-primary: linear-gradient(135deg, hsl(40 85% 55%), hsl(30 90% 55%));
-    --gradient-secondary: linear-gradient(135deg, hsl(40 85% 55%), hsl(25 90% 55%));
-    --gradient-hero: linear-gradient(135deg, hsl(40 90% 60%), hsl(30 90% 55%), hsl(20 85% 50%));
-    --gradient-subtle: linear-gradient(180deg, hsl(218 16% 41%) 0%, hsl(218 15% 36%) 100%);
+    --gradient-primary: linear-gradient(135deg, hsl(38 92% 50%), hsl(32 95% 44%));
+    --gradient-secondary: linear-gradient(135deg, hsl(0 0% 100%), hsl(210 17% 96%));
+    --gradient-hero: linear-gradient(135deg, hsl(38 92% 50%), hsl(32 95% 44%));
+    --gradient-subtle: linear-gradient(180deg, hsl(220 20% 97%) 0%, hsl(210 17% 95%) 100%);
 
-    --shadow-elegant: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
-    --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    --shadow-elegant: 0 16px 36px -24px rgba(15, 23, 42, 0.35);
+    --shadow-card: 0 12px 32px rgba(15, 23, 42, 0.08);
 
-    /* Keep transient toasts visible without covering persistent headers/status bars. */
-    --toast-offset-top: 5rem;
+    --header-height: 4rem;
+    --bottom-nav-height: 5rem;
+    --toast-offset-top: calc(var(--header-height) + 0.75rem);
+    --toast-offset-bottom: 1.5rem;
   }
 
   .dark {
-    --background: 218 16% 39%;
-    --foreground: 210 40% 98%;
+    --background: 220 20% 97%;
+    --foreground: 221 39% 11%;
 
-    --card: 218 15% 46%;
-    --card-foreground: 210 40% 98%;
+    --card: 0 0% 100%;
+    --card-foreground: 221 39% 11%;
 
-    --popover: 218 15% 43%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 221 39% 11%;
 
-    --primary: 40 85% 55%;
-    --primary-foreground: 0 0% 10%;
+    --primary: 38 92% 50%;
+    --primary-foreground: 221 39% 11%;
 
-    --secondary: 218 13% 34%;
-    --secondary-foreground: 210 40% 96%;
+    --secondary: 210 17% 96%;
+    --secondary-foreground: 221 39% 11%;
 
-    --muted: 218 13% 50%;
-    --muted-foreground: 214 18% 84%;
+    --muted: 210 17% 95%;
+    --muted-foreground: 220 9% 46%;
 
-    --accent: 192 34% 40%;
+    --accent: 176 77% 26%;
     --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 63% 31%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 210 40% 98%;
 
-    --success: 178 38% 42%;
+    --success: 160 84% 30%;
     --success-foreground: 0 0% 100%;
 
-    --border: 218 12% 60%;
-    --input: 218 13% 43%;
-    --ring: 40 85% 55%;
+    --border: 215 18% 87%;
+    --input: 215 18% 87%;
+    --ring: 38 92% 50%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 220 18% 18%;
-    --sidebar-foreground: 210 40% 95%;
-    --sidebar-primary: 40 85% 55%;
-    --sidebar-primary-foreground: 0 0% 10%;
-    --sidebar-accent: 40 85% 55%;
-    --sidebar-accent-foreground: 0 0% 10%;
-    --sidebar-border: 220 14% 28%;
-    --sidebar-ring: 40 85% 55%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 221 39% 11%;
+    --sidebar-primary: 38 92% 50%;
+    --sidebar-primary-foreground: 221 39% 11%;
+    --sidebar-accent: 210 17% 95%;
+    --sidebar-accent-foreground: 221 39% 11%;
+    --sidebar-border: 215 18% 87%;
+    --sidebar-ring: 38 92% 50%;
 
-    --chart-1: 40 85% 55%;
-    --chart-2: 25 90% 55%;
-    --chart-3: 178 38% 42%;
-    --chart-4: 30 95% 60%;
-    --chart-5: 260 80% 60%;
+    --chart-1: 38 92% 50%;
+    --chart-2: 176 77% 26%;
+    --chart-3: 160 84% 30%;
+    --chart-4: 220 9% 46%;
+    --chart-5: 0 72% 51%;
   }
 }
 
 /* Utility classes for specific visual effects */
 .glass {
-  @apply bg-white/5 backdrop-blur-3xl border border-white/10;
+  @apply bg-white/75 backdrop-blur-2xl border border-border/70 shadow-card;
 }
 
 .glass-strong {
-  @apply bg-white/10 backdrop-blur-3xl border border-white/15;
+  @apply bg-white/90 backdrop-blur-2xl border border-border shadow-card;
 }
 
 .text-gradient-brand {
@@ -137,11 +139,11 @@ All colors MUST be HSL.
 }
 
 .glow-primary {
-  box-shadow: 0 0 40px -10px hsl(40 85% 55% / 0.3);
+  box-shadow: 0 10px 28px -18px hsl(38 92% 50% / 0.55);
 }
 
 .glow-secondary {
-  box-shadow: 0 0 40px -10px hsl(40 85% 55% / 0.3);
+  box-shadow: 0 10px 28px -18px hsl(176 77% 26% / 0.28);
 }
 
 .text-gradient-hero {
@@ -156,13 +158,14 @@ All colors MUST be HSL.
 
 .bg-gradient-radial {
   background-image:
-    radial-gradient(at 28% 18%, hsl(40 85% 55% / 0.06) 0%, rgba(0, 0, 0, 0) 42%),
-    radial-gradient(at 72% 78%, hsl(192 34% 40% / 0.055) 0%, rgba(0, 0, 0, 0) 46%);
+    radial-gradient(at 78% 8%, hsl(38 92% 50% / 0.10) 0%, rgba(0, 0, 0, 0) 34%),
+    radial-gradient(at 12% 74%, hsl(176 77% 26% / 0.055) 0%, rgba(0, 0, 0, 0) 42%),
+    linear-gradient(180deg, hsl(220 20% 97%) 0%, hsl(210 17% 95%) 100%);
 }
 
 .bg-grid {
-  background-image: linear-gradient(hsl(210 20% 88% / 0.09) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(210 20% 88% / 0.09) 1px, transparent 1px);
+  background-image: linear-gradient(hsl(215 18% 87% / 0.36) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(215 18% 87% / 0.36) 1px, transparent 1px);
   background-size: 60px 60px;
 }
 
@@ -179,37 +182,52 @@ All colors MUST be HSL.
 
   /*
    * Toast Positioning
-   * Toasts stay high enough to be noticed, but offset below the fixed nav and
-   * constrained so they do not blanket the page header or session status bar.
+   * Transient toasts must not cover persistent status, recording controls,
+   * bottom navigation, or right-rail session actions.
    */
-  [data-sonner-toaster][data-y-position="top"][data-x-position="right"],
-  [data-sonner-toaster][data-position="top-right"] {
-    --width: min(18rem, calc(100vw - 2rem)) !important;
-    top: var(--toast-offset-top) !important;
-    right: 1rem !important;
-    width: min(18rem, calc(100vw - 2rem)) !important;
-    max-height: calc(100vh - var(--toast-offset-top) - 1rem) !important;
+  [data-sonner-toaster] {
+    --width: min(22.5rem, calc(100vw - 2rem)) !important;
     z-index: 60 !important;
   }
 
-  [data-sonner-toaster][data-y-position="top"][data-x-position="right"] [data-sonner-toast],
-  [data-sonner-toaster][data-position="top-right"] [data-sonner-toast] {
-    width: min(18rem, calc(100vw - 2rem)) !important;
+  [data-sonner-toast] {
+    width: min(22.5rem, calc(100vw - 2rem)) !important;
+    max-width: min(22.5rem, calc(100vw - 2rem)) !important;
+  }
+
+  [data-sonner-toaster][data-y-position="top"][data-x-position="right"],
+  [data-sonner-toaster][data-position="top-right"] {
+    top: var(--toast-offset-top) !important;
+    right: 1rem !important;
+    max-height: calc(100vh - var(--toast-offset-top) - 1rem) !important;
+  }
+
+  [data-sonner-toaster][data-y-position="bottom"][data-x-position="right"],
+  [data-sonner-toaster][data-position="bottom-right"] {
+    right: 1.5rem !important;
+    bottom: var(--toast-offset-bottom) !important;
+    max-height: calc(100vh - var(--toast-offset-bottom) - 1rem) !important;
+  }
+
+  [data-sonner-toaster][data-y-position="top"][data-x-position="center"],
+  [data-sonner-toaster][data-position="top-center"] {
+    top: var(--toast-offset-top) !important;
+    max-height: calc(100vh - var(--toast-offset-top) - 1rem) !important;
   }
 
   @media (max-width: 767px) {
-    [data-sonner-toaster][data-y-position="top"][data-x-position="right"],
-    [data-sonner-toaster][data-position="top-right"] {
-      --width: min(17.5rem, calc(100vw - 1.5rem)) !important;
-      top: calc(5rem + env(safe-area-inset-top)) !important;
-      right: 0.75rem !important;
-      left: auto !important;
-      width: min(17.5rem, calc(100vw - 1.5rem)) !important;
+    [data-sonner-toaster] {
+      --width: calc(100vw - 2rem) !important;
     }
 
-    [data-sonner-toaster][data-y-position="top"][data-x-position="right"] [data-sonner-toast],
-    [data-sonner-toaster][data-position="top-right"] [data-sonner-toast] {
-      width: min(17.5rem, calc(100vw - 1.5rem)) !important;
+    [data-sonner-toast] {
+      width: calc(100vw - 2rem) !important;
+      max-width: calc(100vw - 2rem) !important;
+    }
+
+    [data-sonner-toaster][data-y-position="top"][data-x-position="center"],
+    [data-sonner-toaster][data-position="top-center"] {
+      top: calc(var(--header-height) + 0.75rem + env(safe-area-inset-top)) !important;
     }
   }
 }

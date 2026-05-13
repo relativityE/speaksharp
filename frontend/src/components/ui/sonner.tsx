@@ -11,23 +11,24 @@ const Toaster = ({ ...props }: ToasterProps) => {
 
   return (
     <Sonner
-      theme={theme as ToasterProps["theme"]}
+      theme={(theme === "dark" ? "light" : theme) as ToasterProps["theme"]}
       className="toaster group"
       toastOptions={{
+        duration: 3500,
         classNames: {
           toast:
-            "group toast group-[.toaster]:bg-popover/95 group-[.toaster]:text-foreground group-[.toaster]:border-border/80 group-[.toaster]:shadow-xl group-[.toaster]:rounded-lg group-[.toaster]:px-4 group-[.toaster]:py-3 group-[.toaster]:text-sm group-[.toaster]:font-medium group-[.toaster]:backdrop-blur-xl",
-          description: "group-[.toast]:text-foreground/80 group-[.toast]:text-sm group-[.toast]:font-normal",
-          title: "group-[.toast]:text-sm group-[.toast]:font-semibold group-[.toast]:text-foreground",
+            "group toast group-[.toaster]:bg-white group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-card group-[.toaster]:rounded-xl group-[.toaster]:px-4 group-[.toaster]:py-3 group-[.toaster]:text-sm group-[.toaster]:font-medium",
+          description: "group-[.toast]:!text-slate-600 group-[.toast]:!opacity-100 group-[.toast]:text-[13px] group-[.toast]:font-normal group-[.toast]:leading-snug group-[.toast]:line-clamp-2",
+          title: "group-[.toast]:text-sm group-[.toast]:font-semibold group-[.toast]:text-foreground group-[.toast]:leading-tight",
           actionButton:
             "group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton:
             "group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
-          error: "group-[.toaster]:bg-destructive group-[.toaster]:text-destructive-foreground group-[.toaster]:border-destructive",
-          success: "group-[.toaster]:bg-success/95 group-[.toaster]:text-success-foreground group-[.toaster]:border-success/80",
-          info: "group-[.toaster]:bg-card group-[.toaster]:text-foreground group-[.toaster]:border-border",
-          warning: "group-[.toaster]:bg-primary group-[.toaster]:text-primary-foreground group-[.toaster]:border-primary",
-          loading: "group-[.toaster]:bg-card group-[.toaster]:text-foreground group-[.toaster]:border-primary/60",
+          error: "group-[.toaster]:bg-red-50 group-[.toaster]:text-red-900 group-[.toaster]:border-red-200",
+          success: "group-[.toaster]:bg-emerald-50 group-[.toaster]:text-emerald-900 group-[.toaster]:border-emerald-200",
+          info: "group-[.toaster]:bg-white group-[.toaster]:text-foreground group-[.toaster]:border-border",
+          warning: "group-[.toaster]:bg-amber-50 group-[.toaster]:text-amber-900 group-[.toaster]:border-amber-200",
+          loading: "group-[.toaster]:bg-white group-[.toaster]:text-foreground group-[.toaster]:border-primary/60",
         },
       }}
       {...props}

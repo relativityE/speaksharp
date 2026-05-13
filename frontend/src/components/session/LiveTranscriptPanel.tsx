@@ -48,7 +48,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 {history.map((segment, idx) => (
                     <div key={`history-${idx}`} className="mb-6 last:mb-4 opacity-80 group">
                         <div className="flex items-center gap-2 mb-2">
-                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/5 border border-white/10 shadow-sm">
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-muted border border-border shadow-sm">
                                 {segment.mode === 'private' ? (
                                     <>
                                         <Lock className="h-3 w-3 text-success" />
@@ -61,7 +61,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                                     </>
                                 )}
                             </div>
-                            <div className="flex-1 h-px bg-gradient-to-r from-white/10 to-transparent" />
+                            <div className="flex-1 h-px bg-gradient-to-r from-border to-transparent" />
                         </div>
                         <div className="pl-2 border-l-2 border-primary/20 text-foreground/70 text-base leading-relaxed italic">
                             {segment.text}
@@ -80,7 +80,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
 
                 {/* Current Active Segment */}
                 {isListening && (!transcript || transcript.trim() === '') ? (
-                    <p className="text-muted-foreground italic animate-pulse">Listening...</p>
+                    <p className="text-muted-foreground animate-pulse">Listening...</p>
                 ) : transcript && transcript.trim() !== '' ? (
                     <div className="text-foreground text-lg">
                         {tokens.map((token, i) => {
@@ -106,7 +106,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         })}
                     </div>
                 ) : (
-                    <p className="text-muted-foreground italic">words appear here...</p>
+                    <p className="text-muted-foreground">Words appear here...</p>
                 )}
             </div>
         </div>

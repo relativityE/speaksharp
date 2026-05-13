@@ -13,67 +13,67 @@ interface StatusNotificationBarProps {
 const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string; iconClass: string }> = {
     idle: {
         icon: Info,
-        bgClass: 'bg-card/88 border-border/70 shadow-sm backdrop-blur-xl',
+        bgClass: 'bg-white border-border shadow-sm',
         textClass: 'text-muted-foreground',
         iconClass: 'text-muted-foreground',
     },
     initializing: {
         icon: Loader2,
-        bgClass: 'bg-card/92 border-primary/35 shadow-sm backdrop-blur-xl',
+        bgClass: 'bg-amber-50 border-amber-200 shadow-sm',
         textClass: 'text-foreground',
         iconClass: 'text-primary',
     },
     downloading: {
         icon: Loader2,
-        bgClass: 'bg-card/92 border-primary/45 shadow-md shadow-primary/10 backdrop-blur-xl',
+        bgClass: 'bg-amber-50 border-amber-200 shadow-sm',
         textClass: 'text-foreground',
         iconClass: 'text-primary',
     },
     ready: {
         icon: CheckCircle2,
-        bgClass: 'bg-card/90 border-success/45 shadow-sm backdrop-blur-xl',
+        bgClass: 'bg-emerald-50 border-emerald-200 shadow-sm',
         textClass: 'text-foreground',
         iconClass: 'text-success',
     },
     recording: {
         icon: Info,
-        bgClass: 'bg-card/92 border-primary/45 shadow-md shadow-primary/10 backdrop-blur-xl',
+        bgClass: 'bg-amber-50 border-amber-200 shadow-sm',
         textClass: 'text-foreground',
         iconClass: 'text-primary',
     },
     paused: {
         icon: Info,
-        bgClass: 'bg-card/90 border-primary/35 shadow-sm backdrop-blur-xl',
+        bgClass: 'bg-amber-50 border-amber-200 shadow-sm',
         textClass: 'text-foreground',
         iconClass: 'text-primary',
     },
     fallback: {
         icon: AlertTriangle,
-        bgClass: 'bg-card/90 border-primary/40 shadow-sm backdrop-blur-xl',
+        bgClass: 'bg-amber-50 border-amber-200 shadow-sm',
         textClass: 'text-foreground',
         iconClass: 'text-primary',
     },
     error: {
         icon: AlertCircle,
-        bgClass: 'bg-card/92 border-destructive/45 shadow-sm backdrop-blur-xl',
+        bgClass: 'bg-red-50 border-red-200 shadow-sm',
         textClass: 'text-foreground',
         iconClass: 'text-destructive',
     },
     'download-required': {
         icon: AlertCircle,
-        bgClass: 'bg-card/92 border-primary/50 shadow-md shadow-primary/10 backdrop-blur-xl',
+        bgClass: 'bg-amber-50 border-amber-200 shadow-sm',
         textClass: 'text-foreground',
         iconClass: 'text-primary',
     },
     warning: {
         icon: AlertTriangle,
-        bgClass: 'bg-card/92 border-primary/45 shadow-sm backdrop-blur-xl',
+        bgClass: 'bg-amber-50 border-amber-200 shadow-sm',
         textClass: 'text-foreground',
         iconClass: 'text-primary',
     },
     info: {
         icon: Info,
-        bgClass: 'bg-card/88 border-primary/30 shadow-sm backdrop-blur-xl',
+        bgClass: 'bg-white border-border shadow-sm',
         textClass: 'text-foreground',
         iconClass: 'text-primary',
     },
@@ -153,7 +153,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
                     {/* Vault Mode Indicator (Padlock) */}
                     {activeEngine === 'private' && (
-                        <div className="absolute -top-1 -right-1 bg-background rounded-full p-0.5 shadow-sm border border-white/10" title="Vault Mode: On-Device Processing">
+                        <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow-sm border border-border" title="Private mode: local transcription">
                             <Lock className="h-2 w-2 text-success fill-success/20" />
                         </div>
                     )}
@@ -173,7 +173,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             {status.isFrozen && (
                 <button
                     onClick={() => { void speechRuntimeController.switchToNative(); }}
-                    className="sm:ml-4 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-md shadow-md hover:bg-primary/90 transition-all active:scale-95 border border-primary/30"
+                    className="sm:ml-4 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-md shadow-sm hover:bg-[#D97706] transition-all active:scale-95 border border-primary/30"
                     data-action="switch-to-native"
                 >
                     Switch to Native (Basic)
@@ -185,7 +185,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             {/* Secondary Status Indicator (Background Task) - Far Right */}
             {hasSecondary && (
                 <div
-                    className="flex w-full items-center gap-3 border-t border-white/10 pt-3 sm:w-auto sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0"
+                    className="flex w-full items-center gap-3 border-t border-border pt-3 sm:w-auto sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0"
                     data-testid="background-task-indicator"
                 >
                     <div className="flex flex-col sm:items-end">
@@ -197,7 +197,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                         </span>
                     </div>
                     <div className="flex min-w-0 flex-1 items-center gap-3 sm:w-32 sm:flex-none">
-                        <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden shadow-inner">
+                        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden shadow-inner">
                             <div
                                 className="h-full bg-primary transition-all duration-500 ease-out"
                                 style={{

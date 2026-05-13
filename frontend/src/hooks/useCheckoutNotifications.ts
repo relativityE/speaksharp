@@ -29,13 +29,13 @@ export function useCheckoutNotifications() {
             if (checkoutStatus === 'success') {
                 toast.success('Welcome to Pro!', {
                     description: 'Your account has been upgraded successfully.',
-                    icon: React.createElement(CheckCircle2, { className: "h-5 w-5 text-secondary-foreground" }),
-                    duration: 8000,
+                    icon: React.createElement(CheckCircle2, { className: "h-5 w-5 text-emerald-700" }),
+                    duration: 3500,
                 });
             } else if (checkoutStatus === 'cancelled') {
                 toast.error("Payment couldn't be processed", {
                     description: "You're on the Basic plan - click 'Upgrade to Pro' anytime to try again.",
-                    icon: React.createElement(AlertCircle, { className: "h-5 w-5 text-destructive-foreground" }),
+                    icon: React.createElement(AlertCircle, { className: "h-5 w-5 text-red-700" }),
                     duration: 8000,
                 });
             }

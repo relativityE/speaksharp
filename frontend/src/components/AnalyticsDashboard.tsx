@@ -208,7 +208,7 @@ const ANALYSIS_STORAGE_KEY = 'speaksharp_selected_analysis_slides_v3';
 const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className, testId }) => (
     <Card className={`bg-card border-border p-6 rounded-xl shadow-sm ${className}`} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
         <div className="flex items-center justify-between mb-4">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${label.includes('Filler') ? 'bg-secondary/10 text-secondary' : 'bg-primary/10 text-primary'}`}>
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${label.includes('Filler') ? 'bg-accent/10 text-accent' : 'bg-primary/10 text-primary'}`}>
                 {/* Clone icon to enforce size and styling if needed, but usually props are fine. Wrapper handles color. */}
                 {React.cloneElement(icon as React.ReactElement, { size: 24, className: "stroke-current" })}
             </div>

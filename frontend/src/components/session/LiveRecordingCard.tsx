@@ -92,13 +92,13 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
-            <div className={`bg-card/85 border border-border/80 rounded-lg p-6 sm:p-8 shadow-card relative z-10 h-full flex flex-col items-center justify-center text-center gap-5 ${className}`} data-testid="live-recording-card">
+            <div className={`bg-white border border-border rounded-lg p-6 sm:p-8 shadow-card relative z-10 h-full flex flex-col items-center justify-center text-center gap-5 ${className}`} data-testid="live-recording-card">
 
                 {/* Visual Center with Left Controls */}
-                <div className="flex flex-col items-center justify-center gap-5 w-full sm:flex-row sm:gap-7">
+                <div className="flex flex-col items-center justify-center gap-5 w-full 2xl:flex-row 2xl:gap-7">
 
                     {/* Left Column Stack: Secure + Selector */}
-                    <div className="flex flex-col items-center gap-1 flex-shrink-0 min-w-0 sm:items-start">
+                    <div className="flex flex-col items-center gap-1 flex-shrink-0 min-w-0 2xl:items-start">
                         <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-success/12 border border-success/30 text-[10px] font-semibold text-success" data-state="secure">
                             <Shield className="h-2.5 w-2.5 fill-success/10" />
                             <span>SECURE</span>
@@ -109,7 +109,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-9 px-3.5 gap-1.5 text-[11px] font-semibold text-foreground hover:text-foreground hover:bg-background/50 rounded-md border border-border/80 transition-all"
+                                    className="h-9 px-3.5 gap-1.5 text-[11px] font-semibold text-foreground hover:text-foreground hover:bg-muted rounded-md border border-border transition-all"
                                     title={isListening ? "Cannot change mode during recording" : "Select mode"}
                                     data-testid={TEST_IDS.STT_MODE_SELECT}
                                     data-state={mode}
@@ -119,29 +119,46 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     {!isListening && <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
                                 </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start" className="min-w-[140px]">
+                            <DropdownMenuContent align="start" className="w-72">
                                 <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
-                                    <DropdownMenuRadioItem value="native" className="text-xs uppercase" data-testid={TEST_IDS.STT_MODE_NATIVE}>Browser transcription</DropdownMenuRadioItem>
+                                    <DropdownMenuRadioItem value="native" className="items-start py-2.5" data-testid={TEST_IDS.STT_MODE_NATIVE}>
+                                        <span className="flex flex-col gap-0.5">
+                                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Browser transcription</span>
+                                            <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
+                                                Uses your browser speech recognition. Availability varies.
+                                            </span>
+                                        </span>
+                                    </DropdownMenuRadioItem>
                                     <DropdownMenuRadioItem 
                                         value="private" 
-                                        className="text-xs uppercase" 
+                                        className="items-start py-2.5"
                                         data-testid={TEST_IDS.STT_MODE_PRIVATE}
                                         disabled={!isProUser}
                                     >
-                                        Private local {!isProUser ? '(Pro)' : ''}
+                                        <span className="flex flex-col gap-0.5">
+                                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Private local {!isProUser ? '(Pro)' : ''}</span>
+                                            <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
+                                                Runs locally after one-time setup. Best for privacy.
+                                            </span>
+                                        </span>
                                     </DropdownMenuRadioItem>
                                     <DropdownMenuRadioItem 
                                         value="cloud" 
-                                        className="text-xs uppercase" 
+                                        className="items-start py-2.5"
                                         data-testid={TEST_IDS.STT_MODE_CLOUD}
                                         disabled={!isProUser}
                                     >
-                                        Cloud transcription {!isProUser ? '(Pro)' : ''}
+                                        <span className="flex flex-col gap-0.5">
+                                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud transcription {!isProUser ? '(Pro)' : ''}</span>
+                                            <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
+                                                Uses AssemblyAI. Audio is processed externally.
+                                            </span>
+                                        </span>
                                     </DropdownMenuRadioItem>
                                 </DropdownMenuRadioGroup>
                             </DropdownMenuContent>
                         </DropdownMenu>
-                        <p className="max-w-48 text-center text-[10px] leading-snug text-muted-foreground sm:text-left">
+                        <p className="max-w-48 text-center text-[10px] leading-snug text-muted-foreground 2xl:text-left">
                             {modeDescriptions[mode]}
                         </p>
                     </div>
@@ -163,7 +180,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                                     data-recording={isRecordingSignal}
                                     aria-label="Start Recording"
-                                    className="w-14 h-14 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-elegant hover:scale-105 transition-all duration-300 p-0"
+                                    className="w-14 h-14 rounded-full bg-primary hover:bg-[#D97706] text-primary-foreground shadow-[0_4px_12px_rgba(245,158,11,0.25)] hover:scale-105 transition-all duration-300 p-0"
                                 >
                                     <Mic className="w-6 h-6" />
                                 </Button>
@@ -174,7 +191,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                                     data-recording={isRecordingSignal}
                                     aria-label="Stop Recording"
-                                    className="w-14 h-14 rounded-full bg-primary hover:bg-primary/80 text-primary-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"
+                                    className="w-14 h-14 rounded-full bg-destructive hover:bg-destructive/90 text-destructive-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"
                                 >
                                     <Square className="w-5 h-5 fill-current" />
                                 </Button>
@@ -196,11 +213,11 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                     </div>
 
                     {/* Empty Space for visual symmetry on the left controls */}
-                    <div className="flex-1 hidden sm:block min-w-[60px]" aria-hidden="true" />
+                    <div className="flex-1 hidden 2xl:block min-w-[60px]" aria-hidden="true" />
                 </div>
 
                 {/* Stream Indicator (Refined) */}
-                <div className="h-4 w-full max-w-[140px] flex items-center justify-center gap-0.5 overflow-hidden opacity-45">
+                <div className="h-4 w-full max-w-[140px] flex items-center justify-center gap-0.5 overflow-hidden opacity-60">
                     {isIndicatorVisible && (
                         <div
                             className="flex items-center gap-0.5"

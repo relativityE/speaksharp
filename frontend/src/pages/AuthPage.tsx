@@ -262,13 +262,13 @@ export default function AuthPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-subtle p-4 pt-20 relative overflow-hidden">
       {/* Background Elements */}
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-background z-0" />
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-background z-0" />
       <div className="absolute top-0 left-0 w-full h-full bg-[url('/assets/grid-pattern.svg')] opacity-[0.03] z-0 pointer-events-none" />
 
       <div className="relative z-10 w-full max-w-md space-y-6">
         <h2 className="text-center text-2xl font-semibold text-foreground">Master your communication skills</h2>
 
-        <Card className="border-border/70 shadow-xl bg-card/95 backdrop-blur-sm">
+        <Card className="border-border bg-white shadow-card">
           <CardHeader className="space-y-1 text-center pb-8">
             <CardTitle className="text-2xl font-bold tracking-tight">
               {view === 'sign_in' && 'Welcome back'}
@@ -324,28 +324,28 @@ export default function AuthPage() {
 
                 {view === 'sign_up' && (
                   <div className="space-y-3 py-2">
-                    <Label className="text-sm font-semibold">Choose Your Plan</Label>
+                    <Label className="text-sm font-semibold">Choose your plan</Label>
                     <div className="grid grid-cols-2 gap-4">
                       <div
                         onClick={() => setSelectedPlan('free')}
-                        className={`cursor-pointer rounded-lg border-2 p-3 transition-all ${selectedPlan === 'free' ? 'border-primary bg-primary/5' : 'border-border hover:border-border/80'}`}
+                        className={`cursor-pointer rounded-lg border-2 bg-white p-3 transition-all ${selectedPlan === 'free' ? 'border-primary bg-amber-50' : 'border-border hover:border-border/80'}`}
                       >
                         <div className="flex items-center justify-between mb-1">
                           <span className="font-bold">Basic</span>
                           {selectedPlan === 'free' && <div className="h-2 w-2 rounded-full bg-primary" />}
                         </div>
-                        <p className="text-[10px] text-muted-foreground leading-tight">Native Browser</p>
+                        <p className="text-[10px] text-muted-foreground leading-tight">Browser transcription</p>
                       </div>
                       <div
                         onClick={() => setSelectedPlan('pro')}
-                        className={`cursor-pointer rounded-lg border-2 p-3 transition-all ${selectedPlan === 'pro' ? 'border-primary bg-primary/5' : 'border-border hover:border-border/80'}`}
+                        className={`cursor-pointer rounded-lg border-2 bg-white p-3 transition-all ${selectedPlan === 'pro' ? 'border-primary bg-amber-50' : 'border-border hover:border-border/80'}`}
                         data-testid="plan-pro-option"
                       >
                         <div className="flex items-center justify-between mb-1">
                           <span className="font-bold text-primary">Pro</span>
                           {selectedPlan === 'pro' && <div className="h-2 w-2 rounded-full bg-primary" />}
                         </div>
-                        <p className="text-[10px] text-muted-foreground leading-tight">Cloud and Private options</p>
+                        <p className="text-[10px] text-muted-foreground leading-tight">Cloud and private transcription</p>
                       </div>
                     </div>
 
@@ -361,7 +361,7 @@ export default function AuthPage() {
 
                       {showPromoField && (
                         <div className="space-y-2 animate-in slide-in-from-top-1 duration-200">
-                          <Label htmlFor="promo" className="text-xs">Bypass Code</Label>
+                          <Label htmlFor="promo" className="text-xs">Tester promo code</Label>
                           <Input
                             id="promo"
                             placeholder="Enter promo code"
@@ -406,7 +406,7 @@ export default function AuthPage() {
                 <Button
                   data-testid={view === 'sign_up' ? 'sign-up-submit' : 'sign-in-submit'}
                   type="submit"
-                  className="w-full h-11 text-base font-semibold shadow-lg shadow-primary/20 transition-all hover:shadow-primary/30"
+                  className="w-full h-11 text-base font-semibold"
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? (

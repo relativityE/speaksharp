@@ -38,7 +38,7 @@ export const BenefitsSection = () => {
                 >
                     <h2 className="text-3xl sm:text-5xl font-bold text-foreground leading-tight tracking-tight">
                         Transform Your{' '}
-                        <span className="text-gradient-brand">
+                        <span className="text-primary">
                             Communication
                         </span>
                     </h2>
@@ -63,7 +63,7 @@ export const BenefitsSection = () => {
                         <motion.div
                             key={i}
                             variants={itemVariants}
-                            className="flex items-center gap-3 px-6 py-4 rounded-xl bg-card/60 border border-white/5 text-left"
+                            className="flex items-center gap-3 px-6 py-4 rounded-xl bg-white border border-border text-left shadow-sm"
                         >
                             <CheckCircle2 className="size-5 text-success flex-shrink-0" />
                             <span className="text-sm font-medium text-foreground/80">{benefit}</span>
@@ -80,7 +80,7 @@ export const BenefitsSection = () => {
                 >
                     <Button
                         size="lg"
-                        className="bg-secondary text-secondary-foreground font-bold px-8 h-12 rounded-full hover:bg-secondary/90 transition-all text-base"
+                        className="px-8 h-12 text-base"
                         asChild
                     >
                         <Link to="/auth/signup">Get Started with Basic</Link>

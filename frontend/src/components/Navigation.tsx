@@ -70,7 +70,7 @@ const Navigation = () => {
   ];
 
   const MobileNav = () => (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-card/95 border-t border-border shadow-card z-40 p-2">
+    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 border-t border-border shadow-card z-40 p-2 backdrop-blur-xl">
       <div className="flex justify-around items-center">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
@@ -98,13 +98,13 @@ const Navigation = () => {
 
   return (
     <>
-      <nav className="fixed top-0 left-0 right-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border/50">
+      <nav className="fixed top-0 left-0 right-0 z-40 bg-white/90 backdrop-blur-xl border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
             <Link to="/" className="flex items-center space-x-2" aria-label="SpeakSharp Home">
               <Mic className="h-5 w-5 text-primary" aria-hidden="true" />
-              <span className="text-lg font-bold text-primary tracking-tight">SpeakSharp</span>
+              <span className="text-lg font-bold text-foreground tracking-tight">SpeakSharp</span>
             </Link>
 
             {/* Navigation Items */}
@@ -118,6 +118,7 @@ const Navigation = () => {
                       variant={isActive ? "default" : "ghost"}
                       size="sm"
                       asChild
+                      className={isActive ? "bg-muted text-foreground shadow-none" : ""}
                     >
                       <Link to={item.path} className="flex items-center space-x-2" data-testid={item.testId}>
                         <item.icon className="h-4 w-4" />
@@ -138,7 +139,7 @@ const Navigation = () => {
                       onClick={() => { void handleUpgrade(); }}
                       disabled={isUpgrading}
                       size="sm"
-                      className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-lg shadow-primary/20"
+                      className="bg-primary hover:bg-[#D97706] text-primary-foreground font-semibold shadow-[0_4px_12px_rgba(245,158,11,0.25)]"
                       data-testid="nav-upgrade-button"
                     >
                       {isUpgrading ? (
@@ -154,7 +155,7 @@ const Navigation = () => {
                   {session && isEffectiveProUser && (
                     <Badge
                       variant="secondary"
-                      className="bg-gradient-primary text-primary-foreground border-none shadow-sm animate-in fade-in zoom-in duration-300 px-3 py-1"
+                      className="bg-amber-100 text-amber-900 border border-amber-200 shadow-none animate-in fade-in zoom-in duration-300 px-3 py-1"
                       data-testid={TEST_IDS.PRO_BADGE}
                     >
                       <Zap className="w-3 h-3 mr-1 fill-current" />
@@ -174,7 +175,7 @@ const Navigation = () => {
                   <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground transition-colors">
                     <Link to="/auth">Sign In</Link>
                   </Button>
-                  <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold px-5 h-9 rounded-xl glow-primary" asChild>
+                  <Button size="sm" className="bg-primary hover:bg-[#D97706] text-primary-foreground font-semibold px-5 h-9 rounded-xl shadow-[0_4px_12px_rgba(245,158,11,0.25)]" asChild>
                     <Link to="/auth/signup">Get Started</Link>
                   </Button>
                 </>

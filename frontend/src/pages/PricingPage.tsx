@@ -64,9 +64,9 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
   };
 
   return (
-    <Card className={`relative flex h-full flex-col border-border/70 bg-card/95 shadow-xl ${tier.isPopular ? 'border-primary shadow-primary/15' : ''}`}>
+    <Card className={`relative flex h-full flex-col border-border bg-white shadow-card ${tier.isPopular ? 'border-primary' : ''}`}>
       {tier.isPopular && (
-        <div className="absolute right-5 top-5 inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground shadow-sm">
+        <div className="absolute right-5 top-5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900 border border-amber-200 shadow-none">
           <Zap className="h-3 w-3" />
           Best for testers
         </div>
@@ -106,7 +106,7 @@ export const PricingPage: React.FC = () => {
   if (!stripeStatus.available && stripeStatus.reason !== 'Checking...') {
     return (
       <div className="min-h-screen bg-gradient-subtle px-4 pt-28 text-center">
-        <div className="max-w-md mx-auto p-8 border border-border/70 rounded-lg bg-card shadow-sm">
+        <div className="max-w-md mx-auto p-8 border border-border rounded-lg bg-white shadow-card">
           <AlertTriangle className="mx-auto h-12 w-12 text-primary mb-4" />
           <h3 className="text-2xl font-bold">Payment System Unavailable</h3>
           <p className="text-muted-foreground mt-2">{stripeStatus.reason}</p>
