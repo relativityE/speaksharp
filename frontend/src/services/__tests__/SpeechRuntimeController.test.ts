@@ -145,7 +145,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(store.activeEngine).toBe(null);
     });
 
-    it('preserves an allowed explicit Cloud selection during late Pro policy sync', () => {
+    it('preserves an allowed explicit Cloud selection during late Pro policy sync', async () => {
         const store = useSessionStore.getState();
         store.setSTTMode('cloud');
 
@@ -157,6 +157,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             allowFallback: true,
             executionIntent: 'prod-pro-default',
         });
+        await controller.whenStable();
 
         const service = (controller as unknown as { service: { updatePolicy: ReturnType<typeof vi.fn> } }).service;
         expect(service.updatePolicy).toHaveBeenCalledWith(expect.objectContaining({
@@ -166,7 +167,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         }));
     });
 
-    it('does not preserve Cloud when the effective policy disallows it', () => {
+    it('does not preserve Cloud when the effective policy disallows it', async () => {
         const store = useSessionStore.getState();
         store.setSTTMode('cloud');
 
@@ -178,6 +179,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             allowFallback: false,
             executionIntent: 'prod-free',
         });
+        await controller.whenStable();
 
         const service = (controller as unknown as { service: { updatePolicy: ReturnType<typeof vi.fn> } }).service;
         expect(service.updatePolicy).toHaveBeenCalledWith(expect.objectContaining({

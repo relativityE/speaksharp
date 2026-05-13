@@ -349,9 +349,6 @@ export class SpeechRuntimeController {
         const effectivePolicy = this.preserveAllowedCloudSelection(policy);
         this.policy = effectivePolicy;
         if (this.service) {
-            void this.service.updatePolicy(effectivePolicy);
-            
-            // Re-warm with new policy — strategy was nulled by service.updatePolicy()
             const currentMode = effectivePolicy.preferredMode ?? 'private';
             void this.enqueue(async (token) => {
                 // Token check FIRST
@@ -359,7 +356,12 @@ export class SpeechRuntimeController {
                 
                 const service = this.service; // Capture reference
                 if (!service) return;         // Explicit null check
-                
+
+                await service.updatePolicy(effectivePolicy);
+
+                // Re-warm with the same policy in the serialized command queue so
+                // stale entitlement/mode sync cannot leave the singleton service
+                // initialized in a previous mode while the UI policy has advanced.
                 await service.warmUp(currentMode);
                 
                 // Re-check after await
