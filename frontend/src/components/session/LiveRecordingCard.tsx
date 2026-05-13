@@ -92,79 +92,78 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
-            <div className={`bg-white border border-border rounded-lg p-6 sm:p-8 shadow-card relative z-10 h-full flex flex-col items-center justify-center text-center gap-5 ${className}`} data-testid="live-recording-card">
+            <div className={`bg-white border border-border rounded-lg p-6 sm:p-8 shadow-card relative z-10 h-full flex flex-col text-center gap-6 ${className}`} data-testid="live-recording-card">
 
-                {/* Visual Center with Left Controls */}
-                <div className="flex flex-col items-center justify-center gap-5 w-full 2xl:flex-row 2xl:gap-7">
-
-                    {/* Left Column Stack: Secure + Selector */}
-                    <div className="flex flex-col items-center gap-1 flex-shrink-0 min-w-0 2xl:items-start">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex flex-col items-center gap-2 text-center sm:items-start sm:text-left">
                         <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-success/12 border border-success/30 text-[10px] font-semibold text-success" data-state="secure">
                             <Shield className="h-2.5 w-2.5 fill-success/10" />
                             <span>SECURE</span>
                         </div>
-
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild disabled={isListening}>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-9 px-3.5 gap-1.5 text-[11px] font-semibold text-foreground hover:text-foreground hover:bg-muted rounded-md border border-border transition-all"
-                                    title={isListening ? "Cannot change mode during recording" : "Select mode"}
-                                    data-testid={TEST_IDS.STT_MODE_SELECT}
-                                    data-state={mode}
-                                >
-                                    <span className="text-primary">•</span>
-                                    {getModeLabel(mode)}
-                                    {!isListening && <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start" className="w-72">
-                                <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
-                                    <DropdownMenuRadioItem value="native" className="items-start py-2.5" data-testid={TEST_IDS.STT_MODE_NATIVE}>
-                                        <span className="flex flex-col gap-0.5">
-                                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Native browser transcription</span>
-                                            <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                                Uses your browser speech recognition. Availability varies.
-                                            </span>
-                                        </span>
-                                    </DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem 
-                                        value="private" 
-                                        className="items-start py-2.5"
-                                        data-testid={TEST_IDS.STT_MODE_PRIVATE}
-                                        disabled={!isProUser}
-                                    >
-                                        <span className="flex flex-col gap-0.5">
-                                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Private local {!isProUser ? '(Pro)' : ''}</span>
-                                            <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                                Runs locally after one-time setup. Best for privacy.
-                                            </span>
-                                        </span>
-                                    </DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem 
-                                        value="cloud" 
-                                        className="items-start py-2.5"
-                                        data-testid={TEST_IDS.STT_MODE_CLOUD}
-                                        disabled={!isProUser}
-                                    >
-                                        <span className="flex flex-col gap-0.5">
-                                            <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud transcription {!isProUser ? '(Pro)' : ''}</span>
-                                            <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                                Uses AssemblyAI. Audio is processed externally.
-                                            </span>
-                                        </span>
-                                    </DropdownMenuRadioItem>
-                                </DropdownMenuRadioGroup>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                        <p className="max-w-48 text-center text-[10px] leading-snug text-muted-foreground 2xl:text-left">
+                        <p className="max-w-72 text-xs leading-snug text-muted-foreground">
                             {modeDescriptions[mode]}
                         </p>
                     </div>
 
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild disabled={isListening}>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-10 w-full justify-center gap-1.5 rounded-md border border-border px-3.5 text-[11px] font-semibold text-foreground transition-all hover:bg-muted hover:text-foreground sm:w-auto"
+                                title={isListening ? "Cannot change mode during recording" : "Select mode"}
+                                data-testid={TEST_IDS.STT_MODE_SELECT}
+                                data-state={mode}
+                            >
+                                <span className="text-primary">•</span>
+                                {getModeLabel(mode)}
+                                {!isListening && <ChevronDown className="h-2.5 w-2.5 opacity-50" />}
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-72">
+                            <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
+                                <DropdownMenuRadioItem value="native" className="items-start py-2.5" data-testid={TEST_IDS.STT_MODE_NATIVE}>
+                                    <span className="flex flex-col gap-0.5">
+                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Native browser transcription</span>
+                                        <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
+                                            Uses your browser speech recognition. Availability varies.
+                                        </span>
+                                    </span>
+                                </DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem
+                                    value="private"
+                                    className="items-start py-2.5"
+                                    data-testid={TEST_IDS.STT_MODE_PRIVATE}
+                                    disabled={!isProUser}
+                                >
+                                    <span className="flex flex-col gap-0.5">
+                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Private local {!isProUser ? '(Pro)' : ''}</span>
+                                        <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
+                                            Runs locally after one-time setup. Best for privacy.
+                                        </span>
+                                    </span>
+                                </DropdownMenuRadioItem>
+                                <DropdownMenuRadioItem
+                                    value="cloud"
+                                    className="items-start py-2.5"
+                                    data-testid={TEST_IDS.STT_MODE_CLOUD}
+                                    disabled={!isProUser}
+                                >
+                                    <span className="flex flex-col gap-0.5">
+                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud transcription {!isProUser ? '(Pro)' : ''}</span>
+                                        <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
+                                            Uses AssemblyAI. Audio is processed externally.
+                                        </span>
+                                    </span>
+                                </DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+
+                <div className="flex flex-1 flex-col items-center justify-center gap-5">
                     {/* Proportional Vertical Stack: Mic + Timer */}
-                    <div className="flex flex-col items-center gap-3 flex-shrink-0">
+                    <div className="flex flex-col items-center gap-4">
                         {/* Mic Button (Balanced with Timer weight) */}
                         <div className="relative">
                             {isListening && (
@@ -211,13 +210,10 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </div>
                         </div>
                     </div>
-
-                    {/* Empty Space for visual symmetry on the left controls */}
-                    <div className="flex-1 hidden 2xl:block min-w-[60px]" aria-hidden="true" />
                 </div>
 
                 {/* Stream Indicator (Refined) */}
-                <div className="h-4 w-full max-w-[140px] flex items-center justify-center gap-0.5 overflow-hidden opacity-60">
+                <div className="h-4 w-full max-w-[140px] self-center flex items-center justify-center gap-0.5 overflow-hidden opacity-60">
                     {isIndicatorVisible && (
                         <div
                             className="flex items-center gap-0.5"

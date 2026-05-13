@@ -129,7 +129,7 @@ export const SessionPage: React.FC = () => {
         <main 
             aria-label="Practice Session" 
             data-testid="session-page" 
-            className="min-h-screen bg-gradient-subtle pt-20"
+            className="min-h-screen bg-[#F3F4F6] pt-20"
         >
             {/* Page Header */}
             <div className="py-4 px-6 max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-3">
@@ -170,13 +170,12 @@ export const SessionPage: React.FC = () => {
                 <StatusNotificationBar status={displayStatus} className="shadow-card" />
             </div>
 
-            {/* Main Content Grid — Symmetrically Aligned */}
+            {/* Main Content Grid — primary speaking tools first, secondary metrics below */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">
-                <div className="grid lg:grid-cols-3 gap-6 pt-6">
+                <div className="grid items-start gap-6 pt-6 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px]">
 
-                    {/* === ROW 1: Half-Height (Recording + Pause | Live Stats) === */}
-                    {/* Left: Recording + Pause side-by-side */}
-                    <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* === ROW 1: Focus Tools (Recording + Filler Words) === */}
+                    <div>
                         <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                             <LiveRecordingCard
                                 mode={mode || 'native'}
@@ -194,61 +193,17 @@ export const SessionPage: React.FC = () => {
                                 isButtonDisabled={isButtonDisabled}
                                 onModeChange={setMode}
                                 onStartStop={() => { void handleStartStop(); }}
-                                className="min-h-half"
-                            />
-                        </LocalErrorBoundary>
-
-                        <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
-                            <PauseMetricsDisplay
-                                metrics={pauseMetrics}
-                                className="min-h-half bg-white border border-border rounded-lg"
+                                className="min-h-[300px] md:min-h-[340px]"
                             />
                         </LocalErrorBoundary>
                     </div>
 
-                    {/* Right: Live Stats (Clarity + Pace) — matches Row 1 height */}
-                    <div
-                        className="grid grid-cols-2 gap-4 min-h-half content-start"
-                        data-testid="metrics-panel"
-                        data-metrics-settled={elapsedTime > 0 ? "true" : "false"}
-                    >
-                        <LocalErrorBoundary isolationKey="clarity-score" componentName="ClarityScoreCard">
-                            <ClarityScoreCard
-                                clarityScore={metrics.clarityScore}
-                                clarityLabel={metrics.clarityLabel}
-                                className="bg-white border border-border rounded-lg h-full"
-                            />
-                        </LocalErrorBoundary>
-                        <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
-                            <SpeakingRateCard
-                                wpm={metrics.wpm}
-                                wpmLabel={metrics.wpmLabel}
-                                className="bg-white border border-border rounded-lg h-full"
-                            />
-                        </LocalErrorBoundary>
-                    </div>
-
-                    {/* === ROW 2: Double-Height (Transcript | Filler Words) === */}
-                    {/* Left: Transcript */}
-                    <div className="lg:col-span-2">
-                        <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
-                            <LiveTranscriptPanel
-                                transcript={transcriptContent}
-                                history={history}
-                                isListening={isListening}
-                                containerRef={transcriptContainerRef}
-                                className="min-h-double bg-white border border-border rounded-lg h-full"
-                            />
-                        </LocalErrorBoundary>
-                    </div>
-
-                    {/* Right: Filler Words — matches Row 2 height */}
                     <div>
                         <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
                             <FillerWordsCard
                                 fillerCount={metrics.fillerCount}
                                 fillerData={fillerData}
-                                className="min-h-double bg-white border border-border rounded-lg h-full"
+                                className="min-h-[300px] md:min-h-[340px] bg-white border border-border rounded-lg h-full"
                                 headerAction={
                                     <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
                                         <PopoverTrigger asChild>
@@ -271,8 +226,49 @@ export const SessionPage: React.FC = () => {
                         </LocalErrorBoundary>
                     </div>
 
-                    {/* === ROW 3: Full-Width Quick Tips === */}
-                    <div className="lg:col-span-3">
+                    {/* === ROW 2: Live Transcript === */}
+                    <div className="lg:col-span-2">
+                        <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
+                            <LiveTranscriptPanel
+                                transcript={transcriptContent}
+                                history={history}
+                                isListening={isListening}
+                                containerRef={transcriptContainerRef}
+                                className="min-h-[360px] bg-white border border-border rounded-lg h-full"
+                            />
+                        </LocalErrorBoundary>
+                    </div>
+
+                    {/* === ROW 3: Secondary Metrics === */}
+                    <div
+                        className="lg:col-span-2 grid grid-cols-1 gap-4 md:grid-cols-3"
+                        data-testid="metrics-panel"
+                        data-metrics-settled={elapsedTime > 0 ? "true" : "false"}
+                    >
+                        <LocalErrorBoundary isolationKey="clarity-score" componentName="ClarityScoreCard">
+                            <ClarityScoreCard
+                                clarityScore={metrics.clarityScore}
+                                clarityLabel={metrics.clarityLabel}
+                                className="bg-white border border-border rounded-lg h-full"
+                            />
+                        </LocalErrorBoundary>
+                        <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
+                            <SpeakingRateCard
+                                wpm={metrics.wpm}
+                                wpmLabel={metrics.wpmLabel}
+                                className="bg-white border border-border rounded-lg h-full"
+                            />
+                        </LocalErrorBoundary>
+                        <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
+                            <PauseMetricsDisplay
+                                metrics={pauseMetrics}
+                                className="bg-white border border-border rounded-lg h-full"
+                            />
+                        </LocalErrorBoundary>
+                    </div>
+
+                    {/* === ROW 4: Full-Width Quick Tips === */}
+                    <div className="lg:col-span-2">
                         <LocalErrorBoundary isolationKey="speaking-tips" componentName="SpeakingTipsCard">
                             <SpeakingTipsCard className="bg-white border border-border rounded-lg compact" />
                         </LocalErrorBoundary>
