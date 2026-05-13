@@ -16,7 +16,7 @@ The everyday CI workflow remains `.github/workflows/ci.yml` and is intentionally
 | RC Gate | Name | Blocks Tester Release? | Maintained Regression Evidence |
 |---|---|---:|---|
 | Gate 1 | Product truth gate | Yes | `pnpm rc:gate:1:product`, `CI - Test Audit`, `Expired Promo Live Smoke`, `Pro STT Artifact Matrix`, deploy/canary workflows, Native Chrome mic proof |
-| Gate 2 | SAST / code review | Yes if P0 found | `pnpm rc:gate:2:sast`, `pnpm quality`, `pnpm test:edge`, entitlement/token/quota unit tests, env/test-mode tests, frontend secret scan |
+| Gate 2 | SAST / code review | Yes if P0 found | `pnpm rc:gate:2:sast`, `pnpm quality`, `pnpm test:edge`, entitlement/token/quota unit tests, env/test-mode tests, frontend secret scan, production E2E/test-branch hardening check |
 | Gate 3 | DAST / running app review | Yes if P0 found | `pnpm rc:gate:3:dast`, live Playwright tests against production URLs and Supabase Edge Functions |
 | Gate 4 | SCA / dependency review | Yes only for critical exploitable risk | `pnpm audit --audit-level critical` plus GitHub Actions/runtime warning review |
 | Gate 5 | UX smoke | Yes if onboarding/core flow is unusable | Canary, primary/user-feature/error-state E2E, Native browser-dependent manual wording check |
@@ -47,6 +47,7 @@ Required maintained tests:
 | Insecure design: quota fail-open | `backend/supabase/functions/assemblyai-token/index.test.ts`, `backend/supabase/functions/check-usage-limit/index.test.ts` | Usage verification failure denies start/token and does not mint paid provider token |
 | Auth/session failure | `backend/supabase/functions/check-usage-limit/index.test.ts`, `backend/supabase/functions/assemblyai-token/index.test.ts` | Missing/invalid auth returns structured denial |
 | Test/E2E mode leakage | `frontend/src/config/__tests__/env.test.ts`, CI production build validation | Test-only branches are gated by test mode and not production assumptions |
+| Test-aware production branch activation | `scripts/rc-production-hardening.mjs` through `pnpm rc:gate:2:sast` | `ENV.isE2E` is compile-time disabled in production builds and sensitive test branches remain guarded |
 | Secrets server-side only | `scripts/validate-env.mjs`, `frontend/src/main.tsx`, Edge Function tests | Provider secret keys are not required as frontend `VITE_*` values; frontend uses DSN/project public keys only |
 | Stripe open redirect/origin spoofing | `tests/live/stripe-security.canary.spec.ts` | Client-supplied origin does not control checkout return origin |
 | Stripe webhook replay/idempotency | `backend/supabase/functions/stripe-webhook/adversarial.test.ts` | Duplicate webhook event is skipped by the atomic RPC path |
@@ -60,6 +61,7 @@ Gate command set:
 ```bash
 pnpm quality
 pnpm rc:sast:secrets
+node scripts/rc-production-hardening.mjs
 pnpm test:edge
 pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
   frontend/src/config/__tests__/env.test.ts \
@@ -166,4 +168,11 @@ LIVE_OBSERVABILITY_API_EVIDENCE {
   edgeSentry.apiConfirmed: true,
   posthog.apiConfirmed: true
 }
+```
+
+Latest recorded green workflow evidence:
+
+```text
+Observability API Smoke run 25764783852: passed
+Release Candidate Gates run 25769178359 on e73408c0: all five gates passed
 ```
