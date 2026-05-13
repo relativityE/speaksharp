@@ -41,6 +41,10 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         const stubService = {
             updatePolicy: vi.fn().mockResolvedValue(undefined),
             warmUp: vi.fn().mockResolvedValue(undefined),
+            getMode: vi.fn().mockReturnValue('native'),
+            getStrategy: vi.fn().mockReturnValue({ start: vi.fn(), stop: vi.fn() }),
+            fsm: { is: vi.fn().mockReturnValue(false) },
+            subscribe: vi.fn(() => vi.fn()),
             destroy: async () => {
                 // ✅ Absolute clear to prevent heartbeat recursion
                 vi.clearAllTimers();
@@ -180,6 +184,26 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             preferredMode: 'native',
             allowFallback: false,
             executionIntent: 'prod-free',
+        }));
+    });
+
+    it('applies the requested warm-up mode to the service policy before readiness checks', async () => {
+        (controller as unknown as { policy: unknown }).policy = {
+            allowNative: true,
+            allowCloud: true,
+            allowPrivate: true,
+            preferredMode: 'native',
+            allowFallback: false,
+            executionIntent: 'prod-pro-native',
+        };
+
+        await controller.warmUp('private');
+
+        const service = (controller as unknown as { service: { updatePolicy: ReturnType<typeof vi.fn> } }).service;
+        expect(service.updatePolicy).toHaveBeenCalledWith(expect.objectContaining({
+            preferredMode: 'private',
+            allowPrivate: true,
+            executionIntent: 'prod-pro-native',
         }));
     });
 });

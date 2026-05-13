@@ -213,7 +213,7 @@ export class SpeechRuntimeController {
      * This method ensures the STT engine is ready for use, returning a promise 
      * that resolves when the service is instantiated and the engine is initialized.
      */
-    public async warmUp(_mode: TranscriptionMode = 'private'): Promise<void> {
+    public async warmUp(mode: TranscriptionMode = 'private'): Promise<void> {
         // Phase 1: Ensure Service Genesis (Once per session)
         if (!this.readyPromise) {
             this.readyPromise = this.enqueue(async (token) => {
@@ -221,6 +221,22 @@ export class SpeechRuntimeController {
             });
         }
         await this.readyPromise;
+
+        if (this.service) {
+            const nextPolicy = this.policy
+                ? { ...this.policy, preferredMode: mode }
+                : {
+                    allowNative: mode === 'native',
+                    allowCloud: mode === 'cloud',
+                    allowPrivate: mode === 'private',
+                    preferredMode: mode,
+                    allowFallback: false,
+                    executionIntent: `warmup-${mode}`,
+                };
+
+            await this.service.updatePolicy(nextPolicy);
+            this.policy = nextPolicy;
+        }
 
         // Authoritative Readiness Barrier
         await this.enqueue(async (_token) => {

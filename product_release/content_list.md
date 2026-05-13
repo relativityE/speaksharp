@@ -12,6 +12,7 @@ This directory contains the authoritative release control artifacts for the Spea
 - **[PRD.operational.md](./PRD.operational.md)**: The contract-oriented release gate. Defines user-visible guarantees and failure behaviors.
 - **[ARCHITECTURE.operational.md](./ARCHITECTURE.operational.md)**: The structural invariants and authoritative sources of truth. Defines the non-negotiable technical rules.
 - **[ROADMAP.operational.md](./ROADMAP.operational.md)**: The release risk tracker and launch triaging tool. Tracks launch-critical risks vs. deferred features.
+- **[BACKLOG.md](./BACKLOG.md)**: Deferred known issues, tech debt, and workflow cleanup that should not interrupt active P0/P1 stabilization unless promoted.
 
 ### ✅ Verification Gates
 - **[LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md)**: The runtime configuration verification gate. Ensures environment variables and secrets are correctly set.

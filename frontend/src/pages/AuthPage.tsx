@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { toast } from '@/lib/toast';
 import { useQueryClient } from '@tanstack/react-query';
 import logger from '../lib/logger';
+import type { UsageLimitCheck } from '@/hooks/useUsageLimit';
 
 // --- Types ---
 type AuthView = 'sign_in' | 'sign_up' | 'forgot_password';
@@ -32,6 +33,8 @@ const mapError = (message: string) => {
   return friendlyErrors[message] || 'An unexpected error occurred.';
 };
 
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export default function AuthPage() {
   const { session, loading, setSession } = useAuthProvider();
   const location = useLocation();
@@ -53,6 +56,59 @@ export default function AuthPage() {
   const [showPromoField, setShowPromoField] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
+
+  const refreshEntitlementAfterPromo = async (currentSession: Session) => {
+    const userId = currentSession.user?.id;
+
+    if (userId) {
+      queryClient.removeQueries({ queryKey: ['userProfile', userId] });
+      queryClient.removeQueries({ queryKey: ['usageLimit', userId] });
+    }
+
+    queryClient.removeQueries({ queryKey: ['userProfile'] });
+    queryClient.removeQueries({ queryKey: ['usageLimit'] });
+
+    let verifiedUsageLimit: UsageLimitCheck | null = null;
+    let lastUsageLimitError: string | null = null;
+
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const { data: usageLimit, error: usageLimitError } = await getSupabaseClient()!.functions.invoke('check-usage-limit', {
+        headers: { Authorization: `Bearer ${currentSession.access_token}` }
+      });
+
+      if (usageLimitError) {
+        lastUsageLimitError = usageLimitError.message;
+      } else {
+        const candidate = usageLimit as UsageLimitCheck | null;
+        if (candidate?.subscription_status === 'pro' && candidate?.is_pro === true) {
+          verifiedUsageLimit = candidate;
+          break;
+        }
+        lastUsageLimitError = `server returned ${candidate?.subscription_status ?? 'unknown'} entitlement`;
+      }
+
+      if (attempt < 5) {
+        await delay(500);
+      }
+    }
+
+    if (!verifiedUsageLimit) {
+      throw new Error(`Promo applied, but Pro entitlement was not verified yet (${lastUsageLimitError ?? 'no usage response'}).`);
+    }
+
+    if (userId) {
+      queryClient.setQueryData(['usageLimit', userId], verifiedUsageLimit);
+    }
+
+    await queryClient.invalidateQueries({ queryKey: ['userProfile'] });
+    await queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
+
+    logger.info({
+      userId,
+      usageSubscriptionStatus: verifiedUsageLimit?.subscription_status ?? null,
+      canStart: verifiedUsageLimit?.can_start ?? null,
+    }, '[AuthPage] Promo entitlement cache refreshed');
+  };
 
   const handleProUpgrade = async (currentSession: Session): Promise<boolean | void> => {
     // 1. Priority Check: Handle Promo Bypass Code if provided
@@ -81,9 +137,7 @@ export default function AuthPage() {
         const expiryMsg = promoData?.proFeatureMinutes ? ` for ${promoData.proFeatureMinutes} minutes` : '';
         toast.success(`🎉 Promo code applied! You have Pro features${expiryMsg}.`, { id: 'promo-success' });
 
-        // CRITICAL: Invalidate the userProfile cache so SessionPage fetches fresh Pro status
-        await queryClient.invalidateQueries({ queryKey: ['userProfile'] });
-        logger.debug('[AuthPage] User profile cache invalidated');
+        await refreshEntitlementAfterPromo(currentSession);
 
         // Don't force reload - allow standard auth flow to proceed
         return true;
