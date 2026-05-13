@@ -151,6 +151,24 @@ describe('TranscriptionService - Zombie Prevention', () => {
         expect(service.isServiceDestroyed()).toBe(true);
     });
 
+    it('should reinitialize service mode when policy preferred mode changes after a stale mode', async () => {
+        await service.updatePolicy({
+            ...mockOptions.policy!,
+            preferredMode: 'native',
+            executionIntent: 'prod-pro-native',
+        });
+        expect(service.getMode()).toBe('native');
+
+        await service.updatePolicy({
+            ...mockOptions.policy!,
+            preferredMode: 'private',
+            executionIntent: 'prod-pro-private',
+        });
+
+        expect(service.getMode()).toBe('private');
+        expect(mockOptions.onModeChange).toHaveBeenLastCalledWith('private');
+    });
+
     it('should be idempotent: additional destroy calls are safe', async () => {
         // Arrange
         const cloudEngine = new MockEngine('cloud');
