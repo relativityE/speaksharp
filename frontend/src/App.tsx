@@ -199,6 +199,7 @@ const App: React.FC = () => {
                     <Route path="/pricing" element={<PageTransition><PricingPage /></PageTransition>} />
                     <Route path="/design" element={<PageTransition><DesignSystemPage /></PageTransition>} />
                     <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
+                    <Route path="/signup" element={<Navigate to="/auth/signup" replace />} />
                     <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />
                     <Route path="/auth/signup" element={<PageTransition><AuthPage /></PageTransition>} />
                     <Route path="/session" element={
