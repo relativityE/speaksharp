@@ -674,16 +674,22 @@ export class SpeechRuntimeController {
 
     private handleError(error: Error): void {
         const store = useSessionStore.getState();
-        if (store.sttStatus?.type === 'recording') {
+        const rawMessage = error.message || '';
+        const isMicPermissionError = /permission|not-allowed|service-not-allowed|microphone|mic/i.test(rawMessage);
+        const displayMessage = isMicPermissionError
+            ? 'Microphone access is denied. Please grant permission in your browser settings.'
+            : rawMessage;
+
+        if (store.sttStatus?.type === 'recording' && !isMicPermissionError) {
             logger.warn({ error: error.message }, '[SpeechRuntimeController] handleError suppressed — recording is active');
             return; // fallback recovery in progress — don't overwrite
         }
 
         syncSTTReady(false);
-        store.setSTTStatus({ type: 'error', message: error.message });
+        store.setSTTStatus({ type: 'error', message: displayMessage });
 
         void this.enqueue(async (token) => {
-            await this.transition('FAILED', error, token);
+            await this.transition('FAILED', new Error(displayMessage), token);
         });
     }
 
