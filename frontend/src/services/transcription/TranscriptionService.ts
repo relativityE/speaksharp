@@ -1593,7 +1593,7 @@ export default class TranscriptionService {
         message: 'Private model cached. Ready to record.',
         detail: 'Private STT should start without downloading next time.'
       }; break;
-      case 'FAILED': status = { type: 'error', message: this.lastError?.message || 'Error occurred' }; break;
+      case 'FAILED': status = { type: 'error', message: this.lastError?.message || 'Recording could not start. Check microphone permission and try again.' }; break;
       case 'STOPPING':
       case 'CLEANING_UP': status = { type: 'idle', message: 'Stopping...' }; break;
       default: status = { type: 'idle', message: 'Ready' };

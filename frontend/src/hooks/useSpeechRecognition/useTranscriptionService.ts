@@ -189,9 +189,12 @@ function handleTranscriptionError(
   message: string,
   _navigate: UseTranscriptionServiceOptions['navigate']
 ) {
-  logger.error({ message }, 'An error occurred during speech recognition');
+  const displayMessage = message.trim() && message !== 'Error occurred'
+    ? message
+    : 'Recording could not start. Check microphone permission and try again.';
+  logger.error({ message: displayMessage }, 'An error occurred during speech recognition');
   toast.dismiss('stt-error-toast');
-  toast.error(message, {
+  toast.error(displayMessage, {
     id: 'stt-error-toast',
     duration: 5000
   });
