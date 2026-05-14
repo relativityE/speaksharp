@@ -105,7 +105,7 @@ export const PricingPage: React.FC = () => {
 
   if (!stripeStatus.available && stripeStatus.reason !== 'Checking...') {
     return (
-      <div className="min-h-screen bg-gradient-subtle px-4 pt-28 text-center">
+      <div className="min-h-screen bg-background px-4 pt-28 text-center">
         <div className="max-w-md mx-auto p-8 border border-border rounded-lg bg-white shadow-card">
           <AlertTriangle className="mx-auto h-12 w-12 text-primary mb-4" />
           <h3 className="text-2xl font-bold">Payment System Unavailable</h3>
@@ -131,7 +131,7 @@ export const PricingPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-subtle px-4 pb-16 pt-28">
+    <div className="min-h-screen bg-background px-4 pb-16 pt-28">
       <div className="mx-auto max-w-4xl text-center mb-10">
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Choose your SpeakSharp plan</h1>
         <p className="text-base text-muted-foreground mt-3 sm:text-lg">

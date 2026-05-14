@@ -168,8 +168,7 @@ const App: React.FC = () => {
   useCheckoutNotifications();
 
   return (
-    <div className="min-h-screen bg-background font-sans antialiased bg-gradient-radial relative">
-      <div className="fixed inset-0 bg-grid opacity-35 pointer-events-none" />
+    <div className="min-h-screen bg-background font-sans antialiased relative">
       <Toaster
         position={isMobileViewport ? "top-center" : (isSessionRoute ? "bottom-right" : "top-right")}
         expand={false}

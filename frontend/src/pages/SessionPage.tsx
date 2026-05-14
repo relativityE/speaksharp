@@ -129,7 +129,7 @@ export const SessionPage: React.FC = () => {
         <main 
             aria-label="Practice Session" 
             data-testid="session-page" 
-            className="min-h-screen bg-[#F3F4F6] pt-20"
+            className="min-h-screen bg-background pt-20"
         >
             {/* Page Header */}
             <div className="py-4 px-6 max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-3">

@@ -200,7 +200,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
 
 export const AnalyticsPage: React.FC = () => {
     return (
-        <div className="min-h-screen bg-gradient-subtle pt-20">
+        <div className="min-h-screen bg-background pt-20">
             <div className="max-w-7xl mx-auto px-6 py-8">
                 <AuthenticatedAnalyticsView />
             </div>
