@@ -37,4 +37,11 @@ describe('LiveRecordingCard', () => {
         rerender(<LiveRecordingCard {...defaultProps} mode="private" />);
         expect(screen.getByTestId(TEST_IDS.STT_MODE_SELECT).textContent).toContain('Private');
     });
+
+    it('does not surface generic recording error copy in the status pill', () => {
+        render(<LiveRecordingCard {...defaultProps} statusMessage="Error occurred" />);
+
+        expect(screen.queryByText(/^Error occurred$/i)).toBeNull();
+        expect(screen.getByText(/Recording could not start/i)).toBeDefined();
+    });
 });

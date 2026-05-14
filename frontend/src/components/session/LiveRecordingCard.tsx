@@ -76,6 +76,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
     // Check if session is too short to save
     const isTooShort = isListening && elapsedSeconds > 0 && elapsedSeconds < MIN_SESSION_DURATION_SECONDS;
+    const displayStatusMessage = /^error occurred$/i.test(_statusMessage?.trim() || '')
+        ? 'Recording could not start'
+        : _statusMessage;
     const getModeLabel = (m: RecordingMode) => {
         switch (m) {
             case 'native': return 'Native Browser';
@@ -205,7 +208,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             <div className="mt-2 inline-flex items-center gap-1.5 py-1 px-3 rounded-full bg-muted/30 border border-border/60">
                                 <div className={`h-1.5 w-1.5 rounded-full ${isListening ? 'bg-primary animate-pulse' : 'bg-muted-foreground/30'}`} />
                                 <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.14em]" data-testid="stt-status-label">
-                                    {_statusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}
+                                    {displayStatusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}
                                 </span>
                             </div>
                         </div>
