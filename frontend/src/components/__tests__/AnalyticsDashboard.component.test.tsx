@@ -204,4 +204,39 @@ describe('AnalyticsDashboard', () => {
             'private (whisper-tiny.en, transformers-js-2.17, cpu)'
         );
     });
+
+    it('shows visible STT engine badges on session history cards', () => {
+        renderComponent({
+            sessionHistory: [
+                {
+                    id: 'cloud-session',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 120,
+                    engine: 'cloud',
+                },
+                {
+                    id: 'private-session',
+                    user_id: 'test-user',
+                    created_at: '2023-01-02T10:00:00Z',
+                    duration: 60,
+                    total_words: 120,
+                    engine: 'private',
+                },
+                {
+                    id: 'native-session',
+                    user_id: 'test-user',
+                    created_at: '2023-01-03T10:00:00Z',
+                    duration: 60,
+                    total_words: 120,
+                    engine: 'native',
+                },
+            ],
+        });
+
+        expect(screen.getByTestId('session-engine-badge-cloud-session')).toHaveTextContent('Cloud');
+        expect(screen.getByTestId('session-engine-badge-private-session')).toHaveTextContent('Private');
+        expect(screen.getByTestId('session-engine-badge-native-session')).toHaveTextContent('Browser');
+    });
 });

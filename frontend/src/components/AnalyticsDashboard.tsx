@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from '@/lib/toast';
-import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor } from 'lucide-react';
 import logger from '../lib/logger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -151,6 +151,40 @@ const formatEngineLabel = (session: PracticeSession): string => {
     return details.length > 0 ? `${mode} (${details.join(', ')})` : mode;
 };
 
+const getEngineBadge = (session: PracticeSession): { label: string; className: string; icon: React.ElementType } => {
+    const engine = (session.engine || '').toLowerCase();
+
+    if (engine.includes('cloud') || engine.includes('assembly')) {
+        return {
+            label: 'Cloud',
+            className: 'border-teal-200 bg-teal-50 text-teal-800',
+            icon: Cloud,
+        };
+    }
+
+    if (engine.includes('private') || engine.includes('whisper') || engine.includes('transformers')) {
+        return {
+            label: 'Private',
+            className: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+            icon: Lock,
+        };
+    }
+
+    if (engine.includes('native') || engine.includes('browser')) {
+        return {
+            label: 'Browser',
+            className: 'border-slate-300 bg-slate-50 text-slate-700',
+            icon: Monitor,
+        };
+    }
+
+    return {
+        label: 'Engine unknown',
+        className: 'border-slate-300 bg-slate-50 text-slate-700',
+        icon: Mic,
+    };
+};
+
 // --- Analysis Slide Configuration ---
 // Available analysis visualization tools for the main carousel
 // Add new charts/tools here
@@ -237,6 +271,8 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
     const durationMins = Math.floor(session.duration / 60);
     const durationSecs = session.duration % 60;
     const durationStr = `${durationMins}:${durationSecs.toString().padStart(2, '0')}`;
+    const engineBadge = getEngineBadge(session);
+    const EngineIcon = engineBadge.icon;
 
     const wpm = session.wpm ?? (session.duration > 0 && session.total_words ? Math.round((session.total_words / session.duration) * 60) : 0);
     const clarity = session.clarity_score ?? (session.accuracy ? (session.accuracy * 100) : 0);
@@ -264,7 +300,17 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                         <Mic className="w-6 h-6 text-secondary" />
                     </div>
                     <div>
-                        <p className="font-semibold text-foreground text-base truncate max-w-[200px]">{session.title || 'Practice Session'}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold text-foreground text-base truncate max-w-[200px]">{session.title || 'Practice Session'}</p>
+                            <span
+                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.08em] ${engineBadge.className}`}
+                                data-testid={`session-engine-badge-${session.id}`}
+                                title={`STT engine: ${formatEngineLabel(session)}`}
+                            >
+                                <EngineIcon className="h-3 w-3" aria-hidden="true" />
+                                {engineBadge.label}
+                            </span>
+                        </div>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Clock className="w-3 h-3" />
                             <span>{durationStr} duration</span>
