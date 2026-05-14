@@ -718,7 +718,31 @@ export class SpeechRuntimeController {
         this.subscriberCallbacks.onModelLoadProgress?.(progress);
     }
 
+    private isModeAllowedByCurrentPolicy(mode: TranscriptionMode | null): boolean {
+        if (!mode || !this.policy) {
+            return true;
+        }
+
+        if (mode === 'native') return this.policy.allowNative;
+        if (mode === 'cloud') return this.policy.allowCloud;
+        if (mode === 'private') return this.policy.allowPrivate;
+
+        return false;
+    }
+
     private handleModeChange(mode: TranscriptionMode | null) {
+        if (!this.isModeAllowedByCurrentPolicy(mode)) {
+            const fallbackMode = this.policy?.preferredMode ?? 'native';
+            logger.warn({
+                mode,
+                fallbackMode,
+                policy: this.policy?.executionIntent,
+            }, '[SpeechRuntimeController] Ignoring stale disallowed mode callback');
+            useSessionStore.getState().setSTTMode(fallbackMode);
+            this.subscriberCallbacks.onModeChange?.(fallbackMode);
+            return;
+        }
+
         useSessionStore.getState().setSTTMode(mode);
         this.subscriberCallbacks.onModeChange?.(mode);
     }

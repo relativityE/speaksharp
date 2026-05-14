@@ -225,6 +225,23 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(service.warmUp).not.toHaveBeenCalled();
     });
 
+    it('ignores stale disallowed mode callbacks from an old strategy', () => {
+        const store = useSessionStore.getState();
+        store.setSTTMode('native');
+        (controller as unknown as { policy: unknown }).policy = {
+            allowNative: true,
+            allowCloud: false,
+            allowPrivate: false,
+            preferredMode: 'native',
+            allowFallback: false,
+            executionIntent: 'prod-free',
+        };
+
+        (controller as unknown as { handleModeChange: (mode: string) => void }).handleModeChange('private');
+
+        expect(useSessionStore.getState().sttMode).toBe('native');
+    });
+
     it('applies the requested warm-up mode to the service policy before readiness checks', async () => {
         (controller as unknown as { policy: unknown }).policy = {
             allowNative: true,
