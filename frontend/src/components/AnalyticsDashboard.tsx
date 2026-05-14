@@ -146,7 +146,14 @@ const sumFillerCounts = (fillerWords?: PracticeSession['filler_words'] | null): 
     );
 
 const formatEngineLabel = (session: PracticeSession): string => {
-    const mode = session.engine || 'Unknown';
+    const engine = (session.engine || '').toLowerCase();
+    const mode = engine.includes('cloud') || engine.includes('assembly')
+        ? 'Cloud'
+        : engine.includes('private') || engine.includes('whisper') || engine.includes('transformers')
+            ? 'Private'
+            : engine.includes('native') || engine.includes('browser')
+                ? 'Native Browser'
+                : session.engine || 'Unknown';
     const details = [session.model_name, session.engine_version, session.device_type].filter(Boolean);
     return details.length > 0 ? `${mode} (${details.join(', ')})` : mode;
 };
@@ -172,7 +179,7 @@ const getEngineBadge = (session: PracticeSession): { label: string; className: s
 
     if (engine.includes('native') || engine.includes('browser')) {
         return {
-            label: 'Browser',
+            label: 'Native Browser',
             className: 'border-slate-300 bg-slate-50 text-slate-700',
             icon: Monitor,
         };

@@ -201,7 +201,30 @@ describe('AnalyticsDashboard', () => {
         });
 
         expect(screen.getByTestId('session-engine-metadata')).toHaveTextContent(
-            'private (whisper-tiny.en, transformers-js-2.17, cpu)'
+            'Private (whisper-tiny.en, transformers-js-2.17, cpu)'
+        );
+    });
+
+    it('normalizes native engine metadata to the Browser label in detail view', () => {
+        renderComponent({
+            sessionId: 'native-session',
+            sessionHistory: [
+                {
+                    id: 'native-session',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 120,
+                    engine: 'native',
+                    engine_version: 'unknown',
+                    model_name: 'unknown',
+                    device_type: 'unknown',
+                },
+            ],
+        });
+
+        expect(screen.getByTestId('session-engine-metadata')).toHaveTextContent(
+            'Native Browser (unknown, unknown, unknown)'
         );
     });
 
@@ -237,6 +260,6 @@ describe('AnalyticsDashboard', () => {
 
         expect(screen.getByTestId('session-engine-badge-cloud-session')).toHaveTextContent('Cloud');
         expect(screen.getByTestId('session-engine-badge-private-session')).toHaveTextContent('Private');
-        expect(screen.getByTestId('session-engine-badge-native-session')).toHaveTextContent('Browser');
+        expect(screen.getByTestId('session-engine-badge-native-session')).toHaveTextContent('Native Browser');
     });
 });
