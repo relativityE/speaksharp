@@ -466,6 +466,65 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
+    it('should not show saved success when stopRecording discards an empty session', async () => {
+        vi.mocked(speechRuntimeController.stopRecording).mockResolvedValueOnce(null);
+
+        const mockStore = createTestSessionStore({
+            isListening: true,
+            elapsedTime: 30,
+            startTime: Date.now() - 30000,
+            sttStatus: {
+                type: 'warning',
+                message: "We didn't detect enough speech to save this session.",
+                detail: 'Try recording again and speak for at least a few seconds.'
+            },
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useSpeechRecognition).mockReturnValue({
+            transcript: baseTranscript,
+            chunks: [],
+            interimTranscript: '',
+            fillerData: { total: { count: 0, color: '' } },
+            startListening: mockStartListening,
+            stopListening: mockStopListening,
+            isListening: true,
+            isReady: true,
+            isSupported: true,
+            error: null,
+            reset: mockReset,
+            pauseMetrics: basePauseMetrics,
+            modelLoadingProgress: null,
+            sttStatus: {
+                type: 'warning',
+                message: "We didn't detect enough speech to save this session.",
+                detail: 'Try recording again and speak for at least a few seconds.'
+            },
+            mode: 'native'
+        });
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await act(async () => {
+            await result.current.handleStartStop();
+        });
+
+        expect(result.current.showAnalyticsPrompt).toBe(false);
+        expect(mockStore.getState().sttStatus).toEqual({
+            type: 'warning',
+            message: "We didn't detect enough speech to save this session.",
+            detail: 'Try recording again and speak for at least a few seconds.'
+        });
+    });
+
     it('should force expired promo or downgraded users back to native mode and clear stale private errors', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',

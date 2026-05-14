@@ -42,7 +42,7 @@ export const SpeakingTipsCard: React.FC<SpeakingTipsCardProps> = ({
     const isCompact = className.includes('compact');
 
     return (
-        <div className={`bg-secondary/10 border border-secondary/30 rounded-xl ${isCompact ? 'p-3' : 'p-6'} shadow-sm ${className}`}>
+        <div className={`bg-secondary/10 border border-border rounded-xl ${isCompact ? 'p-3' : 'p-6'} shadow-card ${className}`}>
             <h2 className={`${isCompact ? 'text-base' : 'text-lg'} font-semibold text-secondary ${isCompact ? 'mb-1' : 'mb-2'} flex items-center gap-2`}>
                 <Lightbulb className={`${isCompact ? 'h-4 w-4' : 'h-5 w-5'}`} />
                 Quick Tip

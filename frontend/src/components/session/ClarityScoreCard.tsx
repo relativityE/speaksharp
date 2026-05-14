@@ -16,7 +16,7 @@ export const ClarityScoreCard: React.FC<ClarityScoreCardProps> = ({
     className = "",
 }) => {
     return (
-        <div className={`bg-card border border-border rounded-xl p-4 shadow-sm ${className}`}>
+        <div className={`bg-card border border-border rounded-xl p-4 shadow-card ${className}`}>
             <h3 className="text-base font-semibold text-foreground mb-2">Live Stats</h3>
             <div className="bg-muted/30 rounded-lg p-3">
                 <div className="flex items-center justify-between mb-1">

@@ -15,7 +15,7 @@ export const PauseMetricsDisplay: React.FC<PauseMetricsDisplayProps> = ({ metric
     };
 
     return (
-        <Card className={`h-auto border-border rounded-xl flex flex-col justify-center shadow-sm compact-density ${className}`}>
+        <Card className={`h-auto border-border rounded-xl flex flex-col justify-center shadow-card compact-density ${className}`}>
             <CardHeader className="p-4 py-2 pb-0">
                 <CardTitle className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-muted-foreground/80">
                     <Pause className="h-4 w-4" />

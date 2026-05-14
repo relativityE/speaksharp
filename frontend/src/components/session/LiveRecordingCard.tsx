@@ -92,7 +92,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
-            <div className={`bg-white border border-border rounded-lg p-6 sm:p-8 shadow-card relative z-10 h-full flex flex-col text-center gap-6 ${className}`} data-testid="live-recording-card">
+            <div className={`bg-white border border-[hsl(var(--border-strong))] rounded-2xl p-6 sm:p-8 shadow-[var(--shadow-card-primary)] relative z-10 h-full flex flex-col text-center gap-6 ${className}`} data-testid="live-recording-card">
 
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex flex-col items-center gap-2 text-center sm:items-start sm:text-left">

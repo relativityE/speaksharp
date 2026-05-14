@@ -120,7 +120,12 @@ export const useSessionLifecycle = () => {
             try {
                 // SpeechRuntimeController.stopRecording() handles enriched finalization,
                 // metrics, streak updates, and optimistic usage sync atomically.
-                await speechRuntimeController.stopRecording();
+                const stopResult = await speechRuntimeController.stopRecording();
+
+                if (!stopResult) {
+                    setShowAnalyticsPrompt(false);
+                    return;
+                }
 
                 const streakResult = updateStreak(); // UI layer still needs streak for display
 

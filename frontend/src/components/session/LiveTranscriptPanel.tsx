@@ -33,7 +33,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
 
     return (
         <div
-            className={`bg-card border border-border rounded-lg p-4 shadow-sm flex flex-col ${className}`}
+            className={`bg-card border border-border rounded-xl p-4 shadow-card flex flex-col ${className}`}
             data-testid={TEST_IDS.TRANSCRIPT_PANEL}
         >
             <div className="flex items-center gap-2 mb-2">

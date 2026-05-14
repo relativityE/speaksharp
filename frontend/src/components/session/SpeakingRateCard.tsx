@@ -17,7 +17,7 @@ export const SpeakingRateCard: React.FC<SpeakingRateCardProps> = ({
     className = "",
 }) => {
     return (
-        <div className={`bg-card border border-border rounded-xl p-4 shadow-sm ${className}`}>
+        <div className={`bg-card border border-border rounded-xl p-4 shadow-card ${className}`}>
             <h3 className="text-base font-semibold text-foreground mb-2">Speaking Pace</h3>
             <div className="bg-muted/30 rounded-lg p-4 text-center">
                 <div
