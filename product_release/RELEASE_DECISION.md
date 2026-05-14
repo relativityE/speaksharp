@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-05-14
 **Release type:** Controlled human tester release
-**Current decision:** GO
+**Current decision:** GO WITH LIMITATIONS
 **Evidence baseline commit:** `e73408c0`
 **Latest full RC gates:** `Release Candidate Gates` run `25769178359` passed on `e73408c0`
 
@@ -10,7 +10,7 @@
 
 | Decision | Status | Evidence |
 |---|---:|---|
-| GO / GO WITH LIMITATIONS / NO-GO | GO | P0/P1 product gates are green; all five RC gates passed in run `25769178359` on `e73408c0`; Observability API Smoke passed in run `25764783852`. |
+| GO / GO WITH LIMITATIONS / NO-GO | GO WITH LIMITATIONS | P0 controlled-tester blockers are clear or explicitly caveated; all five RC gates passed in run `25769178359` on `e73408c0`; Observability API Smoke passed in run `25764783852`. |
 
 ## 2. P0 Blockers Only
 
@@ -59,6 +59,15 @@
 | Gate 4 SCA critical audit recorded | ✅ Full RC run `25769178359` |
 | Gate 5 UX smoke recorded | ✅ Full RC run `25769178359` |
 | Final release matrix updated with RC gate columns | ✅ |
+
+## 7. Controlled Tester Burn-Down Addendum 2026-05-14
+
+| Gate | Decision | Evidence | Tester Instruction Impact |
+|---|---:|---|---|
+| B-001 Pro Cloud real-speech transcript -> save -> history -> detail | CAVEAT ACCEPTED | `/private/tmp/speaksharp-b001-cloud-1778787039911/report.json` | Cloud is optional/caveated. Private is the primary validated Pro STT path. |
+| B-002 Basic useful session after Native Browser label fix | ✅ PASS | `/private/tmp/speaksharp-b002-basic-1778787906089/report.json` | Basic can be included. The raw failure flags were adjudicated as detector false positives: Basic correctly showed Upgrade to Pro, recorded transcript, saved, showed Native Browser in history/detail, and analytics were plausible. |
+| B-003 Basic custom filler persistence logout/login | ✅ PASS | `/private/tmp/speaksharp-b003-basic-custom-1778788308130/report.json` | Basic custom filler testing can be included. Custom term persisted after logout/login and defaults remained visible. |
+| B-004 Desktop toast/status/error usability | CAVEAT ACCEPTED | B-001/B-002/B-003 screenshots | Normal desktop save/no-speech/custom-add states are non-obstructive. Forced mic-denied and mobile sweeps remain excluded from this controlled desktop tester scope. |
 
 ## Direct Security Answers
 
