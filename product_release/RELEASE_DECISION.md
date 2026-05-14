@@ -67,7 +67,7 @@
 | B-001 Pro Cloud real-speech transcript -> save -> history -> detail | CAVEAT ACCEPTED | `/private/tmp/speaksharp-b001-cloud-1778787039911/report.json` | Cloud is optional/caveated. Private is the primary validated Pro STT path. |
 | B-002 Basic useful session after Native Browser label fix | ✅ PASS | `/private/tmp/speaksharp-b002-basic-1778787906089/report.json` | Basic can be included. The raw failure flags were adjudicated as detector false positives: Basic correctly showed Upgrade to Pro, recorded transcript, saved, showed Native Browser in history/detail, and analytics were plausible. |
 | B-003 Basic custom filler persistence logout/login | ✅ PASS | `/private/tmp/speaksharp-b003-basic-custom-1778788308130/report.json` | Basic custom filler testing can be included. Custom term persisted after logout/login and defaults remained visible. |
-| B-004 Desktop toast/status/error usability | CAVEAT ACCEPTED | B-001/B-002/B-003 screenshots | Normal desktop save/no-speech/custom-add states are non-obstructive. Forced mic-denied and mobile sweeps remain excluded from this controlled desktop tester scope. |
+| B-004 Desktop toast/status/error usability and Session runtime stability | ✅ PASS | `/private/tmp/speaksharp-b004-stability-1778794383198/report.json`; commits `0782e616`, `3773b4e9`, `ea45e6e4`, `be71bc76`, `b40321dc`, `d6c3fc5c` | Desktop Session stability and status/error handling can be included. Fresh Chrome CDP proof showed no idle STT lifecycle loop, actionable recording-start failure copy, no stuck Recording/Listening state, and three Analytics/Session navigation cycles remained usable. |
 
 ## Direct Security Answers
 
