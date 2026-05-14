@@ -26,7 +26,7 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
         <div className={`bg-card border border-border rounded-xl p-4 shadow-card h-full ${className}`}>
             <div className="flex items-center justify-between mb-2">
                 <h2 className="text-lg font-semibold text-foreground">
-                    Filler Words <span data-testid="filler-count-value" className="text-secondary ml-1">{fillerCount > 0 ? `(${fillerCount})` : ''}</span>
+                    Filler Words <span data-testid="filler-count-value" className="text-muted-foreground ml-1">{fillerCount > 0 ? `(${fillerCount})` : ''}</span>
                 </h2>
                 {headerAction}
             </div>

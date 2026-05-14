@@ -27,7 +27,7 @@ export const SpeakingRateCard: React.FC<SpeakingRateCardProps> = ({
                     {wpm}
                 </div>
                 <p className="text-xs text-muted-foreground mb-3 uppercase tracking-wider">Words Per Minute</p>
-                <Badge variant="secondary" className="bg-secondary/10 text-secondary hover:bg-secondary/20 border-none">
+                <Badge variant="secondary" className="bg-muted text-muted-foreground hover:bg-muted border-none">
                     {wpmLabel || 'Optimal'}
                 </Badge>
             </div>

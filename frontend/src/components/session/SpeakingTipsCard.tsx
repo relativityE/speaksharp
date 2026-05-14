@@ -43,7 +43,7 @@ export const SpeakingTipsCard: React.FC<SpeakingTipsCardProps> = ({
 
     return (
         <div className={`bg-secondary/10 border border-border rounded-xl ${isCompact ? 'p-3' : 'p-6'} shadow-card ${className}`}>
-            <h2 className={`${isCompact ? 'text-base' : 'text-lg'} font-semibold text-secondary ${isCompact ? 'mb-1' : 'mb-2'} flex items-center gap-2`}>
+            <h2 className={`${isCompact ? 'text-base' : 'text-lg'} font-semibold text-muted-foreground ${isCompact ? 'mb-1' : 'mb-2'} flex items-center gap-2`}>
                 <Lightbulb className={`${isCompact ? 'h-4 w-4' : 'h-5 w-5'}`} />
                 Quick Tip
             </h2>
