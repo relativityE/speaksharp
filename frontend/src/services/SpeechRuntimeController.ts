@@ -1099,6 +1099,7 @@ export class SpeechRuntimeController {
                 }
 
                 let result = null;
+                let guardedStopStatus: SttStatus | null = null;
                 logger.info({ wasRecording, state: this.state, sessionId: this.sessionId }, '[DEBUG-STOP] state-check');
                 if (wasRecording) {
                     const sessionId = this.sessionId;
@@ -1150,11 +1151,12 @@ export class SpeechRuntimeController {
                             });
                             if (token.cancelled || token.version !== this.lifecycleVersion) return null;
 
-                            store.setSTTStatus({
+                            guardedStopStatus = {
                                 type: 'warning',
                                 message: "We didn't detect enough speech to save this session.",
                                 detail: 'Try recording again and speak for at least a few seconds.'
-                            });
+                            };
+                            store.setSTTStatus(guardedStopStatus);
                             this.updateSessionPersisted(false);
                             store.setSessionSaved(false);
                             result = null;
@@ -1243,6 +1245,9 @@ export class SpeechRuntimeController {
 
                 logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
+                if (guardedStopStatus) {
+                    useSessionStore.getState().setSTTStatus(guardedStopStatus);
+                }
                 logger.info('[DEBUG-STOP] transition READY done');
                 return result;
             } catch (err: unknown) {
