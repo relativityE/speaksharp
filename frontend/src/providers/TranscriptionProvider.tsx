@@ -1,4 +1,4 @@
-import React, { useEffect, useState, ReactNode } from 'react';
+import React, { useEffect, useRef, useState, ReactNode } from 'react';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
 import { getEffectiveSubscriptionStatus } from '@/constants/subscriptionTiers';
@@ -24,6 +24,7 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
     const runtimeState = useStore((state) => state.runtimeState);
     const selectedMode = useStore((state) => state.sttMode);
     const [ready, setReady] = useState(false);
+    const lastPolicyKeyRef = useRef<string | null>(null);
 
 
     // 2. Handshake Invariant: Confirm readiness whenever entering an active state
@@ -64,7 +65,11 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
 
         const isPro = tier === 'pro';
         const newPolicy = buildPolicyForUser(isPro, isPro ? selectedMode : null);
-        speechRuntimeController.updatePolicy(newPolicy);
+        const policyKey = JSON.stringify(newPolicy);
+        if (lastPolicyKeyRef.current !== policyKey) {
+            lastPolicyKeyRef.current = policyKey;
+            speechRuntimeController.updatePolicy(newPolicy);
+        }
         
         // 🛡️ Forensic Barrier: Signal profile hydration and policy sync are complete
         syncProfileReady(true);
@@ -78,7 +83,6 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
         profile?.promo_expires_at,
         profile?.stripe_subscription_id,
         profile?.subscription_id,
-        profile,
         selectedMode,
     ]);
 
