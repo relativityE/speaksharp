@@ -99,6 +99,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
     // Explicit defaults for status display message
     let displayMessage = status.message?.replace(/^(?:⛔|⚠️|🚫)\s*/u, '').trim();
+    if (status.type === 'error' && /^error occurred$/i.test(displayMessage || '')) {
+        displayMessage = '';
+    }
 
     if (!displayMessage) {
         switch (status.type) {

@@ -64,4 +64,20 @@ describe('StatusNotificationBar', () => {
         expect(statusBar).toHaveClass('bg-white', 'border-slate-300');
         expect(statusBar).not.toHaveClass('bg-emerald-50', 'border-emerald-200');
     });
+
+    it('replaces generic error copy with actionable recording recovery copy', () => {
+        vi.mocked(useSessionStore).mockImplementation((selector: unknown) => {
+            const state = {
+                activeEngine: 'native',
+                isListening: false,
+                modelLoadingProgress: null,
+            };
+            return typeof selector === 'function' ? selector(state) : state;
+        });
+
+        render(<StatusNotificationBar status={{ type: 'error', message: 'Error occurred' }} />);
+
+        expect(screen.queryByText(/^Error occurred$/i)).toBeNull();
+        expect(screen.getByText(/Recording could not start/i)).toBeDefined();
+    });
 });
