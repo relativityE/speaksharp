@@ -50,6 +50,7 @@ export const SessionPage: React.FC = () => {
         setSunsetModal,
         pauseMetrics,
         transcriptContent,
+        interimTranscript,
         fillerData,
         isProUser,
         activeEngine,
@@ -63,7 +64,7 @@ export const SessionPage: React.FC = () => {
         if (transcriptContainerRef.current && transcriptContent) {
             transcriptContainerRef.current.scrollTop = transcriptContainerRef.current.scrollHeight;
         }
-    }, [transcriptContent]);
+    }, [transcriptContent, interimTranscript]);
 
     useEffect(() => {
         if (!showPromoExpiredDialog) {
@@ -231,6 +232,7 @@ export const SessionPage: React.FC = () => {
                         <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
                             <LiveTranscriptPanel
                                 transcript={transcriptContent}
+                                interimTranscript={interimTranscript}
                                 history={history}
                                 isListening={isListening}
                                 containerRef={transcriptContainerRef}

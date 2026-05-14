@@ -6,6 +6,7 @@ import { parseTranscriptForHighlighting } from '@/utils/highlightUtils';
 
 interface LiveTranscriptPanelProps {
     transcript: string;
+    interimTranscript?: string;
     isListening: boolean;
     containerRef?: React.RefObject<HTMLDivElement>;
     userWords?: string[];
@@ -19,6 +20,7 @@ interface LiveTranscriptPanelProps {
  */
 export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     transcript,
+    interimTranscript = '',
     isListening,
     containerRef,
     userWords = [],
@@ -26,6 +28,8 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     history = [],
 }) => {
     const tokens = parseTranscriptForHighlighting(transcript, userWords);
+    const hasTranscript = transcript.trim() !== '';
+    const hasInterimTranscript = interimTranscript.trim() !== '';
 
     return (
         <div
@@ -70,7 +74,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 ))}
 
                 {/* Engine Handoff Separator */}
-                {history.length > 0 && transcript.trim() !== '' && (
+                {history.length > 0 && hasTranscript && (
                     <div className="flex items-center gap-4 my-6 select-none pointer-events-none">
                         <div className="flex-1 h-px bg-gradient-to-r from-transparent via-primary/30 to-transparent" />
                         <span className="text-[10px] font-semibold text-primary/80">Engine Handoff</span>
@@ -79,14 +83,14 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 )}
 
                 {/* Current Active Segment */}
-                {isListening && (!transcript || transcript.trim() === '') ? (
+                {isListening && !hasTranscript && !hasInterimTranscript ? (
                     <p className="text-muted-foreground animate-pulse">Listening...</p>
-                ) : transcript && transcript.trim() !== '' ? (
-                    <div className="text-foreground text-lg">
-                        {tokens.map((token, i) => {
+                ) : hasTranscript || hasInterimTranscript ? (
+                    <div className="text-foreground text-lg leading-relaxed">
+                        {tokens.map((token) => {
                             if (token.type === 'error') {
                                 return (
-                                    <span key={i} className="text-destructive font-bold mx-0.5 opacity-80 text-sm tracking-wide">
+                                    <span key={token.id} className="text-destructive font-bold opacity-80 text-sm tracking-wide">
                                         {token.transcript}
                                     </span>
                                 );
@@ -94,16 +98,22 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             if (token.type === 'filler') {
                                 return (
                                     <span
-                                        key={i}
+                                        key={token.id}
                                         style={{ color: token.color, backgroundColor: `${token.color}15` }}
-                                        className="px-1.5 py-0.5 rounded mx-0.5 font-bold transition-all border border-current"
+                                        className="px-1.5 py-0.5 rounded font-bold transition-all border border-current"
                                     >
                                         {token.transcript}
                                     </span>
                                 );
                             }
-                            return <span key={i} className="mx-0.5">{token.transcript}</span>;
+                            return <span key={token.id}>{token.transcript}</span>;
                         })}
+                        {hasInterimTranscript && (
+                            <span className="text-muted-foreground">
+                                {hasTranscript ? ' ' : ''}
+                                {interimTranscript}
+                            </span>
+                        )}
                     </div>
                 ) : (
                     <p className="text-muted-foreground">Words appear here...</p>

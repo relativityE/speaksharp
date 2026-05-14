@@ -49,11 +49,11 @@ export const HeroSection = () => {
 
             <motion.h1
               variants={itemVariants}
-              className="text-4xl sm:text-6xl lg:text-[64px] font-extrabold leading-[1.08] tracking-tight"
+              className="text-5xl sm:text-6xl lg:text-[72px] font-extrabold leading-[1.05] tracking-tight"
             >
-              <span className="text-foreground">Practice speaking clearly</span>
+              <span className="text-foreground">Private Practice.</span>
               <br />
-              <span className="text-primary">before it matters.</span>
+              <span className="text-gradient-hero">Public Impact!</span>
             </motion.h1>
 
             <motion.p

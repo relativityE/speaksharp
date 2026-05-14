@@ -31,6 +31,7 @@ export const useSessionLifecycle = () => {
     const { updateStreak } = useStreak();
     const { userFillerWords } = useUserFillerWords();
     const activeEngine = useSessionStore(state => state.activeEngine);
+    const interimTranscript = useSessionStore(state => state.transcript.partial);
     const { runtimeState } = useTranscriptionContext();
 
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
@@ -399,6 +400,7 @@ export const useSessionLifecycle = () => {
         setSunsetModal,
         pauseMetrics,
         transcriptContent: transcript.transcript,
+        interimTranscript,
         fillerData,
         isProUser,
         activeEngine,
