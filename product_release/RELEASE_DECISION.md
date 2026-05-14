@@ -1,6 +1,6 @@
 # Controlled Tester Release Decision
 
-**Last updated:** 2026-05-12
+**Last updated:** 2026-05-14
 **Release type:** Controlled human tester release
 **Current decision:** GO
 **Evidence baseline commit:** `e73408c0`
@@ -29,13 +29,13 @@
 |---|---|
 | Native STT varies by browser | Tester instructions must say Native is Chrome/browser-dependent. |
 | Backend tier remains internally `free` while UI says Basic | Tester-facing UI says Basic; backend migration is intentionally deferred. |
-| Cloud provider limits/rate/concurrency | Tell testers Cloud is included but provider-backed; retry/report if provider errors appear. |
+| Cloud provider limits/rate/concurrency | Cloud is caveated for this controlled tester round. Private is the primary validated Pro STT path; Cloud may be tried as a limited provider-backed path and any missing transcript/provider issue should be reported. |
 | Observability dashboards can still have provider-side delay | Use `Observability API Smoke` as automated readback evidence and `.github/ISSUE_TEMPLATE/tester-feedback.yml` as human fallback during the trial. |
 
 ## 4. Known Limitations To Disclose
 
 - Native browser STT varies by browser and is validated for Chrome.
-- Cloud is provider-backed and may be rate/concurrency limited.
+- Cloud is caveated for controlled testers: Cloud selection, runtime authority, metadata, and no-speech guard are validated, but the latest Chrome CDP live pass did not prove real-human-speech Cloud transcript cradle-to-grave. Treat Cloud as an optional limited validation path, not the primary Pro path.
 - Backend still uses internal `free` tier while UI labels the baseline tier as Basic.
 - Large group concurrency is outside this controlled trial.
 - Production paid billing beyond test-mode Stripe flow is outside this controlled trial.
@@ -70,7 +70,7 @@
 | Could test/E2E mode leak to production? | Current Gate 2 evidence says no known leak. | Env detection tests, production build/CI validation, and `pnpm rc:gate:2:sast`. |
 | Are Stripe/Gemini/AssemblyAI secrets server-only? | Current architecture expects server-only provider secrets; Sentry/PostHog public keys are frontend-safe observability keys. | Edge Function tests and env validation; final SAST should inspect no provider secret is exposed as `VITE_*`. |
 | Is Native clearly browser-dependent? | Yes, for release materials: Native is Chrome/browser-dependent. | Native manual proof, release decision limitation, and Gate 5 UX smoke. |
-| Is Cloud included or excluded from tester instructions? | Included. | Latest Cloud artifact run `25710568638` passed. |
+| Is Cloud included or excluded from tester instructions? | Caveated / optional. Private is the primary validated Pro STT path for this controlled tester round. Cloud selection, runtime authority, metadata, and empty/no-speech guard passed, but real-human-speech Cloud transcript cradle-to-grave remains unproven from the agent-run Chrome CDP pass. | B-001 Chrome CDP evidence: `/private/tmp/speaksharp-b001-cloud-1778787039911/report.json`; Cloud artifact run `25710568638` remains supplemental automation evidence. |
 | Is Private first-use understandable? | Automated UX smoke says the first-use/core journey is usable; subjective copy polish remains P2. | Private cache proof plus `pnpm rc:gate:5:ux` passing 14/14. |
 | Is there a manual feedback fallback if observability readback is incomplete? | Yes. | `.github/ISSUE_TEMPLATE/tester-feedback.yml`. |
 
