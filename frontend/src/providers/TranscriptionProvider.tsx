@@ -38,8 +38,10 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
         // 1. Immediate Handshake (UI is mounted and ready for data)
         speechRuntimeController.confirmSubscriberHandshake();
 
-        // 2. Ensure engine is warming up on mount (Clean Pipeline Entry)
-        speechRuntimeController.warmUp().then(() => {
+        // 2. Ensure the lightweight browser engine is warm before profile policy
+        // resolves. Avoid defaulting to Private here; Basic users should not
+        // initialize the local model unless they explicitly select that path.
+        speechRuntimeController.warmUp('native').then(() => {
             setReady(true);
             logger.info('[TranscriptionProvider] ✅ Provider warm-up signal received');
         }).catch(err => {

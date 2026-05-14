@@ -145,6 +145,26 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(store.activeEngine).toBe(null);
     });
 
+    it('preserves actionable mic errors while cleanup terminates the failed start', async () => {
+        (controller as unknown as { handleError: (error: Error) => void }).handleError(
+            new Error('NotAllowedError: microphone permission denied')
+        );
+        await controller.whenStable();
+
+        expect(controller.getState()).toBe('FAILED_VISIBLE');
+        expect(useSessionStore.getState().sttStatus).toEqual(expect.objectContaining({
+            type: 'error',
+            message: 'Microphone access is denied. Please grant permission in your browser settings.',
+        }));
+
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(controller.getState()).toBe('TERMINATED');
+        expect(useSessionStore.getState().sttStatus).toEqual(expect.objectContaining({
+            type: 'error',
+            message: 'Microphone access is denied. Please grant permission in your browser settings.',
+        }));
+    });
+
     it('preserves an allowed explicit Cloud selection during late Pro policy sync', async () => {
         const store = useSessionStore.getState();
         store.setSTTMode('cloud');
@@ -187,6 +207,22 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             allowFallback: false,
             executionIntent: 'prod-free',
         }));
+    });
+
+    it('delegates policy changes once and avoids duplicate warm-up loops', async () => {
+        controller.updatePolicy({
+            allowNative: true,
+            allowCloud: false,
+            allowPrivate: false,
+            preferredMode: 'native',
+            allowFallback: false,
+            executionIntent: 'prod-free',
+        });
+        await controller.whenStable();
+
+        const service = (controller as unknown as { service: { updatePolicy: ReturnType<typeof vi.fn>; warmUp: ReturnType<typeof vi.fn> } }).service;
+        expect(service.updatePolicy).toHaveBeenCalledTimes(1);
+        expect(service.warmUp).not.toHaveBeenCalled();
     });
 
     it('applies the requested warm-up mode to the service policy before readiness checks', async () => {

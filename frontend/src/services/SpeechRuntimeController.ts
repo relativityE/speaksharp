@@ -349,7 +349,6 @@ export class SpeechRuntimeController {
         const effectivePolicy = this.preserveAllowedCloudSelection(policy);
         this.policy = effectivePolicy;
         if (this.service) {
-            const currentMode = effectivePolicy.preferredMode ?? 'private';
             void this.enqueue(async (token) => {
                 // Token check FIRST
                 if (token.cancelled || token.version !== this.lifecycleVersion) return; 
@@ -358,11 +357,6 @@ export class SpeechRuntimeController {
                 if (!service) return;         // Explicit null check
 
                 await service.updatePolicy(effectivePolicy);
-
-                // Re-warm with the same policy in the serialized command queue so
-                // stale entitlement/mode sync cannot leave the singleton service
-                // initialized in a previous mode while the UI policy has advanced.
-                await service.warmUp(currentMode);
                 
                 // Re-check after await
                 if (token.cancelled || token.version !== this.lifecycleVersion) return;
@@ -521,6 +515,14 @@ export class SpeechRuntimeController {
         return Math.max(chunkTranscript.length, storeTranscript.length);
     }
 
+    private isActionableStartError(status?: SttStatus): boolean {
+        if (!status || status.type !== 'error') {
+            return false;
+        }
+
+        return /microphone|mic|permission|recording could not start/i.test(status.message);
+    }
+
     private async transition(newState: RuntimeState, error?: Error, token?: LifecycleToken): Promise<void> {
         const previousState = this.state;
         this.state = newState;
@@ -560,11 +562,21 @@ export class SpeechRuntimeController {
         this.lock.updateState(newState);
 
         if (isExitTransition) {
+            const currentStatus = store.sttStatus;
+            const shouldPreserveActionableError =
+                newState === 'TERMINATED' &&
+                this.isActionableStartError(currentStatus);
+
             store.setActiveEngine(null);
-            store.setSTTStatus({ type: 'idle', message: 'Ready to record' });
+            if (!shouldPreserveActionableError) {
+                store.setSTTStatus({ type: 'idle', message: 'Ready to record' });
+            }
 
             if (wasActive) {
                 store.stopSession();
+                if (shouldPreserveActionableError) {
+                    store.setSTTStatus(currentStatus);
+                }
                 if (newState === 'TERMINATED') {
                     await this.service?.destroy();
                     this.sessionId = null;
