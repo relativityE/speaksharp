@@ -13,8 +13,8 @@ interface StatusNotificationBarProps {
 const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string; iconClass: string }> = {
     idle: {
         icon: Info,
-        bgClass: 'bg-white border-border shadow-sm',
-        textClass: 'text-muted-foreground',
+        bgClass: 'bg-white border-slate-300 shadow-sm',
+        textClass: 'text-slate-700',
         iconClass: 'text-muted-foreground',
     },
     initializing: {
@@ -31,8 +31,8 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
     },
     ready: {
         icon: CheckCircle2,
-        bgClass: 'bg-emerald-50 border-emerald-200 shadow-sm',
-        textClass: 'text-foreground',
+        bgClass: 'bg-white border-slate-300 shadow-sm',
+        textClass: 'text-slate-700',
         iconClass: 'text-success',
     },
     recording: {
@@ -133,7 +133,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
     return (
         <div
-            className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 w-full px-4 sm:px-5 ${isProminent ? 'py-4' : 'py-3'} rounded-lg border ${config.bgClass} ${className} transition-all duration-300`}
+            className={`flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 w-full px-4 ${isProminent ? 'py-4' : 'py-3'} rounded-xl border ${config.bgClass} ${className} transition-all duration-300`}
             role="status"
             aria-live="polite"
             data-testid="live-session-header"

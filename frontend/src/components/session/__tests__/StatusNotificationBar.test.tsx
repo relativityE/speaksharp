@@ -47,4 +47,21 @@ describe('StatusNotificationBar', () => {
 
         expect(screen.queryByTitle(/Vault Mode: On-Device Processing/i)).toBeNull();
     });
+
+    it('uses neutral styling for ready state instead of a full green alert band', () => {
+        vi.mocked(useSessionStore).mockImplementation((selector: unknown) => {
+            const state = {
+                activeEngine: 'native',
+                isListening: false,
+                modelLoadingProgress: null,
+            };
+            return typeof selector === 'function' ? selector(state) : state;
+        });
+
+        render(<StatusNotificationBar status={{ type: 'ready', message: 'Mic ready' }} />);
+
+        const statusBar = screen.getByTestId('live-session-header');
+        expect(statusBar).toHaveClass('bg-white', 'border-slate-300');
+        expect(statusBar).not.toHaveClass('bg-emerald-50', 'border-emerald-200');
+    });
 });
