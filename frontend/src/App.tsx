@@ -5,7 +5,6 @@ import { useCheckoutNotifications } from '@/hooks/useCheckoutNotifications';
 import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ProfileGuard } from './components/ProfileGuard';
-import { Loader2 } from 'lucide-react';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { TranscriptionProvider } from './providers/TranscriptionProvider';
 import { AnimatePresence } from 'framer-motion';
@@ -49,8 +48,16 @@ const DesignSystemPage = React.lazy(() => import('./pages/DesignSystemPage'));
 const PricingPage = React.lazy(() => import('./pages/PricingPage').then(module => ({ default: module.PricingPage })));
 
 const PageLoader = () => (
-  <div className="flex h-[50vh] w-full items-center justify-center">
-    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+  <div className="min-h-[calc(100vh-var(--header-height))] w-full bg-background px-4 pb-16 pt-28">
+    <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="space-y-4">
+        <div className="h-7 w-56 rounded-lg bg-white shadow-sm" />
+        <div className="h-4 w-80 max-w-full rounded bg-white shadow-sm" />
+        <div className="mt-6 h-12 rounded-xl border border-border bg-white shadow-sm" />
+        <div className="h-80 rounded-2xl border border-border bg-white shadow-sm" />
+      </div>
+      <div className="hidden h-80 rounded-2xl border border-border bg-white shadow-sm lg:block" />
+    </div>
   </div>
 );
 
