@@ -24,8 +24,12 @@ import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionT
 
 // Error handling helper
 function handleTranscriptionError(err: Error) {
+    const rawMessage = err.message || '';
+    const message = rawMessage.trim() && rawMessage !== 'Error occurred'
+        ? rawMessage
+        : 'Recording could not start. Check microphone permission and try again.';
     logger.error({ err }, 'Transcription Error');
-    toast.error(err.message, { id: 'stt-error-toast', duration: 5000 });
+    toast.error(message, { id: 'stt-error-toast', duration: 5000 });
 }
 
 /**
