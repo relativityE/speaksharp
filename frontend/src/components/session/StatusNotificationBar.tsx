@@ -113,7 +113,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 displayMessage = 'Ready to record';
                 break;
             case 'error':
-                displayMessage = 'Error occurred';
+                displayMessage = 'Recording could not start. Check microphone permission and try again.';
                 break;
             case 'download-required':
                 displayMessage = 'Private setup needed';
