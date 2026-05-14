@@ -64,6 +64,7 @@ export const getSessionHistory = async (
       .from('sessions')
       .select(SESSION_ANALYSIS_SELECT)
       .eq('user_id', userId)
+      .or('status.is.null,status.eq.completed')
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -309,7 +310,8 @@ export const getSessionCount = async (userId: string): Promise<number> => {
     const { count, error } = await supabase
       .from('sessions')
       .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .or('status.is.null,status.eq.completed');
 
     if (error) {
       logger.error({ error }, 'Error fetching session count:');

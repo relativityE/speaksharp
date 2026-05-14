@@ -1114,6 +1114,10 @@ export class SpeechRuntimeController {
                         const resultTranscript = result.transcript?.trim() || '';
                         const finalTranscript = [resultTranscript, chunkTranscript, storeTranscript]
                             .sort((a, b) => b.split(/\s+/).filter(Boolean).length - a.split(/\s+/).filter(Boolean).length)[0] || '';
+                        const meaningfulTranscript = finalTranscript
+                            .replace(/\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi, '')
+                            .trim();
+                        const meaningfulWordCount = meaningfulTranscript.split(/\s+/).filter(Boolean).length;
                         if ((service.getMode?.() ?? stopEntryMode) === 'cloud') {
                             logger.warn({
                                 willSave: Boolean(result && sessionId && finalTranscript),
@@ -1131,79 +1135,104 @@ export class SpeechRuntimeController {
                                 sessionId,
                             }, '[CLOUD_SAVE_DECISION]');
                         }
-                        const fillerWords = countFillerWords(finalTranscript, this.userWords);
-                        const wordCount = result.stats.total_words || finalTranscript.split(/\s+/).filter(Boolean).length;
-                        const wpm = duration > 0 ? Math.round((wordCount / duration) * 60) : 0;
-                        const accuracy = result.stats.accuracy;
-                        const fillerCount = fillerWords.total?.count || 0;
-                        const fillerPercentage = wordCount > 0 ? (fillerCount / wordCount) * 100 : 0;
-                        const errorTagCount = (finalTranscript.match(/\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi) || []).length;
-                        const clarityScore = wordCount > 0
-                            ? Math.max(0, Math.min(100, Math.round(100 - (fillerPercentage * 1.5) - (errorTagCount * 3))))
-                            : 100;
 
-                        if (store.chunks.length === 0) {
-                            store.setChunks([{
-                                transcript: finalTranscript,
-                                timestamp: startTime || Date.now(),
-                                isFinal: true
-                            }]);
-                        } else if (finalTranscript && finalTranscript.length > store.transcript.transcript.length) {
-                            store.appendChunk({
-                                transcript: finalTranscript,
-                                timestamp: Date.now(),
-                                isFinal: true,
-                                isCorrection: true
-                            });
-                        }
-
-                        const supabase = getSupabaseClient();
-                        const { data: { session } } = await supabase.auth.getSession();
-                        const userId = session?.user?.id;
-
-                        if (userId) {
-                            const { updateLocalUsage } = await import('../hooks/useUsageLimit');
-                            updateLocalUsage(userId, Math.round(duration));
-                        }
-
-                        await completeSession(sessionId, {
-                            status: 'completed',
-                            transcript: finalTranscript,
-                            duration: Math.round(duration)
-                        });
-                        if (token.cancelled || token.version !== this.lifecycleVersion) return null;
-
-                        logger.info({ sessionId }, '[DEBUG-STOP] updateSession starting');
-                        await updateSession(sessionId, {
-                            total_words: wordCount,
-                            filler_words: fillerWords as unknown as FillerCounts,
-                            custom_words: this.userWords.reduce<Record<string, { count: number }>>((acc, word) => {
-                                acc[word] = { count: fillerWords[word]?.count || 0 };
-                                return acc;
-                            }, {}),
-                            pause_metrics: store.pauseMetrics,
-                            wpm,
-                            clarity_score: clarityScore,
-                            accuracy
-                        });
-                        logger.info('[DEBUG-STOP] updateSession done');
-
-                        this.updateStreakInternal();
-
-                        if (typeof window !== 'undefined') {
-                            logger.info('[DEBUG-STOP] pushing ANALYTICS_COMPLETE');
-                            const { pushE2EEvent } = await import('../lib/e2eProbe');
-                            pushE2EEvent('ANALYSIS_COMPLETE', {
+                        if (meaningfulWordCount === 0) {
+                            logger.warn({
                                 sessionId,
-                                fillerCount: fillerWords.total.count,
+                                transcriptLength: finalTranscript.length,
+                                duration,
+                                mode: service.getMode?.() ?? stopEntryMode,
+                            }, '[SESSION_SAVE_GUARD] Empty or non-speech session discarded');
+
+                            await completeSession(sessionId, {
+                                status: 'failed',
+                                reason: 'No meaningful speech detected; session was not saved to history.'
+                            });
+                            if (token.cancelled || token.version !== this.lifecycleVersion) return null;
+
+                            store.setSTTStatus({
+                                type: 'warning',
+                                message: "We didn't detect enough speech to save this session.",
+                                detail: 'Try recording again and speak for at least a few seconds.'
+                            });
+                            this.updateSessionPersisted(false);
+                            store.setSessionSaved(false);
+                            result = null;
+                        } else {
+                            const fillerWords = countFillerWords(finalTranscript, this.userWords);
+                            const wordCount = result.stats.total_words || finalTranscript.split(/\s+/).filter(Boolean).length;
+                            const wpm = duration > 0 ? Math.round((wordCount / duration) * 60) : 0;
+                            const accuracy = result.stats.accuracy;
+                            const fillerCount = fillerWords.total?.count || 0;
+                            const fillerPercentage = wordCount > 0 ? (fillerCount / wordCount) * 100 : 0;
+                            const errorTagCount = (finalTranscript.match(/\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi) || []).length;
+                            const clarityScore = wordCount > 0
+                                ? Math.max(0, Math.min(100, Math.round(100 - (fillerPercentage * 1.5) - (errorTagCount * 3))))
+                                : 100;
+
+                            if (store.chunks.length === 0) {
+                                store.setChunks([{
+                                    transcript: finalTranscript,
+                                    timestamp: startTime || Date.now(),
+                                    isFinal: true
+                                }]);
+                            } else if (finalTranscript && finalTranscript.length > store.transcript.transcript.length) {
+                                store.appendChunk({
+                                    transcript: finalTranscript,
+                                    timestamp: Date.now(),
+                                    isFinal: true,
+                                    isCorrection: true
+                                });
+                            }
+
+                            const supabase = getSupabaseClient();
+                            const { data: { session } } = await supabase.auth.getSession();
+                            const userId = session?.user?.id;
+
+                            if (userId) {
+                                const { updateLocalUsage } = await import('../hooks/useUsageLimit');
+                                updateLocalUsage(userId, Math.round(duration));
+                            }
+
+                            await completeSession(sessionId, {
+                                status: 'completed',
+                                transcript: finalTranscript,
+                                duration: Math.round(duration)
+                            });
+                            if (token.cancelled || token.version !== this.lifecycleVersion) return null;
+
+                            logger.info({ sessionId }, '[DEBUG-STOP] updateSession starting');
+                            await updateSession(sessionId, {
+                                total_words: wordCount,
+                                filler_words: fillerWords as unknown as FillerCounts,
+                                custom_words: this.userWords.reduce<Record<string, { count: number }>>((acc, word) => {
+                                    acc[word] = { count: fillerWords[word]?.count || 0 };
+                                    return acc;
+                                }, {}),
+                                pause_metrics: store.pauseMetrics,
                                 wpm,
+                                clarity_score: clarityScore,
                                 accuracy
                             });
-                        }
+                            logger.info('[DEBUG-STOP] updateSession done');
 
-                        logger.info('[DEBUG-STOP] calling updateSessionPersisted(true)');
-                        this.updateSessionPersisted(true);
-                        useSessionStore.getState().setSessionSaved(true);
+                            this.updateStreakInternal();
+
+                            if (typeof window !== 'undefined') {
+                                logger.info('[DEBUG-STOP] pushing ANALYTICS_COMPLETE');
+                                const { pushE2EEvent } = await import('../lib/e2eProbe');
+                                pushE2EEvent('ANALYSIS_COMPLETE', {
+                                    sessionId,
+                                    fillerCount: fillerWords.total.count,
+                                    wpm,
+                                    accuracy
+                                });
+                            }
+
+                            logger.info('[DEBUG-STOP] calling updateSessionPersisted(true)');
+                            this.updateSessionPersisted(true);
+                            useSessionStore.getState().setSessionSaved(true);
+                        }
                     }
                 }
 

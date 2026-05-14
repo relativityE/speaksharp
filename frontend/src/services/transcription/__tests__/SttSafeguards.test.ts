@@ -176,6 +176,39 @@ describe('STT Safeguards Unit Tests', () => {
         expect((controller as unknown as { heartbeatInterval: unknown }).heartbeatInterval).toBeNull();
     });
 
+    it('should not complete or analyze empty sessions when no meaningful speech is detected', async () => {
+        storageMocks.saveSession.mockResolvedValue({
+            session: { id: 'sess-123' },
+            usageExceeded: false
+        });
+
+        vi.spyOn(service, 'stopTranscription').mockResolvedValue({
+            success: true,
+            transcript: '',
+            stats: {
+                transcript: '',
+                total_words: 0,
+                accuracy: 0,
+                duration: 0
+            }
+        });
+
+        await controller.startRecording(mockPolicy);
+        controller.confirmSubscriberHandshake();
+        await controller.whenStable();
+        storageMocks.completeSession.mockClear();
+        storageMocks.updateSession.mockClear();
+
+        await controller.stopRecording();
+        await controller.whenStable();
+
+        expect(storageMocks.completeSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
+            status: 'failed',
+            reason: expect.stringMatching(/No meaningful speech/i)
+        }));
+        expect(storageMocks.updateSession).not.toHaveBeenCalled();
+    });
+
     it('should persist the full analysis snapshot when transcription stops', async () => {
         storageMocks.saveSession.mockResolvedValue({
             session: { id: 'sess-123' },
