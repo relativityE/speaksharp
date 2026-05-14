@@ -47,7 +47,7 @@ describe('Index', () => {
     });
 
     describe('Authenticated State', () => {
-        it('should redirect to /session when authenticated', () => {
+        it('should render the landing page when authenticated', () => {
             mockUseAuthProvider.mockReturnValue({
                 session: { user: { id: 'test-user' } } as AuthProvider.AuthContextType['session'],
                 loading: false,
@@ -58,9 +58,8 @@ describe('Index', () => {
 
             render(<Index />, { route: '/' });
 
-            // Should not render landing page components when redirecting
-            expect(screen.queryByTestId('hero-section')).not.toBeInTheDocument();
-            expect(screen.queryByTestId('features-section')).not.toBeInTheDocument();
+            expect(screen.getByTestId('hero-section')).toBeInTheDocument();
+            expect(screen.getByTestId('features-section')).toBeInTheDocument();
         });
     });
 
