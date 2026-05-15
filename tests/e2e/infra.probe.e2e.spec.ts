@@ -126,7 +126,7 @@ test.describe('Core System Validation (Deterministic)', () => {
       } satisfies Partial<SSE2EManifest> as SSE2EManifest;
     }, MOCK_STT_AVAILABILITY);
 
-    await goToApp(page, '/');
+    await goToApp(page, '/session');
   });
 
   // 1. App Boot Integrity
