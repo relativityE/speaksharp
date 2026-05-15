@@ -3,8 +3,8 @@ import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode }
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
-const E2E_PRO_EMAIL = process.env.E2E_PRO_EMAIL;
-const E2E_PRO_PASSWORD = process.env.E2E_PRO_PASSWORD;
+const E2E_PRO_EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
+const E2E_PRO_PASSWORD = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 const TRANSCRIPT_PATTERN = /\b(stale|beer|pepper|beef|swan|park|twister|wild|puppy|quick|brown|fox)\b/i;
 const PLACEHOLDER_TRANSCRIPT_PATTERN = /\b(words appear here|listening)\b/i;
 const ASSEMBLYAI_CONCURRENCY_PATTERN = /too many concurrent sessions/i;

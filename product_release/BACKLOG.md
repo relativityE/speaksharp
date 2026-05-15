@@ -40,10 +40,10 @@ This file tracks known issues, tech debt, and deferred cleanup that should not i
 | Closed Date | Area | Result | Evidence |
 |---|---|---|---|
 | 2026-05-15 | GitHub Actions maintenance | Closed. Artifact actions now run on Node 24-compatible versions. | Commit `1066ba6d` upgraded `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`; `CI - Test Audit` run `25944598514` passed without the prior Node 20 artifact annotation. |
+| 2026-05-15 | Test user workflows | Closed. `scripts/setup-test-users.mjs` now accepts both the documented workflow inputs (`NEW_FREE_COUNT` / `NEW_PRO_COUNT`) and legacy local names (`NUM_FREE_USERS` / `NUM_PRO_USERS`). | This prevents manual workflow counts from being ignored when provisioning Basic/Pro pools. |
 
 | Priority | Area | Issue | Impact | Recommended Action |
 |---|---|---|---|---|
-| P1/P2 | Test user workflows | `.github/workflows/setup-test-users.yml` passes `NEW_FREE_COUNT` / `NEW_PRO_COUNT`, but `scripts/setup-test-users.mjs` reads `NUM_FREE_USERS` / `NUM_PRO_USERS`. | Manual count inputs can be ignored, so the workflow may provision the default E2E/soak shape instead of the requested Basic/Pro pool. | Fix narrowly by aligning env names. Promote to P1 only if this workflow is needed for current validation. |
 | P2 | Promo workflows | `.github/workflows/generate-promo.yml` and `.github/workflows/live-release-matrix.yml` both call `apply-promo/generate` with similar shell logic. | Duplicated admin-promo code can drift and create inconsistent evidence paths. | Keep both workflows for now; later extract a shared script/action or make live matrix consume a generated promo output. |
 | P2 | CI performance | Split setup actions into minimal paths: `setup-node-pnpm`, `setup-playwright`, `setup-supabase`, `setup-deno-edge`, and `setup-report`. | CI Audit can exceed the improved target when edge/report setup drags, slowing iteration without implying product failure. | Optimize after release correctness gates are green. |
 | P2 | Workflow consolidation | `create-user.yml` and `setup-test-users.yml` both provision admin-created users, but at different scopes. | Some evidence can be mislabeled if admin-created accounts are confused with public signup/promo evidence. | Keep both for now; document evidence type whenever used. Consolidate only if maintenance burden grows. |

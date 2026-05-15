@@ -3,8 +3,8 @@ import { AUDIO_ARGS, selectBenchmarkMode } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
-const E2E_PRO_EMAIL = process.env.E2E_PRO_EMAIL;
-const E2E_PRO_PASSWORD = process.env.E2E_PRO_PASSWORD;
+const E2E_PRO_EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
+const E2E_PRO_PASSWORD = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 
 type CacheSnapshot = {
   cacheNames: string[]

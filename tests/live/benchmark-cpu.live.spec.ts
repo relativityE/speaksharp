@@ -21,8 +21,8 @@ test.use({
 test('measure TransformersJS (CPU)', async ({ page }) => {
     test.setTimeout(240_000); // 4 minutes overall to allow for 3min WASM load + audio recording
 
-    const testEmail = process.env.E2E_PRO_EMAIL;
-    const testPassword = process.env.E2E_PRO_PASSWORD;
+    const testEmail = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
+    const testPassword = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 
     if (!testEmail || !testPassword) {
         throw new Error('E2E_PRO_EMAIL and E2E_PRO_PASSWORD must be set for benchmark runs.');

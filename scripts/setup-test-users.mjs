@@ -61,8 +61,8 @@ function getExpectedAccounts(freeCount, proCount) {
 
 function getNewUserCounts() {
     return {
-        newFreeCount: parseInt(process.env.NUM_FREE_USERS || '0', 10),
-        newProCount: parseInt(process.env.NUM_PRO_USERS || '0', 10)
+        newFreeCount: parseInt(process.env.NUM_FREE_USERS || process.env.NEW_FREE_COUNT || '0', 10),
+        newProCount: parseInt(process.env.NUM_PRO_USERS || process.env.NEW_PRO_COUNT || '0', 10)
     };
 }
 

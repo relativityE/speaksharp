@@ -21,8 +21,8 @@ const TRIAL_COUNT = 3;
 test('measure Native STT', async ({ page }) => {
     test.setTimeout(180_000); // 3 minutes total
 
-    const testEmail = process.env.E2E_PRO_EMAIL;
-    const testPassword = process.env.E2E_PRO_PASSWORD;
+    const testEmail = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
+    const testPassword = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 
     if (!testEmail || !testPassword) {
         throw new Error('E2E_PRO_EMAIL and E2E_PRO_PASSWORD must be set for benchmark runs.');

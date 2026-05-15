@@ -27,7 +27,7 @@
 **Confidence Score**: 98% (Evidence-based codebase verification)
 **Audit v1.1 Integrated:** 2026-05-07
 
-SpeakSharp is no longer in a blanket "all release paths blocked" posture. Controlled desktop tester release is GO WITH LIMITATIONS. Broad public launch remains NO-GO until the public-launch ledger closes the remaining live Stripe and physical real-device/real-mic evidence gaps. Current infrastructure evidence is green on `main`: `CI - Test Audit` run `25944598514`, production canary run `25944598537`, and Edge Function deploy run `25944598524` passed after commit `1066ba6d`.
+SpeakSharp is no longer in a blanket "all release paths blocked" posture. Controlled desktop tester release is GO WITH LIMITATIONS. Broad public launch remains NO-GO until the public-launch ledger closes the remaining live Stripe and physical real-device evidence gaps. Physical real-mic Cloud proof is now complete. Current infrastructure evidence is green on `main`: `CI - Test Audit` run `25944598514`, production canary run `25944598537`, and Edge Function deploy run `25944598524` passed after commit `1066ba6d`.
 
 ---
 
@@ -166,7 +166,7 @@ This evidence lowers the current risk from "unfixed code/workflows" to "live-val
 ## 🏁 Final Go/No-Go Recommendations
 
 1. **CONTROLLED TESTERS**: Proceed only under the documented GO WITH LIMITATIONS packet.
-2. **PUBLIC LAUNCH NO-GO**: Do not launch broadly until live Stripe checkout/webhook/cancel-failure-downgrade proof is complete and remaining real-mic/real-device caveats are either closed or explicitly removed from the public promise.
+2. **PUBLIC LAUNCH NO-GO**: Do not launch broadly until live Stripe checkout/webhook/cancel-failure-downgrade proof is complete and remaining physical real-device caveats are either closed or explicitly removed from the public promise.
 3. **HARDEN**: Continue to treat fail-closed entitlement, quota, promo, and billing behavior as public-launch gates.
 4. **SYNC**: Keep product_release status tables aligned with console-based SQM/CI evidence and avoid treating stale local markdown coverage as runtime truth.
 

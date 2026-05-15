@@ -11,8 +11,8 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: false });
 const execFileAsync = promisify(execFile);
 
 const BASE_URL = process.env.BASE_URL || 'https://speaksharp-public.vercel.app';
-const EMAIL = process.env.E2E_PRO_EMAIL;
-const PASSWORD = process.env.E2E_PRO_PASSWORD;
+const EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
+const PASSWORD = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 const PROMO_CODE = process.env.NATIVE_PROOF_PROMO_CODE;
 const SIGNUP_EMAIL = process.env.NATIVE_PROOF_EMAIL || `native-proof-${Date.now()}@example.com`;
 const SIGNUP_PASSWORD = process.env.NATIVE_PROOF_PASSWORD || `NativeProof${Date.now()}!`;
@@ -20,7 +20,7 @@ const OUT = process.env.NATIVE_PROOF_OUT || '/private/tmp/native-chrome-proof.js
 const SPOKEN_SENTENCE = 'Native Chrome microphone proof. The quick brown fox reads clear speech for SpeakSharp release validation.';
 
 if ((!EMAIL || !PASSWORD) && !PROMO_CODE) {
-  throw new Error('E2E_PRO_EMAIL and E2E_PRO_PASSWORD are required.');
+  throw new Error('PRO_TEST_EMAIL/PRO_TEST_PASSWORD or legacy E2E_PRO_EMAIL/E2E_PRO_PASSWORD are required.');
 }
 
 function compact(text) {

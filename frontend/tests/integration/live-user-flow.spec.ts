@@ -13,8 +13,8 @@ import { test, expect } from '@playwright/test';
 test.skip(!process.env.VITE_USE_LIVE_DB, 'Skipping live test in local/mock environment');
 
 test.describe('Live User Flow', () => {
-    const email = process.env.E2E_PRO_EMAIL;
-    const password = process.env.E2E_PRO_PASSWORD;
+    const email = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
+    const password = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 
     test.beforeAll(() => {
         console.log('🚨 Running LIVE integration test against real Supabase');

@@ -86,7 +86,7 @@ The objective is not to keep every historical workflow alive. The objective is t
 | CI Audit wall-clock is too slow for release iteration | Latest current `CI - Test Audit` run `25944598514` passed. Runtime remains a release-velocity concern rather than a correctness blocker. | This slows every release blocker fix and makes the gate feel fragile even when individual jobs are healthy. | 🟡 Keep as near-term release-velocity work: split/shard unit coverage by domain or package, start independent jobs earlier where dependency-safe, and preserve one aggregate required result. Correctness still outranks speed. |
 | Canary scope ambiguity | `playwright.canary.config.ts` only matches `smoke.canary.spec.ts`; `user-filler-words.canary.spec.ts` is not part of `test:deploy:prod`. | Passing canary does not validate Cloud user-word boost. | Keep smoke slim, but document Cloud/user-words canary as separate manual/live test if desired. |
 
-Workflow evidence status on 2026-05-15: `CI - Test Audit` run `25944598514`, production canary run `25944598537`, and Edge Function deploy run `25944598524` passed on `main` after commit `1066ba6d`. This marks the workflow gate green, but does not by itself close the remaining public-launch live Stripe or physical real-mic/real-device evidence gaps.
+Workflow evidence status on 2026-05-15: `CI - Test Audit` run `25944598514`, production canary run `25944598537`, and Edge Function deploy run `25944598524` passed on `main` after commit `1066ba6d`. This marks the workflow gate green, but does not by itself close the remaining public-launch live Stripe or physical real-device evidence gaps. Physical real-mic Cloud proof is tracked separately in `PUBLIC_LAUNCH_LEDGER.md`.
 
 ---
 
