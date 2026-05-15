@@ -7,6 +7,9 @@ on:
   schedule:
     - cron: '0 5 * * *' # Every day at 5 AM UTC
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   canary-check:
     runs-on: ubuntu-latest
@@ -48,9 +51,6 @@ jobs:
             test-results/canary/
           retention-days: 7
 
-      - name: Cleanup Secrets
-        if: always()
-        run: rm -f .env.development
       - name: Cleanup Secrets
         if: always()
         run: rm -f .env.development
