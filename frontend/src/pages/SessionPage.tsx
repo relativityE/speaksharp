@@ -171,40 +171,57 @@ export const SessionPage: React.FC = () => {
                 <StatusNotificationBar status={displayStatus} className="shadow-card" />
             </div>
 
-            {/* Main Content Grid — primary speaking tools first, secondary metrics below */}
+            {/* Main Content Grid — recording/transcript workspace with filler words as a right rail */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">
-                <div className="grid items-start gap-6 pt-6 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px]">
+                <div className="grid grid-cols-1 items-start gap-6 pt-6 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px]">
 
-                    {/* === ROW 1: Focus Tools (Recording + Filler Words) === */}
-                    <div>
-                        <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
-                            <LiveRecordingCard
-                                mode={mode || 'native'}
-                                isListening={isListening}
-                                isReady={isReady}
-                                isPaused={sttStatus.type === 'paused'}
-                                fsmState={runtimeState}
-                                sttStatusType={sttStatus.type}
-                                recordingIntent={recordingIntent}
-                                isProUser={isProUser}
-                                activeEngine={activeEngine}
-                                statusMessage={sttStatus.message}
-                                formattedTime={metrics.formattedTime}
-                                elapsedSeconds={elapsedTime}
-                                isButtonDisabled={isButtonDisabled}
-                                onModeChange={setMode}
-                                onStartStop={() => { void handleStartStop(); }}
-                                className="min-h-[300px] md:min-h-[340px]"
-                            />
-                        </LocalErrorBoundary>
+                    <div className="space-y-6">
+                        {/* === WORKSPACE LEFT: Recording Control === */}
+                        <div>
+                            <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
+                                <LiveRecordingCard
+                                    mode={mode || 'native'}
+                                    isListening={isListening}
+                                    isReady={isReady}
+                                    isPaused={sttStatus.type === 'paused'}
+                                    fsmState={runtimeState}
+                                    sttStatusType={sttStatus.type}
+                                    recordingIntent={recordingIntent}
+                                    isProUser={isProUser}
+                                    activeEngine={activeEngine}
+                                    statusMessage={sttStatus.message}
+                                    formattedTime={metrics.formattedTime}
+                                    elapsedSeconds={elapsedTime}
+                                    isButtonDisabled={isButtonDisabled}
+                                    onModeChange={setMode}
+                                    onStartStop={() => { void handleStartStop(); }}
+                                    className="min-h-[300px] md:min-h-[340px]"
+                                />
+                            </LocalErrorBoundary>
+                        </div>
+
+                        {/* === WORKSPACE LEFT: Live Transcript === */}
+                        <div>
+                            <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
+                                <LiveTranscriptPanel
+                                    transcript={transcriptContent}
+                                    interimTranscript={interimTranscript}
+                                    history={history}
+                                    isListening={isListening}
+                                    containerRef={transcriptContainerRef}
+                                    className="min-h-[360px] bg-white border border-border rounded-lg h-full"
+                                />
+                            </LocalErrorBoundary>
+                        </div>
                     </div>
 
-                    <div>
+                    {/* === WORKSPACE RIGHT: Filler Words Rail === */}
+                    <aside className="self-start lg:sticky lg:top-24">
                         <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
                             <FillerWordsCard
                                 fillerCount={metrics.fillerCount}
                                 fillerData={fillerData}
-                                className="min-h-[300px] md:min-h-[340px] bg-white border border-border rounded-lg h-full"
+                                className="min-h-[300px] md:min-h-[340px] bg-white border border-border rounded-lg lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
                                 headerAction={
                                     <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
                                         <PopoverTrigger asChild>
@@ -225,21 +242,7 @@ export const SessionPage: React.FC = () => {
                                 }
                             />
                         </LocalErrorBoundary>
-                    </div>
-
-                    {/* === ROW 2: Live Transcript === */}
-                    <div className="lg:col-span-2">
-                        <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
-                            <LiveTranscriptPanel
-                                transcript={transcriptContent}
-                                interimTranscript={interimTranscript}
-                                history={history}
-                                isListening={isListening}
-                                containerRef={transcriptContainerRef}
-                                className="min-h-[360px] bg-white border border-border rounded-lg h-full"
-                            />
-                        </LocalErrorBoundary>
-                    </div>
+                    </aside>
 
                     {/* === ROW 3: Secondary Metrics === */}
                     <div
