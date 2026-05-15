@@ -6,9 +6,6 @@ on:
 permissions:
   contents: read
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   generate-promo:
     runs-on: ubuntu-latest
@@ -69,7 +66,7 @@ jobs:
 
       - name: Upload Custom Words Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: live-custom-words-artifacts
           path: |
@@ -101,7 +98,7 @@ jobs:
 
       - name: Upload Native Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: live-native-preflight-artifacts
           path: |
@@ -134,7 +131,7 @@ jobs:
 
       - name: Upload Cloud Token Gate Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: live-cloud-token-gates-artifacts
           path: |
@@ -167,7 +164,7 @@ jobs:
 
       - name: Upload Promo Throttle Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: live-promo-throttle-artifacts
           path: |
@@ -200,7 +197,7 @@ jobs:
 
       - name: Upload Expired Promo Denial Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: live-expired-promo-denial-artifacts
           path: |
@@ -237,7 +234,7 @@ jobs:
 
       - name: Upload Cloud Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: live-cloud-artifacts
           path: |
@@ -269,7 +266,7 @@ jobs:
 
       - name: Upload Private Cache Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: live-private-cache-artifacts
           path: |
@@ -296,7 +293,7 @@ jobs:
 
       - name: Upload Stripe Webhook Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: live-stripe-webhook-readiness-artifacts
           path: |
@@ -325,7 +322,7 @@ jobs:
 
       - name: Upload Stripe Checkout Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: live-stripe-checkout-readiness-artifacts
           path: |
@@ -357,7 +354,7 @@ jobs:
 
       - name: Upload Promo Private Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: live-promo-private-artifacts
           path: |

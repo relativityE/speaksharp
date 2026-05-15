@@ -5,9 +5,6 @@ on:
   schedule:
     - cron: '0 4 * * *' # Every day at 4 AM UTC
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   run-soak-test:
     runs-on: ubuntu-latest
@@ -45,7 +42,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: soak-test-results
           path: |

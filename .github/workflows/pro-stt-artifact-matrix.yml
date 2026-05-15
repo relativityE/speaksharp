@@ -17,9 +17,6 @@ on:
 permissions:
   contents: read
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 concurrency:
   group: live-pro-stt-artifact-matrix
   cancel-in-progress: false
@@ -57,7 +54,7 @@ jobs:
 
       - name: Upload Pro STT Artifact Matrix Evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: pro-stt-artifact-matrix-artifacts
           path: |

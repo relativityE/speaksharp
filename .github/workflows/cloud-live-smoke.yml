@@ -6,9 +6,6 @@ on:
 permissions:
   contents: read
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 concurrency:
   group: live-cloud-assemblyai-streaming
   cancel-in-progress: false
@@ -37,7 +34,7 @@ jobs:
 
       - name: Upload Cloud Smoke Artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cloud-live-smoke-artifacts
           path: |

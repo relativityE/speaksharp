@@ -7,9 +7,6 @@ on:
   schedule:
     - cron: '0 5 * * *' # Every day at 5 AM UTC
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   canary-check:
     runs-on: ubuntu-latest
@@ -43,7 +40,7 @@ jobs:
 
       - name: Upload Test Results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: canary-test-results
           path: |
