@@ -171,8 +171,9 @@ export const SessionPage: React.FC = () => {
                 <StatusNotificationBar status={displayStatus} className="shadow-card" />
             </div>
 
-            {/* Main Content Grid — recording/transcript workspace with filler words as a right rail */}
+            {/* Main Content — recording/transcript workspace with filler words as a right rail */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">
+                {/* Workspace grid is isolated so the sticky filler rail cannot overlap stats below. */}
                 <div className="grid grid-cols-1 items-start gap-6 pt-6 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px]">
 
                     <div className="contents lg:block lg:space-y-6">
@@ -243,42 +244,41 @@ export const SessionPage: React.FC = () => {
                             />
                         </LocalErrorBoundary>
                     </aside>
+                </div>
 
-                    {/* === ROW 3: Secondary Metrics === */}
-                    <div
-                        className="order-4 grid grid-cols-1 gap-4 md:grid-cols-3 lg:order-none lg:col-span-2"
-                        data-testid="metrics-panel"
-                        data-metrics-settled={elapsedTime > 0 ? "true" : "false"}
-                    >
-                        <LocalErrorBoundary isolationKey="clarity-score" componentName="ClarityScoreCard">
-                            <ClarityScoreCard
-                                clarityScore={metrics.clarityScore}
-                                clarityLabel={metrics.clarityLabel}
-                                className="bg-white border border-border rounded-lg h-full"
-                            />
-                        </LocalErrorBoundary>
-                        <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
-                            <SpeakingRateCard
-                                wpm={metrics.wpm}
-                                wpmLabel={metrics.wpmLabel}
-                                className="bg-white border border-border rounded-lg h-full"
-                            />
-                        </LocalErrorBoundary>
-                        <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
-                            <PauseMetricsDisplay
-                                metrics={pauseMetrics}
-                                className="bg-white border border-border rounded-lg h-full"
-                            />
-                        </LocalErrorBoundary>
-                    </div>
+                {/* === ROW 3: Secondary Metrics === */}
+                <div
+                    className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3"
+                    data-testid="metrics-panel"
+                    data-metrics-settled={elapsedTime > 0 ? "true" : "false"}
+                >
+                    <LocalErrorBoundary isolationKey="clarity-score" componentName="ClarityScoreCard">
+                        <ClarityScoreCard
+                            clarityScore={metrics.clarityScore}
+                            clarityLabel={metrics.clarityLabel}
+                            className="bg-white border border-border rounded-lg h-full"
+                        />
+                    </LocalErrorBoundary>
+                    <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
+                        <SpeakingRateCard
+                            wpm={metrics.wpm}
+                            wpmLabel={metrics.wpmLabel}
+                            className="bg-white border border-border rounded-lg h-full"
+                        />
+                    </LocalErrorBoundary>
+                    <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
+                        <PauseMetricsDisplay
+                            metrics={pauseMetrics}
+                            className="bg-white border border-border rounded-lg h-full"
+                        />
+                    </LocalErrorBoundary>
+                </div>
 
-                    {/* === ROW 4: Full-Width Quick Tips === */}
-                    <div className="order-5 lg:order-none lg:col-span-2">
-                        <LocalErrorBoundary isolationKey="speaking-tips" componentName="SpeakingTipsCard">
-                            <SpeakingTipsCard className="bg-white border border-border rounded-lg compact" />
-                        </LocalErrorBoundary>
-                    </div>
-
+                {/* === ROW 4: Full-Width Quick Tips === */}
+                <div className="mt-6">
+                    <LocalErrorBoundary isolationKey="speaking-tips" componentName="SpeakingTipsCard">
+                        <SpeakingTipsCard className="bg-white border border-border rounded-lg compact" />
+                    </LocalErrorBoundary>
                 </div>
             </div>
 
