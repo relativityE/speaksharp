@@ -80,6 +80,9 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
             ...newTimestamps
           }
         };
+        if (key === 'profile') {
+          document.documentElement.setAttribute('data-profile-ready', 'true');
+        }
       }
 
       return {
@@ -152,6 +155,7 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
           ...resetTimestamps
         }
       };
+      document.documentElement.removeAttribute('data-profile-ready');
     }
   }
 }));

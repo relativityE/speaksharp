@@ -7,6 +7,7 @@ import { Button } from './ui/button';
 import { ProfileProvider } from '../contexts/ProfileContext';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { UserProfile } from '../types/user';
+import { syncProfileReady } from '@/lib/forensicAnchors';
 
 interface ProfileGuardProps {
     children: React.ReactNode;
@@ -29,12 +30,17 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
 
     // Signal Profile Readiness for E2E stability
     React.useEffect(() => {
-        if (!profileLoading && profile) {
+        if (profile) {
             setReady('profile');
+            syncProfileReady(true);
             // Dispatch Architectural Event for E2E listeners (Gold Standard)
             window.dispatchEvent(new CustomEvent('app-hydration-complete', {
                 detail: { profileId: profile.id }
             }));
+            return;
+        }
+        if (profileLoading && !profile) {
+            syncProfileReady(false);
         }
     }, [profileLoading, profile, setReady]);
 
