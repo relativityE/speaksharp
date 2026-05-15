@@ -15,7 +15,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-003 | Production Stripe checkout | P0 | Public Pro purchase cannot rely on admin provisioning or test mode. | Basic user starts production checkout from public UI and completes real payment. | PASS IN TEST MODE / LIVE KEYS PENDING | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/report.json`; hosted Checkout completed with `cs_test_...`, returned to public app, and showed Pro entitlement. Production launch still requires live Stripe keys and the same rerun with `cs_live_...`. |
 | PL-004 | Production Stripe webhook entitlement | P0 | Paid users must become Pro without manual intervention. | Production webhook verifies signature, updates entitlement, persists after refresh/logout/login. | PASS IN TEST MODE / LIVE KEYS PENDING | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/report.json`; Stripe test checkout user stayed Pro through refresh and logout/login; deployed webhook rejected unsigned events; local webhook tests passed signed handler, downgrade, failure, and idempotency cases. Production launch still requires live Stripe keys and a live webhook rerun. |
 | PL-005 | Billing failure/cancel/downgrade lifecycle | P0 | Stale Pro access or wrong downgrade is trust/billing risk. | Canceled, failed, duplicate, and replayed payment states keep entitlement correct. | PASS IN LOCAL/TEST MODE / LIVE EVENT PENDING | Local webhook tests prove cancellation, unpaid, past_due, 3+ payment failures, skipped duplicate events, and RPC failure handling. Live signed cancel/failure events require real Stripe webhook signing secret or Stripe test API access. |
-| PL-006 | Promo redemption/reuse/expiry | P0/P1 | Launch includes promos, so promo entitlement must be safe. | Public promo apply succeeds once, reuse/invalid/expired codes fail clearly, expiry downgrades correctly. | OPEN | Not started |
+| PL-006 | Promo redemption/reuse/expiry | P0/P1 | Launch includes promos, so promo entitlement must be safe. | Public promo apply succeeds once, reuse/invalid/expired codes fail clearly, expiry downgrades correctly. | PASS | `/private/tmp/speaksharp-pl006-promo-1778806498265/report.json`; focused reuse proof `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; expired promo live smoke run `25894288884` passed with artifact `7008001175` |
 | PL-007 | Real-mic Pro Cloud | P1 | Cloud is marketed as a Pro feature. | Real human speech in normal Chrome produces Cloud transcript -> save -> history/detail/analytics. | OPEN | Not started |
 | PL-008 | Pro AI feedback | P1 | AI is a launch promise. | Saved session generates useful AI feedback; provider failures degrade gracefully. | OPEN | Not started |
 | PL-009 | Pro PDF export | P1 | PDF is a launch promise. | Exported PDF is parsed/inspected for transcript, metrics, branding, and engine metadata. | OPEN | Not started |
@@ -28,7 +28,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 |---|---|---|---:|
 | Phase 1: Public entry | PL-001, PL-002 | A brand-new public Basic user can sign up, complete first useful session, and return after logout/login. | PASS |
 | Phase 2: Paid entitlement | PL-003, PL-004, PL-005 | A real production payment creates durable Pro entitlement; cancel/failure/downgrade paths are safe. | TEST-MODE PARTIAL |
-| Phase 3: Promo lifecycle | PL-006 | Public promo behavior is safe for redeem, reuse, expiry, and downgrade. | OPEN |
+| Phase 3: Promo lifecycle | PL-006 | Public promo behavior is safe for redeem, reuse, expiry, and downgrade. | PASS |
 | Phase 4: Pro product promises | PL-007, PL-008, PL-009 | Cloud, AI, and PDF each pass with provider/live artifact evidence. | OPEN |
 | Phase 5: Launch coverage | PL-010, PL-011 | Mobile baseline and observability/support are sufficient for uncontrolled public users. | OPEN |
 
@@ -41,6 +41,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-003 | public-signup | Chrome CDP 9222 | manual-chrome-cdp; Stripe test-mode hosted checkout | PASS IN TEST MODE | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/report.json` |
 | PL-004 | public-signup + Stripe test checkout | Chrome CDP 9222 plus deployed webhook HTTP check plus local Deno tests | manual-chrome-cdp; provider-live-api unsigned rejection; local webhook unit/adversarial | PASS IN TEST MODE | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/report.json` |
 | PL-005 | local webhook lifecycle tests | Deno | local webhook unit/adversarial | PASS IN LOCAL/TEST MODE | `deno test --config backend/supabase/functions/deno.json --allow-env --allow-net backend/supabase/functions/stripe-webhook/index.test.ts backend/supabase/functions/stripe-webhook/adversarial.test.ts`; `4 passed (14 steps)` |
+| PL-006 | public-signup + generated one-use promo + expired-promo seeded workflow | Chrome CDP 9222; GitHub Actions live smoke | manual-chrome-cdp; promo-redemption-ui; provider-live-api/service-role seeded expired promo | PASS | `/private/tmp/speaksharp-pl006-promo-1778806498265/report.json`; `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; GitHub run `25894288884` |
 
 ## PL-002 Evidence Summary
 
@@ -135,8 +136,23 @@ The billing lifecycle contract is proven at handler/RPC-call level, but broad pu
 | Paid public user downgrades in deployed UI after cancel/failure event | Pending live/test Stripe event |
 | Duplicate/replayed deployed webhook remains idempotent | Covered locally; deployed signed replay pending if required |
 
+## PL-006 Promo Lifecycle Summary
+
+| Scenario | Result | Evidence |
+|---|---:|---|
+| Generate one-use public promo code | PASS | GitHub workflow `generate-promo.yml` run `25894147333` produced code `7574926` with duration `60 minutes` and `max_uses: 1`. |
+| Invalid promo code during public signup | PASS | `/private/tmp/speaksharp-pl006-promo-1778806498265/invalid-first-after-submit.png`; user lands on Basic with clear `Promo failed: Invalid or inactive promo code` messaging. |
+| Valid promo code during public signup | PASS | `/private/tmp/speaksharp-pl006-promo-1778806498265/valid-once-after-submit.png`; public signup lands on Session with `PRO` badge and Pro STT mode surface. |
+| Reuse same one-use promo code | PASS | `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; user lands on Basic with clear `Promo failed: Promo code already used` messaging. |
+| Expired promo downgrade | PASS | GitHub workflow `expired-promo-live-smoke.yml` run `25894288884`; evidence line `LIVE_EXPIRED_PROMO_DENIAL_EVIDENCE {"checkUsageStatus":200,"promoJustExpired":true,"effectiveSubscriptionStatus":"free","isPro":false,"canStart":true,"storedSubscriptionStatus":"free","storedPromoExpired":true,"dialogDismissed":true,"sttMode":"native"}`. |
+| Expired promo artifacts | PASS | GitHub artifact `7008001175`, `expired-promo-live-smoke-artifacts`. |
+
+### PL-006 Notes
+
+The UI proof used public signups and the deployed app. The expired-promo proof uses a seeded expired promo-only account through the dedicated live smoke workflow because expiry requires service-role setup that should not be performed manually through public UI.
+
 ## Next Gate
 
 | Gate | Why Next | Required Evidence |
 |---|---|---|
-| PL-006 Promo redemption/reuse/expiry | Paid billing path is proven as far as local/test-mode access allows; launch promos are the next public entitlement path. | Public promo apply succeeds once, reuse/invalid/expired codes fail clearly, and expiry downgrades correctly. |
+| PL-007 Real-mic Pro Cloud | Public entry, billing test-mode proof, and promo lifecycle are now recorded; Cloud is the next Pro product promise. | Real human speech in normal Chrome produces Cloud transcript -> save -> history/detail/analytics. |
