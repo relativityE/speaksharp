@@ -91,10 +91,11 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     const isAnimated = status.type === 'initializing' || status.type === 'downloading';
     const isProminent = status.type === 'download-required' || status.type === 'downloading' || status.type === 'error';
 
-    // Secondary Status (Background Download) - Read directly from store to persist across mode changes
+    // Secondary status follows the caller-filtered status so inactive private setup
+    // progress does not leak into Basic/Native Browser views.
     const isListening = useSessionStore((s) => s.isListening);
     const activeEngine = useSessionStore((s) => s.activeEngine);
-    const modelLoadingProgress = useSessionStore((s) => s.modelLoadingProgress);
+    const modelLoadingProgress = status.progress ?? null;
     const hasSecondary = modelLoadingProgress !== null;
 
     // Explicit defaults for status display message
