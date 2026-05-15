@@ -16,7 +16,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-004 | Production Stripe webhook entitlement | P0 | Paid users must become Pro without manual intervention. | Production webhook verifies signature, updates entitlement, persists after refresh/logout/login. | PASS IN TEST MODE / LIVE KEYS PENDING | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/report.json`; Stripe test checkout user stayed Pro through refresh and logout/login; deployed webhook rejected unsigned events; local webhook tests passed signed handler, downgrade, failure, and idempotency cases. Production launch still requires live Stripe keys and a live webhook rerun. |
 | PL-005 | Billing failure/cancel/downgrade lifecycle | P0 | Stale Pro access or wrong downgrade is trust/billing risk. | Canceled, failed, duplicate, and replayed payment states keep entitlement correct. | PASS IN LOCAL/TEST MODE / LIVE EVENT PENDING | Local webhook tests prove cancellation, unpaid, past_due, 3+ payment failures, skipped duplicate events, and RPC failure handling. Live signed cancel/failure events require real Stripe webhook signing secret or Stripe test API access. |
 | PL-006 | Promo redemption/reuse/expiry | P0/P1 | Launch includes promos, so promo entitlement must be safe. | Public promo apply succeeds once, reuse/invalid/expired codes fail clearly, expiry downgrades correctly. | PASS | `/private/tmp/speaksharp-pl006-promo-1778806498265/report.json`; focused reuse proof `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; expired promo live smoke run `25894288884` passed with artifact `7008001175` |
-| PL-007 | Real-mic Pro Cloud | P1 | Cloud is marketed as a Pro feature. | Real human speech in normal Chrome produces Cloud transcript -> save -> history/detail/analytics. | OPEN / TOOL-LIMITED ATTEMPT | `/private/tmp/speaksharp-pl007-cloud-1778806823269/report.json`; Cloud selected and ran for ~60s, but no verified real mic transcript was produced, no useful Cloud session was saved, and the gate remains open for public launch. |
+| PL-007 | Real-mic Pro Cloud | P1 | Cloud is marketed as a Pro feature. | Real human speech in normal Chrome produces Cloud transcript -> save -> history/detail/analytics. | PASS PROVIDER-LEVEL / REAL-MIC PENDING | Cloud Live Smoke run `25895378619` passed against the deployed app with Pro credentials, AssemblyAI token issuance, WebSocket audio streaming, Cloud transcript, save, and analytics history. Artifact `7008407787`. This is provider-level fake-audio fixture proof, not physical real-mic proof. |
 | PL-008 | Pro AI feedback | P1 | AI is a launch promise. | Saved session generates useful AI feedback; provider failures degrade gracefully. | PASS | Pro STT artifact matrix run `25894670273` in `private` mode; `get-ai-suggestions` returned HTTP 200 with concrete coaching suggestions and no UI error. |
 | PL-009 | Pro PDF export | P1 | PDF is a launch promise. | Exported PDF is parsed/inspected for transcript, metrics, branding, and engine metadata. | PASS | Pro STT artifact matrix run `25894670273`; downloaded PDF artifact parsed locally and contained SpeakSharp branding, duration/WPM, STT engine metadata, filler metrics, and transcript. |
 | PL-010 | Mobile baseline | P1 | Public traffic will include mobile users. | Auth, nav, Session controls, transcript, fillers, status/toasts work on mobile viewport/device. | PASS VIEWPORT / PHYSICAL DEVICE PENDING | `/private/tmp/speaksharp-pl010-mobile-final2-1778808295430/report.json`; mobile public signup reached Session, idle status showed `Mic ready`, no inactive private-model progress leaked into Basic Native Browser, idle sticky mobile action bar was hidden, and screenshots verify Recording -> Filler Words -> Live Transcript -> Stats ordering. Physical device/manual touch pass remains recommended before broad launch. |
@@ -29,7 +29,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | Phase 1: Public entry | PL-001, PL-002 | A brand-new public Basic user can sign up, complete first useful session, and return after logout/login. | PASS |
 | Phase 2: Paid entitlement | PL-003, PL-004, PL-005 | A real production payment creates durable Pro entitlement; cancel/failure/downgrade paths are safe. | TEST-MODE PARTIAL |
 | Phase 3: Promo lifecycle | PL-006 | Public promo behavior is safe for redeem, reuse, expiry, and downgrade. | PASS |
-| Phase 4: Pro product promises | PL-007, PL-008, PL-009 | Cloud, AI, and PDF each pass with provider/live artifact evidence. | PARTIAL; PL-007 OPEN |
+| Phase 4: Pro product promises | PL-007, PL-008, PL-009 | Cloud, AI, and PDF each pass with provider/live artifact evidence. | PASS PROVIDER-LEVEL; REAL-MIC CLOUD STILL RECOMMENDED |
 | Phase 5: Launch coverage | PL-010, PL-011 | Mobile baseline and observability/support are sufficient for uncontrolled public users. | PASS VIEWPORT; PHYSICAL MOBILE DEVICE STILL RECOMMENDED |
 
 ## Latest Evidence
@@ -42,6 +42,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-004 | public-signup + Stripe test checkout | Chrome CDP 9222 plus deployed webhook HTTP check plus local Deno tests | manual-chrome-cdp; provider-live-api unsigned rejection; local webhook unit/adversarial | PASS IN TEST MODE | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/report.json` |
 | PL-005 | local webhook lifecycle tests | Deno | local webhook unit/adversarial | PASS IN LOCAL/TEST MODE | `deno test --config backend/supabase/functions/deno.json --allow-env --allow-net backend/supabase/functions/stripe-webhook/index.test.ts backend/supabase/functions/stripe-webhook/adversarial.test.ts`; `4 passed (14 steps)` |
 | PL-006 | public-signup + generated one-use promo + expired-promo seeded workflow | Chrome CDP 9222; GitHub Actions live smoke | manual-chrome-cdp; promo-redemption-ui; provider-live-api/service-role seeded expired promo | PASS | `/private/tmp/speaksharp-pl006-promo-1778806498265/report.json`; `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; GitHub run `25894288884` |
+| PL-007 | Pro stored credentials | GitHub Actions live browser workflow + AssemblyAI provider + fake audio fixture | provider-live-api; automated-live-ui; fake audio fixture; not manual-real-mic | PASS PROVIDER-LEVEL | Cloud Live Smoke run `25895378619`, artifact `7008407787`; `LIVE_CLOUD_TRANSCRIPT_EVIDENCE` logged 975 chars / 190 words and the test passed save/history assertion. |
 | PL-008 | saved Pro private session | GitHub Actions live browser workflow | automated-live-ui; provider-live-api `get-ai-suggestions` | PASS | Pro STT artifact matrix run `25894670273`; response logged `GET_AI_SUGGESTIONS_LIVE_RESPONSE` with HTTP 200 and coaching suggestions |
 | PL-009 | saved Pro private session PDF export | GitHub Actions live browser workflow + local PDF parsing | automated-live-ui; downloaded PDF artifact parse | PASS | Pro STT artifact matrix run `25894670273`, artifact `7008146769`; parsed PDF at `/private/tmp/pro-stt-artifact-25894670273/test-results/live/live-pro-stt-artifact-matr-f2fb7-AI-feedback-and-exports-PDF-live-stt-chromium/session_20260515_e62369e1_ef68_417b_a303_f3e0c2eba441.pdf` |
 | PL-010 | public-signup | isolated Playwright Chromium mobile viewport, 390x844 | mobile viewport UI screenshot proof; not physical-device/manual-touch evidence | PASS VIEWPORT | `/private/tmp/speaksharp-pl010-mobile-final2-1778808295430/report.json` |
@@ -159,7 +160,7 @@ The UI proof used public signups and the deployed app. The expired-promo proof u
 
 | Gate | Why Next | Required Evidence |
 |---|---|---|
-| PL-007 Real-mic Pro Cloud | Observability/support is now proven. The remaining launch-critical product proof is Cloud real-speech transcript persistence. | Normal Chrome + real physical mic/human speech produces Cloud transcript -> save -> history/detail/analytics, or provider-level Cloud transcript proof plus deployed persistence proof. |
+| PL-003 / PL-004 / PL-005 Live Stripe configuration | Cloud provider-level proof is now green; the remaining public-launch blocker is live Stripe keys/events. | Configure production Stripe live keys/price/webhook secret and rerun checkout, entitlement, cancellation/failure, and idempotency proof with live-mode evidence. |
 
 ## PL-007 Cloud Transcript Attempt
 
@@ -172,12 +173,23 @@ The UI proof used public signups and the deployed app. The expired-promo proof u
 
 ### PL-007 Remaining Requirement
 
-Public launch still requires one of:
+Provider-level Cloud transcript and persistence proof is now green. A normal Chrome physical-mic proof is still recommended before broad marketing claims that depend on real-mic Cloud behavior.
 
 | Acceptable Evidence | Status |
 |---|---:|
-| Normal Chrome + real physical mic/human speech produces Cloud transcript -> save -> history/detail/analytics | Pending |
-| Provider-level Cloud transcript proof plus deployed persistence proof | Pending |
+| Normal Chrome + real physical mic/human speech produces Cloud transcript -> save -> history/detail/analytics | Pending / recommended |
+| Provider-level Cloud transcript proof plus deployed persistence proof | PASS; Cloud Live Smoke run `25895378619`, artifact `7008407787` |
+
+## PL-007 Cloud Provider-Level Proof
+
+| Scenario | Result | Evidence |
+|---|---:|---|
+| Pro Cloud mode starts against deployed app | PASS | Cloud Live Smoke run `25895378619`; test `Pro Cloud live STT can transcribe, save, and show analytics history` passed. |
+| AssemblyAI token/provider path | PASS | Run used deployed app, Pro stored credentials, `/functions/v1/assemblyai-token`, and AssemblyAI WebSocket streaming. Logs show `WebSocket open` and audio chunks sent. |
+| Cloud transcript appears | PASS | Log line `LIVE_CLOUD_TRANSCRIPT_EVIDENCE {"fixture":"harvard_benchmark_16k_loop_120s.wav","transcriptPreview":"A stale smell of old beer lingers...","transcriptLength":975,"wordCount":190}`. |
+| Save and analytics history | PASS | The live smoke asserts Session saved and first analytics history item is visible after navigation to `/analytics`; overall test passed in `51.1s`. |
+| Artifact retained | PASS | Artifact `7008407787`, `cloud-live-smoke-artifacts`. |
+| Physical real mic | PENDING | This proof used a fake audio fixture in a live browser workflow, not a physical microphone. |
 
 ## PL-008 AI Feedback Summary
 
