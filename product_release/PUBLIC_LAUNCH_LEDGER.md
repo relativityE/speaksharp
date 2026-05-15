@@ -13,7 +13,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-001 | Public signup + first-user onboarding | P0 | A public user must be able to enter without admin-created accounts. | Brand-new user signs up through public UI, reaches Session, logs out/in, and recovers state. | PASS | `/private/tmp/speaksharp-pl001-public-signup-1778802961686/report.json`; public `/signup` alias fixed in commit `994d06a1` |
 | PL-002 | First useful Basic session | P0/P1 | New users need immediate product value. | Public user completes Native Browser session with transcript/save/history/detail/analytics, or receives clear browser/mic guidance. | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/report.json` |
 | PL-003 | Production Stripe checkout | P0 | Public Pro purchase cannot rely on admin provisioning or test mode. | Basic user starts production checkout from public UI and completes real payment. | PASS IN TEST MODE / LIVE KEYS PENDING | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/report.json`; hosted Checkout completed with `cs_test_...`, returned to public app, and showed Pro entitlement. Production launch still requires live Stripe keys and the same rerun with `cs_live_...`. |
-| PL-004 | Production Stripe webhook entitlement | P0 | Paid users must become Pro without manual intervention. | Production webhook verifies signature, updates entitlement, persists after refresh/logout/login. | OPEN | Not started |
+| PL-004 | Production Stripe webhook entitlement | P0 | Paid users must become Pro without manual intervention. | Production webhook verifies signature, updates entitlement, persists after refresh/logout/login. | PASS IN TEST MODE / LIVE KEYS PENDING | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/report.json`; Stripe test checkout user stayed Pro through refresh and logout/login; deployed webhook rejected unsigned events; local webhook tests passed signed handler, downgrade, failure, and idempotency cases. Production launch still requires live Stripe keys and a live webhook rerun. |
 | PL-005 | Billing failure/cancel/downgrade lifecycle | P0 | Stale Pro access or wrong downgrade is trust/billing risk. | Canceled, failed, duplicate, and replayed payment states keep entitlement correct. | OPEN | Not started |
 | PL-006 | Promo redemption/reuse/expiry | P0/P1 | Launch includes promos, so promo entitlement must be safe. | Public promo apply succeeds once, reuse/invalid/expired codes fail clearly, expiry downgrades correctly. | OPEN | Not started |
 | PL-007 | Real-mic Pro Cloud | P1 | Cloud is marketed as a Pro feature. | Real human speech in normal Chrome produces Cloud transcript -> save -> history/detail/analytics. | OPEN | Not started |
@@ -39,6 +39,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-001 | public-signup | Chrome CDP 9222 | manual-chrome-cdp | PASS | `/private/tmp/speaksharp-pl001-public-signup-1778802961686/report.json` |
 | PL-002 | public-signup | Chrome CDP 9222 | manual-chrome-cdp; synthetic system speech attempted via macOS `say`; not manual-real-mic | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/report.json` |
 | PL-003 | public-signup | Chrome CDP 9222 | manual-chrome-cdp; Stripe test-mode hosted checkout | PASS IN TEST MODE | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/report.json` |
+| PL-004 | public-signup + Stripe test checkout | Chrome CDP 9222 plus deployed webhook HTTP check plus local Deno tests | manual-chrome-cdp; provider-live-api unsigned rejection; local webhook unit/adversarial | PASS IN TEST MODE | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/report.json` |
 
 ## PL-002 Evidence Summary
 
@@ -85,8 +86,31 @@ Configure the deployed production checkout environment with live Stripe credenti
 
 After updating live Stripe configuration, rerun the same PL-003 flow from the public UI and require a `cs_live_...` Checkout session plus real payment completion before broad public launch.
 
+## PL-004 Test-Mode Entitlement Summary
+
+| Step | Result | Evidence |
+|---|---:|---|
+| Login after Stripe test checkout | PASS | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/01-login-pro-session.png` |
+| Refresh persistence | PASS | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/02-after-reload.png` |
+| Logout | PASS | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/03-after-signout.png` |
+| Logout/login persistence | PASS | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/04-after-relogin.png` |
+| Pro mode availability | PASS | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/05-pro-modes-visible.png` |
+| Deployed webhook unsigned rejection | PASS | `SUPABASE_URL=https://yxlapjuovrsvjswkwnrk.supabase.co STRIPE_WEBHOOK_SECRET= pnpm exec playwright test tests/live/stripe-webhook-readiness.live.spec.ts --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=line --output=/private/tmp/speaksharp-pl004-webhook-readiness-net`; evidence printed `status:400`, `code:STRIPE_WEBHOOK_INVALID`, message `No stripe-signature header value was provided.` |
+| Webhook handler/idempotency tests | PASS | `deno test --config backend/supabase/functions/deno.json --allow-env --allow-net backend/supabase/functions/stripe-webhook/index.test.ts backend/supabase/functions/stripe-webhook/adversarial.test.ts`; `4 passed (14 steps)` |
+
+### PL-004 Remaining Production Requirement
+
+The Stripe test-mode checkout proves the entitlement path executes correctly in the current environment. Broad public launch still requires the same proof with live Stripe keys:
+
+| Requirement | Status |
+|---|---:|
+| Live Stripe Checkout session `cs_live_...` | Pending live keys |
+| Live webhook signature verification from production Stripe event | Pending live keys |
+| Live paid user remains Pro after refresh/logout/login | Pending live payment |
+| Duplicate/replayed webhook remains idempotent | Covered locally; live replay proof pending if required |
+
 ## Next Gate
 
 | Gate | Why Next | Required Evidence |
 |---|---|---|
-| PL-004 Production Stripe webhook entitlement | Checkout execution is proven in test mode; entitlement lifecycle now needs explicit webhook verification. | Production webhook verifies signature, updates entitlement, and entitlement persists after refresh/logout/login. Test-mode evidence can be used as a rehearsal only; production still requires live keys before broad launch. |
+| PL-005 Billing failure/cancel/downgrade lifecycle | Checkout and entitlement upgrade are proven in test mode; public billing safety now depends on cancel/failure/downgrade paths. | Canceled, failed, duplicate, and replayed payment states keep entitlement correct and fail safely. Test-mode evidence can be used as a rehearsal only; production still requires live keys before broad launch. |
