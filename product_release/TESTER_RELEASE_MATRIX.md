@@ -1,9 +1,28 @@
 # Tester Release Matrix
 
-**Last updated:** 2026-05-12
+<!-- PRODUCT_RELEASE_SYNC_START -->
+
+## Current Evidence Snapshot (2026-05-15)
+
+| Item | Current Status |
+|---|---|
+| Controlled desktop tester release | GO WITH LIMITATIONS; see `RELEASE_DECISION.md` and `TESTER_RELEASE_MATRIX.md`. |
+| Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
+| Latest release evidence commit | `1066ba6d` (`Use Node 24 artifact actions`). |
+| CI/Test Audit | PASS: GitHub run `25944598514` on `main`. |
+| Production canary | PASS: GitHub run `25944598537` on `main`. |
+| Edge Function deploy | PASS: GitHub run `25944598524` on `main`. |
+| Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
+| Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
+| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
+
+<!-- PRODUCT_RELEASE_SYNC_END -->
+
+**Last updated:** 2026-05-15
 **Evidence baseline commit:** `e73408c0`
 **Verdict:** GO for controlled human tester release. P0 release gates, P1 release-control work, Observability API Smoke, and all five RC gates are green on the latest release commit `e73408c0`. Tester share can proceed with the documented Chrome/browser-dependent Native scope.
 **Latest full RC gates:** `Release Candidate Gates` run `25769178359` passed on `e73408c0`.
+**Latest workflow hygiene evidence:** `1066ba6d`; CI/Test Audit run `25944598514`, production canary run `25944598537`, and Edge Function deploy run `25944598524` passed on `main`.
 **Latest observability readback:** `Observability API Smoke` run `25764783852` passed.
 
 ## RC Gate Overlay

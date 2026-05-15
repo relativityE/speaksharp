@@ -1,9 +1,27 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-06
+**Last Reviewed:** 2026-05-15
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-08
+**Last Updated:** 2026-05-15
 
 # Recovery Strategy
+
+<!-- PRODUCT_RELEASE_SYNC_START -->
+
+## Current Evidence Snapshot (2026-05-15)
+
+| Item | Current Status |
+|---|---|
+| Controlled desktop tester release | GO WITH LIMITATIONS; see `RELEASE_DECISION.md` and `TESTER_RELEASE_MATRIX.md`. |
+| Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
+| Latest release evidence commit | `1066ba6d` (`Use Node 24 artifact actions`). |
+| CI/Test Audit | PASS: GitHub run `25944598514` on `main`. |
+| Production canary | PASS: GitHub run `25944598537` on `main`. |
+| Edge Function deploy | PASS: GitHub run `25944598524` on `main`. |
+| Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
+| Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
+| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
+
+<!-- PRODUCT_RELEASE_SYNC_END -->
 
 This document defines the emergency procedures for the SpeakSharp launch window. We adopt a **Forward-Fix Operational Philosophy** rather than enterprise-grade reversible migration discipline.
 

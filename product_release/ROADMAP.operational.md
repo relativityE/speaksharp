@@ -1,9 +1,27 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-06
+**Last Reviewed:** 2026-05-15
 **Version:** v0.6.18 
-**Last Updated:** 2026-05-09
+**Last Updated:** 2026-05-15
 
 # Release Risk Tracker (Operational Roadmap)
+
+<!-- PRODUCT_RELEASE_SYNC_START -->
+
+## Current Evidence Snapshot (2026-05-15)
+
+| Item | Current Status |
+|---|---|
+| Controlled desktop tester release | GO WITH LIMITATIONS; see `RELEASE_DECISION.md` and `TESTER_RELEASE_MATRIX.md`. |
+| Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
+| Latest release evidence commit | `1066ba6d` (`Use Node 24 artifact actions`). |
+| CI/Test Audit | PASS: GitHub run `25944598514` on `main`. |
+| Production canary | PASS: GitHub run `25944598537` on `main`. |
+| Edge Function deploy | PASS: GitHub run `25944598524` on `main`. |
+| Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
+| Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
+| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
+
+<!-- PRODUCT_RELEASE_SYNC_END -->
 
 This document tracks identified risks and their impact on the 12-hour launch window. It replaces feature-oriented roadmaps during the stabilization phase.
 
@@ -13,21 +31,21 @@ This document tracks identified risks and their impact on the 12-hour launch win
 
 | Area | Status | Risk | Launch Impact | Deferred? |
 | :--- | :--- | :--- | :--- | :--- |
-| **Quota Gate** | 🟡 CI/DEPLOY GREEN / LIVE VALIDATION PENDING | Fail-closed quota and usage-token fixes are present; GitHub CI and Edge Function deploy are green on `56ce972`, but live fail-closed/token smoke is pending | **Critical**: Revenue leakage | No |
-| **Promo Abuse Guard** | 🟡 CI/DEPLOY GREEN / LIVE VALIDATION PENDING | DB-backed promo attempt throttling is present; GitHub CI/deploy evidence is green, but live throttling/reuse smoke is pending | **P0**: Tester promo access can be brute-forced without this | No |
-| **Stripe Webhook**| 🟡 PENDING | Live mode end-to-end unverified | **P0**: Users cannot upgrade | No |
+| **Quota Gate** | ✅ CONTROLLED/PUBLIC LEDGER EVIDENCE GREEN | Fail-closed quota and usage-token behavior are covered by current release evidence; keep regression coverage in CI. | **Critical**: Revenue leakage if regressed | No |
+| **Promo Abuse Guard** | ✅ PUBLIC PROMO LIFECYCLE PASS | Public promo redemption/reuse and expired promo downgrade evidence are recorded in `PUBLIC_LAUNCH_LEDGER.md`. | **P0**: Tester promo access can be brute-forced without this | No |
+| **Stripe Webhook**| 🟡 TEST-MODE PASS / LIVE KEYS PENDING | Test-mode checkout/webhook entitlement evidence is recorded; live `cs_live_...` checkout and live webhook propagation remain public-launch blockers. | **P0**: Users cannot upgrade | No |
 | **Safari Mic** | 🟡 PENDING | Potential silent failure on resume | **P1**: Degraded mobile UX | Yes |
-| **Sentry Ingest** | 🟡 PENDING | Live project ingestion untested | **High**: Blind to launch errors | No |
+| **Sentry Ingest** | ✅ OBSERVABILITY API SMOKE PASS | Frontend, Edge, and PostHog provider readback evidence is recorded in `PUBLIC_LAUNCH_LEDGER.md`. | **High**: Blind to launch errors if regressed | No |
 | **Usage Edge CORS** | 🟡 CI/DEPLOY GREEN / HEADER VALIDATION PENDING | `check-usage-limit` now uses the shared request-aware CORS helper; Edge Function deploy is green, but deployed header validation is pending | **P1**: JWT still required, but attack surface should match other Edge Functions | No |
 | **Stripe Secret Init** | 🟡 CI/DEPLOY GREEN / LIVE WEBHOOK PENDING | Webhook runtime now lazily validates secrets inside the served handler and returns actionable config errors instead of module-scope crashes; deploy evidence is green, but live webhook/env smoke is pending | **P2/P1 if env missing**: live validation pending | No |
-| **GitHub Canary** | ✅ PASSING | Deploy smoke helper updated from stale `/log-in` route to `/auth/signin`; production canary passed on `56ce972` | **P1**: Keep this green after every deploy | No |
-| **STT Benchmarks** | 🔴 BLOCKED / TRUTHFUL UI PATCH LOCAL | Benchmark workflow harness exists, but current manifest data is stale/incomplete and browser benchmark audio/reference mapping must be corrected before WER values can be trusted | **P0 for user-facing benchmark claims / P1 for controlled tester release if hidden as not benchmarked** | No |
-| **Private Model Cache/Progress** | 🟡 FIX APPLIED / LIVE TRANSCRIPT VALIDATION PENDING | Launch policy is CPU/Transformers.js first for deterministic Private setup; WebGPU/WhisperTurbo is an accelerated validation path. CPU model assets are locally load-proven and progress/cache fixes are applied, but live transcript/save/history proof is pending. | **P1**: Required for Private STT first-use/second-use trust | No |
-| **Theme / Toast UX** | 🟡 LOCAL POLISH / VISUAL SMOKE PENDING | UI review kept amber as the brand/action color but found severity states, card borders, and the dark glow/grid were too visually noisy; local polish separates toast severity colors, softens shell effects, and normalizes card borders | **P1**: Prevents tester confusion during status/progress flows | No |
-| **AI Parsing** | 🟡 CI/DEPLOY GREEN / LIVE VALIDATION PENDING | Malformed LLM JSON now returns safe fallback suggestions; GitHub CI/deploy evidence is green, but live suggestion smoke is pending | **P1**: Avoids 500 error on Analytics | No |
+| **GitHub Canary** | ✅ PASSING | Production canary passed on `main` in run `25944598537`; CI/Test Audit and Edge Function deploy are also green on `main`. | **P1**: Keep this green after every deploy | No |
+| **STT Benchmarks** | 🟡 PUBLIC CLAIMS LIMITED | Cloud and Private evidence exists, but Native/WebGPU benchmark claims remain limited. User-facing comparison must continue to say "not benchmarked" where evidence is missing. | **P1 only if benchmark claims are marketed** | Yes |
+| **Private Model Cache/Progress** | ✅ CONTROLLED TESTER PASS | Private remains the primary validated Pro path for controlled testers; public ledger records Private artifact evidence. | **P1**: Required for Private STT first-use/second-use trust | No |
+| **Theme / Toast UX** | ✅ CONTROLLED TESTER PASS / P2 POLISH REMAINS | Desktop status/toast/session stability passed controlled burn-down; further visual tuning is post-release unless a new blocker is observed. | **P2**: Polish after tester release | Yes |
+| **AI Parsing** | ✅ PUBLIC LEDGER PASS | AI feedback provider evidence and graceful fallback expectations are recorded in `PUBLIC_LAUNCH_LEDGER.md`. | **P1**: Avoids 500 error on Analytics if regressed | No |
 | **Pro Session Warning** | 🟡 FIX APPLIED / VALIDATION PENDING | Pro users with finite daily remaining time now receive the 5-minute warning; local hook test passes | **P1**: Prevents paid-user surprise at daily cap | No |
 | **WPM Accuracy** | 🟡 PENDING | Rolling window pollution bug | **P2**: Minor metric glitch | Yes |
-| **PDF Export Branding** | 🟡 LOCAL PROOF IMPROVED / LIVE VALIDATION PENDING | Free/basic monthly export counting is intentionally removed; local PDF proof now inspects generated PDF text and watermark commands for Free and Pro, but browser/live export inspection is pending | **P1**: Validate export UX before launch | No |
+| **PDF Export Branding** | ✅ PUBLIC LEDGER PASS | PDF artifact proof is recorded in `PUBLIC_LAUNCH_LEDGER.md`; Basic and Pro exports must retain the large SpeakSharp watermark. | **P1**: Validate export UX before launch | No |
 | **Constraint Validation Sweep** | 🟡 PLANNED | New non-negative constraints are `NOT VALID`; old bad rows require one-time audit query | **P2**: Existing data hygiene | Yes |
 | **Production Store Warning** | 🟡 FIX APPLIED / VALIDATION PENDING | Store creation warning is gated behind dev mode | **P2**: Console polish/noise | Yes |
 

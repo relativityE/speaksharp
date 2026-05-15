@@ -1,13 +1,42 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-10
+**Last Reviewed:** 2026-05-15
 **Version:** v0.6.18
-**Last Updated:** 2026-05-10
+**Last Updated:** 2026-05-15
 
 # GitHub Workflow Utility Audit
+
+<!-- PRODUCT_RELEASE_SYNC_START -->
+
+## Current Evidence Snapshot (2026-05-15)
+
+| Item | Current Status |
+|---|---|
+| Controlled desktop tester release | GO WITH LIMITATIONS; see `RELEASE_DECISION.md` and `TESTER_RELEASE_MATRIX.md`. |
+| Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
+| Latest release evidence commit | `1066ba6d` (`Use Node 24 artifact actions`). |
+| CI/Test Audit | PASS: GitHub run `25944598514` on `main`. |
+| Production canary | PASS: GitHub run `25944598537` on `main`. |
+| Edge Function deploy | PASS: GitHub run `25944598524` on `main`. |
+| Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
+| Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
+| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
+
+<!-- PRODUCT_RELEASE_SYNC_END -->
 
 This document controls which GitHub workflows matter for the test-release objective.
 
 The objective is not to keep every historical workflow alive. The objective is to validate SpeakSharp for test release with the smallest reliable set of gates that prove product behavior, deployment safety, billing integrity, and observability.
+
+---
+
+## Current Workflow Evidence
+
+| Workflow | Current Evidence | Status | Notes |
+|---|---|---:|---|
+| `.github/workflows/ci.yml` | `CI - Test Audit` run `25944598514` on `main` after `1066ba6d` | 🟢 PASSING | Includes unit, E2E, Lighthouse/SQM/report aggregation; Node 20 artifact annotation resolved by action upgrades. |
+| `.github/workflows/canary.yml` | `Production Canary Smoke Test` run `25944598537` on `main` after `1066ba6d` | 🟢 PASSING | Deployed smoke remains required. |
+| `.github/workflows/deploy-edge-functions.yml` | `Deploy Edge Functions` run `25944598524` on `main` after `1066ba6d` | 🟢 PASSING | Edge deploy path is currently green. |
+| Lighthouse/SQM | Performance 98, Accessibility 94, Best Practices 100, SEO 100 | 🟢 PASSING | Release score floor currently satisfied. |
 
 ---
 
@@ -26,10 +55,10 @@ The objective is not to keep every historical workflow alive. The objective is t
 
 | Workflow | Intended Purpose | Trigger | Required For Test Release? | Current Status | Keep/Fix/Defer/Retire | Evidence Needed |
 |---|---|---|---|---|---|---|
-| `.github/workflows/ci.yml` | Primary quality gate: prepare, Edge Function tests, mocked E2E shards, Lighthouse, SQM/report aggregation. | Push, PR, manual | Yes | 🟡 LATEST RUNNING | **Keep required** | Latest `e177bc7c` run `25623359127` is still running. Focused local validation for the shard-4 user-features harness fix passed 7/7 before push. |
-| `.github/workflows/canary.yml` | Production deployed smoke: provision canary user, login, Native session, save/read. | Main push, daily schedule, manual | Yes | 🟢 PASSING ON `e177bc7c` | **Keep required** | Production canary passed against `https://speaksharp-public.vercel.app` on `e177bc7c` (run `25623359125`); keep as deployed smoke because it caught real route/runtime drift. |
+| `.github/workflows/ci.yml` | Primary quality gate: prepare, Edge Function tests, mocked E2E shards, Lighthouse, SQM/report aggregation. | Push, PR, manual | Yes | 🟢 PASSING ON `1066ba6d` | **Keep required** | `CI - Test Audit` run `25944598514` passed on `main`; artifact actions are upgraded to Node 24-compatible versions. |
+| `.github/workflows/canary.yml` | Production deployed smoke: provision canary user, login, Native session, save/read. | Main push, daily schedule, manual | Yes | 🟢 PASSING ON `1066ba6d` | **Keep required** | Production canary passed against `https://speaksharp-public.vercel.app` in run `25944598537`; keep as deployed smoke because it catches real route/runtime drift. |
 | `.github/workflows/deploy-supabase-migrations.yml` | Manual production DB migration and Edge Function deployment. | Manual only | Yes, before backend release | 🟢 MANUAL RUNS PASSING | **Keep or split deliberately** | Manual runs `25576997106` and `25573238473` passed on 2026-05-08. Negative-increment and promo-throttle live smokes are still required after deploy. |
-| `.github/workflows/deploy-edge-functions.yml` | Deploy Edge Functions on main push/manual. | Main push, manual | Yes if used instead of migration workflow deploy step | 🟢 PASSING ON `e177bc7c` | **Consolidate decision needed** | Edge Function deploy passed on `e177bc7c` (run `25623359118`) with the broader function list. Explicit owner still needed: either this deploys functions, or migration workflow does, not both ambiguously. |
+| `.github/workflows/deploy-edge-functions.yml` | Deploy Edge Functions on main push/manual. | Main push, manual | Yes if used instead of migration workflow deploy step | 🟢 PASSING ON `1066ba6d` | **Keep required while deploy ownership is clarified** | Edge Function deploy passed on `main` in run `25944598524`. Longer-term owner decision remains: either this deploys functions, or migration workflow does, not both ambiguously. |
 | **Next-session proposed: live user-filler persistence** | Manual GitHub-secret-backed live test for custom word persistence across logout/login. | Manual only | Yes before human tester confidence on custom words | ⚪ MISSING WORKFLOW | **Add or run through a controlled manual workflow** | Local `.env*` does not expose `E2E_FREE_EMAIL`/`E2E_FREE_PASSWORD`, but GitHub secrets do. Add/run a workflow that executes `VITE_USE_LIVE_DB=true tests/live/user-filler-words-persistence.live.spec.ts` with those secrets, then record add -> logout/relogin -> visible -> cleanup evidence. |
 | **Next-session proposed: observability smoke** | Manual GitHub/dashboard checklist for frontend Sentry, Edge Function Sentry/log ingest, Stripe webhook smoke, PostHog launch events. | Manual only | Yes before broad tester rollout | ⚪ MISSING WORKFLOW / DASHBOARD CHECK | **Add checklist or manual dispatch helper** | Frontend trace showed Sentry ingest HTTP 200, but dashboard visibility, Edge Function ingest, Stripe webhook, and PostHog event verification remain unproven. |
 | `.github/workflows/benchmarks.yml` | STT ceiling measurement for AssemblyAI and browser engines. | Weekly schedule, manual | Yes for accuracy claims; not required for every PR | 🟡 PARTIAL EVIDENCE / BROWSER RERUN PENDING | **Fix as manual/non-blocking release evidence** | AssemblyAI benchmark passed in run `25622187317` with 0.00% WER / 100.00% accuracy. Local Private CPU baseline passed at 4.11% WER / 95.89% accuracy. Browser Native/WebGPU still need valid transcript-producing runs. |
@@ -54,10 +83,10 @@ The objective is not to keep every historical workflow alive. The objective is t
 | Edge/Deno tests absent from required CI | Edge Function Deno tests were runnable locally but not part of `.github/workflows/ci.yml`. | Runtime/security regressions in quota, token, promo, webhook, or AI functions could miss the main gate. | ✅ Fixed in CI; latest `CI - Test Audit` run `25610699098` passed on `56ce972`. |
 | Report job masks upstream failure when E2E is skipped | Latest `CI - Test Audit` failed unit tests first, then report also failed because E2E did not run and `test-results/playwright/results.json` was absent. | CI became noisier than the true failure. | 🟡 Local fix applied: report metrics default E2E counts to zero when upstream required jobs prevent E2E artifacts. |
 | Local Codex sandbox blocks focused E2E preview bind | Focused local Playwright promo journey failed before test execution with `listen EPERM: operation not permitted 127.0.0.1:4173`. | Not app evidence; it prevents local browser validation inside this sandbox. | ⚪ Revisit only if normal Terminal or GitHub Actions reproduces the same bind failure. |
-| CI Audit wall-clock is too slow for release iteration | Latest `CI - Test Audit` run `25623359127` shows prepare/build/edge finishing quickly, unit test execution taking about 3m43s, and E2E shards starting only after unit completes. Total required-gate feedback is already 7+ minutes before final report. | This slows every release blocker fix and makes the gate feel fragile even when individual jobs are healthy. | 🟡 Promote to near-term release-velocity work: split/shard unit coverage by domain or package, start independent jobs earlier where dependency-safe, and preserve one aggregate required result. Correctness still outranks speed, so do not optimize until the current shard-4 failure is understood. |
+| CI Audit wall-clock is too slow for release iteration | Latest current `CI - Test Audit` run `25944598514` passed. Runtime remains a release-velocity concern rather than a correctness blocker. | This slows every release blocker fix and makes the gate feel fragile even when individual jobs are healthy. | 🟡 Keep as near-term release-velocity work: split/shard unit coverage by domain or package, start independent jobs earlier where dependency-safe, and preserve one aggregate required result. Correctness still outranks speed. |
 | Canary scope ambiguity | `playwright.canary.config.ts` only matches `smoke.canary.spec.ts`; `user-filler-words.canary.spec.ts` is not part of `test:deploy:prod`. | Passing canary does not validate Cloud user-word boost. | Keep smoke slim, but document Cloud/user-words canary as separate manual/live test if desired. |
 
-Workflow evidence status on 2026-05-10: production canary passed on `e177bc7c` (run `25623359125`) and Edge Function deploy passed on the same push (run `25623359118`). GitHub `CI - Test Audit` is still running on `e177bc7c` (run `25623359127`), with shard 4 already failed and shard 1 still running at last check. Logs are not available until the run completes. This does not mark live feature paths green.
+Workflow evidence status on 2026-05-15: `CI - Test Audit` run `25944598514`, production canary run `25944598537`, and Edge Function deploy run `25944598524` passed on `main` after commit `1066ba6d`. This marks the workflow gate green, but does not by itself close the remaining public-launch live Stripe or physical real-mic/real-device evidence gaps.
 
 ---
 
@@ -91,19 +120,19 @@ Workflow evidence status on 2026-05-10: production canary passed on `e177bc7c` (
 
 ## Immediate CI/Deploy Repair Order
 
-1. Wait for `CI - Test Audit` run `25623359127` to complete, inspect shard-4 logs, and fix only the real failing assertion.
-2. Keep Supabase migration deploy evidence attached to release decisions; latest manual runs passed on 2026-05-08.
+1. Keep `CI - Test Audit`, production canary, and Edge Function deploy required for release evidence.
+2. Keep Supabase migration deploy evidence attached to backend release decisions; latest manual runs passed on 2026-05-08.
 3. Decide the authoritative Edge Function deploy path and remove/disable ambiguity.
-4. Move CI Audit runtime optimization up: shard/split unit tests and reduce required-gate wall-clock after the current correctness failure is fixed.
-5. Fix benchmark workflow setup, command names, and benchmark spec targets.
+4. Move CI Audit runtime optimization up as release-velocity work: shard/split unit tests and reduce required-gate wall-clock without weakening the aggregate gate.
+5. Fix benchmark workflow setup, command names, and benchmark spec targets if benchmark claims are promoted.
 6. Fix or defer `soak-test.yml` command drift.
-7. Add/run the next-session GitHub-secret-backed live checks: user-filler persistence and observability smoke.
-8. Run the live feature matrix and the deployed promo artifact spec before marking user-visible paths green.
+7. Keep observability smoke and tester-feedback fallback as launch-support gates.
+8. Keep public-launch ledger gates separate from controlled-tester workflow evidence.
 
 ---
 
 ## Decision
 
-Current GitHub workflow status: **CONDITIONAL / NOT RELEASE-READY**.
+Current GitHub workflow status: **GREEN FOR CONTROLLED TESTER RELEASE / PUBLIC LAUNCH STILL GATED ELSEWHERE**.
 
-Reason: deploy/canary are green on the latest pushed commit, but required GitHub CI is still running with shard 4 already failed; CI wall-clock runtime is now a near-term release-velocity issue; benchmark, soak, live feature matrix, Stripe/Sentry, custom-word logout/login persistence, and deployed product-path smokes also remain pending.
+Reason: CI/Test Audit, production canary, and Edge Function deploy are green on the latest workflow hygiene commit. Public launch remains NO-GO because live Stripe and physical validation gates are tracked in `PUBLIC_LAUNCH_LEDGER.md`, not because the current workflow gate is red.

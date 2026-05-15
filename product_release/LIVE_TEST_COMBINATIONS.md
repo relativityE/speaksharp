@@ -1,9 +1,27 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-08
+**Last Reviewed:** 2026-05-15
 **Version:** v0.6.18
-**Last Updated:** 2026-05-11
+**Last Updated:** 2026-05-15
 
 # Live Test Combinations Matrix
+
+<!-- PRODUCT_RELEASE_SYNC_START -->
+
+## Current Evidence Snapshot (2026-05-15)
+
+| Item | Current Status |
+|---|---|
+| Controlled desktop tester release | GO WITH LIMITATIONS; see `RELEASE_DECISION.md` and `TESTER_RELEASE_MATRIX.md`. |
+| Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
+| Latest release evidence commit | `1066ba6d` (`Use Node 24 artifact actions`). |
+| CI/Test Audit | PASS: GitHub run `25944598514` on `main`. |
+| Production canary | PASS: GitHub run `25944598537` on `main`. |
+| Edge Function deploy | PASS: GitHub run `25944598524` on `main`. |
+| Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
+| Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
+| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
+
+<!-- PRODUCT_RELEASE_SYNC_END -->
 
 This matrix defines the production-browser validation surface for MVP test release. CI proves mocked orchestration; this matrix proves real user behavior against deployed infrastructure, real browser capabilities, real auth, and real persistence.
 
@@ -47,7 +65,7 @@ A path is green only when all required checks pass:
 
 | Priority | Item | Status | Evidence / Next Action |
 |---|---|---|---|
-| P0 | CI correctness, including shard 4 session-save/user-features harness | ✅ Complete | GitHub `CI - Test Audit` run `25632686859` passed on `435f79e3`, including E2E shards 1-4. |
+| P0 | CI correctness, including shard 4 session-save/user-features harness | ✅ Complete | GitHub `CI - Test Audit` run `25944598514` passed on `main`, including the current unit/E2E/Lighthouse/SQM gate. |
 | P0 | Custom words live persistence | ✅ Complete | GitHub `Live Release Matrix` runs `25631920466` and `25632720717` passed `live-custom-words`: add -> logout/relogin -> visible -> cleanup. |
 | P0 | Private browser transcript + artifact path | ✅ Complete | Run `25634578516` passed `live-promo-private-artifact` on `310ded8d`: fresh promo Pro signup, Private CPU transcript, stop/save, analytics history, real Gemini AI feedback, and real PDF export artifact. PDF proof: `session_20260510_170412_cc4d4704_9417_485f_8a30_fd0dcac007a1.pdf`, parsed `textLength: 733`, `textIncludesTranscript: true`. |
 | P0 | Pro STT artifact matrix across Private, Cloud, and Native | 🔴 Cloud stop/save blocker under trace | Current launch gate now requires every STT mode to prove the same user artifact path: record with Harvard fake audio, wait for non-placeholder fixture transcript, stop, expect `Session saved`, open analytics detail, request AI feedback through the live Edge Function, and export a timestamp/user PDF whose parsed text contains the transcript. Added `tests/live/pro-stt-artifact-matrix.live.spec.ts` and manual-dispatch workflow `Pro STT Artifact Matrix`. Commit `bd17ed50` added focused workflow input `mode=all/private/cloud/native`: `all` runs the full matrix, `private`/`cloud`/`native` run one mode independently. Full run `25644204999` failed on the first Private row with placeholder transcript (`words appear here...`), so Cloud and Native did not run there. Focused Cloud-only runs `25644479281` and `25644849002` reached/appeared to pass the transcript wait but still failed stop/save; analytics, AI feedback, and PDF were not reached. Current patch adds narrow Cloud lifecycle traces for the next focused `mode=cloud` rerun: `CLOUD_LIFECYCLE_FAIL`, `CLOUD_WS_CLOSE`, `CLOUD_WS_ERROR`, `CLOUD_STOP_ENTRY`, and `CLOUD_SAVE_DECISION`. |
@@ -144,6 +162,6 @@ A path is green only when all required checks pass:
 | `apply-promo` returns wildcard CORS. | Hardening inconsistency with `check-usage-limit`; not a quota/privacy/session-save P0. | 🟡 Local fix applied: shared request-aware CORS and structured errors; deploy/header validation pending. |
 | Local focused E2E cannot bind preview server in Codex sandbox. | `CI=true pnpm exec playwright ... promo-admin-journey` failed before browser execution with `listen EPERM: operation not permitted 127.0.0.1:4173`. This is not product evidence because the app server never started. | ⚪ Track as tooling friction. Revisit only if the same bind failure reproduces from normal macOS Terminal or GitHub Actions. |
 | Analytics truth and comparison selection were coupled in one E2E gate. | A flaky comparison-checkbox interaction could fail the release-critical analytics persistence gate even when WPM, filler count, engine metadata, transcript excerpt, reload, and PDF watermark evidence were green. | 🟡 Release-scope cut applied: `analytics-truth` now covers data integrity only. Backlog item: **Stabilize session comparison selection UX** with a future focused test that selects two sessions by stable session IDs, verifies selected count reaches 2, opens the comparison dialog, verifies both session metrics, and avoids stale DOM handles during dashboard re-render. Do not block next-day tester release unless comparison is in tester instructions. |
-| CI shard 4 missed AI suggestions card in mocked Pro feature matrix. | GitHub `CI - Test Audit` run `25623031218` failed only shard 4: `tests/e2e/user-features.e2e.spec.ts` expected `ai-suggestions-card` after opening a Pro session detail. | ✅ Cleared: GitHub `CI - Test Audit` run `25632686859` passed on `435f79e3`, including E2E shard 4. |
-| CI Audit wall-clock is too slow for next-day release iteration. | Required gate took about 11 minutes on latest green run `25632686859`. | 🟡 Promoted: split/shard unit coverage by domain or package after launch blockers are clear. This is release-velocity work, not a reason to weaken the gate. |
-| Live promo Pro Private transcript previously stayed at placeholder. | Deployed live promo artifact test in run `25631920466` reached Pro session and recording active, but transcript remained `Listening...`; trace proved model calls returned empty text. | 🟡 Transcript blocker cleared / artifact rerun pending: `435f79e3` fixed Transformers.js ASR output parsing, and run `25632720717` produced Harvard transcript text plus WPM `110`. The run failed before save/history/PDF because the harness expected JFK words; the oracle now matches the Harvard fixture and needs a fresh matrix rerun. |
+| CI shard 4 missed AI suggestions card in mocked Pro feature matrix. | Older GitHub `CI - Test Audit` run `25623031218` failed only shard 4: `tests/e2e/user-features.e2e.spec.ts` expected `ai-suggestions-card` after opening a Pro session detail. | ✅ Cleared: current GitHub `CI - Test Audit` run `25944598514` passed on `main`. |
+| CI Audit wall-clock is too slow for next-day release iteration. | Current CI/Test Audit is green; runtime remains a release-velocity concern, not a correctness blocker. | 🟡 Promoted: split/shard unit coverage by domain or package after launch blockers are clear. This is release-velocity work, not a reason to weaken the gate. |
+| Live promo Pro Private transcript previously stayed at placeholder. | Older deployed live promo artifact test in run `25631920466` reached Pro session and recording active, but transcript remained `Listening...`; trace proved model calls returned empty text. | ✅ Cleared for current controlled/public ledger evidence: Basic first-use, Private artifact, AI, PDF, and provider-level Cloud proof are recorded in `PUBLIC_LAUNCH_LEDGER.md`. Physical real-mic Cloud remains a public-launch caveat, not a placeholder-transcript regression. |

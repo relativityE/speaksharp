@@ -1,16 +1,35 @@
 # Controlled Tester Release Decision
 
-**Last updated:** 2026-05-14
+<!-- PRODUCT_RELEASE_SYNC_START -->
+
+## Current Evidence Snapshot (2026-05-15)
+
+| Item | Current Status |
+|---|---|
+| Controlled desktop tester release | GO WITH LIMITATIONS; see `RELEASE_DECISION.md` and `TESTER_RELEASE_MATRIX.md`. |
+| Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
+| Latest release evidence commit | `1066ba6d` (`Use Node 24 artifact actions`). |
+| CI/Test Audit | PASS: GitHub run `25944598514` on `main`. |
+| Production canary | PASS: GitHub run `25944598537` on `main`. |
+| Edge Function deploy | PASS: GitHub run `25944598524` on `main`. |
+| Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
+| Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
+| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
+
+<!-- PRODUCT_RELEASE_SYNC_END -->
+
+**Last updated:** 2026-05-15
 **Release type:** Controlled human tester release
 **Current decision:** GO WITH LIMITATIONS
 **Evidence baseline commit:** `e73408c0`
 **Latest full RC gates:** `Release Candidate Gates` run `25769178359` passed on `e73408c0`
+**Latest workflow hygiene evidence:** `1066ba6d`; CI/Test Audit run `25944598514`, production canary run `25944598537`, and Edge Function deploy run `25944598524` passed on `main`.
 
 ## 1. Decision
 
 | Decision | Status | Evidence |
 |---|---:|---|
-| GO / GO WITH LIMITATIONS / NO-GO | GO WITH LIMITATIONS | P0 controlled-tester blockers are clear or explicitly caveated; all five RC gates passed in run `25769178359` on `e73408c0`; Observability API Smoke passed in run `25764783852`. |
+| GO / GO WITH LIMITATIONS / NO-GO | GO WITH LIMITATIONS | P0 controlled-tester blockers are clear or explicitly caveated; all five RC gates passed in run `25769178359` on `e73408c0`; Observability API Smoke passed in run `25764783852`; latest CI/canary/deploy evidence is green on `main` after `1066ba6d`. |
 
 ## 2. P0 Blockers Only
 

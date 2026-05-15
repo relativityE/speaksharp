@@ -1,15 +1,33 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-06
+**Last Reviewed:** 2026-05-15
 **Version:** v0.6.18
-**Last Updated:** 2026-05-10
+**Last Updated:** 2026-05-15
 
 # SpeakSharp Release Audit (Forensic Analysis)
 
-## 🔴 RELEASE VERDICT: BLOCKED
+<!-- PRODUCT_RELEASE_SYNC_START -->
+
+## Current Evidence Snapshot (2026-05-15)
+
+| Item | Current Status |
+|---|---|
+| Controlled desktop tester release | GO WITH LIMITATIONS; see `RELEASE_DECISION.md` and `TESTER_RELEASE_MATRIX.md`. |
+| Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
+| Latest release evidence commit | `1066ba6d` (`Use Node 24 artifact actions`). |
+| CI/Test Audit | PASS: GitHub run `25944598514` on `main`. |
+| Production canary | PASS: GitHub run `25944598537` on `main`. |
+| Edge Function deploy | PASS: GitHub run `25944598524` on `main`. |
+| Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
+| Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
+| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
+
+<!-- PRODUCT_RELEASE_SYNC_END -->
+
+## 🟡 RELEASE VERDICT: Controlled Tester GO WITH LIMITATIONS / Public Launch NO-GO
 **Confidence Score**: 98% (Evidence-based codebase verification)
 **Audit v1.1 Integrated:** 2026-05-07
 
-SpeakSharp exhibits a robust frontend and a sophisticated transcription orchestration layer. The P0 backend remediation work is deployed on `1ea2b099`: `deploy-supabase-migrations.yml` run `25620857952` passed, and post-deploy canary runs `25620877113` and `25621064004` passed. Live smoke now verifies Free Cloud-token denial, active promo-Pro Cloud-token issuance, negative-duration rejection, one-time promo redemption/reuse rejection, request-aware usage CORS, and DB/RPC Private session save/readback. The platform remains blocked for commercial launch until the local CI fixes are pushed and GitHub CI passes, browser-level Private transcript/cache is validated with the corrected real audio fixture, analytics persistence is proven across Native/Cloud/Private, and Stripe/Sentry/manual hardware checks are complete.
+SpeakSharp is no longer in a blanket "all release paths blocked" posture. Controlled desktop tester release is GO WITH LIMITATIONS. Broad public launch remains NO-GO until the public-launch ledger closes the remaining live Stripe and physical real-device/real-mic evidence gaps. Current infrastructure evidence is green on `main`: `CI - Test Audit` run `25944598514`, production canary run `25944598537`, and Edge Function deploy run `25944598524` passed after commit `1066ba6d`.
 
 ---
 
@@ -147,10 +165,10 @@ This evidence lowers the current risk from "unfixed code/workflows" to "live-val
 
 ## 🏁 Final Go/No-Go Recommendations
 
-1. **NO-GO**: Do not launch until **all P0 blockers (1-4)** are resolved. These are financial, integrity, and unauthorized-access liabilities.
-2. **POLISH**: Resolve **P1 Defect 1** (Pro Warning) before accepting first paid users to avoid negative reviews.
-3. **HARDEN**: Implement **Fail-Closed** logic across all Edge Functions.
+1. **CONTROLLED TESTERS**: Proceed only under the documented GO WITH LIMITATIONS packet.
+2. **PUBLIC LAUNCH NO-GO**: Do not launch broadly until live Stripe checkout/webhook/cancel-failure-downgrade proof is complete and remaining real-mic/real-device caveats are either closed or explicitly removed from the public promise.
+3. **HARDEN**: Continue to treat fail-closed entitlement, quota, promo, and billing behavior as public-launch gates.
 4. **SYNC**: Keep product_release status tables aligned with console-based SQM/CI evidence and avoid treating stale local markdown coverage as runtime truth.
 
-**Audit Status**: 🔴 **BLOCKED**
-**Remediation Effort**: ~8-12 Engineering Hours.
+**Audit Status**: 🟡 **CONTROLLED TESTER GO WITH LIMITATIONS / PUBLIC LAUNCH NO-GO**
+**Remediation Effort**: Focused live Stripe and physical validation passes remain before broad launch.

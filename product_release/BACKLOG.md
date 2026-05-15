@@ -1,9 +1,27 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-13
+**Last Reviewed:** 2026-05-15
 **Version:** v0.1
-**Last Updated:** 2026-05-14
+**Last Updated:** 2026-05-15
 
 # Release Backlog
+
+<!-- PRODUCT_RELEASE_SYNC_START -->
+
+## Current Evidence Snapshot (2026-05-15)
+
+| Item | Current Status |
+|---|---|
+| Controlled desktop tester release | GO WITH LIMITATIONS; see `RELEASE_DECISION.md` and `TESTER_RELEASE_MATRIX.md`. |
+| Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
+| Latest release evidence commit | `1066ba6d` (`Use Node 24 artifact actions`). |
+| CI/Test Audit | PASS: GitHub run `25944598514` on `main`. |
+| Production canary | PASS: GitHub run `25944598537` on `main`. |
+| Edge Function deploy | PASS: GitHub run `25944598524` on `main`. |
+| Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
+| Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
+| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
+
+<!-- PRODUCT_RELEASE_SYNC_END -->
 
 This file tracks known issues, tech debt, and deferred cleanup that should not interrupt active P0/P1 release stabilization unless explicitly promoted.
 
@@ -17,13 +35,18 @@ This file tracks known issues, tech debt, and deferred cleanup that should not i
 
 ## Current Backlog
 
+## Recently Closed
+
+| Closed Date | Area | Result | Evidence |
+|---|---|---|---|
+| 2026-05-15 | GitHub Actions maintenance | Closed. Artifact actions now run on Node 24-compatible versions. | Commit `1066ba6d` upgraded `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`; `CI - Test Audit` run `25944598514` passed without the prior Node 20 artifact annotation. |
+
 | Priority | Area | Issue | Impact | Recommended Action |
 |---|---|---|---|---|
 | P1/P2 | Test user workflows | `.github/workflows/setup-test-users.yml` passes `NEW_FREE_COUNT` / `NEW_PRO_COUNT`, but `scripts/setup-test-users.mjs` reads `NUM_FREE_USERS` / `NUM_PRO_USERS`. | Manual count inputs can be ignored, so the workflow may provision the default E2E/soak shape instead of the requested Basic/Pro pool. | Fix narrowly by aligning env names. Promote to P1 only if this workflow is needed for current validation. |
 | P2 | Promo workflows | `.github/workflows/generate-promo.yml` and `.github/workflows/live-release-matrix.yml` both call `apply-promo/generate` with similar shell logic. | Duplicated admin-promo code can drift and create inconsistent evidence paths. | Keep both workflows for now; later extract a shared script/action or make live matrix consume a generated promo output. |
 | P2 | CI performance | Split setup actions into minimal paths: `setup-node-pnpm`, `setup-playwright`, `setup-supabase`, `setup-deno-edge`, and `setup-report`. | CI Audit can exceed the improved target when edge/report setup drags, slowing iteration without implying product failure. | Optimize after release correctness gates are green. |
 | P2 | Workflow consolidation | `create-user.yml` and `setup-test-users.yml` both provision admin-created users, but at different scopes. | Some evidence can be mislabeled if admin-created accounts are confused with public signup/promo evidence. | Keep both for now; document evidence type whenever used. Consolidate only if maintenance burden grows. |
-| P2 | GitHub Actions maintenance | CI and RC runs emit Node.js 20 action deprecation warnings for `actions/upload-artifact@v4` / `actions/download-artifact@v4`; GitHub will force Node 24 by default on 2026-06-02 and remove Node 20 on 2026-09-16. | Not a current release blocker, but future GitHub runner changes may make artifact upload/download behavior noisy or brittle. | Schedule workflow cleanup: verify newer action versions or set/validate the Node 24 opt-in path before GitHub's cutoff. |
 | P2 | CI artifact hygiene | CI health-check can warn: `No files were found with the provided path: test-results/playwright-infra/blob-report. No artifacts will be uploaded.` | Non-blocking when the health check itself passes, but warnings make it harder to spot real release issues quickly. | Make upload conditional on artifact existence or ensure the health-check step always creates the expected empty/report artifact. |
 | P2 | RC/CI reporting performance | Final report aggregation and RC Gate 3 setup can take longer than the actual product test work. | Slows release feedback even when all product gates are green. | Include report-job minimization in the CI setup split: install only report dependencies and avoid unnecessary Playwright/Supabase setup for report-only work. |
 | P2 | Session UI polish | Session page still has post-release polish opportunities around exact hierarchy density, mobile screenshots, and final visual tuning beyond the controlled-tester flow. | The page can be improved, but current controlled desktop tester gates are no longer blocked by Session layout/status. | Schedule after controlled-tester release. Keep any follow-up visual work separate from STT lifecycle changes and validate with screenshots. |
