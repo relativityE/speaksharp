@@ -9,7 +9,7 @@ export const CTASection = () => {
                 <div className="bg-white border border-border rounded-lg p-10 md:p-14 text-center space-y-5 shadow-card">
                     <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-foreground leading-tight">
                         Ready to Speak with{' '}
-                        <span className="text-primary">Confidence?</span>
+                        <span className="text-amber-700">Confidence?</span>
                     </h2>
                     <p className="text-base text-muted-foreground max-w-xl mx-auto">
                         Start your journey to clearer communication today. No credit card required.
@@ -31,7 +31,7 @@ export const CTASection = () => {
                             className="px-8 h-12 text-base"
                             asChild
                         >
-                            <Link to="/analytics">Learn More</Link>
+                            <Link to="/analytics">See feedback analytics</Link>
                         </Button>
                     </div>
                 </div>

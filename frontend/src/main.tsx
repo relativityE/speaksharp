@@ -8,7 +8,6 @@ import logger from './lib/logger';
 import { AuthProvider } from './contexts/AuthProvider';
 import posthog from 'posthog-js';
 import { PostHogProvider } from 'posthog-js/react';
-import { Elements } from '@stripe/react-stripe-js';
 import type { Session } from '@supabase/supabase-js';
 import * as Sentry from "@sentry/react";
 import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
@@ -145,19 +144,6 @@ const renderApp = async (initialSession: Session | null = null) => {
         logger.warn('[E2E MODE] Analytics disabled entirely.');
       }
 
-      // Defer Stripe loading - create promise but don't await it
-      // Stripe will be loaded when Elements component mounts
-      // Skip Stripe in test mode to avoid iframe interference with automated testing
-      const stripePromise = ENV.isTest
-        ? Promise.resolve(null)
-        : import('@stripe/stripe-js').then(({ loadStripe }) =>
-          loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY!)
-        ).catch((error) => {
-          // Gracefully handle ad-blocker blocking Stripe CDN
-          logger.warn({ error }, '[Stripe] Failed to load (possibly blocked by ad-blocker)');
-          return null;
-        });
-
       // Get initial session (mock if in E2E mode)
       const sessionToUse = initialSession;
       if (ENV.isTest) {
@@ -180,11 +166,9 @@ const renderApp = async (initialSession: Session | null = null) => {
             <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
               <PostHogProvider client={posthog}>
                 <AuthProvider initialSession={sessionToUse}>
-                  <Elements stripe={stripePromise}>
-                    <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
-                      <App />
-                    </Sentry.ErrorBoundary>
-                  </Elements>
+                  <Sentry.ErrorBoundary fallback={<div>An error has occurred. Please refresh the page.</div>}>
+                    <App />
+                  </Sentry.ErrorBoundary>
                 </AuthProvider>
               </PostHogProvider>
             </BrowserRouter>

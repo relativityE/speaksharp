@@ -6,14 +6,12 @@ import Navigation from './components/Navigation';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ProfileGuard } from './components/ProfileGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
-import { TranscriptionProvider } from './providers/TranscriptionProvider';
 import { AnimatePresence } from 'framer-motion';
 import { PageTransition } from './components/ui/PageTransition';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { useCriticalQueries } from './hooks/useCriticalQueries';
 import { SSE2EWindow } from './config/TestFlags';
-import { TranscriptionState, TranscriptionEvent } from './services/transcription/TranscriptionFSM';
-import { sessionManager } from '@/services/transcription/SessionManager';
+import type { TranscriptionState, TranscriptionEvent } from './services/transcription/TranscriptionFSM';
 
 /**
  * ARCHITECTURE:
@@ -46,6 +44,7 @@ const SignInPage = React.lazy(() => import('./pages/SignInPage'));
 const AuthPage = React.lazy(() => import('./pages/AuthPage'));
 const DesignSystemPage = React.lazy(() => import('./pages/DesignSystemPage'));
 const PricingPage = React.lazy(() => import('./pages/PricingPage').then(module => ({ default: module.PricingPage })));
+const TranscriptionProvider = React.lazy(() => import('./providers/TranscriptionProvider').then(module => ({ default: module.TranscriptionProvider })));
 
 const PageLoader = () => (
   <div className="min-h-[calc(100vh-var(--header-height))] w-full bg-background px-4 pb-16 pt-28">
@@ -87,55 +86,57 @@ const App: React.FC = () => {
     const g = window as unknown as SSE2EWindow;
 
     if (typeof window !== 'undefined' && g.__SS_E2E__) {
-      const getService = () => sessionManager.getActiveService();
-      const getController = () => g.__TRANSCRIPTION_SERVICE__;
+      void import('@/services/transcription/SessionManager').then(({ sessionManager }) => {
+        const getService = () => sessionManager.getActiveService();
+        const getController = () => g.__TRANSCRIPTION_SERVICE__;
 
-      // Forensic Side-Car — Scoped to App.tsx, does NOT touch TestFlags.ts
-      type ForensicBridge = typeof g.__SS_E2E__ & {
-        startRecording?: () => void;
-        stopRecording?: () => void;
-        getFSMState?: () => string;
-        destroyService?: () => Promise<void>;
-        onStateChange?: (cb: (state: string) => void) => (() => void) | void;
-        pauseAtState: (state: TranscriptionState) => void;
-      };
+        // Forensic Side-Car — Scoped to App.tsx, does NOT touch TestFlags.ts
+        type ForensicBridge = typeof g.__SS_E2E__ & {
+          startRecording?: () => void;
+          stopRecording?: () => void;
+          getFSMState?: () => string;
+          destroyService?: () => Promise<void>;
+          onStateChange?: (cb: (state: string) => void) => (() => void) | void;
+          pauseAtState: (state: TranscriptionState) => void;
+        };
 
-      const bridge = (g.__SS_E2E__ || { isActive: true }) as ForensicBridge;
-      
-      bridge.startRecording = () => { void getController()?.startRecording(); };
-      bridge.stopRecording = () => { void getController()?.stopRecording(); };
-      bridge.getFSMState = () => getService()?.fsm.getState() || 'IDLE';
-      bridge.destroyService = () => sessionManager.destroySession();
-      bridge.emitTranscript = (text: string, isFinal: boolean = true) => {
-        const activeCallbacks = g.__SS_E2E__?._activeCallbacks;
-        activeCallbacks?.onTranscriptUpdate?.({
-          transcript: isFinal ? { final: text } : { partial: text },
-          isFinal,
-          isPartial: !isFinal,
-          timestamp: Date.now(),
-        });
-      };
-      bridge.onStateChange = (cb) => {
-        const s = getService();
-        return s?.fsm.subscribe(cb);
-      };
-      bridge.pauseAtState = (state: TranscriptionState) => {
-        const s = getService();
-        if (s && s.fsm) {
-          // Diagnostic hook: Intercept transition to the target state
-          const originalTransition = s.fsm.transition.bind(s.fsm);
-          s.fsm.transition = (params: TranscriptionEvent) => {
-            if (params.type === 'ENGINE_INIT_SUCCESS' && state === 'ENGINE_INITIALIZING') {
-               console.warn(`[TRACE] ⏸️ Pausing mid-transition as requested: ${state}`);
-               return true; // Halt transition (Deterministic pause)
-            }
-            return originalTransition(params);
-          };
-        }
-      };
+        const bridge = (g.__SS_E2E__ || { isActive: true }) as ForensicBridge;
 
-      g.__SS_E2E__ = bridge;
-      console.info('[App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)');
+        bridge.startRecording = () => { void getController()?.startRecording(); };
+        bridge.stopRecording = () => { void getController()?.stopRecording(); };
+        bridge.getFSMState = () => getService()?.fsm.getState() || 'IDLE';
+        bridge.destroyService = () => sessionManager.destroySession();
+        bridge.emitTranscript = (text: string, isFinal: boolean = true) => {
+          const activeCallbacks = g.__SS_E2E__?._activeCallbacks;
+          activeCallbacks?.onTranscriptUpdate?.({
+            transcript: isFinal ? { final: text } : { partial: text },
+            isFinal,
+            isPartial: !isFinal,
+            timestamp: Date.now(),
+          });
+        };
+        bridge.onStateChange = (cb) => {
+          const s = getService();
+          return s?.fsm.subscribe(cb);
+        };
+        bridge.pauseAtState = (state: TranscriptionState) => {
+          const s = getService();
+          if (s && s.fsm) {
+            // Diagnostic hook: Intercept transition to the target state
+            const originalTransition = s.fsm.transition.bind(s.fsm);
+            s.fsm.transition = (params: TranscriptionEvent) => {
+              if (params.type === 'ENGINE_INIT_SUCCESS' && state === 'ENGINE_INITIALIZING') {
+                console.warn(`[TRACE] ⏸️ Pausing mid-transition as requested: ${state}`);
+                return true; // Halt transition (Deterministic pause)
+              }
+              return originalTransition(params);
+            };
+          }
+        };
+
+        g.__SS_E2E__ = bridge;
+        console.info('[App] ✅ Forensic E2E Bridge activated (0.6.15-HARDENED)');
+      });
     }
   }, []);
 
@@ -162,10 +163,12 @@ const App: React.FC = () => {
     
     // Logic: If leaving /session -> Hard Termination
     if (prevPath === '/session' && currentPath !== '/session') {
-      const activeService = sessionManager.getActiveService();
       console.warn(`[DIAGNOSTIC] 🏁 Route Exit Detected: ${prevPath} -> ${currentPath}`);
-      console.warn(`[DIAGNOSTIC] 🧨 Triggering Hard Termination for Session: ${activeService?.serviceId || 'NONE'}`);
-      void sessionManager.destroySession();
+      void import('@/services/transcription/SessionManager').then(({ sessionManager }) => {
+        const activeService = sessionManager.getActiveService();
+        console.warn(`[DIAGNOSTIC] 🧨 Triggering Hard Termination for Session: ${activeService?.serviceId || 'NONE'}`);
+        void sessionManager.destroySession();
+      });
     }
     
     prevPathRef.current = currentPath;
@@ -185,44 +188,48 @@ const App: React.FC = () => {
       />
       <ProfileGuard>
         <RouteReadinessManager />
-        <TranscriptionProvider>
-          <Navigation />
-          <main
-            data-testid="app-main"
-            className="relative z-10"
-          >
-            <ErrorBoundary>
-              <Suspense fallback={<PageLoader />}>
-                <AnimatePresence mode="wait">
-                  <Routes location={location} key={location.pathname}>
-                    <Route path="/" element={<PageTransition><Index /></PageTransition>} />
-                    <Route path="/pricing" element={<PageTransition><PricingPage /></PageTransition>} />
-                    <Route path="/design" element={<PageTransition><DesignSystemPage /></PageTransition>} />
-                    <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
-                    <Route path="/signup" element={<Navigate to="/auth/signup" replace />} />
-                    <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />
-                    <Route path="/auth/signup" element={<PageTransition><AuthPage /></PageTransition>} />
-                    <Route path="/session" element={
-                      <ProtectedRoute>
+        <Navigation />
+        <main
+          data-testid="app-main"
+          className="relative z-10"
+        >
+          <ErrorBoundary>
+            <Suspense fallback={<PageLoader />}>
+              <AnimatePresence mode="wait">
+                <Routes location={location} key={location.pathname}>
+                  <Route path="/" element={<PageTransition><Index /></PageTransition>} />
+                  <Route path="/pricing" element={<PageTransition><PricingPage /></PageTransition>} />
+                  <Route path="/design" element={<PageTransition><DesignSystemPage /></PageTransition>} />
+                  <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
+                  <Route path="/signup" element={<Navigate to="/auth/signup" replace />} />
+                  <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />
+                  <Route path="/auth/signup" element={<PageTransition><AuthPage /></PageTransition>} />
+                  <Route path="/session" element={
+                    <ProtectedRoute>
+                      <TranscriptionProvider>
                         <PageTransition><SessionPage /></PageTransition>
-                      </ProtectedRoute>
-                    } />
-                    <Route path="/analytics" element={
-                      <ProtectedRoute>
+                      </TranscriptionProvider>
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/analytics" element={
+                    <ProtectedRoute>
+                      <TranscriptionProvider>
                         <PageTransition><AnalyticsPage /></PageTransition>
-                      </ProtectedRoute>
-                    } />
-                    <Route path="/analytics/:sessionId" element={
-                      <ProtectedRoute>
+                      </TranscriptionProvider>
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/analytics/:sessionId" element={
+                    <ProtectedRoute>
+                      <TranscriptionProvider>
                         <PageTransition><AnalyticsPage /></PageTransition>
-                      </ProtectedRoute>
-                    } />
-                  </Routes>
-                </AnimatePresence>
-              </Suspense>
-            </ErrorBoundary>
-          </main>
-        </TranscriptionProvider>
+                      </TranscriptionProvider>
+                    </ProtectedRoute>
+                  } />
+                </Routes>
+              </AnimatePresence>
+            </Suspense>
+          </ErrorBoundary>
+        </main>
       </ProfileGuard>
     </div>
   );

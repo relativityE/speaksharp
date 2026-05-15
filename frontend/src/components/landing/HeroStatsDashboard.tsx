@@ -48,7 +48,7 @@ const MiniBars = () => {
             {bars.map((height, i) => (
                 <motion.div
                     key={i}
-                    className="w-2 bg-gradient-to-t from-primary/60 to-primary rounded-sm"
+                    className="w-2 bg-gradient-to-t from-amber-600/70 to-amber-700 rounded-sm"
                     initial={{ height: 0, opacity: 0 }}
                     animate={{
                         height: `${height * 4}px`,
@@ -71,7 +71,7 @@ const StatCard = ({
     label,
     suffix = "",
     delay = 0,
-    colorClass = "text-primary"
+    colorClass = "text-amber-700"
 }: {
     value: string | number;
     label: string;
@@ -110,11 +110,11 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
                 <div className="flex items-center justify-between mb-8 pb-4 border-b border-border">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                            <Mic className="w-5 h-5 text-primary" />
+                            <Mic className="w-5 h-5 text-amber-700" />
                         </div>
                         <div>
                             <div className="font-bold text-foreground">Live Demo Session</div>
-                            <div className="text-xs font-medium text-primary">Real-time analysis</div>
+                            <div className="text-xs font-medium text-amber-700">Real-time analysis</div>
                         </div>
                     </div>
                     <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-success/12 border border-success/25">
@@ -125,9 +125,9 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
 
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 gap-4 mb-8">
-                    <StatCard value={clarityCount} suffix="%" label="Clarity" delay={0.1} colorClass="text-primary" />
-                    <StatCard value={fillersCount} label="Fillers" delay={0.2} colorClass="text-primary" />
-                    <StatCard value={wpmCount} label="WPM" delay={0.3} colorClass="text-primary" />
+                    <StatCard value={clarityCount} suffix="%" label="Clarity" delay={0.1} colorClass="text-amber-700" />
+                    <StatCard value={fillersCount} label="Fillers" delay={0.2} colorClass="text-amber-700" />
+                    <StatCard value={wpmCount} label="WPM" delay={0.3} colorClass="text-amber-700" />
                     <StatCard value={demoStats.duration} label="Duration" delay={0.4} colorClass="text-foreground" />
                 </div>
 

@@ -38,7 +38,7 @@ export const BenefitsSection = () => {
                 >
                     <h2 className="text-3xl sm:text-5xl font-bold text-foreground leading-tight tracking-tight">
                         Transform Your{' '}
-                        <span className="text-primary">
+                        <span className="text-amber-700">
                             Communication
                         </span>
                     </h2>

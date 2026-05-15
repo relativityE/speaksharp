@@ -80,7 +80,8 @@ try {
   // --- Data Calculation ---
   const unit_tests = ciAuditOverride?.unit_tests ?? metrics.unit_tests;
   const e2e_tests = ciAuditOverride?.e2e_tests ?? metrics.e2e_tests;
-  const lighthouse = ciAuditOverride?.lighthouse ?? metrics.lighthouse;
+  const hasCurrentLighthouseMetrics = metrics.lighthouse && Object.values(metrics.lighthouse).some(value => Number(value) > 0);
+  const lighthouse = hasCurrentLighthouseMetrics ? metrics.lighthouse : ciAuditOverride?.lighthouse;
   const { performance } = metrics;
   const e2eTotal = e2e_tests.total ?? ((e2e_tests.passed || 0) + (e2e_tests.failed || 0) + (e2e_tests.skipped || 0));
   const totalTests = unit_tests.total + e2eTotal;
@@ -94,9 +95,10 @@ try {
 
   // Format runtime
   const totalRuntime = metrics.total_runtime_seconds || 0;
+  const previousRuntime = prdContent.match(/\| Total runtime\s+\|\s+([^|]+?)\s+\|/)?.[1]?.trim();
   const runtimeDisplay = totalRuntime > 0
     ? `${Math.floor(totalRuntime / 60)}m ${totalRuntime % 60}s`
-    : 'See CI logs';
+    : previousRuntime || 'See CI logs';
 
   // --- New Vertical Table Generation ---
   const newSqmSection = `

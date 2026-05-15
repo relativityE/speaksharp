@@ -70,11 +70,11 @@ export const FeaturesSection = () => {
           transition={{ duration: 0.6 }}
         >
           <div className="space-y-3">
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700">
               Key Features
             </span>
             <h2 className="text-3xl sm:text-5xl font-bold text-foreground leading-tight tracking-tight mt-4">
-              Everything you need to <span className="text-primary">practice</span>
+              Everything you need to <span className="text-amber-700">practice</span>
             </h2>
             <p className="text-lg text-muted-foreground leading-relaxed max-w-[800px] mt-4">
               SpeakSharp provides a suite of tools designed for focused speech practice, review, and coaching feedback.

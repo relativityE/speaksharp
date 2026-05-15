@@ -77,17 +77,17 @@ export const HeroSection = () => {
                 </Button>
               </motion.div>
 
-              <motion.div variants={itemVariants} className="grid grid-cols-1 gap-2 text-sm text-muted-foreground font-medium sm:grid-cols-3">
+            <motion.div variants={itemVariants} className="grid grid-cols-1 gap-2 text-sm text-muted-foreground font-medium sm:grid-cols-3">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-primary" />
+                  <CheckCircle2 className="size-4 text-amber-700" />
                   <span>Basic to start</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-primary" />
+                  <CheckCircle2 className="size-4 text-amber-700" />
                   <span>No installation</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 className="size-4 text-primary" />
+                  <CheckCircle2 className="size-4 text-amber-700" />
                   <span>Live feedback</span>
                 </div>
               </motion.div>

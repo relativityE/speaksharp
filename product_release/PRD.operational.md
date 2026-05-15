@@ -71,7 +71,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 <!-- SQM:START -->
 ## 6. Software Quality Metrics
 
-**Last Updated:** Fri, 15 May 2026 21:14:48 GMT
+**Last Updated:** Fri, 15 May 2026 21:38:12 GMT
 
 **Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
 
@@ -116,9 +116,9 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 | ------------------- | ----- |
 | Total Source Size   | 49M   |
 | Total Project Size  | 2.9G   |
-| Initial Chunk Size  | 968K   |
-| Code Bloat Index    | 1.91%   |
-| Lighthouse Scores   | P: 89, A: 96, BP: 78, SEO: 91 |
+| Initial Chunk Size  | 416K   |
+| Code Bloat Index    | 0.82%   |
+| Lighthouse Scores   | P: 98, A: 94, BP: 100, SEO: 100 |
 
 ---
 <!-- SQM:END -->

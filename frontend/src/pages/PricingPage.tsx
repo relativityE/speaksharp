@@ -1,9 +1,8 @@
-import { AlertTriangle, CheckCircle, Zap } from 'lucide-react';
+import { CheckCircle, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { SUBSCRIPTION_LIMITS } from '@/config';
-import { useStripeAvailability } from '@/utils/stripeDetection';
 import logger from '../lib/logger';
 
 interface Tier {
@@ -107,35 +106,6 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
 };
 
 export const PricingPage: React.FC = () => {
-  const stripeStatus = useStripeAvailability();
-
-  if (!stripeStatus.available && stripeStatus.reason !== 'Checking...') {
-    return (
-      <div className="min-h-screen bg-background px-4 pt-28 text-center">
-        <div className="max-w-md mx-auto p-8 border border-border rounded-lg bg-white shadow-card">
-          <AlertTriangle className="mx-auto h-12 w-12 text-primary mb-4" />
-          <h3 className="text-2xl font-bold">Payment System Unavailable</h3>
-          <p className="text-muted-foreground mt-2">{stripeStatus.reason}</p>
-          <div className="mt-6 p-4 border border-primary/25 rounded-lg bg-primary/10 text-left">
-            <p className="font-semibold mb-2">How to fix:</p>
-            <ul className="list-disc list-inside space-y-1 text-sm">
-              <li>Disable ad-blockers for this site</li>
-              <li>Check if your browser blocks third-party scripts</li>
-              <li>Try a different browser</li>
-            </ul>
-          </div>
-          <Button
-            variant="outline"
-            className="mt-6 w-full"
-            onClick={() => window.location.reload()}
-          >
-            Refresh Page
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-background px-4 pb-16 pt-28">
       <div className="mx-auto max-w-4xl text-center mb-10">
