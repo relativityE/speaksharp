@@ -19,7 +19,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-007 | Real-mic Pro Cloud | P1 | Cloud is marketed as a Pro feature. | Real human speech in normal Chrome produces Cloud transcript -> save -> history/detail/analytics. | OPEN / TOOL-LIMITED ATTEMPT | `/private/tmp/speaksharp-pl007-cloud-1778806823269/report.json`; Cloud selected and ran for ~60s, but no verified real mic transcript was produced, no useful Cloud session was saved, and the gate remains open for public launch. |
 | PL-008 | Pro AI feedback | P1 | AI is a launch promise. | Saved session generates useful AI feedback; provider failures degrade gracefully. | PASS | Pro STT artifact matrix run `25894670273` in `private` mode; `get-ai-suggestions` returned HTTP 200 with concrete coaching suggestions and no UI error. |
 | PL-009 | Pro PDF export | P1 | PDF is a launch promise. | Exported PDF is parsed/inspected for transcript, metrics, branding, and engine metadata. | PASS | Pro STT artifact matrix run `25894670273`; downloaded PDF artifact parsed locally and contained SpeakSharp branding, duration/WPM, STT engine metadata, filler metrics, and transcript. |
-| PL-010 | Mobile baseline | P1 | Public traffic will include mobile users. | Auth, nav, Session controls, transcript, fillers, status/toasts work on mobile viewport/device. | OPEN | Not started |
+| PL-010 | Mobile baseline | P1 | Public traffic will include mobile users. | Auth, nav, Session controls, transcript, fillers, status/toasts work on mobile viewport/device. | PASS VIEWPORT / PHYSICAL DEVICE PENDING | `/private/tmp/speaksharp-pl010-mobile-final2-1778808295430/report.json`; mobile public signup reached Session, idle status showed `Mic ready`, no inactive private-model progress leaked into Basic Native Browser, idle sticky mobile action bar was hidden, and screenshots verify Recording -> Filler Words -> Live Transcript -> Stats ordering. Physical device/manual touch pass remains recommended before broad launch. |
 | PL-011 | Observability/support loop | P1 | Public failures must be visible and triageable. | Frontend, Edge, provider, auth, billing, and tester feedback signals are distinguishable. | OPEN | Not started |
 
 ## Phase Plan
@@ -30,7 +30,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | Phase 2: Paid entitlement | PL-003, PL-004, PL-005 | A real production payment creates durable Pro entitlement; cancel/failure/downgrade paths are safe. | TEST-MODE PARTIAL |
 | Phase 3: Promo lifecycle | PL-006 | Public promo behavior is safe for redeem, reuse, expiry, and downgrade. | PASS |
 | Phase 4: Pro product promises | PL-007, PL-008, PL-009 | Cloud, AI, and PDF each pass with provider/live artifact evidence. | PARTIAL; PL-007 OPEN |
-| Phase 5: Launch coverage | PL-010, PL-011 | Mobile baseline and observability/support are sufficient for uncontrolled public users. | OPEN |
+| Phase 5: Launch coverage | PL-010, PL-011 | Mobile baseline and observability/support are sufficient for uncontrolled public users. | PARTIAL; PL-011 OPEN |
 
 ## Latest Evidence
 
@@ -44,6 +44,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-006 | public-signup + generated one-use promo + expired-promo seeded workflow | Chrome CDP 9222; GitHub Actions live smoke | manual-chrome-cdp; promo-redemption-ui; provider-live-api/service-role seeded expired promo | PASS | `/private/tmp/speaksharp-pl006-promo-1778806498265/report.json`; `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; GitHub run `25894288884` |
 | PL-008 | saved Pro private session | GitHub Actions live browser workflow | automated-live-ui; provider-live-api `get-ai-suggestions` | PASS | Pro STT artifact matrix run `25894670273`; response logged `GET_AI_SUGGESTIONS_LIVE_RESPONSE` with HTTP 200 and coaching suggestions |
 | PL-009 | saved Pro private session PDF export | GitHub Actions live browser workflow + local PDF parsing | automated-live-ui; downloaded PDF artifact parse | PASS | Pro STT artifact matrix run `25894670273`, artifact `7008146769`; parsed PDF at `/private/tmp/pro-stt-artifact-25894670273/test-results/live/live-pro-stt-artifact-matr-f2fb7-AI-feedback-and-exports-PDF-live-stt-chromium/session_20260515_e62369e1_ef68_417b_a303_f3e0c2eba441.pdf` |
+| PL-010 | public-signup | isolated Playwright Chromium mobile viewport, 390x844 | mobile viewport UI screenshot proof; not physical-device/manual-touch evidence | PASS VIEWPORT | `/private/tmp/speaksharp-pl010-mobile-final2-1778808295430/report.json` |
 
 ## PL-002 Evidence Summary
 
@@ -157,7 +158,7 @@ The UI proof used public signups and the deployed app. The expired-promo proof u
 
 | Gate | Why Next | Required Evidence |
 |---|---|---|
-| PL-010 Mobile baseline | AI feedback and PDF export now have live artifact evidence; mobile baseline is the next public-traffic coverage gate. | Auth, nav, Session controls, transcript, fillers, status/toasts work on mobile viewport/device. |
+| PL-011 Observability/support loop | Mobile viewport baseline now has screenshot proof; observability/support is the remaining launch coverage gate. | Frontend, Edge, provider, auth, billing, and tester feedback signals are distinguishable. |
 
 ## PL-007 Cloud Transcript Attempt
 
@@ -200,3 +201,20 @@ The proof uses the dedicated live Pro artifact workflow with stored E2E Pro cred
 | Parsed text includes metrics | PASS | Local parse found `Duration: 1 minutes`, `Speaking Pace (WPM) 166`, pause metrics, and filler-word frequencies. |
 | Parsed text includes engine metadata | PASS | Local parse found `STT Engine private (unknown, unknown, unknown)`. |
 | Parsed text includes transcript | PASS | Local parse found the recorded private-session transcript text; parsed text length `949`. |
+
+## PL-010 Mobile Baseline Summary
+
+| Scenario | Result | Evidence |
+|---|---:|---|
+| Mobile public signup reaches Session | PASS | `/private/tmp/speaksharp-pl010-mobile-final2-1778808295430/01-auth-signup-mobile.png`; `/private/tmp/speaksharp-pl010-mobile-final2-1778808295430/02-session-top.png` |
+| Basic Native Browser status is clean | PASS | Report shows `statusText: "Mic ready"` and `hasPrivateProgress: false`; inactive private model progress is not shown for Basic Native Browser. |
+| Idle sticky mobile action bar does not obstruct content | PASS | Report shows `mobileBtnVisibleIdle: false`; screenshots show no fixed Start Recording bar covering Filler Words, Transcript, or Stats while scrolling. |
+| Mobile order is usable | PASS | Screenshots verify Recording Control first, Filler Words before Live Transcript, then Live Stats/Speaking Pace/Pause Analysis/Quick Tip. |
+| Physical mobile device/touch pass | PENDING | Current evidence is an isolated Chromium mobile viewport, not a real phone/manual touch session. |
+
+### PL-010 Fixes Applied
+
+| Commit | Fix |
+|---|---|
+| `7905c25d` | Hid inactive private model progress from Basic/Native Browser mobile action surfaces. |
+| `cb75b1e2` | Stopped `StatusNotificationBar` from reading raw private model progress and hid the fixed mobile action bar while idle. |
