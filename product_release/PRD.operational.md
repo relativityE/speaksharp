@@ -65,3 +65,60 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 - **STT Accuracy**: WER < 10% for Private, < 8% for Cloud.
 - **Cloud Live Proof**: Cloud release validation requires a live transcript against the canonical `.wav` fixture and matching ground-truth text. Token `200` and WebSocket open are readiness evidence only; success requires non-placeholder transcript text and WER < 8%.
 - **Retention**: > 30% Day-7 retention for active practitioners.
+
+---
+
+<!-- SQM:START -->
+## 6. Software Quality Metrics
+
+**Last Updated:** Fri, 15 May 2026 21:14:48 GMT
+
+**Note:** This section is automatically updated by the CI pipeline. The data below reflects the most recent successful run.
+
+**Metric Definitions:**
+- **Total Source Size:** Sum of all code in src, backend, tests, docs, and scripts.
+- **Total Project Size:** Total disk footprint including node_modules and assets.
+- **Initial Chunk Size:** The size of the largest initial JavaScript bundle.
+- **Code Bloat Index:** Ratio of Initial Chunk Size to Total Source Size (lower is better).
+
+---
+
+### Test Suite State
+
+| Metric                  | Value |
+| ----------------------- | ----- |
+| Total tests             | 706 (677 unit + 29 E2E) |
+| Unit tests              | 677   |
+| E2E tests (Playwright)  | 29  |
+| Passing tests           | 705 (676 unit + 29 E2E)   |
+| Failing tests           | 0   |
+| Disabled/skipped tests  | 1   |
+| Passing unit tests      | 676/677 (99.9%)   |
+| Passing E2E tests       | 29/29 (100.0%)   |
+| Total runtime           | 4m 28s   |
+
+---
+
+### Coverage Summary
+
+| Metric     | Value |
+| ---------- | ----- |
+| Statements | 67.62%   |
+| Branches   | 74.89%   |
+| Functions  | 67.51%   |
+| Lines      | 67.62%   |
+
+---
+
+### Code Bloat & Performance
+
+| Metric              | Value |
+| ------------------- | ----- |
+| Total Source Size   | 49M   |
+| Total Project Size  | 2.9G   |
+| Initial Chunk Size  | 968K   |
+| Code Bloat Index    | 1.91%   |
+| Lighthouse Scores   | P: 89, A: 96, BP: 78, SEO: 91 |
+
+---
+<!-- SQM:END -->

@@ -86,6 +86,7 @@ function buildAuditModel(ciTelemetry) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
+const shouldWriteOperationalPrdMetrics = process.argv.includes('--write-prd-metrics');
 
 let devServer = null;
 process.on('exit', () => {
@@ -695,6 +696,9 @@ async function main() {
         const auditModel = buildAuditModel(ciTelemetry);
         printFinalSummary(auditModel);
         generateMarkdownReport(rootDir, auditModel);
+        if (shouldWriteOperationalPrdMetrics) {
+            await runCommand('node', ['scripts/update-prd-metrics.mjs'], { label: 'PRD-METRICS' });
+        }
         generateGitHubSummary(auditModel);
 
         process.exitCode = 1;
@@ -946,6 +950,9 @@ async function runReport(startTime) {
         const auditModel = buildAuditModel(ciTelemetry);
         printFinalSummary(auditModel);
         generateMarkdownReport(rootDir, auditModel);
+        if (shouldWriteOperationalPrdMetrics) {
+            await runCommand('node', ['scripts/update-prd-metrics.mjs'], { label: 'PRD-METRICS' });
+        }
         generateGitHubSummary(auditModel);
 
         // Write machine-readable telemetry
