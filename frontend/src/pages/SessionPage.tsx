@@ -120,10 +120,13 @@ export const SessionPage: React.FC = () => {
 
     const baseStatus = getBaseStatus();
 
-    // 2. Compose Final Status (Attach Background Progress)
+    const visibleModelLoadingProgress =
+        isProUser && mode === 'private' ? modelLoadingProgress : null;
+
+    // 2. Compose Final Status (Attach active Private model progress only)
     const displayStatus: SttStatus = {
         ...baseStatus,
-        progress: modelLoadingProgress ?? undefined
+        progress: visibleModelLoadingProgress ?? undefined
     };
 
     return (
@@ -286,7 +289,7 @@ export const SessionPage: React.FC = () => {
             <MobileActionBar
                 isListening={isListening}
                 isButtonDisabled={isButtonDisabled}
-                modelLoadingProgress={modelLoadingProgress}
+                modelLoadingProgress={visibleModelLoadingProgress}
                 onStartStop={() => { void handleStartStop(); }}
                 isFrozen={sttStatus.isFrozen}
                 onSwitchToNative={() => { void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.switchToNative()); }}
