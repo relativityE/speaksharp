@@ -16,7 +16,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-004 | Production Stripe webhook entitlement | P0 | Paid users must become Pro without manual intervention. | Production webhook verifies signature, updates entitlement, persists after refresh/logout/login. | PASS IN TEST MODE / LIVE KEYS PENDING | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/report.json`; Stripe test checkout user stayed Pro through refresh and logout/login; deployed webhook rejected unsigned events; local webhook tests passed signed handler, downgrade, failure, and idempotency cases. Production launch still requires live Stripe keys and a live webhook rerun. |
 | PL-005 | Billing failure/cancel/downgrade lifecycle | P0 | Stale Pro access or wrong downgrade is trust/billing risk. | Canceled, failed, duplicate, and replayed payment states keep entitlement correct. | PASS IN LOCAL/TEST MODE / LIVE EVENT PENDING | Local webhook tests prove cancellation, unpaid, past_due, 3+ payment failures, skipped duplicate events, and RPC failure handling. Live signed cancel/failure events require real Stripe webhook signing secret or Stripe test API access. |
 | PL-006 | Promo redemption/reuse/expiry | P0/P1 | Launch includes promos, so promo entitlement must be safe. | Public promo apply succeeds once, reuse/invalid/expired codes fail clearly, expiry downgrades correctly. | PASS | `/private/tmp/speaksharp-pl006-promo-1778806498265/report.json`; focused reuse proof `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; expired promo live smoke run `25894288884` passed with artifact `7008001175` |
-| PL-007 | Real-mic Pro Cloud | P1 | Cloud is marketed as a Pro feature. | Real human speech in normal Chrome produces Cloud transcript -> save -> history/detail/analytics. | OPEN | Not started |
+| PL-007 | Real-mic Pro Cloud | P1 | Cloud is marketed as a Pro feature. | Real human speech in normal Chrome produces Cloud transcript -> save -> history/detail/analytics. | OPEN / TOOL-LIMITED ATTEMPT | `/private/tmp/speaksharp-pl007-cloud-1778806823269/report.json`; Cloud selected and ran for ~60s, but no verified real mic transcript was produced, no useful Cloud session was saved, and the gate remains open for public launch. |
 | PL-008 | Pro AI feedback | P1 | AI is a launch promise. | Saved session generates useful AI feedback; provider failures degrade gracefully. | OPEN | Not started |
 | PL-009 | Pro PDF export | P1 | PDF is a launch promise. | Exported PDF is parsed/inspected for transcript, metrics, branding, and engine metadata. | OPEN | Not started |
 | PL-010 | Mobile baseline | P1 | Public traffic will include mobile users. | Auth, nav, Session controls, transcript, fillers, status/toasts work on mobile viewport/device. | OPEN | Not started |
@@ -155,4 +155,22 @@ The UI proof used public signups and the deployed app. The expired-promo proof u
 
 | Gate | Why Next | Required Evidence |
 |---|---|---|
-| PL-007 Real-mic Pro Cloud | Public entry, billing test-mode proof, and promo lifecycle are now recorded; Cloud is the next Pro product promise. | Real human speech in normal Chrome produces Cloud transcript -> save -> history/detail/analytics. |
+| PL-008 Pro AI feedback | PL-007 remains open because real-mic Cloud transcript proof is tool-limited; AI feedback is the next Pro product promise that can be evaluated from a saved session. | Saved session generates useful AI feedback; provider failures degrade gracefully. |
+
+## PL-007 Cloud Transcript Attempt
+
+| Step | Result | Evidence |
+|---|---:|---|
+| Login as Pro-capable public account | PASS | `/private/tmp/speaksharp-pl007-cloud-1778806823269/01-after-login.png` |
+| Select Cloud mode | PASS | `/private/tmp/speaksharp-pl007-cloud-1778806823269/04-cloud-selected.png` |
+| Record for about 60 seconds | TOOL-LIMITED | `/private/tmp/speaksharp-pl007-cloud-1778806823269/06-after-60s-recording.png`; page showed Cloud and elapsed time but transcript stayed `Listening...`. |
+| Stop/save/history/detail | NOT PROVEN | `/private/tmp/speaksharp-pl007-cloud-1778806823269/report.json`; no useful transcript/save path was available from this attempt. |
+
+### PL-007 Remaining Requirement
+
+Public launch still requires one of:
+
+| Acceptable Evidence | Status |
+|---|---:|
+| Normal Chrome + real physical mic/human speech produces Cloud transcript -> save -> history/detail/analytics | Pending |
+| Provider-level Cloud transcript proof plus deployed persistence proof | Pending |
