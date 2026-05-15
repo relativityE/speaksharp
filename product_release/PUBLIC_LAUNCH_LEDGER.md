@@ -17,8 +17,8 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-005 | Billing failure/cancel/downgrade lifecycle | P0 | Stale Pro access or wrong downgrade is trust/billing risk. | Canceled, failed, duplicate, and replayed payment states keep entitlement correct. | PASS IN LOCAL/TEST MODE / LIVE EVENT PENDING | Local webhook tests prove cancellation, unpaid, past_due, 3+ payment failures, skipped duplicate events, and RPC failure handling. Live signed cancel/failure events require real Stripe webhook signing secret or Stripe test API access. |
 | PL-006 | Promo redemption/reuse/expiry | P0/P1 | Launch includes promos, so promo entitlement must be safe. | Public promo apply succeeds once, reuse/invalid/expired codes fail clearly, expiry downgrades correctly. | PASS | `/private/tmp/speaksharp-pl006-promo-1778806498265/report.json`; focused reuse proof `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; expired promo live smoke run `25894288884` passed with artifact `7008001175` |
 | PL-007 | Real-mic Pro Cloud | P1 | Cloud is marketed as a Pro feature. | Real human speech in normal Chrome produces Cloud transcript -> save -> history/detail/analytics. | OPEN / TOOL-LIMITED ATTEMPT | `/private/tmp/speaksharp-pl007-cloud-1778806823269/report.json`; Cloud selected and ran for ~60s, but no verified real mic transcript was produced, no useful Cloud session was saved, and the gate remains open for public launch. |
-| PL-008 | Pro AI feedback | P1 | AI is a launch promise. | Saved session generates useful AI feedback; provider failures degrade gracefully. | OPEN | Not started |
-| PL-009 | Pro PDF export | P1 | PDF is a launch promise. | Exported PDF is parsed/inspected for transcript, metrics, branding, and engine metadata. | OPEN | Not started |
+| PL-008 | Pro AI feedback | P1 | AI is a launch promise. | Saved session generates useful AI feedback; provider failures degrade gracefully. | PASS | Pro STT artifact matrix run `25894670273` in `private` mode; `get-ai-suggestions` returned HTTP 200 with concrete coaching suggestions and no UI error. |
+| PL-009 | Pro PDF export | P1 | PDF is a launch promise. | Exported PDF is parsed/inspected for transcript, metrics, branding, and engine metadata. | PASS | Pro STT artifact matrix run `25894670273`; downloaded PDF artifact parsed locally and contained SpeakSharp branding, duration/WPM, STT engine metadata, filler metrics, and transcript. |
 | PL-010 | Mobile baseline | P1 | Public traffic will include mobile users. | Auth, nav, Session controls, transcript, fillers, status/toasts work on mobile viewport/device. | OPEN | Not started |
 | PL-011 | Observability/support loop | P1 | Public failures must be visible and triageable. | Frontend, Edge, provider, auth, billing, and tester feedback signals are distinguishable. | OPEN | Not started |
 
@@ -29,7 +29,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | Phase 1: Public entry | PL-001, PL-002 | A brand-new public Basic user can sign up, complete first useful session, and return after logout/login. | PASS |
 | Phase 2: Paid entitlement | PL-003, PL-004, PL-005 | A real production payment creates durable Pro entitlement; cancel/failure/downgrade paths are safe. | TEST-MODE PARTIAL |
 | Phase 3: Promo lifecycle | PL-006 | Public promo behavior is safe for redeem, reuse, expiry, and downgrade. | PASS |
-| Phase 4: Pro product promises | PL-007, PL-008, PL-009 | Cloud, AI, and PDF each pass with provider/live artifact evidence. | OPEN |
+| Phase 4: Pro product promises | PL-007, PL-008, PL-009 | Cloud, AI, and PDF each pass with provider/live artifact evidence. | PARTIAL; PL-007 OPEN |
 | Phase 5: Launch coverage | PL-010, PL-011 | Mobile baseline and observability/support are sufficient for uncontrolled public users. | OPEN |
 
 ## Latest Evidence
@@ -42,6 +42,8 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-004 | public-signup + Stripe test checkout | Chrome CDP 9222 plus deployed webhook HTTP check plus local Deno tests | manual-chrome-cdp; provider-live-api unsigned rejection; local webhook unit/adversarial | PASS IN TEST MODE | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/report.json` |
 | PL-005 | local webhook lifecycle tests | Deno | local webhook unit/adversarial | PASS IN LOCAL/TEST MODE | `deno test --config backend/supabase/functions/deno.json --allow-env --allow-net backend/supabase/functions/stripe-webhook/index.test.ts backend/supabase/functions/stripe-webhook/adversarial.test.ts`; `4 passed (14 steps)` |
 | PL-006 | public-signup + generated one-use promo + expired-promo seeded workflow | Chrome CDP 9222; GitHub Actions live smoke | manual-chrome-cdp; promo-redemption-ui; provider-live-api/service-role seeded expired promo | PASS | `/private/tmp/speaksharp-pl006-promo-1778806498265/report.json`; `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; GitHub run `25894288884` |
+| PL-008 | saved Pro private session | GitHub Actions live browser workflow | automated-live-ui; provider-live-api `get-ai-suggestions` | PASS | Pro STT artifact matrix run `25894670273`; response logged `GET_AI_SUGGESTIONS_LIVE_RESPONSE` with HTTP 200 and coaching suggestions |
+| PL-009 | saved Pro private session PDF export | GitHub Actions live browser workflow + local PDF parsing | automated-live-ui; downloaded PDF artifact parse | PASS | Pro STT artifact matrix run `25894670273`, artifact `7008146769`; parsed PDF at `/private/tmp/pro-stt-artifact-25894670273/test-results/live/live-pro-stt-artifact-matr-f2fb7-AI-feedback-and-exports-PDF-live-stt-chromium/session_20260515_e62369e1_ef68_417b_a303_f3e0c2eba441.pdf` |
 
 ## PL-002 Evidence Summary
 
@@ -155,7 +157,7 @@ The UI proof used public signups and the deployed app. The expired-promo proof u
 
 | Gate | Why Next | Required Evidence |
 |---|---|---|
-| PL-008 Pro AI feedback | PL-007 remains open because real-mic Cloud transcript proof is tool-limited; AI feedback is the next Pro product promise that can be evaluated from a saved session. | Saved session generates useful AI feedback; provider failures degrade gracefully. |
+| PL-010 Mobile baseline | AI feedback and PDF export now have live artifact evidence; mobile baseline is the next public-traffic coverage gate. | Auth, nav, Session controls, transcript, fillers, status/toasts work on mobile viewport/device. |
 
 ## PL-007 Cloud Transcript Attempt
 
@@ -174,3 +176,27 @@ Public launch still requires one of:
 |---|---:|
 | Normal Chrome + real physical mic/human speech produces Cloud transcript -> save -> history/detail/analytics | Pending |
 | Provider-level Cloud transcript proof plus deployed persistence proof | Pending |
+
+## PL-008 AI Feedback Summary
+
+| Scenario | Result | Evidence |
+|---|---:|---|
+| Saved Pro session opens detail page | PASS | Pro STT artifact matrix run `25894670273` created and opened `/analytics/12533362-fe0e-414d-b995-02d736a062f7`. |
+| AI feedback provider call | PASS | Log line `GET_AI_SUGGESTIONS_LIVE_RESPONSE` returned status `200` from `https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/get-ai-suggestions`. |
+| AI output usefulness | PASS | Response body included summary plus coaching items for `Clarity`, `Pacing`, and `Filler Words`. |
+| UI graceful failure check | PASS | Test asserted no `Error` heading appeared on the AI suggestions card after provider response. |
+
+### PL-008 Evidence Caveat
+
+The proof uses the dedicated live Pro artifact workflow with stored E2E Pro credentials and a live audio fixture. It is provider/live artifact evidence, not manual-real-mic evidence.
+
+## PL-009 PDF Export Summary
+
+| Scenario | Result | Evidence |
+|---|---:|---|
+| PDF download | PASS | Workflow run `25894670273`; filename `session_20260515_e62369e1_ef68_417b_a303_f3e0c2eba441.pdf`. |
+| Artifact retained | PASS | GitHub artifact `7008146769`, `pro-stt-artifact-matrix-artifacts`. |
+| Parsed text includes branding | PASS | Local parse found `SpeakSharp Session Report` and `Generated by SpeakSharp`. |
+| Parsed text includes metrics | PASS | Local parse found `Duration: 1 minutes`, `Speaking Pace (WPM) 166`, pause metrics, and filler-word frequencies. |
+| Parsed text includes engine metadata | PASS | Local parse found `STT Engine private (unknown, unknown, unknown)`. |
+| Parsed text includes transcript | PASS | Local parse found the recorded private-session transcript text; parsed text length `949`. |
