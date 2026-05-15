@@ -175,9 +175,9 @@ export const SessionPage: React.FC = () => {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">
                 <div className="grid grid-cols-1 items-start gap-6 pt-6 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px]">
 
-                    <div className="space-y-6">
+                    <div className="contents lg:block lg:space-y-6">
                         {/* === WORKSPACE LEFT: Recording Control === */}
-                        <div>
+                        <div className="order-1 lg:order-none">
                             <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                                 <LiveRecordingCard
                                     mode={mode || 'native'}
@@ -201,7 +201,7 @@ export const SessionPage: React.FC = () => {
                         </div>
 
                         {/* === WORKSPACE LEFT: Live Transcript === */}
-                        <div>
+                        <div className="order-3 lg:order-none">
                             <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
                                 <LiveTranscriptPanel
                                     transcript={transcriptContent}
@@ -216,7 +216,7 @@ export const SessionPage: React.FC = () => {
                     </div>
 
                     {/* === WORKSPACE RIGHT: Filler Words Rail === */}
-                    <aside className="self-start lg:sticky lg:top-24">
+                    <aside className="order-2 self-start lg:sticky lg:top-24 lg:order-none">
                         <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
                             <FillerWordsCard
                                 fillerCount={metrics.fillerCount}
@@ -246,7 +246,7 @@ export const SessionPage: React.FC = () => {
 
                     {/* === ROW 3: Secondary Metrics === */}
                     <div
-                        className="lg:col-span-2 grid grid-cols-1 gap-4 md:grid-cols-3"
+                        className="order-4 grid grid-cols-1 gap-4 md:grid-cols-3 lg:order-none lg:col-span-2"
                         data-testid="metrics-panel"
                         data-metrics-settled={elapsedTime > 0 ? "true" : "false"}
                     >
@@ -273,7 +273,7 @@ export const SessionPage: React.FC = () => {
                     </div>
 
                     {/* === ROW 4: Full-Width Quick Tips === */}
-                    <div className="lg:col-span-2">
+                    <div className="order-5 lg:order-none lg:col-span-2">
                         <LocalErrorBoundary isolationKey="speaking-tips" componentName="SpeakingTipsCard">
                             <SpeakingTipsCard className="bg-white border border-border rounded-lg compact" />
                         </LocalErrorBoundary>
