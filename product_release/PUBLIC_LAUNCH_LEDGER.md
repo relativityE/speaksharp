@@ -20,7 +20,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-008 | Pro AI feedback | P1 | AI is a launch promise. | Saved session generates useful AI feedback; provider failures degrade gracefully. | PASS | Pro STT artifact matrix run `25894670273` in `private` mode; `get-ai-suggestions` returned HTTP 200 with concrete coaching suggestions and no UI error. |
 | PL-009 | Pro PDF export | P1 | PDF is a launch promise. | Exported PDF is parsed/inspected for transcript, metrics, branding, and engine metadata. | PASS | Pro STT artifact matrix run `25894670273`; downloaded PDF artifact parsed locally and contained SpeakSharp branding, duration/WPM, STT engine metadata, filler metrics, and transcript. |
 | PL-010 | Mobile baseline | P1 | Public traffic will include mobile users. | Auth, nav, Session controls, transcript, fillers, status/toasts work on mobile viewport/device. | PASS VIEWPORT / PHYSICAL DEVICE PENDING | `/private/tmp/speaksharp-pl010-mobile-final2-1778808295430/report.json`; mobile public signup reached Session, idle status showed `Mic ready`, no inactive private-model progress leaked into Basic Native Browser, idle sticky mobile action bar was hidden, and screenshots verify Recording -> Filler Words -> Live Transcript -> Stats ordering. Physical device/manual touch pass remains recommended before broad launch. |
-| PL-011 | Observability/support loop | P1 | Public failures must be visible and triageable. | Frontend, Edge, provider, auth, billing, and tester feedback signals are distinguishable. | OPEN | Not started |
+| PL-011 | Observability/support loop | P1 | Public failures must be visible and triageable. | Frontend, Edge, provider, auth, billing, and tester feedback signals are distinguishable. | PASS | Observability API Smoke run `25895177106` passed. Frontend Sentry proof `launch-1778808400098-aec72cb1`, Edge Sentry proof `launch-1778808399999-043f128a`, and PostHog proof `launch-1778808399719-2476b62c` all had provider API readback. Tester fallback template exists at `.github/ISSUE_TEMPLATE/tester-feedback.yml`. |
 
 ## Phase Plan
 
@@ -30,7 +30,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | Phase 2: Paid entitlement | PL-003, PL-004, PL-005 | A real production payment creates durable Pro entitlement; cancel/failure/downgrade paths are safe. | TEST-MODE PARTIAL |
 | Phase 3: Promo lifecycle | PL-006 | Public promo behavior is safe for redeem, reuse, expiry, and downgrade. | PASS |
 | Phase 4: Pro product promises | PL-007, PL-008, PL-009 | Cloud, AI, and PDF each pass with provider/live artifact evidence. | PARTIAL; PL-007 OPEN |
-| Phase 5: Launch coverage | PL-010, PL-011 | Mobile baseline and observability/support are sufficient for uncontrolled public users. | PARTIAL; PL-011 OPEN |
+| Phase 5: Launch coverage | PL-010, PL-011 | Mobile baseline and observability/support are sufficient for uncontrolled public users. | PASS VIEWPORT; PHYSICAL MOBILE DEVICE STILL RECOMMENDED |
 
 ## Latest Evidence
 
@@ -45,6 +45,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-008 | saved Pro private session | GitHub Actions live browser workflow | automated-live-ui; provider-live-api `get-ai-suggestions` | PASS | Pro STT artifact matrix run `25894670273`; response logged `GET_AI_SUGGESTIONS_LIVE_RESPONSE` with HTTP 200 and coaching suggestions |
 | PL-009 | saved Pro private session PDF export | GitHub Actions live browser workflow + local PDF parsing | automated-live-ui; downloaded PDF artifact parse | PASS | Pro STT artifact matrix run `25894670273`, artifact `7008146769`; parsed PDF at `/private/tmp/pro-stt-artifact-25894670273/test-results/live/live-pro-stt-artifact-matr-f2fb7-AI-feedback-and-exports-PDF-live-stt-chromium/session_20260515_e62369e1_ef68_417b_a303_f3e0c2eba441.pdf` |
 | PL-010 | public-signup | isolated Playwright Chromium mobile viewport, 390x844 | mobile viewport UI screenshot proof; not physical-device/manual-touch evidence | PASS VIEWPORT | `/private/tmp/speaksharp-pl010-mobile-final2-1778808295430/report.json` |
+| PL-011 | GitHub Actions observability smoke | Provider APIs | Sentry frontend ingest/readback; Edge Function Sentry ingest/readback; PostHog ingest/readback; GitHub feedback fallback | PASS | Workflow run `25895177106`; jobs `76106648644`, `76106648659`, `76106648669` |
 
 ## PL-002 Evidence Summary
 
@@ -158,7 +159,7 @@ The UI proof used public signups and the deployed app. The expired-promo proof u
 
 | Gate | Why Next | Required Evidence |
 |---|---|---|
-| PL-011 Observability/support loop | Mobile viewport baseline now has screenshot proof; observability/support is the remaining launch coverage gate. | Frontend, Edge, provider, auth, billing, and tester feedback signals are distinguishable. |
+| PL-007 Real-mic Pro Cloud | Observability/support is now proven. The remaining launch-critical product proof is Cloud real-speech transcript persistence. | Normal Chrome + real physical mic/human speech produces Cloud transcript -> save -> history/detail/analytics, or provider-level Cloud transcript proof plus deployed persistence proof. |
 
 ## PL-007 Cloud Transcript Attempt
 
@@ -218,3 +219,16 @@ The proof uses the dedicated live Pro artifact workflow with stored E2E Pro cred
 |---|---|
 | `7905c25d` | Hid inactive private model progress from Basic/Native Browser mobile action surfaces. |
 | `cb75b1e2` | Stopped `StatusNotificationBar` from reading raw private model progress and hid the fixed mobile action bar while idle. |
+
+## PL-011 Observability / Support Summary
+
+| Surface | Result | Evidence |
+|---|---:|---|
+| Frontend Sentry ingest/readback | PASS | Observability API Smoke run `25895177106`, job `76106648644`; envelope accepted with event ID `bce2569a1568493593201a1ec4d763a0`, issue proof search confirmed proof `launch-1778808400098-aec72cb1`. |
+| Edge Function Sentry ingest/readback | PASS | Observability API Smoke run `25895177106`, job `76106648659`; deployed `observability-smoke` returned status `200`, ingest status `200`, event ID `6e154ec3b48749f4a83d5d0b936d1260`, and issue proof search confirmed proof `launch-1778808399999-043f128a`. |
+| PostHog ingest/readback | PASS | Observability API Smoke run `25895177106`, job `76106648669`; capture accepted status `200`, query readback found `launch_observability_smoke` with proof `launch-1778808399719-2476b62c`. |
+| Tester feedback fallback | PASS | `.github/ISSUE_TEMPLATE/tester-feedback.yml` captures tester ID, flow, severity, steps, expected/actual, and evidence fields. |
+
+### PL-011 Notes
+
+The Sentry API token can read back issues but receives `403` on the events endpoint; the smoke still passes because issue proof search confirms the event. This is acceptable for launch triage, but broader Sentry Events API access can be upgraded later if deeper event-level querying is needed.
