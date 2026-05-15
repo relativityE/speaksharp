@@ -679,17 +679,17 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                                 <Target className={`h-4 w-4 ${isUploading ? 'animate-spin' : ''}`} />
                                                 {targetSession.ground_truth ? 'Update Script' : 'Upload Script'}
                                             </Button>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => { void generateSessionPdf(targetSession, profile?.email || 'User', isProUser); }}
-                                                className="gap-2"
-                                            >
-                                                <Download className="h-4 w-4" />
-                                                Export PDF
-                                            </Button>
                                         </>
                                     )}
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => { void generateSessionPdf(targetSession, profile?.email || 'User', isProUser); }}
+                                        className="gap-2"
+                                    >
+                                        <Download className="h-4 w-4" />
+                                        Export PDF
+                                    </Button>
                                 </div>
                             </CardHeader>
                             <CardContent className="space-y-4">

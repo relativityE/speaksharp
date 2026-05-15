@@ -228,6 +228,29 @@ describe('AnalyticsDashboard', () => {
         );
     });
 
+    it('shows PDF export in Basic session detail while keeping script upload Pro-only', () => {
+        renderComponent({
+            sessionId: 'basic-session',
+            profile: { ...mockProfile, subscription_status: 'free' },
+            sessionHistory: [
+                {
+                    id: 'basic-session',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 120,
+                    wpm: 120,
+                    clarity_score: 90,
+                    filler_words: { um: { count: 1 } },
+                    transcript: 'hello world',
+                },
+            ],
+        });
+
+        expect(screen.getByRole('button', { name: /export pdf/i })).toBeInTheDocument();
+        expect(screen.queryByTestId('upload-ground-truth-btn')).not.toBeInTheDocument();
+    });
+
     it('shows visible STT engine badges on session history cards', () => {
         renderComponent({
             sessionHistory: [

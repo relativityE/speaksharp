@@ -57,6 +57,8 @@ describe('PricingPage', () => {
             expect(screen.getByText(/mins of practice per month/)).toBeInTheDocument();
             expect(screen.getByText('Basic analytics')).toBeInTheDocument();
             expect(screen.getByText('Save last 5 sessions')).toBeInTheDocument();
+            expect(screen.getByText('AI-assisted feedback')).toBeInTheDocument();
+            expect(screen.getByText('Watermarked PDF exports')).toBeInTheDocument();
         });
 
         it('should render Pro tier features', () => {
@@ -65,9 +67,9 @@ describe('PricingPage', () => {
             expect(screen.getByText('Up to 2 hours/day and 50 hours/month')).toBeInTheDocument();
             expect(screen.getByText('Practice analytics and trends')).toBeInTheDocument();
             expect(screen.getByText('Save all sessions')).toBeInTheDocument();
-            expect(screen.getByText('Export watermarked PDF reports')).toBeInTheDocument();
             expect(screen.getByText('Private transcription')).toBeInTheDocument();
-            expect(screen.getByText('AI-assisted feedback')).toBeInTheDocument();
+            expect(screen.getByText('Cloud transcription')).toBeInTheDocument();
+            expect(screen.getByText('More AI feedback and PDF export capacity')).toBeInTheDocument();
         });
 
         it('should render CTA buttons', () => {

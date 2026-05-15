@@ -20,7 +20,13 @@ const tiers: Tier[] = [
     name: 'Basic',
     price: '$0',
     priceDescription: 'For browser practice',
-    features: [`Up to ${SUBSCRIPTION_LIMITS.FREE_MONTHLY_MINUTES} mins of practice per month`, 'Basic analytics', 'Save last 5 sessions'],
+    features: [
+      `Up to ${SUBSCRIPTION_LIMITS.FREE_MONTHLY_MINUTES} mins of practice per month`,
+      'Basic analytics',
+      'Save last 5 sessions',
+      'AI-assisted feedback',
+      'Watermarked PDF exports',
+    ],
     cta: 'Continue with Basic',
   },
   {
@@ -31,9 +37,9 @@ const tiers: Tier[] = [
       'Up to 2 hours/day and 50 hours/month',
       'Practice analytics and trends',
       'Save all sessions',
-      'Export watermarked PDF reports',
       'Private transcription',
-      'AI-assisted feedback',
+      'Cloud transcription',
+      'More AI feedback and PDF export capacity',
     ],
     cta: 'Upgrade to Pro',
     isPopular: true,
@@ -135,7 +141,7 @@ export const PricingPage: React.FC = () => {
       <div className="mx-auto max-w-4xl text-center mb-10">
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Choose your SpeakSharp plan</h1>
         <p className="text-base text-muted-foreground mt-3 sm:text-lg">
-          Start with browser transcription, then upgrade when you need private models, AI feedback, and deeper history.
+          Start with browser transcription, AI feedback, and PDF reports, then upgrade when you need private models, cloud transcription, and deeper history.
         </p>
       </div>
       <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2">

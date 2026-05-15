@@ -117,7 +117,8 @@ export default function AuthPage() {
       logger.debug({ val }, '[AuthPage] Applying promo bypass code');
       try {
         const { error: promoError, data: promoData } = await getSupabaseClient()!.functions.invoke('apply-promo', {
-          body: { promoCode: val }
+          body: { promoCode: val },
+          headers: { Authorization: `Bearer ${currentSession.access_token}` },
         });
 
         if (promoError) {
