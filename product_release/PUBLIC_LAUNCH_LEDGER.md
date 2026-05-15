@@ -14,7 +14,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-002 | First useful Basic session | P0/P1 | New users need immediate product value. | Public user completes Native Browser session with transcript/save/history/detail/analytics, or receives clear browser/mic guidance. | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/report.json` |
 | PL-003 | Production Stripe checkout | P0 | Public Pro purchase cannot rely on admin provisioning or test mode. | Basic user starts production checkout from public UI and completes real payment. | PASS IN TEST MODE / LIVE KEYS PENDING | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/report.json`; hosted Checkout completed with `cs_test_...`, returned to public app, and showed Pro entitlement. Production launch still requires live Stripe keys and the same rerun with `cs_live_...`. |
 | PL-004 | Production Stripe webhook entitlement | P0 | Paid users must become Pro without manual intervention. | Production webhook verifies signature, updates entitlement, persists after refresh/logout/login. | PASS IN TEST MODE / LIVE KEYS PENDING | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/report.json`; Stripe test checkout user stayed Pro through refresh and logout/login; deployed webhook rejected unsigned events; local webhook tests passed signed handler, downgrade, failure, and idempotency cases. Production launch still requires live Stripe keys and a live webhook rerun. |
-| PL-005 | Billing failure/cancel/downgrade lifecycle | P0 | Stale Pro access or wrong downgrade is trust/billing risk. | Canceled, failed, duplicate, and replayed payment states keep entitlement correct. | OPEN | Not started |
+| PL-005 | Billing failure/cancel/downgrade lifecycle | P0 | Stale Pro access or wrong downgrade is trust/billing risk. | Canceled, failed, duplicate, and replayed payment states keep entitlement correct. | PASS IN LOCAL/TEST MODE / LIVE EVENT PENDING | Local webhook tests prove cancellation, unpaid, past_due, 3+ payment failures, skipped duplicate events, and RPC failure handling. Live signed cancel/failure events require real Stripe webhook signing secret or Stripe test API access. |
 | PL-006 | Promo redemption/reuse/expiry | P0/P1 | Launch includes promos, so promo entitlement must be safe. | Public promo apply succeeds once, reuse/invalid/expired codes fail clearly, expiry downgrades correctly. | OPEN | Not started |
 | PL-007 | Real-mic Pro Cloud | P1 | Cloud is marketed as a Pro feature. | Real human speech in normal Chrome produces Cloud transcript -> save -> history/detail/analytics. | OPEN | Not started |
 | PL-008 | Pro AI feedback | P1 | AI is a launch promise. | Saved session generates useful AI feedback; provider failures degrade gracefully. | OPEN | Not started |
@@ -40,6 +40,7 @@ This ledger is the source of truth for broad public launch gates. It must not be
 | PL-002 | public-signup | Chrome CDP 9222 | manual-chrome-cdp; synthetic system speech attempted via macOS `say`; not manual-real-mic | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/report.json` |
 | PL-003 | public-signup | Chrome CDP 9222 | manual-chrome-cdp; Stripe test-mode hosted checkout | PASS IN TEST MODE | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/report.json` |
 | PL-004 | public-signup + Stripe test checkout | Chrome CDP 9222 plus deployed webhook HTTP check plus local Deno tests | manual-chrome-cdp; provider-live-api unsigned rejection; local webhook unit/adversarial | PASS IN TEST MODE | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/report.json` |
+| PL-005 | local webhook lifecycle tests | Deno | local webhook unit/adversarial | PASS IN LOCAL/TEST MODE | `deno test --config backend/supabase/functions/deno.json --allow-env --allow-net backend/supabase/functions/stripe-webhook/index.test.ts backend/supabase/functions/stripe-webhook/adversarial.test.ts`; `4 passed (14 steps)` |
 
 ## PL-002 Evidence Summary
 
@@ -109,8 +110,33 @@ The Stripe test-mode checkout proves the entitlement path executes correctly in 
 | Live paid user remains Pro after refresh/logout/login | Pending live payment |
 | Duplicate/replayed webhook remains idempotent | Covered locally; live replay proof pending if required |
 
+## PL-005 Billing Lifecycle Summary
+
+| Scenario | Result | Evidence |
+|---|---:|---|
+| `customer.subscription.deleted` | PASS | Local webhook test maps event to `downgrade_to_free` and calls atomic RPC. |
+| `customer.subscription.updated` with `canceled` | PASS | Local webhook test maps status to `downgrade_to_free`. |
+| `customer.subscription.updated` with `unpaid` | PASS | Local webhook test maps status to `downgrade_to_free`. |
+| `customer.subscription.updated` with `past_due` | PASS | Local webhook test maps status to `downgrade_to_free`. |
+| `customer.subscription.updated` with `active` | PASS | Local webhook test maps status to `none`. |
+| `invoice.payment_failed` with fewer than 3 attempts | PASS | Local webhook test maps event to `none`. |
+| `invoice.payment_failed` with 3+ attempts | PASS | Local webhook test maps event to `downgrade_to_free`. |
+| Duplicate/replayed webhook event | PASS | Adversarial test returns `skipped: true` through the atomic webhook RPC. |
+| RPC action failure | PASS | Adversarial test returns failure instead of pretending success, allowing retry. |
+
+### PL-005 Remaining Production Requirement
+
+The billing lifecycle contract is proven at handler/RPC-call level, but broad public launch still needs live/test-Stripe event proof:
+
+| Requirement | Status |
+|---|---:|
+| Signed live/test Stripe cancellation event reaches deployed webhook | Pending real `whsec_...` or Stripe API/dashboard access |
+| Signed live/test Stripe payment-failed event reaches deployed webhook | Pending real `whsec_...` or Stripe API/dashboard access |
+| Paid public user downgrades in deployed UI after cancel/failure event | Pending live/test Stripe event |
+| Duplicate/replayed deployed webhook remains idempotent | Covered locally; deployed signed replay pending if required |
+
 ## Next Gate
 
 | Gate | Why Next | Required Evidence |
 |---|---|---|
-| PL-005 Billing failure/cancel/downgrade lifecycle | Checkout and entitlement upgrade are proven in test mode; public billing safety now depends on cancel/failure/downgrade paths. | Canceled, failed, duplicate, and replayed payment states keep entitlement correct and fail safely. Test-mode evidence can be used as a rehearsal only; production still requires live keys before broad launch. |
+| PL-006 Promo redemption/reuse/expiry | Paid billing path is proven as far as local/test-mode access allows; launch promos are the next public entitlement path. | Public promo apply succeeds once, reuse/invalid/expired codes fail clearly, and expiry downgrades correctly. |
