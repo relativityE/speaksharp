@@ -226,11 +226,9 @@ describe('useSpeechRecognition Integration', () => {
             }
         });
 
-        await waitForAsync(() => {
-            const status = result.current.sttStatus;
-            expect(status.type).toBe('error');
-            expect(status.message).toBe('Microphone access denied');
-        });
+        const status = result.current.sttStatus;
+        expect(status.type).toBe('error');
+        expect(status.message).toBe('Microphone access is denied. Please grant permission in your browser settings.');
     });
 
     it('should capture usage limit exceeded state mid-session', async () => {

@@ -35,12 +35,12 @@ describe('storage.ts', () => {
 
         it('should return session history on success', async () => {
             const mockData = [{ id: '1', user_id: 'user1' }];
+            const mockRange = vi.fn().mockResolvedValue({ data: mockData, error: null });
+            const mockOrder = vi.fn().mockReturnValue({ range: mockRange });
+            const mockOr = vi.fn().mockReturnValue({ order: mockOrder });
+            const mockEq = vi.fn().mockReturnValue({ or: mockOr });
             const mockSelect = vi.fn().mockReturnValue({
-                eq: vi.fn().mockReturnValue({
-                    order: vi.fn().mockReturnValue({
-                        range: vi.fn().mockResolvedValue({ data: mockData, error: null }),
-                    }),
-                }),
+                eq: mockEq,
             });
             mockSupabase.from.mockReturnValue({ select: mockSelect } as unknown as ReturnType<SupabaseClient['from']>);
 
@@ -52,14 +52,16 @@ describe('storage.ts', () => {
             expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('ground_truth'));
             expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('transcript'));
             expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('engine_version'));
+            expect(mockOr).toHaveBeenCalledWith('status.is.null,status.eq.completed');
         });
 
         it('should use default limit of 50 and offset 0', async () => {
+            const mockRange = vi.fn().mockResolvedValue({ data: [], error: null });
+            const mockOrder = vi.fn().mockReturnValue({ range: mockRange });
+            const mockOr = vi.fn().mockReturnValue({ order: mockOrder });
             const mockSelect = vi.fn().mockReturnValue({
                 eq: vi.fn().mockReturnValue({
-                    order: vi.fn().mockReturnValue({
-                        range: vi.fn().mockResolvedValue({ data: [], error: null }),
-                    }),
+                    or: mockOr,
                 }),
             });
             mockSupabase.from.mockReturnValue({ select: mockSelect } as unknown as ReturnType<SupabaseClient['from']>);
@@ -67,16 +69,17 @@ describe('storage.ts', () => {
             await getSessionHistory('user1');
 
             // offset=0, limit=50 => range(0, 49)
-            // We need to drill down to the mock call
-            expect(mockSelect().eq().order().range).toHaveBeenCalledWith(0, 49);
+            expect(mockRange).toHaveBeenCalledWith(0, 49);
         });
 
         it('should throw error with descriptive message on failure', async () => {
             const mockError = { message: 'DB Error' };
             const mockSelect = vi.fn().mockReturnValue({
                 eq: vi.fn().mockReturnValue({
-                    order: vi.fn().mockReturnValue({
-                        range: vi.fn().mockResolvedValue({ data: null, error: mockError }),
+                    or: vi.fn().mockReturnValue({
+                        order: vi.fn().mockReturnValue({
+                            range: vi.fn().mockResolvedValue({ data: null, error: mockError }),
+                        }),
                     }),
                 }),
             });
@@ -170,8 +173,10 @@ describe('storage.ts', () => {
             // Mock getSessionHistory behavior by mocking supabase calls
             const mockSelect = vi.fn().mockReturnValue({
                 eq: vi.fn().mockReturnValue({
-                    order: vi.fn().mockReturnValue({
-                        range: vi.fn().mockResolvedValue({ data: mockData, error: null }),
+                    or: vi.fn().mockReturnValue({
+                        order: vi.fn().mockReturnValue({
+                            range: vi.fn().mockResolvedValue({ data: mockData, error: null }),
+                        }),
                     }),
                 }),
             });

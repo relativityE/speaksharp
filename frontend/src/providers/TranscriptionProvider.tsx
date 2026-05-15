@@ -25,6 +25,22 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
     const selectedMode = useStore((state) => state.sttMode);
     const [ready, setReady] = useState(false);
     const lastPolicyKeyRef = useRef<string | null>(null);
+    const policyProfile = React.useMemo(() => {
+        if (!profile?.id) return null;
+        return {
+            id: profile.id,
+            subscription_status: profile.subscription_status,
+            promo_expires_at: profile.promo_expires_at,
+            stripe_subscription_id: profile.stripe_subscription_id,
+            subscription_id: profile.subscription_id,
+        };
+    }, [
+        profile?.id,
+        profile?.subscription_status,
+        profile?.promo_expires_at,
+        profile?.stripe_subscription_id,
+        profile?.subscription_id,
+    ]);
 
 
     // 2. Handshake Invariant: Confirm readiness whenever entering an active state
@@ -53,9 +69,9 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
     // 2. Policy Re-Synchronization & E2E Gating
     // Whenever the profile changes (e.g., upgraded to Pro), re-sync the service policy through the controller.
     useEffect(() => {
-        if (!profile?.id) return; // Wait for stable auth
+        if (!policyProfile?.id) return; // Wait for stable auth
 
-        const tier = getEffectiveSubscriptionStatus(null, profile);
+        const tier = getEffectiveSubscriptionStatus(null, policyProfile);
 
         logger.info({
             subscriptionStatus: tier,
@@ -78,11 +94,7 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
             syncProfileReady(false);
         };
     }, [
-        profile?.id,
-        profile?.subscription_status,
-        profile?.promo_expires_at,
-        profile?.stripe_subscription_id,
-        profile?.subscription_id,
+        policyProfile,
         selectedMode,
     ]);
 
