@@ -409,9 +409,11 @@ All test scripts follow `test:<level>:<env>[:<mode>]` and CI orchestration scrip
 | `test:full` | all | local | — | Full quality gate |
 | `test:soak:api:cloud` | soak | cloud | — | API stress test |
 | `test:soak:ui:cloud` | soak | cloud | — | Memory/stability test |
-| `ci:full` | — | — | — | CI parity/orchestrator; must stay aligned with GitHub Actions |
-| `ci:local` | — | local | — | Alias for `ci:full`; local mimic of GitHub CI where secrets are unavailable |
-| `ci:github` | — | github | — | Alias for `ci:full`; explicit command name for GitHub CI parity discussions |
+| `ci:full` | — | local | — | Local full CI parity gate; delegates to `ci:local` |
+| `ci:local` | — | local | — | Local full CI mimic; passes `--write-prd-metrics=false`, prints SQM to console/artifacts, and does not rewrite operational PRD metrics |
+| `ci:report` | — | local | — | Local/report-stage metrics pass with `--write-prd-metrics=false` |
+| `ci:report:github` | — | github | — | GitHub Actions report-stage metrics pass with `--write-prd-metrics=true`; writes SQM into operational PRD artifacts |
+| `ci:github` | — | github | — | GitHub Actions cloud pipeline command with `--write-prd-metrics=true`; not intended for local use |
 | `ci:dispatch:deploy` | — | — | — | Dispatch deploy smoke to GH Actions |
 | `ci:dispatch:soak` | — | — | — | Dispatch soak test to GH Actions |
 
@@ -1330,9 +1332,10 @@ The CI pipeline, defined in `.github/workflows/ci.yml`, is a multi-stage, parall
 |  Runs only if all test jobs pass |
 |----------------------------------|
 |  1. Download All Artifacts       |
-|  2. Run `./test-audit.sh report`  |
+|  2. Run `pnpm ci:report:github` |
 |     (Generates SQM report)       |
-|  3. Commit docs/PRD.md           |
+|  3. Write PRD.operational.md     |
+|     as a CI artifact             |
 +----------------------------------+
 ```
 
@@ -1378,7 +1381,7 @@ The project uses **two distinct Supabase configurations** depending on the execu
 **What it does:**
 1. Runs `test-audit.sh prepare` - Lint, typecheck, unit tests (parallelized)
 2. Runs `test-audit.sh test` - Sharded E2E tests across 4 workers
-3. Runs `test-audit.sh report` - Generates SQM report, commits to `docs/PRD.md`
+3. Runs report aggregation and SQM metrics; GitHub CI writes operational metrics to `product_release/PRD.operational.md`
 
 **Trigger:** Automatic on push/PR to `main`
 

@@ -317,7 +317,7 @@ jobs:
           fi
 
       - name: Generate Final Report
-        run: pnpm ci:report
+        run: pnpm ci:report:github
 
       - name: Aggregate CI Metrics
         run: node scripts/aggregate-ci.mjs
@@ -337,6 +337,7 @@ jobs:
             artifacts/ci-metrics.json
             artifacts/ci-wall-clock.json
             artifacts/ci-job-timing.json
+            product_release/PRD.operational.md
           retention-days: 30
           if-no-files-found: warn
 

@@ -103,7 +103,13 @@ case $STAGE in
     report)
         echo "🚀 Running CI report stage..."
         ./scripts/run-metrics.sh
-        node scripts/run-ci.mjs --only-report
+        PRD_METRICS_FLAG="--write-prd-metrics=false"
+        for subarg in "$@"; do
+            if [[ "$subarg" == --write-prd-metrics=* ]]; then
+                PRD_METRICS_FLAG="$subarg"
+            fi
+        done
+        node scripts/run-ci.mjs --only-report "$PRD_METRICS_FLAG"
         ;;
     ci-simulate|local|agent) 
         echo "🚀 Delegating to Node.js CI Orchestrator..."

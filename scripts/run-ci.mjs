@@ -86,7 +86,25 @@ function buildAuditModel(ciTelemetry) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
-const shouldWriteOperationalPrdMetrics = process.argv.includes('--write-prd-metrics');
+function getFlagValue(flagName, defaultValue = false) {
+    const explicitValue = process.argv.find(arg => arg.startsWith(`${flagName}=`));
+    if (!explicitValue) {
+        return process.argv.includes(flagName) ? true : defaultValue;
+    }
+
+    const value = explicitValue.slice(flagName.length + 1).trim().toLowerCase();
+    if (['1', 'true', 'yes'].includes(value)) return true;
+    if (['0', 'false', 'no'].includes(value)) return false;
+
+    throw new Error(`Invalid ${flagName} value: ${explicitValue}. Use ${flagName}=true or ${flagName}=false.`);
+}
+
+const shouldWriteOperationalPrdMetrics = getFlagValue('--write-prd-metrics', false);
+
+if (shouldWriteOperationalPrdMetrics && process.env.GITHUB_ACTIONS !== 'true') {
+    console.error('--write-prd-metrics=true is reserved for the GitHub Actions cloud pipeline. Use --write-prd-metrics=false for local runs.');
+    process.exit(1);
+}
 
 let devServer = null;
 process.on('exit', () => {
