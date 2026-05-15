@@ -525,7 +525,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('should force expired promo or downgraded users back to native mode and clear stale private errors', async () => {
+    it('should force downgraded users back to native mode and clear stale private errors', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'private',
             isListening: false,
@@ -538,7 +538,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         vi.mocked(useProfile).mockReturnValue({
             profile: {
                 id: 'test-user',
-                subscription_status: 'pro',
+                subscription_status: 'free',
                 email: 'test@example.com'
             } as UserProfile,
             isVerified: true
@@ -555,7 +555,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 subscription_status: 'free',
                 is_pro: false,
                 streak_count: 0,
-                promo_just_expired: true,
+                promo_just_expired: false,
             },
             isLoading: false,
             isError: false,
@@ -577,6 +577,55 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 type: 'ready',
                 message: 'Ready to record'
             });
+        });
+    });
+
+    it('should promote an implicit native default to private when profile resolves as Pro', async () => {
+        const mockStore = createTestSessionStore({
+            sttMode: 'native',
+            isListening: false,
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useProfile).mockReturnValue({
+            profile: {
+                id: 'test-user',
+                subscription_status: 'pro',
+                email: 'test@example.com'
+            } as UserProfile,
+            isVerified: true
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                daily_remaining: 7200,
+                daily_limit: 7200,
+                monthly_remaining: 180000,
+                monthly_limit: 180000,
+                remaining_seconds: -1,
+                can_start: true,
+                subscription_status: 'pro',
+                is_pro: true,
+                streak_count: 0,
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await waitFor(() => {
+            expect(mockStore.getState().sttMode).toBe('private');
         });
     });
 });

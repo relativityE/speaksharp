@@ -121,8 +121,7 @@ describe('TranscriptionService - Zombie Prevention', () => {
 
         // ASSERT BEHAVIOR: Old instance terminated
         expect(cloudSpy).toHaveBeenCalled();
-        // C.6: userPreference ('cloud') takes absolute precedence over policy default ('private')
-        expect(service.getMode()).toBe('cloud');
+        expect(service.getMode()).toBe('private');
     });
 
     it('should handle concurrent terminate calls gracefully (Behavior-based)', async () => {
@@ -151,7 +150,7 @@ describe('TranscriptionService - Zombie Prevention', () => {
         expect(service.isServiceDestroyed()).toBe(true);
     });
 
-    it('should reinitialize service mode when policy preferred mode changes after a stale mode', async () => {
+    it('should keep policy updates mode-neutral until warm-up or start selects the engine', async () => {
         await service.updatePolicy({
             ...mockOptions.policy!,
             preferredMode: 'native',
@@ -165,8 +164,8 @@ describe('TranscriptionService - Zombie Prevention', () => {
             executionIntent: 'prod-pro-private',
         });
 
-        expect(service.getMode()).toBe('private');
-        expect(mockOptions.onModeChange).toHaveBeenLastCalledWith('private');
+        expect(service.getMode()).toBe('native');
+        expect(mockOptions.onModeChange).not.toHaveBeenCalled();
     });
 
     it('should be idempotent: additional destroy calls are safe', async () => {

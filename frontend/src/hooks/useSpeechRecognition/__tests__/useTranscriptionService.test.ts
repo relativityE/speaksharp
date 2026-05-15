@@ -26,6 +26,7 @@ vi.mock('../../../services/SpeechRuntimeController', () => ({
         startRecording: vi.fn().mockResolvedValue(undefined),
         stopRecording: vi.fn().mockResolvedValue({ success: true, transcript: 'test', stats: {} }),
         getState: vi.fn().mockReturnValue('READY'),
+        initializeInfrastructure: vi.fn().mockResolvedValue(undefined),
         warmUp: vi.fn().mockResolvedValue(undefined),
         setSubscriberCallbacks: vi.fn(),
         confirmSubscriberHandshake: vi.fn(),
@@ -80,6 +81,7 @@ describe('useTranscriptionService - Integrated Behavior', () => {
             useStore: useSessionStore as unknown as typeof useSessionStore
         });
         vi.mocked(useSessionStore).mockReturnValue(mockStore as unknown as SessionStore);
+        (useSessionStore as unknown as { getState: ReturnType<typeof vi.fn> }).getState = vi.fn().mockReturnValue(mockStore);
     });
 
     afterEach(() => {

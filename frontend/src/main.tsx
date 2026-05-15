@@ -222,7 +222,7 @@ const startInitializing = async () => {
   const initSTT = () => {
     // Lazy import of SpeechRuntimeController
     void import('./services/SpeechRuntimeController').then(({ speechRuntimeController }) => {
-      speechRuntimeController.warmUp()
+      speechRuntimeController.initializeInfrastructure()
         .then(() => {
           logger.info('[main.tsx] STT Infrastructure Ready');
         })

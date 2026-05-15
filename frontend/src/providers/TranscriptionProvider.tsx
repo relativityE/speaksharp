@@ -22,7 +22,6 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
 
     const useStore = injectedStore || useSessionStore;
     const runtimeState = useStore((state) => state.runtimeState);
-    const selectedMode = useStore((state) => state.sttMode);
     const [ready, setReady] = useState(false);
     const lastPolicyKeyRef = useRef<string | null>(null);
     const policyProfile = React.useMemo(() => {
@@ -55,14 +54,14 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
         // 1. Immediate Handshake (UI is mounted and ready for data)
         speechRuntimeController.confirmSubscriberHandshake();
 
-        // 2. Ensure the lightweight browser engine is warm before profile policy
-        // resolves. Avoid defaulting to Private here; Basic users should not
-        // initialize the local model unless they explicitly select that path.
-        speechRuntimeController.warmUp('native').then(() => {
+        // 2. Mark the provider ready without selecting an engine. Engine warm-up
+        // is modeful and mutates controller policy, so Session lifecycle owns it
+        // after profile/tier resolution to avoid native/private init churn.
+        speechRuntimeController.initializeInfrastructure().then(() => {
             setReady(true);
-            logger.info('[TranscriptionProvider] ✅ Provider warm-up signal received');
+            logger.info('[TranscriptionProvider] ✅ Provider handshake ready');
         }).catch(err => {
-            logger.error({ err }, '[TranscriptionProvider] Warm-up failed');
+            logger.error({ err }, '[TranscriptionProvider] Infrastructure initialization failed');
         });
     }, []);
 
@@ -73,14 +72,16 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
 
         const tier = getEffectiveSubscriptionStatus(null, policyProfile);
 
+        const currentSelectedMode = useSessionStore.getState().sttMode;
+
         logger.info({
             subscriptionStatus: tier,
-            selectedMode,
+            selectedMode: currentSelectedMode,
             intent: 'Syncing policy and setting E2E gate'
         }, '[TranscriptionProvider] Syncing policy');
 
         const isPro = tier === 'pro';
-        const newPolicy = buildPolicyForUser(isPro, isPro ? selectedMode : null);
+        const newPolicy = buildPolicyForUser(isPro, isPro ? currentSelectedMode : null);
         const policyKey = JSON.stringify(newPolicy);
         if (lastPolicyKeyRef.current !== policyKey) {
             lastPolicyKeyRef.current = policyKey;
@@ -95,7 +96,6 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
         };
     }, [
         policyProfile,
-        selectedMode,
     ]);
 
     const contextValue: TranscriptionContextValue = {

@@ -36,6 +36,9 @@ export const useSessionLifecycle = () => {
 
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = isPro(effectiveSubscriptionStatus);
+    const canUseProSttModes = isPro(effectiveSubscriptionStatus);
+    const shouldForceNativeMode = !canUseProSttModes;
+    const profileReadyForStt = isVerified && !!profile?.id && typeof profile?.subscription_status === 'string';
 
     const sttStatus = useSessionStore(state => state.sttStatus);
     const setSTTStatus = useSessionStore(state => state.setSTTStatus);
@@ -43,7 +46,7 @@ export const useSessionLifecycle = () => {
     const setSTTMode = useSessionStore(state => state.setSTTMode);
     const sunsetModal = useSessionStore(state => state.sunsetModal);
     const setSunsetModal = useSessionStore(state => state.setSunsetModal);
-    const defaultMode: TranscriptionMode = isProUser ? 'private' : 'native';
+    const defaultMode: TranscriptionMode = shouldForceNativeMode ? 'native' : 'private';
     const effectiveMode: TranscriptionMode = sttMode ?? defaultMode;
 
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
@@ -72,6 +75,11 @@ export const useSessionLifecycle = () => {
 
     const isListening = useSessionStore(state => state.isListening);
     const history = useSessionStore(state => state.history);
+    const shouldPromoteNativeDefaultToPrivate = profileReadyForStt
+        && !isListening
+        && !shouldForceNativeMode
+        && sttMode === 'native'
+        && modeSourceRef.current === null;
 
     const speechRecognition = useSpeechRecognition(speechConfig);
     const {
@@ -197,7 +205,7 @@ export const useSessionLifecycle = () => {
 
                 // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
                 const latestMode = useSessionStore.getState().sttMode ?? defaultMode;
-                const selectedPolicy = buildPolicyForUser(isProUser, latestMode);
+                const selectedPolicy = buildPolicyForUser(canUseProSttModes, latestMode);
                 await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                 posthog.capture('session_started', { mode: latestMode });
             } catch (error) {
@@ -208,7 +216,7 @@ export const useSessionLifecycle = () => {
                 isProcessingRef.current = false;
             }
         }
-    }, [isListening, elapsedTime, updateStreak, queryClient, isProUser, usageLimit, defaultMode, isLockHeldByOther, setSTTStatus, userFillerWords, runtimeState]);
+    }, [isListening, elapsedTime, updateStreak, queryClient, isProUser, canUseProSttModes, usageLimit, defaultMode, isLockHeldByOther, setSTTStatus, userFillerWords, runtimeState]);
 
     // ✅ Keep the stable ref up to date with the latest callback
     handleStartStopRef.current = handleStartStop;
@@ -316,7 +324,9 @@ export const useSessionLifecycle = () => {
     // chooses a mode. This prevents a pre-profile native default from latching
     // for Pro users after profile hydration.
     useEffect(() => {
-        if (isVerified && !isListening && !isProUser && sttMode && sttMode !== 'native') {
+        if (!profileReadyForStt) return;
+
+        if (isVerified && !isListening && shouldForceNativeMode && sttMode && sttMode !== 'native') {
             modeSourceRef.current = 'default';
             setSTTMode('native');
             if (sttStatus.type === 'error') {
@@ -329,15 +339,13 @@ export const useSessionLifecycle = () => {
             isVerified &&
             !isListening &&
             (
-                !sttMode ||
-                (modeSourceRef.current === 'default' && sttMode !== defaultMode) ||
-                (modeSourceRef.current === null && sttMode === 'native' && defaultMode === 'private')
+                !sttMode || shouldPromoteNativeDefaultToPrivate
             )
         ) {
             modeSourceRef.current = 'default';
             setSTTMode(defaultMode);
         }
-    }, [isVerified, isListening, isProUser, sttMode, sttStatus.type, defaultMode, setSTTMode, setSTTStatus]);
+    }, [profileReadyForStt, isVerified, isListening, shouldForceNativeMode, sttMode, sttStatus.type, defaultMode, shouldPromoteNativeDefaultToPrivate, setSTTMode, setSTTStatus]);
 
     useEffect(() => {
         if (isListening && activeEngine && activeEngine !== 'none' && activeEngine !== effectiveMode) {
@@ -351,13 +359,16 @@ export const useSessionLifecycle = () => {
     useEffect(() => {
         pushE2EEvent('SESSION_LIFECYCLE_RENDER', { sttMode: effectiveMode, isListening });
 
-        if (effectiveMode && !isListening && warmUpTriggered.current !== effectiveMode) {
-            warmUpTriggered.current = effectiveMode;
-            pushE2EEvent('SESSION_LIFECYCLE_WARMUP', { mode: effectiveMode });
-            logger.info(`[useSessionLifecycle] Mode set to ${effectiveMode} - triggering warm-up`);
-            void speechRuntimeController.warmUp(effectiveMode);
+        if (!profileReadyForStt) return;
+        if (shouldPromoteNativeDefaultToPrivate) return;
+
+        if (sttMode && !isListening && warmUpTriggered.current !== sttMode) {
+            warmUpTriggered.current = sttMode;
+            pushE2EEvent('SESSION_LIFECYCLE_WARMUP', { mode: sttMode });
+            logger.info(`[useSessionLifecycle] Mode set to ${sttMode} - triggering warm-up`);
+            void speechRuntimeController.warmUp(sttMode);
         }
-    }, [effectiveMode, isListening]);
+    }, [effectiveMode, sttMode, isListening, profileReadyForStt, shouldPromoteNativeDefaultToPrivate]);
 
     useEffect(() => {
         return () => {
@@ -392,7 +403,7 @@ export const useSessionLifecycle = () => {
         setMode: (m: TranscriptionMode) => {
             modeSourceRef.current = 'user';
             setSTTMode(m);
-            speechRuntimeController.updatePolicy(buildPolicyForUser(isProUser, m));
+            speechRuntimeController.updatePolicy(buildPolicyForUser(canUseProSttModes, m));
             speechRuntimeController.syncForensicState();
         },
         recordingIntent: isRecordingIntent,
@@ -407,7 +418,7 @@ export const useSessionLifecycle = () => {
         transcriptContent: transcript.transcript,
         interimTranscript,
         fillerData,
-        isProUser,
+        isProUser: canUseProSttModes,
         activeEngine,
         isButtonDisabled: !['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED', 'ENGINE_INITIALIZING'].includes(runtimeState), // Permitting ENGINE_INITIALIZING allows "Stop" (Cancel) during downloads.
         showPromoExpiredDialog: !!usageLimit?.promo_just_expired,

@@ -18,6 +18,7 @@ vi.mock('../../../services/SpeechRuntimeController', () => ({
   speechRuntimeController: {
     startRecording: vi.fn(),
     stopRecording: vi.fn(),
+    initializeInfrastructure: vi.fn().mockResolvedValue(undefined),
     warmUp: vi.fn().mockResolvedValue(undefined),
     reset: vi.fn().mockResolvedValue(undefined),
     getState: vi.fn().mockReturnValue('READY'),

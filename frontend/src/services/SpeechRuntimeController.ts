@@ -1,5 +1,5 @@
 import logger from '@/lib/logger';
-import { syncSTTReady, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
+import { syncSTTReady, syncSTTIdentity, syncForensicAnchors as syncRuntimeState, syncEngineReady, syncSessionPersisted, syncNegotiatorDecision, syncProfileReady } from '@/lib/forensicAnchors';
 import { safeLocalStorageGet, safeLocalStorageSet } from '@/lib/safeStorage';
 import TranscriptionService, { getTranscriptionService } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
@@ -95,6 +95,7 @@ export class SpeechRuntimeController {
     private readonly VISIBLE_HOLD_DURATION_MS = STT_CONFIG.VISIBLE_HOLD_DURATION_MS;
 
     private readyPromise: Promise<void> | null = null;
+    private warmUpRequestId = 0;
 
     // FSM Invariants
     private isEngineReady: boolean = false;
@@ -207,6 +208,20 @@ export class SpeechRuntimeController {
         this.syncProvider(this.lifecycleVersion);
     }
 
+    /**
+     * Initializes the controller/service shell without selecting or warming an
+     * STT engine. Provider mount uses this for readiness handshakes; route-level
+     * session lifecycle owns modeful warm-up after tier/profile resolution.
+     */
+    public async initializeInfrastructure(): Promise<void> {
+        if (!this.readyPromise) {
+            this.readyPromise = this.enqueue(async (token) => {
+                await this.initInternal(token);
+            });
+        }
+        await this.readyPromise;
+    }
+
 
     /**
      * Warm-up Logic (Clean Pipeline Entry Point):
@@ -215,14 +230,19 @@ export class SpeechRuntimeController {
      */
     public async warmUp(mode: TranscriptionMode = 'private'): Promise<void> {
         // Phase 1: Ensure Service Genesis (Once per session)
-        if (!this.readyPromise) {
-            this.readyPromise = this.enqueue(async (token) => {
-                await this.initInternal(token);
-            });
-        }
-        await this.readyPromise;
+        await this.initializeInfrastructure();
+        const requestId = ++this.warmUpRequestId;
 
         if (this.service) {
+            const selectedMode = useSessionStore.getState().sttMode;
+            if (selectedMode && selectedMode !== mode) {
+                logger.info({
+                    mode,
+                    selectedMode,
+                }, '[SpeechRuntimeController] Skipping stale warm-up request');
+                return;
+            }
+
             const nextPolicy = this.policy
                 ? { ...this.policy, preferredMode: mode }
                 : {
@@ -235,13 +255,17 @@ export class SpeechRuntimeController {
                 };
 
             await this.service.updatePolicy(nextPolicy);
+            if (requestId !== this.warmUpRequestId) {
+                logger.info({
+                    mode,
+                    requestId,
+                    currentRequestId: this.warmUpRequestId,
+                }, '[SpeechRuntimeController] Ignoring completed stale warm-up');
+                return;
+            }
             this.policy = nextPolicy;
+            await this.service.warmUp(mode);
         }
-
-        // Authoritative Readiness Barrier
-        await this.enqueue(async (_token) => {
-            await this.ensureReady({ skipIfDownloadPending: true });
-        });
 
         await this.syncServiceSubscription();
     }
@@ -310,6 +334,7 @@ export class SpeechRuntimeController {
 
             // Phase 3.3: Ensure DOM is synced before the async transition starts
             this.syncForensicState();
+            syncSTTIdentity('none', ENV.isE2E);
 
             await this.transition('READY', undefined, token);
 
@@ -731,6 +756,18 @@ export class SpeechRuntimeController {
     }
 
     private handleModeChange(mode: TranscriptionMode | null) {
+        const store = useSessionStore.getState();
+        const isActiveSessionTransition = ['INITIATING', 'RECORDING', 'STOPPING'].includes(this.state);
+
+        if (!isActiveSessionTransition && mode !== store.sttMode) {
+            logger.info({
+                mode,
+                selectedMode: store.sttMode,
+                controllerState: this.state,
+            }, '[SpeechRuntimeController] Ignoring idle warm-up mode callback');
+            return;
+        }
+
         if (!this.isModeAllowedByCurrentPolicy(mode)) {
             const fallbackMode = this.policy?.preferredMode ?? 'native';
             logger.warn({
@@ -738,12 +775,12 @@ export class SpeechRuntimeController {
                 fallbackMode,
                 policy: this.policy?.executionIntent,
             }, '[SpeechRuntimeController] Ignoring stale disallowed mode callback');
-            useSessionStore.getState().setSTTMode(fallbackMode);
+            store.setSTTMode(fallbackMode);
             this.subscriberCallbacks.onModeChange?.(fallbackMode);
             return;
         }
 
-        useSessionStore.getState().setSTTMode(mode);
+        store.setSTTMode(mode);
         this.subscriberCallbacks.onModeChange?.(mode);
     }
 

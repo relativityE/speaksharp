@@ -1145,37 +1145,14 @@ export default class TranscriptionService {
     const nextMode = resolveMode(newPolicy);
     if (isEqual(this.policy, newPolicy) && this.mode === nextMode) return;
 
-    this.setEngineReady(false);
-
     const oldPolicy = this.policy;
     this.policy = newPolicy;
     this.options.policy = newPolicy;
 
-    // C0: Invalidate cached strategy before FSM reset — order matters.
-    // Wait for termination so a previous Native/Cloud strategy cannot remain
-    // authoritative while the UI and policy have already advanced to Private.
-    if (this.strategy) {
-      this.strategyVersion++;
-      await this.strategy.terminate().catch(e => logger.warn({ e }, '[TranscriptionService] Strategy terminate failed during policy update'));
-      this.strategy = null;
-      this.activeStrategyId = null;
-    }
-
-    this.fsm.transition({ type: 'RESET_REQUESTED' });
-    await this.warmUp(nextMode);
-
-    // NOW safe
-    syncForensicAnchors(
-      mapToRuntimeState(this.fsm.getState()),
-      this.mode
-    );
-
-    // ✅ Sync UI/Store Mode with new policy resolution
-    this.options.onModeChange?.(nextMode);
-
     logger.info({
       policy: newPolicy,
       from: oldPolicy.executionIntent,
+      mode: nextMode,
       to: newPolicy.executionIntent
     }, '[TranscriptionService] 🔄 Policy updated');
 
