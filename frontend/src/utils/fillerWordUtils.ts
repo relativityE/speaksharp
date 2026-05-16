@@ -1,4 +1,3 @@
-import nlp from 'compromise';
 import { FILLER_WORD_KEYS } from '../config';
 
 // Interfaces for our data structures
@@ -51,25 +50,23 @@ const userWordRegexCache = new Map<string, RegExp>();
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// Single-item cache for the NLP document to avoid redundant parsing of the same text
-let lastTextForNlp: string | null = null;
-let lastNlpDoc: ReturnType<typeof nlp> | null = null;
-
-/**
- * Returns a parsed compromise document, using a cached version if the text matches.
- */
-const getParsedDoc = (text: string): ReturnType<typeof nlp> => {
-    if (text === lastTextForNlp && lastNlpDoc) {
-        return lastNlpDoc;
-    }
-    lastTextForNlp = text;
-    lastNlpDoc = nlp(text);
-    return lastNlpDoc;
-};
-
 const FILLER_WORD_COLORS: string[] = ['#BFDBFE', '#FCA5A5', '#FDE68A', '#86EFAC', '#FDBA74', '#C4B5FD', '#6EE7B7'];
 let cachedPatterns: FillerPatterns | null = null;
 let cachedUserWordsKey: string = '';
+
+const CONTEXTUAL_FILLER_PATTERNS: FillerPatterns = {
+    // Count clear discourse-marker uses without counting semantic uses like "I like this".
+    [FILLER_WORD_KEYS.LIKE]: /(?:^|[.!?,;:]\s*)like(?=\s|$|[.!?,;:])|(?:^|\s)like(?=\s*[.!?,;:]|$)/gi,
+    // Count "So, ..." / "so I think ..." starts and pause-delimited uses, not "so happy".
+    [FILLER_WORD_KEYS.SO]: /(?:^|[.!?,;:]\s*)so(?=\s|$|[.!?,;:])|(?:^|\s)so(?=\s*[.!?,;:]|$)/gi,
+};
+
+const countPatternMatches = (text: string, pattern: RegExp): number => {
+    pattern.lastIndex = 0;
+    const matches = text.match(pattern);
+    pattern.lastIndex = 0;
+    return matches?.length ?? 0;
+};
 
 export const createInitialFillerData = (userWords: string[] = []): FillerCounts => {
     const initial: FillerCounts = {
@@ -116,65 +113,26 @@ export const createFillerPatterns = (userWords: string[] = []): FillerPatterns =
 export const countFillerWords = (text: string, userWords: string[] = []): FillerCounts => {
     const counts: FillerCounts = createInitialFillerData(userWords);
     const patterns: FillerPatterns = createFillerPatterns(userWords);
-    const doc = getParsedDoc(text);
     let totalCount = 0;
 
     // 1. Process unambiguous fillers and user words via Regex
     for (const key in patterns) {
         const pattern: RegExp = patterns[key];
-        const matches: RegExpMatchArray | null = text.match(pattern);
-        if (matches) {
-            const count = matches.length;
+        const count = countPatternMatches(text, pattern);
+        if (count > 0) {
             counts[key].count = count;
             totalCount += count;
         }
     }
 
-    // 2. Process context-dependent fillers via NLP (compromise)
-    // INDUSTRY STANDARD: Boundary-based detection for unpunctuated streams
-
-    // LIKE: Count as filler ONLY if not used as a main Verb/Preposition 
-    // unless it appears in a clear discourse position (Start/End of segment)
-    const likeMatches = doc.match('like').filter(m => {
-        const json = m.json()[0];
-        const term = json?.terms[0];
-        if (!term) return false;
-
-        const tags = term.tags || [];
-        const isStart = m.has('#Start');
-        const isEnd = m.has('#End');
-
-        // Loose heuristic: if it's at a segment boundary in a raw stream, 
-        // it's highly likely to be a filler "Like," or ", like."
-        if (isStart || isEnd) return true;
-
-        // Context-based (punctuation fallback)
-        const hasCommaPost = (term.post || '').includes(',');
-        const hasCommaPre = (term.pre || '').includes(',');
-        if (hasCommaPost || hasCommaPre) return true;
-
-        // Strict NLP fallback
-        return !tags.includes('Verb') && !tags.includes('Preposition');
-    });
-    counts[FILLER_WORD_KEYS.LIKE].count = likeMatches.length;
-    totalCount += likeMatches.length;
-
-    // SO: Count as filler if it's used as a discourse marker
-    const soMatches = doc.match('so').filter(m => {
-        const json = m.json()[0];
-        const term = json?.terms[0];
-        if (!term) return false;
-
-        const isStart = m.has('#Start');
-        const isEnd = m.has('#End');
-        const hasCommaPost = (term.post || '').includes(',');
-        const hasCommaPre = (term.pre || '').includes(',');
-
-        // Discourse marker 'so' is dominant at boundaries or with a pause
-        return isStart || isEnd || hasCommaPost || hasCommaPre;
-    });
-    counts[FILLER_WORD_KEYS.SO].count = soMatches.length;
-    totalCount += soMatches.length;
+    // 2. Process context-dependent fillers with deterministic boundary rules.
+    // Private/Cloud transcripts often arrive without punctuation, and the old
+    // NLP path missed sentence-start fillers that the transcript UI highlighted.
+    for (const key in CONTEXTUAL_FILLER_PATTERNS) {
+        const count = countPatternMatches(text, CONTEXTUAL_FILLER_PATTERNS[key]);
+        counts[key].count = count;
+        totalCount += count;
+    }
 
     counts.total = { count: totalCount, color: '' };
     return counts;
