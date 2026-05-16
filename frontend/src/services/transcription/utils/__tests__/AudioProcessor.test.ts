@@ -89,6 +89,7 @@ describe('concatenateFloat32Arrays', () => {
         const input = new Float32Array([1, 2, 3]);
         const result = concatenateFloat32Arrays([input]);
         expect(result).toEqual(input);
+        expect(result).not.toBe(input);
     });
 });
 

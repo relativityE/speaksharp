@@ -84,10 +84,23 @@ function writeString(view: DataView, offset: number, string: string): void {
  * @returns Single concatenated Float32Array
  */
 export function concatenateFloat32Arrays(arrays: Float32Array[]): Float32Array {
-    const totalLength = arrays.reduce((sum, arr) => sum + arr.length, 0);
+    if (arrays.length === 0) {
+        return new Float32Array(0);
+    }
+
+    if (arrays.length === 1) {
+        return arrays[0].slice();
+    }
+
+    let totalLength = 0;
+    for (let i = 0; i < arrays.length; i += 1) {
+        totalLength += arrays[i].length;
+    }
+
     const result = new Float32Array(totalLength);
     let offset = 0;
-    for (const arr of arrays) {
+    for (let i = 0; i < arrays.length; i += 1) {
+        const arr = arrays[i];
         result.set(arr, offset);
         offset += arr.length;
     }

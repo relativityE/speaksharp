@@ -47,6 +47,18 @@ const isPrivateTranscriptTraceEnabled = () =>
   typeof window !== 'undefined' && Boolean(window.__PRIVATE_TRANSCRIPT_TRACE__);
 
 /**
+ * Strip STT metadata tokens such as [MUSIC], [BLANK_AUDIO], or (applause)
+ * while preserving the spoken transcript text around them.
+ */
+export function sanitizeTranscriptText(raw: string): string {
+  return raw
+    .replace(/\[[A-Z_\s]+\]/gi, '')
+    .replace(/\([a-z\s]+\)/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/**
  * @deprecated Use SpeechRuntimeController as the sole manager of service instances.
  * This is preserved only for the Controller's internal initialization.
  */
@@ -1510,13 +1522,7 @@ export default class TranscriptionService {
   private sanitizeTranscript(raw: string): string {
     // 🔴 PARETO FIX: Robust Sanitization (Bug #3)
     // Instead of a hardcoded list, we use generic regex to remove bracketed/parenthetical metadata tags.
-    const clean = raw
-      .replace(/\[[A-Z_\s]+\]/gi, '') // Matches [MUSIC], [BLANK_AUDIO], [SILENCE], etc.
-      .replace(/\([a-z\s]+\)/gi, '')  // Matches (applause), (laughter), etc.
-      .replace(/\s{2,}/g, ' ')       // Normalize spaces
-      .trim();
-
-    return clean;
+    return sanitizeTranscriptText(raw);
   }
 
   private handleStateChange(state: TranscriptionState): void {

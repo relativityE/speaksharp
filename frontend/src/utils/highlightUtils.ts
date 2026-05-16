@@ -26,17 +26,36 @@ const COLOR_PALETTE = [
     '#FB7185', // Rose 400
 ];
 
+const WORD_COLOR_CACHE = new Map<string, string>();
+const MAX_WORD_COLOR_CACHE_SIZE = 200;
+
 /**
  * Returns a deterministic color style for a given word.
  * Uses a simple hash to pick from the palette.
  */
 export const getWordColor = (word: string): string => {
+    const normalized = word.toLowerCase();
+    const cached = WORD_COLOR_CACHE.get(normalized);
+    if (cached) {
+        return cached;
+    }
+
     let hash = 0;
-    for (let i = 0; i < word.length; i++) {
-        hash = word.charCodeAt(i) + ((hash << 5) - hash);
+    for (let i = 0; i < normalized.length; i++) {
+        hash = normalized.charCodeAt(i) + ((hash << 5) - hash);
     }
     const index = Math.abs(hash) % COLOR_PALETTE.length;
-    return COLOR_PALETTE[index];
+    const color = COLOR_PALETTE[index];
+
+    if (WORD_COLOR_CACHE.size >= MAX_WORD_COLOR_CACHE_SIZE) {
+        const oldestKey = WORD_COLOR_CACHE.keys().next().value;
+        if (oldestKey) {
+            WORD_COLOR_CACHE.delete(oldestKey);
+        }
+    }
+    WORD_COLOR_CACHE.set(normalized, color);
+
+    return color;
 };
 
 export const ERROR_TAG_REGEX = /\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/i;

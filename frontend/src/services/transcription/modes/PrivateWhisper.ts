@@ -146,6 +146,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private engineType: EngineType | null = null;
   private mic: MicStream | null = null;
   private audioChunks: Float32Array[] = [];
+  private bufferedSampleCount: number = 0;
   private isProcessing: boolean = false;
   private processingInterval: NodeJS.Timeout | null = null;
   private pauseDetector: PauseDetector;
@@ -264,7 +265,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       logger.warn({ sId: this.serviceId, rId: this.instanceId, status: this.status }, `[PrivateWhisper] Unexpected status: ${this.status}, expected 'idle'`);
     }
     this.status = 'transcribing';
-    this.audioChunks = [];
+    this.clearAudioBuffer();
     this.currentTranscript = '';
     this.updateHeartbeat();
 
@@ -275,6 +276,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       // Copy the frame to avoid buffer detachment issues
       const clonedFrame = frame.slice(0);
       this.audioChunks.push(clonedFrame);
+      this.bufferedSampleCount += clonedFrame.length;
 
       if (isPrivateTranscriptTraceEnabled()) {
         logger.info({
@@ -282,6 +284,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           rId: this.instanceId,
           frameSamples: clonedFrame.length,
           bufferedChunks: this.audioChunks.length,
+          bufferedSamples: this.bufferedSampleCount,
         }, '[PRIVATE_TRACE] audio_frame_in');
       }
 
@@ -310,6 +313,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     if (this.audioChunks.length === 0) {
       return; // No audio to process
     }
+    if (!force && this.bufferedSampleCount < MIN_TRANSCRIPTION_SAMPLES) {
+      return; // Avoid repeated concatenation copies until there is enough audio.
+    }
 
     this.isProcessing = true;
     const tStart = performance.now();
@@ -331,6 +337,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       }
 
       if (!force && concatenated.length < MIN_TRANSCRIPTION_SAMPLES) {
+        this.bufferedSampleCount = concatenated.length;
         return;
       }
 
@@ -349,7 +356,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             samples: concatenated.length
           }, '[PrivateWhisper] 🤫 Meaningful silence detected - skipping chunk');
         }
-        this.audioChunks = []; // Clear buffer to prevent backlog
+        this.clearAudioBuffer(); // Clear buffer to prevent backlog
         return;
       }
 
@@ -363,7 +370,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       const processedAudio = concatenated;
 
       // Atomically capture and clear in same synchronous tick
-      this.audioChunks.length = 0;
+      this.clearAudioBuffer();
 
       // Perform transcription using the PrivateSTT facade
       if (isPrivateTranscriptTraceEnabled()) {
@@ -471,7 +478,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     this.cleanupFrameListener();
     this.isProcessing = false;
-    this.audioChunks = []; // Clear buffer
+    this.clearAudioBuffer();
 
     // Strict cleanup of the underlying engine
     await this.privateSTT.destroy();
@@ -490,5 +497,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       this.frameListenerDisposer();
       this.frameListenerDisposer = null;
     }
+  }
+
+  private clearAudioBuffer(): void {
+    this.audioChunks.length = 0;
+    this.bufferedSampleCount = 0;
   }
 }

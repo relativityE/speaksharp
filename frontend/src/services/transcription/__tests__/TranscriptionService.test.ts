@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type TranscriptionService from '../TranscriptionService';
+import { sanitizeTranscriptText } from '../TranscriptionService';
 import type { TranscriptionServiceOptions } from '../TranscriptionService';
 import { TranscriptionPolicy } from '../TranscriptionPolicy';
 import type { MicStream } from '../utils/types';
@@ -129,6 +130,37 @@ describe('TranscriptionService', () => {
                 partial: ''
             }
         }));
+    });
+
+    it('should sanitize bracketed and parenthetical transcript metadata tags', () => {
+        expect(sanitizeTranscriptText('[MUSIC] Hello  (applause) world [BLANK_AUDIO]')).toBe('Hello world');
+        expect(sanitizeTranscriptText('Testing (laughter) one [SILENCE] two')).toBe('Testing one two');
+    });
+
+    it('should synchronously rehydrate transcript and recording status on subscription', () => {
+        const internal = service as unknown as {
+            currentTranscript: string;
+            partialTranscript: string;
+            fsm: { setState: (state: string) => void };
+        };
+        internal.currentTranscript = 'Hello persistent world';
+        internal.partialTranscript = '';
+        internal.fsm.setState('RECORDING');
+
+        let capturedTranscript: string | null = null;
+        let capturedStatus: string | null = null;
+        const unsubscribe = service.subscribe({
+            onTranscriptUpdate: (update) => {
+                capturedTranscript = update.transcript.final ?? null;
+            },
+            onStatusChange: (status) => {
+                capturedStatus = status.type;
+            },
+        }, 'rehydration-unit-test');
+
+        expect(capturedTranscript).toBe('Hello persistent world');
+        expect(capturedStatus).toBe('recording');
+        unsubscribe();
     });
 
     it('should keep deterministic mock service ready for execution', async () => {

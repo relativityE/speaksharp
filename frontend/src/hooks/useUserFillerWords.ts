@@ -107,6 +107,14 @@ export const useUserFillerWords = () => {
         staleTime: 1000 * 60 * 5, // 5 minutes
     });
 
+    const wordById = useMemo(() => {
+        const index = new Map<string, string>();
+        for (const word of sanitizeUserFillerWords(userFillerWords)) {
+            index.set(word.id, word.word);
+        }
+        return index;
+    }, [userFillerWords]);
+
     const addWordMutation = useMutation({
         mutationFn: async (word: string) => {
             if (!session?.user?.id) throw new Error('No user logged in');
@@ -152,7 +160,7 @@ export const useUserFillerWords = () => {
             if (error) throw error;
         },
         onSuccess: (_, id) => {
-            const removedWord = userFillerWords.find(w => w.id === id)?.word;
+            const removedWord = wordById.get(id);
             void queryClient.invalidateQueries({ queryKey: ['user-filler-words', session?.user?.id] });
             toast.success('Word removed');
 
