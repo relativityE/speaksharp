@@ -5,6 +5,7 @@ import { PracticeSession as Session } from '../types/session';
 import { format, parseISO } from 'date-fns';
 import logger from './logger';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
+import { countFillerWords } from '@/utils/fillerWordUtils';
 
 // A more specific type for the internal, undocumented API
 interface jsPDFInternal {
@@ -25,7 +26,32 @@ const formatOptionalNumber = (value: number | null | undefined, formatter: (valu
 const getFillerTableData = (fillerWords: Session['filler_words']) =>
   Object.entries(fillerWords || {})
     .filter(([word]) => word !== 'total')
+    .filter(([, data]) => data.count > 0)
     .map(([word, data]) => [word, data.count]);
+
+const formatDuration = (seconds: number): string => {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0 seconds';
+
+  const roundedSeconds = Math.round(seconds);
+  const minutes = Math.floor(roundedSeconds / 60);
+  const remainingSeconds = roundedSeconds % 60;
+
+  if (minutes === 0) return `${remainingSeconds} second${remainingSeconds === 1 ? '' : 's'}`;
+  if (remainingSeconds === 0) return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  return `${minutes} minute${minutes === 1 ? '' : 's'} ${remainingSeconds} second${remainingSeconds === 1 ? '' : 's'}`;
+};
+
+const getPdfFillerTableData = (session: Session): Array<[string, number]> => {
+  const savedTableData = getFillerTableData(session.filler_words);
+  if (savedTableData.length > 0) return savedTableData as Array<[string, number]>;
+
+  const transcript = session.transcript?.trim();
+  if (!transcript) return [];
+
+  const customWords = Object.keys(session.custom_words || {});
+  const derivedCounts = countFillerWords(transcript, customWords);
+  return getFillerTableData(derivedCounts) as Array<[string, number]>;
+};
 
 export const generateSessionPdf = async (session: Session, username: string = 'User', _isPro: boolean = false) => {
   const identifier = username && username !== 'User' ? username : session.user_id;
@@ -46,7 +72,7 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
     } catch (e) {
       doc.text(`Date: ${session.created_at}`, 14, 32);
     }
-    doc.text(`Duration: ${Math.round(session.duration / 60)} minutes`, 14, 42);
+    doc.text(`Duration: ${formatDuration(session.duration)}`, 14, 42);
 
     // --- Analytics ---
     doc.setFontSize(16);
@@ -69,8 +95,8 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
       headStyles: { fillColor: [41, 128, 185] },
     });
 
-    if (session.filler_words) {
-      const tableData = getFillerTableData(session.filler_words);
+    const tableData = getPdfFillerTableData(session);
+    if (tableData.length > 0) {
       autoTable(doc, {
         startY: (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10,
         head: [['Filler Word', 'Frequency']],

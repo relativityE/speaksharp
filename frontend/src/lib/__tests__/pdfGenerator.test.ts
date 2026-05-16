@@ -105,6 +105,16 @@ describe('generateSessionPdf', () => {
     expect(savedPdf.filename).toBe('session_20250923_TestUser.pdf');
   });
 
+  it('formats short session durations in seconds instead of rounding to 0 minutes', async () => {
+    await generateSessionPdf({
+      ...mockSession,
+      duration: 14,
+    });
+    const savedPdf = await getSavedPdf();
+
+    expect(savedPdf.text).toContain('(Duration: 14 seconds) Tj');
+  });
+
   it('excludes synthetic total filler rows and preserves zero pause metrics', async () => {
     await generateSessionPdf({
       ...mockSession,
@@ -148,6 +158,23 @@ describe('generateSessionPdf', () => {
     expect(autoTable).toHaveBeenCalledTimes(1);
     expect(autoTable).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       body: expect.arrayContaining([['Metric', 'Value']])
+    }));
+  });
+
+  it('derives filler table data from transcript when saved filler metrics are stale zeros', async () => {
+    await generateSessionPdf({
+      ...mockSession,
+      transcript: "So this is a test. Yeah, so it is highlighting filler words.",
+      filler_words: {
+        so: { count: 0 },
+        like: { count: 0 },
+        total: { count: 0 },
+      },
+    } as unknown as Session);
+
+    expect(autoTable).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({
+      head: [['Filler Word', 'Frequency']],
+      body: [['so', 2]],
     }));
   });
 
