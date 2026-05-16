@@ -86,7 +86,7 @@ describe('generateSessionPdf', () => {
       startY: 70,
       body: expect.arrayContaining([
         ['Metric', 'Value'],
-        ['STT Engine', 'Unknown'],
+        ['Transcription Mode', 'Not recorded'],
       ])
     }));
 
@@ -127,7 +127,7 @@ describe('generateSessionPdf', () => {
 
     expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
       body: expect.arrayContaining([
-        ['STT Engine', 'private (whisper-tiny.en, transformers-js-2.17, cpu)'],
+        ['Transcription Mode', 'Private (whisper-tiny.en, transformers-js-2.17, cpu)'],
         ['Silence Percentage', '0.0%'],
         ['Short Pauses (0.5-1.5s)', '0'],
         ['Long Pauses (>1.5s)', '0'],

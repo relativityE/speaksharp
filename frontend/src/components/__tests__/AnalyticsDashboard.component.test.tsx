@@ -181,7 +181,7 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('filler-count-value')).toHaveTextContent('5');
     });
 
-    it('shows saved STT engine metadata in the session detail view', () => {
+    it('shows saved recording mode metadata in the session detail view', () => {
         renderComponent({
             sessionId: 'session-1',
             sessionHistory: [
@@ -205,7 +205,7 @@ describe('AnalyticsDashboard', () => {
         );
     });
 
-    it('normalizes native engine metadata to the Browser label in detail view', () => {
+    it('normalizes native metadata and hides placeholder details in detail view', () => {
         renderComponent({
             sessionId: 'native-session',
             sessionHistory: [
@@ -224,7 +224,7 @@ describe('AnalyticsDashboard', () => {
         });
 
         expect(screen.getByTestId('session-engine-metadata')).toHaveTextContent(
-            'Native Browser (unknown, unknown, unknown)'
+            'Native Browser'
         );
     });
 

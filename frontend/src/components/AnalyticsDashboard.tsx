@@ -21,6 +21,7 @@ import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
+import { formatSessionRecordingMode } from '@/utils/engineLabels';
 
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
@@ -144,19 +145,6 @@ const sumFillerCounts = (fillerWords?: PracticeSession['filler_words'] | null): 
         (sum, [word, data]) => word === 'total' ? sum : sum + (data.count || 0),
         0
     );
-
-const formatEngineLabel = (session: PracticeSession): string => {
-    const engine = (session.engine || '').toLowerCase();
-    const mode = engine.includes('cloud') || engine.includes('assembly')
-        ? 'Cloud'
-        : engine.includes('private') || engine.includes('whisper') || engine.includes('transformers')
-            ? 'Private'
-            : engine.includes('native') || engine.includes('browser')
-                ? 'Native Browser'
-                : session.engine || 'Unknown';
-    const details = [session.model_name, session.engine_version, session.device_type].filter(Boolean);
-    return details.length > 0 ? `${mode} (${details.join(', ')})` : mode;
-};
 
 const getEngineBadge = (session: PracticeSession): { label: string; className: string; icon: React.ElementType } => {
     const engine = (session.engine || '').toLowerCase();
@@ -312,7 +300,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                             <span
                                 className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.08em] ${engineBadge.className}`}
                                 data-testid={`session-engine-badge-${session.id}`}
-                                title={`STT engine: ${formatEngineLabel(session)}`}
+                                title={`Recorded with ${formatSessionRecordingMode(session)}`}
                             >
                                 <EngineIcon className="h-3 w-3" aria-hidden="true" />
                                 {engineBadge.label}
@@ -694,9 +682,9 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-muted-foreground">
-                                    <span className="uppercase tracking-wider">STT Engine</span>
+                                    <span className="uppercase tracking-wider">Recorded with</span>
                                     <span className="rounded-md border border-border bg-muted/40 px-2 py-1 text-foreground" data-testid="session-engine-metadata">
-                                        {formatEngineLabel(targetSession)}
+                                        {formatSessionRecordingMode(targetSession)}
                                     </span>
                                 </div>
                                 <div className="p-4 bg-muted/30 rounded-lg min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">

@@ -4,6 +4,7 @@ import { saveAs } from 'file-saver';
 import { PracticeSession as Session } from '../types/session';
 import { format, parseISO } from 'date-fns';
 import logger from './logger';
+import { formatSessionRecordingMode } from '@/utils/engineLabels';
 
 // A more specific type for the internal, undocumented API
 interface jsPDFInternal {
@@ -25,12 +26,6 @@ const getFillerTableData = (fillerWords: Session['filler_words']) =>
   Object.entries(fillerWords || {})
     .filter(([word]) => word !== 'total')
     .map(([word, data]) => [word, data.count]);
-
-const formatEngineLabel = (session: Session): string => {
-  const mode = session.engine || 'Unknown';
-  const details = [session.model_name, session.engine_version, session.device_type].filter(Boolean);
-  return details.length > 0 ? `${mode} (${details.join(', ')})` : mode;
-};
 
 export const generateSessionPdf = async (session: Session, username: string = 'User', _isPro: boolean = false) => {
   const identifier = username && username !== 'User' ? username : session.user_id;
@@ -60,7 +55,7 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
     const analyticsData = [
       ['Metric', 'Value'],
       ['Speaking Pace (WPM)', session.wpm?.toString() || 'N/A'],
-      ['STT Engine', formatEngineLabel(session)],
+      ['Transcription Mode', formatSessionRecordingMode(session)],
       ['Silence Percentage', formatOptionalNumber(session.pause_metrics?.silencePercentage, value => `${value.toFixed(1)}%`)],
       ['Short Pauses (0.5-1.5s)', formatOptionalNumber(session.pause_metrics?.transitionPauses, value => value.toString(), '0')],
       ['Long Pauses (>1.5s)', formatOptionalNumber(session.pause_metrics?.extendedPauses, value => value.toString(), '0')],
