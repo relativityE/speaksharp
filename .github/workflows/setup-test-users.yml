@@ -19,8 +19,8 @@ on:
         options:
           - use_existing
           - generate_new_credentials
-      new_free_count:
-        description: 'Free Users'
+      new_basic_count:
+        description: 'Basic Users'
         required: false
         default: '0'
         type: string
@@ -65,7 +65,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SOAK_TEST_PASSWORD: ${{ env.SOAK_TEST_PASSWORD || secrets.SOAK_TEST_PASSWORD }}
           MODE: ${{ github.event.inputs.mode }}
-          NEW_FREE_COUNT: ${{ github.event.inputs.new_free_count }}
+          NEW_BASIC_COUNT: ${{ github.event.inputs.new_basic_count }}
           NEW_PRO_COUNT: ${{ github.event.inputs.new_pro_count }}
         run: |
           if [ -z "$SOAK_TEST_PASSWORD" ]; then

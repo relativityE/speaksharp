@@ -33,7 +33,7 @@ This document defines the structural invariants and authoritative sources of tru
 | :--- | :--- | :--- |
 | **Billing Limits** | Postgres Migration Schema + RPC Logic | Frontend Constants / Roadmap |
 | **Transcript State** | `useSessionStore` and same-session client memory | Component Local State |
-| **Session History** | DB `sessions` table metadata, counts, custom words, filler words, AI suggestions, engine/mode fields | Full transcript persistence |
+| **Session History** | DB `sessions` table transcript/analysis snapshot: transcript text, duration, counts, custom words, filler words, pause metrics, AI suggestions, engine/mode fields | Ephemeral UI-only metrics |
 | **Quota Enforcement** | Edge Function + `check_usage_limit` RPC | Frontend Pre-checks |
 | **Session Lifecycle** | `TranscriptionFSM` State | Browser Mount/Unmount Events |
 
@@ -57,7 +57,7 @@ This document defines the structural invariants and authoritative sources of tru
 ### 4. Data Invariant
 > **Final transcripts are append-only and monotonic.**
 - Post-processing logic MUST ensures that transcript segments are ordered by absolute timestamp and are never overwritten by late partials.
-- Full transcript text MUST NOT be persisted to Supabase. Persisted session records store privacy-preserving metadata and analysis artifacts; PDFs/reports are generated from active client-side transcript state.
+- Full transcript text MAY be persisted as part of the finalized session analysis snapshot so returning-user coaching, AI feedback caching, PDF regeneration, WER-ready validation, and session comparison have a stable source of truth. Private STT audio MUST remain local to the browser.
 
 ### 5. Subscription Invariant
 > **Unmount detaches listeners but never destroys active sessions.**

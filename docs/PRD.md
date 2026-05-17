@@ -554,13 +554,13 @@ This section provides high-level insights into the SpeakSharp project from multi
 
 ### 💰 Updated Pricing Tiers & Recommendations
 
-> **🚨 50% Margin of Safety Governance:** The session limits listed below (60m Free / 120m Pro) are currently *hypothetical target bounds*. Their final values will be strictly governed by the results of the "Extreme Duration Soak Test." Whatever absolute maximum duration the Browser RAM, Gemini Context Window, and PDF Generator can technically survive, we will apply a **50% Margin of Safety** to determine our actual marketed limits to ensure 100% reliability for paying users.
+> **🚨 50% Margin of Safety Governance:** The session limits listed below (60m Basic / 120m Pro) are currently *hypothetical target bounds*. Their final values will be strictly governed by the results of the "Extreme Duration Soak Test." Whatever absolute maximum duration the Browser RAM, Gemini Context Window, and PDF Generator can technically survive, we will apply a **50% Margin of Safety** to determine our actual marketed limits to ensure 100% reliability for paying users.
 
 *   **Free User (Authenticated):**
     *   **Limit:** **1 Hour / Day** (Capped at Max 25 Hours / Month). *Max 60-Minute soft limit per session, plus a 5-minute graceful wrap-up warning.*
     *   **Engine:** Restricted strictly to **Native Browser STT** ($0.00 cost to SpeakSharp).
-    *   **Funnel Features:** Access to Custom Vocab tracking, Vocal Variety metrics, and **Watermarked** PDF Practice Export (Strictly limited to **1 teaser export per month**).
-    *   **Recommendation:** Giving them 1 free, watermarked PDF is the ultimate "freemium teaser" funnel to up-sell the Pro tier. Daily/Monthly limit cutoffs must utilize "Gracious Sunsetting" UX (e.g., "You crushed your goals today! Upgrade for more, or see you tomorrow!").
+    *   **Funnel Features:** Access to Custom Vocab tracking, Vocal Variety metrics, and **watermarked** PDF practice exports. PDF export is not count-limited for Basic because client-side generation has no variable provider cost.
+    *   **Recommendation:** Let Basic users export watermarked PDFs freely so the artifact itself becomes the conversion funnel. Daily/Monthly session limit cutoffs must utilize "Gracious Sunsetting" UX (e.g., "You crushed your goals today! Upgrade for more, or see you tomorrow!").
 
 *   **Pro User (Authenticated):**
     *   **Price:** **$14.99 / month.** (Or $149/year).
@@ -568,7 +568,7 @@ This section provides high-level insights into the SpeakSharp project from multi
     *   **Engine:** Full access to **Private STT** (WebGPU -> CPU/Transformers.js -> Native after Private failure), **Cloud AI (AssemblyAI)**, and Native Browser STT.
     *   **Exclusive Premium Features:** To justify the $14.99 point, Pro users receive access to features that provide massive value but cost pennies in compute:
         *   **AI Speech Coach Feedback:** Post-session comprehensive analysis powered by advanced LLMs (e.g., Gemini Flash) providing structured feedback on tone, delivery, and structure.
-        *   **Clean PDF Exports:** Professional, un-watermarked PDF report generation.
+        *   **PDF Exports:** Professional PDF report generation with the same required SpeakSharp watermarking/branding as Basic exports.
         *   **Speaker Diarization:** Multi-speaker awareness for real-world meeting analysis (Cloud STT only).
     *   **Recommendation:** As AssemblyAI costs $0.47/hr, Pro users should land on Private STT by default and see it as the recommended privacy-first option. Cloud STT remains a first-class selectable Pro mode for users who prefer managed cloud accuracy, speaker diarization, or stronger vocabulary support.
 

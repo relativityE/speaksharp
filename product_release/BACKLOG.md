@@ -40,7 +40,7 @@ This file tracks known issues, tech debt, and deferred cleanup that should not i
 | Closed Date | Area | Result | Evidence |
 |---|---|---|---|
 | 2026-05-15 | GitHub Actions maintenance | Closed. Artifact actions now run on Node 24-compatible versions. | Commit `1066ba6d` upgraded `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`; `CI - Test Audit` run `25944598514` passed without the prior Node 20 artifact annotation. |
-| 2026-05-15 | Test user workflows | Closed. `scripts/setup-test-users.mjs` now accepts both the documented workflow inputs (`NEW_FREE_COUNT` / `NEW_PRO_COUNT`) and legacy local names (`NUM_FREE_USERS` / `NUM_PRO_USERS`). | This prevents manual workflow counts from being ignored when provisioning Basic/Pro pools. |
+| 2026-05-15 | Test user workflows | Closed. `setup-test-users.yml` and `scripts/setup-test-users.mjs` now use Basic-facing count names (`NEW_BASIC_COUNT` / `NUM_BASIC_USERS`) with no legacy Free-count fallback. | This keeps operator-facing test-user language aligned with the product while preserving the internal unpaid tier value `free`. |
 
 | Priority | Area | Issue | Impact | Recommended Action |
 |---|---|---|---|---|

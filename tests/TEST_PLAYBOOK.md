@@ -77,7 +77,7 @@ Most tests (except for basic Unit and E2E Mock) require real backend credentials
 
 **Custom Load**:
 ```bash
-NUM_FREE_USERS=20 NUM_PRO_USERS=10 pnpm test:soak:api:cloud
+NUM_BASIC_USERS=20 NUM_PRO_USERS=10 pnpm test:soak:api:cloud
 ```
 
 ### 3. UI Soak Memory Test (`test:soak:ui:cloud`)

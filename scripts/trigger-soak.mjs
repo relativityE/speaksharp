@@ -10,7 +10,7 @@
  * 3. Observability: Automatically fetches and returns the GitHub Actions run URL.
  * 
  * Usage:
- *   node scripts/trigger-soak.mjs [free_count] [pro_count]
+ *   node scripts/trigger-soak.mjs [basic_count] [pro_count]
  *   Example: node scripts/trigger-soak.mjs 7 3
  */
 
@@ -49,11 +49,11 @@ async function main() {
     // Filter out flags to find numeric arguments
     const numericArgs = args.filter(arg => !arg.startsWith('--'));
 
-    // Default to 7 Free / 3 Pro (Matching constants.ts defaults)
-    const freeCount = numericArgs[0] || '7';
+    // Default to 7 Basic / 3 Pro (Matching constants.ts defaults)
+    const basicCount = numericArgs[0] || '7';
     const proCount = numericArgs[1] || '3';
 
-    log(`   Config: ${freeCount} Free Users, ${proCount} Pro Users`, COLORS.cyan);
+    log(`   Config: ${basicCount} Basic Users, ${proCount} Pro Users`, COLORS.cyan);
 
     // 2. GH CLI Check
     try {
@@ -67,7 +67,7 @@ async function main() {
     log(`📡 Dispatching workflow: "${WORKFLOW_NAME}"...`, COLORS.cyan);
     try {
         // Construct inputs
-        const inputs = `-f num_free_users=${freeCount} -f num_pro_users=${proCount}`;
+        const inputs = `-f num_basic_users=${basicCount} -f num_pro_users=${proCount}`;
         execSync(`gh workflow run "${WORKFLOW_NAME}" --ref main ${inputs}`, { stdio: 'inherit' });
         log("✅ Workflow dispatch successful.", COLORS.green);
     } catch (e) {

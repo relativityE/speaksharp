@@ -361,7 +361,7 @@ s in `PrivateSTT.ts` and unified `STTEngine` with `ITranscriptionEngine` for a s
 - **Soak Test & CI Infrastructure (2026-02-08):**
   - **Feature:** Implemented `tests/soak/api-load-test.ts` for lightweight, high-concurrency Node.js load testing (bypassing UI overhead).
   - **Tooling:** Introduced `pnpm ci:full:local` to simulate the full GitHub Actions pipeline locally (Lint + Typecheck + Unit + Build + E2E + Lighthouse).
-  - **Configuration:** Standardized environment variables: `NUM_FREE_USERS` / `NUM_PRO_USERS` (formerly `NEW_*_COUNT`) for consistent user provisioning.
+  - **Configuration:** Standardized environment variables: `NUM_BASIC_USERS` / `NUM_PRO_USERS` for consistent user provisioning. Basic-facing accounts still use the internal unpaid entitlement value `free`.
   - **Fix:** Resolved `verify-users.ts` syntax errors and `TransformersJSEngine.test.ts` assertion gaps.
   - **Documentation:** Updated `ARCHITECTURE.md` with new user provisioning standards.
   - **Files:** `tests/soak/*`, `package.json`, `scripts/test-audit.sh`, `docs/ARCHITECTURE.md`

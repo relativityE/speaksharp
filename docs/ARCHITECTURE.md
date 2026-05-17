@@ -1045,7 +1045,7 @@ SpeakSharp enforces strict code quality standards to maintain long-term maintain
 The project uses a hybrid soak testing strategy:
 1.  **UI Soak Test (`soak-test.spec.ts`):** Controlled Playwright test (3-5 users) to verify UI stability and memory leaks over time.
 2.  **API Load Test (`api-load-test.ts`):** Lightweight Node.js script for higher concurrency/stress testing. Directly hits backend APIs (Auth, Session, Edge Functions) to simulate heavy load without browser overhead.
-    *   **Config:** `CONCURRENT_USERS` (or `NUM_FREE_USERS` + `NUM_PRO_USERS`).
+    *   **Config:** `CONCURRENT_USERS` (or `NUM_BASIC_USERS` + `NUM_PRO_USERS`).
     *   **Execution:** `pnpm tsx tests/soak/api-load-test.ts`
 
 ### 7.4 Test Pyramid
@@ -1203,7 +1203,7 @@ expect(text).toBe('5');
 *   **User Provisioning:**
     *   **Script:** `scripts/setup-test-users.mjs`
     *   **Purpose:** Idempotent script to create/sync 10 dedicated soak test users (`soak-test0@`...`soak-test9@`).
-    *   **Configurable:** Supports `NUM_FREE_USERS` / `NUM_PRO_USERS` env overrides (Defaults: 7 Free, 3 Pro).
+    *   **Configurable:** Supports `NUM_BASIC_USERS` / `NUM_PRO_USERS` env overrides (Defaults: 7 Basic, 3 Pro).
     *   **Secrets:** requires `SUPABASE_SERVICE_ROLE_KEY`.
 
 **Remote Execution (The "Correct Way"):**
@@ -1723,7 +1723,7 @@ Due to the sensitivity of Stripe `secret keys`, we employ a "Negative Verificati
 **Inputs:**
 - `mode`: "e2e" (1 user) or "soak" (batch sync).
 - `password_action`: "use_existing" or "generate_new_credentials".
-- `new_free_count`: Override default Free user target (0 to use defaults).
+- `new_basic_count`: Override default Basic user target (0 to use defaults).
 - `new_pro_count`: Override default Pro user target (0 to use defaults).
 
 **Required Secrets:**
@@ -2497,7 +2497,7 @@ export const SOAK_CONFIG = {
 ```
 
 **Override via environment:**
-- `NEW_FREE_COUNT`: Number of free tier users
+- `NEW_BASIC_COUNT`: Number of Basic-facing test users. These accounts still use the internal unpaid entitlement value `free`.
 - `NEW_PRO_COUNT`: Number of pro tier users
 
 Run soak tests with:
