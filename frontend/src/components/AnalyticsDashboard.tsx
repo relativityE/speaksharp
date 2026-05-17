@@ -207,14 +207,9 @@ const ANALYSIS_SLIDE_OPTIONS: AnalysisSlideConfig[] = [
         description: 'Track progress toward weekly targets'
     },
     {
-        id: 'filler_trend',
-        label: 'Filler Word Trend',
-        description: 'See how your filler word usage is changing'
-    },
-    {
-        id: 'filler_analysis',
-        label: 'Detailed Filler Analysis',
-        description: 'Breakdown of specific filler words usage'
+        id: 'filler_words',
+        label: 'Filler Words',
+        description: 'Trend and breakdown of filler word usage'
     },
     {
         id: 'stt_comparison',
@@ -224,8 +219,13 @@ const ANALYSIS_SLIDE_OPTIONS: AnalysisSlideConfig[] = [
 
 ];
 
-const DEFAULT_ANALYSIS_SLIDES = ['pace_trend', 'clarity_trend', 'filler_trend', 'filler_analysis'];
-const ANALYSIS_STORAGE_KEY = 'speaksharp_selected_analysis_slides_v5';
+const LEGACY_ANALYSIS_SLIDE_IDS: Record<string, string> = {
+    filler_trend: 'filler_words',
+    filler_analysis: 'filler_words',
+};
+
+const DEFAULT_ANALYSIS_SLIDES = ['pace_trend', 'clarity_trend', 'filler_words', 'goals_progress'];
+const ANALYSIS_STORAGE_KEY = 'speaksharp_selected_analysis_slides_v6';
 
 // --- Sub-components ---
 
@@ -255,6 +255,19 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className
         </div>
     </Card>
 );
+
+const normalizeAnalysisSlideIds = (ids: string[]): string[] => {
+    const validIds = new Set(ANALYSIS_SLIDE_OPTIONS.map(option => option.id));
+    const normalized: string[] = [];
+
+    ids.forEach((id) => {
+        const nextId = LEGACY_ANALYSIS_SLIDE_IDS[id] ?? id;
+        if (!validIds.has(nextId) || normalized.includes(nextId)) return;
+        normalized.push(nextId);
+    });
+
+    return normalized;
+};
 
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro: _isPro, isSelected, onToggleSelect, profileName }) => {
     const metrics = getSessionAnalysisMetrics(session);
@@ -424,7 +437,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             if (saved) {
                 const parsed = JSON.parse(saved);
                 // Validate that saved slides still exist in options
-                const validSlides = parsed.filter((id: string) => ANALYSIS_SLIDE_OPTIONS.some(opt => opt.id === id));
+                const validSlides = normalizeAnalysisSlideIds(parsed);
                 if (validSlides.length >= 1) {
                     return validSlides;
                 }
@@ -887,12 +900,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                             {option.id === 'goals_progress' && (
                                                 <GoalsSection />
                                             )}
-                                            {option.id === 'filler_trend' && (
+                                            {option.id === 'filler_words' && (
                                                 <Card>
-                                                    <CardHeader><CardTitle>Filler Word Trend</CardTitle></CardHeader>
-                                                    <CardContent className="pl-2">
+                                                    <CardHeader><CardTitle>Filler Words</CardTitle></CardHeader>
+                                                    <CardContent className="space-y-6">
                                                         {overallStats.chartData.length > 1 ? (
-                                                            <div className="h-[300px] w-full">
+                                                            <div className="h-[260px] w-full">
                                                                 <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                                                                     <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                                                                         <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
@@ -904,16 +917,14 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                                                 </ResponsiveContainer>
                                                             </div>
                                                         ) : (
-                                                            <div className="flex items-center justify-center h-[300px] text-center text-muted-foreground"><p>Complete at least two sessions to see your progress trend.</p></div>
+                                                            <div className="flex items-center justify-center h-[220px] text-center text-muted-foreground"><p>Complete at least two sessions to see your filler word trend.</p></div>
                                                         )}
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                            <TopFillerWords />
+                                                            <FillerWordTable trendData={fillerWordTrends} />
+                                                        </div>
                                                     </CardContent>
                                                 </Card>
-                                            )}
-                                            {option.id === 'filler_analysis' && (
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                    <TopFillerWords />
-                                                    <FillerWordTable trendData={fillerWordTrends} />
-                                                </div>
                                             )}
                                             {option.id === 'stt_comparison' && (
                                                 <STTAccuracyVsBenchmark />
