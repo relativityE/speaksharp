@@ -67,7 +67,7 @@ async function main() {
     log(`📡 Dispatching workflow: "${WORKFLOW_NAME}"...`, COLORS.cyan);
     try {
         // Construct inputs
-        const inputs = `-f num_basic_users=${basicCount} -f num_pro_users=${proCount}`;
+        const inputs = `-f new_basic_count=${basicCount} -f new_pro_count=${proCount}`;
         execSync(`gh workflow run "${WORKFLOW_NAME}" --ref main ${inputs}`, { stdio: 'inherit' });
         log("✅ Workflow dispatch successful.", COLORS.green);
     } catch (e) {

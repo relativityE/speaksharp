@@ -53,6 +53,8 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   public onReady?: () => void;
   public onError?: (error: TranscriptionError) => void;
   private _engineType: EngineType | null = null;
+  private finalizedResultIndexes = new Set<number>();
+  private lastStableInterim = '';
 
   constructor(options: Partial<TranscriptionModeOptions> = {}, mockEngine?: IPrivateSTTEngine) {
     super(options as TranscriptionModeOptions);
@@ -140,6 +142,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
+            if (this.finalizedResultIndexes.has(i)) {
+              continue;
+            }
+            this.finalizedResultIndexes.add(i);
             finalTranscript += event.results[i][0].transcript;
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, finalTranscript }, '[NativeBrowser] Final transcript received');
           } else {
@@ -149,13 +155,17 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
         }
 
         if (this.onTranscriptUpdate) {
-          if (interimTranscript) {
+          const stableInterim = this.getStableInterimTranscript(interimTranscript);
+          if (stableInterim) {
             this.onTranscriptUpdate({ 
-                transcript: { partial: interimTranscript }
+                transcript: { partial: stableInterim }
             });
           }
           if (finalTranscript) {
-            this.currentTranscript += finalTranscript;
+            this.lastStableInterim = '';
+            this.currentTranscript = this.currentTranscript
+              ? `${this.currentTranscript} ${finalTranscript.trim()}`
+              : finalTranscript.trim();
             this.onTranscriptUpdate({ 
                 transcript: { final: finalTranscript }
             });
@@ -236,10 +246,15 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       if (this.mockEngine.start) await this.mockEngine.start(_mic);
       this.isListening = true;
       this.currentTranscript = '';
+      this.finalizedResultIndexes.clear();
+      this.lastStableInterim = '';
       return;
     }
 
     if (this.recognition) {
+      this.currentTranscript = '';
+      this.finalizedResultIndexes.clear();
+      this.lastStableInterim = '';
       this.recognition.start();
     }
 
@@ -292,6 +307,19 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     });
 
     this.recognition = null; // Clear to prevent reuse
+  }
+
+  private getStableInterimTranscript(nextInterim: string): string {
+    const normalizedNext = nextInterim.trim();
+    if (!normalizedNext) return this.lastStableInterim;
+
+    const previous = this.lastStableInterim.trim();
+    if (previous && previous.length > normalizedNext.length) {
+      return this.lastStableInterim;
+    }
+
+    this.lastStableInterim = normalizedNext;
+    return this.lastStableInterim;
   }
 
   public async pause(): Promise<void> {

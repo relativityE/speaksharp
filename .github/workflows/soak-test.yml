@@ -2,6 +2,17 @@ name: Soak Test
 
 on:
   workflow_dispatch:
+    inputs:
+      new_basic_count:
+        description: 'Basic Users'
+        required: false
+        default: '0'
+        type: string
+      new_pro_count:
+        description: 'Pro Users'
+        required: false
+        default: '0'
+        type: string
   schedule:
     - cron: '0 4 * * *' # Every day at 4 AM UTC
 
@@ -24,6 +35,8 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
           MODE: "soak"
+          NEW_BASIC_COUNT: ${{ github.event.inputs.new_basic_count || '0' }}
+          NEW_PRO_COUNT: ${{ github.event.inputs.new_pro_count || '0' }}
         run: node scripts/setup-test-users.mjs
       
       - name: Run soak test

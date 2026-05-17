@@ -67,6 +67,13 @@ export const SpeakingTipsCard: React.FC<SpeakingTipsCardProps> = ({
             };
         }
 
+        if ((pauseMetrics?.pausesPerMinute ?? 0) > 12) {
+            return {
+                title: 'Group Your Thoughts',
+                description: `We detected ${pauseMetrics?.totalPauses ?? 0} pauses. Try speaking in complete phrases before pausing.`,
+            };
+        }
+
         if (fillerCount > 0) {
             return {
                 title: 'Replace Fillers',
@@ -82,7 +89,7 @@ export const SpeakingTipsCard: React.FC<SpeakingTipsCardProps> = ({
         }
 
         return tips[0] ?? defaultTips[0];
-    }, [clarityScore, fillerCount, pauseMetrics?.totalPauses, tips, wpm]);
+    }, [clarityScore, fillerCount, pauseMetrics?.pausesPerMinute, pauseMetrics?.totalPauses, tips, wpm]);
 
     const isCompact = className.includes('compact');
 

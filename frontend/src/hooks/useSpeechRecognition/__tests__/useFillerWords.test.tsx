@@ -62,6 +62,30 @@ describe('useFillerWords', () => {
     vi.useRealTimers();
   });
 
+  it('preserves filler evidence observed in interim text when browser STT retracts it', () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(
+      ({ interim }: { interim: string }) => useFillerWords([], interim, userWords),
+      { initialProps: { interim: '' } }
+    );
+
+    rerender({ interim: 'um I think' });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(result.current.counts.um.count).toBe(1);
+    expect(result.current.totalCount).toBe(1);
+
+    rerender({ interim: 'I think' });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+
+    expect(result.current.counts.um.count).toBe(1);
+    expect(result.current.totalCount).toBe(1);
+    vi.useRealTimers();
+  });
+
   it('should reset when chunks are cleared', () => {
     const chunks: Chunk[] = [{ transcript: 'um', id: 1, timestamp: Date.now() }];
     const { result, rerender } = renderHook(

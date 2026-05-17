@@ -13,6 +13,10 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
   const lastProcessedIndexRef = useRef<number>(-1);
   // Keep track of userWords to detect changes
   const lastUserWordsRef = useRef<string[]>(userWords);
+  // Browser STT can revise interim hypotheses by removing fillers before finalizing.
+  // Preserve observed interim filler evidence so live metrics do not snap back to
+  // an unrealistically clean score.
+  const [observedInterimCounts, setObservedInterimCounts] = useState<FillerCounts>(() => createInitialFillerData(userWords));
 
   // 1. Handle Final Chunks (Incremental)
   useEffect(() => {
@@ -23,6 +27,7 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
       const allText = finalChunks.map(c => c.transcript).join(' ');
       const newCounts = countFillerWords(allText, userWords);
       setAccumulatedCounts(newCounts);
+      setObservedInterimCounts(createInitialFillerData(userWords));
       lastProcessedIndexRef.current = finalChunks.length - 1;
       lastUserWordsRef.current = userWords;
       return;
@@ -65,6 +70,7 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
     } else if (finalChunks.length === 0 && lastProcessedIndexRef.current !== -1) {
       // Reset if chunks are cleared
       setAccumulatedCounts(createInitialFillerData(userWords));
+      setObservedInterimCounts(createInitialFillerData(userWords));
       lastProcessedIndexRef.current = -1;
     }
   }, [finalChunks, userWords]);
@@ -92,33 +98,56 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
     return countFillerWords(debouncedInterim, userWords);
   }, [debouncedInterim, userWords]);
 
-  // 3. Combine Accumulated and Interim Counts
+  useEffect(() => {
+    if (!interimCounts) return;
+
+    setObservedInterimCounts(prev => {
+      const observed = { ...prev };
+
+      for (const key in interimCounts) {
+        if (key === 'total') continue;
+        const currentCount = observed[key]?.count ?? 0;
+        const nextCount = Math.max(currentCount, interimCounts[key].count);
+        observed[key] = {
+          ...(observed[key] || interimCounts[key]),
+          count: nextCount,
+        };
+      }
+
+      observed.total = {
+        ...observed.total,
+        count: Object.entries(observed).reduce((sum, [key, data]) => key === 'total' ? sum : sum + data.count, 0),
+      };
+      return observed;
+    });
+  }, [interimCounts]);
+
+  // 3. Combine Accumulated, observed interim, and current interim counts
   const combinedCounts = useMemo(() => {
-    if (!interimCounts) return accumulatedCounts;
-
     const combined = { ...accumulatedCounts };
-    let totalAdded = 0;
+    const transientEvidence = observedInterimCounts;
 
-    for (const key in interimCounts) {
+    for (const key in transientEvidence) {
       if (key === 'total') continue;
+      const observedCount = Math.max(transientEvidence[key]?.count ?? 0, interimCounts?.[key]?.count ?? 0);
+      if (observedCount <= 0) continue;
       if (!combined[key]) {
-        combined[key] = { ...interimCounts[key] };
+        combined[key] = { ...transientEvidence[key], count: observedCount };
       } else {
         combined[key] = {
           ...combined[key],
-          count: combined[key].count + interimCounts[key].count
+          count: Math.max(combined[key].count, observedCount)
         };
       }
-      totalAdded += interimCounts[key].count;
     }
 
     combined.total = {
       ...combined.total,
-      count: combined.total.count + totalAdded
+      count: Object.entries(combined).reduce((sum, [key, data]) => key === 'total' ? sum : sum + data.count, 0),
     };
 
     return combined;
-  }, [accumulatedCounts, interimCounts]);
+  }, [accumulatedCounts, interimCounts, observedInterimCounts]);
 
   const totalCount = useMemo(() => combinedCounts.total.count, [combinedCounts]);
 

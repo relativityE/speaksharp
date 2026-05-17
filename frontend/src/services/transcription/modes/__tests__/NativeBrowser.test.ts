@@ -127,6 +127,40 @@ describe('NativeBrowser Transcription Mode', () => {
       });
     });
 
+    it('does not re-emit already finalized browser results', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      if (mockRecognition.onstart) mockRecognition.onstart({} as Event);
+      await startPromise;
+
+      const resultItem = { transcript: 'hello world', confidence: 0.9, isFinal: true };
+      const resultList = Object.assign([resultItem], { isFinal: true });
+      const event = { results: [resultList], resultIndex: 0 };
+
+      mockRecognition.onresult?.(event as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.(event as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate).toHaveBeenCalledTimes(1);
+      expect(await nativeBrowser.getTranscript()).toBe('hello world');
+    });
+
+    it('keeps a richer interim hypothesis visible when the browser briefly retracts it', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      if (mockRecognition.onstart) mockRecognition.onstart({} as Event);
+      await startPromise;
+
+      const firstResult = Object.assign([{ transcript: 'um I think', confidence: 0.8, isFinal: false }], { isFinal: false });
+      const retractedResult = Object.assign([{ transcript: 'um', confidence: 0.8, isFinal: false }], { isFinal: false });
+
+      mockRecognition.onresult?.({ results: [firstResult], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [retractedResult], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { partial: 'um I think' },
+      });
+    });
+
     it('REGRESSION: should handle rapid onend events without redundant starts', async () => {
       vi.useFakeTimers();
       await nativeBrowser.init();
