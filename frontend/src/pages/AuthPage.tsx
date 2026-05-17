@@ -366,6 +366,7 @@ export default function AuthPage() {
                       data-testid="password-input"
                       id="password"
                       type="password"
+                      autoComplete={view === 'sign_up' ? 'new-password' : 'current-password'}
                       value={password}
                       onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                       className="h-11"

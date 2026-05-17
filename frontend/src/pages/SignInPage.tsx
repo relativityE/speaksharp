@@ -114,6 +114,7 @@ export default function SignInPage() {
                                 <Input
                                     id="password"
                                     type="password"
+                                    autoComplete="current-password"
                                     required
                                     value={password}
                                     data-testid="password-input"

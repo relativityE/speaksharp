@@ -5,6 +5,7 @@ import { getSupabaseClient } from '../../../lib/supabaseClient';
 import type { Session } from '@supabase/supabase-js';
 import { floatToInt16Async } from '../utils/AudioProcessor';
 import { ENV } from '../../../config/TestFlags';
+import { FILLER_WORD_KEYS, STT_CONFIG } from '../../../config';
 import { TranscriptionError } from '../errors';
 import logger from '../../../lib/logger';
 import type { MicStream } from '../utils/types';
@@ -36,12 +37,28 @@ type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecti
 
 const ASSEMBLYAI_SAMPLE_RATE = 16000;
 // AssemblyAI requires each binary audio WebSocket payload to contain 50-1000ms
-// of PCM audio. At 16kHz that is 800-16000 samples; we send 100ms chunks.
+// of PCM audio. At 16kHz that is 800-16000 samples; we send 50ms chunks.
 // Do not send raw browser callback frames directly: they can be ~2-3ms and
 // trigger provider "Input Duration Violation" errors before transcription starts.
-const MIN_STREAMING_CHUNK_MS = 100;
+const MIN_STREAMING_CHUNK_MS = STT_CONFIG.ASSEMBLYAI_MIN_PACKET_MS;
 const MIN_STREAMING_CHUNK_SAMPLES = Math.floor((ASSEMBLYAI_SAMPLE_RATE * MIN_STREAMING_CHUNK_MS) / 1000);
 const MAX_QUEUED_AUDIO_FRAMES = 4000;
+const CLOUD_DEFAULT_KEYTERMS = [
+  ...Object.values(FILLER_WORD_KEYS),
+  'umm',
+  'ummm',
+  'uhm',
+  'uhh',
+  'uhhh',
+  'er',
+  'err',
+  'ahm',
+  'ahhh',
+  "y'know",
+  'ya know',
+  'kinda',
+  'sorta',
+];
 
 /**
  * ARCHITECTURE:
@@ -109,6 +126,22 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
   private get modeOptions(): TranscriptionModeOptions | null {
     return this.options as TranscriptionModeOptions;
+  }
+
+  private getCloudKeyterms(): string[] {
+    const userWords = this.modeOptions?.userWords ?? [];
+    const seen = new Set<string>();
+
+    return [...CLOUD_DEFAULT_KEYTERMS, ...userWords]
+      .map((word) => word.trim())
+      .filter((word) => {
+        if (!word) return false;
+        const normalized = word.toLowerCase();
+        if (seen.has(normalized)) return false;
+        seen.add(normalized);
+        return true;
+      })
+      .map((word) => word.toLowerCase());
   }
 
   /**
@@ -351,8 +384,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
         return;
       }
 
-      // 🚀 PERFORMANCE: Add STT Word Boosting for user words (Fixes Domain 4)
-      const vocabulary = this.modeOptions?.userWords || [];
+      const vocabulary = this.getCloudKeyterms();
       const connectionParams = new URLSearchParams({
         sample_rate: '16000',
         encoding: 'pcm_s16le',
@@ -597,6 +629,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       // Send termination message if open
       if (this.socket.readyState === WebSocket.OPEN) {
         try {
+          await this.flushAudioQueue({ forceTail: true });
           this.socket.send(JSON.stringify({ type: 'Terminate' }));
         } catch (err) {
           logger.warn({ err }, '[CloudAssemblyAI] Error sending terminate_session');
@@ -750,17 +783,28 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     }
   }
 
-  private async flushAudioQueue() {
-    this.scheduleAudioFlush();
+  private async flushAudioQueue(options: { forceTail?: boolean } = {}) {
+    if (options.forceTail) {
+      if (this.flushPromise) {
+        await this.flushPromise;
+      }
+      this.flushPromise = this._doFlush(options).finally(() => {
+        this.flushPromise = null;
+      });
+    } else {
+      this.scheduleAudioFlush();
+    }
+
     if (this.flushPromise) {
       await this.flushPromise;
     }
   }
 
-  private async _doFlush() {
+  private async _doFlush({ forceTail = false }: { forceTail?: boolean } = {}) {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
 
-    logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] Flushing ${this.audioQueue.length} queued audio chunks.`);
+    const queuedAudioChunks = this.audioQueue.length;
+    const sentAudioChunksBeforeFlush = this.sentAudioChunks;
 
     while (this.audioQueue.length > 0) {
       const chunk = this.audioQueue.shift();
@@ -774,6 +818,30 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       this.socket?.readyState === WebSocket.OPEN
     ) {
       await this.sendAudioChunk(this.takeBufferedAudioChunk(MIN_STREAMING_CHUNK_SAMPLES));
+    }
+
+    if (
+      forceTail &&
+      this.pendingAudioSamples > 0 &&
+      this.socket?.readyState === WebSocket.OPEN
+    ) {
+      const tail = this.takeBufferedAudioChunk(this.pendingAudioSamples);
+      const paddedTail = new Float32Array(MIN_STREAMING_CHUNK_SAMPLES);
+      paddedTail.set(tail);
+      await this.sendAudioChunk(paddedTail);
+    }
+
+    if (queuedAudioChunks > 0 || forceTail || this.sentAudioChunks > sentAudioChunksBeforeFlush) {
+      logger.info({
+        sId: this.serviceId,
+        rId: this.instanceId,
+        eId: this.instanceId,
+        queuedAudioChunks,
+        pendingAudioFrames: this.pendingAudioFrames.length,
+        pendingAudioSamples: this.pendingAudioSamples,
+        sentAudioChunks: this.sentAudioChunks,
+        forceTail,
+      }, '[CloudAssemblyAI] audio flush');
     }
   }
 

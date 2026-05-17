@@ -120,6 +120,7 @@ export default function SignUpPage() {
                                 <Input
                                     id="password"
                                     type="password"
+                                    autoComplete="new-password"
                                     required
                                     value={password}
                                     onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}

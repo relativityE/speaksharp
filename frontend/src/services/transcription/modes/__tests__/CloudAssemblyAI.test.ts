@@ -120,17 +120,27 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         const socket = LAST_SOCKET();
         expect(socket).toBeDefined();
 
-        const decodedUrl = decodeURIComponent(socket.url);
-        expect(decodedUrl).toContain('keyterms_prompt=CanaryBoostTest,Productization');
+        const keyterms = new URL(socket.url).searchParams.get('keyterms_prompt');
+        expect(keyterms).toBeTruthy();
+        expect(keyterms).toContain('um');
+        expect(keyterms).toContain('uh');
+        expect(keyterms).toContain('canaryboosttest');
+        expect(keyterms).toContain('productization');
     });
 
-    it('should omit keyterms_prompt when Cloud starts without user words', async () => {
+    it('should include default filler keyterms when Cloud starts without user words', async () => {
         await mode.init();
         await mode.start();
 
         const socket = LAST_SOCKET();
         expect(socket).toBeDefined();
-        expect(socket.url).not.toContain('keyterms_prompt');
+
+        const keyterms = new URL(socket.url).searchParams.get('keyterms_prompt');
+        expect(keyterms).toBeTruthy();
+        expect(keyterms).toContain('um');
+        expect(keyterms).toContain('umm');
+        expect(keyterms).toContain('uh');
+        expect(keyterms).toContain('you know');
     });
 
     it('Pillar 2: should ignore events from zombie connections (Identity Hardening)', async () => {
@@ -186,7 +196,7 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         const socket = LAST_SOCKET();
         socket.simulateOpen();
 
-        for (let i = 0; i < 37; i++) {
+        for (let i = 0; i < 18; i++) {
             mode.processAudio(new Float32Array(43));
         }
         await mode.waitForFlush();
@@ -197,7 +207,26 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
 
         expect(socket.send).toHaveBeenCalledTimes(1);
         const sentPayload = socket.send.mock.calls[0][0] as ArrayBuffer;
-        expect(sentPayload.byteLength).toBe(3200);
+        expect(sentPayload.byteLength).toBe(1600);
+    });
+
+    it('pads and sends trailing audio below the provider minimum before stop', async () => {
+        await mode.init();
+        await mode.start();
+        const socket = LAST_SOCKET();
+        socket.simulateOpen();
+
+        mode.processAudio(new Float32Array(43));
+        await mode.waitForFlush();
+        expect(socket.send).not.toHaveBeenCalled();
+
+        vi.useRealTimers();
+        await mode.stop();
+
+        expect(socket.send).toHaveBeenCalledTimes(2);
+        const sentPayload = socket.send.mock.calls[0][0] as ArrayBuffer;
+        expect(sentPayload.byteLength).toBe(1600);
+        expect(socket.send.mock.calls[1][0]).toBe(JSON.stringify({ type: 'Terminate' }));
     });
 
     it('treats Cloud audio frames as heartbeat activity while provider messages are quiet', async () => {
