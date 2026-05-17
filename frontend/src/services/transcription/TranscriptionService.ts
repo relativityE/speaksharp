@@ -1430,9 +1430,12 @@ export default class TranscriptionService {
       transcript.partial = this.sanitizeTranscript(transcript.partial);
     }
 
-    // ✅ Mandatory E2E Sync: Directly update the store to bypass React cycle delays
-    if (isBridgeActive()) {
-      useSessionStore.getState().updateTranscript(transcript.final || '', transcript.partial || '');
+    // E2E partials can be projected immediately for deterministic UI checks.
+    // Finals must still flow through the controller so the chunk-backed live
+    // transcript remains the single visible source of truth.
+    if (isBridgeActive() && transcript.partial && !transcript.final) {
+      const store = useSessionStore.getState();
+      store.updateTranscript(store.transcript.transcript, transcript.partial);
     }
 
     // Only forward if there's actually something left after sanitization
