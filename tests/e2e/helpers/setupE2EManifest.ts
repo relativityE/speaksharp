@@ -163,7 +163,14 @@ export async function setupE2EManifest(
               isPartial: !isFinal,
               timestamp: Date.now()
             });
+            return;
           }
+          win.__SS_E2E__?._activeCallbacks?.onTranscriptUpdate?.({
+            transcript: isFinal ? { final: text } : { partial: text },
+            isFinal,
+            isPartial: !isFinal,
+            timestamp: Date.now()
+          });
         }
       };
       cache[mode] = instance;
@@ -194,7 +201,14 @@ export async function setupE2EManifest(
         const svc = controller?.service;
         if (svc && !svc.isTerminated) {
           svc.strategy?.emitTranscript?.(text, isFinal);
+          return;
         }
+        win.__SS_E2E__?._activeCallbacks?.onTranscriptUpdate?.({
+          transcript: isFinal ? { final: text } : { partial: text },
+          isFinal,
+          isPartial: !isFinal,
+          timestamp: Date.now()
+        });
       }
     };
 

@@ -235,12 +235,12 @@ describe('STT Safeguards Unit Tests', () => {
         await controller.whenStable();
 
         expect(storageMocks.updateSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
-            total_words: 8,
-            wpm: 80,
+            total_words: 9,
+            wpm: 90,
             accuracy: 0.92,
             filler_words: expect.objectContaining({
                 um: expect.objectContaining({ count: 1 }),
-                total: expect.objectContaining({ count: expect.any(Number) })
+                total: expect.objectContaining({ count: 1 })
             }),
             custom_words: expect.any(Object),
             pause_metrics: expect.any(Object),

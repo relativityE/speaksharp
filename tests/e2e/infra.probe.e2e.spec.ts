@@ -88,7 +88,14 @@ test.describe('Core System Validation (Deterministic)', () => {
                 isPartial: !isFinal,
                 timestamp: Date.now()
               });
+              return;
             }
+            window.__SS_E2E__?._activeCallbacks?.onTranscriptUpdate?.({
+              transcript: isFinal ? { final: text } : { partial: text },
+              isFinal,
+              isPartial: !isFinal,
+              timestamp: Date.now()
+            });
           }
         };
         cache[mode] = instance;
@@ -122,6 +129,12 @@ test.describe('Core System Validation (Deterministic)', () => {
             strategy.emitTranscript(text, final);
             return;
           }
+          winInner.__SS_E2E__?._activeCallbacks?.onTranscriptUpdate?.({
+            transcript: final ? { final: text } : { partial: text },
+            isFinal: final,
+            isPartial: !final,
+            timestamp: Date.now()
+          });
         }
       } satisfies Partial<SSE2EManifest> as SSE2EManifest;
     }, MOCK_STT_AVAILABILITY);

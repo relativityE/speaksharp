@@ -66,12 +66,10 @@ describe('fillerWordUtils', () => {
             expect(result[FILLER_WORD_KEYS.LIKE].count).toBe(1);
         });
 
-        it('handles non-filler "like" correctly (fallback coverage)', () => {
-            // "I like apples" -> "like" is clearly a verb
+        it('counts "like" consistently with live transcript highlighting', () => {
             const text = 'I like apples';
             const result = countFillerWords(text);
-            // Heuristic should reject this "like" (hits branch 156)
-            expect(result[FILLER_WORD_KEYS.LIKE].count).toBe(0);
+            expect(result[FILLER_WORD_KEYS.LIKE].count).toBe(1);
         });
     });
 
