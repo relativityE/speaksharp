@@ -47,13 +47,31 @@ describe('STTAccuracyVsBenchmark', () => {
         expect(screen.getByText('STT Accuracy vs Benchmark')).toBeInTheDocument();
     });
 
-    it('should render dashboard trend view when no session id is provided', () => {
+    it('should render engine quality fallback when no WER benchmark data exists', () => {
         mockUseAnalytics.mockReturnValue({
-            accuracyData: [
-                { date: '10/10', accuracy: 85, engine: 'Native' },
-                { date: '10/11', accuracy: 92, engine: 'Private' },
+            accuracyData: [],
+            sessionHistory: [
+                {
+                    id: 'native-session',
+                    user_id: 'user',
+                    created_at: new Date().toISOString(),
+                    duration: 60,
+                    transcript: 'hello world',
+                    engine: 'native',
+                    clarity_score: 91,
+                    filler_words: { total: { count: 2 }, um: { count: 2 } },
+                },
+                {
+                    id: 'cloud-session',
+                    user_id: 'user',
+                    created_at: new Date().toISOString(),
+                    duration: 120,
+                    transcript: 'hello cloud',
+                    engine: 'cloud',
+                    clarity_score: 84,
+                    filler_words: { total: { count: 8 }, uh: { count: 8 } },
+                },
             ],
-            sessionHistory: [],
             loading: false,
             error: null,
             overallStats: {
@@ -75,8 +93,10 @@ describe('STTAccuracyVsBenchmark', () => {
         } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
-        expect(screen.getByText('Dynamic STT Accuracy vs Ceiling')).toBeInTheDocument();
-        expect(screen.getByText('Provide ground truth transcripts and current WER benchmark runs to compare STT accuracy.')).toBeInTheDocument();
+        expect(screen.getByText('STT Engine Session Quality')).toBeInTheDocument();
+        expect(screen.getByText(/Based on saved session metrics/)).toBeInTheDocument();
+        expect(screen.getByText(/Native Browser/)).toBeInTheDocument();
+        expect(screen.getByText(/Cloud/)).toBeInTheDocument();
         expect(screen.queryByText('Theoretical Max')).not.toBeInTheDocument();
     });
 
@@ -102,7 +122,7 @@ describe('STTAccuracyVsBenchmark', () => {
         } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
         render(<STTAccuracyVsBenchmark />);
-        expect(screen.getByText('Provide ground truth transcripts and current WER benchmark runs to compare STT accuracy.')).toBeInTheDocument();
+        expect(screen.getByText('Complete a session to compare STT engine quality.')).toBeInTheDocument();
     });
 
     it('should render specific session view when URL has sessionId parameter', () => {

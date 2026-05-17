@@ -8,6 +8,8 @@ import { useParams } from 'react-router-dom';
 
 // Need to import using absolute root resolving or relative mapping.
 import benchmarkDataRaw from '../../../../tests/STT_BENCHMARKS.json';
+import { getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
+import { formatSessionRecordingMode } from '@/utils/engineLabels';
 
 interface BenchmarkEntry {
     expectedAccuracy?: number | null;
@@ -54,6 +56,46 @@ const getEngineBenchmark = (engine: string): number | null => {
     if (!hasVerifiedBenchmark(entry)) return null;
 
     return entry.expectedAccuracy ?? null;
+};
+
+const getEngineQualityData = (sessionHistory: ReturnType<typeof useAnalytics>['sessionHistory']) => {
+    const grouped = new Map<string, {
+        engine: string;
+        clarityTotal: number;
+        fillerTotal: number;
+        durationTotal: number;
+        sessions: number;
+    }>();
+
+    sessionHistory.forEach((session) => {
+        const engineKey = formatSessionRecordingMode(session);
+        const metrics = getSessionAnalysisMetrics(session);
+        const current = grouped.get(engineKey) ?? {
+            engine: engineKey,
+            clarityTotal: 0,
+            fillerTotal: 0,
+            durationTotal: 0,
+            sessions: 0,
+        };
+
+        current.clarityTotal += metrics.clarityScore;
+        current.fillerTotal += metrics.fillerCount;
+        current.durationTotal += session.duration || 0;
+        current.sessions += 1;
+        grouped.set(engineKey, current);
+    });
+
+    return Array.from(grouped.values())
+        .map((entry) => {
+            const minutes = entry.durationTotal / 60;
+            return {
+                engine: entry.engine,
+                clarity: Math.round(entry.clarityTotal / entry.sessions),
+                fillersPerMin: minutes > 0 ? Number((entry.fillerTotal / minutes).toFixed(1)) : 0,
+                sessions: entry.sessions,
+            };
+        })
+        .sort((a, b) => b.sessions - a.sessions);
 };
 
 /**
@@ -149,15 +191,17 @@ export const STTAccuracyVsBenchmark: React.FC = () => {
         );
     }
 
-    // 2. Dashboard Trend View (Vertical Bars)
+    // 2. Dashboard WER Benchmark View (Vertical Bars)
     const enrichedData = accuracyData.map(d => ({
         ...d,
         ceiling: getEngineBenchmark(d.engine)
     })).filter(d => d.ceiling !== null);
 
+    const engineQualityData = getEngineQualityData(sessionHistory);
+
     return (
         <Card>
-            <CardHeader><CardTitle>Dynamic STT Accuracy vs Ceiling</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{enrichedData.length > 0 ? 'STT Accuracy vs Benchmark' : 'STT Engine Session Quality'}</CardTitle></CardHeader>
             <CardContent>
                 {enrichedData.length > 0 ? (
                     <ResponsiveContainer width="100%" height={250} minWidth={1} minHeight={1}>
@@ -171,9 +215,33 @@ export const STTAccuracyVsBenchmark: React.FC = () => {
                             <Bar dataKey="ceiling" name="Theoretical Max" fill="hsl(var(--secondary))" radius={[4, 4, 0, 0]} barSize={24} />
                         </BarChart>
                     </ResponsiveContainer>
+                ) : engineQualityData.length > 0 ? (
+                    <div>
+                        <ResponsiveContainer width="100%" height={250} minWidth={1} minHeight={1}>
+                            <BarChart data={engineQualityData} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} vertical={false} />
+                                <XAxis dataKey="engine" stroke="hsl(var(--muted-foreground))" fontSize="0.75rem" tickLine={false} axisLine={false} />
+                                <YAxis domain={[0, 100]} stroke="hsl(var(--muted-foreground))" fontSize="0.75rem" tickLine={false} axisLine={false} unit="%" />
+                                <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+                                <Legend wrapperStyle={{ fontSize: '12px' }} />
+                                <Bar dataKey="clarity" name="Avg Clarity" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} barSize={28} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                            {engineQualityData.slice(0, 3).map((entry) => (
+                                <div key={entry.engine} className="rounded-md border border-border bg-muted/30 px-3 py-2">
+                                    <p className="text-sm font-medium text-foreground">{entry.engine}</p>
+                                    <p className="text-xs text-muted-foreground">{entry.sessions} session{entry.sessions === 1 ? '' : 's'} · {entry.fillersPerMin} fillers/min</p>
+                                </div>
+                            ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-3 text-center">
+                            Based on saved session metrics. Upload a reference script to compare true WER accuracy against verified STT benchmarks.
+                        </p>
+                    </div>
                 ) : (
                     <div className="flex items-center justify-center h-[200px] text-muted-foreground text-sm border-2 border-dashed border-border rounded-xl">
-                        Provide ground truth transcripts and current WER benchmark runs to compare STT accuracy.
+                        Complete a session to compare STT engine quality.
                     </div>
                 )}
             </CardContent>

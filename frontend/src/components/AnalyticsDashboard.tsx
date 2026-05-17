@@ -218,14 +218,14 @@ const ANALYSIS_SLIDE_OPTIONS: AnalysisSlideConfig[] = [
     },
     {
         id: 'stt_comparison',
-        label: 'STT Accuracy vs Benchmark',
-        description: 'Compare transcription accuracy against theoretical ceilings'
+        label: 'STT Engine Quality',
+        description: 'Compare saved session quality by transcription engine'
     },
 
 ];
 
-const DEFAULT_ANALYSIS_SLIDES = ['pace_trend', 'clarity_trend', 'stt_comparison', 'goals_progress'];
-const ANALYSIS_STORAGE_KEY = 'speaksharp_selected_analysis_slides_v3';
+const DEFAULT_ANALYSIS_SLIDES = ['pace_trend', 'clarity_trend', 'filler_trend', 'filler_analysis'];
+const ANALYSIS_STORAGE_KEY = 'speaksharp_selected_analysis_slides_v5';
 
 // --- Sub-components ---
 
@@ -474,6 +474,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     const [api, setApi] = useState<CarouselApi>();
     const [current, setCurrent] = useState(0);
     const [count, setCount] = useState(0);
+    const pendingAnalysisSlideIndexRef = useRef<number | null>(null);
 
     useEffect(() => {
         if (!api) {
@@ -491,7 +492,18 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     // Update count when selected items change
     useEffect(() => {
         if (api) {
+            api.reInit();
             setCount(api.scrollSnapList().length);
+            const pendingIndex = pendingAnalysisSlideIndexRef.current;
+            if (pendingIndex !== null) {
+                pendingAnalysisSlideIndexRef.current = null;
+                const targetIndex = Math.min(pendingIndex, Math.max(api.scrollSnapList().length - 1, 0));
+                window.requestAnimationFrame(() => {
+                    api.scrollTo(targetIndex);
+                    setCurrent(targetIndex + 1);
+                });
+                return;
+            }
             setCurrent(api.selectedScrollSnap() + 1);
         }
     }, [selectedAnalysisSlides, api]);
@@ -540,24 +552,30 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
     // Optimization: Memoize filtered analysis slides for O(1) lookup in render path
     const displayedAnalysisSlides = useMemo(() => {
-        const selectedSet = new Set(selectedAnalysisSlides);
-        return ANALYSIS_SLIDE_OPTIONS.filter(option => selectedSet.has(option.id));
+        const optionsById = new Map(ANALYSIS_SLIDE_OPTIONS.map(option => [option.id, option]));
+        return selectedAnalysisSlides
+            .map(id => optionsById.get(id))
+            .filter((option): option is AnalysisSlideConfig => Boolean(option));
     }, [selectedAnalysisSlides]);
 
     const toggleAnalysisSlide = (slideId: string) => {
-        if (selectedAnalysisSlides.includes(slideId)) {
-            if (selectedAnalysisSlides.length <= 1) {
-                // Optional: Toast for min 1
-                return;
+        setSelectedAnalysisSlides(prev => {
+            if (prev.includes(slideId)) {
+                if (prev.length <= 1) return prev;
+                const removedIndex = prev.indexOf(slideId);
+                pendingAnalysisSlideIndexRef.current = Math.min(removedIndex, prev.length - 2);
+                return prev.filter(id => id !== slideId);
             }
-            setSelectedAnalysisSlides(prev => prev.filter(id => id !== slideId));
-        } else {
-            if (selectedAnalysisSlides.length >= 4) {
-                toast.error("Max 4 analysis slides. Please deselect one first.");
-                return;
+
+            if (prev.length >= 4) {
+                const replaceIndex = Math.min(Math.max(current - 1, 0), prev.length - 1);
+                pendingAnalysisSlideIndexRef.current = replaceIndex;
+                return prev.map((id, index) => index === replaceIndex ? slideId : id);
             }
-            setSelectedAnalysisSlides(prev => [...prev, slideId]);
-        }
+
+            pendingAnalysisSlideIndexRef.current = prev.length;
+            return [...prev, slideId];
+        });
     };
 
     const toggleSessionSelection = useCallback((sessionId: string) => {
