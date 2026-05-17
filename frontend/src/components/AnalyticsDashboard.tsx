@@ -955,8 +955,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             <Card className="bg-card border-border/70 p-6 rounded-lg shadow-sm">
                                 <div className="flex items-center justify-between mb-6">
                                     <div>
-                                        <h2 className="text-xl font-bold text-foreground">Export Reports</h2>
-                                        <p className="text-sm text-muted-foreground mt-1">Review your latest performance and export detailed reports.</p>
+                                        <h2 className="text-xl font-bold text-foreground">Download PDF Reports</h2>
+                                        <p className="text-sm text-muted-foreground mt-1">Generate local PDF downloads from your saved session data.</p>
                                         <div className="mt-3 flex items-center gap-2 text-[10px] md:text-xs font-semibold uppercase tracking-wider bg-secondary/10 text-secondary border border-secondary/20 px-3 py-1.5 rounded-full inline-flex">
                                             <Activity className="h-3 w-3" />
                                             <span>Rolling History: Last 50 Sessions Kept</span>
