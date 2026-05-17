@@ -1,5 +1,6 @@
 import type { PracticeSession } from '@/types/session';
 import { calculateWordErrorRate } from './wer';
+import { getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
 
 /**
  * P1 TECH DEBT: Client-side Aggregation
@@ -38,25 +39,21 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     let totalDurationSeconds = 0;
     let sumWpm = 0;
     let totalFillerWords = 0;
-    let totalClarity = 0;
+    let totalAccuracy = 0;
 
     for (const s of sessionHistory) {
         const duration = s.duration || 0;
         totalDurationSeconds += duration;
 
-        // Use DB-backed metrics if available, otherwise calculate
-        const durationMins = duration / 60;
-        const sessionWpm = s.wpm ?? (durationMins > 0 ? (s.total_words || 0) / durationMins : 0);
+        const sessionMetrics = getSessionAnalysisMetrics(s);
+        const sessionWpm = sessionMetrics.wpm;
 
         sumWpm += sessionWpm;
 
-        const fillerEntries = Object.entries(s.filler_words || {});
-        totalFillerWords += fillerEntries.reduce((sum, [word, d]) => {
-            return word === 'total' ? sum : sum + (d.count || 0);
-        }, 0);
-        // Use clarity_score for overall metrics, fallback to accuracy for legacy
-        const sessionClarity = s.clarity_score ?? (s.accuracy ? s.accuracy * 100 : 0);
-        totalClarity += sessionClarity;
+        totalFillerWords += sessionMetrics.fillerCount;
+        totalAccuracy += typeof s.accuracy === 'number'
+            ? s.accuracy * 100
+            : sessionMetrics.clarityScore;
     }
 
     // totalPracticeTime: rounded for display (e.g., "1 min")
@@ -69,15 +66,12 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     const avgFillerWordsPerMin = totalPracticeTimeMinutes > 0
         ? (totalFillerWords / totalPracticeTimeMinutes).toFixed(1)
         : "0.0";
-    const avgAccuracy = totalSessions > 0 ? (totalClarity / totalSessions).toFixed(1) : "0.0";
+    const avgAccuracy = totalSessions > 0 ? (totalAccuracy / totalSessions).toFixed(1) : "0.0";
 
     const chartData = sessionHistory.slice(0, 10).map(s => {
         const duration = s.duration || 0;
-        const fillerWords = s.filler_words || {};
-        const totalFillerCount = Object.entries(fillerWords).reduce(
-            (sum, [word, d]) => word === 'total' ? sum : sum + (d.count || 0),
-            0
-        );
+        const sessionMetrics = getSessionAnalysisMetrics(s);
+        const totalFillerCount = sessionMetrics.fillerCount;
 
         const durationMins = duration / 60;
         const fwPerMin = durationMins > 0 ? totalFillerCount / durationMins : 0;
@@ -85,7 +79,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         return {
             date: new Date(s.created_at).toLocaleDateString(),
             'FW/min': duration > 0 ? fwPerMin.toFixed(2) : "0.0",
-            clarity: s.clarity_score ?? (duration > 0 ? 100 - (fwPerMin * 2) : 100)
+            clarity: sessionMetrics.clarityScore
         };
     }).reverse();
 
@@ -100,7 +94,7 @@ export const calculateFillerWordTrends = (sessionHistory: PracticeSession[]) => 
             if (window.length === 0) return {};
             const counts: { [key: string]: number } = {};
             window.forEach(s => {
-                Object.entries(s.filler_words || {}).forEach(([word, data]) => {
+                Object.entries(getSessionAnalysisMetrics(s).fillerData || {}).forEach(([word, data]) => {
                     if (word !== 'total') {
                         counts[word] = (counts[word] || 0) + data.count;
                     }
@@ -134,9 +128,9 @@ export const calculateFillerWordTrends = (sessionHistory: PracticeSession[]) => 
 
 export const calculateTopFillerWords = (sessionHistory: PracticeSession[]) => {
     const counts = sessionHistory.reduce((acc, s) => {
-        const fillers = s.filler_words || {};
+        const fillers = getSessionAnalysisMetrics(s).fillerData || {};
         for (const [word, data] of Object.entries(fillers)) {
-            if (word !== 'total') {
+            if (word !== 'total' && data.count > 0) {
                 acc[word] = (acc[word] || 0) + data.count;
             }
         }

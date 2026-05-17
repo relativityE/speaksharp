@@ -226,9 +226,12 @@ export class TransformersJSEngine extends STTEngine {
                 text?: string;
                 transcript?: string;
             }
+            const audioLengthSeconds = audio.length / 16000;
             const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, {
-                chunk_length_s: 30,
-                stride_length_s: 5,
+                chunk_length_s: Math.min(30, Math.max(1, Math.ceil(audioLengthSeconds))),
+                stride_length_s: audioLengthSeconds < 10 ? 0 : 5,
+                task: 'transcribe',
+                language: 'english',
                 return_timestamps: false,
             });
 
@@ -239,7 +242,7 @@ export class TransformersJSEngine extends STTEngine {
                 eId: this.instanceId,
                 event: 'inference_complete',
                 latency_ms: Math.round(latency),
-                audio_length_s: audio.length / 16000,
+                audio_length_s: audioLengthSeconds,
                 engine: 'transformersjs',
                 result_shape: typeof result === 'string' ? 'string' : Object.keys(result).sort().join(',')
             }, '[TransformersJS] Transcription complete.');

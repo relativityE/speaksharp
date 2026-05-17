@@ -467,6 +467,10 @@ export default class TranscriptionService {
           if (this.activeStrategyId !== tempId) return;
           this.strategyCallbacks.onStatusChange?.(status);
         },
+        onAudioData: (data) => {
+          if (this.activeStrategyId !== tempId) return;
+          this.strategyCallbacks.onAudioData?.(data);
+        },
         onError: (err) => {
           if (this.activeStrategyId !== tempId) return;
           this.strategyCallbacks.onError?.(err);

@@ -62,8 +62,9 @@ declare global {
 
 type Status = 'uninitialized' | 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
 const PRIVATE_STT_SAMPLE_RATE = 16_000;
-const MIN_TRANSCRIPTION_SECONDS = 4;
+const MIN_TRANSCRIPTION_SECONDS = 1.5;
 const MIN_TRANSCRIPTION_SAMPLES = PRIVATE_STT_SAMPLE_RATE * MIN_TRANSCRIPTION_SECONDS;
+const PROCESSING_INTERVAL_MS = 250;
 
 const isPrivateTranscriptTraceEnabled = () =>
   typeof window !== 'undefined' && Boolean(window.__PRIVATE_TRANSCRIPT_TRACE__);
@@ -297,10 +298,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     // Store the disposer returned by onFrame
     this.frameListenerDisposer = this.mic.onFrame(listener);
 
-    // Start processing loop (every 500ms) for more responsive UI
+    // Poll frequently; the sample threshold gates expensive model inference.
     this.processingInterval = setInterval(() => {
       void this.processAudio();
-    }, 500);
+    }, PROCESSING_INTERVAL_MS);
 
     logger.info({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] Streaming started.');
   }
@@ -384,6 +385,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         }, '[PRIVATE_TRACE] model_inference_start');
       }
       const result = await this.privateSTT.transcribe(processedAudio);
+      if (this.status !== 'transcribing') {
+        return;
+      }
       if (isPrivateTranscriptTraceEnabled()) {
         logger.info({
           sId: this.serviceId,
@@ -445,7 +449,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     if (!this.processingInterval && this.status === 'transcribing') {
       this.processingInterval = setInterval(() => {
         void this.processAudio();
-      }, 500);
+      }, PROCESSING_INTERVAL_MS);
     }
   }
 

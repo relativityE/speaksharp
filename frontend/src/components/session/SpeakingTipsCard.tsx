@@ -1,5 +1,6 @@
 import React from 'react';
 import { Lightbulb } from 'lucide-react';
+import type { PauseMetrics } from '@/services/audio/pauseDetector';
 
 interface SpeakingTip {
     title: string;
@@ -23,6 +24,10 @@ const defaultTips: SpeakingTip[] = [
 
 interface SpeakingTipsCardProps {
     tips?: SpeakingTip[];
+    wpm?: number;
+    fillerCount?: number;
+    clarityScore?: number;
+    pauseMetrics?: PauseMetrics;
     className?: string;
 }
 
@@ -34,10 +39,50 @@ interface SpeakingTipsCardProps {
  */
 export const SpeakingTipsCard: React.FC<SpeakingTipsCardProps> = ({
     tips = defaultTips,
+    wpm = 0,
+    fillerCount = 0,
+    clarityScore = 100,
+    pauseMetrics,
     className = "",
 }) => {
-    // Select a random tip on mount (stable for session)
-    const [tip] = React.useState(() => tips[Math.floor(Math.random() * tips.length)]);
+    const tip = React.useMemo<SpeakingTip>(() => {
+        if (wpm > 160) {
+            return {
+                title: 'Slow Down',
+                description: 'Your pace is running fast. Add a beat between key ideas so listeners can keep up.',
+            };
+        }
+
+        if (wpm > 0 && wpm < 110) {
+            return {
+                title: 'Add Energy',
+                description: 'Your pace is relaxed. Try a little more momentum while keeping your pauses intentional.',
+            };
+        }
+
+        if ((pauseMetrics?.totalPauses ?? 0) === 0 && wpm > 0) {
+            return {
+                title: 'Use Pauses',
+                description: 'No meaningful pauses have been detected yet. Pause briefly after important points.',
+            };
+        }
+
+        if (fillerCount > 0) {
+            return {
+                title: 'Replace Fillers',
+                description: `We detected ${fillerCount} filler${fillerCount === 1 ? '' : 's'}. Try replacing one with a short pause.`,
+            };
+        }
+
+        if (clarityScore < 80) {
+            return {
+                title: 'Tighten Clarity',
+                description: 'Focus on shorter phrases and cleaner endings for the next run.',
+            };
+        }
+
+        return tips[0] ?? defaultTips[0];
+    }, [clarityScore, fillerCount, pauseMetrics?.totalPauses, tips, wpm]);
 
     const isCompact = className.includes('compact');
 

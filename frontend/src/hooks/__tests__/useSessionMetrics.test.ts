@@ -81,7 +81,7 @@ describe('useSessionMetrics', () => {
 
         it('calculates clarity score correctly with fillers', () => {
             // 10 words, 2 fillers = 20% fillers
-            // Penalty = 20 * 1.5 = 30 points off -> 70 clarity
+            // Penalty = 20 * 1.5 = 30 points off + max slow-pace penalty 15 -> 55 clarity
             const { result } = renderHook(() =>
                 useSessionMetrics({
                     transcript: 'one two three four five six seven eight nine ten',
@@ -93,13 +93,13 @@ describe('useSessionMetrics', () => {
                     elapsedTime: 60
                 })
             );
-            expect(result.current.clarityScore).toBe(70);
-            expect(result.current.clarityLabel).toBe('Good clarity');
+            expect(result.current.clarityScore).toBe(55);
+            expect(result.current.clarityLabel).toBe('Keep practicing');
         });
 
         it('returns Keep practicing for low clarity', () => {
             // 10 words, 5 fillers = 50% fillers
-            // Penalty = 50 * 1.5 = 75 points off -> 25 clarity
+            // Penalty = 50 * 1.5 = 75 points off + max slow-pace penalty 15 -> 10 clarity
             const { result } = renderHook(() =>
                 useSessionMetrics({
                     transcript: 'one two three four five six seven eight nine ten',
@@ -111,8 +111,24 @@ describe('useSessionMetrics', () => {
                     elapsedTime: 60
                 })
             );
-            expect(result.current.clarityScore).toBe(25);
+            expect(result.current.clarityScore).toBe(10);
             expect(result.current.clarityLabel).toBe('Keep practicing');
+        });
+
+        it('penalizes pace that is too fast so clarity is not generic', () => {
+            const words = Array(240).fill('word').join(' ');
+            const { result } = renderHook(() =>
+                useSessionMetrics({
+                    transcript: words,
+                    chunks: [],
+                    fillerData: {},
+                    elapsedTime: 60
+                })
+            );
+
+            expect(result.current.wpm).toBe(240);
+            expect(result.current.clarityScore).toBeLessThan(100);
+            expect(result.current.clarityLabel).not.toBe('Excellent clarity!');
         });
     });
 

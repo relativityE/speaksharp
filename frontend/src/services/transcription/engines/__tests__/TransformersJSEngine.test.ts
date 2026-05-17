@@ -123,6 +123,23 @@ describe('TransformersJSEngine (Unit)', () => {
         expect(successResult.data).toBe('Mocked transcription result');
     });
 
+    it('uses short-chunk transcription options for live private updates', async () => {
+        const transcriber = vi.fn(async () => ({ text: 'short live chunk' }));
+        mockPipeline.mockImplementationOnce(async () => transcriber);
+
+        await engine.init();
+        const result = await engine.transcribe(new Float32Array(24000));
+
+        expect(result.isOk).toBe(true);
+        expect(transcriber).toHaveBeenCalledWith(expect.any(Float32Array), expect.objectContaining({
+            chunk_length_s: 2,
+            stride_length_s: 0,
+            task: 'transcribe',
+            language: 'english',
+            return_timestamps: false,
+        }));
+    });
+
     it('should read transformers.js ASR text output shape', async () => {
         mockPipeline.mockImplementationOnce(async () => {
             return async () => ({ text: 'And so my fellow Americans' });

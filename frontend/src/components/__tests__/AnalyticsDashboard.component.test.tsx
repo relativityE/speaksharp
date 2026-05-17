@@ -181,6 +181,29 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('filler-count-value')).toHaveTextContent('5');
     });
 
+    it('recalculates session detail fillers from transcript when persisted analytics undercount highlighted words', () => {
+        renderComponent({
+            sessionId: 'session-1',
+            sessionHistory: [
+                {
+                    id: 'session-1',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 120,
+                    wpm: 120,
+                    clarity_score: 90,
+                    filler_words: {
+                        total: { count: 2 },
+                    },
+                    transcript: 'so this is like what I am testing so it should count like the live view',
+                },
+            ],
+        });
+
+        expect(screen.getByTestId('filler-count-value')).toHaveTextContent('4');
+    });
+
     it('shows saved recording mode metadata in the session detail view', () => {
         renderComponent({
             sessionId: 'session-1',

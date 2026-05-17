@@ -280,7 +280,13 @@ export const SessionPage: React.FC = () => {
                 {/* === ROW 4: Full-Width Quick Tips === */}
                 <div className="mt-6">
                     <LocalErrorBoundary isolationKey="speaking-tips" componentName="SpeakingTipsCard">
-                        <SpeakingTipsCard className="bg-white border border-border rounded-lg compact" />
+                        <SpeakingTipsCard
+                            wpm={metrics.wpm}
+                            fillerCount={metrics.fillerCount}
+                            clarityScore={metrics.clarityScore}
+                            pauseMetrics={pauseMetrics}
+                            className="bg-white border border-border rounded-lg compact"
+                        />
                     </LocalErrorBoundary>
                 </div>
             </div>

@@ -17,12 +17,12 @@ describe('fillerWordUtils', () => {
         expect(counts.total.count).toBe(2);
     });
 
-    it('does not count semantic uses of like and so as fillers', () => {
+    it('matches transcript highlighting for like and so on analytics recalculation', () => {
         const counts = countFillerWords('I like this because it is so helpful.');
 
-        expect(counts.like.count).toBe(0);
-        expect(counts.so.count).toBe(0);
-        expect(counts.total.count).toBe(0);
+        expect(counts.like.count).toBe(1);
+        expect(counts.so.count).toBe(1);
+        expect(counts.total.count).toBe(2);
     });
 
     it('counts pause-delimited like and so fillers', () => {

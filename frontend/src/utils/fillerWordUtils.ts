@@ -34,7 +34,9 @@ const STATIC_FILLER_PATTERNS: FillerPatterns = {
     [FILLER_WORD_KEYS.UM]: /\b(um|umm|ummm|uhm)\b/gi,
     [FILLER_WORD_KEYS.UH]: /\b(uh|uhh|uhhh|er|err|erh)\b/gi,
     [FILLER_WORD_KEYS.AH]: /\b(ah|ahm|ahhh)\b/gi,
+    [FILLER_WORD_KEYS.LIKE]: /\b(like)\b/gi,
     [FILLER_WORD_KEYS.YOU_KNOW]: /\b(you know|y'know|ya know)\b/gi,
+    [FILLER_WORD_KEYS.SO]: /\b(so)\b/gi,
     [FILLER_WORD_KEYS.OH]: /\b(oh|ooh|ohh)\b/gi,
     [FILLER_WORD_KEYS.I_MEAN]: /\b(i mean)\b/gi,
     [FILLER_WORD_KEYS.KIND_OF]: /\b(kind of|kinda)\b/gi,
@@ -53,13 +55,6 @@ const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\
 const FILLER_WORD_COLORS: string[] = ['#BFDBFE', '#FCA5A5', '#FDE68A', '#86EFAC', '#FDBA74', '#C4B5FD', '#6EE7B7'];
 let cachedPatterns: FillerPatterns | null = null;
 let cachedUserWordsKey: string = '';
-
-const CONTEXTUAL_FILLER_PATTERNS: FillerPatterns = {
-    // Count clear discourse-marker uses without counting semantic uses like "I like this".
-    [FILLER_WORD_KEYS.LIKE]: /(?:^|[.!?,;:]\s*)like(?=\s|$|[.!?,;:])|(?:^|\s)like(?=\s*[.!?,;:]|$)/gi,
-    // Count "So, ..." / "so I think ..." starts and pause-delimited uses, not "so happy".
-    [FILLER_WORD_KEYS.SO]: /(?:^|[.!?,;:]\s*)so(?=\s|$|[.!?,;:])|(?:^|\s)so(?=\s*[.!?,;:]|$)/gi,
-};
 
 const countPatternMatches = (text: string, pattern: RegExp): number => {
     pattern.lastIndex = 0;
@@ -123,15 +118,6 @@ export const countFillerWords = (text: string, userWords: string[] = []): Filler
             counts[key].count = count;
             totalCount += count;
         }
-    }
-
-    // 2. Process context-dependent fillers with deterministic boundary rules.
-    // Private/Cloud transcripts often arrive without punctuation, and the old
-    // NLP path missed sentence-start fillers that the transcript UI highlighted.
-    for (const key in CONTEXTUAL_FILLER_PATTERNS) {
-        const count = countPatternMatches(text, CONTEXTUAL_FILLER_PATTERNS[key]);
-        counts[key].count = count;
-        totalCount += count;
     }
 
     counts.total = { count: totalCount, color: '' };

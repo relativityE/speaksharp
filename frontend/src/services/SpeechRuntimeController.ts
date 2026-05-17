@@ -20,7 +20,8 @@ import type { TranscriptionServiceOptions } from '@/services/transcription/Trans
 import { pushE2EEvent } from '@/lib/e2eProbe';
 import { DistributedLock } from '@/lib/DistributedLock';
 import { validateEngine, STTEngine } from '@/contracts/STTEngine';
-import { countFillerWords, FillerCounts } from '@/utils/fillerWordUtils';
+import { FillerCounts } from '@/utils/fillerWordUtils';
+import { calculateCoreSessionMetrics } from '@/utils/sessionAnalysis';
 import { updateSession } from '@/lib/storage';
 
 declare global {
@@ -851,29 +852,45 @@ export class SpeechRuntimeController {
         }
 
         if (data.transcript.final) {
+            const finalTranscript = data.transcript.final.trim();
+            const currentTrimmed = currentTranscript.trim();
+            if (!finalTranscript) {
+                return;
+            }
+
             const lastChunk = store.chunks[store.chunks.length - 1];
-            if (lastChunk?.isFinal && lastChunk.transcript === data.transcript.final) {
+            if (lastChunk?.isFinal && lastChunk.transcript.trim() === finalTranscript) {
                 return;
             }
             if (isPrivateTranscriptTraceEnabled()) {
                 logger.info({
                     currentLength: currentTranscript.length,
-                    finalLength: data.transcript.final.length,
+                    finalLength: finalTranscript.length,
                     chunkCount: store.chunks.length,
                 }, '[PRIVATE_TRACE] store_final_transcript_apply');
             }
-            if (currentTranscript.trim() === data.transcript.final.trim()) {
-                store.addChunk({
-                    transcript: data.transcript.final || '',
-                    timestamp: Date.now(),
-                    isFinal: true
-                });
+
+            if (currentTrimmed === finalTranscript || currentTrimmed.endsWith(finalTranscript)) {
                 return;
             }
-            const newFullText = currentTranscript ? `${currentTranscript} ${data.transcript.final}` : data.transcript.final;
+
+            if (currentTrimmed && finalTranscript.startsWith(currentTrimmed)) {
+                const suffix = finalTranscript.slice(currentTrimmed.length).trim();
+                store.updateTranscript(finalTranscript, '');
+                if (suffix) {
+                    store.addChunk({
+                        transcript: suffix,
+                        timestamp: Date.now(),
+                        isFinal: true
+                    });
+                }
+                return;
+            }
+
+            const newFullText = currentTranscript ? `${currentTranscript} ${finalTranscript}` : finalTranscript;
             store.updateTranscript(newFullText, '');
             store.addChunk({
-                transcript: data.transcript.final || '',
+                transcript: finalTranscript,
                 timestamp: Date.now(),
                 isFinal: true
             });
@@ -1012,7 +1029,13 @@ export class SpeechRuntimeController {
                 if (userId) {
                     const mode = service.getMode() || 'unknown';
                     const idempotencyKey = recordingId;
-                    const metadata = service.getMetadata?.() || { engineVersion: 'unknown', modelName: 'unknown', deviceType: 'unknown' };
+                    const metadata = service.getMetadata?.() || (
+                        mode === 'private'
+                            ? { engineVersion: 'transformers-js', modelName: 'whisper-tiny.en', deviceType: 'browser' }
+                            : mode === 'cloud'
+                                ? { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' }
+                                : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
+                    );
 
                     const sessionData = {
                         user_id: userId,
@@ -1240,16 +1263,16 @@ export class SpeechRuntimeController {
                             store.setSessionSaved(false);
                             result = null;
                         } else {
-                            const fillerWords = countFillerWords(finalTranscript, this.userWords);
-                            const wordCount = result.stats.total_words || finalTranscript.split(/\s+/).filter(Boolean).length;
-                            const wpm = duration > 0 ? Math.round((wordCount / duration) * 60) : 0;
+                            const sessionMetrics = calculateCoreSessionMetrics({
+                                transcript: finalTranscript,
+                                durationSeconds: duration,
+                                userWords: this.userWords,
+                            });
+                            const fillerWords = sessionMetrics.fillerData;
+                            const wordCount = sessionMetrics.wordCount;
+                            const wpm = sessionMetrics.wpm;
                             const accuracy = result.stats.accuracy;
-                            const fillerCount = fillerWords.total?.count || 0;
-                            const fillerPercentage = wordCount > 0 ? (fillerCount / wordCount) * 100 : 0;
-                            const errorTagCount = (finalTranscript.match(/\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi) || []).length;
-                            const clarityScore = wordCount > 0
-                                ? Math.max(0, Math.min(100, Math.round(100 - (fillerPercentage * 1.5) - (errorTagCount * 3))))
-                                : 100;
+                            const clarityScore = sessionMetrics.clarityScore;
 
                             if (store.chunks.length === 0) {
                                 store.setChunks([{
@@ -1258,12 +1281,19 @@ export class SpeechRuntimeController {
                                     isFinal: true
                                 }]);
                             } else if (finalTranscript && finalTranscript.length > store.transcript.transcript.length) {
-                                store.appendChunk({
-                                    transcript: finalTranscript,
-                                    timestamp: Date.now(),
-                                    isFinal: true,
-                                    isCorrection: true
-                                });
+                                const currentTranscript = store.transcript.transcript.trim();
+                                const correctionSuffix = currentTranscript && finalTranscript.startsWith(currentTranscript)
+                                    ? finalTranscript.slice(currentTranscript.length).trim()
+                                    : '';
+
+                                if (correctionSuffix) {
+                                    store.appendChunk({
+                                        transcript: correctionSuffix,
+                                        timestamp: Date.now(),
+                                        isFinal: true,
+                                        isCorrection: true
+                                    });
+                                }
                             }
 
                             const supabase = getSupabaseClient();

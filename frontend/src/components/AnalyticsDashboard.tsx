@@ -22,6 +22,7 @@ import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
+import { getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
 
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
@@ -140,12 +141,6 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
 const DEFAULT_SELECTED_CARDS = ['total_sessions', 'speaking_pace', 'filler_words_per_min', 'total_practice_time'];
 const STORAGE_KEY = 'speaksharp_selected_stat_cards';
 
-const sumFillerCounts = (fillerWords?: PracticeSession['filler_words'] | null): number =>
-    Object.entries(fillerWords || {}).reduce(
-        (sum, [word, data]) => word === 'total' ? sum : sum + (data.count || 0),
-        0
-    );
-
 const getEngineBadge = (session: PracticeSession): { label: string; className: string; icon: React.ElementType } => {
     const engine = (session.engine || '').toLowerCase();
 
@@ -262,15 +257,16 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className
 );
 
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro: _isPro, isSelected, onToggleSelect, profileName }) => {
-    const totalFillers = sumFillerCounts(session.filler_words);
+    const metrics = getSessionAnalysisMetrics(session);
+    const totalFillers = metrics.fillerCount;
     const durationMins = Math.floor(session.duration / 60);
     const durationSecs = session.duration % 60;
     const durationStr = `${durationMins}:${durationSecs.toString().padStart(2, '0')}`;
     const engineBadge = getEngineBadge(session);
     const EngineIcon = engineBadge.icon;
 
-    const wpm = session.wpm ?? (session.duration > 0 && session.total_words ? Math.round((session.total_words / session.duration) * 60) : 0);
-    const clarity = session.clarity_score ?? (session.accuracy ? (session.accuracy * 100) : 0);
+    const wpm = metrics.wpm;
+    const clarity = metrics.clarityScore;
 
     return (
         <div
@@ -578,24 +574,30 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         if (selectedSessions.length !== 2 || !sessionHistory) return null;
         const sessions = selectedSessions.map(id => sessionHistory.find(s => s.id === id)).filter(Boolean);
         if (sessions.length !== 2) return null;
-        return sessions.map(s => ({
-            id: s!.id,
-            created_at: s!.created_at,
-            wpm: s!.wpm ?? (s!.duration > 0 && s!.total_words ? Math.round((s!.total_words / s!.duration) * 60) : 0),
-            clarity_score: s!.clarity_score ?? (s!.accuracy ? Math.round(s!.accuracy * 100) : 0),
-            filler_count: sumFillerCounts(s!.filler_words),
-            duration_seconds: s!.duration,
-        })) as [{ id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }, { id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }];
+        return sessions.map(s => {
+            const metrics = getSessionAnalysisMetrics(s!);
+            return {
+                id: s!.id,
+                created_at: s!.created_at,
+                wpm: metrics.wpm,
+                clarity_score: metrics.clarityScore,
+                filler_count: metrics.fillerCount,
+                duration_seconds: s!.duration,
+            };
+        }) as [{ id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }, { id: string; created_at: string; wpm: number; clarity_score: number; filler_count: number; duration_seconds: number }];
     }, [selectedSessions, sessionHistory]);
 
     const trendData = useMemo(() => {
         if (!sessionHistory || sessionHistory.length < 2) return [];
-        return sessionHistory.slice(0, 10).reverse().map(s => ({
-            date: formatDate(s.created_at),
-            wpm: s.wpm ?? (s.duration > 0 && s.total_words ? Math.round((s.total_words / s.duration) * 60) : 0),
-            clarity: s.clarity_score ?? (s.accuracy ? Math.round(s.accuracy * 100) : 0),
-            fillers: sumFillerCounts(s.filler_words),
-        }));
+        return sessionHistory.slice(0, 10).reverse().map(s => {
+            const metrics = getSessionAnalysisMetrics(s);
+            return {
+                date: formatDate(s.created_at),
+                wpm: metrics.wpm,
+                clarity: metrics.clarityScore,
+                fillers: metrics.fillerCount,
+            };
+        });
     }, [sessionHistory]);
 
     logger.debug({ loading, error, sessions: sessionHistory?.length }, '[AnalyticsDashboard] Rendering');
@@ -604,6 +606,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         if (!sessionId || !sessionHistory) return null;
         return sessionHistory.find(s => s.id === sessionId);
     }, [sessionId, sessionHistory]);
+    const targetSessionMetrics = useMemo(
+        () => targetSession ? getSessionAnalysisMetrics(targetSession) : null,
+        [targetSession]
+    );
 
     return (
         <div className="space-y-8" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
@@ -611,7 +617,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 <AnalyticsDashboardSkeleton />
             ) : error ? (
                 <ErrorDisplay error={error} />
-            ) : targetSession ? (
+            ) : targetSession && targetSessionMetrics ? (
                 /* Session Detail View */
                 <div className="space-y-8">
                     {/* Session Metrics Summary */}
@@ -619,21 +625,21 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         <StatCard
                             icon={<Gauge />}
                             label="Speaking Pace"
-                            value={targetSession.wpm ?? (targetSession.duration > 0 && targetSession.total_words ? Math.round((targetSession.total_words / targetSession.duration) * 60) : 0)}
+                            value={targetSessionMetrics.wpm}
                             unit="WPM"
                             testId={TEST_IDS.STAT_CARD_SPEAKING_PACE}
                         />
                         <StatCard
                             icon={<Target />}
                             label="Clarity Score"
-                            value={targetSession.clarity_score ?? (targetSession.accuracy ? (targetSession.accuracy * 100).toFixed(0) : 0)}
+                            value={targetSessionMetrics.clarityScore}
                             unit="%"
                             testId={TEST_IDS.CLARITY_SCORE_VALUE}
                         />
                         <StatCard
                             icon={<TrendingUp />}
                             label="Filler Words"
-                            value={sumFillerCounts(targetSession.filler_words)}
+                            value={targetSessionMetrics.fillerCount}
                             testId={TEST_IDS.FILLER_COUNT_VALUE}
                         />
                     </div>
