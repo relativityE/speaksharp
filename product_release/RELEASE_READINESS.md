@@ -151,7 +151,7 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | ID | Task | Impact | Status |
 | :--- | :--- | :--- | :--- |
 | **D1** | **Purge Test-Aware Branches** | Architectural Integrity | 🔴 PLANNED |
-| **D2** | **WPM Rolling Window Fix** | Logic Accuracy | ✅ CODE FIX PRESENT / LIVE MONITORING |
+| **D2** | **WPM Rolling Window Fix** | Logic Accuracy | 🟡 CONTROLLER GUARDED / STORE INVARIANT OPEN |
 | **D3** | **Document Console-Based PRD/SQM Metrics Workflow** | Transparency | 🟡 CLARIFIED |
 | **D4** | **Validate NOT VALID Constraints Against Existing Data** | Data Integrity | 🔴 PLANNED |
 | **D5** | **Gate Store-Creation Console Warning Behind DEV** | Polish | 🟡 FIX APPLIED / VALIDATION PENDING |
