@@ -44,7 +44,7 @@ BEGIN
 
     SELECT public.effective_subscription_tier(
         subscription_status,
-        promo_expires_at,
+        NULL::timestamptz,
         stripe_subscription_id,
         subscription_id
     )

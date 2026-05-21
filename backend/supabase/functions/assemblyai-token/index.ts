@@ -13,29 +13,10 @@ type Fetcher = typeof fetch;
 
 type UserProfile = {
   subscription_status?: string | null;
-  promo_expires_at?: string | null;
+  trial_expires_at?: string | null;
   stripe_subscription_id?: string | null;
   subscription_id?: string | null;
 };
-
-function hasPaidStripeSubscription(profile: UserProfile | null): boolean {
-  return Boolean(
-    profile?.stripe_subscription_id?.trim() ||
-      profile?.subscription_id?.trim(),
-  );
-}
-
-function isExpiredPromoOnlyProfile(
-  profile: UserProfile | null,
-  now = new Date(),
-): boolean {
-  if (!profile?.promo_expires_at || hasPaidStripeSubscription(profile)) {
-    return false;
-  }
-
-  const expiresAt = new Date(profile.promo_expires_at);
-  return Number.isNaN(expiresAt.getTime()) || expiresAt <= now;
-}
 
 export async function handler(
   req: Request,
@@ -84,11 +65,11 @@ export async function handler(
       );
     }
 
-    // 2. Verify Pro subscription
+    // 2. Verify effective Pro entitlement through the DB-side source of truth.
     const { data: profile, error: profileError } = await supabase
       .from("user_profiles")
       .select(
-        "subscription_status,promo_expires_at,stripe_subscription_id,subscription_id",
+        "subscription_status,trial_expires_at,stripe_subscription_id,subscription_id",
       )
       .eq("id", user.id)
       .single();
@@ -106,31 +87,6 @@ export async function handler(
 
     const userProfile = profile as UserProfile | null;
 
-    if (userProfile?.subscription_status !== "pro") {
-      console.warn(
-        `🚫 Token request rejected: User ${user.id} is not Pro (status: ${profile?.subscription_status})`,
-      );
-      return new Response(
-        JSON.stringify({
-          error: "Pro subscription required for AssemblyAI features",
-        }),
-        {
-          status: 403,
-          headers: { "Content-Type": "application/json", ...corsHeaders(req) },
-        },
-      );
-    }
-
-    if (isExpiredPromoOnlyProfile(userProfile)) {
-      console.warn(
-        `🚫 Token request rejected: User ${user.id} has expired promo-only Pro access`,
-      );
-      return new Response(JSON.stringify({ error: "Promo access expired" }), {
-        status: 403,
-        headers: { "Content-Type": "application/json", ...corsHeaders(req) },
-      });
-    }
-
     // 3. Verify usage eligibility before issuing a paid Cloud token.
     const { data: usageLimit, error: usageError } = await supabase.rpc(
       "check_usage_limit",
@@ -144,6 +100,21 @@ export async function handler(
         JSON.stringify({ error: "Unable to verify usage limit" }),
         {
           status: 503,
+          headers: { "Content-Type": "application/json", ...corsHeaders(req) },
+        },
+      );
+    }
+
+    if (!usageLimit?.is_pro || usageLimit?.subscription_status !== "pro") {
+      console.warn(
+        `🚫 Token request rejected: User ${user.id} is not effectively Pro (stored: ${userProfile?.subscription_status ?? "unknown"}, trial_expires_at: ${userProfile?.trial_expires_at ?? "none"})`,
+      );
+      return new Response(
+        JSON.stringify({
+          error: "Pro trial or subscription required for AssemblyAI features",
+        }),
+        {
+          status: 403,
           headers: { "Content-Type": "application/json", ...corsHeaders(req) },
         },
       );

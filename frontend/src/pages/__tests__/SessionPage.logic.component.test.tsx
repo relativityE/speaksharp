@@ -39,7 +39,6 @@ const defaultLifecycle = {
     fillerData: {},
     isProUser: true,
     isButtonDisabled: false,
-    showPromoExpiredDialog: false,
     sunsetModal: { type: 'daily', open: false }
 };
 
@@ -82,10 +81,6 @@ vi.mock('@/components/session/SpeakingTipsCard', () => ({
 
 vi.mock('@/components/session/MobileActionBar', () => ({
     MobileActionBar: () => <div data-testid="mobile-bar" />,
-}));
-
-vi.mock('@/components/PromoExpiredDialog', () => ({
-    PromoExpiredDialog: () => <div data-testid="promo-dialog" />,
 }));
 
 vi.mock('@/components/session/SessionPageSkeleton', () => ({

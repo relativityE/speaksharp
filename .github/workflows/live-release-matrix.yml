@@ -13,55 +13,15 @@ on:
           - custom-words
           - native-preflight
           - cloud-token-gates
-          - promo-throttle
-          - expired-promo-denial
           - cloud-artifact
           - private-cache
           - stripe-webhook-readiness
           - stripe-checkout-readiness
-          - promo-private-artifact
 
 permissions:
   contents: read
 
 jobs:
-  generate-promo:
-    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'promo-private-artifact' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      code: ${{ steps.promo.outputs.code }}
-    steps:
-      - name: Generate Live Promo Code
-        id: promo
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          PROMO_GEN_ADMIN_SECRET: ${{ secrets.PROMO_GEN_ADMIN_SECRET }}
-        run: |
-          set -euo pipefail
-
-          HTTP_STATUS=$(curl -sS -o /tmp/promo_response.json -w "%{http_code}" \
-            -X POST "${SUPABASE_URL}/functions/v1/apply-promo/generate" \
-            -H "Content-Type: application/json" \
-            -H "X-Promo-Admin-Key: ${PROMO_GEN_ADMIN_SECRET}" \
-            -d '{}')
-
-          if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "Promo generation failed with HTTP $HTTP_STATUS"
-            cat /tmp/promo_response.json
-            exit 1
-          fi
-
-          CODE=$(jq -r '.code' /tmp/promo_response.json)
-          if [ -z "$CODE" ] || [ "$CODE" = "null" ]; then
-            echo "Promo generation did not return a code"
-            cat /tmp/promo_response.json
-            exit 1
-          fi
-
-          echo "code=$CODE" >> "$GITHUB_OUTPUT"
-          echo "Generated one-time promo code for this live matrix run." >> "$GITHUB_STEP_SUMMARY"
-
   live-custom-words:
     if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'custom-words' }}
     runs-on: ubuntu-latest
@@ -156,74 +116,6 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: live-cloud-token-gates-artifacts
-          path: |
-            blob-report/live/
-            playwright-report/
-            test-results/live/
-          retention-days: 14
-
-  live-promo-throttle:
-    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'promo-throttle' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'true'
-
-      - name: Run Promo Throttle Proof
-        env:
-          VITE_USE_LIVE_DB: 'true'
-          VITE_SKIP_MSW: 'true'
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          BASE_URL: https://speaksharp-public.vercel.app/
-        run: pnpm exec playwright test tests/live/promo-throttle.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
-
-      - name: Upload Promo Throttle Artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: live-promo-throttle-artifacts
-          path: |
-            blob-report/live/
-            playwright-report/
-            test-results/live/
-          retention-days: 14
-
-  live-expired-promo-denial:
-    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'expired-promo-denial' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'true'
-
-      - name: Run Expired Promo Denial Proof
-        env:
-          VITE_USE_LIVE_DB: 'true'
-          VITE_SKIP_MSW: 'true'
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          BASE_URL: https://speaksharp-public.vercel.app/
-        run: pnpm exec playwright test tests/live/expired-promo-denial.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
-
-      - name: Upload Expired Promo Denial Artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: live-expired-promo-denial-artifacts
           path: |
             blob-report/live/
             playwright-report/
@@ -353,39 +245,6 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: live-stripe-checkout-readiness-artifacts
-          path: |
-            blob-report/live/
-            playwright-report/
-            test-results/live/
-          retention-days: 14
-
-  live-promo-private-artifact:
-    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'promo-private-artifact' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    needs: generate-promo
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v6
-
-      - name: Setup Environment
-        uses: ./.github/actions/setup-environment
-        with:
-          install-playwright: 'true'
-
-      - name: Run Promo Pro Private Artifact Trace
-        env:
-          VITE_USE_LIVE_DB: 'true'
-          VITE_SKIP_MSW: 'true'
-          BASE_URL: https://speaksharp-public.vercel.app/
-          PROMO_CODE: ${{ needs.generate-promo.outputs.code }}
-        run: pnpm exec playwright test tests/live/promo-pro-artifacts.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
-
-      - name: Upload Promo Private Artifacts
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: live-promo-private-artifacts
           path: |
             blob-report/live/
             playwright-report/

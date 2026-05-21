@@ -6,7 +6,7 @@ Welcome to SpeakSharp! This guide will help you get the most out of your real-ti
 
 ## 🚀 Quick Start
 
-1.  **Sign Up:** Create an account at [speaksharp-public.vercel.app/auth/signup](https://speaksharp-public.vercel.app/auth/signup). Choose between the **Free** and **Pro** plans.
+1.  **Sign Up:** Create an account at [speaksharp-public.vercel.app/auth/signup](https://speaksharp-public.vercel.app/auth/signup). New accounts include a one-hour Pro trial automatically.
 2.  **Grant Microphone Access:** When you start your first session, your browser will ask for permission to use your microphone. Click **Allow**.
 3.  **Start Recording:** Click the **"Start Session"** button and begin speaking.
 4.  **Real-Time Feedback:** Watch your transcript appear live, along with real-time stats like your current **WPM (Words Per Minute)** and **Filler Word Count**.
@@ -45,9 +45,9 @@ We track "um", "uh", "like", "so", and "you know". Our **Top 2 Filler Words** in
 
 ---
 
-## 💎 Free vs. Pro Plans
+## 💎 Basic vs. Pro Plans
 
-| Feature | Free | Pro |
+| Feature | Basic | Pro |
 | :--- | :--- | :--- |
 | **Daily Practice** | 1 Hour | **Unlimited** |
 | **Cloud AI Transcription** | ❌ No | ✅ **High Accuracy** |
@@ -70,17 +70,15 @@ A: Navigate to your **Settings** or click the **"Upgrade to Pro"** button in the
 
 ---
 
-## 🧪 Special Instructions for Alpha Testers
+## 🧪 Special Instructions for Early Testers
 
-If you've been provided with a **One-Time Code**, follow these steps to activate your account:
+Early tester access is automatic for new accounts.
 
-1.  Navigate to the [Sign Up page](https://speaksharp-public.vercel.app/auth/signup). Production: Stripe sends webhooks to `https://speaksharp-public.vercel.app/api/webhook`
-2.  Click the **"Pro Plan"** card.
-3.  Click the link that says **"Have a one-time 'pro' user promo code?"** below the password field.
-4.  Enter your 7-digit numeric code into the field.
-5.  Complete your account creation.
+1.  Navigate to the [Sign Up page](https://speaksharp-public.vercel.app/auth/signup).
+2.  Create a fresh account.
+3.  Your one-hour Pro trial starts automatically after account creation.
 
-> **Note:** One-time 'pro' user promo codes grant **access to Pro features for 60 minutes**. Once consumed or expired, your account will follow the standard Free tier limits (1 hour of practice per day).
+> **Note:** Once the trial expires, your account follows the standard Basic tier limits.
 
 ---
 

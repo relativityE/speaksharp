@@ -57,7 +57,7 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 ## 5. Security & Rate Limiting
 - [ ] **Rate Limits**: `rate-limiter` config set to production values (e.g., 100/min per IP).
 - [ ] **SSL/TLS**: Production domain has a valid, active certificate.
-- [ ] **Promo Generator Secret**: `PROMO_GEN_ADMIN_SECRET` is set in Supabase Edge Function secrets and GitHub Actions if production promo generation is run from CI. Without this secret, `pnpm generate-promo` cannot mint tester promo codes through the admin Edge Function.
+- [ ] **Automatic Trial**: Migration `20260521100000_auto_trial_entitlements.sql` is deployed. A fresh production signup creates `trial_started_at` and `trial_expires_at` without any tester code or admin Edge Function.
 
 ---
 

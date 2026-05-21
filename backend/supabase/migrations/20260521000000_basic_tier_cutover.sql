@@ -5,6 +5,12 @@
 ALTER TABLE public.user_profiles
 ALTER COLUMN subscription_status SET DEFAULT 'basic';
 
+ALTER TABLE public.user_profiles
+ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
+
+COMMENT ON COLUMN public.user_profiles.stripe_subscription_id IS
+  'Stripe subscription id for paid Pro users.';
+
 INSERT INTO public.tier_configs (
   tier_name,
   daily_limit_seconds,
@@ -43,7 +49,7 @@ WHERE lower(COALESCE(subscription_status, '')) = 'free';
 
 CREATE OR REPLACE FUNCTION public.effective_subscription_tier(
   p_subscription_status TEXT,
-  p_promo_expires_at TIMESTAMPTZ DEFAULT NULL,
+  p_trial_expires_at TIMESTAMPTZ DEFAULT NULL,
   p_stripe_subscription_id TEXT DEFAULT NULL,
   p_subscription_id TEXT DEFAULT NULL
 )
@@ -53,13 +59,9 @@ STABLE
 SET search_path = public
 AS $$
   SELECT CASE
-    WHEN p_promo_expires_at IS NOT NULL
-      AND p_promo_expires_at > now()
-    THEN 'pro'
     WHEN lower(COALESCE(p_subscription_status, 'basic')) = 'pro'
       AND (
-        p_promo_expires_at IS NULL
-        OR NULLIF(p_stripe_subscription_id, '') IS NOT NULL
+        NULLIF(p_stripe_subscription_id, '') IS NOT NULL
         OR NULLIF(p_subscription_id, '') IS NOT NULL
       )
     THEN 'pro'
@@ -68,7 +70,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.effective_subscription_tier(TEXT, TIMESTAMPTZ, TEXT, TEXT) IS
-  'Returns the tier used for DB-side entitlement checks: paid Pro and active promo Pro remain pro; expired promo-only Pro is treated as basic.';
+  'Returns the tier used for DB-side entitlement checks before automatic trials are installed.';
 
 CREATE OR REPLACE FUNCTION public.check_usage_limit()
 RETURNS JSONB
@@ -91,7 +93,7 @@ BEGIN
     subscription_status,
     public.effective_subscription_tier(
       subscription_status,
-      promo_expires_at,
+      NULL::timestamptz,
       stripe_subscription_id,
       subscription_id
     ),
@@ -202,7 +204,7 @@ BEGIN
   SELECT
     public.effective_subscription_tier(
       subscription_status,
-      promo_expires_at,
+      NULL::timestamptz,
       stripe_subscription_id,
       subscription_id
     ),
@@ -348,7 +350,7 @@ BEGIN
 
     SELECT public.effective_subscription_tier(
         subscription_status,
-        promo_expires_at,
+        NULL::timestamptz,
         stripe_subscription_id,
         subscription_id
     )

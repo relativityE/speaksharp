@@ -20,7 +20,7 @@
 | Scheduled soak | PASS: GitHub run `26083232887` on `main`. |
 | Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
 | Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
-| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`: fresh account, one-use 60-minute promo, Private STT first, Cloud optional, save/history check required. |
+| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`: fresh account, automatic 60-minute trial, Private STT first, Cloud optional, save/history check required. |
 | Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
 
 <!-- PRODUCT_RELEASE_SYNC_END -->
@@ -41,7 +41,7 @@ This directory contains the authoritative release control artifacts for the Spea
 - **[GITHUB_WORKFLOWS_AUDIT.md](./GITHUB_WORKFLOWS_AUDIT.md)**: GitHub Actions workflow utility/status audit and repair order.
 - **[RC_GATES.md](./RC_GATES.md)**: Release candidate gate definitions and evidence requirements.
 - **[TESTER_RELEASE_MATRIX.md](./TESTER_RELEASE_MATRIX.md)**: Controlled tester matrix and evidence rollup.
-- **[SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./SOFT_RELEASE_TESTER_INSTRUCTIONS.md)**: Copy/paste tester invite, Private-first test path, promo-code prerequisites, and feedback questions for the controlled soft release.
+- **[SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./SOFT_RELEASE_TESTER_INSTRUCTIONS.md)**: Copy/paste tester invite, Private-first test path, trial-access prerequisites, and feedback questions for the controlled soft release.
 
 ### 🛠️ Decision & Recovery
 - **[RELEASE_READINESS.md](./RELEASE_READINESS.md)**: The master "Go/No-Go" gate for the production release decision.

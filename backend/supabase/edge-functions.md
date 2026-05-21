@@ -7,7 +7,6 @@ This directory contains server-side logic deployed to Supabase Edge Functions (D
 
 This project includes multiple Edge Functions to handle server-side logic:
 
-- `apply-promo`: Handle promotional code logic.
 - `assemblyai-token`: Securely issue tokens for AssemblyAI.
 - `check-usage-limit`: Enforce subscription limits.
 - `create-user`: Provision users (detailed below as a primary example).
@@ -48,7 +47,7 @@ This function provisions users in both Supabase Auth and the `user_profiles` tab
 ### Behavior
 
 1.  **Auth Creation**: If a password is provided, creates a user in `auth.users` via Admin API. If the user exists, identifies their existing ID.
-2.  **Profile Upsert**: Creates or updates a record in `public.user_profiles` with a mapped tier:
+2.  **Profile Upsert**: Creates or updates a record in `public.user_profiles` with a mapped tier and the automatic trial timestamps:
     -   `pro`: Sets `subscription_status` to 'pro' and `usage_limit` to -1.
     -   `basic`: Sets `subscription_status` to 'basic' and `usage_limit` to 3600 (1 hour).
 3.  **Security**: Uses constant-time `safeCompare` for `AGENT_SECRET` and defensively clears secrets from memory after validation.

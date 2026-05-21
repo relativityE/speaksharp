@@ -42,7 +42,6 @@ jobs:
         working-directory: backend/supabase
         run: |
           supabase functions deploy stripe-webhook --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy apply-promo --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy check-usage-limit --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy create-user --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy observability-smoke --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
@@ -107,26 +106,20 @@ jobs:
         if: ${{ github.event.inputs.operation == 'secrets' || github.event.inputs.operation == 'all' }}
         env:
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
-          PROMO_GEN_ADMIN_SECRET: ${{ secrets.PROMO_GEN_ADMIN_SECRET }}
         working-directory: backend/supabase
         run: |
           if [ -z "$AGENT_SECRET" ]; then
             echo "❌ AGENT_SECRET not available in GitHub Secrets!"
             exit 1
           fi
-          if [ -z "$PROMO_GEN_ADMIN_SECRET" ]; then
-            echo "❌ PROMO_GEN_ADMIN_SECRET not available in GitHub Secrets!"
-            exit 1
-          fi
-          supabase secrets set AGENT_SECRET="$AGENT_SECRET" PROMO_GEN_ADMIN_SECRET="$PROMO_GEN_ADMIN_SECRET" ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5173" --project-ref "$SUPABASE_PROJECT_ID"
-          echo "✅ AGENT_SECRET, PROMO_GEN_ADMIN_SECRET, and ALLOWED_ORIGIN synchronized to Supabase"
+          supabase secrets set AGENT_SECRET="$AGENT_SECRET" ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5173" --project-ref "$SUPABASE_PROJECT_ID"
+          echo "✅ AGENT_SECRET and ALLOWED_ORIGIN synchronized to Supabase"
 
       - name: Deploy Edge Functions
         if: ${{ github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
         working-directory: backend/supabase
         run: |
           supabase functions deploy stripe-webhook --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
-          supabase functions deploy apply-promo --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy check-usage-limit --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy create-user --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy observability-smoke --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt

@@ -12,11 +12,16 @@ function createMockSupabase(options: {
   user?: { id: string } | null;
   authError?: { message: string } | null;
   subscriptionStatus?: string | null;
-  promoExpiresAt?: string | null;
+  trialExpiresAt?: string | null;
   stripeSubscriptionId?: string | null;
   subscriptionId?: string | null;
   profileError?: { message: string } | null;
-  usageLimit?: { can_start: boolean; error?: string } | null;
+  usageLimit?: {
+    can_start: boolean;
+    subscription_status?: string;
+    is_pro?: boolean;
+    error?: string;
+  } | null;
   usageError?: { message: string } | null;
 }) {
   return () =>
@@ -35,7 +40,7 @@ function createMockSupabase(options: {
               Promise.resolve({
                 data: options.subscriptionStatus === undefined ? null : {
                   subscription_status: options.subscriptionStatus,
-                  promo_expires_at: options.promoExpiresAt ?? null,
+                  trial_expires_at: options.trialExpiresAt ?? null,
                   stripe_subscription_id: options.stripeSubscriptionId ?? null,
                   subscription_id: options.subscriptionId ?? null,
                 },
@@ -50,7 +55,11 @@ function createMockSupabase(options: {
         }
 
         return Promise.resolve({
-          data: options.usageLimit ?? { can_start: true },
+          data: options.usageLimit ?? {
+            can_start: true,
+            subscription_status: options.subscriptionStatus ?? "basic",
+            is_pro: options.subscriptionStatus === "pro",
+          },
           error: options.usageError ?? null,
         });
       },
@@ -105,7 +114,11 @@ Deno.test("assemblyai-token edge function", async (t) => {
         createMockSupabase({
           user: { id: "pro-user" },
           subscriptionStatus: "pro",
-          usageLimit: { can_start: true },
+          usageLimit: {
+            can_start: true,
+            subscription_status: "pro",
+            is_pro: true,
+          },
         }),
         fetchImpl,
         env,
@@ -142,14 +155,54 @@ Deno.test("assemblyai-token edge function", async (t) => {
       assertEquals(res.status, 403);
       assertEquals(
         json.error,
-        "Pro subscription required for AssemblyAI features",
+        "Pro trial or subscription required for AssemblyAI features",
       );
       assertEquals(assemblyAiCalled, false);
     },
   );
 
   await t.step(
-    "denies expired promo-only Pro users before generating a paid token",
+    "allows active trial users before generating a paid token",
+    async () => {
+      let assemblyAiCalled = false;
+      const fetchImpl: typeof fetch = () => {
+        assemblyAiCalled = true;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              token: "active-trial-token",
+              expires_in_seconds: 600,
+            }),
+            { status: 200 },
+          ),
+        );
+      };
+
+      const res = await handler(
+        request("Bearer active-trial-token"),
+        createMockSupabase({
+          user: { id: "active-trial-user" },
+          subscriptionStatus: "basic",
+          trialExpiresAt: "2999-01-01T00:00:00.000Z",
+          usageLimit: {
+            can_start: true,
+            subscription_status: "pro",
+            is_pro: true,
+          },
+        }),
+        fetchImpl,
+        env,
+      );
+      const json = await res.json();
+
+      assertEquals(res.status, 200);
+      assertEquals(json.token, "active-trial-token");
+      assertEquals(assemblyAiCalled, true);
+    },
+  );
+
+  await t.step(
+    "denies expired trial users before generating a paid token",
     async () => {
       let assemblyAiCalled = false;
       const fetchImpl: typeof fetch = () => {
@@ -158,11 +211,16 @@ Deno.test("assemblyai-token edge function", async (t) => {
       };
 
       const res = await handler(
-        request("Bearer expired-promo-token"),
+        request("Bearer expired-trial-token"),
         createMockSupabase({
-          user: { id: "expired-promo-user" },
-          subscriptionStatus: "pro",
-          promoExpiresAt: "2024-01-01T00:00:00.000Z",
+          user: { id: "expired-trial-user" },
+          subscriptionStatus: "basic",
+          trialExpiresAt: "2024-01-01T00:00:00.000Z",
+          usageLimit: {
+            can_start: true,
+            subscription_status: "basic",
+            is_pro: false,
+          },
         }),
         fetchImpl,
         env,
@@ -170,40 +228,16 @@ Deno.test("assemblyai-token edge function", async (t) => {
       const json = await res.json();
 
       assertEquals(res.status, 403);
-      assertEquals(json.error, "Promo access expired");
-      assertEquals(assemblyAiCalled, false);
-    },
-  );
-
-  await t.step(
-    "fails closed for malformed promo expiry on promo-only Pro users",
-    async () => {
-      let assemblyAiCalled = false;
-      const fetchImpl: typeof fetch = () => {
-        assemblyAiCalled = true;
-        return Promise.resolve(new Response("{}", { status: 200 }));
-      };
-
-      const res = await handler(
-        request("Bearer malformed-promo-token"),
-        createMockSupabase({
-          user: { id: "malformed-promo-user" },
-          subscriptionStatus: "pro",
-          promoExpiresAt: "not-a-date",
-        }),
-        fetchImpl,
-        env,
+      assertEquals(
+        json.error,
+        "Pro trial or subscription required for AssemblyAI features",
       );
-      const json = await res.json();
-
-      assertEquals(res.status, 403);
-      assertEquals(json.error, "Promo access expired");
       assertEquals(assemblyAiCalled, false);
     },
   );
 
   await t.step(
-    "allows paid Stripe Pro users even when an old promo timestamp is expired",
+    "allows paid Stripe Pro users even when the trial timestamp is expired",
     async () => {
       let assemblyAiCalled = false;
       const fetchImpl: typeof fetch = () => {
@@ -224,9 +258,13 @@ Deno.test("assemblyai-token edge function", async (t) => {
         createMockSupabase({
           user: { id: "paid-stripe-user" },
           subscriptionStatus: "pro",
-          promoExpiresAt: "2024-01-01T00:00:00.000Z",
+          trialExpiresAt: "2024-01-01T00:00:00.000Z",
           stripeSubscriptionId: "sub_paid_123",
-          usageLimit: { can_start: true },
+          usageLimit: {
+            can_start: true,
+            subscription_status: "pro",
+            is_pro: true,
+          },
         }),
         fetchImpl,
         env,
@@ -253,7 +291,12 @@ Deno.test("assemblyai-token edge function", async (t) => {
         createMockSupabase({
           user: { id: "over-quota-user" },
           subscriptionStatus: "pro",
-          usageLimit: { can_start: false, error: "Usage limit reached" },
+          usageLimit: {
+            can_start: false,
+            subscription_status: "pro",
+            is_pro: true,
+            error: "Usage limit reached",
+          },
         }),
         fetchImpl,
         env,

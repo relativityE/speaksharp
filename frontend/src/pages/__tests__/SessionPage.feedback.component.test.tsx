@@ -65,7 +65,6 @@ vi.mock('@/components/session/UserFillerWordsManager', () => ({ UserFillerWordsM
 vi.mock('@/components/session/SessionPageSkeleton', () => ({ SessionPageSkeleton: () => <div /> }));
 vi.mock('@/components/session/PauseMetricsDisplay', () => ({ PauseMetricsDisplay: () => <div /> }));
 vi.mock('@/components/session/SunsetModals', () => ({ SunsetModals: () => <div /> }));
-vi.mock('@/components/PromoExpiredDialog', () => ({ PromoExpiredDialog: () => <div /> }));
 vi.mock('@/components/LocalErrorBoundary', () => ({ 
     LocalErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</> 
 }));
@@ -98,7 +97,6 @@ describe('SessionPage Feedback Logic', () => {
         isProUser: false,
         activeEngine: 'native',
         isButtonDisabled: false,
-        showPromoExpiredDialog: false,
         setMode: vi.fn(),
         sunsetModal: { open: false, type: 'pro' },
         setSunsetModal: vi.fn(),

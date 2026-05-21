@@ -40,7 +40,7 @@ SpeakSharp prioritizes service restoration and data integrity over "rollback pur
 ## 🚨 Recovery Playbook
 
 ### 1. Billing & Quota Failure
-- **Restoration**: If the quota service fails closed, use the `generate-promo` tool to grant 24-hour manual Pro access to affected users.
+- **Restoration**: If the quota service fails closed, use a service-role database update to grant time-boxed manual Pro access to affected users.
 - **Integrity**: Audit `stripe_webhook_events` to identify unprocessed events; re-trigger processing via manual RPC call.
 
 ### 2. Data Integrity Corruption

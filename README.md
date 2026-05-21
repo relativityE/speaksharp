@@ -156,10 +156,9 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     STRIPE_SECRET_KEY=sk_test_your-key        # For payment processing
     STRIPE_WEBHOOK_SECRET=whsec_your-secret   # For webhook verification
     SUPABASE_SERVICE_ROLE_KEY=your-role-key   # For admin DB operations
-    PROMO_GEN_ADMIN_SECRET=1234567            # For promo generation (secret-driven)
     ```
 
-    > **Promo Administration:** We use a secure, secret-driven system for generating tester promo codes. You can generate a new one-time code at any time using `pnpm generate-promo`, which calls the backend Admin Edge Function (gated by `PROMO_GEN_ADMIN_SECRET`).
+    > **Trial Access:** New accounts receive an automatic one-hour Pro trial through the database entitlement layer. No tester code or admin secret is required.
 
 5.  **Run the development server:**
     ```bash
@@ -320,14 +319,12 @@ For detailed test metrics, coverage, and E2E results, see the latest [PRD.md Sof
 | Full local live/system suite | `pnpm test:system:local:headed` | Live Playwright specs with local Chrome/audio constraints. |
 | Production canary | `pnpm test:deploy` | Runs production canary specs. |
 | Local canary | `pnpm test:deploy:local` | Runs canary specs against local app. |
-| Promo canary | `pnpm test:deploy:promo` | Runs promo signup canary. |
 | Dispatch deploy canary | `pnpm ci:dispatch:deploy` | Starts the GitHub canary workflow. Requires `gh` auth. |
 | Backend soak | `pnpm test:soak:api:cloud` | API stress path. Requires live env. |
 | UI soak | `pnpm test:soak:ui:cloud` | Playwright soak path. Requires live env. |
 | Verify soak users | `pnpm test:soak:verify:local` | Checks live soak test users. |
 | Dispatch soak | `pnpm ci:dispatch:soak` | Starts the GitHub soak workflow. |
 | Dispatch and wait for soak | `pnpm ci:dispatch:soak:wait` | Starts soak and waits for result. |
-| Generate promo code | `pnpm generate-promo` | Calls the admin promo generator. Requires `PROMO_GEN_ADMIN_SECRET`. |
 | Download Private STT model | `pnpm model:download` | Downloads Whisper model assets. |
 | Benchmark Private | `pnpm benchmark:whisper` | Node CPU Private STT benchmark. |
 | Benchmark Cloud | `pnpm benchmark:cloud` | AssemblyAI benchmark. |

@@ -9,15 +9,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import posthog from 'posthog-js';
 import logger from '../lib/logger';
 
-import { useQueryClient } from '@tanstack/react-query'; // Import query client
-
 export default function SignUpPage() {
     const { session, loading, setSession } = useAuthProvider();
-    const queryClient = useQueryClient(); // Initialize query client
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
-    const [promoCode, setPromoCode] = useState(''); // New promo code state
     const [error, setError] = useState<string | null>(null);
     const [message, setMessage] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,25 +42,6 @@ export default function SignUpPage() {
                 setSession(signInData.session);
                 // Track successful signup
                 posthog.capture('signup_completed', { email_domain: email.split('@')[1] });
-
-                // Apply promo code if provided
-                if (promoCode.trim()) {
-                    try {
-                        const { data: promoData, error: promoError } = await supabase.functions.invoke('apply-promo', {
-                            body: { promoCode: promoCode.trim() }
-                        });
-
-                        if (promoError) {
-                            logger.error({ err: promoError }, 'Failed to apply promo during signup');
-                        } else {
-                            logger.info({ promoData }, 'Promo applied during signup');
-                            // Force refresh of user profile to show Pro status immediately
-                            await queryClient.invalidateQueries({ queryKey: ['userProfile'] });
-                        }
-                    } catch (e) {
-                        logger.error({ err: e }, 'Failed to apply promo during signup (exception)');
-                    }
-                }
             } else {
                 // If no session, it likely requires email confirmation
                 setMessage('Success! Please check your email for a confirmation link.');
@@ -126,16 +103,9 @@ export default function SignUpPage() {
                                     onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                                 />
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="promoCode">Promo Code (Optional)</Label>
-                                <Input
-                                    id="promoCode"
-                                    type="text"
-                                    placeholder="Enter code if you have one"
-                                    value={promoCode}
-                                    onChange={(e: ChangeEvent<HTMLInputElement>) => setPromoCode(e.target.value)}
-                                />
-                            </div>
+                            <p className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
+                                New accounts include a 60-minute Pro trial automatically. No code required.
+                            </p>
 
                             {error && (
                                 <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm font-medium" data-testid="auth-error-message">

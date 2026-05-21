@@ -118,7 +118,7 @@ The remediation strategy focuses on "defense in depth," addressing vulnerabiliti
   │        (Isolation)          │         │        (Security)           │
   │             ▼               │         │             ▼               │
   │  ┌───────────────────────┐  │         │  ┌───────────────────────┐  │
-  │  │ useSessionLifecycle   │──┼────┐    │  │ apply-promo (Admin)   │  │
+  │  │ useSessionLifecycle   │──┼────┐    │  │ trial entitlement DB  │  │
   │  └───────────────────────┘  │    │    │  └──────────┬────────────┘  │
   │  ┌───────────────────────┐  │    │    │             │               │
   │  │ useTransService Hook  │  │    │    │        (Integrity)          │

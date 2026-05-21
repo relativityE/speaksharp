@@ -40,10 +40,11 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     expect(result.body?.token, JSON.stringify(evidence)).toBeFalsy();
   });
 
-  test('denies basic, expired promo-only Pro, and over-quota Pro before minting AssemblyAI token', async () => {
+  test('allows active trial users and denies expired trial Basic and over-quota Pro before minting AssemblyAI token', async () => {
     const basicUser = await createLiveUser(admin, `cloud-basic-${RUN_ID}@example.com`, {
       subscription_status: 'basic',
-      promo_expires_at: null,
+      trial_started_at: '2024-01-01T00:00:00.000Z',
+      trial_expires_at: '2024-01-01T01:00:00.000Z',
       daily_usage_seconds: 0,
       native_usage_seconds: 0,
       cloud_usage_seconds: 0,
@@ -52,20 +53,22 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     });
     createdUsers.push(basicUser);
 
-    const expiredPromoUser = await createLiveUser(admin, `cloud-expired-promo-${RUN_ID}@example.com`, {
-      subscription_status: 'pro',
-      promo_expires_at: '2024-01-01T00:00:00.000Z',
+    const activeTrialUser = await createLiveUser(admin, `cloud-trial-${RUN_ID}@example.com`, {
+      subscription_status: 'basic',
+      trial_started_at: new Date(Date.now() - 60_000).toISOString(),
+      trial_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
       daily_usage_seconds: 0,
       native_usage_seconds: 0,
       cloud_usage_seconds: 0,
       stripe_subscription_id: null,
       subscription_id: null,
     });
-    createdUsers.push(expiredPromoUser);
+    createdUsers.push(activeTrialUser);
 
     const overQuotaUser = await createLiveUser(admin, `cloud-over-quota-${RUN_ID}@example.com`, {
       subscription_status: 'pro',
-      promo_expires_at: null,
+      trial_started_at: new Date(Date.now() - 60_000).toISOString(),
+      trial_expires_at: new Date(Date.now() + 3_600_000).toISOString(),
       daily_usage_seconds: 999_999,
       native_usage_seconds: 0,
       cloud_usage_seconds: 999_999,
@@ -75,22 +78,21 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     createdUsers.push(overQuotaUser);
 
     const basicResult = await requestAssemblyToken(basicUser.email);
-    const expiredResult = await requestAssemblyToken(expiredPromoUser.email);
+    const activeTrialResult = await requestAssemblyToken(activeTrialUser.email);
     const overQuotaResult = await requestAssemblyToken(overQuotaUser.email);
 
     const evidence = {
       basic: summarizeTokenResult(basicResult),
-      expiredPromo: summarizeTokenResult(expiredResult),
+      activeTrial: summarizeTokenResult(activeTrialResult),
       overQuota: summarizeTokenResult(overQuotaResult),
     };
     console.log(`LIVE_CLOUD_TOKEN_GATE_EVIDENCE ${JSON.stringify(evidence)}`);
 
     expect(basicResult.status, JSON.stringify(evidence)).toBe(403);
-    expect(basicResult.body?.error, JSON.stringify(evidence)).toMatch(/pro subscription required/i);
+    expect(basicResult.body?.error, JSON.stringify(evidence)).toMatch(/pro trial or subscription required/i);
     expect(basicResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
-    expect(expiredResult.status, JSON.stringify(evidence)).toBe(403);
-    expect(expiredResult.body?.error, JSON.stringify(evidence)).toMatch(/promo access expired/i);
-    expect(expiredResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
+    expect(activeTrialResult.status, JSON.stringify(evidence)).toBe(200);
+    expect(activeTrialResult.body?.token, JSON.stringify(evidence)).toBeTruthy();
     expect(overQuotaResult.status, JSON.stringify(evidence)).toBe(429);
     expect(overQuotaResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
   });

@@ -10,7 +10,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-const email = 'promo-fix-test-1@test.com';
+const email = 'trial-fix-test-1@test.com';
 const password = 'test-password';
 
 async function provisionUser() {

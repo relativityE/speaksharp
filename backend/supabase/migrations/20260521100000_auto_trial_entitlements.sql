@@ -1,18 +1,54 @@
--- Enforce effective subscription tier for promo-backed Pro access.
---
--- Promo redemption stores subscription_status = 'pro' during the promo window.
--- Once promo_expires_at passes, users without a paid Stripe subscription must
--- be treated as basic by all database-side usage and session RPCs.
+-- Install automatic one-hour Pro trials.
+-- The trial is keyed by normalized email so a person gets one trial window
+-- even if profile creation is retried.
+
+CREATE TABLE IF NOT EXISTS public.trial_entitlements (
+  email TEXT PRIMARY KEY,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  trial_started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  trial_expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '60 minutes'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.trial_entitlements ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Service role has full access trial entitlements" ON public.trial_entitlements;
+CREATE POLICY "Service role has full access trial entitlements"
+  ON public.trial_entitlements
+  FOR ALL
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
 
 ALTER TABLE public.user_profiles
-ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
+  ADD COLUMN IF NOT EXISTS trial_started_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS trial_expires_at TIMESTAMPTZ;
 
-COMMENT ON COLUMN public.user_profiles.stripe_subscription_id IS
-  'Stripe subscription id for paid Pro users; used to distinguish paid Pro from expired promo-only Pro.';
+INSERT INTO public.trial_entitlements (email, user_id, trial_started_at, trial_expires_at)
+SELECT
+  lower(trim(u.email)),
+  u.id,
+  COALESCE(up.trial_started_at, now()),
+  COALESCE(up.trial_expires_at, now() + interval '60 minutes')
+FROM auth.users u
+LEFT JOIN public.user_profiles up ON up.id = u.id
+WHERE u.email IS NOT NULL
+ON CONFLICT (email) DO NOTHING;
+
+UPDATE public.user_profiles up
+SET
+  trial_started_at = te.trial_started_at,
+  trial_expires_at = te.trial_expires_at,
+  updated_at = now()
+FROM auth.users u
+JOIN public.trial_entitlements te ON te.email = lower(trim(u.email))
+WHERE up.id = u.id
+  AND (up.trial_started_at IS NULL OR up.trial_expires_at IS NULL);
 
 CREATE OR REPLACE FUNCTION public.effective_subscription_tier(
   p_subscription_status TEXT,
-  p_promo_expires_at TIMESTAMPTZ DEFAULT NULL,
+  p_trial_expires_at TIMESTAMPTZ DEFAULT NULL,
   p_stripe_subscription_id TEXT DEFAULT NULL,
   p_subscription_id TEXT DEFAULT NULL
 )
@@ -22,22 +58,78 @@ STABLE
 SET search_path = public
 AS $$
   SELECT CASE
-    WHEN p_promo_expires_at IS NOT NULL
-      AND p_promo_expires_at > now()
+    WHEN NULLIF(p_stripe_subscription_id, '') IS NOT NULL
+      OR NULLIF(p_subscription_id, '') IS NOT NULL
+    THEN 'pro'
+    WHEN p_trial_expires_at IS NOT NULL
+      AND p_trial_expires_at > now()
     THEN 'pro'
     WHEN lower(COALESCE(p_subscription_status, 'basic')) = 'pro'
-      AND (
-        p_promo_expires_at IS NULL
-        OR NULLIF(p_stripe_subscription_id, '') IS NOT NULL
-        OR NULLIF(p_subscription_id, '') IS NOT NULL
-      )
     THEN 'pro'
     ELSE 'basic'
   END;
 $$;
 
 COMMENT ON FUNCTION public.effective_subscription_tier(TEXT, TIMESTAMPTZ, TEXT, TEXT) IS
-  'Returns the tier used for DB-side entitlement checks: paid Pro and active promo Pro remain pro; expired promo-only Pro is treated as basic.';
+  'Returns the effective tier for entitlement checks: paid Pro, active automatic trial, explicit Pro, otherwise Basic.';
+
+CREATE OR REPLACE FUNCTION public.ensure_trial_profile_for_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_email TEXT := lower(trim(NEW.email));
+  v_trial_started_at TIMESTAMPTZ;
+  v_trial_expires_at TIMESTAMPTZ;
+BEGIN
+  IF v_email IS NULL OR v_email = '' THEN
+    RETURN NEW;
+  END IF;
+
+  INSERT INTO public.trial_entitlements (email, user_id)
+  VALUES (v_email, NEW.id)
+  ON CONFLICT (email) DO UPDATE
+  SET
+    user_id = COALESCE(public.trial_entitlements.user_id, EXCLUDED.user_id),
+    updated_at = now()
+  RETURNING trial_started_at, trial_expires_at
+  INTO v_trial_started_at, v_trial_expires_at;
+
+  INSERT INTO public.user_profiles (
+    id,
+    subscription_status,
+    trial_started_at,
+    trial_expires_at,
+    usage_seconds,
+    usage_reset_date,
+    updated_at
+  )
+  VALUES (
+    NEW.id,
+    'basic',
+    v_trial_started_at,
+    v_trial_expires_at,
+    0,
+    now(),
+    now()
+  )
+  ON CONFLICT (id) DO UPDATE
+  SET
+    trial_started_at = COALESCE(public.user_profiles.trial_started_at, EXCLUDED.trial_started_at),
+    trial_expires_at = COALESCE(public.user_profiles.trial_expires_at, EXCLUDED.trial_expires_at),
+    updated_at = now();
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created_trial_profile ON auth.users;
+CREATE TRIGGER on_auth_user_created_trial_profile
+  AFTER INSERT ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.ensure_trial_profile_for_new_user();
 
 CREATE OR REPLACE FUNCTION public.check_usage_limit()
 RETURNS JSONB
@@ -53,15 +145,16 @@ DECLARE
   v_cloud_usage INT;
   v_last_daily_reset TIMESTAMPTZ;
   v_last_monthly_reset TIMESTAMPTZ;
-
   v_daily_limit INT;
   v_monthly_limit INT;
+  v_trial_started_at TIMESTAMPTZ;
+  v_trial_expires_at TIMESTAMPTZ;
 BEGIN
   SELECT
     subscription_status,
     public.effective_subscription_tier(
       subscription_status,
-      promo_expires_at,
+      trial_expires_at,
       stripe_subscription_id,
       subscription_id
     ),
@@ -69,7 +162,9 @@ BEGIN
     COALESCE(native_usage_seconds, 0),
     COALESCE(cloud_usage_seconds, 0),
     last_daily_reset,
-    usage_reset_date
+    usage_reset_date,
+    trial_started_at,
+    trial_expires_at
   INTO
     v_stored_status,
     v_effective_tier,
@@ -77,7 +172,9 @@ BEGIN
     v_native_usage,
     v_cloud_usage,
     v_last_daily_reset,
-    v_last_monthly_reset
+    v_last_monthly_reset,
+    v_trial_started_at,
+    v_trial_expires_at
   FROM public.user_profiles
   WHERE id = auth.uid();
 
@@ -93,11 +190,22 @@ BEGIN
       'daily_limit', COALESCE(v_daily_limit, 3600),
       'monthly_remaining', COALESCE(v_monthly_limit, 90000),
       'monthly_limit', COALESCE(v_monthly_limit, 90000),
+      'remaining_seconds', COALESCE(v_daily_limit, 3600),
+      'limit_seconds', COALESCE(v_daily_limit, 3600),
+      'used_seconds', 0,
       'subscription_status', 'basic',
       'stored_subscription_status', 'unknown',
       'is_pro', false,
+      'trial_active', false,
       'error', 'Profile not found'
     );
+  END IF;
+
+  IF lower(COALESCE(v_stored_status, '')) = 'free' THEN
+    UPDATE public.user_profiles
+    SET subscription_status = 'basic', updated_at = now()
+    WHERE id = auth.uid();
+    v_stored_status := 'basic';
   END IF;
 
   IF v_last_daily_reset IS NULL OR v_last_daily_reset::DATE < now()::DATE THEN
@@ -125,9 +233,19 @@ BEGIN
     'daily_limit', v_daily_limit,
     'monthly_remaining', GREATEST(0, v_monthly_limit - (v_native_usage + v_cloud_usage)),
     'monthly_limit', v_monthly_limit,
+    'remaining_seconds', GREATEST(0, v_daily_limit - v_daily_usage),
+    'limit_seconds', v_daily_limit,
+    'used_seconds', v_daily_usage,
     'subscription_status', v_effective_tier,
     'stored_subscription_status', v_stored_status,
-    'is_pro', (v_effective_tier = 'pro')
+    'is_pro', (v_effective_tier = 'pro'),
+    'trial_active', (v_trial_expires_at IS NOT NULL AND v_trial_expires_at > now()),
+    'trial_started_at', v_trial_started_at,
+    'trial_expires_at', v_trial_expires_at,
+    'trial_seconds_remaining', CASE
+      WHEN v_trial_expires_at IS NOT NULL THEN GREATEST(0, EXTRACT(EPOCH FROM (v_trial_expires_at - now()))::INT)
+      ELSE 0
+    END
   );
 END;
 $$;
@@ -148,11 +266,9 @@ DECLARE
   v_cloud_usage INT;
   v_last_daily_reset TIMESTAMPTZ;
   v_last_monthly_reset TIMESTAMPTZ;
-
   v_daily_limit INT;
   v_monthly_limit INT;
   v_allowed_engines TEXT[];
-
   v_today DATE := now()::DATE;
 BEGIN
   IF p_session_duration_seconds IS NULL OR p_session_duration_seconds < 0 THEN
@@ -166,7 +282,7 @@ BEGIN
   SELECT
     public.effective_subscription_tier(
       subscription_status,
-      promo_expires_at,
+      trial_expires_at,
       stripe_subscription_id,
       subscription_id
     ),
@@ -238,6 +354,7 @@ BEGIN
 
   UPDATE public.user_profiles
   SET
+    subscription_status = CASE WHEN v_effective_tier = 'basic' THEN 'basic' ELSE subscription_status END,
     daily_usage_seconds = v_daily_usage,
     native_usage_seconds = v_native_usage,
     cloud_usage_seconds = v_cloud_usage,
@@ -255,20 +372,6 @@ BEGIN
     'monthly_limit', v_monthly_limit,
     'subscription_status', v_effective_tier
   );
-END;
-$$;
-
-CREATE OR REPLACE FUNCTION public.update_user_usage(session_duration_seconds INT)
-RETURNS BOOLEAN
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_usage_check JSONB;
-BEGIN
-  v_usage_check := public.update_user_usage(session_duration_seconds, 'native');
-  RETURN COALESCE((v_usage_check->>'success')::BOOLEAN, false);
 END;
 $$;
 
@@ -311,7 +414,7 @@ BEGIN
 
     SELECT public.effective_subscription_tier(
         subscription_status,
-        promo_expires_at,
+        trial_expires_at,
         stripe_subscription_id,
         subscription_id
     )
@@ -336,15 +439,28 @@ BEGIN
         v_max_concurrent := 1;
     END IF;
 
+    UPDATE public.sessions
+    SET
+        status = 'failed',
+        updated_at = now()
+    WHERE user_id = auth.uid()
+      AND status = 'active'
+      AND expires_at IS NOT NULL
+      AND expires_at <= now();
+
     SELECT COUNT(*) INTO v_active_sessions
     FROM public.sessions
-    WHERE user_id = auth.uid() AND status = 'active';
+    WHERE user_id = auth.uid()
+      AND status = 'active'
+      AND (expires_at IS NULL OR expires_at > now());
 
     IF v_active_sessions >= v_max_concurrent THEN
         RETURN jsonb_build_object(
             'new_session', null,
             'usage_exceeded', true,
-            'error', 'max_concurrent_sessions_reached'
+            'error', 'max_concurrent_sessions_reached',
+            'active_sessions', v_active_sessions,
+            'max_concurrent_sessions', v_max_concurrent
         );
     END IF;
 
@@ -406,57 +522,6 @@ BEGIN
     RETURN jsonb_build_object(
         'new_session', (SELECT row_to_json(s) FROM public.sessions s WHERE s.id = v_new_session_id),
         'usage_exceeded', false
-    );
-END;
-$$;
-
-CREATE OR REPLACE FUNCTION public.heartbeat_session(
-    p_session_id UUID,
-    p_incremental_seconds INT
-) RETURNS JSONB
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-    v_usage_check JSONB;
-    v_engine_type TEXT;
-BEGIN
-    IF p_incremental_seconds IS NULL OR p_incremental_seconds < 0 THEN
-        RETURN jsonb_build_object('success', false, 'error', 'invalid_duration');
-    END IF;
-
-    SELECT engine INTO v_engine_type
-    FROM public.sessions
-    WHERE id = p_session_id AND user_id = auth.uid();
-
-    IF v_engine_type IS NULL THEN
-        RETURN jsonb_build_object('success', false, 'error', 'session_not_found');
-    END IF;
-
-    v_usage_check := public.update_user_usage(p_incremental_seconds, v_engine_type);
-
-    IF NOT (v_usage_check->>'success')::BOOLEAN THEN
-        RETURN jsonb_build_object(
-            'success', false,
-            'error', v_usage_check->>'error',
-            'subscription_status', v_usage_check->>'subscription_status'
-        );
-    END IF;
-
-    UPDATE public.sessions
-    SET
-        duration = duration + p_incremental_seconds,
-        expires_at = now() + interval '5 minutes',
-        updated_at = now()
-    WHERE id = p_session_id AND user_id = auth.uid();
-
-    INSERT INTO public.usage_checkpoints (session_id, user_id, incremental_seconds, engine_type)
-    VALUES (p_session_id, auth.uid(), p_incremental_seconds, v_engine_type);
-
-    RETURN jsonb_build_object(
-        'success', true,
-        'subscription_status', v_usage_check->>'subscription_status'
     );
 END;
 $$;

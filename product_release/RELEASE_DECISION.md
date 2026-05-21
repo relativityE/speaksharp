@@ -15,7 +15,7 @@
 | Scheduled soak | PASS: GitHub run `26083232887` on `main`. |
 | Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
 | Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
-| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` after deploy validation: fresh account, one-use 60-minute promo, Private STT first, Cloud optional, save/history check required. |
+| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` after deploy validation: fresh account, automatic 60-minute trial, Private STT first, Cloud optional, save/history check required. |
 | Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
 
 <!-- PRODUCT_RELEASE_SYNC_END -->
@@ -37,7 +37,7 @@
 
 | P0 Blocker | Status | Evidence |
 |---|---:|---|
-| Expired promo/basic downgrade trust | ✅ Clear | `Expired Promo Live Smoke` run `25704192079` |
+| Expired trial/basic downgrade trust | ✅ Clear | `Expired Trial Live Smoke` run `25704192079` |
 | Latest CI release integrity | ✅ Clear | `CI - Test Audit` run `25710289706` on `56843a18` |
 | Deploy/canary | ✅ Clear | Deploy `25710289702`, canary `25710289703` |
 | Cloud artifact path if included | ✅ Clear | `Pro STT Artifact Matrix` run `25710568638` on `56843a18` |
@@ -57,7 +57,7 @@
 
 - Native browser STT varies by browser and is validated for Chrome.
 - Cloud is caveated for controlled testers: Cloud selection, runtime authority, metadata, and no-speech guard are validated, but the latest Chrome CDP live pass did not prove real-human-speech Cloud transcript cradle-to-grave. Treat Cloud as an optional limited validation path, not the primary Pro path.
-- Baseline tier now uses `basic` internally and displays as Basic. The cutover is deployed; complete the final human UX review before tester codes are sent.
+- Baseline tier now uses `basic` internally and displays as Basic. The cutover is deployed; complete the final human UX review before tester invites are sent.
 - Large group concurrency is outside this controlled trial.
 - Production paid billing beyond test-mode Stripe flow is outside this controlled trial.
 
@@ -67,7 +67,7 @@
 - Do not reopen Cloud internals unless a fresh Cloud-focused run fails.
 - Do not re-open the Basic-tier cutover without rerunning unit, build, e2e, Edge Function tests, and database migration validation.
 - Do not upgrade dependency majors for non-critical advisories.
-- Do not change entitlement/quota logic without rerunning expired promo, Cloud token gates, CI, deploy/canary, and Cloud artifact proof.
+- Do not change entitlement/quota logic without rerunning expired trial, Cloud token gates, CI, deploy/canary, and Cloud artifact proof.
 
 ## 6. Final Checklist Before Sending URL
 
@@ -77,9 +77,9 @@
 | Cloud/Private scope defined | ✅ |
 | Native browser-dependent disclaimer ready | ✅ Captured in release limitations and RC Gate 5 UX smoke |
 | Feedback channel ready | ✅ Observability API Smoke `25764783852` plus manual fallback |
-| Tester instructions ready | ✅ `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` defines Vercel URL, fresh signup, one-use 60-minute promo, Private-first STT, optional Cloud, known limitations, and save/history feedback question |
-| Promo generation prerequisites documented | ✅ `PROMO_GEN_ADMIN_SECRET` plus Supabase URL are required before running `pnpm generate-promo` |
-| Production test flags checked | 🟡 HUMAN VERIFY | Confirm Vercel production does not set `VITE_TEST_MODE` or E2E/test flags before sending tester codes |
+| Tester instructions ready | ✅ `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` defines Vercel URL, fresh signup, automatic 60-minute trial, Private-first STT, optional Cloud, known limitations, and save/history feedback question |
+| Automatic trial prerequisites documented | ✅ Trial entitlement migration plus Supabase URL are required; no tester code or admin secret is needed |
+| Production test flags checked | 🟡 HUMAN VERIFY | Confirm Vercel production does not set `VITE_TEST_MODE` or E2E/test flags before sending tester invites |
 | Gate 4 SCA critical audit recorded | ✅ Full RC run `25769178359` |
 | Gate 5 UX smoke recorded | ✅ Full RC run `25769178359` |
 | Final release matrix updated with RC gate columns | ✅ |
@@ -97,9 +97,9 @@
 
 | Question | Direct Answer | Regression Evidence |
 |---|---|---|
-| Could expired promo or stale profile grant Pro access? | Current evidence says no. | Live expired promo smoke plus unit tests force effective tier to `basic`, hide Pro UI, and force Native/basic-safe mode. |
+| Could expired trial or stale profile grant Pro access? | Current evidence says no. | Live expired trial smoke plus unit tests force effective tier to `basic`, hide Pro UI, and force Native/basic-safe mode. |
 | Could quota fail open? | Current SAST evidence says quota/token checks fail closed; live token gate covers over-quota Cloud denial. | `assemblyai-token` unit tests, `check-usage-limit` unit tests, `cloud-token-gates.live.spec.ts`. |
-| Could Cloud token be minted by Basic/expired user? | Current evidence says no. | Basic user denied in `assemblyai-token/index.test.ts`; expired promo denied in unit and live tests. |
+| Could Cloud token be minted by Basic/expired user? | Current evidence says no. | Basic user denied in `assemblyai-token/index.test.ts`; expired trial denied in unit and live tests. |
 | Could test/E2E mode leak to production? | Current Gate 2 evidence says no known leak. | Env detection tests, production build/CI validation, and `pnpm rc:gate:2:sast`. |
 | Are Stripe/Gemini/AssemblyAI secrets server-only? | Current architecture expects server-only provider secrets; Sentry/PostHog public keys are frontend-safe observability keys. | Edge Function tests and env validation; final SAST should inspect no provider secret is exposed as `VITE_*`. |
 | Is Native clearly browser-dependent? | Yes, for release materials: Native is Chrome/browser-dependent. | Native manual proof, release decision limitation, and Gate 5 UX smoke. |

@@ -5,7 +5,7 @@ import {
     isPro,
     isBasic,
     getEffectiveSubscriptionStatus,
-    isExpiredPromoOnlyProfile,
+    isActiveTrialProfile,
     getTierLabel,
     getTierLimits,
     getDailyLimit,
@@ -49,32 +49,31 @@ describe('subscriptionTiers', () => {
         });
     });
 
-    describe('effective promo tier', () => {
-        it('treats expired promo-only Pro profiles as Basic before usage refresh completes', () => {
+    describe('effective trial tier', () => {
+        it('treats active trial profiles as Pro before usage refresh completes', () => {
             const profile = {
-                subscription_status: 'pro',
-                promo_expires_at: '2024-01-01T00:00:00.000Z',
+                subscription_status: 'basic',
+                trial_expires_at: '2999-01-01T00:00:00.000Z',
             };
 
-            expect(isExpiredPromoOnlyProfile(profile)).toBe(true);
-            expect(getEffectiveSubscriptionStatus(null, profile)).toBe('basic');
+            expect(isActiveTrialProfile(profile)).toBe(true);
+            expect(getEffectiveSubscriptionStatus(null, profile)).toBe('pro');
         });
 
-        it('keeps paid Pro profiles Pro even with an old promo timestamp', () => {
+        it('treats expired trial Basic profiles as Basic before usage refresh completes', () => {
             const profile = {
-                subscription_status: 'pro',
-                promo_expires_at: '2024-01-01T00:00:00.000Z',
-                stripe_subscription_id: 'sub_paid',
+                subscription_status: 'basic',
+                trial_expires_at: '2024-01-01T00:00:00.000Z',
             };
 
-            expect(isExpiredPromoOnlyProfile(profile)).toBe(false);
-            expect(getEffectiveSubscriptionStatus(null, profile)).toBe('pro');
+            expect(isActiveTrialProfile(profile)).toBe(false);
+            expect(getEffectiveSubscriptionStatus(null, profile)).toBe('basic');
         });
 
         it('lets usage-limit effective status override stale profile state', () => {
             const profile = {
-                subscription_status: 'pro',
-                promo_expires_at: '2999-01-01T00:00:00.000Z',
+                subscription_status: 'basic',
+                trial_expires_at: '2999-01-01T00:00:00.000Z',
             };
 
             expect(getEffectiveSubscriptionStatus('basic', profile)).toBe('basic');

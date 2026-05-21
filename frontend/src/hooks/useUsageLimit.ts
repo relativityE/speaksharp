@@ -16,7 +16,10 @@ export interface UsageLimitCheck {
     subscription_status: string;
     is_pro: boolean;
     streak_count: number;
-    promo_just_expired?: boolean;
+    trial_active?: boolean;
+    trial_started_at?: string | null;
+    trial_expires_at?: string | null;
+    trial_seconds_remaining?: number;
     error?: string;
 }
 

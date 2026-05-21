@@ -410,7 +410,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
-    it('should honor can_start=false for stale Pro or expired promo users', async () => {
+    it('should honor can_start=false for stale Pro or expired trial users', async () => {
         vi.mocked(useProfile).mockReturnValue({
             profile: {
                 id: 'test-user',
@@ -431,7 +431,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 subscription_status: 'basic',
                 is_pro: false,
                 streak_count: 0,
-                error: 'Promo access expired'
+                error: 'Trial access expired'
             },
             isLoading: false,
             isError: false,
@@ -462,7 +462,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         expect(speechRuntimeController.startRecording).not.toHaveBeenCalled();
         expect(mockStore.getState().sttStatus).toEqual({
             type: 'error',
-            message: '⛔ Promo access expired'
+            message: '⛔ Trial access expired'
         });
     });
 
@@ -555,7 +555,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 subscription_status: 'basic',
                 is_pro: false,
                 streak_count: 0,
-                promo_just_expired: false,
+                trial_active: false,
             },
             isLoading: false,
             isError: false,

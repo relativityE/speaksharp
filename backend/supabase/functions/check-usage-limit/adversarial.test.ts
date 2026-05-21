@@ -14,14 +14,7 @@ function createMockSupabase(rpcData: Record<string, unknown>, rpcError: unknown 
                 return Promise.resolve({ data: rpcData, error: rpcError });
             }
             return Promise.resolve({ data: null, error: null });
-        },
-        from: () => ({
-            select: () => ({
-                eq: () => ({
-                    single: () => Promise.resolve({ data: { promo_expires_at: null }, error: null })
-                })
-            })
-        })
+        }
     }) as any;
 }
 
@@ -80,13 +73,7 @@ Deno.test("check-usage-limit adversarial boundary tests", async (t) => {
             headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` }
         });
         const res = await handler(req, () => ({
-            from: () => ({
-                select: () => ({
-                    eq: () => ({
-                        single: () => Promise.resolve({ data: { promo_expires_at: null }, error: null })
-                    })
-                })
-            })
+            rpc: undefined
         }) as any);
         const json = await res.json();
 

@@ -15,7 +15,7 @@
 | Scheduled soak | PASS: GitHub run `26083232887` on `main`. |
 | Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
 | Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
-| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`: fresh account, one-use 60-minute promo, Private STT first, Cloud optional, save/history check required. |
+| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`: fresh account, automatic 60-minute trial, Private STT first, Cloud optional, save/history check required. |
 | Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
 
 <!-- PRODUCT_RELEASE_SYNC_END -->
@@ -31,7 +31,7 @@
 
 | Gate | Product | SAST | DAST | SCA | UX | Observability | Release Status |
 |---|---:|---:|---:|---:|---:|---:|---|
-| Expired promo / stale profile | ✅ | ✅ | ✅ | N/A | ✅ | N/A | Green |
+| Expired trial / stale profile | ✅ | ✅ | ✅ | N/A | ✅ | N/A | Green |
 | Basic/basic access sanity | ✅ | ✅ | ✅ | N/A | ✅ | N/A | Green |
 | Cloud Pro | ✅ | ✅ | ✅ | N/A | ✅ | N/A | Green, included |
 | Private Pro | ✅ | ✅ | ✅ | N/A | ✅ | N/A | Green for release |
@@ -42,13 +42,13 @@
 
 | Priority | Gate | Status | Evidence | Remaining Action |
 |---|---|---:|---|---|
-| P0 | Expired promo / basic downgrade | ✅ | `Expired Promo Live Smoke` run `25704192079` passed on `e986ecf8`. | Freeze unless entitlement code changes. |
-| P0 | Basic/basic access sanity | ✅ | Same expired-promo proof plus Native proof below: downgraded/basic-safe users retain Native path and do not keep Cloud/Private entitlement. | Recheck only through focused entitlement smoke if tier/mode logic changes. |
+| P0 | Expired trial / basic downgrade | ✅ | `Expired Trial Live Smoke` run `25704192079` passed on `e986ecf8`. | Freeze unless entitlement code changes. |
+| P0 | Basic/basic access sanity | ✅ | Same expired-trial proof plus Native proof below: downgraded/basic-safe users retain Native path and do not keep Cloud/Private entitlement. | Recheck only through focused entitlement smoke if tier/mode logic changes. |
 | P0 | CI Audit latest commit | ✅ | `CI - Test Audit` run `25710006382` passed on `60c8af5c`, including unit/build/edge/health/lighthouse advisory, `unit-shard-1..4`, and E2E shards 1-4. | Freeze unless release-critical code changes. |
 | P0 | Deploy latest commit | ✅ | `Deploy Edge Functions` run `25710006386` passed on `60c8af5c`. | Freeze unless deploy path changes. |
 | P0 | Canary latest commit | ✅ | `Production Canary Smoke Test` run `25710006385` passed on `60c8af5c`. | Freeze unless release-critical code changes. |
 | P0 | Cloud Pro cradle-to-grave | ✅ | Latest Cloud rerun `Pro STT Artifact Matrix` run `25710014996` passed on `60c8af5c`. Extracted PDF text includes `STT Engine cloud` and the latest Cloud transcript shown below. | Freeze unless Cloud/STT/save/history/AI/PDF code changes. |
-| P0 | Native Chrome mic proof | ✅ | Headed Google Chrome production proof with real `getUserMedia`, no fake audio flags: `NATIVE_CHROME_MIC_EVIDENCE` pass, promo sign-up `native-proof-1778546140280@example.com`, transcript length `83`, save/history/analytics all true. | Document as Chrome/browser-dependent. The script records `transcriptMatchesScript=false` because ambient mic text did not match the scripted audio, but non-placeholder live transcript appeared through the real mic path. |
+| P0 | Native Chrome mic proof | ✅ | Headed Google Chrome production proof with real `getUserMedia`, no fake audio flags: `NATIVE_CHROME_MIC_EVIDENCE` pass, trial sign-up `native-proof-1778546140280@example.com`, transcript length `83`, save/history/analytics all true. | Document as Chrome/browser-dependent. The script records `transcriptMatchesScript=false` because ambient mic text did not match the scripted audio, but non-placeholder live transcript appeared through the real mic path. |
 | P0-last | Observability readback/fallback | ✅ | `Observability API Smoke` run `25764783852` passed. Manual fallback exists via `.github/ISSUE_TEMPLATE/tester-feedback.yml`. | Freeze unless observability workflow/secrets change. |
 | RC | Full release candidate gates | ✅ | `Release Candidate Gates` run `25769178359` passed on `e73408c0`: Gate 1 Product Truth, Gate 2 SAST/OWASP, Gate 3 DAST, Gate 4 SCA, Gate 5 UX. | Freeze unless release-critical code changes. |
 | P1 | Release matrix/docs | ✅ | This matrix is updated with final post-P1 run IDs and latest-commit Cloud PDF evidence. | Keep this file current only if release evidence changes. |

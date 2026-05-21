@@ -13,15 +13,10 @@ const execFileAsync = promisify(execFile);
 const BASE_URL = process.env.BASE_URL || 'https://speaksharp-public.vercel.app';
 const EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
 const PASSWORD = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
-const PROMO_CODE = process.env.NATIVE_PROOF_PROMO_CODE;
 const SIGNUP_EMAIL = process.env.NATIVE_PROOF_EMAIL || `native-proof-${Date.now()}@example.com`;
 const SIGNUP_PASSWORD = process.env.NATIVE_PROOF_PASSWORD || `NativeProof${Date.now()}!`;
 const OUT = process.env.NATIVE_PROOF_OUT || '/private/tmp/native-chrome-proof.json';
 const SPOKEN_SENTENCE = 'Native Chrome microphone proof. The quick brown fox reads clear speech for SpeakSharp release validation.';
-
-if ((!EMAIL || !PASSWORD) && !PROMO_CODE) {
-  throw new Error('PRO_TEST_EMAIL/PRO_TEST_PASSWORD or legacy E2E_PRO_EMAIL/E2E_PRO_PASSWORD are required.');
-}
 
 function compact(text) {
   return (text || '').replace(/\s+/g, ' ').trim();
@@ -65,8 +60,7 @@ const evidence = {
   startedAt: new Date().toISOString(),
   login: false,
   signup: false,
-  promoCodeApplied: false,
-  proofEmail: PROMO_CODE ? SIGNUP_EMAIL : EMAIL,
+  proofEmail: EMAIL ?? SIGNUP_EMAIL,
   modeSelected: false,
   recordingStarted: false,
   transcriptVisible: false,
@@ -100,13 +94,10 @@ try {
     }
   });
 
-  if (PROMO_CODE) {
+  if (!EMAIL || !PASSWORD) {
     await page.goto(`${BASE_URL}/auth/signup`, { waitUntil: 'domcontentloaded' });
     await page.getByTestId('email-input').fill(SIGNUP_EMAIL);
     await page.getByTestId('password-input').fill(SIGNUP_PASSWORD);
-    await page.getByTestId('plan-pro-option').click();
-    await page.getByRole('button', { name: /promo code|click here|have a promo/i }).click();
-    await page.getByTestId('promo-code-input').fill(PROMO_CODE);
     await Promise.all([
       page.waitForResponse((response) => response.url().includes('/auth/v1/signup') || response.url().includes('/auth/v1/token'), { timeout: 45_000 }).catch(() => null),
       page.getByTestId('sign-up-submit').click(),
@@ -114,7 +105,6 @@ try {
     await page.waitForURL(/\/session/, { timeout: 60_000 });
     evidence.signup = true;
     evidence.login = true;
-    evidence.promoCodeApplied = true;
   } else {
     await page.goto(`${BASE_URL}/auth/signin`, { waitUntil: 'domcontentloaded' });
     await page.getByTestId('email-input').fill(EMAIL);

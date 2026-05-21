@@ -87,7 +87,7 @@ Native Browser STT launch proof must come from real Chrome microphone behavior. 
 
 - Browser: Google Chrome via Playwright `channel=chrome`, headed.
 - Mic path: real browser `getUserMedia`, no fake audio flags.
-- Account: fresh promo sign-up `native-proof-1778546140280@example.com`.
+- Account: fresh trial sign-up `native-proof-1778546140280@example.com`.
 - Spoken sentence attempted: `Native Chrome microphone proof. The quick brown fox reads clear speech for SpeakSharp release validation.`
 - Live transcript: non-placeholder transcript appeared from the real mic path; captured sample was ambient speech rather than the scripted sentence, so `transcriptMatchesScript=false`.
 - Stop/save/history/analytics: all true.

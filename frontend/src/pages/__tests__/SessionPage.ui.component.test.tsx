@@ -77,7 +77,6 @@ const DEFAULT_LIFECYCLE_MOCK = {
     setMode: vi.fn(),
     handleStartStop: vi.fn(),
     isButtonDisabled: false,
-    showPromoExpiredDialog: false,
     showAnalyticsPrompt: false,
     sessionFeedbackMessage: null,
     sunsetModal: { type: 'daily', open: false }

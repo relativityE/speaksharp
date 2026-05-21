@@ -7,6 +7,7 @@ import type { SessionSidebarProps } from '@/components/session/SessionSidebar';
 import { AuthContextType } from '@/contexts/AuthProvider';
 import { AuthContext } from '@/contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
+import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { makeQuerySuccess } from '../test-utils/queryMocks';
 
 // Mock AuthContext instead of just the hook
@@ -39,6 +40,7 @@ vi.mock('@/contexts/AuthProvider', async () => {
 });
 
 vi.mock('@/hooks/useUserProfile');
+vi.mock('@/hooks/useUsageLimit');
 
 vi.mock('@/lib/logger', () => ({
   default: {
@@ -78,6 +80,19 @@ describe('SessionSidebar', () => {
     vi.unstubAllEnvs();
     // Reset the mock auth context to default values
     mockAuthContextValue.user = null;
+    vi.mocked(useUsageLimit).mockReturnValue(makeQuerySuccess({
+      can_start: true,
+      daily_remaining: 3600,
+      daily_limit: 3600,
+      monthly_remaining: 90000,
+      monthly_limit: 90000,
+      remaining_seconds: 3600,
+      limit_seconds: 3600,
+      used_seconds: 0,
+      subscription_status: 'basic',
+      is_pro: false,
+      streak_count: 0,
+    }));
   });
 
   afterEach(() => {
@@ -145,6 +160,19 @@ describe('SessionSidebar', () => {
         usage_seconds: 0,
         usage_reset_date: new Date().toISOString(),
         created_at: new Date().toISOString()
+      }));
+      vi.mocked(useUsageLimit).mockReturnValue(makeQuerySuccess({
+        can_start: true,
+        daily_remaining: 50 * 60 * 60,
+        daily_limit: 50 * 60 * 60,
+        monthly_remaining: 50 * 60 * 60,
+        monthly_limit: 50 * 60 * 60,
+        remaining_seconds: 50 * 60 * 60,
+        limit_seconds: 50 * 60 * 60,
+        used_seconds: 0,
+        subscription_status: 'pro',
+        is_pro: true,
+        streak_count: 0,
       }));
     });
 

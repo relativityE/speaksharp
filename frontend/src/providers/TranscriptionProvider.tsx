@@ -29,14 +29,14 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
         return {
             id: profile.id,
             subscription_status: profile.subscription_status,
-            promo_expires_at: profile.promo_expires_at,
+            trial_expires_at: profile.trial_expires_at,
             stripe_subscription_id: profile.stripe_subscription_id,
             subscription_id: profile.subscription_id,
         };
     }, [
         profile?.id,
         profile?.subscription_status,
-        profile?.promo_expires_at,
+        profile?.trial_expires_at,
         profile?.stripe_subscription_id,
         profile?.subscription_id,
     ]);

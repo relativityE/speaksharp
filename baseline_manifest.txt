@@ -55,9 +55,9 @@
 - should load instantly from cache
 - should restrict Private option for Free users
 - should handle download abandonment
-- should allow a promo user to bypass Stripe via promo code
-- shows inline error when promo fails with no valid credentials (validation phase)
-- redirects as free user when promo fails but credentials are valid
+- new account receives automatic one-hour trial without Stripe
+- expired trial returns to Basic access
+- Basic user remains on Basic-safe path
 - should display session history with metrics
 - should display session history list for trend analysis
 - should show progress trends over time

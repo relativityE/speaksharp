@@ -5,12 +5,8 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Session } from '@supabase/supabase-js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { toast } from '@/lib/toast';
-import { useQueryClient } from '@tanstack/react-query';
 import logger from '../lib/logger';
-import type { UsageLimitCheck } from '@/hooks/useUsageLimit';
 
 // --- Types ---
 type AuthView = 'sign_in' | 'sign_up' | 'forgot_password';
@@ -33,12 +29,9 @@ const mapError = (message: string) => {
   return friendlyErrors[message] || 'An unexpected error occurred.';
 };
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 export default function AuthPage() {
   const { session, loading, setSession } = useAuthProvider();
   const location = useLocation();
-  const queryClient = useQueryClient();
 
   // Determine initial view from URL path
   const getInitialView = (): AuthView => {
@@ -49,131 +42,10 @@ export default function AuthPage() {
   const [view, setView] = useState<AuthView>(getInitialView());
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [selectedPlan, setSelectedPlan] = useState<'basic' | 'pro'>('basic'); // Default to basic
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [promoCode, setPromoCode] = useState('');
-  const [showPromoField, setShowPromoField] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
-
-  const refreshEntitlementAfterPromo = async (currentSession: Session) => {
-    const userId = currentSession.user?.id;
-
-    if (userId) {
-      queryClient.removeQueries({ queryKey: ['userProfile', userId] });
-      queryClient.removeQueries({ queryKey: ['usageLimit', userId] });
-    }
-
-    queryClient.removeQueries({ queryKey: ['userProfile'] });
-    queryClient.removeQueries({ queryKey: ['usageLimit'] });
-
-    let verifiedUsageLimit: UsageLimitCheck | null = null;
-    let lastUsageLimitError: string | null = null;
-
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      const { data: usageLimit, error: usageLimitError } = await getSupabaseClient()!.functions.invoke('check-usage-limit', {
-        headers: { Authorization: `Bearer ${currentSession.access_token}` }
-      });
-
-      if (usageLimitError) {
-        lastUsageLimitError = usageLimitError.message;
-      } else {
-        const candidate = usageLimit as UsageLimitCheck | null;
-        if (candidate?.subscription_status === 'pro' && candidate?.is_pro === true) {
-          verifiedUsageLimit = candidate;
-          break;
-        }
-        lastUsageLimitError = `server returned ${candidate?.subscription_status ?? 'unknown'} entitlement`;
-      }
-
-      if (attempt < 5) {
-        await delay(500);
-      }
-    }
-
-    if (!verifiedUsageLimit) {
-      throw new Error(`Promo applied, but Pro entitlement was not verified yet (${lastUsageLimitError ?? 'no usage response'}).`);
-    }
-
-    if (userId) {
-      queryClient.setQueryData(['usageLimit', userId], verifiedUsageLimit);
-    }
-
-    await queryClient.invalidateQueries({ queryKey: ['userProfile'] });
-    await queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
-
-    logger.info({
-      userId,
-      usageSubscriptionStatus: verifiedUsageLimit?.subscription_status ?? null,
-      canStart: verifiedUsageLimit?.can_start ?? null,
-    }, '[AuthPage] Promo entitlement cache refreshed');
-  };
-
-  const handleProUpgrade = async (currentSession: Session): Promise<boolean | void> => {
-    // 1. Priority Check: Handle Promo Bypass Code if provided
-    const val = promoCode.trim();
-    if (val) {
-      logger.debug({ val }, '[AuthPage] Applying promo bypass code');
-      try {
-        const { error: promoError, data: promoData } = await getSupabaseClient()!.functions.invoke('apply-promo', {
-          body: { promoCode: val },
-          headers: { Authorization: `Bearer ${currentSession.access_token}` },
-        });
-
-        if (promoError) {
-          // Extract message if possible
-          let msg = 'Promo failed';
-          try {
-            const body = await promoError.context.json();
-            msg = body.error || msg;
-          } catch (e) {
-            logger.error({ e }, '[AuthPage] Could not parse promo error context');
-          }
-          throw new Error(msg);
-        }
-
-        // If successful, redirect to dashboard immediately as Pro
-        logger.debug('[AuthPage] Promo upgrade successful!');
-        const expiryMsg = promoData?.proFeatureMinutes ? ` for ${promoData.proFeatureMinutes} minutes` : '';
-        toast.success(`🎉 Promo code applied! You have Pro features${expiryMsg}.`, { id: 'promo-success' });
-
-        await refreshEntitlementAfterPromo(currentSession);
-
-        // Don't force reload - allow standard auth flow to proceed
-        return true;
-      } catch (pe) {
-        logger.error({ err: pe }, '[AuthPage] Promo bypass failed');
-        const errText = pe instanceof Error ? pe.message : 'Invalid code';
-        // Use toast for error so it persists across redirects (since user is already logged in)
-        toast.error(`Promo failed: ${errText}. Please try applying it later from the dashboard.`, { id: 'promo-error' });
-        // Do NOT fallback to Stripe for this specific bypass attempt, it confuses users
-        return false;
-      }
-    }
-
-    // 2. Fallback: Stripe Checkout
-    logger.debug('[AuthPage] Pro plan selected, redirecting to Stripe');
-    try {
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stripe-checkout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${currentSession.access_token}`,
-        },
-      });
-      const data = await response.json();
-      if (data.checkoutUrl) {
-        window.location.href = data.checkoutUrl;
-        return; // Halt logic while redirecting
-      } else {
-        throw new Error('No checkout URL returned');
-      }
-    } catch (stripeErr) {
-      logger.error({ err: stripeErr }, '[AuthPage] Stripe redirect failed');
-      setError('Account created, but we couldn\'t start the Pro upgrade. You can upgrade later from the dashboard.');
-    }
-  };
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -205,16 +77,11 @@ export default function AuthPage() {
         logger.info({ email }, '[AuthPage] Attempting sign_in');
         authResult = await supabase.auth.signInWithPassword({ email, password });
       } else if (view === 'sign_up') {
-        logger.info({ email, selectedPlan }, '[AuthPage] Attempting sign_up');
+        logger.info({ email }, '[AuthPage] Attempting sign_up');
         
         const { error: signUpError } = await supabase.auth.signUp({
           email,
-          password,
-          options: {
-            data: {
-              initial_plan: selectedPlan // Store the intent in user_metadata
-            }
-          }
+          password
         });
 
         if (signUpError) {
@@ -225,8 +92,7 @@ export default function AuthPage() {
           return;
         }
 
-        // Credentials succeeded — user is authenticated from this point
-        // Promo is now optional, not a gate
+        // Credentials succeeded. The backend provisions the 60-minute Pro trial.
         setInlineError(null);
 
         // Post-signup sign-in to get the session (Supabase quirk)
@@ -239,22 +105,6 @@ export default function AuthPage() {
         }
 
         authResult = { data: signInData, error: null };
-
-        // Handle Optional Promo/Upgrade
-        if (selectedPlan === 'pro' && signInData.session) {
-          const promoResult = await handleProUpgrade(signInData.session);
-
-          if (promoResult === undefined) {
-             // Stripe redirect in progress
-             return;
-          }
-
-          if (!promoResult && promoCode.trim()) {
-            // Promo failed but user is authenticated — notify and continue
-            toast.error("Promo code invalid. You've been signed up on the Basic plan.");
-            // We proceed to setSession below
-          }
-        }
       } else { // forgot_password
         logger.info({ email }, '[AuthPage] Attempting password reset');
         const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
@@ -375,71 +225,20 @@ export default function AuthPage() {
                 )}
 
                 {view === 'sign_up' && (
-                  <div className="space-y-3 py-2">
-                    <Label className="text-sm font-semibold">Choose your plan</Label>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div
-                        onClick={() => setSelectedPlan('basic')}
-                        className={`cursor-pointer rounded-lg border-2 bg-white p-3 transition-all ${selectedPlan === 'basic' ? 'border-primary bg-amber-50' : 'border-border hover:border-border/80'}`}
+                  <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+                    <p className="text-sm font-semibold text-foreground">60-minute Pro trial included</p>
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      New accounts can try Private, Cloud, analytics, and feedback immediately. No code required.
+                    </p>
+                    {inlineError && (
+                      <p
+                        className="text-destructive font-semibold text-xs mt-1 animate-in fade-in-50"
+                        data-testid="signup-inline-error"
+                        role="alert"
                       >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-bold">Basic</span>
-                          {selectedPlan === 'basic' && <div className="h-2 w-2 rounded-full bg-primary" />}
-                        </div>
-                        <p className="text-[10px] text-muted-foreground leading-tight">Browser transcription</p>
-                      </div>
-                      <div
-                        onClick={() => setSelectedPlan('pro')}
-                        className={`cursor-pointer rounded-lg border-2 bg-white p-3 transition-all ${selectedPlan === 'pro' ? 'border-primary bg-amber-50' : 'border-border hover:border-border/80'}`}
-                        data-testid="plan-pro-option"
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-bold text-primary">Pro</span>
-                          {selectedPlan === 'pro' && <div className="h-2 w-2 rounded-full bg-primary" />}
-                        </div>
-                        <p className="text-[10px] text-muted-foreground leading-tight">Cloud and private transcription</p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3 pt-2">
-                      <button
-                        type="button"
-                        onClick={() => setShowPromoField(!showPromoField)}
-                        className="text-sm font-medium text-primary hover:text-primary/85 transition-colors flex items-center gap-1"
-                      >
-                        {showPromoField ? 'Hide promo code field' : "Have a promo code? Click here!"}
-
-                      </button>
-
-                      {showPromoField && (
-                        <div className="space-y-2 animate-in slide-in-from-top-1 duration-200">
-                          <Label htmlFor="promo" className="text-xs">Tester promo code</Label>
-                          <Input
-                            id="promo"
-                            placeholder="Enter promo code"
-                            value={promoCode}
-                            onChange={(e) => {
-                              setPromoCode(e.target.value);
-                              // Auto-select Pro when promo code is entered
-                              if (e.target.value.trim() && selectedPlan === 'basic') {
-                                setSelectedPlan('pro');
-                              }
-                            }}
-                            className="h-9 text-sm"
-                             data-testid="promo-code-input"
-                          />
-                          {inlineError && (
-                            <p
-                              className="text-destructive font-semibold text-xs mt-1 animate-in fade-in-50"
-                              data-testid="signup-inline-error"
-                              role="alert"
-                            >
-                              {inlineError}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                        {inlineError}
+                      </p>
+                    )}
                   </div>
                 )}
 

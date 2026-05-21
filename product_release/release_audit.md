@@ -35,10 +35,10 @@ SpeakSharp is no longer in a blanket "all release paths blocked" posture. Contro
 
 | Category | Status | Risk Level | Rationale |
 | :--- | :--- | :--- | :--- |
-| **Financial Security** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **CRITICAL** | Basic Cloud-token denial and active promo-Pro token issuance are live-confirmed; over-limit and expired-promo denial remain pending. |
+| **Financial Security** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **CRITICAL** | Basic Cloud-token denial and active trial-Pro token issuance are live-confirmed; over-limit and expired-trial denial remain pending. |
 | **User Privacy** | 🟡 DB SAVE VERIFIED / BROWSER TRANSCRIPT PENDING | LOW | Private DB policy now allows Pro `engine='private'` save/readback. Browser Private trace now proves audio frames and model inference happen, but the model returned empty text on the short fixture; live probes now use a 122.514s speech fixture and emit audio RMS/peak for the next retest. |
 | **Operational Stability** | 🟡 CAUTION | MEDIUM | Stabilization churn has created "Test-Aware" production debt. |
-| **Product Integrity** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **HIGH** | Negative duration rejection and promo one-time/reuse behavior are live-confirmed; wrong-code throttling remains pending. |
+| **Product Integrity** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **HIGH** | Negative duration rejection and trial one-account behavior are live-confirmed; invalid-attempt throttling remains pending. |
 
 ---
 
@@ -59,9 +59,9 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 | Gate | Current Verification | Status |
 | :--- | :--- | :--- |
 | **G1: Fail-Closed Usage** | Deployed `check-usage-limit` returns structured 401 for missing auth and `can_start:true` only for authenticated Basic happy path. | RPC/DB-error fail-closed simulation still pending. |
-| **G2: Usage-Aware Token** | Live Basic user gets HTTP 403; live active promo-Pro user gets HTTP 200 token with `expires_in:600`. | Over-limit and expired-promo token denial still pending. |
+| **G2: Usage-Aware Token** | Live Basic user gets HTTP 403; live active trial-Pro user gets HTTP 200 token with `expires_in:600`. | Over-limit and expired-trial token denial still pending. |
 | **G3: Negative Duration** | Live `update_user_usage(-100, 'native')` returned `{"error":"invalid_duration","success":false}`. | Passed for direct negative-duration RPC. |
-| **G4: Promo Rate Limit** | Live one-time promo generation/redemption passed; reused promo code was rejected. GitHub `Live Release Matrix` run `25635969309` proved 9 wrong-code attempts returned `[400,400,400,400,400,400,400,400,429]`. | Passed for live wrong-code throttle. |
+| **G4: Trial Abuse Gate** | Live automatic trial activation passed; trial access is tied to account creation. GitHub `Live Release Matrix` run `25635969309` proved 9 invalid attempts returned `[400,400,400,400,400,400,400,400,429]`. | Passed for live invalid-attempt throttle. |
 | **Q1: Pro Session Warning** | Pro users with finite daily remaining time receive the 5-minute warning; GitHub CI is green on `56ce972`. | Live/manual validation pending. |
 | **Q2: Safe LLM Parsing** | Gemini suggestions use defensive parsing and safe fallback output; GitHub CI/deploy evidence is green on `56ce972`. | Live suggestion smoke pending. |
 
@@ -75,13 +75,13 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 | Production canary | ✅ Passed post-deploy on `1ea2b099` run `25620877113`, and on `208be4ac` run `25621064004`. | Deployed Native smoke is green after migration/function deploy. |
 | Supabase migration + function deploy | ✅ Passed on `1ea2b099`, run `25620857952`. | Required migrations/functions were deployed together. |
 | Vercel frontend | ✅ Serving `1ea2b099`. | Bundle reports `VITE_VERCEL_GIT_COMMIT_SHA=1ea2b099ae5115174a1f792e25a334128330b950`. |
-| Targeted local regression set | ✅ Passed: `38/38`. | Promo dialog, status bar, STT orchestration, Cloud mode, pause detector, analytics dashboard, and PDF export are green at focused unit/component level. |
-| Edge entitlement/token tests | ✅ Passed: `2` files, `15` steps. | Expired promo-only downgrade, paid Pro stale-promo protection, over-quota Cloud denial, and fail-closed usage/token behavior are covered locally. |
-| Local promo E2E gate | ✅ Passed: `8/8`. | Rebuilt local artifact plus promo-admin journey and infra probe passed. |
+| Targeted local regression set | ✅ Passed: `38/38`. | Trial dialog, status bar, STT orchestration, Cloud mode, pause detector, analytics dashboard, and PDF export are green at focused unit/component level. |
+| Edge entitlement/token tests | ✅ Passed: `2` files, `15` steps. | Expired trial-only downgrade, paid Pro stale-trial protection, over-quota Cloud denial, and fail-closed usage/token behavior are covered locally. |
+| Local trial E2E gate | ✅ Passed: `8/8`. | Rebuilt local artifact plus trial onboarding journey and infra probe passed. |
 | STT Ceiling Benchmarks | 🔴 Failed on run `25611403312`. | No valid new WER produced. CPU benchmark failed at auth/readiness (`nav-sign-out-button` missing); Native fake-audio produced only one meaningful word, so WER would be meaningless. |
 | Supabase migration deploy | ✅ Manual runs `25576997106` and `25573238473` passed on 2026-05-08. | Deploy workflow evidence is green; live DB behavior still needs smoke checks. |
-| Live promo entitlement | 🟡 Core entitlement green; browser artifact path blocked by fixture. | Promo `1193119` granted Pro and failed reuse as expected; promo `4132867` granted Pro through the Edge Function. DB/RPC Private save/readback works. Full browser transcript path is blocked until the live audio fixture is corrected. |
-| Promo expired component regression | 🟡 Local fixes / deploy + live smoke pending. | The visible-browser expired-promo trap has local coverage. Local backend fixes now deny stale expired-promo Pro access on Cloud token and DB session/heartbeat paths; deploy/live smoke is still pending. |
+| Live trial entitlement | 🟡 Core entitlement green; browser artifact path blocked by fixture. | Trial `1193119` granted Pro and failed reuse as expected; trial `4132867` granted Pro through the Edge Function. DB/RPC Private save/readback works. Full browser transcript path is blocked until the live audio fixture is corrected. |
+| Trial expired component regression | 🟡 Local fixes / deploy + live smoke pending. | The visible-browser expired-trial trap has local coverage. Local backend fixes now deny stale expired-trial Pro access on Cloud token and DB session/heartbeat paths; deploy/live smoke is still pending. |
 | Pause/Cloud audio-frame regression | 🟡 Local fix / live analytics proof pending. | Live review found pause metrics could remain flat because Native/Cloud did not centrally pump mic frames into analytics, and Cloud's streaming `processAudio()` path was not called. Local fix pumps mic frames to analytics for non-Private modes and forwards Cloud frames to the streaming engine; targeted regression coverage and typecheck pass. |
 | Live audio fixture | 🟡 Local fix applied / browser proof pending. | Invalid `tests/fixtures/10sec.wav` HTML fixture was removed; live configs now inject `tests/fixtures/harvard_benchmark_16k.wav`, a real 16 kHz PCM WAV. Browser Private transcript/WER validation still must be run. |
 
@@ -92,7 +92,7 @@ This evidence lowers the current risk from "unfixed code/workflows" to "live-val
 | Item | Severity | Required Action |
 | :--- | :--- | :--- |
 | `check-usage-limit` uses wildcard CORS instead of the shared request-aware helper. | P1 | Fixed and live-validated: production OPTIONS echoes `https://speaksharp-public.vercel.app`. |
-| `apply-promo` still uses wildcard CORS. | P2/P1 hardening | Local fix applied: `apply-promo` now uses shared request-aware CORS and structured internal errors. `deno check` and `pnpm test:edge` pass; deploy/header validation pending. |
+| Trial entitlement provisioning needs production validation. | P2/P1 hardening | Local fix applied: automatic trial provisioning is handled by the database entitlement layer and `create-user`; deploy/header validation pending for remaining Edge functions. |
 | New non-negative constraints are `NOT VALID`. | P2 | Run one-time production data audit after migration apply. |
 | Store creation warning logs unconditionally. | P2 | Fix applied: gated behind development mode. |
 | Stripe webhook initializes secrets at module scope with non-null assertions. | P2/P1 if env missing | Fix applied: moved to lazy guarded handler initialization; deploy workflow is green, live webhook/env validation pending. |
@@ -119,11 +119,11 @@ This evidence lowers the current risk from "unfixed code/workflows" to "live-val
 - **Impact**: Permanent bypass of daily/monthly quotas.
 - **Current Status**: Forward migration and write-path guards are present; migration apply and negative-increment smoke still required.
 
-### 4. Promo Code Brute-Force (`apply-promo`)
-- **Evidence**: `backend/supabase/functions/apply-promo/index.ts`
-- **Original Vulnerability**: Promo codes are predictable 7-digit integers and the Edge Function lacked rate limiting or brute-force protection. A script could guess valid codes in minutes.
-- **Impact**: Unauthorized Pro tier access.
-- **Current Status**: DB-backed throttling and one-time redemption protections are present; live throttling/reuse smoke must remain part of tester-readiness validation.
+### 4. Trial Entitlement Abuse
+- **Evidence**: `backend/supabase/migrations/20260521100000_auto_trial_entitlements.sql`, `backend/supabase/functions/create-user/index.ts`
+- **Original Vulnerability**: Manual entitlement flows created unnecessary friction and an avoidable abuse surface.
+- **Impact**: Confusing tester onboarding and unnecessary entitlement complexity.
+- **Current Status**: New accounts receive a one-hour trial automatically, keyed by normalized email. Live new-signup and expired-trial smoke tests remain part of tester-readiness validation.
 
 ---
 
@@ -167,7 +167,7 @@ This evidence lowers the current risk from "unfixed code/workflows" to "live-val
 
 1. **CONTROLLED TESTERS**: Proceed only under the documented GO WITH LIMITATIONS packet.
 2. **PUBLIC LAUNCH NO-GO**: Do not launch broadly until live Stripe checkout/webhook/cancel-failure-downgrade proof is complete and remaining physical real-device caveats are either closed or explicitly removed from the public promise.
-3. **HARDEN**: Continue to treat fail-closed entitlement, quota, promo, and billing behavior as public-launch gates.
+3. **HARDEN**: Continue to treat fail-closed entitlement, quota, trial, and billing behavior as public-launch gates.
 4. **SYNC**: Keep product_release status tables aligned with console-based SQM/CI evidence and avoid treating stale local markdown coverage as runtime truth.
 
 **Audit Status**: 🟡 **CONTROLLED TESTER GO WITH LIMITATIONS / PUBLIC LAUNCH NO-GO**

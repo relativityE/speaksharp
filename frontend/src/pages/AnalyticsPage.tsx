@@ -6,7 +6,8 @@ import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
 import { toast } from '@/lib/toast';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { isPro } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionTiers';
+import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { Button } from '@/components/ui/button';
 import { Mic, BarChart } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -78,6 +79,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
     const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
+    const { data: usageLimit } = useUsageLimit();
 
     const { setReady } = useReadinessStore();
 
@@ -144,7 +146,8 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         }
     };
 
-    const isProUser = isPro(profile?.subscription_status);
+    const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
+    const isProUser = isPro(effectiveSubscriptionStatus);
 
     // Show loading state while fetching data
     // Loading state is now handled inside AnalyticsDashboard to provide consistent data-testids for E2E

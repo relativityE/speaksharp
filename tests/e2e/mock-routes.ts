@@ -80,8 +80,7 @@ import {
     MOCK_USER_PROFILE,
     MOCK_SESSION,
     MOCK_SESSION_HISTORY,
-    MOCK_GOALS,
-    SUBSCRIPTION_STATUS
+    MOCK_GOALS
 } from '@shared/test-fixtures';
 import { createMockSession, STTEngine, MockSession } from '../support/factories/session.factory';
 
@@ -497,36 +496,6 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
             contentType: 'application/json',
             body: JSON.stringify({ checkoutUrl: 'https://checkout.stripe.com/test' }),
         });
-    });
-
-    // POST /functions/v1/apply-promo
-    await registerRoute(page, '**/functions/v1/apply-promo', async (route) => {
-        const page = route.request().frame()?.page();
-        if (!page) return route.continue();
-        const state = getPageState(page);
-
-        mockLog('[E2E MOCK] Specific Handler: apply-promo');
-        const body = await route.request().postDataJSON();
-        if (body?.promoCode === 'MOCK-PROMO-123') {
-            state.profile.subscription_status = SUBSCRIPTION_STATUS.PRO;
-            mockLog('[E2E MOCK] Promo code applied: state updated to PRO');
-
-            return route.fulfill({
-                status: 200,
-                contentType: 'application/json',
-                body: JSON.stringify({
-                    success: true,
-                    message: 'Upgraded to Pro!',
-                    proFeatureMinutes: 60
-                })
-            });
-        } else {
-            await route.fulfill({
-                status: 400,
-                contentType: 'application/json',
-                body: JSON.stringify({ success: false, error: 'Invalid promo code' }),
-            });
-        }
     });
 
     // POST /functions/v1/get-deepgram-token

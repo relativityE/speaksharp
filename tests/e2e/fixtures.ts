@@ -80,7 +80,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
           upperText.includes('ENSUREENGINEINITIALIZED') ||
           upperText.includes('NETWORK_TIMEOUT') ||
           upperText.includes('ABORT') ||
-          upperText.includes('PROMO') ||
+          upperText.includes('TRIAL') ||
           upperText.includes('RPC') ||
           upperText.includes('HEARTBEAT') ||
           upperText.includes('PROFILE') ||

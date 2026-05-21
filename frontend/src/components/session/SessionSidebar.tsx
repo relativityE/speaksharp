@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, isPro as checkIsPro } from '@/constants/subscriptionTiers';
+import { useUsageLimit } from '@/hooks/useUsageLimit';
 import type { TranscriptionPolicy, TranscriptionMode } from '../../services/transcription/TranscriptionPolicy';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
 import logger from '../../lib/logger';
@@ -94,10 +95,12 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const navigate = useNavigate();
     const { user } = useAuthProvider();
     const { data: profile } = useUserProfile();
+    const { data: usageLimit } = useUsageLimit();
     const [isEndingSession, setIsEndingSession] = useState(false);
 
     const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
-    const isProUser = checkIsPro(profile?.subscription_status);
+    const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
+    const isProUser = checkIsPro(effectiveSubscriptionStatus);
     const canAccessAdvancedModes = isProUser || isDevUser;
 
     type Mode = 'cloud' | 'private' | 'native';

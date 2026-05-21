@@ -46,14 +46,7 @@ Deno.test('check-usage-limit edge function', async (t) => {
                     });
                 }
                 return Promise.resolve({ data: null, error: null });
-            },
-            from: () => ({
-                select: () => ({
-                    eq: () => ({
-                        single: () => Promise.resolve({ data: { promo_expires_at: null }, error: null })
-                    })
-                })
-            })
+            }
         }) as any;
 
         const req = new Request('http://localhost/check-usage-limit', {
@@ -87,14 +80,7 @@ Deno.test('check-usage-limit edge function', async (t) => {
                     });
                 }
                 return Promise.resolve({ data: null, error: null });
-            },
-            from: () => ({
-                select: () => ({
-                    eq: () => ({
-                        single: () => Promise.resolve({ data: { promo_expires_at: null }, error: null })
-                    })
-                })
-            })
+            }
         }) as any;
 
         const req = new Request('http://localhost/check-usage-limit', {
@@ -109,88 +95,52 @@ Deno.test('check-usage-limit edge function', async (t) => {
         assertEquals(json.daily_remaining, 0);
     });
 
-    await t.step('should downgrade expired promo-only Pro users and recheck as basic', async () => {
-        const userId = 'expired-promo-user';
-        let rpcCalls = 0;
-        let updatePayload: Record<string, unknown> | null = null;
-
-        const mockCreateSupabaseExpiredPromo = () => ({
+    await t.step('should pass through expired trial Basic results from the RPC source of truth', async () => {
+        const userId = 'expired-trial-user';
+        const mockCreateSupabaseExpiredTrial = () => ({
             rpc: (name: string) => {
                 if (name === 'check_usage_limit') {
-                    rpcCalls += 1;
                     return Promise.resolve({
-                        data: rpcCalls === 1
-                            ? {
-                                can_start: true,
-                                daily_remaining: 7200,
-                                daily_limit: 7200,
-                                monthly_remaining: 180000,
-                                monthly_limit: 180000,
-                                remaining_seconds: 7200,
-                                subscription_status: 'pro',
-                                is_pro: true
-                            }
-                            : {
-                                can_start: true,
-                                daily_remaining: 3600,
-                                daily_limit: 3600,
-                                monthly_remaining: 90000,
-                                monthly_limit: 90000,
-                                remaining_seconds: 3600,
-                                subscription_status: 'basic',
-                                is_pro: false
-                            },
+                        data: {
+                            can_start: true,
+                            daily_remaining: 3600,
+                            daily_limit: 3600,
+                            monthly_remaining: 90000,
+                            monthly_limit: 90000,
+                            remaining_seconds: 3600,
+                            subscription_status: 'basic',
+                            is_pro: false,
+                            trial_active: false,
+                            trial_started_at: '2026-01-01T00:00:00.000Z',
+                            trial_expires_at: '2026-01-01T01:00:00.000Z',
+                            trial_seconds_remaining: 0
+                        },
                         error: null
                     });
                 }
                 return Promise.resolve({ data: null, error: null });
-            },
-            from: () => ({
-                select: () => ({
-                    eq: () => ({
-                        single: () => Promise.resolve({
-                            data: {
-                                promo_expires_at: '2024-01-01T00:00:00.000Z',
-                                stripe_subscription_id: null,
-                                subscription_id: null
-                            },
-                            error: null
-                        })
-                    })
-                }),
-                update: (payload: Record<string, unknown>) => {
-                    updatePayload = payload;
-                    return {
-                        eq: () => Promise.resolve({ data: null, error: null })
-                    };
-                }
-            })
+            }
         }) as any;
 
         const req = new Request('http://localhost/check-usage-limit', {
             method: 'GET',
             headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` }
         });
-        const res = await handler(req, mockCreateSupabaseExpiredPromo);
+        const res = await handler(req, mockCreateSupabaseExpiredTrial);
         const json = await res.json();
 
         assertEquals(res.status, 200);
-        assertEquals(rpcCalls, 2);
-        assertEquals(updatePayload, { subscription_status: 'basic' });
         assertEquals(json.subscription_status, 'basic');
         assertEquals(json.is_pro, false);
-        assertEquals(json.promo_just_expired, true);
+        assertEquals(json.trial_active, false);
+        assertEquals(json.trial_seconds_remaining, 0);
     });
 
-    await t.step('should not downgrade paid Pro users with an old promo timestamp', async () => {
-        const userId = 'paid-pro-with-old-promo';
-        let rpcCalls = 0;
-        let updateCalled = false;
-
+    await t.step('should pass through active trial Pro results from the RPC source of truth', async () => {
+        const userId = 'active-trial-user';
         const mockCreateSupabasePaidPro = () => ({
             rpc: (name: string) => {
                 if (name === 'check_usage_limit') {
-                    rpcCalls += 1;
                     return Promise.resolve({
                         data: {
                             can_start: true,
@@ -200,33 +150,17 @@ Deno.test('check-usage-limit edge function', async (t) => {
                             monthly_limit: 180000,
                             remaining_seconds: 7200,
                             subscription_status: 'pro',
-                            is_pro: true
+                            is_pro: true,
+                            trial_active: true,
+                            trial_started_at: '2026-01-01T00:00:00.000Z',
+                            trial_expires_at: '2026-01-01T01:00:00.000Z',
+                            trial_seconds_remaining: 3600
                         },
                         error: null
                     });
                 }
                 return Promise.resolve({ data: null, error: null });
-            },
-            from: () => ({
-                select: () => ({
-                    eq: () => ({
-                        single: () => Promise.resolve({
-                            data: {
-                                promo_expires_at: '2024-01-01T00:00:00.000Z',
-                                stripe_subscription_id: 'sub_paid_123',
-                                subscription_id: null
-                            },
-                            error: null
-                        })
-                    })
-                }),
-                update: () => {
-                    updateCalled = true;
-                    return {
-                        eq: () => Promise.resolve({ data: null, error: null })
-                    };
-                }
-            })
+            }
         }) as any;
 
         const req = new Request('http://localhost/check-usage-limit', {
@@ -237,24 +171,15 @@ Deno.test('check-usage-limit edge function', async (t) => {
         const json = await res.json();
 
         assertEquals(res.status, 200);
-        assertEquals(rpcCalls, 1);
-        assertEquals(updateCalled, false);
         assertEquals(json.subscription_status, 'pro');
         assertEquals(json.is_pro, true);
-        assertEquals(json.promo_just_expired, undefined);
+        assertEquals(json.trial_active, true);
     });
 
     await t.step('should handle RPC errors by failing closed', async () => {
         const userId = 'error-user';
         const mockCreateSupabaseError = () => ({
-            rpc: () => Promise.resolve({ data: null, error: { message: 'Database error' } }),
-            from: () => ({
-                select: () => ({
-                    eq: () => ({
-                        single: () => Promise.resolve({ data: null, error: null })
-                    })
-                })
-            })
+            rpc: () => Promise.resolve({ data: null, error: { message: 'Database error' } })
         }) as any;
 
         const req = new Request('http://localhost/check-usage-limit', {

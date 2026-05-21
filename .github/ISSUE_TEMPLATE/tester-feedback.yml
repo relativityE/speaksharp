@@ -20,7 +20,7 @@ body:
       label: Flow
       options:
         - Sign in / sign up
-        - Promo / upgrade
+        - Trial / upgrade
         - Native STT
         - Private STT
         - Cloud STT

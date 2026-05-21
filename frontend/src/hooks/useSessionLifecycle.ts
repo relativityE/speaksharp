@@ -421,7 +421,6 @@ export const useSessionLifecycle = () => {
         isProUser: canUseProSttModes,
         activeEngine,
         isButtonDisabled: !['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED', 'ENGINE_INITIALIZING'].includes(runtimeState), // Permitting ENGINE_INITIALIZING allows "Stop" (Cancel) during downloads.
-        showPromoExpiredDialog: !!usageLimit?.promo_just_expired,
         usageLimit,
         history,
         profileLoading: false,

@@ -13,9 +13,8 @@ Link: https://speaksharp-public.vercel.app
 
 Setup:
 1. Create a new account with your own email and password.
-2. Apply your unique promo code: CODE_HERE
 
-The promo gives Pro access for 1 hour. The timer starts when you apply the code to your new account.
+Your new account includes Pro access for 1 hour automatically. The timer starts when the account is created.
 
 What to test:
 1. Start with Private STT for your first session. This is the primary validated Pro mode for this round.
@@ -30,7 +29,7 @@ Known limitations:
 - Some backend/internal labels may still say "basic" while the user-facing baseline plan says Basic.
 
 Please report:
-1. Did signup and promo redemption work?
+1. Did signup and trial access work?
 2. Did transcript text appear while speaking?
 3. Were filler words detected accurately enough?
 4. Did analytics match what you experienced?
@@ -40,11 +39,8 @@ Please report:
 
 ## Operator Checklist
 
-- Generate one unique promo code per tester with `pnpm generate-promo`.
-- Replace `CODE_HERE` in each tester's invite before sending it; do not send a shared code or ask testers to request a code later.
-- Each code is one-use. The 60-minute timer starts when that tester applies the code, not when the code is generated.
-- Confirm `PROMO_GEN_ADMIN_SECRET` and `VITE_SUPABASE_URL` or `SUPABASE_URL` are present before generating codes.
-- Promo duration is controlled by `PROMO_DURATION_MINUTES` in `backend/supabase/functions/_shared/constants.ts`; current value is `60`.
+- Do not generate or send tester codes. Access is automatic for new accounts.
+- Confirm trial fields appear on new profiles: `trial_started_at` and `trial_expires_at`.
 - Confirm Vercel production does not set `VITE_TEST_MODE` or other E2E/test flags.
 - Keep tester instructions Private-first. Cloud is useful feedback, but it is not the primary path for the first tester session.
 - Ask every tester to check save/history/detail after stopping. A transcript without persisted history is not a successful session.

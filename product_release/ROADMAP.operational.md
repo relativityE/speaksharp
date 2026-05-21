@@ -20,7 +20,7 @@
 | Scheduled soak | PASS: GitHub run `26083232887` on `main`. |
 | Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
 | Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
-| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`: fresh account, one-use 60-minute promo, Private STT first, Cloud optional, save/history check required. |
+| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`: fresh account, automatic 60-minute trial, Private STT first, Cloud optional, save/history check required. |
 | Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
 
 <!-- PRODUCT_RELEASE_SYNC_END -->
@@ -34,11 +34,11 @@ This document tracks identified risks and their impact on the 12-hour launch win
 | Area | Status | Risk | Launch Impact | Deferred? |
 | :--- | :--- | :--- | :--- | :--- |
 | **Quota Gate** | ✅ CONTROLLED/PUBLIC LEDGER EVIDENCE GREEN | Fail-closed quota and usage-token behavior are covered by current release evidence; keep regression coverage in CI. | **Critical**: Revenue leakage if regressed | No |
-| **Promo Abuse Guard** | ✅ PUBLIC PROMO LIFECYCLE PASS | Public promo redemption/reuse and expired promo downgrade evidence are recorded in `PUBLIC_LAUNCH_LEDGER.md`. | **P0**: Tester promo access can be brute-forced without this | No |
+| **Trial Abuse Guard** | ✅ PUBLIC TRIAL LIFECYCLE PASS | Public trial activation/reuse and expired trial downgrade evidence are recorded in `PUBLIC_LAUNCH_LEDGER.md`. | **P0**: Tester trial access can be brute-forced without this | No |
 | **Stripe Webhook**| 🟡 TEST-MODE PASS / LIVE KEYS PENDING | Test-mode checkout/webhook entitlement evidence is recorded; live `cs_live_...` checkout and live webhook propagation remain public-launch blockers. | **P0**: Users cannot upgrade | No |
 | **Safari Mic** | 🟡 PENDING | Potential silent failure on resume | **P1**: Degraded mobile UX | Yes |
 | **Sentry Ingest** | ✅ OBSERVABILITY API SMOKE PASS | Frontend, Edge, and PostHog provider readback evidence is recorded in `PUBLIC_LAUNCH_LEDGER.md`. | **High**: Blind to launch errors if regressed | No |
-| **Usage/Promo Edge CORS** | 🟡 CI/DEPLOY GREEN / HEADER VALIDATION PENDING | `check-usage-limit` and `apply-promo` both use the shared request-aware CORS helper; Edge Function deploy is green, but deployed header validation should be rechecked after each Edge deploy. | **P1**: JWT still required, but attack surface should match other Edge Functions | No |
+| **Usage Edge CORS** | 🟡 CI/DEPLOY GREEN / HEADER VALIDATION PENDING | `check-usage-limit` uses the shared request-aware CORS helper; Edge Function deploy is green, but deployed header validation should be rechecked after each Edge deploy. | **P1**: JWT still required, but attack surface should match other Edge Functions | No |
 | **Stripe Secret Init** | 🟡 CI/DEPLOY GREEN / LIVE WEBHOOK PENDING | Webhook runtime now lazily validates secrets inside the served handler and returns actionable config errors instead of module-scope crashes; deploy evidence is green, but live webhook/env smoke is pending | **P2/P1 if env missing**: live validation pending | No |
 | **GitHub Canary** | ✅ PASSING | Production canary passed on `main` in scheduled run `26085357729`; CI/Test Audit `25994869503`, Edge Function deploy `25994869506`, and scheduled soak `26083232887` are also green. | **P1**: Keep this green after every deploy | No |
 | **STT Benchmarks** | 🟡 PUBLIC CLAIMS LIMITED | Cloud and Private evidence exists, but Native/WebGPU benchmark claims remain limited. User-facing comparison must continue to say "not benchmarked" where evidence is missing. | **P1 only if benchmark claims are marketed** | Yes |
@@ -61,8 +61,8 @@ This document tracks identified risks and their impact on the 12-hour launch win
 4. **Env Verification**: Complete the [LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md).
 5. **Canary Maintenance**: Keep GitHub canary and soak green after deploys; latest green evidence is `69ad3f13` plus scheduled May 19 canary/soak.
 6. **Benchmark Workflow Boundary**: Keep user-facing benchmark claims limited. The `STT Ceiling Benchmarks` workflow is currently not launch evidence for Native/WebGPU claims.
-7. **Usage/Promo Edge CORS**: Verify `check-usage-limit` and `apply-promo` return request-aware CORS headers for allowed production origins after Edge deploys.
-8. **Soft Release Tester Setup**: Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; generate one one-use 60-minute promo per tester with `pnpm generate-promo`.
+7. **Usage Edge CORS**: Verify `check-usage-limit` returns request-aware CORS headers for allowed production origins after Edge deploys.
+8. **Soft Release Tester Setup**: Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; ask testers to create a fresh account; the one-hour trial is automatic.
 9. **Production Env Flag Check**: Confirm Vercel production does not set `VITE_TEST_MODE` or E2E/test flags before sending tester invites.
 10. **Private STT CPU-First Validation**: Ask testers to start with Private STT, then verify live transcript, analytics, save/history/detail, and cached second start where possible.
 11. **Private STT WebGPU Validation**: Separately validate the explicit WebGPU/WhisperTurbo accelerated path on supported hardware. This is release evidence for acceleration, not the launch-critical first-use path.

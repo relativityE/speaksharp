@@ -225,12 +225,7 @@ describe('AuthPage Integration', () => {
             await waitFor(() => {
                 expect(mockSupabaseClient.auth.signUp).toHaveBeenCalledWith({
                     email: 'newuser@example.com',
-                    password: 'StrongPass123!',
-                    options: {
-                        data: {
-                            initial_plan: 'basic'
-                        }
-                    }
+                    password: 'StrongPass123!'
                 });
             });
         });

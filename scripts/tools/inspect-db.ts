@@ -22,7 +22,7 @@ async function inspect() {
     // Check user_profiles
     const { data: profiles, error } = await supabase
         .from('user_profiles')
-        .select('id, subscription_status, promo_expires_at')
+        .select('id, subscription_status, trial_started_at, trial_expires_at')
         .order('created_at', { ascending: false, nullsFirst: false }) // Assuming created_at exists, identifying new users?
         // Standard profiles often don't have created_at, they rely on auth.users.
         // Let's just get the last few entries if possible, or all (assuming low volume).

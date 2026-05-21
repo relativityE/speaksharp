@@ -11,7 +11,7 @@ This guide documents common issues encountered during development and testing of
 
 ### 🧪 E2E Mock Property Mismatches
 - **Issue:** E2E tests fail with 400 errors or handle responses incorrectly despite the mock being "hit".
-- **Root Cause:** Property name mismatch between the frontend service and the Playwright mock handler (e.g., `url` vs `checkoutUrl`, or `code` vs `promoCode`).
+- **Root Cause:** Property name mismatch between the frontend service and the Playwright mock handler (e.g., `url` vs `checkoutUrl`).
 - **Resolution:** 
   1. Check browser console logs for `[E2E Mock]` debug info.
   2. Verify the exact property names in the `frontend/src/` service calls and ensure the mock in `tests/e2e/mock-routes.ts` returns the identical JSON structure.
