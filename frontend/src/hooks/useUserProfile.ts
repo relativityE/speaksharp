@@ -67,12 +67,14 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
           const isExplicitlyBasic = profile?.subscription_status === 'basic';
           if (profile && !isExplicitlyBasic) {
             profile.subscription_status = 'pro';
+            profile.stripe_subscription_id = profile.stripe_subscription_id ?? 'sub_e2e_paid_pro';
             logger.debug({ userId: session.user.id }, '[useUserProfile] Pro rescue applied to existing profile');
           } else if (!profile) {
             logger.info({ userId: session.user.id }, '[useUserProfile] Generating synthetic Pro profile for rescue');
             const syntheticProfile: UserProfile = {
               id: session.user.id,
               subscription_status: 'pro',
+              stripe_subscription_id: 'sub_e2e_paid_pro',
               usage_seconds: 0,
               usage_reset_date: new Date(Date.now() + 30 * 86400000).toISOString(),
               created_at: new Date().toISOString(),

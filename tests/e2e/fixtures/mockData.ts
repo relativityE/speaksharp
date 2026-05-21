@@ -14,6 +14,7 @@ export const MOCK_USER_PROFILE = {
   id: MOCK_USER.id,
   email: MOCK_USER.email,
   subscription_status: 'pro',
+  stripe_subscription_id: 'sub_e2e_paid_pro',
   preferred_mode: 'cloud',
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),

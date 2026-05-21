@@ -65,6 +65,7 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
         const syntheticProfile: UserProfile = {
             id: '__E2E_GUEST_USER__',
             subscription_status: guestStatus as 'basic' | 'pro',
+            stripe_subscription_id: guestStatus === 'pro' ? 'sub_e2e_paid_pro' : null,
             usage_seconds: 0,
             usage_reset_date: new Date(Date.now() + 86400000).toISOString(),
             created_at: new Date().toISOString(),

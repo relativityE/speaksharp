@@ -38,7 +38,8 @@ export const useSessionLifecycle = () => {
     const isProUser = isPro(effectiveSubscriptionStatus);
     const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
     const canUseProSttModes = isProUser || isDevUser;
-    const canUseCloudStt = hasPaidProEntitlement(profile) || isDevUser || ENV.isTest;
+    const isE2EProHarness = import.meta.env.MODE !== 'production' && import.meta.env.VITE_TEST_MODE === 'true' && isProUser;
+    const canUseCloudStt = (isProUser && (hasPaidProEntitlement(profile) || isE2EProHarness)) || isDevUser;
     const shouldForceNativeMode = !canUseProSttModes;
     const profileReadyForStt = isVerified && !!profile?.id && typeof profile?.subscription_status === 'string';
 
