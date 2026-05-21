@@ -49,7 +49,7 @@ export default function AuthPage() {
   const [view, setView] = useState<AuthView>(getInitialView());
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [selectedPlan, setSelectedPlan] = useState<'free' | 'pro'>('free'); // Default to free
+  const [selectedPlan, setSelectedPlan] = useState<'basic' | 'pro'>('basic'); // Default to basic
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState('');
@@ -379,12 +379,12 @@ export default function AuthPage() {
                     <Label className="text-sm font-semibold">Choose your plan</Label>
                     <div className="grid grid-cols-2 gap-4">
                       <div
-                        onClick={() => setSelectedPlan('free')}
-                        className={`cursor-pointer rounded-lg border-2 bg-white p-3 transition-all ${selectedPlan === 'free' ? 'border-primary bg-amber-50' : 'border-border hover:border-border/80'}`}
+                        onClick={() => setSelectedPlan('basic')}
+                        className={`cursor-pointer rounded-lg border-2 bg-white p-3 transition-all ${selectedPlan === 'basic' ? 'border-primary bg-amber-50' : 'border-border hover:border-border/80'}`}
                       >
                         <div className="flex items-center justify-between mb-1">
                           <span className="font-bold">Basic</span>
-                          {selectedPlan === 'free' && <div className="h-2 w-2 rounded-full bg-primary" />}
+                          {selectedPlan === 'basic' && <div className="h-2 w-2 rounded-full bg-primary" />}
                         </div>
                         <p className="text-[10px] text-muted-foreground leading-tight">Browser transcription</p>
                       </div>
@@ -421,7 +421,7 @@ export default function AuthPage() {
                             onChange={(e) => {
                               setPromoCode(e.target.value);
                               // Auto-select Pro when promo code is entered
-                              if (e.target.value.trim() && selectedPlan === 'free') {
+                              if (e.target.value.trim() && selectedPlan === 'basic') {
                                 setSelectedPlan('pro');
                               }
                             }}

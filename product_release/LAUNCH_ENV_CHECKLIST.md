@@ -32,7 +32,7 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 - [ ] **Webhook Endpoint**: Production URL `https://[PROJECT].supabase.co/functions/v1/stripe-webhook` is registered.
 - [ ] **Webhook Secret**: `STRIPE_WEBHOOK_SECRET` matches the production dashboard.
 - [ ] **Price IDs**: `VITE_STRIPE_PRO_PRICE_ID` matches the production product ID.
-- [ ] **Future Basic Pricing**: Stripe test-mode Product/Price IDs may be used to validate the deferred Basic checkout path without real charges. Do not treat test-mode Basic pricing as production-ready until the Free -> Basic app migration, Edge Function semantics, tests, and live Price ID are aligned.
+- [ ] **Future Basic Pricing**: Stripe test-mode Product/Price IDs may be used to validate a future paid Basic checkout path without real charges. Do not treat paid Basic pricing as production-ready until app copy, Edge Function semantics, tests, and live Price ID are aligned.
 
 ## 2. Backend Infrastructure (Supabase)
 - [ ] **Project URL**: `VITE_SUPABASE_URL` points to the production instance.

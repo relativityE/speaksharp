@@ -20,7 +20,7 @@ const tiers: Tier[] = [
     price: '$0',
     priceDescription: 'For browser practice',
     features: [
-      `Up to ${SUBSCRIPTION_LIMITS.FREE_MONTHLY_MINUTES} mins of practice per month`,
+      `Up to ${SUBSCRIPTION_LIMITS.BASIC_MONTHLY_MINUTES} mins of practice per month`,
       'Basic analytics',
       'Save last 5 sessions',
       'AI-assisted feedback',

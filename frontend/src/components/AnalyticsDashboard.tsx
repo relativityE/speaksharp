@@ -779,7 +779,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     }}
                     icon={<BarChart className="w-10 h-10 text-primary" />}
                     testId={TEST_IDS.ANALYTICS_EMPTY_STATE}
-                    // Subtle upgrade option for FREE users - triggers Stripe checkout directly
+                    // Subtle upgrade option for BASIC users - triggers Stripe checkout directly
                     secondaryAction={!isProUser ? {
                         prefix: "Want unlimited sessions?",
                         label: "Upgrade to Pro",

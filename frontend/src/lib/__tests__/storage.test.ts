@@ -90,7 +90,7 @@ describe('storage.ts', () => {
     });
 
     describe('saveSession', () => {
-        const mockProfile = { subscription_status: 'free' } as UserProfile;
+        const mockProfile = { subscription_status: 'basic' } as UserProfile;
         const mockSessionData = { user_id: 'user1', duration: 60 };
 
         it('should return null session if sessionData or userId is missing', async () => {

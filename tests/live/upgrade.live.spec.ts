@@ -7,8 +7,8 @@ test.describe('Upgrade Flow Payload Verification', () => {
     test('should send correct payload to stripe-checkout', async ({ page }) => {
         // High-Fidelity UPGRADE test (Network Interception)
 
-        // 1. Programmatic Login as FREE user (to see Upgrade button)
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'free' });
+        // 1. Programmatic Login as BASIC user (to see Upgrade button)
+        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'basic' });
 
         // 2. Navigate to Analytics (Upgrade Entry Point) 
         await navigateToRoute(page, ROUTES.ANALYTICS);

@@ -307,7 +307,7 @@ export async function programmaticLoginWithRoutes(
   options: {
     projectRef?: string;
     supabaseUrl?: string;
-    userType?: 'free' | 'pro';
+    userType?: 'basic' | 'pro';
     emptySessions?: boolean;
     debug?: boolean;
   } = {}
@@ -315,7 +315,7 @@ export async function programmaticLoginWithRoutes(
   const {
     projectRef: optRef,
     supabaseUrl: optUrl,
-    userType = 'free',
+    userType = 'basic',
     emptySessions = false,
     debug = false
   } = options;
@@ -362,7 +362,7 @@ export async function verifyCredentialsAndInjectSession(
   page: Page,
   email: string,
   password: string,
-  userType: 'free' | 'pro' = 'pro'
+  userType: 'basic' | 'pro' = 'pro'
 ) {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const anonKey = process.env.VITE_SUPABASE_ANON_KEY;

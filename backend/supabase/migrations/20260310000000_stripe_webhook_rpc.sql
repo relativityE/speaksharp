@@ -43,19 +43,19 @@ BEGIN
                 stripe_subscription_id = p_subscription_id
             WHERE id = p_user_id;
 
-        ELSIF p_action = 'downgrade_to_free' THEN
+        ELSIF p_action = 'downgrade_to_basic' THEN
             IF p_subscription_id IS NULL THEN
                 RAISE EXCEPTION 'Missing subscription_id for downgrade';
             END IF;
 
             IF p_event_type = 'customer.subscription.deleted' THEN
                 UPDATE user_profiles
-                SET subscription_status = 'free',
+                SET subscription_status = 'basic',
                     stripe_subscription_id = NULL
                 WHERE stripe_subscription_id = p_subscription_id;
             ELSE
                 UPDATE user_profiles
-                SET subscription_status = 'free'
+                SET subscription_status = 'basic'
                 WHERE stripe_subscription_id = p_subscription_id;
             END IF;
 

@@ -25,9 +25,9 @@ DECLARE
   v_last_monthly_reset TIMESTAMPTZ;
   
   -- Limits (Sync with PRD)
-  v_daily_limit_free INT := 3600;      -- 1 Hour
+  v_daily_limit_basic INT := 3600;      -- 1 Hour
   v_daily_limit_pro INT := 7200;       -- 2 Hours
-  v_monthly_limit_free INT := 90000;   -- 25 Hours
+  v_monthly_limit_basic INT := 90000;   -- 25 Hours
   v_monthly_limit_pro INT := 180000;   -- 50 Hours
   
   v_current_daily_limit INT;
@@ -71,8 +71,8 @@ BEGIN
     v_current_daily_limit := v_daily_limit_pro;
     v_current_monthly_limit := v_monthly_limit_pro;
   ELSE
-    v_current_daily_limit := v_daily_limit_free;
-    v_current_monthly_limit := v_monthly_limit_free;
+    v_current_daily_limit := v_daily_limit_basic;
+    v_current_monthly_limit := v_monthly_limit_basic;
   END IF;
 
   -- 5. Enforce Limits (Soft-check before increment)
@@ -177,7 +177,7 @@ $$;
 -- 4. Update create_session_and_update_usage to support engine-aware tracking
 CREATE OR REPLACE FUNCTION public.create_session_and_update_usage(
     p_session_data JSONB,
-    p_is_free_user BOOLEAN, -- Kept for signature compatibility
+    p_is_basic_user BOOLEAN, -- Kept for signature compatibility
     p_engine_type TEXT DEFAULT 'native'
 ) RETURNS JSONB
 LANGUAGE plpgsql

@@ -62,7 +62,7 @@ Deno.test("stripe-webhook handlers", async (t) => {
     assertEquals(response.status, 400); // Bad request due to missing metadata
   });
 
-  await t.step("handleSubscriptionDeleted - downgrades user to Free", async () => {
+  await t.step("handleSubscriptionDeleted - downgrades user to Basic", async () => {
     const event = {
       id: "evt_1",
       type: "customer.subscription.deleted",
@@ -80,7 +80,7 @@ Deno.test("stripe-webhook handlers", async (t) => {
     const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
 
     assertEquals(response.status, 200);
-    assertEquals(capturedArgs.p_action, "downgrade_to_free");
+    assertEquals(capturedArgs.p_action, "downgrade_to_basic");
   });
 
   await t.step("handles RPC error", async () => {
@@ -137,15 +137,15 @@ Deno.test("stripe-webhook subscription.updated handlers", async (t) => {
   };
 
   await t.step("handleSubscriptionUpdated - downgrades on canceled status", async () => {
-    assertEquals(await getArgs("canceled"), "downgrade_to_free");
+    assertEquals(await getArgs("canceled"), "downgrade_to_basic");
   });
 
   await t.step("handleSubscriptionUpdated - downgrades on unpaid status", async () => {
-    assertEquals(await getArgs("unpaid"), "downgrade_to_free");
+    assertEquals(await getArgs("unpaid"), "downgrade_to_basic");
   });
 
   await t.step("handleSubscriptionUpdated - downgrades on past_due status", async () => {
-    assertEquals(await getArgs("past_due"), "downgrade_to_free");
+    assertEquals(await getArgs("past_due"), "downgrade_to_basic");
   });
 
   await t.step("handleSubscriptionUpdated - no action on active status", async () => {
@@ -184,7 +184,7 @@ Deno.test("stripe-webhook invoice.payment_failed handlers", async (t) => {
   });
 
   await t.step("handlePaymentFailed - downgrades at 3+ attempts", async () => {
-    assertEquals(await getArgs(3), "downgrade_to_free");
+    assertEquals(await getArgs(3), "downgrade_to_basic");
   });
 
 });

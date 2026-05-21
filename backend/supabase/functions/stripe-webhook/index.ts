@@ -45,7 +45,7 @@ export async function handler(
       case "customer.subscription.deleted": {
         const subscription = event.data.object
         subscriptionId = subscription.id
-        action = 'downgrade_to_free';
+        action = 'downgrade_to_basic';
         break;
       }
 
@@ -55,7 +55,7 @@ export async function handler(
         const status = subscription.status
 
         if (status === "canceled" || status === "unpaid" || status === "past_due") {
-          action = 'downgrade_to_free';
+          action = 'downgrade_to_basic';
         }
         break;
       }
@@ -66,7 +66,7 @@ export async function handler(
         const attemptCount = invoice.attempt_count || 0
 
         if (attemptCount >= 3 && subscriptionId) {
-          action = 'downgrade_to_free';
+          action = 'downgrade_to_basic';
         }
         break;
       }
@@ -98,7 +98,7 @@ export async function handler(
 
     if (action === 'upgrade_to_pro') {
       console.log(`[Stripe] ✅ User ${userId} upgraded to Pro successfully`)
-    } else if (action === 'downgrade_to_free') {
+    } else if (action === 'downgrade_to_basic') {
       console.log(`[Stripe] ✅ Subscription ${subscriptionId} downgraded successfully`)
     }
 

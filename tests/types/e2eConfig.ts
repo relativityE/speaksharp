@@ -31,7 +31,7 @@ export interface E2EConfig {
         mockUser?: {
             id: string;
             email: string;
-            subscription_status: 'free' | 'pro';
+            subscription_status: 'basic' | 'pro';
         };
         mockSession?: {
             id: string;

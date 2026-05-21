@@ -84,13 +84,13 @@ describe('UserFillerWordsManager Integration', () => {
         }
     });
 
-    describe('Free User', () => {
+    describe('Basic User', () => {
         beforeEach(() => {
-            mockAuthContextValue.user = { id: 'free-user' } as any;
+            mockAuthContextValue.user = { id: 'basic-user' } as any;
 
             // Mock non-Pro user
             vi.mocked(useUserProfile).mockReturnValue({
-                data: { subscription_status: 'free' } as any,
+                data: { subscription_status: 'basic' } as any,
                 isLoading: false,
                 error: null,
             } as any);
@@ -105,12 +105,12 @@ describe('UserFillerWordsManager Integration', () => {
                 isAdding: false,
                 isRemoving: false,
                 count: 0,
-                maxWords: 10,  // Free tier limit
+                maxWords: 10,  // Basic tier limit
                 isPro: false
             } as unknown as ReturnType<typeof useUserFillerWords>);
         });
 
-        it('shows user filler words manager for free users', () => {
+        it('shows user filler words manager for basic users', () => {
             render(
                 <MockAuthProvider value={mockAuthContextValue}>
                     <UserFillerWordsManager />
@@ -122,7 +122,7 @@ describe('UserFillerWordsManager Integration', () => {
             expect(screen.queryByText(/upgrade to pro/i)).not.toBeInTheDocument();
         });
 
-        it('allows adding words for free users', () => {
+        it('allows adding words for basic users', () => {
             render(
                 <MockAuthProvider value={mockAuthContextValue}>
                     <UserFillerWordsManager />
@@ -135,9 +135,9 @@ describe('UserFillerWordsManager Integration', () => {
 
         it('uses the hook word limit for the counter and disabled state', async () => {
             const words = Array.from({ length: 10 }, (_, index) => ({
-                id: `free-word-${index}`,
+                id: `basic-word-${index}`,
                 word: `freeword${index}`,
-                user_id: 'free-user',
+                user_id: 'basic-user',
                 created_at: new Date().toISOString(),
             }));
 

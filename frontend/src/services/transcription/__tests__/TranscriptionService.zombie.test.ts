@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NavigateFunction } from 'react-router-dom';
 import TranscriptionService, { TranscriptionServiceOptions } from '../TranscriptionService';
-import { TranscriptionPolicy, PROD_FREE_POLICY } from '../TranscriptionPolicy';
+import { TranscriptionPolicy, PROD_BASIC_POLICY } from '../TranscriptionPolicy';
 import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
 import { sttRegistry } from '../STTRegistry';
@@ -64,7 +64,7 @@ describe('TranscriptionService - Zombie Prevention', () => {
             onFrame: vi.fn().mockReturnValue(() => { }),
         } as unknown as MicStream,
         policy: {
-            ...PROD_FREE_POLICY,
+            ...PROD_BASIC_POLICY,
             allowNative: true,
             allowCloud: true,
             allowPrivate: true,
@@ -132,7 +132,7 @@ describe('TranscriptionService - Zombie Prevention', () => {
         // Make terminate take some time
         cloudEngine.terminate.mockImplementation(() => new Promise(res => setTimeout(res, 50)));
 
-        await service.triggerStartTranscription({ ...PROD_FREE_POLICY, allowCloud: true, allowPrivate: true, preferredMode: 'cloud' });
+        await service.triggerStartTranscription({ ...PROD_BASIC_POLICY, allowCloud: true, allowPrivate: true, preferredMode: 'cloud' });
         expect(service.getState()).toBe('RECORDING');
 
         // RAPID DESTROY CALLS

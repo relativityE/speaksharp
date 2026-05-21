@@ -10,13 +10,13 @@ test.describe('Live user filler words persistence', () => {
             return;
         }
 
-        if (!process.env.E2E_FREE_EMAIL || !process.env.E2E_FREE_PASSWORD) {
-            throw new Error('Spec failed: E2E_FREE_EMAIL and E2E_FREE_PASSWORD are required for live custom words persistence.');
+        if (!process.env.E2E_BASIC_EMAIL || !process.env.E2E_BASIC_PASSWORD) {
+            throw new Error('Spec failed: E2E_BASIC_EMAIL and E2E_BASIC_PASSWORD are required for live custom words persistence.');
         }
     });
 
-    const email = process.env.E2E_FREE_EMAIL ?? '';
-    const password = process.env.E2E_FREE_PASSWORD ?? '';
+    const email = process.env.E2E_BASIC_EMAIL ?? '';
+    const password = process.env.E2E_BASIC_PASSWORD ?? '';
 
     async function signIn(page: Page) {
         await goToPublicRoute(page, ROUTES.SIGN_IN);

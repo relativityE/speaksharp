@@ -5,7 +5,7 @@
  * reducing the risk of hanging tests due to leaked resources/timers.
  */
 import TranscriptionService, { TranscriptionServiceOptions } from '../../services/transcription/TranscriptionService';
-import { PROD_FREE_POLICY } from '../../services/transcription/TranscriptionPolicy';
+import { PROD_BASIC_POLICY } from '../../services/transcription/TranscriptionPolicy';
 
 /**
  * Creates a TranscriptionService instance and registers it for cleanup.
@@ -20,7 +20,7 @@ export async function createTestService(
     cleanup: () => Promise<void>;
 }> {
     const fullOptions: Partial<TranscriptionServiceOptions> = {
-        policy: PROD_FREE_POLICY,
+        policy: PROD_BASIC_POLICY,
         ...options
     };
 

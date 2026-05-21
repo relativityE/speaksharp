@@ -51,7 +51,7 @@ Here is exactly how the credentials map:
 Even though it's a backend Node script hammering the database, it initializes its Supabase client using `SUPABASE_ANON_KEY`.
 
 *   **Why?** If we used the `SUPABASE_SERVICE_ROLE_KEY` (the true backend admin key), Supabase would entirely bypass our Row Level Security (RLS) policies and rate limits. The test would succeed, but it would be a "fake" success because it wouldn't be subject to the real throttling that regular users face.
-*   By using the `ANON_KEY`, the 30 headless simulated users look exactly like 30 real web browsers to Supabase's Edge network, ensuring we actually test the rate limits protecting your Free Tier.
+*   By using the `ANON_KEY`, the 30 headless simulated users look exactly like 30 real web browsers to Supabase's Edge network, ensuring we actually test the rate limits protecting your Basic Tier.
 
 ### 2. The UI Memory Check (Playwright)
 This phase boots up actual Chromium browsers. In `soak-test.yml`, we inject `SOAK_TEST_PASSWORD`.

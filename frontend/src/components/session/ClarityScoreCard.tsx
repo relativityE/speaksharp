@@ -3,6 +3,8 @@ import React from 'react';
 interface ClarityScoreCardProps {
     clarityScore: number;
     clarityLabel: string;
+    clarityExplanation?: string;
+    isClarityScorable?: boolean;
     className?: string;
 }
 
@@ -13,25 +15,37 @@ interface ClarityScoreCardProps {
 export const ClarityScoreCard: React.FC<ClarityScoreCardProps> = ({
     clarityScore,
     clarityLabel,
+    clarityExplanation,
+    isClarityScorable = true,
     className = "",
 }) => {
+    const displayScore = isClarityScorable ? Math.round(clarityScore) : 0;
+    const barWidth = Math.max(0, Math.min(100, displayScore));
+
     return (
         <div className={`bg-card border border-border rounded-xl p-4 shadow-card ${className}`}>
             <h3 className="text-base font-semibold text-foreground mb-2">Live Stats</h3>
             <div className="bg-muted/30 rounded-lg p-3">
                 <div className="flex items-center justify-between mb-1">
                     <span className="text-muted-foreground text-sm">Clarity Score</span>
-                    <span className="text-primary font-bold" data-testid="clarity-score-value">{Math.round(clarityScore)}%</span>
+                    <span className="text-primary font-bold" data-testid="clarity-score-value">
+                        {isClarityScorable ? `${displayScore}%` : '--'}
+                    </span>
                 </div>
                 <div className="h-2 bg-muted rounded-full overflow-hidden mb-2">
                     <div
                         className="h-full bg-primary rounded-full transition-all duration-300"
-                        style={{ width: `${clarityScore}%` }}
+                        style={{ width: `${barWidth}%` }}
                     />
                 </div>
-                <p className="text-xs text-muted-foreground text-right">
+                <p className="text-xs text-muted-foreground text-right mb-1">
                     {clarityLabel || 'Keep speaking clearly'}
                 </p>
+                {clarityExplanation && (
+                    <p className="text-xs text-muted-foreground leading-snug text-right" data-testid="clarity-score-explanation">
+                        {clarityExplanation}
+                    </p>
+                )}
             </div>
         </div>
     );

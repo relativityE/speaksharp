@@ -12,7 +12,7 @@ declare
   current_usage int;
   last_reset timestamptz;
   user_status text;
-  free_tier_limit_seconds int := 1800; -- 30 minutes
+  basic_tier_limit_seconds int := 1800; -- 30 minutes
 begin
   -- Get current usage, reset date, and subscription status for the user
   select
@@ -36,8 +36,8 @@ begin
     where id = auth.uid();
   end if;
 
-  -- Enforce usage limit for free tier users
-  if user_status = 'free' and current_usage >= free_tier_limit_seconds then
+  -- Enforce usage limit for basic tier users
+  if user_status = 'basic' and current_usage >= basic_tier_limit_seconds then
     -- User has already exceeded the limit, deny the request to add more usage.
     return false;
   end if;

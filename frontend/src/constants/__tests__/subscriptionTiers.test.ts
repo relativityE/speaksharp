@@ -3,7 +3,7 @@ import {
     SUBSCRIPTION_TIERS,
     TIER_LIMITS,
     isPro,
-    isFree,
+    isBasic,
     getEffectiveSubscriptionStatus,
     isExpiredPromoOnlyProfile,
     getTierLabel,
@@ -18,8 +18,8 @@ describe('subscriptionTiers', () => {
             expect(isPro('pro')).toBe(true);
         });
 
-        it('returns false for "free"', () => {
-            expect(isPro('free')).toBe(false);
+        it('returns false for "basic"', () => {
+            expect(isPro('basic')).toBe(false);
         });
 
         it('returns false for null', () => {
@@ -35,29 +35,29 @@ describe('subscriptionTiers', () => {
         });
     });
 
-    describe('isFree', () => {
-        it('returns true for "free"', () => {
-            expect(isFree('free')).toBe(true);
+    describe('isBasic', () => {
+        it('returns true for "basic"', () => {
+            expect(isBasic('basic')).toBe(true);
         });
 
         it('returns false for "pro"', () => {
-            expect(isFree('pro')).toBe(false);
+            expect(isBasic('pro')).toBe(false);
         });
 
         it('returns false for null', () => {
-            expect(isFree(null)).toBe(false);
+            expect(isBasic(null)).toBe(false);
         });
     });
 
     describe('effective promo tier', () => {
-        it('treats expired promo-only Pro profiles as Free before usage refresh completes', () => {
+        it('treats expired promo-only Pro profiles as Basic before usage refresh completes', () => {
             const profile = {
                 subscription_status: 'pro',
                 promo_expires_at: '2024-01-01T00:00:00.000Z',
             };
 
             expect(isExpiredPromoOnlyProfile(profile)).toBe(true);
-            expect(getEffectiveSubscriptionStatus(null, profile)).toBe('free');
+            expect(getEffectiveSubscriptionStatus(null, profile)).toBe('basic');
         });
 
         it('keeps paid Pro profiles Pro even with an old promo timestamp', () => {
@@ -77,8 +77,8 @@ describe('subscriptionTiers', () => {
                 promo_expires_at: '2999-01-01T00:00:00.000Z',
             };
 
-            expect(getEffectiveSubscriptionStatus('free', profile)).toBe('free');
-            expect(getEffectiveSubscriptionStatus('pro', { subscription_status: 'free' })).toBe('pro');
+            expect(getEffectiveSubscriptionStatus('basic', profile)).toBe('basic');
+            expect(getEffectiveSubscriptionStatus('pro', { subscription_status: 'basic' })).toBe('pro');
         });
     });
 
@@ -87,8 +87,8 @@ describe('subscriptionTiers', () => {
             expect(getTierLabel('pro')).toBe('Pro');
         });
 
-        it('returns "Basic" for free users', () => {
-            expect(getTierLabel('free')).toBe('Basic');
+        it('returns "Basic" for basic users', () => {
+            expect(getTierLabel('basic')).toBe('Basic');
         });
 
         it('returns "Basic" for null/undefined', () => {
@@ -98,14 +98,14 @@ describe('subscriptionTiers', () => {
     });
 
     describe('getTierLimits', () => {
-        it('returns FREE limits for null', () => {
+        it('returns BASIC limits for null', () => {
             const limits = getTierLimits(null);
-            expect(limits).toBe(TIER_LIMITS[SUBSCRIPTION_TIERS.FREE]);
+            expect(limits).toBe(TIER_LIMITS[SUBSCRIPTION_TIERS.BASIC]);
         });
 
-        it('returns FREE limits for "free"', () => {
-            const limits = getTierLimits('free');
-            expect(limits).toBe(TIER_LIMITS[SUBSCRIPTION_TIERS.FREE]);
+        it('returns BASIC limits for "basic"', () => {
+            const limits = getTierLimits('basic');
+            expect(limits).toBe(TIER_LIMITS[SUBSCRIPTION_TIERS.BASIC]);
         });
 
         it('returns PRO limits for "pro"', () => {
@@ -118,29 +118,29 @@ describe('subscriptionTiers', () => {
             expect(proLimits.dailySeconds).toBe(Infinity);
             expect(proLimits.maxSessionDuration).toBe(Infinity);
 
-            const freeLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.FREE];
-            expect(freeLimits.maxSessionDuration).toBe(Infinity);
+            const basicLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.BASIC];
+            expect(basicLimits.maxSessionDuration).toBe(Infinity);
         });
     });
 
     describe('getters', () => {
         it('getDailyLimit returns correct values', () => {
-            expect(getDailyLimit('free')).toBe(3600);
+            expect(getDailyLimit('basic')).toBe(3600);
             expect(getDailyLimit('pro')).toBe(Infinity);
         });
 
         it('getMaxFillerWords returns 100 for both', () => {
-            expect(getMaxFillerWords('free')).toBe(100);
+            expect(getMaxFillerWords('basic')).toBe(100);
             expect(getMaxFillerWords('pro')).toBe(100);
         });
     });
 
     describe('TIER_LIMITS', () => {
-        it('FREE tier has correct alpha launch limits', () => {
-            const freeLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.FREE];
-            expect(freeLimits.maxCustomWords).toBe(100);
-            expect(freeLimits.dailySeconds).toBe(3600);
-            expect(freeLimits.maxSessionDuration).toBe(Infinity);
+        it('BASIC tier has correct alpha launch limits', () => {
+            const basicLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.BASIC];
+            expect(basicLimits.maxCustomWords).toBe(100);
+            expect(basicLimits.dailySeconds).toBe(3600);
+            expect(basicLimits.maxSessionDuration).toBe(Infinity);
         });
 
         it('PRO tier has correct alpha launch limits', () => {

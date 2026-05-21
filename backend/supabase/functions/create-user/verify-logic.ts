@@ -56,7 +56,7 @@ Deno.test("Synchronized Auth - Dual Header Handshake (Primary)", async () => {
     assertEquals(res.tier, "pro");
 });
 
-Deno.test("Synchronized Auth - Body Secret & Cleanup (Legacy)", async () => {
+Deno.test("Synchronized Auth - Body Secret & Cleanup", async () => {
     const env = { AGENT_SECRET: "test_secret_123" };
     const req = new Request("http://localhost", {
         method: "POST",
@@ -65,7 +65,7 @@ Deno.test("Synchronized Auth - Body Secret & Cleanup (Legacy)", async () => {
         },
         body: JSON.stringify({
             username: "old@example.com",
-            type: "free",
+            type: "basic",
             agent_secret: "test_secret_123"
         })
     });
@@ -74,7 +74,7 @@ Deno.test("Synchronized Auth - Body Secret & Cleanup (Legacy)", async () => {
     assertEquals(res.status, 200);
     assertEquals(res.success, true);
     assertEquals(res.email, "old@example.com");
-    assertEquals(res.tier, "free");
+    assertEquals(res.tier, "basic");
     assertEquals(res.body_cleaned, true); // Verified defensive redact
 });
 

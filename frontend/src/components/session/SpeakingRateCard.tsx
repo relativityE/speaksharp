@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 interface SpeakingRateCardProps {
     wpm: number;
     wpmLabel: string;
+    wpmExplanation?: string;
     className?: string;
 }
 
@@ -14,6 +15,7 @@ interface SpeakingRateCardProps {
 export const SpeakingRateCard: React.FC<SpeakingRateCardProps> = ({
     wpm,
     wpmLabel,
+    wpmExplanation,
     className = "",
 }) => {
     return (
@@ -30,6 +32,11 @@ export const SpeakingRateCard: React.FC<SpeakingRateCardProps> = ({
                 <Badge variant="secondary" className="bg-muted text-muted-foreground hover:bg-muted border-none">
                     {wpmLabel || 'Optimal'}
                 </Badge>
+                {wpmExplanation && (
+                    <p className="text-xs text-muted-foreground leading-snug mt-3" data-testid="wpm-explanation">
+                        {wpmExplanation}
+                    </p>
+                )}
             </div>
         </div>
     );

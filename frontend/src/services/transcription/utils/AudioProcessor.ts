@@ -213,7 +213,7 @@ function getWorker(): Worker {
 }
 
 /**
- * Explicitly terminates the audio worker to free resources.
+ * Explicitly terminates the audio worker to release resources.
  */
 export function terminateWorker(): void {
     if (audioWorker) {

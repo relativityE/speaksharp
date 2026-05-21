@@ -8,7 +8,7 @@ import * as Sentry from '@sentry/react';
 
 // Mock useProfile hook
 vi.mock('@/hooks/useProfile', () => ({
-    useProfile: vi.fn(() => ({ profile: { subscription_status: 'free' } })),
+    useProfile: vi.fn(() => ({ profile: { subscription_status: 'basic' } })),
 }));
 
 // Mock transcription service

@@ -34,13 +34,13 @@ BEGIN
     -- After reset, the check below will use v_current_usage = 0
   END IF;
 
-  -- 3. Enforce Limit for Free Users
+  -- 3. Enforce Limit for Basic Users
   -- We allow the current session to proceed if they haven't hit the limit YET.
   -- This matches the PRD: "Daily limit logic enforced ... hit their limit mid-session ... cleanly terminated".
   -- Actually, PRD says: "What happens when a user hits their limit mid-session? Is the session cleanly terminated or does it hang?"
   -- If we check >= limit here, it means if they are at 1799, they can add another session.
   -- If they are at 1800, they cannot.
-  IF v_user_status = 'free' AND v_current_usage >= v_limit_seconds THEN
+  IF v_user_status = 'basic' AND v_current_usage >= v_limit_seconds THEN
     RETURN false;
   END IF;
 
@@ -65,7 +65,7 @@ DECLARE
   current_usage int;
   last_reset timestamptz;
   user_status text;
-  free_tier_limit_seconds int := 3600; -- 1 hour (Sync with frontend constants)
+  basic_tier_limit_seconds int := 3600; -- 1 hour (Sync with frontend constants)
   remaining_seconds int;
   can_start boolean;
 BEGIN
@@ -85,8 +85,8 @@ BEGIN
   IF NOT FOUND THEN
     RETURN jsonb_build_object(
       'can_start', true,
-      'remaining_seconds', free_tier_limit_seconds,
-      'limit_seconds', free_tier_limit_seconds,
+      'remaining_seconds', basic_tier_limit_seconds,
+      'limit_seconds', basic_tier_limit_seconds,
       'subscription_status', 'unknown',
       'error', 'Profile not found'
     );
@@ -108,14 +108,14 @@ BEGIN
     );
   END IF;
 
-  -- Calculate remaining for free users
-  remaining_seconds := greatest(0, free_tier_limit_seconds - current_usage);
+  -- Calculate remaining for basic users
+  remaining_seconds := greatest(0, basic_tier_limit_seconds - current_usage);
   can_start := remaining_seconds > 0;
 
   RETURN jsonb_build_object(
     'can_start', can_start,
     'remaining_seconds', remaining_seconds,
-    'limit_seconds', free_tier_limit_seconds,
+    'limit_seconds', basic_tier_limit_seconds,
     'used_seconds', current_usage,
     'subscription_status', user_status,
     'is_pro', false

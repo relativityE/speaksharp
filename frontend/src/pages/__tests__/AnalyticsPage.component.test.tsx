@@ -47,7 +47,7 @@ describe('AnalyticsPage', () => {
         } as unknown as AuthProvider.AuthContextType);
 
         mockUseUserProfile.mockReturnValue({
-            data: { subscription_status: 'free' },
+            data: { subscription_status: 'basic' },
             isLoading: false,
             error: null,
         } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
@@ -177,9 +177,9 @@ describe('AnalyticsPage', () => {
     });
 
     describe('Upgrade Banner', () => {
-        it('should render upgrade banner for free users on dashboard', () => {
+        it('should render upgrade banner for basic users on dashboard', () => {
             mockUseUserProfile.mockReturnValue({
-                data: { subscription_status: 'free' },
+                data: { subscription_status: 'basic' },
                 isLoading: false,
                 error: null,
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
@@ -201,7 +201,7 @@ describe('AnalyticsPage', () => {
 
         it('should NOT render upgrade banner when viewing specific session', () => {
             mockUseUserProfile.mockReturnValue({
-                data: { subscription_status: 'free' },
+                data: { subscription_status: 'basic' },
                 isLoading: false,
                 error: null,
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);

@@ -87,7 +87,7 @@ export const sessionService = {
         const { saveSession } = await import('@/lib/storage');
         const { session: newSession, usageExceeded } = await saveSession(
             session,
-            { subscription_status: 'free' } as UserProfile, // Mock profile for now
+            { subscription_status: 'basic' } as UserProfile, // Mock profile for now
             session.engine || 'native',
             idempotencyKey
         );

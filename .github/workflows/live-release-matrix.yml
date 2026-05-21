@@ -79,8 +79,8 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          E2E_FREE_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
-          E2E_FREE_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
+          E2E_BASIC_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
+          E2E_BASIC_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/user-filler-words-persistence.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 

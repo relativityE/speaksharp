@@ -140,13 +140,13 @@ The Stripe test-mode checkout proves the entitlement path executes correctly in 
 
 | Scenario | Result | Evidence |
 |---|---:|---|
-| `customer.subscription.deleted` | PASS | Local webhook test maps event to `downgrade_to_free` and calls atomic RPC. |
-| `customer.subscription.updated` with `canceled` | PASS | Local webhook test maps status to `downgrade_to_free`. |
-| `customer.subscription.updated` with `unpaid` | PASS | Local webhook test maps status to `downgrade_to_free`. |
-| `customer.subscription.updated` with `past_due` | PASS | Local webhook test maps status to `downgrade_to_free`. |
+| `customer.subscription.deleted` | PASS | Local webhook test maps event to `downgrade_to_basic` and calls atomic RPC. |
+| `customer.subscription.updated` with `canceled` | PASS | Local webhook test maps status to `downgrade_to_basic`. |
+| `customer.subscription.updated` with `unpaid` | PASS | Local webhook test maps status to `downgrade_to_basic`. |
+| `customer.subscription.updated` with `past_due` | PASS | Local webhook test maps status to `downgrade_to_basic`. |
 | `customer.subscription.updated` with `active` | PASS | Local webhook test maps status to `none`. |
 | `invoice.payment_failed` with fewer than 3 attempts | PASS | Local webhook test maps event to `none`. |
-| `invoice.payment_failed` with 3+ attempts | PASS | Local webhook test maps event to `downgrade_to_free`. |
+| `invoice.payment_failed` with 3+ attempts | PASS | Local webhook test maps event to `downgrade_to_basic`. |
 | Duplicate/replayed webhook event | PASS | Adversarial test returns `skipped: true` through the atomic webhook RPC. |
 | RPC action failure | PASS | Adversarial test returns failure instead of pretending success, allowing retry. |
 
@@ -169,7 +169,7 @@ The billing lifecycle contract is proven at handler/RPC-call level, but broad pu
 | Invalid promo code during public signup | PASS | `/private/tmp/speaksharp-pl006-promo-1778806498265/invalid-first-after-submit.png`; user lands on Basic with clear `Promo failed: Invalid or inactive promo code` messaging. |
 | Valid promo code during public signup | PASS | `/private/tmp/speaksharp-pl006-promo-1778806498265/valid-once-after-submit.png`; public signup lands on Session with `PRO` badge and Pro STT mode surface. |
 | Reuse same one-use promo code | PASS | `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; user lands on Basic with clear `Promo failed: Promo code already used` messaging. |
-| Expired promo downgrade | PASS | GitHub workflow `expired-promo-live-smoke.yml` run `25894288884`; evidence line `LIVE_EXPIRED_PROMO_DENIAL_EVIDENCE {"checkUsageStatus":200,"promoJustExpired":true,"effectiveSubscriptionStatus":"free","isPro":false,"canStart":true,"storedSubscriptionStatus":"free","storedPromoExpired":true,"dialogDismissed":true,"sttMode":"native"}`. |
+| Expired promo downgrade | PASS | GitHub workflow `expired-promo-live-smoke.yml` run `25894288884`; evidence line `LIVE_EXPIRED_PROMO_DENIAL_EVIDENCE {"checkUsageStatus":200,"promoJustExpired":true,"effectiveSubscriptionStatus":"basic","isPro":false,"canStart":true,"storedSubscriptionStatus":"basic","storedPromoExpired":true,"dialogDismissed":true,"sttMode":"native"}`. |
 | Expired promo artifacts | PASS | GitHub artifact `7008001175`, `expired-promo-live-smoke-artifacts`. |
 
 ### PL-006 Notes

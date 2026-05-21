@@ -36,16 +36,16 @@ export interface TranscriptionPolicy {
 // ============================================================================
 
 /**
- * Free tier production policy.
+ * Basic tier production policy.
  * Only Native Browser is available.
  */
-export const PROD_FREE_POLICY: TranscriptionPolicy = {
+export const PROD_BASIC_POLICY: TranscriptionPolicy = {
     allowNative: true,
     allowCloud: false,
     allowPrivate: false,
     preferredMode: 'native',
     allowFallback: false,
-    executionIntent: 'prod-free',
+    executionIntent: 'prod-basic',
 };
 
 /**
@@ -178,7 +178,7 @@ export function buildPolicyForUser(
     isProUser: boolean,
     uiMode?: TranscriptionMode | null
 ): TranscriptionPolicy {
-    const base = isProUser ? PROD_PRO_POLICY : PROD_FREE_POLICY;
+    const base = isProUser ? PROD_PRO_POLICY : PROD_BASIC_POLICY;
     return {
         ...base,
         preferredMode: uiMode ?? base.preferredMode,

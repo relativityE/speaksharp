@@ -39,7 +39,7 @@ vi.mock('sonner', () => ({
 const mockProfile: UserProfile = {
     id: 'test-user',
     email: 'test@example.com',
-    subscription_status: 'free',
+    subscription_status: 'basic',
     created_at: '2023-01-01',
     usage_seconds: 0,
     usage_reset_date: '2023-01-01',
@@ -254,7 +254,7 @@ describe('AnalyticsDashboard', () => {
     it('shows PDF export in Basic session detail while keeping script upload Pro-only', () => {
         renderComponent({
             sessionId: 'basic-session',
-            profile: { ...mockProfile, subscription_status: 'free' },
+            profile: { ...mockProfile, subscription_status: 'basic' },
             sessionHistory: [
                 {
                     id: 'basic-session',

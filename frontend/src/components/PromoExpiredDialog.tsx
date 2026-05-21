@@ -59,7 +59,7 @@ export const PromoExpiredDialog: React.FC<PromoExpiredDialogProps> = ({ open, on
                     <AlertDialogCancel
                         className="m-0 h-11 w-full justify-center"
                         onClick={handleContinue}
-                        data-testid="promo-expired-continue-free"
+                        data-testid="promo-expired-continue-basic"
                     >
                         Continue as Basic
                     </AlertDialogCancel>

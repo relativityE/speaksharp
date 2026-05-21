@@ -30,7 +30,7 @@ test.describe.serial('Live expired promo denial @live', () => {
     }
   });
 
-  test('expired promo-only Pro is downgraded, shown dismissible dialog, and forced to Free STT mode', async ({ page }) => {
+  test('expired promo-only Pro is downgraded, shown dismissible dialog, and forced to Basic STT mode', async ({ page }) => {
     userId = await createExpiredPromoUser(admin);
 
     const usageLimitResponsePromise = page.waitForResponse((response) =>
@@ -49,10 +49,10 @@ test.describe.serial('Live expired promo denial @live', () => {
       can_start?: boolean
     } | null;
 
-    await expect(page.getByTestId('promo-expired-continue-free')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('promo-expired-continue-basic')).toBeVisible({ timeout: 20_000 });
     await expect(page.getByTestId('promo-expired-upgrade-button')).toBeVisible({ timeout: 20_000 });
-    await page.getByTestId('promo-expired-continue-free').click();
-    await expect(page.getByTestId('promo-expired-continue-free')).not.toBeVisible({ timeout: 10_000 });
+    await page.getByTestId('promo-expired-continue-basic').click();
+    await expect(page.getByTestId('promo-expired-continue-basic')).not.toBeVisible({ timeout: 10_000 });
 
     const modeSelect = page.getByTestId('stt-mode-select');
     await expect(modeSelect).toHaveAttribute('data-state', 'native', { timeout: 20_000 });
@@ -76,9 +76,9 @@ test.describe.serial('Live expired promo denial @live', () => {
 
     expect(evidence.checkUsageStatus, JSON.stringify(evidence)).toBe(200);
     expect(evidence.promoJustExpired, JSON.stringify(evidence)).toBe(true);
-    expect(evidence.effectiveSubscriptionStatus, JSON.stringify(evidence)).toBe('free');
+    expect(evidence.effectiveSubscriptionStatus, JSON.stringify(evidence)).toBe('basic');
     expect(evidence.isPro, JSON.stringify(evidence)).toBe(false);
-    expect(evidence.storedSubscriptionStatus, JSON.stringify(evidence)).toBe('free');
+    expect(evidence.storedSubscriptionStatus, JSON.stringify(evidence)).toBe('basic');
     expect(evidence.sttMode, JSON.stringify(evidence)).toBe('native');
   });
 });

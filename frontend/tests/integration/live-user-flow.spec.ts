@@ -77,7 +77,7 @@ test.describe('Live User Flow', () => {
         if (hasPro) {
             console.log('✅ Pro subscription verified');
         } else {
-            console.log('ℹ️ User is on Free plan');
+            console.log('ℹ️ User is on Basic plan');
         }
     });
 });

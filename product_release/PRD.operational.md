@@ -31,7 +31,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 
 ### Core Persistence & Reliability
 - **Session Analysis Persistence**: Every finalized recording session MUST result in a persisted `sessions` record containing the analysis artifacts needed for returning-user comparison: transcript text, duration, total words, WPM, clarity, filler/custom word counts, pause metrics, AI suggestions when generated, STT engine/mode metadata, and optional ground-truth/WER fields. Transcript storage is required for WER, AI feedback cache, PDF regeneration, and session-over-session coaching until a separate redaction/encryption design is implemented.
-- **Quotas Enforced**: Users are strictly capped at their daily and monthly limits (1h/day Free, 2h/day Pro).
+- **Quotas Enforced**: Users are strictly capped at their daily and monthly limits (1h/day Basic, 2h/day Pro).
 - **Billing Behavior**: Pro features MUST unlock within 10 seconds of a successful Stripe checkout.
 - **Export Reliability**: PDF exports MUST reflect the active client-side transcript/report state and persisted session metrics available at export time.
 - **Privacy Guarantees**: Private STT audio data MUST NOT leave the user's browser.
@@ -54,10 +54,10 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 | **Quota Service Unavailable** | **Fail-Closed**: No new sessions allowed if limit check fails. |
 | **Model Download Failure** | Notify user, show retry/setup status, and present Native or Cloud only as explicit user-selectable alternatives. Do not silently route Private users to Cloud. |
 | **WebGPU Unsupported/Slow** | Continue through the launch default CPU/Transformers.js Private path. WebGPU probing must fail fast and must not make a user wait before CPU setup can proceed. |
-| **Stripe Webhook Delayed** | Keep user as Free until confirmed; do not grant optimistic Pro access. |
+| **Stripe Webhook Delayed** | Keep user as Basic until confirmed; do not grant optimistic Pro access. |
 | **Transcription Silence** | Heartbeat watchdog MUST trigger auto-reconnect or failure state within 8s. |
 | **Database Latency** | UI MUST show "Saving..." spinner until RPC confirms persistence. |
-| **PDF Export** | Do not block or count PDF exports for Free/basic users. All exported PDFs, including Pro exports, include SpeakSharp watermarking/branding. |
+| **PDF Export** | Do not block or count PDF exports for Basic/basic users. All exported PDFs, including Pro exports, include SpeakSharp watermarking/branding. |
 | **Cloud Chunk Contract Violation** | Treat AssemblyAI `Input Duration Violation` / close code `3007` as an audio chunking defect until proven otherwise. Evidence must include chunk sample counts, WebSocket close code/reason, provider error text, and whether transcript callbacks reached the UI. |
 
 ---
@@ -79,7 +79,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 ---
 
 ## 5. Metrics & Success Criteria
-- **Conversion Rate**: Target 2% from Free to Pro.
+- **Conversion Rate**: Target 2% from Basic to Pro.
 - **STT Accuracy**: WER < 10% for Private, < 8% for Cloud.
 - **Cloud Live Proof**: Cloud release validation requires a live transcript against the canonical `.wav` fixture and matching ground-truth text. Token `200` and WebSocket open are readiness evidence only; success requires non-placeholder transcript text and WER < 8%.
 - **Retention**: > 30% Day-7 retention for active practitioners.

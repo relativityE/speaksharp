@@ -63,7 +63,7 @@ BEGIN
 
     SELECT max_concurrent_sessions INTO v_max_concurrent
     FROM public.tier_configs
-    WHERE tier_name = COALESCE(v_user_tier, 'free');
+    WHERE tier_name = COALESCE(v_user_tier, 'basic');
 
     IF v_max_concurrent IS NULL THEN
         v_max_concurrent := 1;

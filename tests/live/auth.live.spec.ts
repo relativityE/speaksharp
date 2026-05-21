@@ -13,15 +13,15 @@ test.describe('Real Authentication Flow', () => {
             return;
         }
 
-        const email = process.env.E2E_FREE_EMAIL;
-        const password = process.env.E2E_FREE_PASSWORD;
+        const email = process.env.E2E_BASIC_EMAIL;
+        const password = process.env.E2E_BASIC_PASSWORD;
         if (!email || !password) {
-            throw new Error('Spec failed: E2E_FREE_EMAIL and E2E_FREE_PASSWORD are required for Live Auth tests.');
+            throw new Error('Spec failed: E2E_BASIC_EMAIL and E2E_BASIC_PASSWORD are required for Live Auth tests.');
         }
     });
 
-    const testEmail = process.env.E2E_FREE_EMAIL;
-    const testPassword = process.env.E2E_FREE_PASSWORD;
+    const testEmail = process.env.E2E_BASIC_EMAIL;
+    const testPassword = process.env.E2E_BASIC_PASSWORD;
 
     test('should sign in with real credentials and establish session', async ({ page }) => {
         // High-Fidelity AUTH test against real Supabase

@@ -75,7 +75,7 @@ test.describe('Promo Admin Journey', () => {
         await expect(page).not.toHaveURL(/\/session/);
     });
 
-    test('redirects as free user when promo fails but credentials are valid', async ({ mockedPage: page }) => {
+    test('redirects as basic user when promo fails but credentials are valid', async ({ mockedPage: page }) => {
         // 1. Navigate to signup
         await goToPublicRoute(page, '/auth/signup');
         await page.waitForSelector('[data-testid="email-input"]');

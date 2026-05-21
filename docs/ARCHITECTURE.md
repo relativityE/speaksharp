@@ -232,7 +232,7 @@ We prioritize a secure, dynamic promo code system for internal access/testing.
   │   a session)    │                           │     < NOW:               │
   │                 │                           │    ─────────────────     │
   │                 │ ◀──────────────────────── │    1. Update user to     │
-  │                 │   { is_pro: false,        │       'free'             │
+  │                 │   { is_pro: false,        │       'basic'             │
   │                 │     promo_just_expired:   │    2. Return flag to     │
   └─────────────────┘     true }                │       show modal         │
          │                                      └──────────────────────────┘
@@ -242,7 +242,7 @@ We prioritize a secure, dynamic promo code system for internal access/testing.
   │  ────────────────────────────────────── │
   │  "Your Pro Trial Has Ended"             │
   │                                         │
-  │  [Upgrade to Pro]   [Continue as Free]  │
+  │  [Upgrade to Pro]   [Continue as Basic]  │
   └─────────────────────────────────────────┘
 ```
 
@@ -423,7 +423,7 @@ SpeakSharp utilizes a centralized **ENV Bridge** to decouple the application log
 
 **Components:**
 1. **`TestFlags.ts` (SSOT)**: The authoritative source of all environment detections.
-2. **`env.ts` (Frozen Shim)**: A logic-free projection layer that maintains compatibility with 50+ legacy files.
+2. **`env.ts` (Frozen Shim)**: A logic-basic projection layer that maintains compatibility with 50+ legacy files.
 
 **Architectural Constraints:**
 *   **Frozen Shim**: `env.ts` must remain a pure value projection. No computation allowed.
@@ -491,7 +491,7 @@ SpeakSharp utilizes multiple layers of testing to ensure 100% reliability across
 - **Integration Suite** (`pnpm test:int:local`): Runs the non-driver-dependent live tests (auth, upgrade, analytics-journey) against real Supabase. Does not require audio hardware.
 - **System Suite** (`pnpm test:system:local:headed`): Full system suite including driver-dependent STT tests. Requires headed Chrome with real audio/WASM hardware.
 - **Deploy Suite** (`pnpm test:deploy`): Runs against `speaksharp-public.vercel.app`. Validates that production deployments are not critically broken. Options: `--prod` (default) or `--local` (`test:deploy:local`).
-- **Soak Suite (Dual-Pronged)**: Simulates sustained user activity via two serial phases to respect CI runner and Free Tier limits (50 req/sec):
+- **Soak Suite (Dual-Pronged)**: Simulates sustained user activity via two serial phases to respect CI runner and Basic Tier limits (50 req/sec):
   1. **Backend Thundering Herd (Headless)**: 30 concurrent Node.js clients hammer Supabase Auth and RPCs to verify infrastructure connection pools and Edge Function burst limits.
   2. **Frontend UI Memory Check (Real Browser)**: 2 isolated Playwright Chromium instances record continuously for 5 minutes to verify React/Zustand stability against memory bloat and fallback chain functionality.
 
@@ -1535,13 +1535,13 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 - `programmaticLoginWithRoutes()` sets up mock auth/routes
 - `navigateToRoute()` for client-side navigation (preserves mock context)
 - `goToPublicRoute()` for public pages like signin
-- **Includes User Journey Tests** (`*-journey.e2e.spec.ts`): 26+ tests covering core-journey, user-journey, free-user-journey, pro-user-journey, upgrade-journey, promo-admin-journey
+- **Includes User Journey Tests** (`*-journey.e2e.spec.ts`): 26+ tests covering core-journey, user-journey, basic-user-journey, pro-user-journey, upgrade-journey, promo-admin-journey
 
 **3. Live E2E Tests** (`tests/e2e/*-real*.spec.ts`)
 - Runs against real Supabase with GitHub Secrets
 - Uses `liveLogin()` helper for real authentication
 - CI workflow: `Dev Integration (Real Supabase)` (`dev-real-integration.yml`)
-- Required secrets: `E2E_FREE_EMAIL`, `E2E_FREE_PASSWORD`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `EDGE_FN_URL`, `AGENT_SECRET`, etc. These are normally available only in GitHub Actions.
+- Required secrets: `E2E_BASIC_EMAIL`, `E2E_BASIC_PASSWORD`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `EDGE_FN_URL`, `AGENT_SECRET`, etc. These are normally available only in GitHub Actions.
 
 **4. Resilience & Health Tests** (`tests/e2e/*.e2e.spec.ts`)
 - `core.e2e.spec.ts` performs the canonical app-wide probe journey.
@@ -1596,7 +1596,7 @@ curl -i -X POST "https://yxlapjuovrsvjswkwnrk.supabase.co/functions/v1/create-us
 
 **Test User Management:**
 - Soak test users are managed via `scripts/setup-test-users.mjs` and the `setup-test-users.yml` workflow.
-- **Scaling:** Default load is **10 users** (7 Free, 3 Pro), with a safety cap of **100 users** enforced via `MAX_TOTAL_TEST_USERS`.
+- **Scaling:** Default load is **10 users** (7 Basic, 3 Pro), with a safety cap of **100 users** enforced via `MAX_TOTAL_TEST_USERS`.
 - **Email Pattern:** `soak-test{N}@test.com` (e.g., `soak-test0`, `soak-test4`).
 - **Shared Password:** Users share the `SOAK_TEST_PASSWORD` secret defined in GitHub.
 
@@ -1682,7 +1682,7 @@ Due to the sensitivity of Stripe `secret keys`, we employ a "Negative Verificati
 **What it does:**
 1. Sets `VITE_USE_REAL_DATABASE: "true"` - Disables MSW mocking, uses real Supabase
 2. Injects real Supabase and Stripe credentials from GitHub secrets
-3. Uses FREE tier test user credentials (`E2E_FREE_EMAIL`/`E2E_FREE_PASSWORD`)
+3. Uses BASIC tier test user credentials (`E2E_BASIC_EMAIL`/`E2E_BASIC_PASSWORD`)
 4. Runs `frontend/tests/stripe/stripe-checkout.spec.ts`
 5. Verifies clicking "Upgrade to Pro" redirects to `checkout.stripe.com` (or validates diagnostic error)
 
@@ -1695,8 +1695,8 @@ Due to the sensitivity of Stripe `secret keys`, we employ a "Negative Verificati
 | `SUPABASE_ANON_KEY` | Real Supabase anon key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key for backend operations |
 | `STRIPE_PUBLISHABLE_KEY` | Stripe test mode publishable key (pk_test_...) |
-| `E2E_FREE_EMAIL` | Email of a FREE tier user in Supabase |
-| `E2E_FREE_PASSWORD` | That user's password |
+| `E2E_BASIC_EMAIL` | Email of a BASIC tier user in Supabase |
+| `E2E_BASIC_PASSWORD` | That user's password |
 
 **When to use:**
 - After modifying `stripe-checkout` Edge Function
@@ -1713,9 +1713,9 @@ Due to the sensitivity of Stripe `secret keys`, we employ a "Negative Verificati
 
 **What it does:**
 1. **Secret Management:** Opt-in rotation of `SOAK_TEST_PASSWORD` using `GH_PAT` (Personal Access Token).
-2. **User Provisioning:** Automatically creates missing users up to the required count (default: 7 Free, 3 Pro).
+2. **User Provisioning:** Automatically creates missing users up to the required count (default: 7 Basic, 3 Pro).
 3. **Password Sync:** Ensures every `soak-test*` user in the database matches the current GitHub Secret.
-4. **Tier Alignment:** Updates `user_profiles` to match the requested distribution of Free/Pro tiers.
+4. **Tier Alignment:** Updates `user_profiles` to match the requested distribution of Basic/Pro tiers.
 5. **Security:** Enforces a hard safety cap of **100 users** from `tests/constants.ts`.
 
 **Trigger:** Manual (`workflow_dispatch`)
@@ -1978,7 +1978,7 @@ The [`vercel.json`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/ve
 6. dev-real-integration.yml
    ├─ Scripts: None (uses Playwright directly)
    ├─ Edge Functions: None (tests auth flow)
-   ├─ Requires: E2E_FREE_EMAIL/PASSWORD
+   ├─ Requires: E2E_BASIC_EMAIL/PASSWORD
    └─ Runs: auth-real.e2e.spec.ts
 
 7. canary.yml
@@ -1990,7 +1990,7 @@ The [`vercel.json`](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/ve
 8. stripe-checkout-test.yml
    ├─ Scripts: None (uses Playwright directly)
    ├─ Edge Functions: stripe-checkout (tested)
-   ├─ Requires: E2E_FREE_EMAIL/PASSWORD, STRIPE_*
+   ├─ Requires: E2E_BASIC_EMAIL/PASSWORD, STRIPE_*
    └─ Runs: playwright.stripe.config.ts
 ```
 
@@ -2075,7 +2075,7 @@ How it's Launched: The test environment's dev server is not launched by you dire
 
 ### E2E Testing Infrastructure
 
-To ensure robust, flake-free testing, we employ a sophisticated infrastructure that bridges the gap between the E2E runner (Playwright) and the application's internal state.
+To ensure robust, flake-basic testing, we employ a sophisticated infrastructure that bridges the gap between the E2E runner (Playwright) and the application's internal state.
 
 #### 1. The E2E Bridge (`e2e-bridge.ts`)
 We inject a global "Bridge" into the application window during tests (`initializeE2EEnvironment` in `main.tsx`). This allows Playwright to:
@@ -2096,7 +2096,7 @@ To enhance diagnostic fidelity, recorded sessions now persist a `status_reason` 
 
 #### 2. Secure User Provisioning (Edge Function)
 Instead of relying on unstable UI-based registration flows, we use a dedicated Supabase Edge Function (`create-user`) to provision test users.
-- **Deterministic State:** Creates fresh users with specific roles ('free' or 'pro') for each test run.
+- **Deterministic State:** Creates fresh users with specific roles ('basic' or 'pro') for each test run.
 - **CI/CD Security:** Uses `AGENT_SECRET` to authorize provisioning requests, keeping the production database secure while allowing CI to fully exercise the backend.
 
 #### 3. Programmatic Login
@@ -2307,7 +2307,7 @@ gh secret list
 NAME                    UPDATED
 AGENT_SECRET            about 13 days ago
 CANARY_PASSWORD         about 1 month ago
-E2E_FREE_EMAIL          about 1 month ago
+E2E_BASIC_EMAIL          about 1 month ago
 ...
 ```
 
@@ -2344,10 +2344,10 @@ Our E2E testing strategy includes a **health check** (`tests/e2e/infra.probe.e2e
 | Area | File | Tests |
 |------|------|-------|
 | Auth Resilience | `fetchWithRetry.test.ts` | 7 (backoff, retry count, error) |
-| Tier Gating | `subscriptionTiers.test.ts` | 17 (isPro, isFree, limits) |
+| Tier Gating | `subscriptionTiers.test.ts` | 17 (isPro, isBasic, limits) |
 | Billing | `stripe-webhook/index.test.ts` | 12 (idempotency, handlers) |
 | Billing Adversarial | `stripe-webhook/adversarial.test.ts` | 3 (replay, rollback) |
-| Usage Limits | `check-usage-limit/index.test.ts` | 6 (auth, free/pro, CORS) |
+| Usage Limits | `check-usage-limit/index.test.ts` | 6 (auth, basic/pro, CORS) |
 
 
 ### Unit & Integration Testing for React Query
@@ -2457,7 +2457,7 @@ The soak test infrastructure consists of three main components:
 2. **`UserSimulator`** (`tests/soak/user-simulator.ts`)
    - Simulates realistic user journeys: login → session → analytics
    - Configurable session duration and transcription mode
-   - Optimized for free tier constraints (Native Browser mode by default)
+   - Optimized for basic tier constraints (Native Browser mode by default)
 
 3. **`soak-test.spec.ts`** (`tests/soak/soak-test.spec.ts`)
    - Orchestrates concurrent user scenarios
@@ -2486,7 +2486,7 @@ Soak test settings are centralized in `tests/constants.ts`:
 
 ```typescript
 export const SOAK_CONFIG = {
-  CONCURRENT_USERS: 10,         // Default: 7 free + 3 pro
+  CONCURRENT_USERS: 10,         // Default: 7 basic + 3 pro
   SESSION_DURATION_MS: 300000,  // 5 minutes per user
   P95_THRESHOLD_MS: 10000,      // Max acceptable P95 response time
   MAX_MEMORY_MB: 200,           // Max acceptable memory per tab
@@ -2497,7 +2497,7 @@ export const SOAK_CONFIG = {
 ```
 
 **Override via environment:**
-- `NEW_BASIC_COUNT`: Number of Basic-facing test users. These accounts still use the internal unpaid entitlement value `free`.
+- `NEW_BASIC_COUNT`: Number of Basic-facing test users. These accounts still use the internal unpaid entitlement value `basic`.
 - `NEW_PRO_COUNT`: Number of pro tier users
 
 Run soak tests with:
@@ -2789,7 +2789,7 @@ We maintain standalone benchmarking scripts to verify optimizations and prevent 
     - **Cloud**: Utilizes the high-accuracy AssemblyAI cloud service. (Internal: `cloud`)
     - **Private**: Uses a local Whisper model for privacy-focused transcription. (Internal: `private`. **Note:** UI and code have been fully migrated to "Private".)
     - **Native**: Falls back to the browser's built-in speech recognition engine. (Internal: `native`)
-  - **Access Control**: Access to the "Cloud" and "Private" modes is restricted. These modes are enabled for users with a "pro" subscription status or for developers when the `VITE_DEV_USER` environment variable is set to `true`. Free users are restricted to the "Native" mode.
+  - **Access Control**: Access to the "Cloud" and "Private" modes is restricted. These modes are enabled for users with a "pro" subscription status or for developers when the `VITE_DEV_USER` environment variable is set to `true`. Basic users are restricted to the "Native" mode.
 
 ### Homepage Routing Logic
 The application's homepage (`/`) has special routing logic to handle different user states. This logic is located directly within the `HomePage.tsx` component.
@@ -2859,7 +2859,7 @@ The database schema is designed for performance and reliability, ensuring that a
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | `UUID` | Primary key |
-| `subscription_status` | `TEXT` | 'free' or 'pro' |
+| `subscription_status` | `TEXT` | 'basic' or 'pro' |
 | `usage_seconds` | `INT` | Total usage in the current billing period |
 | `usage_reset_date` | `TIMESTAMPTZ` | Date when usage resets |
 
@@ -2887,7 +2887,7 @@ The database schema is designed for performance and reliability, ensuring that a
 
 The application's user tiers have been consolidated into the following structure:
 
-*   **Free User (Authenticated):** A user who has created an account but does not have an active Pro subscription. This is the entry-level tier for all users.
+*   **Basic User (Authenticated):** A user who has created an account but does not have an active Pro subscription. This is the entry-level tier for all users.
 *   **Pro User (Authenticated):** A user with an active, paid subscription via Stripe. This tier includes all features, such as unlimited practice time, cloud-based AI transcription, and privacy-preserving private transcription.
 
 ## 5.5 Domain Services Layer (`frontend/src/services/domainServices.ts`)
@@ -2964,7 +2964,7 @@ The service uses a **Policy-Driven Strategy Pattern** to separate environment/ti
 
 | Policy | Allowed Modes | Use Case |
 |--------|---------------|----------|
-| `PROD_FREE_POLICY` | Native only | Free tier users |
+| `PROD_BASIC_POLICY` | Native only | Basic tier users |
 | `PROD_PRO_POLICY` | Native, Cloud, Private | Pro tier users |
 | `E2E_DETERMINISTIC_NATIVE` | Native only | E2E tests (default) |
 | `E2E_DETERMINISTIC_CLOUD` | Cloud only | E2E tests (Cloud validation) |
@@ -2977,7 +2977,7 @@ The service uses a **Policy-Driven Strategy Pattern** to separate environment/ti
 
 *   **Modes:**
     *   **`CloudAssemblyAI`:** Uses the AssemblyAI v3 streaming API for high-accuracy cloud-based transcription. This is one of the modes available to Pro users.
-    *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API. This is the primary mode for Free users and a fallback for Pro users.
+    *   **`NativeBrowser`:** Uses the browser's built-in `SpeechRecognition` API. This is the primary mode for Basic users and a fallback for Pro users.
     *   **`PrivateWhisper`:** A private, privacy-first transcription mode for Pro users, powered by `@xenova/transformers` running a Whisper model directly in the browser.
 *   **Audio Processing:** `audioUtils.ts`, `audioUtils.impl.ts`, and `audio-processor.worklet.js` are responsible for capturing and resampling microphone input. A critical bug in the resampling logic that was degrading AI quality has been fixed.
 
@@ -3317,7 +3317,7 @@ The following patterns were established during the 'Expert' hardening cycle to e
 
 #### Pattern 28: Engine-Aware Usage Enforcement
 *   **Problem:** Users bypassing limits by toggling engines mid-session.
-*   **Solution:** Backend RPC `update_user_usage` now requires an `engine_type` parameter to apply correct decrement logic (Free/Pro/Unlimited).
+*   **Solution:** Backend RPC `update_user_usage` now requires an `engine_type` parameter to apply correct decrement logic (Basic/Pro/Unlimited).
 
 #### Pattern 29: CI Diagnostic Logging (tee)
 *   **Problem:** `script` command in CI breaking JSON reporters.

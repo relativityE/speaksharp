@@ -25,7 +25,7 @@ describe('storage.ts validation', () => {
         const mockUser = {
             id: 'user-123',
             email: 'test@example.com',
-            subscription_status: 'free',
+            subscription_status: 'basic',
         };
 
         // Create a massive string > 500KB
@@ -46,7 +46,7 @@ describe('storage.ts validation', () => {
         const mockUser = {
             id: 'user-123',
             email: 'test@example.com',
-            subscription_status: 'free',
+            subscription_status: 'basic',
         };
 
         const validTranscript = 'a'.repeat(500);

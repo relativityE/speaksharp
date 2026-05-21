@@ -49,10 +49,10 @@ on:
       create_tier:
         description: 'Create action only: user tier'
         required: false
-        default: 'free'
+        default: 'basic'
         type: choice
         options:
-          - free
+          - basic
           - pro
 
 jobs:

@@ -151,14 +151,14 @@ Deno.serve(async (req: Request) => {
         if (normalizedStatus === 'pro') {
             tier = 'pro';
             usageLimit = -1; // Unlimited
-        } else if (normalizedStatus === 'free') {
-            tier = 'free';
+        } else if (normalizedStatus === 'basic') {
+            tier = 'basic';
             usageLimit = 3600; // 1 hour default
         } else {
             console.error(`[Provisioning] Invalid subscription status: '${subscription_status}'`);
             return new Response(JSON.stringify({
                 error: "invalid_subscription_status",
-                message: "subscription_status must be explicitly 'free' or 'pro'",
+                message: "subscription_status must be explicitly 'basic' or 'pro'",
                 received: subscription_status
             }), { status: 400 });
         }

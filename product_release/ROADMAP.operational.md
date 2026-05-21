@@ -74,4 +74,4 @@ This document tracks identified risks and their impact on the 12-hour launch win
 - High-concurrency performance tuning.
 - Visual polish and non-critical UI transitions.
 - Multi-tab synchronization features.
-- Free -> Basic migration and pricing rename until after the MVP test-release baseline is green, tagged, and impounded. Stripe test-mode prices can validate a future paid Basic checkout without real charges, but Basic still requires app copy, DB/Edge Function semantics, tests, and live Price ID alignment before production use.
+- Paid Basic pricing work remains deferred. The internal unpaid baseline tier cutover to `basic` is no longer deferred and must be deployed and smoke-tested before tester launch resumes.

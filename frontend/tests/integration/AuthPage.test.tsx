@@ -228,7 +228,7 @@ describe('AuthPage Integration', () => {
                     password: 'StrongPass123!',
                     options: {
                         data: {
-                            initial_plan: 'free'
+                            initial_plan: 'basic'
                         }
                     }
                 });

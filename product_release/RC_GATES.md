@@ -45,8 +45,8 @@ Required maintained tests and workflows:
 
 | Risk | Regression Test / Workflow | Required Evidence |
 |---|---|---|
-| Expired promo or stale profile grants Pro | `.github/workflows/live-release-matrix.yml` with `suite=expired-promo-denial`, `tests/live/expired-promo-denial.live.spec.ts`, `frontend/src/constants/__tests__/subscriptionTiers.test.ts`, `frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` | Effective tier becomes `free`, stored profile downgrades to `free`, Pro badge hidden, STT mode forced to Native |
-| Basic/free access sanity | `tests/live/expired-promo-denial.live.spec.ts`, `tests/e2e/user-features.e2e.spec.ts` | Baseline users retain Native/free-safe path and do not retain Cloud/Private entitlement |
+| Expired promo or stale profile grants Pro | `.github/workflows/live-release-matrix.yml` with `suite=expired-promo-denial`, `tests/live/expired-promo-denial.live.spec.ts`, `frontend/src/constants/__tests__/subscriptionTiers.test.ts`, `frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` | Effective tier becomes `basic`, stored profile downgrades to `basic`, Pro badge hidden, STT mode forced to Native |
+| Basic/basic access sanity | `tests/live/expired-promo-denial.live.spec.ts`, `tests/e2e/user-features.e2e.spec.ts` | Baseline users retain Native/basic-safe path and do not retain Cloud/Private entitlement |
 | Pro Cloud artifact path | `.github/workflows/pro-stt-artifact-matrix.yml`, `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Cloud selected, token issued to Pro, transcript visible, stop/save, history/detail, AI feedback, PDF transcript text |
 | Pro Private artifact/cache path | `.github/workflows/live-release-matrix.yml` with `suite=private-cache`, `tests/live/private-cache.live.spec.ts` | Private starts, caches, saves, and remains usable on second start |
 | Native Chrome mic | `scripts/manual-native-chrome-proof.mjs` | Real Chrome `getUserMedia`, live transcript, stop/save, history, analytics |
@@ -60,7 +60,7 @@ Required maintained tests:
 
 | OWASP-Aligned Risk | Regression Test | Expected Assertion |
 |---|---|---|
-| Broken access control: Free user Cloud token | `backend/supabase/functions/assemblyai-token/index.test.ts` | Non-Pro request returns 403 and AssemblyAI provider is not called |
+| Broken access control: Basic user Cloud token | `backend/supabase/functions/assemblyai-token/index.test.ts` | Non-Pro request returns 403 and AssemblyAI provider is not called |
 | Broken access control: expired promo Cloud token | `backend/supabase/functions/assemblyai-token/index.test.ts`, `tests/live/cloud-token-gates.live.spec.ts` | Expired promo-only Pro returns 403 before provider token mint |
 | Insecure design: quota fail-open | `backend/supabase/functions/assemblyai-token/index.test.ts`, `backend/supabase/functions/check-usage-limit/index.test.ts` | Usage verification failure denies start/token and does not mint paid provider token |
 | Auth/session failure | `backend/supabase/functions/check-usage-limit/index.test.ts`, `backend/supabase/functions/assemblyai-token/index.test.ts` | Missing/invalid auth returns structured denial |
@@ -98,9 +98,9 @@ Required maintained live workflows:
 
 | Running-App Risk | Workflow / Test | Required Evidence |
 |---|---|---|
-| Expired promo downgrade trap | `Expired Promo Live Smoke` | Dialog dismisses, effective tier is `free`, stored status is `free`, mode is Native |
+| Expired promo downgrade trap | `Expired Promo Live Smoke` | Dialog dismisses, effective tier is `basic`, stored status is `basic`, mode is Native |
 | Invalid auth | `tests/live/cloud-token-gates.live.spec.ts`, `backend/supabase/functions/assemblyai-token/index.test.ts` | Missing/invalid auth returns 401 and no token issued |
-| Cloud token denied for Free/expired/over-quota | `tests/live/cloud-token-gates.live.spec.ts` | Free and expired promo return 403, over-quota returns 429, no token issued |
+| Cloud token denied for Basic/expired/over-quota | `tests/live/cloud-token-gates.live.spec.ts` | Basic and expired promo return 403, over-quota returns 429, no token issued |
 | Promo brute force | `tests/live/promo-throttle.live.spec.ts` | Ninth wrong promo attempt returns 429 for the same user |
 | Cloud Pro artifact path | `Pro STT Artifact Matrix` with `mode=cloud` | Transcript -> save -> history/detail -> AI -> PDF text |
 | Stripe checkout/webhook readiness | `tests/live/stripe-checkout-readiness.live.spec.ts`, `tests/live/stripe-webhook-readiness.live.spec.ts` | Test-mode checkout/webhook path completes without production-charge assumptions |
@@ -139,7 +139,7 @@ Required maintained checks:
 |---|---|---|
 | User does not know what to click first | Canary + primary journey smoke | Session entry and recording CTA are reachable |
 | STT mode is unclear | `tests/e2e/user-features.e2e.spec.ts`, Native manual checklist | Private/Cloud/Native selection is visible and current mode is inspectable |
-| Expired promo copy traps user | `tests/live/expired-promo-denial.live.spec.ts` | Continue as Basic/Free-safe action dismisses dialog and lands in safe state |
+| Expired promo copy traps user | `tests/live/expired-promo-denial.live.spec.ts` | Continue as Basic/Basic-safe action dismisses dialog and lands in safe state |
 | Native support expectations | Tester instructions and manual Native proof | Native is explicitly Chrome/browser-dependent and included only with Chrome proof |
 | Errors are actionable | `tests/e2e/error-states.e2e.spec.ts` | User sees recoverable state, not only internal diagnostics |
 | Private first-use setup | `tests/e2e/user-features.e2e.spec.ts`, `tests/live/private-cache.live.spec.ts` | Private setup/cache path is understandable enough to start and rerun without stale cache failure |

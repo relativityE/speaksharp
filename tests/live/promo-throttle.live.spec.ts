@@ -93,7 +93,7 @@ async function createLiveUser(admin: SupabaseClient, email: string): Promise<Cre
 
   const { error: profileError } = await admin.from('user_profiles').upsert({
     id: data.user.id,
-    subscription_status: 'free',
+    subscription_status: 'basic',
     promo_expires_at: null,
     daily_usage_seconds: 0,
     native_usage_seconds: 0,

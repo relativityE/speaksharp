@@ -55,11 +55,11 @@ vi.mock('../../../contexts/AuthProvider', async () => {
 });
 
 vi.mock('../../useProfile', () => ({
-  useProfile: vi.fn(() => ({ subscription_status: 'free' }))
+  useProfile: vi.fn(() => ({ subscription_status: 'basic' }))
 }));
 
 vi.mock('../../useProfile', () => ({
-  useProfile: vi.fn(() => ({ subscription_status: 'free' }))
+  useProfile: vi.fn(() => ({ subscription_status: 'basic' }))
 }));
 
 vi.mock('../../../utils/fillerWordUtils', () => ({

@@ -129,10 +129,10 @@ Deno.test("assemblyai-token edge function", async (t) => {
       };
 
       const res = await handler(
-        request("Bearer valid-free-token"),
+        request("Bearer valid-basic-token"),
         createMockSupabase({
-          user: { id: "free-user" },
-          subscriptionStatus: "free",
+          user: { id: "basic-user" },
+          subscriptionStatus: "basic",
         }),
         fetchImpl,
         env,

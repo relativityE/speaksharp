@@ -1,14 +1,45 @@
--- Enforce effective subscription tier for promo-backed Pro access.
---
--- Promo redemption stores subscription_status = 'pro' during the promo window.
--- Once promo_expires_at passes, users without a paid Stripe subscription must
--- be treated as basic by all database-side usage and session RPCs.
+-- Cut over the internal unpaid tier to "basic".
+-- This project has not launched publicly, so the change is strict: runtime
+-- entitlement responses and newly persisted unpaid profiles use only "basic".
 
 ALTER TABLE public.user_profiles
-ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
+ALTER COLUMN subscription_status SET DEFAULT 'basic';
 
-COMMENT ON COLUMN public.user_profiles.stripe_subscription_id IS
-  'Stripe subscription id for paid Pro users; used to distinguish paid Pro from expired promo-only Pro.';
+INSERT INTO public.tier_configs (
+  tier_name,
+  daily_limit_seconds,
+  monthly_limit_seconds,
+  max_concurrent_sessions,
+  allowed_engines
+)
+SELECT
+  'basic',
+  daily_limit_seconds,
+  monthly_limit_seconds,
+  max_concurrent_sessions,
+  allowed_engines
+FROM public.tier_configs
+WHERE tier_name = 'free'
+ON CONFLICT (tier_name) DO UPDATE
+SET
+  daily_limit_seconds = EXCLUDED.daily_limit_seconds,
+  monthly_limit_seconds = EXCLUDED.monthly_limit_seconds,
+  max_concurrent_sessions = EXCLUDED.max_concurrent_sessions,
+  allowed_engines = EXCLUDED.allowed_engines;
+
+INSERT INTO public.tier_configs (
+  tier_name,
+  daily_limit_seconds,
+  monthly_limit_seconds,
+  max_concurrent_sessions,
+  allowed_engines
+)
+VALUES ('basic', 3600, 90000, 1, '{"native", "transformers-js", "whisper-turbo"}')
+ON CONFLICT (tier_name) DO NOTHING;
+
+UPDATE public.user_profiles
+SET subscription_status = 'basic'
+WHERE lower(COALESCE(subscription_status, '')) = 'free';
 
 CREATE OR REPLACE FUNCTION public.effective_subscription_tier(
   p_subscription_status TEXT,
@@ -53,7 +84,6 @@ DECLARE
   v_cloud_usage INT;
   v_last_daily_reset TIMESTAMPTZ;
   v_last_monthly_reset TIMESTAMPTZ;
-
   v_daily_limit INT;
   v_monthly_limit INT;
 BEGIN
@@ -98,6 +128,14 @@ BEGIN
       'is_pro', false,
       'error', 'Profile not found'
     );
+  END IF;
+
+  IF lower(COALESCE(v_stored_status, '')) = 'free' THEN
+    UPDATE public.user_profiles
+    SET subscription_status = 'basic', updated_at = now()
+    WHERE id = auth.uid();
+    v_stored_status := 'basic';
+    v_effective_tier := 'basic';
   END IF;
 
   IF v_last_daily_reset IS NULL OR v_last_daily_reset::DATE < now()::DATE THEN
@@ -148,11 +186,9 @@ DECLARE
   v_cloud_usage INT;
   v_last_daily_reset TIMESTAMPTZ;
   v_last_monthly_reset TIMESTAMPTZ;
-
   v_daily_limit INT;
   v_monthly_limit INT;
   v_allowed_engines TEXT[];
-
   v_today DATE := now()::DATE;
 BEGIN
   IF p_session_duration_seconds IS NULL OR p_session_duration_seconds < 0 THEN
@@ -238,6 +274,7 @@ BEGIN
 
   UPDATE public.user_profiles
   SET
+    subscription_status = v_effective_tier,
     daily_usage_seconds = v_daily_usage,
     native_usage_seconds = v_native_usage,
     cloud_usage_seconds = v_cloud_usage,
@@ -336,15 +373,28 @@ BEGIN
         v_max_concurrent := 1;
     END IF;
 
+    UPDATE public.sessions
+    SET
+        status = 'failed',
+        updated_at = now()
+    WHERE user_id = auth.uid()
+      AND status = 'active'
+      AND expires_at IS NOT NULL
+      AND expires_at <= now();
+
     SELECT COUNT(*) INTO v_active_sessions
     FROM public.sessions
-    WHERE user_id = auth.uid() AND status = 'active';
+    WHERE user_id = auth.uid()
+      AND status = 'active'
+      AND (expires_at IS NULL OR expires_at > now());
 
     IF v_active_sessions >= v_max_concurrent THEN
         RETURN jsonb_build_object(
             'new_session', null,
             'usage_exceeded', true,
-            'error', 'max_concurrent_sessions_reached'
+            'error', 'max_concurrent_sessions_reached',
+            'active_sessions', v_active_sessions,
+            'max_concurrent_sessions', v_max_concurrent
         );
     END IF;
 
@@ -460,3 +510,76 @@ BEGIN
     );
 END;
 $$;
+
+CREATE OR REPLACE FUNCTION process_stripe_webhook_event(
+    p_event_id text,
+    p_event_type text,
+    p_action text,
+    p_user_id uuid DEFAULT NULL,
+    p_subscription_id text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_success boolean := false;
+    v_skipped boolean := false;
+    v_error text := NULL;
+BEGIN
+    BEGIN
+        INSERT INTO processed_webhook_events (event_id, event_type, processed_at)
+        VALUES (p_event_id, p_event_type, NOW());
+    EXCEPTION WHEN unique_violation THEN
+        RETURN jsonb_build_object('success', true, 'skipped', true);
+    END;
+
+    BEGIN
+        IF p_action = 'upgrade_to_pro' THEN
+            IF p_user_id IS NULL THEN
+                RAISE EXCEPTION 'Missing user_id for upgrade';
+            END IF;
+
+            UPDATE user_profiles
+            SET subscription_status = 'pro',
+                stripe_subscription_id = p_subscription_id
+            WHERE id = p_user_id;
+
+        ELSIF p_action = 'downgrade_to_basic' THEN
+            IF p_subscription_id IS NULL THEN
+                RAISE EXCEPTION 'Missing subscription_id for downgrade';
+            END IF;
+
+            IF p_event_type = 'customer.subscription.deleted' THEN
+                UPDATE user_profiles
+                SET subscription_status = 'basic',
+                    stripe_subscription_id = NULL
+                WHERE stripe_subscription_id = p_subscription_id;
+            ELSE
+                UPDATE user_profiles
+                SET subscription_status = 'basic'
+                WHERE stripe_subscription_id = p_subscription_id;
+            END IF;
+
+        ELSIF p_action = 'none' THEN
+            NULL;
+        ELSE
+            RAISE EXCEPTION 'Unknown action: %', p_action;
+        END IF;
+
+        v_success := true;
+    EXCEPTION WHEN OTHERS THEN
+        DELETE FROM processed_webhook_events WHERE event_id = p_event_id;
+        v_success := false;
+        v_error := SQLERRM;
+    END;
+
+    RETURN jsonb_build_object('success', v_success, 'skipped', v_skipped, 'error', v_error);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION process_stripe_webhook_event FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION process_stripe_webhook_event TO service_role;
+
+DELETE FROM public.tier_configs
+WHERE tier_name = 'free';

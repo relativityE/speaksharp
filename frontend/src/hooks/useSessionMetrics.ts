@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
-import { calculateCoreSessionMetrics } from '@/utils/sessionAnalysis';
+import { calculateCoreSessionMetrics } from '../utils/sessionAnalysis';
 import type { Chunk } from './useSpeechRecognition/types';
 
 interface UseSessionMetricsProps {
@@ -14,10 +14,15 @@ interface SessionMetrics {
     formattedTime: string;
     clarityScore: number;
     clarityLabel: string;
+    clarityExplanation: string;
+    isClarityScorable: boolean;
     wpm: number;
     rollingWpm: number; // Speed in the last 15 seconds
     wpmLabel: string;
+    wpmExplanation: string;
     fillerCount: number;
+    fillerExplanation: string;
+    wordCount: number;
 }
 
 /**
@@ -55,10 +60,15 @@ export const useSessionMetrics = ({
             formattedTime,
             clarityScore: coreMetrics.clarityScore,
             clarityLabel: coreMetrics.clarityLabel,
+            clarityExplanation: coreMetrics.clarityExplanation,
+            isClarityScorable: coreMetrics.isClarityScorable,
             wpm: coreMetrics.wpm,
             rollingWpm,
             wpmLabel: coreMetrics.wpmLabel,
+            wpmExplanation: coreMetrics.wpmExplanation,
             fillerCount: coreMetrics.fillerCount,
+            fillerExplanation: coreMetrics.fillerExplanation,
+            wordCount: coreMetrics.wordCount,
         };
     }, [transcript, chunks, fillerData, elapsedTime]);
 };

@@ -8,6 +8,7 @@ interface FillerWordData {
 interface FillerWordsCardProps {
     fillerCount: number;
     fillerData: Record<string, FillerWordData>;
+    fillerExplanation?: string;
     headerAction?: React.ReactNode;
     className?: string;
 }
@@ -19,6 +20,7 @@ interface FillerWordsCardProps {
 export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
     fillerCount,
     fillerData,
+    fillerExplanation,
     headerAction,
     className = "",
 }) => {
@@ -65,6 +67,11 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
                     <p className="text-sm text-muted-foreground italic text-center py-2">No words defined</p>
                 )}
             </div>
+            {fillerExplanation && (
+                <p className="text-xs text-muted-foreground leading-snug mt-3 border-t border-border/50 pt-3" data-testid="filler-explanation">
+                    {fillerExplanation}
+                </p>
+            )}
         </div>
     );
 };

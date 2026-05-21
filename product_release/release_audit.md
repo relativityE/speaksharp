@@ -35,7 +35,7 @@ SpeakSharp is no longer in a blanket "all release paths blocked" posture. Contro
 
 | Category | Status | Risk Level | Rationale |
 | :--- | :--- | :--- | :--- |
-| **Financial Security** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **CRITICAL** | Free Cloud-token denial and active promo-Pro token issuance are live-confirmed; over-limit and expired-promo denial remain pending. |
+| **Financial Security** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **CRITICAL** | Basic Cloud-token denial and active promo-Pro token issuance are live-confirmed; over-limit and expired-promo denial remain pending. |
 | **User Privacy** | 🟡 DB SAVE VERIFIED / BROWSER TRANSCRIPT PENDING | LOW | Private DB policy now allows Pro `engine='private'` save/readback. Browser Private trace now proves audio frames and model inference happen, but the model returned empty text on the short fixture; live probes now use a 122.514s speech fixture and emit audio RMS/peak for the next retest. |
 | **Operational Stability** | 🟡 CAUTION | MEDIUM | Stabilization churn has created "Test-Aware" production debt. |
 | **Product Integrity** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **HIGH** | Negative duration rejection and promo one-time/reuse behavior are live-confirmed; wrong-code throttling remains pending. |
@@ -51,15 +51,15 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 | **Zero-Day Coaching Persistence** | Current release contract stores the transcript/analysis snapshot needed for WER, cached AI feedback, PDF regeneration, and session-over-session coaching. Private STT still keeps audio local; transcript storage should be revisited with redaction/encryption after MVP validation. | Integrated into PRD, Architecture, and Release Readiness. |
 | **CI Metrics Workflow** | Local CI/SQM metrics print to console through the metrics script; local runs do not rewrite markdown coverage tables. Stale markdown coverage display is expected unless the metrics-writing workflow intentionally updates docs. | Integrated into PRD and Release Readiness. |
 | **Cloud Boost Moat** | User-specific vocabulary sent to AssemblyAI via `keyterms_prompt` is a Pro Cloud accuracy differentiator when Cloud is explicitly selected. | Integrated into PRD and Feature Validation Matrix. |
-| **PDF Export Branding** | Free/basic monthly PDF export counting is intentionally removed because generation is client-side and zero variable cost. All exported PDFs remain SpeakSharp-branded/watermarked, including Pro. | Integrated into PRD, readiness, and roadmap. |
+| **PDF Export Branding** | Basic/basic monthly PDF export counting is intentionally removed because generation is client-side and zero variable cost. All exported PDFs remain SpeakSharp-branded/watermarked, including Pro. | Integrated into PRD, readiness, and roadmap. |
 | **Private STT Launch Policy** | Private STT remains the Pro default/recommended mode, but launch now prioritizes deterministic CPU/Transformers.js setup. WebGPU/WhisperTurbo is an accelerated path after support is verified, not a blocking first-use requirement. | Integrated into PRD, Architecture, Roadmap, Release Readiness, and manual validation. |
 
 ### Remediated Code Paths Awaiting Deployment Validation
 
 | Gate | Current Verification | Status |
 | :--- | :--- | :--- |
-| **G1: Fail-Closed Usage** | Deployed `check-usage-limit` returns structured 401 for missing auth and `can_start:true` only for authenticated Free happy path. | RPC/DB-error fail-closed simulation still pending. |
-| **G2: Usage-Aware Token** | Live Free user gets HTTP 403; live active promo-Pro user gets HTTP 200 token with `expires_in:600`. | Over-limit and expired-promo token denial still pending. |
+| **G1: Fail-Closed Usage** | Deployed `check-usage-limit` returns structured 401 for missing auth and `can_start:true` only for authenticated Basic happy path. | RPC/DB-error fail-closed simulation still pending. |
+| **G2: Usage-Aware Token** | Live Basic user gets HTTP 403; live active promo-Pro user gets HTTP 200 token with `expires_in:600`. | Over-limit and expired-promo token denial still pending. |
 | **G3: Negative Duration** | Live `update_user_usage(-100, 'native')` returned `{"error":"invalid_duration","success":false}`. | Passed for direct negative-duration RPC. |
 | **G4: Promo Rate Limit** | Live one-time promo generation/redemption passed; reused promo code was rejected. GitHub `Live Release Matrix` run `25635969309` proved 9 wrong-code attempts returned `[400,400,400,400,400,400,400,400,429]`. | Passed for live wrong-code throttle. |
 | **Q1: Pro Session Warning** | Pro users with finite daily remaining time receive the 5-minute warning; GitHub CI is green on `56ce972`. | Live/manual validation pending. |
@@ -103,8 +103,8 @@ This evidence lowers the current risk from "unfixed code/workflows" to "live-val
 
 ### 1. Quota Fail-Open Vulnerability (`check-usage-limit`)
 - **Evidence**: `backend/supabase/functions/check-usage-limit/index.ts:133`
-- **Original Vulnerability**: The function returned `can_start: true` in the catch-all error handler. During database latency or Supabase outages, all users (Free & Pro) could bypass usage gates entirely.
-- **Impact**: Unlimited free usage of expensive Cloud STT ($0.47/hr).
+- **Original Vulnerability**: The function returned `can_start: true` in the catch-all error handler. During database latency or Supabase outages, all users (Basic & Pro) could bypass usage gates entirely.
+- **Impact**: Unlimited basic usage of expensive Cloud STT ($0.47/hr).
 - **Current Status**: Fix applied locally and Edge Function deploy workflow is green; live fail-closed smoke still required.
 
 ### 2. Cloud STT Token Abuse (`assemblyai-token`)

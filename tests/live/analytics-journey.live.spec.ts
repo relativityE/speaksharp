@@ -8,8 +8,8 @@
  * 
  * 1. `VISUAL_TEST_EMAIL` - (Optional) Email for the test user. Defaults to a timestamped email.
  * 2. `VISUAL_TEST_PASSWORD` - (Optional) Password for that user. Defaults to a timestamped password.
- * 3. `VISUAL_TEST_USER_TYPE` - (Optional) 'pro' (default) or 'free'. Determines user tier.
- * 4. `VISUAL_TEST_PROMO_CODE` - (Required if USER_TYPE='free') A promo code to unlock Pro features.
+ * 3. `VISUAL_TEST_USER_TYPE` - (Optional) 'pro' (default) or 'basic'. Determines user tier.
+ * 4. `VISUAL_TEST_PROMO_CODE` - (Required if USER_TYPE='basic') A promo code to unlock Pro features.
  * 5. `VISUAL_TEST_BASE_URL` - (Optional) Base URL to test against (defaults to localhost:5173)
  * 
  * ## How to Run
@@ -33,9 +33,9 @@ import { TEST_IDS, ROUTES } from '../constants';
 const TIMESTAMP = Date.now();
 const EMAIL = process.env.VISUAL_TEST_EMAIL || `test-user-${TIMESTAMP}@test.com`;
 const PASSWORD = process.env.VISUAL_TEST_PASSWORD || `password-${TIMESTAMP}`;
-const USER_TYPE = (process.env.VISUAL_TEST_USER_TYPE || 'pro') as 'free' | 'pro';
-// TODO: Implement dynamic promo generation for the Free path (requires a new Edge Function or script)
-const PROMO_CODE = process.env.VISUAL_TEST_PROMO_CODE; // Only used if USER_TYPE === 'free'
+const USER_TYPE = (process.env.VISUAL_TEST_USER_TYPE || 'pro') as 'basic' | 'pro';
+// TODO: Implement dynamic promo generation for the Basic path (requires a new Edge Function or script)
+const PROMO_CODE = process.env.VISUAL_TEST_PROMO_CODE; // Only used if USER_TYPE === 'basic'
 const BASE_URL = process.env.VISUAL_TEST_BASE_URL || 'http://localhost:5173';
 
 test.use({
@@ -123,8 +123,8 @@ test.describe('Visual Analytics & Private STT (Real-User Flow)', () => {
         await expect(page.getByTestId(TEST_IDS.APP_MAIN)).toBeVisible({ timeout: 10000 });
 
 
-        // 2. Apply Promo Code (only for Free users)
-        if (USER_TYPE === 'free' && PROMO_CODE) {
+        // 2. Apply Promo Code (only for Basic users)
+        if (USER_TYPE === 'basic' && PROMO_CODE) {
             await navigateToRoute(page, '/', { waitForMocks: false });
             const promoInput = page.getByPlaceholder('Enter promo code');
             const applyBtn = page.getByRole('button', { name: 'Apply' });

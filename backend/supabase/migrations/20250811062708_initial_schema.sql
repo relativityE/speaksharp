@@ -3,7 +3,7 @@
 -- Create user profiles table
 create table user_profiles (
   id uuid references auth.users(id) primary key,
-  subscription_status text default 'free',
+  subscription_status text default 'basic',
   subscription_id text,
   stripe_customer_id text,
   usage_minutes integer default 0,

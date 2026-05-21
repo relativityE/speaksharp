@@ -64,7 +64,7 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
         const guestStatus = (window as unknown as { __SS_E2E__?: { guestStatus: string } }).__SS_E2E__?.guestStatus || 'pro';
         const syntheticProfile: UserProfile = {
             id: '__E2E_GUEST_USER__',
-            subscription_status: guestStatus as 'free' | 'pro',
+            subscription_status: guestStatus as 'basic' | 'pro',
             usage_seconds: 0,
             usage_reset_date: new Date(Date.now() + 86400000).toISOString(),
             created_at: new Date().toISOString(),

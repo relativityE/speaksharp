@@ -118,7 +118,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
             const expiry = new Date(profile.promo_expires_at);
             if (expiry < now && !hasPaidStripeSubscription(profile as PromoProfile)) {
                 console.log(`[check-usage-limit] Promo expired for user ${userId}`);
-                await supabaseClient.from('user_profiles').update({ subscription_status: 'free' }).eq('id', userId);
+                await supabaseClient.from('user_profiles').update({ subscription_status: 'basic' }).eq('id', userId);
 
                 // Re-run RPC after status change
                 const { data: updatedLimit } = await supabaseClient.rpc('check_usage_limit');

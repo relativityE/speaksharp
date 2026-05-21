@@ -8,7 +8,7 @@ ADD COLUMN IF NOT EXISTS wpm FLOAT8;
 -- Implement Ghost RPC for atomic session save and usage update
 CREATE OR REPLACE FUNCTION create_session_and_update_usage(
     p_session_data JSONB,
-    p_is_free_user BOOLEAN
+    p_is_basic_user BOOLEAN
 ) RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -32,7 +32,7 @@ BEGIN
     END IF;
     
     -- 1. Update Usage (Atomic & Secure)
-    -- We ignore p_is_free_user and check status internally in update_user_usage
+    -- We ignore p_is_basic_user and check status internally in update_user_usage
     IF NOT update_user_usage(v_duration) THEN
         v_usage_exceeded := TRUE;
         -- Return early with usage_exceeded=true if limit hit

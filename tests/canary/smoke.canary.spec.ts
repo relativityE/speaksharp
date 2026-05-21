@@ -84,9 +84,9 @@ test.describe('Production Smoke Canary @canary', () => {
         // We don't enforce WHICH one is visible (depends on the canary user state), but ONE must be.
         // This confirms the frontend correctly mapped the database columns.
         const isProfileValid = (await upgradeButton.isVisible()) || (await proBadge.isVisible());
-        expect(isProfileValid, 'Schema Valid: Profile must reflect a known tier (Free/Pro)').toBe(true);
+        expect(isProfileValid, 'Schema Valid: Profile must reflect a known tier (Basic/Pro)').toBe(true);
 
-        // 3. Configure for Native STT (Free/Low Risk)
+        // 3. Configure for Native STT (Basic/Low Risk)
         debugLog('[CANARY] Configuring Native STT mode...');
         await selectNativeMode(page);
 

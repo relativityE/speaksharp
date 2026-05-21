@@ -36,7 +36,7 @@ This section contains ASCII art diagrams illustrating the journey for each user 
   |                                                 |
   v                                                 v
 +--------------------------+                      +--------------------------+
-| [Free User]              |                      | [Pro User]               |
+| [Basic User]              |                      | [Pro User]               |
 | - 1 Hr/Day (Max 25h/mo)  |                      | - 2 Hr/Day (Max 50h/mo)  |
 | - 60-Min Max Session     |                      | - 60-Min Max Session     |
 | - Native Browser STT     |                      | - Cloud/Private STT      |
@@ -74,7 +74,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Transcription** | 1 | The core service that converts speech to text. | ✅ Implemented | ✅ Yes |
 | **Cloud Server STT** | 1 | First-class Pro transcription via AssemblyAI. Hardened with **Triple-Identity Tracing** and **Atomic Orchestration**. Cloud is selectable by Pro users, but it is not treated as a fallback-only path. | ✅ Implemented | ✅ Yes |
 | **Private STT** | 1 | Recommended Pro default. On-device, local-first transcription using the Private ladder: WebGPU first, CPU/Transformers.js second, and Native only after Private cannot initialize. Hardened with **STTEngine Abstract Base Class**, **heartbeat monitoring**, and **AnalyticsBuffer** decoupling. | ✅ Implemented | ✅ Yes |
-| **Fallback STT** | 1 | Reliable fallback to native browser API for Free users and as an **auto-recovery mode** for Cloud/Private STT. Hardened with **Microtask Decoupling** and **Atomic Signal Waits**. | ✅ Implemented | ✅ Yes |
+| **Fallback STT** | 1 | Reliable fallback to native browser API for Basic users and as an **auto-recovery mode** for Cloud/Private STT. Hardened with **Microtask Decoupling** and **Atomic Signal Waits**. | ✅ Implemented | ✅ Yes |
 | **UI Mode Selector** | 1 | Allows users to select their preferred transcription engine. | ✅ Implemented | ✅ Yes |
 | **Session History** | 1 | Users can view and analyze their past practice sessions. | ✅ Implemented | ✅ Yes |
 | **Filler Word Detection** | 1 | Detects and counts common filler words (um, uh, like, etc.). | ✅ Implemented | ✅ Yes |
@@ -82,7 +82,7 @@ This section provides a granular breakdown of user-facing features, grouped by p
 | **Clarity Score** | 2 | Score based on filler word usage. | ✅ Implemented | ✅ Yes |
 | **Goal Setting** | 2 | Weekly/Daily targets for practice consistency. | ✅ Implemented | ✅ Yes |
 | **User-Friendly Error Handling** | 2 | Specific, user-facing error messages. | ✅ Implemented | ✅ Yes |
-| **User Filler Words** | 2 | User's personalized filler words to track (in addition to defaults like "um", "uh"). Stored in Supabase, passed to Cloud STT for improved recognition. Free: 100 words max. Pro: 100 words max. | ✅ Implemented | ✅ Yes |
+| **User Filler Words** | 2 | User's personalized filler words to track (in addition to defaults like "um", "uh"). Stored in Supabase, passed to Cloud STT for improved recognition. Basic: 100 words max. Pro: 100 words max. | ✅ Implemented | ✅ Yes |
 | **Vocal Variety / Pause Detection** | 2 | Analyzes pause duration and frequency. | ✅ Implemented | ✅ Yes |
 | **Session Hardening** | 3 | Prevents saving empty or 0-second sessions to preserve usage and data quality. | ✅ Implemented | ✅ Yes |
 | **Screen Reader Accessibility** | 2 | Live transcript uses ARIA live regions so screen readers announce new text automatically. | ✅ Implemented | ✅ Yes |
@@ -144,7 +144,7 @@ To ensure data integrity and meaningful analysis:
 *   **Trend Smoothing:** Trend visualizations use a **5-session rolling average** to reflect true progress and minimize session-specific noise.
 
 ### 3.4 Multi-Session Prevention
-*   **Policy:** **NO user** (Free or Pro) is allowed to have multiple concurrent recording sessions active. This is a critical guardrail for data integrity and accurate quota enforcement.
+*   **Policy:** **NO user** (Basic or Pro) is allowed to have multiple concurrent recording sessions active. This is a critical guardrail for data integrity and accurate quota enforcement.
 *   **Enforcement:** Distributed mutex (`localStorage`-based) prevents a second tab from starting a session if one is already active on the same device.
 *  | **User Experience** | If a user attempts to start a second session, the UI blocks the action and provides clear feedback that only one session is allowed. |
 
@@ -154,7 +154,7 @@ To prevent unexpected high-bandwidth background activity and maintain explicit u
 
 *   **DOWNLOAD_REQUIRED State:** The `TranscriptionService` identifies when a requested offline model is not present in the browser cache.
 *   **Explicit User Trigger:** Models are **never** automatically downloaded in the background. Users must explicitly click a "Download Offline Model" trigger (e.g., in the SessionPage header) to initiate the process.
-*   **Tier Gating (Upgrade Funnel):** The "Download Offline Model" trigger is visible to ALL users. For **Free Users**, the button is disabled/greyed-out to serve as a Pro-tier teaser, ideally accompanied by an upgrade tooltip. For **Pro Users**, the button is active and initiating the download flow.
+*   **Tier Gating (Upgrade Funnel):** The "Download Offline Model" trigger is visible to ALL users. For **Basic Users**, the button is disabled/greyed-out to serve as a Pro-tier teaser, ideally accompanied by an upgrade tooltip. For **Pro Users**, the button is active and initiating the download flow.
 *   **FSM Integration:** The status is tracked via the `DOWNLOAD_REQUIRED` state in the `TranscriptionService` Finite State Machine (FSM).
 *   **Native Fallback:** Native Browser STT is the baseline/browser engine and the final fallback only after the allowed Private path cannot initialize. Cloud remains a separate first-class Pro choice, not an automatic rescue path.
 
@@ -306,7 +306,7 @@ To ensure the "Gold Standard" of production readiness, the project enforces the 
 - **🟡 Database Tier Enforcement Refactor (Inch-stones):** The `update_user_usage` RPC and `useSessionLifecycle.ts` hooks are being refactored to align with the new financial model:
   1. **Split Usage Tracking:** Introduce `cloud_usage_seconds` and `native_usage_seconds` into the profile schema.
   2. **Update RPC Logic:** The `create_session_and_update_usage` transaction must inspect the `engine` parameter to decide which counter to augment.
-  3. **Revise Edge Function Limits:** The `check-usage-limit` barrier function must parse daily vs monthly logic. Allow 1h/day (25h/mo cap) for Free, and 2h/day (50h/mo cap) for Pro.
+  3. **Revise Edge Function Limits:** The `check-usage-limit` barrier function must parse daily vs monthly logic. Allow 1h/day (25h/mo cap) for Basic, and 2h/day (50h/mo cap) for Pro.
   4. **Frontend UI Sync:** The frontend must request and display decoupled daily and monthly usage bars.
   5. ✅ **Multi-Tab Prevention (COMPLETE):** Resolved by universal single-session policy.
 - **✅ RESOLVED - Prioritize Local STT (Code Update):** Refactored the frontend STT selector to **default to Private STT** instead of Cloud STT for Pro users. Cloud STT now requires a deliberate opt-in in the UI.
@@ -316,7 +316,7 @@ To ensure the "Gold Standard" of production readiness, the project enforces the 
 - **✅ Native STT Headless Test:** Resolved via `MockNativeBrowser` injection (see `tier-limits.e2e.spec.ts`).
 - **✅ Private STT E2E Hardening:** Stabilized via runtime bridge detection and `stt-isomorphic` mocks. (2026-03-16).
 - **✅ Tier Limit Logic:** `tier-limits.e2e.spec.ts` now dynamically verifies "Daily" (Edge Function) or "Monthly" (RPC) limits based on backend response. Mock duration remains 6s to satisfy `MIN_SESSION_DURATION_SECONDS` (5s).
-- **🟡 PDF Content Extraction & Generation:** `pdf-parse` requires `DOMMatrix`. PDF structure validated only. (By design). **New Requirement:** PDF Generation for Free tier users must explicitly inject a prominent "Generated by SpeakSharp" watermark as part of the Phase 2 Funnel strategy. Pro tier exports remain clean.
+- **🟡 PDF Content Extraction & Generation:** `pdf-parse` requires `DOMMatrix`. PDF structure validated only. (By design). **New Requirement:** PDF Generation for Basic tier users must explicitly inject a prominent "Generated by SpeakSharp" watermark as part of the Phase 2 Funnel strategy. Pro tier exports remain clean.
 - ✅ **Cloud STT (Production) (2026-01-28):** Resolved CORS (`ALLOWED_ORIGIN` mismatch) blocking production usage.
 - ✅ **Cloud STT E2E (2026-01-28):** Resolved mode selector and button dropdown unresponsiveness.
 - **Pattern 27: UI-First State Reversion** (100% Responsiveness).
@@ -476,7 +476,7 @@ This section provides high-level insights into the SpeakSharp project from multi
 **Conversion Rate:**
 *   Financial models use a conservative base conversion rate of **2%**.
 *   To improve conversion, the product strategy will focus on:
-    *   **Optimizing the "Aha!" Moment:** The Free tier must quickly demonstrate the product's value.
+    *   **Optimizing the "Aha!" Moment:** The Basic tier must quickly demonstrate the product's value.
     *   **Creating a Compelling Upgrade Path:** The Pro tier offers vastly superior cloud transcription and absolute privacy via local WebGPU.
     *   **Effective Upgrade Prompts:** The `UpgradePromptDialog` should execute when usage limits are hit.
 
@@ -556,7 +556,7 @@ This section provides high-level insights into the SpeakSharp project from multi
 
 > **🚨 50% Margin of Safety Governance:** The session limits listed below (60m Basic / 120m Pro) are currently *hypothetical target bounds*. Their final values will be strictly governed by the results of the "Extreme Duration Soak Test." Whatever absolute maximum duration the Browser RAM, Gemini Context Window, and PDF Generator can technically survive, we will apply a **50% Margin of Safety** to determine our actual marketed limits to ensure 100% reliability for paying users.
 
-*   **Free User (Authenticated):**
+*   **Basic User (Authenticated):**
     *   **Limit:** **1 Hour / Day** (Capped at Max 25 Hours / Month). *Max 60-Minute soft limit per session, plus a 5-minute graceful wrap-up warning.*
     *   **Engine:** Restricted strictly to **Native Browser STT** ($0.00 cost to SpeakSharp).
     *   **Funnel Features:** Access to Custom Vocab tracking, Vocal Variety metrics, and **watermarked** PDF practice exports. PDF export is not count-limited for Basic because client-side generation has no variable provider cost.
@@ -632,8 +632,8 @@ Authentication is the primary gate. Optional features (like promo codes) are sec
 
 1. **Credentials provided + promo fails:**
    - Authenticate the user.
-   - Redirect to `/session` as a free user.
-   - Show error toast: "Promo code invalid. You've been signed up as a free user."
+   - Redirect to `/session` as a Basic user.
+   - Show error toast: "Promo code invalid. You've been signed up as a Basic user."
 
 2. **No credentials provided + promo fails (Validation phase):**
    - Stay on signup page.
@@ -691,8 +691,8 @@ After deployment, verify the complete user journey:
 | Step | Action | Expected Result |
 |------|--------|-----------------|
 | 1 | Visit `https://your-app.vercel.app` | Landing page loads |
-| 2 | Click "Get Started" → Sign Up | Signup form with Free/Pro options |
-| 3 | Create account (Free) | Redirects to `/session` |
+| 2 | Click "Get Started" → Sign Up | Signup form with Basic/Pro options |
+| 3 | Create account (Basic) | Redirects to `/session` |
 | 4 | Start a session | Native Browser STT works |
 | 5 | Check Analytics | Session appears in history (Metrics only; transcript is ephemeral) |
 | 6 | Upgrade to Pro | Redirects to Stripe checkout |

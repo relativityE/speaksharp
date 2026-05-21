@@ -12,7 +12,7 @@ declare
   current_usage int;
   last_reset timestamptz;
   user_status text;
-  free_tier_limit_seconds int := 1800; -- 30 minutes
+  basic_tier_limit_seconds int := 1800; -- 30 minutes
   remaining_seconds int;
   can_start boolean;
 begin
@@ -32,8 +32,8 @@ begin
   if not found then
     return jsonb_build_object(
       'can_start', true,
-      'remaining_seconds', free_tier_limit_seconds,
-      'limit_seconds', free_tier_limit_seconds,
+      'remaining_seconds', basic_tier_limit_seconds,
+      'limit_seconds', basic_tier_limit_seconds,
       'subscription_status', 'unknown',
       'error', 'Profile not found'
     );
@@ -55,14 +55,14 @@ begin
     );
   end if;
 
-  -- Calculate remaining for free users
-  remaining_seconds := greatest(0, free_tier_limit_seconds - current_usage);
+  -- Calculate remaining for basic users
+  remaining_seconds := greatest(0, basic_tier_limit_seconds - current_usage);
   can_start := remaining_seconds > 0;
 
   return jsonb_build_object(
     'can_start', can_start,
     'remaining_seconds', remaining_seconds,
-    'limit_seconds', free_tier_limit_seconds,
+    'limit_seconds', basic_tier_limit_seconds,
     'used_seconds', current_usage,
     'subscription_status', user_status,
     'is_pro', false

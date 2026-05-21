@@ -5,7 +5,7 @@ const TEST_RUN_ID = Date.now();
 const TEST_PASSWORD = `SpeakSharp-${TEST_RUN_ID}!`;
 const PROMO_EMAIL = `promo-live-${TEST_RUN_ID}@example.com`;
 const SECOND_PROMO_EMAIL = `promo-reuse-${TEST_RUN_ID}@example.com`;
-const FREE_EMAIL = `free-live-${TEST_RUN_ID}@example.com`;
+const BASIC_EMAIL = `basic-live-${TEST_RUN_ID}@example.com`;
 const EXPECTED_PRIVATE_STARTUP_DIAGNOSTICS = [
   /initializeStrategy already in progress for this mode/i,
   /Unable to determine content-length from response headers/i,
@@ -121,10 +121,10 @@ test.describe.serial('Live promo signup and tier sanity @canary', () => {
     expect(diagnostics, diagnostics.join('\n')).toEqual([]);
   });
 
-  test('new user without promo lands in current free tier behavior', async ({ page }) => {
-    const diagnostics = await collectDiagnostics(page, 'free-user');
+  test('new user without promo lands in current basic tier behavior', async ({ page }) => {
+    const diagnostics = await collectDiagnostics(page, 'basic-user');
 
-    await signUp(page, FREE_EMAIL, TEST_PASSWORD);
+    await signUp(page, BASIC_EMAIL, TEST_PASSWORD);
 
     await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
     await expect(page.getByTestId('nav-sign-out-button')).toBeVisible({ timeout: 20_000 });

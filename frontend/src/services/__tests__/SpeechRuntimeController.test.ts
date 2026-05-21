@@ -197,7 +197,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             allowPrivate: false,
             preferredMode: 'native',
             allowFallback: false,
-            executionIntent: 'prod-free',
+            executionIntent: 'prod-basic',
         });
         await controller.whenStable();
 
@@ -205,7 +205,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(service.updatePolicy).toHaveBeenCalledWith(expect.objectContaining({
             preferredMode: 'native',
             allowFallback: false,
-            executionIntent: 'prod-free',
+            executionIntent: 'prod-basic',
         }));
     });
 
@@ -216,7 +216,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             allowPrivate: false,
             preferredMode: 'native',
             allowFallback: false,
-            executionIntent: 'prod-free',
+            executionIntent: 'prod-basic',
         });
         await controller.whenStable();
 
@@ -234,7 +234,7 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             allowPrivate: false,
             preferredMode: 'native',
             allowFallback: false,
-            executionIntent: 'prod-free',
+            executionIntent: 'prod-basic',
         };
 
         (controller as unknown as { handleModeChange: (mode: string) => void }).handleModeChange('private');

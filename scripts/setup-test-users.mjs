@@ -7,7 +7,7 @@
  * 2. Renames old users if needed
  * 3. Updates all passwords to shared SOAK_TEST_PASSWORD
  * 4. Creates missing users to meet targets
- * 5. Syncs subscription tiers (Free/Pro)
+ * 5. Syncs subscription tiers (Basic/Pro)
  * 6. Verifies login for all users
  */
 
@@ -48,9 +48,8 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 
 function getExpectedAccounts(basicCount, proCount) {
     const accounts = [];
-    // Basic users are stored with the internal unpaid tier value: "free".
     for (let i = 0; i < basicCount; i++) {
-        accounts.push({ index: i, email: `soak-test${i}@test.com`, tier: 'free' });
+        accounts.push({ index: i, email: `soak-test${i}@test.com`, tier: 'basic' });
     }
     // Pro: indices 25 to 25 + proCount - 1
     for (let i = 0; i < proCount; i++) {
@@ -73,17 +72,17 @@ async function getConfigCounts() {
         const content = fs.readFileSync(constantsPath, 'utf8');
 
         // Extract exact numeric constants
-        const freeMatch = content.match(/FREE_USER_COUNT = (\d+);/);
+        const basicMatch = content.match(/BASIC_USER_COUNT = (\d+);/);
         const proMatch = content.match(/PRO_USER_COUNT = (\d+);/);
         const maxMatch = content.match(/MAX_TOTAL_TEST_USERS = (\d+);/);
 
-        const free = freeMatch ? parseInt(freeMatch[1], 10) : 30;
+        const basic = basicMatch ? parseInt(basicMatch[1], 10) : 30;
         const pro = proMatch ? parseInt(proMatch[1], 10) : 5;
         const max = maxMatch ? parseInt(maxMatch[1], 10) : 50;
 
-        return { total: free + pro, free, pro, max };
+        return { total: basic + pro, basic, pro, max };
     } catch (e) {
-        return { total: 35, free: 30, pro: 5, max: 50 };
+        return { total: 35, basic: 30, pro: 5, max: 50 };
     }
 }
 
@@ -195,15 +194,15 @@ async function printSoakUsers() {
 
 async function createSingleUser() {
     const email = process.env.CREATE_USER_EMAIL;
-    const tier = process.env.CREATE_USER_TIER || 'free';
+    const tier = process.env.CREATE_USER_TIER || 'basic';
 
     if (!email) {
         console.error('❌ Missing CREATE_USER_EMAIL.');
         process.exit(1);
     }
 
-    if (!['free', 'pro'].includes(tier)) {
-        console.error(`❌ Invalid CREATE_USER_TIER: ${tier}. Expected "free" or "pro".`);
+    if (!['basic', 'pro'].includes(tier)) {
+        console.error(`❌ Invalid CREATE_USER_TIER: ${tier}. Expected "basic" or "pro".`);
         process.exit(1);
     }
 
@@ -220,9 +219,9 @@ async function createSingleUser() {
 }
 
 
-async function syncUserTiers(users, targetFree, targetPro) {
+async function syncUserTiers(users, targetBasic, targetPro) {
     let synced = 0;
-    const targetAccounts = getExpectedAccounts(targetFree, targetPro);
+    const targetAccounts = getExpectedAccounts(targetBasic, targetPro);
 
     for (const target of targetAccounts) {
         const user = users.find(u => u.email === target.email);
@@ -290,7 +289,7 @@ async function main() {
     const config = await getConfigCounts();
 
     // Determine final counts
-    let finalBasic = config.free;
+    let finalBasic = config.basic;
     let finalPro = config.pro;
     const isOverride = inputBasic > 0 || inputPro > 0;
 

@@ -13,6 +13,13 @@ export const PauseMetricsDisplay: React.FC<PauseMetricsDisplayProps> = ({ metric
         if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
         return `${seconds.toFixed(1)}s`;
     };
+    const explanation = metrics.totalPauses === 0
+        ? 'No measurable pauses yet.'
+        : metrics.pausesPerMinute > 12
+            ? 'Pause rate is high; combine small hesitations into fewer intentional pauses.'
+            : metrics.averagePauseDuration >= 0.6 && metrics.averagePauseDuration <= 2.5
+                ? 'Pause length is in a useful range for emphasis and breathing.'
+                : 'Pause timing is measurable; use it with filler count to judge delivery rhythm.';
 
     return (
         <Card className={`h-auto border-border rounded-xl flex flex-col justify-center shadow-card compact-density ${className}`}>
@@ -44,6 +51,9 @@ export const PauseMetricsDisplay: React.FC<PauseMetricsDisplayProps> = ({ metric
                         Longest: <span className="text-foreground font-bold">{formatDuration(metrics.longestPause)}</span>
                     </div>
                 </div>
+                <p className="text-xs text-muted-foreground leading-snug" data-testid="pause-explanation">
+                    {explanation}
+                </p>
             </CardContent>
         </Card>
     );

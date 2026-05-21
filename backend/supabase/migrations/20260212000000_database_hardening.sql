@@ -27,8 +27,8 @@ BEGIN
     v_last_reset := now();
   END IF;
 
-  -- 2. Enforce limit for free users
-  IF v_status = 'free' AND v_current_usage >= v_limit_seconds THEN
+  -- 2. Enforce limit for basic users
+  IF v_status = 'basic' AND v_current_usage >= v_limit_seconds THEN
     RETURN FALSE;
   END IF;
 

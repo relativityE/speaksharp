@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS public.tier_configs (
 -- 2. Seed Tier Configurations (Sync with PRD)
 INSERT INTO public.tier_configs (tier_name, daily_limit_seconds, monthly_limit_seconds, max_concurrent_sessions, allowed_engines)
 VALUES 
-    ('free', 3600, 90000, 1, '{"native", "transformers-js", "whisper-turbo"}')
+    ('basic', 3600, 90000, 1, '{"native", "transformers-js", "whisper-turbo"}')
 ON CONFLICT (tier_name) DO UPDATE SET
     daily_limit_seconds = EXCLUDED.daily_limit_seconds,
     monthly_limit_seconds = EXCLUDED.monthly_limit_seconds,
@@ -101,7 +101,7 @@ BEGIN
   SELECT daily_limit_seconds, monthly_limit_seconds, allowed_engines
   INTO v_daily_limit, v_monthly_limit, v_allowed_engines
   FROM public.tier_configs
-  WHERE tier_name = COALESCE(v_user_status, 'free');
+  WHERE tier_name = COALESCE(v_user_status, 'basic');
 
   -- Fallback
   IF v_daily_limit IS NULL THEN
@@ -210,7 +210,7 @@ BEGIN
         v_user_tier,
         v_max_concurrent
     FROM public.user_profiles up
-    JOIN public.tier_configs tc ON tc.tier_name = COALESCE(up.subscription_status, 'free')
+    JOIN public.tier_configs tc ON tc.tier_name = COALESCE(up.subscription_status, 'basic')
     WHERE up.id = auth.uid()
     FOR UPDATE; -- Prevents multiple session creations racing for the same user
 

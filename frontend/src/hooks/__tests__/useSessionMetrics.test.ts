@@ -1,3 +1,5 @@
+/* @vitest-environment jsdom */
+
 import { describe, it, expect } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useSessionMetrics } from '../useSessionMetrics';
@@ -72,11 +74,14 @@ describe('useSessionMetrics', () => {
     });
 
     describe('clarityScore', () => {
-        it('returns 100 when no words or fillers', () => {
+        it('does not score empty transcripts as excellent clarity', () => {
             const { result } = renderHook(() =>
                 useSessionMetrics({ transcript: '', chunks: [], fillerData: {}, elapsedTime: 60 })
             );
-            expect(result.current.clarityScore).toBe(100);
+            expect(result.current.clarityScore).toBe(0);
+            expect(result.current.isClarityScorable).toBe(false);
+            expect(result.current.clarityLabel).toBe('Not enough speech to score');
+            expect(result.current.clarityExplanation).toContain('No transcript was captured');
         });
 
         it('calculates clarity score correctly with fillers', () => {

@@ -6,7 +6,7 @@
  */
 
 export const SUBSCRIPTION_STATUS = {
-    FREE: 'free',
+    BASIC: 'basic',
     PRO: 'pro',
 } as const;
 
@@ -17,7 +17,7 @@ export const MOCK_USER = {
     email: 'test@example.com',
     app_metadata: {
         provider: 'email',
-        subscription_status: SUBSCRIPTION_STATUS.FREE as SubscriptionStatus
+        subscription_status: SUBSCRIPTION_STATUS.BASIC as SubscriptionStatus
     },
     user_metadata: { name: 'Test User' },
     aud: 'authenticated',
@@ -27,7 +27,7 @@ export const MOCK_USER = {
 
 export const MOCK_USER_PROFILE = {
     id: 'test-user-123',
-    subscription_status: SUBSCRIPTION_STATUS.FREE as SubscriptionStatus,
+    subscription_status: SUBSCRIPTION_STATUS.BASIC as SubscriptionStatus,
     usage_seconds: 1250,
     usage_reset_date: '2025-02-01T00:00:00.000Z',
     created_at: '2025-01-01T00:00:00.000Z',

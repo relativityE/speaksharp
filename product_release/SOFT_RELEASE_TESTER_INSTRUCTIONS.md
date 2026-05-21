@@ -27,7 +27,7 @@ What to test:
 Known limitations:
 - Native browser STT is browser-dependent and is validated mainly for Chrome.
 - Cloud STT is optional for this round. Please report missing speech, delayed transcript, or provider issues.
-- Some backend/internal labels may still say "free" while the user-facing baseline plan says Basic.
+- Some backend/internal labels may still say "basic" while the user-facing baseline plan says Basic.
 
 Please report:
 1. Did signup and promo redemption work?

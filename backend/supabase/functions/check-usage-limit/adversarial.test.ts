@@ -41,7 +41,7 @@ Deno.test("check-usage-limit adversarial boundary tests", async (t) => {
             monthly_limit: 90000,
             remaining_seconds: 3600,
             used_seconds: 0,
-            subscription_status: 'free',
+            subscription_status: 'basic',
             is_pro: false,
         }));
         const json = await res.json();
@@ -64,7 +64,7 @@ Deno.test("check-usage-limit adversarial boundary tests", async (t) => {
             monthly_limit: 90000,
             remaining_seconds: 2100,
             used_seconds: 1500,
-            subscription_status: 'free',
+            subscription_status: 'basic',
             is_pro: false,
         }));
         const json = await res.json();

@@ -6,7 +6,7 @@ import type { E2EWindow, SSE2EManifest } from './helpers/setupE2EManifest';
  * Core System Probe (Deterministic, Zero-Auth)
  *
  * Validates the application's infrastructure foundation before the UI layer.
- * These tests are free of external network calls and randomness.
+ * These tests are independent of external network calls and randomness.
  * Must run in < 60s.
  *
  * Coverage:

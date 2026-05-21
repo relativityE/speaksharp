@@ -49,7 +49,7 @@ export class SessionManager {
     }
 
     /**
-     * Side-effect-free accessor for Playwright/E2E
+     * Side-effect-basic accessor for Playwright/E2E
      */
     public getActiveService(): TranscriptionService | null {
         if (this.activeService?.isServiceDestroyed()) return null;

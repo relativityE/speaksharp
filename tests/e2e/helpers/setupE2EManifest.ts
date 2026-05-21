@@ -12,7 +12,7 @@ export interface SSE2EManifest {
   flags?: Record<string, unknown>;
   registry?: Record<string, unknown>;
   MOCK_STT_AVAILABILITY?: boolean;
-  guestStatus?: 'free' | 'pro';
+  guestStatus?: 'basic' | 'pro';
   emitTranscript?: (text: string, isFinal?: boolean) => void;
   onStateChange?: (cb: (state: string) => void) => (() => void) | void;
   destroyService?: () => Promise<void>;
@@ -87,10 +87,10 @@ export async function setupE2EManifest(
     flags?: { bypassMutex?: boolean; fastTimers?: boolean };
     debug?: boolean;
     storage?: Record<string, string>;
-    userType?: 'free' | 'pro';
+    userType?: 'basic' | 'pro';
   }
 ) {
-  const { storage = {}, userType = 'free', ...manifest } = config;
+  const { storage = {}, userType = 'basic', ...manifest } = config;
   
   // 🛡️ Fix 5: Analytics Mock (Mandated Stabilization)
   // Decouples telemetry from UI readiness to prevent network-induced flakiness
@@ -100,7 +100,7 @@ export async function setupE2EManifest(
     // 0. AUTHORITATIVE TIER SIGNAL
     const win = window as unknown as E2EWindow;
     win.__MOCK_PROFILE__ = { 
-      subscription_status: ut === 'pro' ? 'pro' : 'free' 
+      subscription_status: ut === 'pro' ? 'pro' : 'basic'
     };
 
     const localBrowserStorage = s;
@@ -187,7 +187,7 @@ export async function setupE2EManifest(
       isActive: true,
       enableRealEngine: false,
       MOCK_STT_AVAILABILITY: true,
-      guestStatus: ut as 'free' | 'pro',
+      guestStatus: ut as 'basic' | 'pro',
       ... mCast,
       registry: {
         ...engineRegistry,

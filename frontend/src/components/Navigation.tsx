@@ -94,7 +94,7 @@ const Navigation = () => {
   );
 
 
-  const isFreeUser = session && !isEffectiveProUser;
+  const isBasicUser = session && !isEffectiveProUser;
 
   return (
     <>
@@ -134,7 +134,7 @@ const Navigation = () => {
             <div className="flex items-center space-x-4">
               {session ? (
                 <>
-                  {profile && isFreeUser && (
+                  {profile && isBasicUser && (
                     <Button
                       onClick={() => { void handleUpgrade(); }}
                       disabled={isUpgrading}

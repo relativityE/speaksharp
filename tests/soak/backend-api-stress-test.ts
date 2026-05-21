@@ -15,7 +15,7 @@ const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY || '';
 // Force the number of concurrent users here for the Thundering Herd
 // NOTE: We cap this at 10 because the cloud test user provisioning is set to 10 accounts.
 const CONCURRENCY = 10;
-const WS_CONCURRENCY = 5; // Fixed at 5 to respect Free Tier Limits
+const WS_CONCURRENCY = 5; // Fixed at 5 to respect Basic Tier Limits
 
 export interface LoadTestResult {
     success: boolean;
@@ -53,7 +53,7 @@ export async function runApiLoadTest(concurrencyOverride?: number): Promise<Load
     // Create an array of identical login promises (using a known soak test user)
     // In a real scenario, you'd use SOAK_TEST_USERS from constants.ts, but for a 
     // pure API stress test, hammering the same account or iterating is fine.
-    // We'll use the generic FREE soak user defined in our specs.
+    // We'll use the generic BASIC soak user defined in our specs.
     const email = process.env.SOAK_TEST_EMAIL || 'soak-test0@test.com';
     const password = process.env.SOAK_TEST_PASSWORD || 'password123';
 
@@ -135,7 +135,7 @@ export async function runApiLoadTest(concurrencyOverride?: number): Promise<Load
         });
 
         return client.rpc('create_session_and_update_usage', {
-            p_is_free_user: true,
+            p_is_basic_user: true,
             p_session_data: {
                 title: `Soak Test Session ${Date.now()}`,
                 duration: 60,
@@ -169,7 +169,7 @@ export async function runApiLoadTest(concurrencyOverride?: number): Promise<Load
     console.log(`✅ Phase 3 Complete in ${Date.now() - phase3Start}ms: ${rpcSuccess}/${tokens.length} database row insertions successful.\n`);
 
     // ----------------------------------------------------------------------
-    // PHASE 4: WebSocket Free Tier Connections
+    // PHASE 4: WebSocket Basic Tier Connections
     // ----------------------------------------------------------------------
     console.log(`[Phase 4] Opening ${WS_CONCURRENCY} concurrent WebSockets to AssemblyAI...`);
     let wsConnected = 0; // Initialize wsConnected here

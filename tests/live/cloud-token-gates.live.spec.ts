@@ -40,9 +40,9 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     expect(result.body?.token, JSON.stringify(evidence)).toBeFalsy();
   });
 
-  test('denies free, expired promo-only Pro, and over-quota Pro before minting AssemblyAI token', async () => {
-    const freeUser = await createLiveUser(admin, `cloud-free-${RUN_ID}@example.com`, {
-      subscription_status: 'free',
+  test('denies basic, expired promo-only Pro, and over-quota Pro before minting AssemblyAI token', async () => {
+    const basicUser = await createLiveUser(admin, `cloud-basic-${RUN_ID}@example.com`, {
+      subscription_status: 'basic',
       promo_expires_at: null,
       daily_usage_seconds: 0,
       native_usage_seconds: 0,
@@ -50,7 +50,7 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
       stripe_subscription_id: null,
       subscription_id: null,
     });
-    createdUsers.push(freeUser);
+    createdUsers.push(basicUser);
 
     const expiredPromoUser = await createLiveUser(admin, `cloud-expired-promo-${RUN_ID}@example.com`, {
       subscription_status: 'pro',
@@ -74,20 +74,20 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     });
     createdUsers.push(overQuotaUser);
 
-    const freeResult = await requestAssemblyToken(freeUser.email);
+    const basicResult = await requestAssemblyToken(basicUser.email);
     const expiredResult = await requestAssemblyToken(expiredPromoUser.email);
     const overQuotaResult = await requestAssemblyToken(overQuotaUser.email);
 
     const evidence = {
-      free: summarizeTokenResult(freeResult),
+      basic: summarizeTokenResult(basicResult),
       expiredPromo: summarizeTokenResult(expiredResult),
       overQuota: summarizeTokenResult(overQuotaResult),
     };
     console.log(`LIVE_CLOUD_TOKEN_GATE_EVIDENCE ${JSON.stringify(evidence)}`);
 
-    expect(freeResult.status, JSON.stringify(evidence)).toBe(403);
-    expect(freeResult.body?.error, JSON.stringify(evidence)).toMatch(/pro subscription required/i);
-    expect(freeResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
+    expect(basicResult.status, JSON.stringify(evidence)).toBe(403);
+    expect(basicResult.body?.error, JSON.stringify(evidence)).toMatch(/pro subscription required/i);
+    expect(basicResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
     expect(expiredResult.status, JSON.stringify(evidence)).toBe(403);
     expect(expiredResult.body?.error, JSON.stringify(evidence)).toMatch(/promo access expired/i);
     expect(expiredResult.body?.token, JSON.stringify(evidence)).toBeFalsy();

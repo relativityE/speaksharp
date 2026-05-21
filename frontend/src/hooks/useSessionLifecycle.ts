@@ -195,7 +195,7 @@ export const useSessionLifecycle = () => {
 
                 if (typeof document !== 'undefined' && import.meta.env.DEV) {
                     if (!import.meta.env.PROD) {
-                        document.body.setAttribute('data-user-tier', isProUser ? 'pro' : 'free');
+                        document.body.setAttribute('data-user-tier', isProUser ? 'pro' : 'basic');
                     }
                 }
 
@@ -262,7 +262,7 @@ export const useSessionLifecycle = () => {
                     setSTTStatus({ type: 'info', message: warningMsg });
                     posthog.capture('session_limit_warning', {
                         remaining_seconds: remaining,
-                        tier: isProUser ? 'pro' : 'free',
+                        tier: isProUser ? 'pro' : 'basic',
                     });
                 }
             } else if (remaining <= 0) {

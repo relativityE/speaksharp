@@ -225,6 +225,7 @@ export const SessionPage: React.FC = () => {
                             <FillerWordsCard
                                 fillerCount={metrics.fillerCount}
                                 fillerData={fillerData}
+                                fillerExplanation={metrics.fillerExplanation}
                                 className="min-h-[300px] md:min-h-[340px] bg-white border border-border rounded-lg lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
                                 headerAction={
                                     <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
@@ -259,6 +260,8 @@ export const SessionPage: React.FC = () => {
                         <ClarityScoreCard
                             clarityScore={metrics.clarityScore}
                             clarityLabel={metrics.clarityLabel}
+                            clarityExplanation={metrics.clarityExplanation}
+                            isClarityScorable={metrics.isClarityScorable}
                             className="bg-white border border-border rounded-lg h-full"
                         />
                     </LocalErrorBoundary>
@@ -266,6 +269,7 @@ export const SessionPage: React.FC = () => {
                         <SpeakingRateCard
                             wpm={metrics.wpm}
                             wpmLabel={metrics.wpmLabel}
+                            wpmExplanation={metrics.wpmExplanation}
                             className="bg-white border border-border rounded-lg h-full"
                         />
                     </LocalErrorBoundary>

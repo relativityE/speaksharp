@@ -12,7 +12,7 @@ export const MOCK_USER = {
 export const MOCK_USER_PROFILE = {
     id: MOCK_USER.id,
     email: MOCK_USER.email,
-    subscription_status: 'free',
+    subscription_status: 'basic',
     usage_seconds: 0,
     usage_reset_date: new Date(Date.now() + 30 * 86400000).toISOString(),
     created_at: new Date().toISOString(),

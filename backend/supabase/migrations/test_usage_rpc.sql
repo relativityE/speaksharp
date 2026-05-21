@@ -8,11 +8,11 @@ DECLARE
 BEGIN
     DELETE FROM public.user_profiles WHERE id = test_user_id;
     INSERT INTO public.user_profiles (id, subscription_status, daily_usage_seconds, native_usage_seconds, cloud_usage_seconds, last_daily_reset)
-    VALUES (test_user_id, 'free', 0, 0, 0, now());
+    VALUES (test_user_id, 'basic', 0, 0, 0, now());
 END $$;
 
 -- 1. TEST: update_user_usage (Native Engine)
--- Scenario: Free user, 10s native session
+-- Scenario: Basic user, 10s native session
 SELECT 'TEST 1: Native Engine Increment' as test_case;
 SELECT update_user_usage(10, 'native') FROM auth.users WHERE id = '00000000-0000-0000-0000-000000000000'; -- Note: auth.uid() mock needed
 
@@ -21,7 +21,7 @@ SELECT daily_usage_seconds, native_usage_seconds, cloud_usage_seconds
 FROM public.user_profiles WHERE id = '00000000-0000-0000-0000-000000000000';
 
 -- 2. TEST: update_user_usage (Cloud Engine)
--- Scenario: Free user, 20s cloud session
+-- Scenario: Basic user, 20s cloud session
 SELECT 'TEST 2: Cloud Engine Increment' as test_case;
 SELECT update_user_usage(20, 'cloud') FROM auth.users WHERE id = '00000000-0000-0000-0000-000000000000';
 

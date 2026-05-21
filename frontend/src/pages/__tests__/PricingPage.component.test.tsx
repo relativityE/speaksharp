@@ -84,8 +84,8 @@ describe('PricingPage', () => {
         it('should disable Basic tier button', () => {
             renderPricingPage();
 
-            const freeButton = screen.getByText('Continue with Basic');
-            expect(freeButton).toBeDisabled();
+            const basicButton = screen.getByText('Continue with Basic');
+            expect(basicButton).toBeDisabled();
         });
 
         it('should enable Pro tier button', () => {

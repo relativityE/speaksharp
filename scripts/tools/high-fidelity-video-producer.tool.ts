@@ -13,7 +13,7 @@ import { programmaticLogin, navigateToRoute } from '../tests/e2e/helpers';
  * 2. Sign-in flow
  * 3. Session page with STT mode selector
  * 4. Cloud AI mode recording (Pro feature)
- * 5. Native mode recording (Free feature)
+ * 5. Native mode recording (Basic feature)
  * 6. Analytics dashboard
  * 
  * Note: On-Device mode skipped as it requires Whisper model download (~30MB)
@@ -57,7 +57,7 @@ test.describe('SpeakSharp Demo Recording', () => {
             await page.waitForTimeout(1000);
 
             // ✅ AUDIT: Marketing Integrity Assertion
-            // Ensure UI consistency for pro/free modes
+            // Ensure UI consistency for pro/basic modes
             await expect(page).toHaveScreenshot(`${modeName}-state.png`, {
                 maxDiffPixelRatio: 0.05
             });

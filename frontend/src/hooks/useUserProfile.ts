@@ -62,10 +62,10 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
         const isProEmail = email.includes('pro-user') || email.includes('testuser') || email === 'test@example.com';
 
         if ((import.meta.env.DEV || ENV.isE2E) && isProEmail) {
-          // GUARD: Don't override if E2E test explicitly set subscription_status to 'free'
-          // This allows tier-limits tests to work correctly with free user scenarios
-          const isExplicitlyFree = profile?.subscription_status === 'free';
-          if (profile && !isExplicitlyFree) {
+          // GUARD: Don't override if E2E test explicitly set subscription_status to 'basic'
+          // This allows tier-limits tests to work correctly with basic user scenarios
+          const isExplicitlyBasic = profile?.subscription_status === 'basic';
+          if (profile && !isExplicitlyBasic) {
             profile.subscription_status = 'pro';
             logger.debug({ userId: session.user.id }, '[useUserProfile] Pro rescue applied to existing profile');
           } else if (!profile) {

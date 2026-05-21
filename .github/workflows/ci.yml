@@ -235,7 +235,7 @@ jobs:
           ls -la frontend/dist/ || echo "frontend/dist/ not found"
 
           echo "=== Port 4173 Status Check ==="
-          lsof -i :4173 || echo "Port 4173 is free"
+          lsof -i :4173 || echo "Port 4173 is available"
 
           mkdir -p lighthouse-results
           node scripts/generate-lhci-config.js

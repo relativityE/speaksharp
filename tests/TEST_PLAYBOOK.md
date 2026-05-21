@@ -102,7 +102,7 @@ The soak suite uses a tiered script structure in `package.json` to ensure a clea
 
 1.  **`pretest:soak`**: Runs automatically before any soak command.
     *   **Action**: `npx kill-port 5173 || true`.
-    *   **Why**: Ensures port 5173 (Vite) is free so Playwright can spin up a fresh server or take ownership without "Port in use" conflicts.
+    *   **Why**: Ensures port 5173 (Vite) is available so Playwright can spin up a fresh server or take ownership without "Port in use" conflicts.
 2.  **`test:soak:api:cloud`**: Standalone Backend Stress.
     *   **Action**: `dotenv -e .env.development -- tsx tests/soak/backend-api-stress-test.ts`.
     *   **Why**: Executes the "Thundering Herd" auth and RPC stress test without browser overhead. Essential for backend latency benchmarks.

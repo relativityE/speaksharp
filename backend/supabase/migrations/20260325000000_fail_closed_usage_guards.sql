@@ -83,7 +83,7 @@ BEGIN
   SELECT daily_limit_seconds, monthly_limit_seconds, allowed_engines
   INTO v_daily_limit, v_monthly_limit, v_allowed_engines
   FROM public.tier_configs
-  WHERE tier_name = COALESCE(v_user_status, 'free');
+  WHERE tier_name = COALESCE(v_user_status, 'basic');
 
   IF v_daily_limit IS NULL THEN
     v_daily_limit := 3600;

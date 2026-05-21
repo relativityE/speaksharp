@@ -126,7 +126,7 @@ describe('validateUserFillerWord', () => {
         )).toThrow('Word already in list');
     });
 
-    it('rejects words beyond the configured free limit', () => {
+    it('rejects words beyond the configured basic limit', () => {
         const existingWords = Array.from({ length: 10 }, (_, index) => ({ word: `word${index}` }));
 
         expect(() => validateUserFillerWord('overflow', existingWords, 10, false))

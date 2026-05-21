@@ -12,7 +12,7 @@ type TestFixtures = {
   proPage: Page;          // Full readiness (Analytics + Core)
   leanUserPage: Page;     // Lean readiness (Core only)
   emptyUserPage: Page;
-  freePage: Page;
+  basicPage: Page;
   mockedPage: Page;
 };
 
@@ -141,8 +141,8 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await use(page);
   },
 
-  freePage: async ({ page }, use) => {
-    await programmaticLoginWithRoutes(page, { userType: 'free' });
+  basicPage: async ({ page }, use) => {
+    await programmaticLoginWithRoutes(page, { userType: 'basic' });
     await use(page);
   }
 });

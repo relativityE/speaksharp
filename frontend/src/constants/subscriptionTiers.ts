@@ -6,11 +6,17 @@
  */
 
 export const SUBSCRIPTION_TIERS = {
-    FREE: 'free',
+    BASIC: 'basic',
     PRO: 'pro',
 } as const;
 
 export type SubscriptionTier = typeof SUBSCRIPTION_TIERS[keyof typeof SUBSCRIPTION_TIERS];
+
+export function normalizeSubscriptionTier(subscriptionStatus: string | undefined | null): SubscriptionTier {
+    return subscriptionStatus === SUBSCRIPTION_TIERS.PRO
+        ? SUBSCRIPTION_TIERS.PRO
+        : SUBSCRIPTION_TIERS.BASIC;
+}
 
 /**
  * Check if a subscription status indicates Pro tier
@@ -44,21 +50,21 @@ export function getEffectiveSubscriptionStatus(
     profile?: TierProfile
 ): SubscriptionTier {
     if (usageLimitStatus) {
-        return isPro(usageLimitStatus) ? SUBSCRIPTION_TIERS.PRO : SUBSCRIPTION_TIERS.FREE;
+        return normalizeSubscriptionTier(usageLimitStatus);
     }
 
     if (isExpiredPromoOnlyProfile(profile)) {
-        return SUBSCRIPTION_TIERS.FREE;
+        return SUBSCRIPTION_TIERS.BASIC;
     }
 
-    return isPro(profile?.subscription_status) ? SUBSCRIPTION_TIERS.PRO : SUBSCRIPTION_TIERS.FREE;
+    return normalizeSubscriptionTier(profile?.subscription_status);
 }
 
 /**
  * Check if a subscription status indicates the baseline tier
  */
-export function isFree(subscriptionStatus: string | undefined | null): boolean {
-    return subscriptionStatus === SUBSCRIPTION_TIERS.FREE;
+export function isBasic(subscriptionStatus: string | undefined | null): boolean {
+    return subscriptionStatus === SUBSCRIPTION_TIERS.BASIC;
 }
 
 /**
@@ -72,7 +78,7 @@ export function getTierLabel(subscriptionStatus: string | undefined | null): str
  * Tier-based limits
  */
 export const TIER_LIMITS = {
-    [SUBSCRIPTION_TIERS.FREE]: {
+    [SUBSCRIPTION_TIERS.BASIC]: {
         dailySeconds: 3600, // 1 hour per day
         maxCustomWords: 100, // Matched with Pro
         maxSessionDuration: Infinity, // No session-level cap, only daily
@@ -88,7 +94,7 @@ export const TIER_LIMITS = {
  * Get limits for a subscription tier
  */
 export function getTierLimits(subscriptionStatus: string | undefined | null) {
-    const tier = isPro(subscriptionStatus) ? SUBSCRIPTION_TIERS.PRO : SUBSCRIPTION_TIERS.FREE;
+    const tier = normalizeSubscriptionTier(subscriptionStatus);
     return TIER_LIMITS[tier];
 }
 

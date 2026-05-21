@@ -11,8 +11,8 @@ import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 const BASE_URL = process.env.BASE_URL;
 const E2E_PRO_EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
 const E2E_PRO_PASSWORD = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
-const E2E_FREE_EMAIL = process.env.E2E_FREE_EMAIL;
-const E2E_FREE_PASSWORD = process.env.E2E_FREE_PASSWORD;
+const E2E_BASIC_EMAIL = process.env.E2E_BASIC_EMAIL;
+const E2E_BASIC_PASSWORD = process.env.E2E_BASIC_PASSWORD;
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -65,9 +65,9 @@ test.describe.serial('Live STT switching contract @live', () => {
   });
 
   test('Basic user is constrained to Native browser transcription', async ({ page }) => {
-    test.skip(!E2E_FREE_EMAIL || !E2E_FREE_PASSWORD, 'E2E Basic credentials are required.');
+    test.skip(!E2E_BASIC_EMAIL || !E2E_BASIC_PASSWORD, 'E2E Basic credentials are required.');
 
-    await signIn(page, E2E_FREE_EMAIL!, E2E_FREE_PASSWORD!);
+    await signIn(page, E2E_BASIC_EMAIL!, E2E_BASIC_PASSWORD!);
     await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
     await expect(page.getByTestId('pro-badge')).not.toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('nav-upgrade-button')).toBeVisible({ timeout: 20_000 });

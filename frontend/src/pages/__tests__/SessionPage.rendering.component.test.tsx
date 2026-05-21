@@ -90,7 +90,7 @@ vi.mock('@/components/PromoExpiredDialog', () => ({
         open ? (
             <div data-testid="promo-expired-dialog">
                 Promo Expired Dialog
-                <button data-testid="promo-expired-continue-free" onClick={() => onOpenChange(false)}>Continue as Basic</button>
+                <button data-testid="promo-expired-continue-basic" onClick={() => onOpenChange(false)}>Continue as Basic</button>
             </div>
         ) : null
     ),
@@ -196,7 +196,7 @@ describe('SessionPage Rendering', () => {
 
         expect(screen.getByTestId('promo-expired-dialog')).toBeInTheDocument();
 
-        fireEvent.click(screen.getByTestId('promo-expired-continue-free'));
+        fireEvent.click(screen.getByTestId('promo-expired-continue-basic'));
 
         expect(screen.queryByTestId('promo-expired-dialog')).not.toBeInTheDocument();
     });
@@ -210,7 +210,7 @@ describe('SessionPage Rendering', () => {
 
         const { rerender } = render(<SessionPage />);
 
-        fireEvent.click(screen.getByTestId('promo-expired-continue-free'));
+        fireEvent.click(screen.getByTestId('promo-expired-continue-basic'));
         expect(screen.queryByTestId('promo-expired-dialog')).not.toBeInTheDocument();
 
         mockUseSessionLifecycle.mockReturnValue({

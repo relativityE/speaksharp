@@ -32,7 +32,7 @@
 | Gate | Product | SAST | DAST | SCA | UX | Observability | Release Status |
 |---|---:|---:|---:|---:|---:|---:|---|
 | Expired promo / stale profile | ✅ | ✅ | ✅ | N/A | ✅ | N/A | Green |
-| Basic/free access sanity | ✅ | ✅ | ✅ | N/A | ✅ | N/A | Green |
+| Basic/basic access sanity | ✅ | ✅ | ✅ | N/A | ✅ | N/A | Green |
 | Cloud Pro | ✅ | ✅ | ✅ | N/A | ✅ | N/A | Green, included |
 | Private Pro | ✅ | ✅ | ✅ | N/A | ✅ | N/A | Green for release |
 | Native Chrome | ✅ | ✅ | ✅ manual | N/A | ✅ | N/A | Green if labeled Chrome/browser-dependent |
@@ -42,8 +42,8 @@
 
 | Priority | Gate | Status | Evidence | Remaining Action |
 |---|---|---:|---|---|
-| P0 | Expired promo / free downgrade | ✅ | `Expired Promo Live Smoke` run `25704192079` passed on `e986ecf8`. | Freeze unless entitlement code changes. |
-| P0 | Free/basic access sanity | ✅ | Same expired-promo proof plus Native proof below: downgraded/free-safe users retain Native path and do not keep Cloud/Private entitlement. | Recheck only through focused entitlement smoke if tier/mode logic changes. |
+| P0 | Expired promo / basic downgrade | ✅ | `Expired Promo Live Smoke` run `25704192079` passed on `e986ecf8`. | Freeze unless entitlement code changes. |
+| P0 | Basic/basic access sanity | ✅ | Same expired-promo proof plus Native proof below: downgraded/basic-safe users retain Native path and do not keep Cloud/Private entitlement. | Recheck only through focused entitlement smoke if tier/mode logic changes. |
 | P0 | CI Audit latest commit | ✅ | `CI - Test Audit` run `25710006382` passed on `60c8af5c`, including unit/build/edge/health/lighthouse advisory, `unit-shard-1..4`, and E2E shards 1-4. | Freeze unless release-critical code changes. |
 | P0 | Deploy latest commit | ✅ | `Deploy Edge Functions` run `25710006386` passed on `60c8af5c`. | Freeze unless deploy path changes. |
 | P0 | Canary latest commit | ✅ | `Production Canary Smoke Test` run `25710006385` passed on `60c8af5c`. | Freeze unless release-critical code changes. |
@@ -52,7 +52,7 @@
 | P0-last | Observability readback/fallback | ✅ | `Observability API Smoke` run `25764783852` passed. Manual fallback exists via `.github/ISSUE_TEMPLATE/tester-feedback.yml`. | Freeze unless observability workflow/secrets change. |
 | RC | Full release candidate gates | ✅ | `Release Candidate Gates` run `25769178359` passed on `e73408c0`: Gate 1 Product Truth, Gate 2 SAST/OWASP, Gate 3 DAST, Gate 4 SCA, Gate 5 UX. | Freeze unless release-critical code changes. |
 | P1 | Release matrix/docs | ✅ | This matrix is updated with final post-P1 run IDs and latest-commit Cloud PDF evidence. | Keep this file current only if release evidence changes. |
-| P1 | Frontend "Free" -> "Basic" wording | ✅ | Frontend copy now displays Basic for the baseline plan while internal tier values, test IDs, and backend semantics remain `free`. Targeted Basic copy unit tests pass locally. | Backend `free` -> `basic` migration remains intentionally deferred. |
+| P1 | Frontend "Basic" -> "Basic" wording | ✅ | Frontend copy now displays Basic for the baseline plan while internal tier values, test IDs, and backend semantics remain `basic`. Targeted Basic copy unit tests pass locally. | Backend `basic` -> `basic` migration remains intentionally deferred. |
 | P1 | Unit test sharding / CI speed | ✅ | CI now runs `unit-shard-1..4` separately from `unit-coverage`; E2E waits on sharded unit correctness while the canonical coverage artifacts remain under `unit-artifacts`. Local shard smoke and GitHub CI run `25710006382` both passed. | Tune shard balance later only if CI timing data shows a bottleneck. |
 
 ## Native Evidence

@@ -7,7 +7,7 @@
  * 
  * Coverage:
  * - Core Features: Recording lifecycle, deterministic persistence, and session history.
- * - Free Features: Native Browser STT, Marketing/Upgrade funnels, and simplified analytics.
+ * - Basic Features: Native Browser STT, Marketing/Upgrade funnels, and simplified analytics.
  * - Pro Features: Engine toggling (Whisper/Cloud), advanced analytics details, and PDF exports.
  */
 import { test, expect } from './fixtures';
@@ -23,8 +23,8 @@ import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 
 const SCENARIOS = [
   {
-    name: 'Free/Basic Tier (Native)',
-    userType: 'free' as const,
+    name: 'Basic Tier (Native)',
+    userType: 'basic' as const,
     mode: 'native' as const,
     expectedModePattern: /native|browser/i
   },
@@ -64,7 +64,7 @@ test.describe('Primary User Journey Matrix', () => {
         // Verify selected mode persistence on the authoritative control.
         await expect(modeButton).toHaveAttribute('data-state', scenario.mode, { timeout: 10000 });
       } else {
-        // Free users: Verify Marketing Funnel (Options are visible but disabled)
+        // Basic users: Verify Marketing Funnel (Options are visible but disabled)
         await modeButton.click();
         const privateOption = page.getByRole('menuitemradio', { name: /private/i });
         const cloudOption = page.getByRole('menuitemradio', { name: /cloud/i });
@@ -114,7 +114,7 @@ test.describe('Primary User Journey Matrix', () => {
       await expect(page.getByTestId(TEST_IDS.ANALYTICS_DASHBOARD)).toBeVisible({ timeout: 20000 });
 
       // 9. Tier-Aware Visibility (Lean Smoke Test)
-      if (scenario.userType === 'free') {
+      if (scenario.userType === 'basic') {
         await expect(page.getByTestId('analytics-page-upgrade-button')).toBeVisible();
       } else {
         await expect(page.getByText(/Pro Plan Active/i)).toBeVisible();

@@ -95,7 +95,7 @@
 
 ## [0.6.0-beta] — CI Stabilization: Environment Bridge & Alias Resolution (2026-03-25)
 
-- **Architecture: The ENV Bridge (Strangler Pattern)** — Centralized all environmental logic into `TestFlags.ts` (`ENV` object) and converted `env.ts` into a logic-free compatibility shim. This enforces a single source of truth for CI/Test detection.
+- **Architecture: The ENV Bridge (Strangler Pattern)** — Centralized all environmental logic into `TestFlags.ts` (`ENV` object) and converted `env.ts` into a logic-basic compatibility shim. This enforces a single source of truth for CI/Test detection.
 - **Tooling: Industrial Alias Resolution** — Implemented `vite-tsconfig-paths` at the monorepo root, ensuring Vitest and Vite inherit precise alias mappings (`@/*`) from `tsconfig.json`. This eliminates "Ghost Dependency" errors in CI.
 - **Fix: mass Callable Boolean Syntax** — Resolved 10 high-priority TypeScript regressions (TS2349) where `IS_TEST_ENVIRONMENT` was incorrectly invoked as a function.
 - **Verification: Trimodal Audit Hardening** — Enhanced `test-audit.sh` to strictly catch console errors and telemetry race conditions, achieving 100% "GREEN" status across all suites.
@@ -230,7 +230,7 @@ s in `PrivateSTT.ts` and unified `STTEngine` with `ITranscriptionEngine` for a s
 
 - **Tier-Limits E2E Fix & Expert Rescue Guard (2026-03-01):**
   - **Fix:** Resolved `useUserProfile.ts` "Expert Rescue" unconditionally forcing `subscription_status='pro'` for `test@example.com` in E2E mode, causing tier-limit tests to always bypass usage guards.
-  - **Guard:** Added explicit check to skip Pro rescue when profile already has `subscription_status === 'free'`, respecting the free tier set by `setupE2EMocks`.
+  - **Guard:** Added explicit check to skip Pro rescue when profile already has `subscription_status === 'basic'`, respecting the basic tier set by `setupE2EMocks`.
   - **Test:** Implemented deterministic React Query cache injection pattern: `await cancelQueries` → `setQueryDefaults({ staleTime: Infinity, enabled: false })` → `setQueryData(can_start: false)` with re-injection polling in `waitForFunction`.
   - **Verification:** All 4 tier-limits E2E tests pass cleanly (0 flaky, 0 failed, 9.3s). `ci:full:local` green: 556 unit ✅, 17 E2E ✅, Lighthouse 97/94/100/91 ✅.
   - **Files:** `useUserProfile.ts`, `tier-limits.e2e.spec.ts`
@@ -255,7 +255,7 @@ s in `PrivateSTT.ts` and unified `STTEngine` with `ITranscriptionEngine` for a s
 - **CI Stabilization & Mutex Hardening (2026-02-23):**
   - **Stability:** Achieved **100% E2E success (70/70 tests passing)** after resolving persistent flakiness in VAD auto-pause, cross-tab mutex, and tier limit auto-stops.
   - **Architecture:** Implemented "UI State First" pattern (Pattern 27), decoupling the UI lifecycle from asynchronous engine cleanup to ensure immediate state reversion and lock release.
-  - **Policy:** Enforced a universal "No Multi-Tab" policy for ALL users (Free & Pro), mitigating risk to quota integrity and state synchronization.
+  - **Policy:** Enforced a universal "No Multi-Tab" policy for ALL users (Basic & Pro), mitigating risk to quota integrity and state synchronization.
   - **Security:** Hardened `releaseLock()` to guarantee cleanup of heartbeats and lock keys even if the engine fails to stop gracefully.
   - **Quality:** Resolved final linting and type errors in E2E tests, achieving zero-debt status for the full CI pipeline.
   - **Files:** `useSessionLifecycle.ts`, `useActiveSessionLock.ts`, `tier-limits.e2e.spec.ts`, `priority2-verification.e2e.spec.ts`, `test-audit.sh`.
@@ -361,7 +361,7 @@ s in `PrivateSTT.ts` and unified `STTEngine` with `ITranscriptionEngine` for a s
 - **Soak Test & CI Infrastructure (2026-02-08):**
   - **Feature:** Implemented `tests/soak/api-load-test.ts` for lightweight, high-concurrency Node.js load testing (bypassing UI overhead).
   - **Tooling:** Introduced `pnpm ci:full:local` to simulate the full GitHub Actions pipeline locally (Lint + Typecheck + Unit + Build + E2E + Lighthouse).
-  - **Configuration:** Standardized environment variables: `NUM_BASIC_USERS` / `NUM_PRO_USERS` for consistent user provisioning. Basic-facing accounts still use the internal unpaid entitlement value `free`.
+  - **Configuration:** Standardized environment variables: `NUM_BASIC_USERS` / `NUM_PRO_USERS` for consistent user provisioning. Basic-facing accounts still use the internal unpaid entitlement value `basic`.
   - **Fix:** Resolved `verify-users.ts` syntax errors and `TransformersJSEngine.test.ts` assertion gaps.
   - **Documentation:** Updated `ARCHITECTURE.md` with new user provisioning standards.
   - **Files:** `tests/soak/*`, `package.json`, `scripts/test-audit.sh`, `docs/ARCHITECTURE.md`
@@ -507,7 +507,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   - **Process:** Conducted extensive manual verification of the Vercel production deployment.
   - **Findings Documented:** Detailed root cause analysis for Cloud STT (CORS), Private STT (WASM Crash), and Audio/UI defects captured in `docs/FRONTEND_TRIAGE.md`.
-  - **Backend Fix (Provisioning):** `create-user` Edge Function now strictly enforces `subscription_status` ('free'/'pro') and performs a read-back verification to prevent default value drift.
+  - **Backend Fix (Provisioning):** `create-user` Edge Function now strictly enforces `subscription_status` ('basic'/'pro') and performs a read-back verification to prevent default value drift.
   - **Critical Issues Identified:**
     - **Cloud STT:** Blocked by CORS (`ALLOWED_ORIGIN` missing in production).
     - **Private STT:** `WhisperTurbo` WASM initialization crash (`RangeError`) causing "Blank Audio" on fallback.
@@ -654,7 +654,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Live E2E Test Infrastructure (2026-01-06):**
   - New `pnpm test:e2e:live` script for running tests against real Supabase/Stripe APIs
   - Updated `dev-real-integration.yml` CI workflow to run `auth-real.e2e.spec.ts` with GitHub Secrets
-  - Required secrets: `E2E_FREE_EMAIL`, `E2E_FREE_PASSWORD`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, etc.
+  - Required secrets: `E2E_BASIC_EMAIL`, `E2E_BASIC_PASSWORD`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, etc.
   - Added `patches/whisper-turbo@0.11.0.patch` to git (was previously gitignored)
   - **Files:** `package.json`, `.github/workflows/dev-real-integration.yml`, `tests/e2e/auth-real.e2e.spec.ts`
 
@@ -728,7 +728,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Analytics UI Restoration:**
   - Resolved `net::ERR_NAME_NOT_RESOLVED` errors for `mock.supabase.co` by restoring MSW initialization in `initializeE2EEnvironment`.
-  - Consolidated the orange "Free Plan" oval with the upgrade description for a cleaner layout.
+  - Consolidated the orange "Basic Plan" oval with the upgrade description for a cleaner layout.
   - Removed redundant upgrade CTAs from the Analytics dashboard.
   - **Supabase Deployment Fix**: Renamed `_shared/build.config.ts` to `_shared/constants.ts` and updated imports to resolve Deno/bundler import resolution failure.
   - **Files:** `frontend/src/lib/e2e-bridge.ts`, `frontend/src/pages/AnalyticsPage.tsx`, `frontend/src/components/AnalyticsDashboard.tsx`, `backend/supabase/functions/_shared/cors.ts`
@@ -924,15 +924,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Files Modified:** `frontend/src/main.tsx`
 
 
-- **Plan Selection at Signup:** Users now choose Free or Pro plan during signup via radio button cards.
-  - Free selection → Account created, redirected to `/session`
-  - Pro selection → Account created (as Free), redirected to Stripe Checkout
+- **Plan Selection at Signup:** Users now choose Basic or Pro plan during signup via radio button cards.
+  - Basic selection → Account created, redirected to `/session`
+  - Pro selection → Account created (as Basic), redirected to Stripe Checkout
   - Webhook upgrades user to Pro upon successful payment
-  - **Security:** Accounts always created as Free; only Stripe webhook can upgrade to Pro
+  - **Security:** Accounts always created as Basic; only Stripe webhook can upgrade to Pro
   - **Files:** `AuthPage.tsx`, `Navigation.tsx`, `App.tsx`
 
-- **Upgrade Button for Free Users:** Persistent "Upgrade to Pro" button in Navigation bar for Free users.
-  - Visible on all pages for Free tier users
+- **Upgrade Button for Basic Users:** Persistent "Upgrade to Pro" button in Navigation bar for Basic users.
+  - Visible on all pages for Basic tier users
   - Hidden for Pro users
   - Initiates Stripe Checkout flow
   - **File:** `Navigation.tsx`
@@ -973,7 +973,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added (2025-12-19) - P1 Unit Test Coverage
 - **Auth Resilience Tests:** 7 tests in `fetchWithRetry.test.ts` covering exponential backoff, custom retry count, and error message preservation.
 - **Billing Idempotency Tests:** 15 tests in `stripe-webhook/index.test.ts` covering webhook replay, idempotency lock, subscription.updated, and payment_failed handlers.
-- **Tier Gating Tests:** 17 tests in `subscriptionTiers.test.ts` covering isPro, isFree, getTierLabel, getTierLimits, and TIER_LIMITS values.
+- **Tier Gating Tests:** 17 tests in `subscriptionTiers.test.ts` covering isPro, isBasic, getTierLabel, getTierLimits, and TIER_LIMITS values.
 
 ### Fixed (2025-12-19) - Metrics & Documentation Accuracy
 - **Detailed Lighthouse Reporting:** Updated `metrics.json` pipeline and `run-metrics.sh` to extract all 4 Lighthouse categories (Performance, Accessibility, Best Practices, SEO) instead of a single aggregate score.
@@ -1104,7 +1104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **P2-5 - Plan String Comparison:**
   - **Problem:** `profile?.subscription_status === 'pro'` hardcoded in 8+ files.
-  - **Fix:** Created `constants/subscriptionTiers.ts` with `isPro()`, `isFree()`, `getTierLabel()`, `getTierLimits()`.
+  - **Fix:** Created `constants/subscriptionTiers.ts` with `isPro()`, `isBasic()`, `getTierLabel()`, `getTierLimits()`.
   - **Updated:** 8 files to use centralized helpers.
 
 - **P2-7 - Edge Function Error Taxonomy:**
@@ -1232,9 +1232,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added (2025-12-12)
 
 - **Stripe Checkout Testing Infrastructure:**
-  - **`stripe-checkout.spec.ts`:** New E2E test for Stripe checkout flow. Signs in with FREE user, navigates to /pricing, clicks "Upgrade to Pro", verifies redirect to Stripe checkout.
+  - **`stripe-checkout.spec.ts`:** New E2E test for Stripe checkout flow. Signs in with BASIC user, navigates to /pricing, clicks "Upgrade to Pro", verifies redirect to Stripe checkout.
   - **`stripe-checkout-test.yml`:** GitHub Actions workflow for running Stripe checkout tests with real Supabase/Stripe credentials.
-  - **`setup-test-users.yml`:** GitHub Actions workflow to create test users (FREE or PRO tier) via Supabase Admin API. Supports dropdown selection for user type.
+  - **`setup-test-users.yml`:** GitHub Actions workflow to create test users (BASIC or PRO tier) via Supabase Admin API. Supports dropdown selection for user type.
   - **Files:** `.github/workflows/stripe-checkout-test.yml`, `.github/workflows/setup-test-users.yml`, `frontend/tests/integration/stripe-checkout.spec.ts`
 
 - **Stripe Pro Mode Backend Fixes:**
@@ -1286,8 +1286,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Files:** `.github/workflows/soak-test.yml`, `docs/ARCHITECTURE.md`
 
 - **Stripe Checkout Test - Upgrade Button Not Visible for Empty Users:**
-  - **Problem:** FREE users with 0 sessions saw EmptyState, which had no upgrade button. Test timed out waiting for `analytics-dashboard-upgrade-button`.
-  - **Solution:** Added `secondaryAction` prop to EmptyState component for subtle upgrade links. AnalyticsDashboard now shows "Want unlimited sessions? View Pro features" for FREE users even with 0 sessions.
+  - **Problem:** BASIC users with 0 sessions saw EmptyState, which had no upgrade button. Test timed out waiting for `analytics-dashboard-upgrade-button`.
+  - **Solution:** Added `secondaryAction` prop to EmptyState component for subtle upgrade links. AnalyticsDashboard now shows "Want unlimited sessions? View Pro features" for BASIC users even with 0 sessions.
   - **Files:** `frontend/src/components/ui/EmptyState.tsx`, `frontend/src/components/AnalyticsDashboard.tsx`
 
 - **Stripe Checkout Test - Element Selector Mismatch:**
@@ -1344,7 +1344,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **E2E Linting:** Resolved `page.goto` warnings in 5 test files by using `navigateToRoute` or appropriate disable directives.
 
 ### Changed (2025-12-11)
-- **UI Restrictions:** Disabled "Private" and "Cloud" options for Free users in the Session control dropdown.
+- **UI Restrictions:** Disabled "Private" and "Cloud" options for Basic users in the Session control dropdown.
 
 ### Added (2025-12-10)
 
@@ -1516,7 +1516,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **User Journey E2E Tests (2025-12-07):**
   - Full journey test: login → session → analytics → return session (7 steps)
   - Pro user session start test with default cloud mode
-  - Free user tier gating test (only Native Browser STT available)
+  - Basic user tier gating test (only Native Browser STT available)
   - **File:** `tests/e2e/user-journey.e2e.spec.ts`
 
 - **Rich Mock Session Data (2025-12-07):**
@@ -1614,7 +1614,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Pro Login Helper (2025-12-06):**
-  - **Feature:** Factory pattern `programmaticLoginAs` supporting Free, Pro, and Test user types
+  - **Feature:** Factory pattern `programmaticLoginAs` supporting Basic, Pro, and Test user types
   - **Benefit:** Enables comprehensive user-independent E2E testing
   - **Files:** `tests/e2e/helpers.ts`, `.env.test.example`
 
@@ -1656,7 +1656,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Supabase Migration for User Goals (2025-12-05):**
   - **Table:** `user_goals` with `id`, `user_id`, `weekly_goal`, `clarity_goal`, `created_at`, `updated_at`
   - **Security:** RLS policy for user-scoped access, auto-update trigger for `updated_at`
-  - **Seed Data:** Default goals for free-user and pro-user test accounts
+  - **Seed Data:** Default goals for basic-user and pro-user test accounts
   - **Files:** `backend/supabase/migrations/20251206000000_user_goals.sql`, `backend/supabase/seed.sql`
 
 ### Fixed
@@ -2128,8 +2128,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Terminology**: Updated "Avg. Accuracy" to "Clarity Score" in Analytics Dashboard to match design specs.
 
 ### Removed
-- **Visual Regression Test:** Removed the `visual.e2e.spec.ts` file as its file-based screenshot comparison strategy is incompatible with the new artifact-free testing approach.
-- **Obsolete User Tiers:** A full audit for "anonymous" and "premium" references was conducted. All legacy code paths related to these user tiers have been removed, and the codebase now exclusively uses the "free" and "pro" user types.
+- **Visual Regression Test:** Removed the `visual.e2e.spec.ts` file as its file-based screenshot comparison strategy is incompatible with the new artifact-basic testing approach.
+- **Obsolete User Tiers:** A full audit for "anonymous" and "premium" references was conducted. All legacy code paths related to these user tiers have been removed, and the codebase now exclusively uses the "basic" and "pro" user types.
 
 ### Refactored
 - **`useSpeechRecognition` Hook:** The hook has been successfully refactored into smaller, more focused hooks (`useTranscriptionService`, `useFillerWords`, `useTranscriptState`). The underlying `useTranscriptionService` was further refactored to resolve a critical memory leak caused by improper instance management. The entire test suite is now passing, confirming the stability of the new implementation.
@@ -2137,7 +2137,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [3.5.4] - 2026-03-02
 
 ### Added
-- **Secure E2E User Provisioning**: Implemented `create-user` Edge Function to securely provision test users with specific roles ('free'/'pro') in CI.
+- **Secure E2E User Provisioning**: Implemented `create-user` Edge Function to securely provision test users with specific roles ('basic'/'pro') in CI.
 - **E2E Bridge Synchronization**: Added event-driven synchronization (`e2e:speech-recognition-ready`) to `NativeBrowser` to eliminate race conditions in E2E tests.
 
 ### Fixed
@@ -2191,6 +2191,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release of SpeakSharp.
 - Core features: Real-time transcription, filler word detection, and session history.
 - Basic user authentication (sign up, sign in).
-- Pro and Free user tiers with feature gating.
+- Pro and Basic user tiers with feature gating.
 - CI/CD pipeline with linting, type-checking, and unit tests.
 - Basic session recording functionality.

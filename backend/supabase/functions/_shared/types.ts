@@ -22,7 +22,7 @@ export interface StripeCheckoutResponse {
 // User Profile
 export interface UserProfile {
     id: string;
-    subscription_status: 'free' | 'pro';
+    subscription_status: 'basic' | 'pro';
     usage_seconds: number;
     usage_reset_date: string;
 }

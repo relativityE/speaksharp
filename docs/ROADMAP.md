@@ -114,14 +114,14 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ **Usage Limit Pre-Check (2025-12-11):** P0 UX fix. New Edge Function `check-usage-limit` validates usage BEFORE session start. Shows toast with Upgrade button if exceeded.
 - ✅ **Screen Reader Accessibility (2025-12-11):** Added `aria-live="polite"` to live transcript for screen reader announcements.
 - ✅ **PDF Export Fix (2025-12-11):** Replaced manual download with FileSaver.js industry standard.
-- [ ] Refactor Download Model tier gating: display disabled button for Free users as marketing funnel ([PRD §3.5](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/docs/PRD.md#L157-L159))
+- [ ] Refactor Download Model tier gating: display disabled button for Basic users as marketing funnel ([PRD §3.5](file:///Users/fibonacci/SW_Dev/Antigravity_Dev/speaksharp/docs/PRD.md#L157-L159))
 - [ ] **Redundant Forensic Constants (Tech Debt)**: `e2eAttributes.ts` and `forensicAnchors.ts` both define forensic attribute names. Consolidate into `forensicAnchors.ts` as the Single Source of Truth for both definitions and execution. (Added Apr 2026).
 - ✅ **STT Initialization UX (Pulsatile Glow):** Implement a subtle pulsatile glow or glassmorphic loader around the microphone during the `isEngineInitialized` transition to mask initialization lag. (Added Apr 2026).
 - 🔴 **Harden Supabase Security:** Address security advisor warnings.
   - ⏸️ **BLOCKED** - Shorten OTP expiry to <1 hour (requires Supabase Pro account)
   - ⏸️ **BLOCKED** - Enable leaked password protection (requires Supabase Pro account)
   - ⏸️ **DEFERRED** - Upgrade Postgres version (not critical for alpha)
-- ✅ **COMPLETED - Integration Test (Usage Limits):** Deno unit tests exist at `backend/supabase/functions/check-usage-limit/index.test.ts` (167 lines, 6 test cases covering auth, free/pro users, exceeded limits, graceful degradation, CORS).
+- ✅ **COMPLETED - Integration Test (Usage Limits):** Deno unit tests exist at `backend/supabase/functions/check-usage-limit/index.test.ts` (167 lines, 6 test cases covering auth, basic/pro users, exceeded limits, graceful degradation, CORS).
 - ✅ **STT Pause/Resume Logic (2026-04-09):** Implemented deterministic `pauseTranscription()` and `resumeTranscription()` in `TranscriptionService.ts`. Integrated with `TranscriptionFSM`'s `PAUSED` state and "Soft Pause" audio gating to avoid mic cold-starts. Verified via unit and contract tests.
 - 🔴 **Domain Services DI Refactor:** Evolve `domainServices.ts` from internal client retrieval to dependency injection pattern for fully pure, easily testable functions. Low priority - current spy-based testing works for alpha.
 - ✅ **Console Error Highlighting (P0 - Debugging):** Implemented via `pino-pretty` with `colorize: true` in `lib/logger.ts`. Standardized for all domain services and async modes. (2026-02-16)
@@ -179,7 +179,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 
 - ✅ **Industrial Alias Resolution**: Synced Vitest with `tsconfig.json` using `vite-tsconfig-paths`.
 - ✅ **Authoritative Bridge**: Centralized environment flags in `TestFlags.ts`.
-- ✅ **Strangler Shim**: Frozen `env.ts` as a logic-free compatibility layer.
+- ✅ **Strangler Shim**: Frozen `env.ts` as a logic-basic compatibility layer.
 - ✅ **Web Worker Offloading:** Moved heavy audio processing to a dedicated Web Worker to ensure UI responsiveness.
 - ✅ **CI Stabilization:** Upgraded pnpm, increased memory limits, and tuned timeouts for 100% reliable CI runs.
 - ✅ **Regex Memoization:** Implemented content-based regex memoization in `highlightUtils.ts` to eliminate repeated compilation in render loops.
@@ -289,7 +289,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
     *   ✅ **Billing Idempotency (2025-12-19):** 15 tests covering webhook replay, idempotency lock, and partial failure recovery.
     *   ✅ **Auth Resilience (2025-12-19):** 7 tests in `fetchWithRetry.test.ts` (exponential backoff, custom retry count, error preservation).
 *   **P1: Business Logic**
-    *   ✅ **Tier Gating (2025-12-19):** 17 tests in `subscriptionTiers.test.ts` (isPro, isFree, getTierLabel, getTierLimits, TIER_LIMITS values).
+    *   ✅ **Tier Gating (2025-12-19):** 17 tests in `subscriptionTiers.test.ts` (isPro, isBasic, getTierLabel, getTierLimits, TIER_LIMITS values).
     *   🔴 **Domain Services:** CRUD validation in `domainServices.ts`.
     *   🔴 **Analytics Correctness:** Month-boundary rollover and session aggregation logic.
 *   **P2: E2E Trust**
@@ -308,7 +308,7 @@ This phase focuses on fixing critical bugs, addressing code health, and ensuring
 - ✅ **Stripe Subscription Webhooks (2025-12-12):** The `stripe-webhook` Edge Function now handles all subscription lifecycle events.
   - **File:** `stripe-webhook/index.ts:46-109`
   - **Events Handled:** `customer.subscription.deleted`, `customer.subscription.updated`, `invoice.payment_failed`
-  - **Behavior:** Downgrades `subscription_status` to 'free' on cancellation, unpaid status, or after 3 failed payment attempts
+  - **Behavior:** Downgrades `subscription_status` to 'basic' on cancellation, unpaid status, or after 3 failed payment attempts
 
 #### P1 - Should Fix (Tech Debt)
 
@@ -454,10 +454,10 @@ This phase is about confirming the core feature set works as expected and polish
 - ✅ **Implement WebSocket Reconnect Logic:** Added heartbeat and exponential backoff (1s, 2s, 4s, 8s, max 30s) logic to `CloudAssemblyAI.ts`.
 - ✅ **Session Comparison & Progress Tracking (2025-12-06):** Users can now select 2 sessions to compare side-by-side with progress indicators (green ↑ for improvement, red ↓ for regression). Added WPM and Clarity trend charts showing progress over last 10 sessions. **Components:** `ProgressIndicator.tsx`, `TrendChart.tsx`, `SessionComparisonDialog.tsx`. **Status:** ✅ Complete.
 - ✅ **Implement Local STT Toast Notification:** Show user feedback when Whisper model download completes.
-- ✅ **User Filler Words Tier Limits & Conversion Nudges (2025-12-11):** Implemented tier-based limits (Free: 10 words, Pro: 100 words) with subtle upgrade nudges when free users approach limit (shown at 8/10 words). Error messages include upgrade CTA. Uses `Math.min(MAX_WORDS_PER_USER, MAX_WORDS_FREE)` pattern for free tier enforcement.
+- ✅ **User Filler Words Tier Limits & Conversion Nudges (2025-12-11):** Implemented tier-based limits (Basic: 10 words, Pro: 100 words) with subtle upgrade nudges when basic users approach limit (shown at 8/10 words). Error messages include upgrade CTA. Uses `Math.min(MAX_WORDS_PER_USER, MAX_WORDS_BASIC)` pattern for basic tier enforcement.
 - ✅ **Contract Rectification (2025-12-19):** Grounded application assumptions in the database. Added `transcript`, `engine`, `clarity_score`, and `wpm` to the `sessions` table. Implemented atomic `create_session_and_update_usage` Ghost RPC. Purged `avatar_url` and `full_name` phantoms.
 - ✅ **Analytics Integrity Fix (2025-12-19):** Resolved regression in clarity score aggregation to correctly use grounded DB fields.
-- ✅ **Plan Selection at Signup (2025-12-21):** Users choose Free or Pro plan during signup. Pro selection redirects to Stripe Checkout after account creation (as Free). Webhook upgrades to Pro on successful payment. Added persistent "Upgrade to Pro" button in Navigation for Free users.
+- ✅ **Plan Selection at Signup (2025-12-21):** Users choose Basic or Pro plan during signup. Pro selection redirects to Stripe Checkout after account creation (as Basic). Webhook upgrades to Pro on successful payment. Added persistent "Upgrade to Pro" button in Navigation for Basic users.
   - **Files:** `AuthPage.tsx`, `Navigation.tsx`, `App.tsx`, `stripe-checkout/index.ts`
 - ✅ **Promo Admin Migration (2026-02-08):** Migrated from legacy Alpha Bypass to a professional, server-side validated Promo Code system. Replaced `ALPHA_BYPASS_CODE` with `PROMO_GEN_ADMIN_SECRET` and implemented `generate-promo.ts`.
 - ✅ **Analytics UI Restoration & Consolidation (2025-12-31):** Resolved MSW initialization regression. Consolidated redundant upgrade prompts and merged plan status indicators for a cleaner Analytics dashboard.
@@ -630,16 +630,16 @@ This phase is about confirming the core feature set works as expected and polish
 | 13 | **Mock-to-Schema Synchronization** | `tests/e2e/mock-routes.ts` | P2 | Implement factory-based session mocking and PostgREST header compliance to prevent regression. |
 | 14 | **WASM Binary Cache** | `TranscriptionService.ts` | P2 | 🔴 Not Started - Implement global binary caching for $O(1)$ startup vs. current init lag. |
 | 15 | **Transient Transcript Policy** | `TranscriptionService.ts` | P2 | 🔴 Not Started - Ephemeral local storage for transcripts to protect PII and save disk costs. |
-| 16 | **Free-Tier Private Gating** | `SessionPage.tsx` | P3 | 🔴 Not Started - User-tier gating in DOM for Free users to reduce asset load noise. |
+| 16 | **Basic-Tier Private Gating** | `SessionPage.tsx` | P3 | 🔴 Not Started - User-tier gating in DOM for Basic users to reduce asset load noise. |
 | 17 | **Unified STT Engine Contract (Cloud/Native)** | `CloudAssemblyAI.ts`, `NativeBrowser.ts` | P2 | ✅ Complete | Migrated Cloud/Native engines to the `STTEngine` base class to enable unified heartbeat monitoring and telemetry. Finalized v0.6.4. |
 | 18 | **ENV → EnvProvider Dependency Injection** | `TestFlags.ts`, test infrastructure | P2 | 🔴 Not Started | Refactor `ENV` from a frozen IIFE to an injectable `EnvProvider.get()` pattern. 3–5 days, touches frozen `TestFlags.ts`, cascades across entire test suite. Not the cause of current E2E failures — `addInitScript` runs before page scripts so `window.__SS_E2E__` IS available when the IIFE evaluates. Deferred. |
 | 19 | **E2E Tiered Execution Strategy** | `playwright.config.ts`, `package.json` | P2 | 🔴 Not Started | Add named Playwright projects (smoke/journeys/features/infra) and corresponding `pnpm` scripts (`test:e2e:smoke`, `test:e2e:journeys`, `test:e2e:features`, `test:e2e:infra`). CI pipeline runs smoke on every PR; full suite only on merge to `main`. Currently all 40 E2E tests run as the full mocked suite — no fast-feedback tier. Requires a stable 100% green baseline before restructuring. |
 | 20 | **E2E Spec File Consolidation** | `tests/e2e/` | P3 | 🔴 Not Started | Cosmetic reduction from 35 to ~25 spec files. Primary candidates: `analytics.e2e.spec.ts` + `analytics-empty-state.e2e.spec.ts` + `analytics-details.e2e.spec.ts` → 1 file; `private-stt.e2e.spec.ts` + `private-stt-fallback-negotiation.e2e.spec.ts` + `priv-stt-mock-fallback.e2e.spec.ts` + `diag-private-stt.e2e.spec.ts` → 1 file. Do not execute until tiered strategy (Item 19) is in place. |
 | 21 | **`goToInfrastructureRoute` Helper** | `tests/e2e/helpers.ts` | P1 | ✅ Done (2026-04-11) | Minimal navigation helper that waits only for `[data-app-booted="true"]`, without the `data-route-ready` or `data-data-ready` signals that require an authenticated route. `core.e2e.spec.ts` now uses this instead of `goToPublicRoute`, restoring its zero-auth design intent. Added additively — no modifications to existing helper functions. |
 | 22 | **`/healthcheck` Dedicated Route** | `frontend/src/App.tsx`, `frontend/src/pages/` | P3 | 🔴 Not Started | Optional dedicated route complementary to Item 21 (not a replacement). Item 21's `goToInfrastructureRoute('/')` waits boot-only and is sufficient. Item 22 would eliminate the redirect-path dependency entirely — a dedicated page that fires `data-app-booted` immediately with no auth, redirects, or data resolution. Revisit if zero-auth strictness becomes a hard requirement. |
-| 23 | **Global Playwright `__SS_E2E__` Fixture** | `playwright.config.ts`, `tests/e2e/` | P2 | 🔴 Not Started | Each E2E spec currently calls `setupE2EManifest` individually to inject `window.__SS_E2E__`. This per-spec responsibility caused the C4 evidence spec to bypass injection entirely, triggering a 2-week debugging loop. **Proposed fix:** Create a shared Playwright fixture (via `test.extend`) or a `globalSetup` that automatically calls `page.addInitScript` with the base `__SS_E2E__` manifest. Specs that need custom config (auth tokens, engine type) would still call `programmaticLoginWithRoutes`. Specs that only need the bridge (like forensic evidence specs) would get it for free. Simple additive change — no rearchitecting of existing helpers. |
+| 23 | **Global Playwright `__SS_E2E__` Fixture** | `playwright.config.ts`, `tests/e2e/` | P2 | 🔴 Not Started | Each E2E spec currently calls `setupE2EManifest` individually to inject `window.__SS_E2E__`. This per-spec responsibility caused the C4 evidence spec to bypass injection entirely, triggering a 2-week debugging loop. **Proposed fix:** Create a shared Playwright fixture (via `test.extend`) or a `globalSetup` that automatically calls `page.addInitScript` with the base `__SS_E2E__` manifest. Specs that need custom config (auth tokens, engine type) would still call `programmaticLoginWithRoutes`. Specs that only need the bridge (like forensic evidence specs) would get it for basic. Simple additive change — no rearchitecting of existing helpers. |
 | 24 | **Global ENV Purge (No Test-Awareness)** | `frontend/src/**/*` | P1 | 🔴 Not Started | Purge `import { ENV }` and all test-aware conditionals from the entire production source. Re-align with constructor/dependency injection patterns to fulfill stabilization mandate. |
-| 25 | **Free → Basic Tier Migration** | Product, billing, tier policy | P2 | ⏸️ Deferred | Rename/migrate Free users to Basic so the baseline tier can receive monthly pricing. Explicitly deferred until Private STT, analytics/session stability, production validation, and CI parity are settled. |
+| 25 | **Basic → Basic Tier Migration** | Product, billing, tier policy | P2 | ⏸️ Deferred | Rename/migrate Basic users to Basic so the baseline tier can receive monthly pricing. Explicitly deferred until Private STT, analytics/session stability, production validation, and CI parity are settled. |
 | 26 | **Benchmark Manifest Drift Guard** | `tests/STT_BENCHMARKS.json`, benchmark scripts | P2 | 🟡 In Progress | Canonical manifest path is `tests/STT_BENCHMARKS.json`; scripts/helpers now point there. Add a guard test so future docs/script drift cannot silently reintroduce `docs/STT_BENCHMARKS.json`. |
 | 27 | **CI/Local Command Parity Guard** | `package.json`, `.github/workflows/*`, `scripts/run-ci.mjs` | P1 | 🟡 In Progress | `pnpm ci:full --skip-lighthouse` now runs the infra probe once, shards only the full app journey suite, and reports stable aggregate telemetry. Remaining work: confirm unskipped Lighthouse policy and GitHub Actions parity before release. |
 | 28 | **Goal-Setting Readiness Hang** | `tests/e2e/goal-setting.e2e.spec.ts`, analytics readiness flow | P1 | ✅ Done (2026-05-06) | Resolved by the goal-selection readiness flow fix. Current CI parity run reports infra probe separately and the full app journey suite as 35/35 passing; earlier 39/40 status is superseded. |
@@ -953,7 +953,7 @@ This phase addresses findings from the December 2025 UX Audit (`ux_audit.md`) to
 | ID | Title | Priority | Status | Notes |
 |----|-------|----------|--------|-------|
 | **A1** | **System Integrity Audit** | **CRITICAL** | ✅ Complete | Fixed flaky `auth.e2e.spec.ts` (Behavioral logic) and `private-stt.live.spec.ts` (Explicit DOM signals). |
-| **A2** | **Agent-Safe Interface (`test:agent`)** | **HIGH** | ✅ Complete | Established strict, live-service-free suite (`test:agent`) outputting stable JSON for agent consumption. |
+| **A2** | **Agent-Safe Interface (`test:agent`)** | **HIGH** | ✅ Complete | Established strict, live-service-basic suite (`test:agent`) outputting stable JSON for agent consumption. |
 | **A3** | **TIA Dependency Map** | **HIGH** | ✅ Complete | Implemented `test-impact-map.json` and `detect-impact.mjs` for surgical testing. |
 | **A4** | **Node Orchestrator (`run-ci.mjs`)**| **HIGH** | ✅ Complete | Built script to execute impacted tests and format output for AI parsing. |
 

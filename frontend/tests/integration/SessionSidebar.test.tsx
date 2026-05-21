@@ -90,12 +90,12 @@ describe('SessionSidebar', () => {
     }
   });
 
-  describe('for a Free user', () => {
+  describe('for a Basic user', () => {
     beforeEach(() => {
-      mockAuthContextValue.user = { id: 'free-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
+      mockAuthContextValue.user = { id: 'basic-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
       vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({
-        id: 'free-user',
-        subscription_status: 'free',
+        id: 'basic-user',
+        subscription_status: 'basic',
         usage_seconds: 0,
         usage_reset_date: new Date().toISOString(),
         created_at: new Date().toISOString()
@@ -131,7 +131,7 @@ describe('SessionSidebar', () => {
         allowPrivate: false,
         preferredMode: 'native',
         allowFallback: false,
-        executionIntent: 'prod-free-native',
+        executionIntent: 'prod-basic-native',
       });
     });
   });
@@ -205,11 +205,11 @@ describe('SessionSidebar', () => {
 
   describe('for a Dev user', () => {
     beforeEach(() => {
-      // Dev user might be on a free tier, but the env var should override
+      // Dev user might be on a basic tier, but the env var should override
       mockAuthContextValue.user = { id: 'dev-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
       vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({
         id: 'dev-user',
-        subscription_status: 'free',
+        subscription_status: 'basic',
         usage_seconds: 0,
         usage_reset_date: new Date().toISOString(),
         created_at: new Date().toISOString()
@@ -217,7 +217,7 @@ describe('SessionSidebar', () => {
       vi.stubEnv('VITE_DEV_USER', 'true');
     });
 
-    it('renders with all modes enabled, even on a free subscription', async () => {
+    it('renders with all modes enabled, even on a basic subscription', async () => {
       const user = userEvent.setup();
       render(
         <MockAuthProvider value={mockAuthContextValue}>
@@ -239,15 +239,15 @@ describe('SessionSidebar', () => {
         </MockAuthProvider>
       );
 
-      // Starts in cloud by default (but as free user, Cloud is not allowed)
+      // Starts in cloud by default (but as basic user, Cloud is not allowed)
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         allowNative: true,
         allowCloud: false,
         allowPrivate: false,
-        preferredMode: 'cloud',  // UI selection, but Cloud is not allowed for free
+        preferredMode: 'cloud',  // UI selection, but Cloud is not allowed for basic
         allowFallback: false,
-        executionIntent: 'prod-free-cloud',
+        executionIntent: 'prod-basic-cloud',
       });
 
       // Switch to Private
@@ -260,7 +260,7 @@ describe('SessionSidebar', () => {
         allowPrivate: false,
         preferredMode: 'private',
         allowFallback: false,
-        executionIntent: 'prod-free-private',
+        executionIntent: 'prod-basic-private',
       });
 
       // Switch to native
@@ -273,7 +273,7 @@ describe('SessionSidebar', () => {
         allowPrivate: false,
         preferredMode: 'native',
         allowFallback: false,
-        executionIntent: 'prod-free-native',
+        executionIntent: 'prod-basic-native',
       });
     });
   });

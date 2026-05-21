@@ -15,8 +15,8 @@ export const TEST_USER_PRO = {
   password: 'password123',
 };
 
-export const TEST_USER_FREE = {
-  email: 'free-user@test.com',
+export const TEST_USER_BASIC = {
+  email: 'basic-user@test.com',
   password: 'password123',
 };
 
@@ -133,7 +133,7 @@ export const TEST_IDS = {
 
 // These define how many real accounts setup-test-users.mjs will provision in the DB.
 // We need exactly 15 to satisfy the cloud API_LOAD_CONCURRENCY of 15, plus 2 for UI Memcheck.
-export const FREE_USER_COUNT = 5;
+export const BASIC_USER_COUNT = 5;
 export const PRO_USER_COUNT = 10;
 export const MAX_TOTAL_TEST_USERS = 50;
 
