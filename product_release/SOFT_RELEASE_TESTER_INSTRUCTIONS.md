@@ -1,6 +1,6 @@
 # Soft Release Tester Instructions
 
-**Last updated:** 2026-05-19
+**Last updated:** 2026-05-21
 **Release type:** Controlled soft release, not broad public launch
 **Tester count:** Start with 5 testers, then expand only after the first round is clean.
 
@@ -13,9 +13,9 @@ Link: https://speaksharp-public.vercel.app
 
 Setup:
 1. Create a new account with your own email and password.
-2. Enter this promo code: CODE_HERE
+2. Apply your unique promo code: CODE_HERE
 
-The promo gives Pro access for 1 hour. The timer starts when you redeem the code.
+The promo gives Pro access for 1 hour. The timer starts when you apply the code to your new account.
 
 What to test:
 1. Start with Private STT for your first session. This is the primary validated Pro mode for this round.
@@ -40,10 +40,11 @@ Please report:
 
 ## Operator Checklist
 
-- Generate one promo code per tester with `pnpm generate-promo`.
+- Generate one unique promo code per tester with `pnpm generate-promo`.
+- Replace `CODE_HERE` in each tester's invite before sending it; do not send a shared code or ask testers to request a code later.
+- Each code is one-use. The 60-minute timer starts when that tester applies the code, not when the code is generated.
 - Confirm `PROMO_GEN_ADMIN_SECRET` and `VITE_SUPABASE_URL` or `SUPABASE_URL` are present before generating codes.
 - Promo duration is controlled by `PROMO_DURATION_MINUTES` in `backend/supabase/functions/_shared/constants.ts`; current value is `60`.
 - Confirm Vercel production does not set `VITE_TEST_MODE` or other E2E/test flags.
 - Keep tester instructions Private-first. Cloud is useful feedback, but it is not the primary path for the first tester session.
 - Ask every tester to check save/history/detail after stopping. A transcript without persisted history is not a successful session.
-
