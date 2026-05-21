@@ -77,3 +77,4 @@ Thumbs.db
 video-production/README.md
 !video-production/
 frontend/dist-e2e/
+.vercel

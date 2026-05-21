@@ -1,6 +1,6 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-19
-**Version:** v0.6.18 
+**Version:** v0.6.19-rc0
 **Last Updated:** 2026-05-19
 
 # Operational Release Artifacts (product_release/)

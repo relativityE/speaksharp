@@ -1,6 +1,6 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-15
-**Version:** v0.6.18 
+**Version:** v0.6.19-rc0
 **Last Updated:** 2026-05-15
 
 # SpeakSharp Operational PRD (The Contract)
@@ -23,7 +23,7 @@
 
 <!-- PRODUCT_RELEASE_SYNC_END -->
 
-This document defines the user-visible guarantees, failure behaviors, and operational constraints that the SpeakSharp platform MUST satisfy for the v0.6.18 release.
+This document defines the user-visible guarantees, failure behaviors, and operational constraints that the SpeakSharp platform MUST satisfy for the v0.6.19-rc0 release.
 
 ---
 
@@ -36,7 +36,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 - **Export Reliability**: PDF exports MUST reflect the active client-side transcript/report state and persisted session metrics available at export time.
 - **Privacy Guarantees**: Private STT audio data MUST NOT leave the user's browser.
 - **STT Mode Consent**: Private STT MUST NOT silently switch to Cloud STT. Cloud is a first-class Pro choice, but it requires explicit user selection.
-- **Private STT Launch Policy**: Private STT is recommended/default for Pro users, but the v0.6.18 launch baseline prioritizes deterministic CPU/Transformers.js setup over WebGPU-first probing. WebGPU is an accelerated path only after support is verified; it is not required for first-use success.
+- **Private STT Launch Policy**: Private STT is recommended/default for Pro users, but the v0.6.19-rc0 launch baseline prioritizes deterministic CPU/Transformers.js setup over WebGPU-first probing. WebGPU is an accelerated path only after support is verified; it is not required for first-use success.
 - **Cloud Boost**: When the user explicitly selects Cloud STT, user-specific vocabulary/custom words MAY be sent to AssemblyAI as `keyterms_prompt` to improve transcript accuracy for that user.
 - **Cloud Streaming Audio Contract**: Cloud STT MUST send AssemblyAI PCM audio chunks between 50 ms and 1000 ms long. At the declared 16 kHz sample rate, this means each binary WebSocket payload MUST contain 800-16000 samples. SpeakSharp uses 100 ms chunks (1600 samples) as the default live-microphone target. Sending raw browser callback frames directly is prohibited because tiny frames can be interpreted by AssemblyAI as invalid input duration and rejected before transcription.
 
