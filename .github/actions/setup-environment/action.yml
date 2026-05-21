@@ -58,5 +58,7 @@ runs:
 
     - name: Setup Supabase CLI
       uses: supabase/setup-cli@v2
+      env:
+        SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
       with:
         version: latest
