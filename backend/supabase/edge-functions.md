@@ -41,7 +41,7 @@ This function provisions users in both Supabase Auth and the `user_profiles` tab
 {
   "email": "user@example.com",           // Alias: "username"
   "password": "secure-password",        // If omitted, requires user to exist
-  "subscription_status": "pro"           // Alias: "type" ('free' or 'pro')
+  "subscription_status": "pro"           // Alias: "type" ('basic' or 'pro')
 }
 ```
 
@@ -50,7 +50,7 @@ This function provisions users in both Supabase Auth and the `user_profiles` tab
 1.  **Auth Creation**: If a password is provided, creates a user in `auth.users` via Admin API. If the user exists, identifies their existing ID.
 2.  **Profile Upsert**: Creates or updates a record in `public.user_profiles` with a mapped tier:
     -   `pro`: Sets `subscription_status` to 'pro' and `usage_limit` to -1.
-    -   `free`: Sets `subscription_status` to 'free' and `usage_limit` to 3600 (1 hour).
+    -   `basic`: Sets `subscription_status` to 'basic' and `usage_limit` to 3600 (1 hour).
 3.  **Security**: Uses constant-time `safeCompare` for `AGENT_SECRET` and defensively clears secrets from memory after validation.
 4.  **Idempotency**: Safe to run repeatedly; ensures the user and profile match the requested state.
 

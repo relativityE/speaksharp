@@ -6,12 +6,12 @@
 
 | Item | Current Status |
 |---|---|
-| Controlled desktop tester release | HOLD until the Basic-tier cutover and metric-explanation patch are deployed and smoke-tested. |
+| Controlled desktop tester release | HOLD by product decision until final human UX review; Basic-tier cutover, metric explanations, deploy, CI, and production canary are green. |
 | Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
-| Latest release evidence commit | `69ad3f13` (`Fix E2E final transcript projection`). |
-| CI/Test Audit | PASS: GitHub run `25994869503` on `main`. |
-| Production canary | PASS: GitHub run `26085357729` on `main` schedule; push canary `25994869500` also passed. |
-| Edge Function deploy | PASS: GitHub run `25994869506` on `main`. |
+| Latest release evidence commit | `88f277d4` (`Cut over baseline tier to Basic`). |
+| CI/Test Audit | PASS: GitHub run `26231514902` on `main`. |
+| Production canary | PASS: GitHub push canary run `26231514911` on `main`. |
+| Supabase deploy | PASS: GitHub run `26231515067` on `main`. |
 | Scheduled soak | PASS: GitHub run `26083232887` on `main`. |
 | Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
 | Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
@@ -22,16 +22,16 @@
 
 **Last updated:** 2026-05-21
 **Release type:** Controlled human tester release
-**Current decision:** HOLD FOR PRE-TESTER FIX VALIDATION
-**Evidence baseline commit:** `69ad3f13`
+**Current decision:** HOLD FOR FINAL HUMAN UX REVIEW
+**Evidence baseline commit:** `88f277d4`
 **Latest full RC gates:** `Release Candidate Gates` run `25769178359` passed on `e73408c0`
-**Latest workflow hygiene evidence:** `69ad3f13`; CI/Test Audit run `25994869503`, production canary run `25994869500`, Edge Function deploy run `25994869506`, scheduled production canary run `26085357729`, and scheduled soak run `26083232887` passed on `main`.
+**Latest workflow hygiene evidence:** `88f277d4`; CI/Test Audit run `26231514902`, production canary run `26231514911`, and Supabase deploy run `26231515067` passed on `main`.
 
 ## 1. Decision
 
 | Decision | Status | Evidence |
 |---|---:|---|
-| GO / GO WITH LIMITATIONS / NO-GO | HOLD | Tester launch is paused while the strict internal Basic-tier cutover, shared metric explanations, and added metric-card coverage are validated and deployed. |
+| GO / GO WITH LIMITATIONS / NO-GO | HOLD | Tester launch is paused by product decision for final human UX review. The strict internal Basic-tier cutover, shared metric explanations, metric-card coverage, deploy, CI, and production canary are validated. |
 
 ## 2. P0 Blockers Only
 
@@ -57,7 +57,7 @@
 
 - Native browser STT varies by browser and is validated for Chrome.
 - Cloud is caveated for controlled testers: Cloud selection, runtime authority, metadata, and no-speech guard are validated, but the latest Chrome CDP live pass did not prove real-human-speech Cloud transcript cradle-to-grave. Treat Cloud as an optional limited validation path, not the primary Pro path.
-- Baseline tier now uses `basic` internally and displays as Basic. The cutover must be deployed before tester codes are sent.
+- Baseline tier now uses `basic` internally and displays as Basic. The cutover is deployed; complete the final human UX review before tester codes are sent.
 - Large group concurrency is outside this controlled trial.
 - Production paid billing beyond test-mode Stripe flow is outside this controlled trial.
 
