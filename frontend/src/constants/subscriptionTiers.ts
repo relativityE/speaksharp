@@ -43,6 +43,14 @@ export function isActiveTrialProfile(profile: TierProfile, nowMs = Date.now()): 
     return Number.isFinite(expiresAtMs) && expiresAtMs > nowMs;
 }
 
+export function hasPaidProEntitlement(profile: TierProfile): boolean {
+    if (normalizeSubscriptionTier(profile?.subscription_status) !== SUBSCRIPTION_TIERS.PRO) {
+        return false;
+    }
+
+    return Boolean(profile?.stripe_subscription_id?.trim() || profile?.subscription_id?.trim());
+}
+
 export function getEffectiveSubscriptionStatus(
     usageLimitStatus?: string | null,
     profile?: TierProfile

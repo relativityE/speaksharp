@@ -126,7 +126,7 @@ describe('SessionSidebar', () => {
       );
 
       await user.click(screen.getByRole('button', { name: 'Native' }));
-      expect(await screen.findByRole('menuitemradio', { name: 'Cloud' })).toHaveAttribute('aria-disabled', 'true');
+      expect(await screen.findByRole('menuitemradio', { name: /Cloud/ })).toHaveAttribute('aria-disabled', 'true');
       expect(await screen.findByRole('menuitemradio', { name: 'Private' })).toHaveAttribute('aria-disabled', 'true');
       expect(await screen.findByRole('menuitemradio', { name: 'Native' })).not.toHaveAttribute('aria-disabled', 'true');
     });
@@ -157,6 +157,7 @@ describe('SessionSidebar', () => {
       vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({
         id: 'pro-user',
         subscription_status: 'pro',
+        stripe_subscription_id: 'sub_paid_123',
         usage_seconds: 0,
         usage_reset_date: new Date().toISOString(),
         created_at: new Date().toISOString()
@@ -185,7 +186,7 @@ describe('SessionSidebar', () => {
       );
 
       await user.click(screen.getByRole('button', { name: 'Private' }));
-      expect(await screen.findByRole('menuitemradio', { name: 'Cloud' })).toBeEnabled();
+      expect(await screen.findByRole('menuitemradio', { name: /Cloud/ })).toBeEnabled();
       expect(await screen.findByRole('menuitemradio', { name: 'Private' })).toBeEnabled();
       expect(await screen.findByRole('menuitemradio', { name: 'Native' })).toBeEnabled();
     });
@@ -218,7 +219,7 @@ describe('SessionSidebar', () => {
       );
 
       await user.click(screen.getByRole('button', { name: 'Private' }));
-      await user.click(await screen.findByRole('menuitemradio', { name: 'Cloud' }));
+      await user.click(await screen.findByRole('menuitemradio', { name: /Cloud/ }));
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenCalledExactlyOnceWith({
         allowNative: true,
@@ -254,7 +255,7 @@ describe('SessionSidebar', () => {
       );
 
       await user.click(screen.getByRole('button', { name: 'Cloud' }));
-      expect(await screen.findByRole('menuitemradio', { name: 'Cloud' })).toBeEnabled();
+      expect(await screen.findByRole('menuitemradio', { name: /Cloud/ })).toBeEnabled();
       expect(await screen.findByRole('menuitemradio', { name: 'Private' })).toBeEnabled();
       expect(await screen.findByRole('menuitemradio', { name: 'Native' })).toBeEnabled();
     });
@@ -267,15 +268,15 @@ describe('SessionSidebar', () => {
         </MockAuthProvider>
       );
 
-      // Starts in cloud by default (but as basic user, Cloud is not allowed)
+      // Dev users can exercise Cloud without a paid subscription.
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         allowNative: true,
-        allowCloud: false,
-        allowPrivate: false,
-        preferredMode: 'cloud',  // UI selection, but Cloud is not allowed for basic
+        allowCloud: true,
+        allowPrivate: true,
+        preferredMode: 'cloud',
         allowFallback: false,
-        executionIntent: 'prod-basic-cloud',
+        executionIntent: 'prod-pro-cloud',
       });
 
       // Switch to Private
@@ -284,11 +285,11 @@ describe('SessionSidebar', () => {
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         allowNative: true,
-        allowCloud: false,
-        allowPrivate: false,
+        allowCloud: true,
+        allowPrivate: true,
         preferredMode: 'private',
         allowFallback: false,
-        executionIntent: 'prod-basic-private',
+        executionIntent: 'prod-pro-private',
       });
 
       // Switch to native
@@ -297,11 +298,11 @@ describe('SessionSidebar', () => {
       await user.click(screen.getByText('Start Speaking'));
       expect(mockStartListening).toHaveBeenLastCalledWith({
         allowNative: true,
-        allowCloud: false,
-        allowPrivate: false,
+        allowCloud: true,
+        allowPrivate: true,
         preferredMode: 'native',
         allowFallback: false,
-        executionIntent: 'prod-basic-native',
+        executionIntent: 'prod-pro-native',
       });
     });
   });

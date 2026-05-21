@@ -20,7 +20,7 @@
 | Scheduled soak | PASS: GitHub run `26083232887` on `main`. |
 | Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
 | Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
-| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`: fresh account, automatic 60-minute trial, Private STT first, Cloud optional, save/history check required. |
+| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`: fresh account, automatic 60-minute trial, Private STT first, Cloud paid-only, save/history check required. |
 | Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
 
 <!-- PRODUCT_RELEASE_SYNC_END -->

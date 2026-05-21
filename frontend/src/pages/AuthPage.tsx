@@ -228,7 +228,7 @@ export default function AuthPage() {
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
                     <p className="text-sm font-semibold text-foreground">60-minute Pro trial included</p>
                     <p className="text-xs leading-relaxed text-muted-foreground">
-                      New accounts can try Private, Cloud, analytics, and feedback immediately. No code required.
+                      New accounts can try Private transcription, analytics, and feedback immediately. Cloud requires paid Pro.
                     </p>
                     {inlineError && (
                       <p

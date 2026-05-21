@@ -51,6 +51,7 @@ export const SessionPage: React.FC = () => {
         interimTranscript,
         fillerData,
         isProUser,
+        canUseCloudStt,
         activeEngine,
         isButtonDisabled,
         history
@@ -182,6 +183,7 @@ export const SessionPage: React.FC = () => {
                                     sttStatusType={sttStatus.type}
                                     recordingIntent={recordingIntent}
                                     isProUser={isProUser}
+                                    canUseCloudStt={canUseCloudStt}
                                     activeEngine={activeEngine}
                                     statusMessage={sttStatus.message}
                                     formattedTime={metrics.formattedTime}

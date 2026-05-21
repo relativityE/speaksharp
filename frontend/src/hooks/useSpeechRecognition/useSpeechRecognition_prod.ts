@@ -20,7 +20,7 @@ import { E2E_DETERMINISTIC_NATIVE, buildPolicyForUser } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
-import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, hasPaidProEntitlement, isPro } from '@/constants/subscriptionTiers';
 
 // Error handling helper
 function handleTranscriptionError(err: Error) {
@@ -72,8 +72,11 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         elapsedTime,
     } = store;
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
-    const isEffectiveProUser = isPro(effectiveSubscriptionStatus);
-    const effectivePolicyMode = isEffectiveProUser ? sttMode : 'native';
+    const canUseCloudStt = hasPaidProEntitlement(profile) || import.meta.env.VITE_DEV_USER === 'true';
+    const isEffectiveProUser = isPro(effectiveSubscriptionStatus) || import.meta.env.VITE_DEV_USER === 'true';
+    const effectivePolicyMode = isEffectiveProUser
+        ? sttMode === 'cloud' && !canUseCloudStt ? 'private' : sttMode
+        : 'native';
     useTranscriptionControl();
     const filler = useFillerWords(finalChunks as unknown as Chunk[], storeTranscript.partial, userWords);
     const vocal = useVocalAnalysis();
@@ -111,7 +114,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         session: session ?? null,
         navigate,
         userWords: userVocabulary,
-        policy: buildPolicyForUser(isEffectiveProUser, effectivePolicyMode),
+        policy: buildPolicyForUser(isEffectiveProUser, effectivePolicyMode, { allowCloud: canUseCloudStt }),
         onReady: () => {
             logger.info('[useSpeechRecognition] Service ready signal received');
         },

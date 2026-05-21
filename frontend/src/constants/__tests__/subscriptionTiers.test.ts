@@ -5,6 +5,7 @@ import {
     isPro,
     isBasic,
     getEffectiveSubscriptionStatus,
+    hasPaidProEntitlement,
     isActiveTrialProfile,
     getTierLabel,
     getTierLimits,
@@ -78,6 +79,26 @@ describe('subscriptionTiers', () => {
 
             expect(getEffectiveSubscriptionStatus('basic', profile)).toBe('basic');
             expect(getEffectiveSubscriptionStatus('pro', { subscription_status: 'basic' })).toBe('pro');
+        });
+    });
+
+    describe('hasPaidProEntitlement', () => {
+        it('does not treat active trial as paid Pro', () => {
+            expect(hasPaidProEntitlement({
+                subscription_status: 'basic',
+                trial_expires_at: '2999-01-01T00:00:00.000Z',
+            })).toBe(false);
+        });
+
+        it('requires Pro status plus a Stripe/subscription id', () => {
+            expect(hasPaidProEntitlement({
+                subscription_status: 'pro',
+                stripe_subscription_id: 'sub_123',
+            })).toBe(true);
+
+            expect(hasPaidProEntitlement({
+                subscription_status: 'pro',
+            })).toBe(false);
         });
     });
 

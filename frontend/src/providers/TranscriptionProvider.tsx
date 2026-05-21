@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, ReactNode } from 'react';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
-import { getEffectiveSubscriptionStatus } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, hasPaidProEntitlement } from '@/constants/subscriptionTiers';
 import { syncProfileReady } from '@/lib/forensicAnchors';
 import logger from '@/lib/logger';
 import ProfileContext from '@/contexts/ProfileContext';
@@ -80,8 +80,12 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
             intent: 'Syncing policy and setting E2E gate'
         }, '[TranscriptionProvider] Syncing policy');
 
-        const isPro = tier === 'pro';
-        const newPolicy = buildPolicyForUser(isPro, isPro ? currentSelectedMode : null);
+        const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
+        const isPro = tier === 'pro' || isDevUser;
+        const canUseCloud = hasPaidProEntitlement(policyProfile) || isDevUser;
+        const requestedMode = isPro ? currentSelectedMode : null;
+        const safeMode = requestedMode === 'cloud' && !canUseCloud ? 'private' : requestedMode;
+        const newPolicy = buildPolicyForUser(isPro, safeMode, { allowCloud: canUseCloud });
         const policyKey = JSON.stringify(newPolicy);
         if (lastPolicyKeyRef.current !== policyKey) {
             lastPolicyKeyRef.current = policyKey;

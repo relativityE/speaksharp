@@ -18,6 +18,13 @@ type UserProfile = {
   subscription_id?: string | null;
 };
 
+function hasPaidCloudEntitlement(profile: UserProfile | null): boolean {
+  if (profile?.subscription_status !== "pro") return false;
+  return Boolean(
+    profile.stripe_subscription_id?.trim() || profile.subscription_id?.trim(),
+  );
+}
+
 export async function handler(
   req: Request,
   createSupabase: SupabaseClientFactory,
@@ -105,13 +112,13 @@ export async function handler(
       );
     }
 
-    if (!usageLimit?.is_pro || usageLimit?.subscription_status !== "pro") {
+    if (!hasPaidCloudEntitlement(userProfile)) {
       console.warn(
-        `🚫 Token request rejected: User ${user.id} is not effectively Pro (stored: ${userProfile?.subscription_status ?? "unknown"}, trial_expires_at: ${userProfile?.trial_expires_at ?? "none"})`,
+        `🚫 Token request rejected: User ${user.id} does not have paid Cloud entitlement (stored: ${userProfile?.subscription_status ?? "unknown"}, trial_expires_at: ${userProfile?.trial_expires_at ?? "none"})`,
       );
       return new Response(
         JSON.stringify({
-          error: "Pro trial or subscription required for AssemblyAI features",
+          error: "Paid Pro subscription required for Cloud transcription",
         }),
         {
           status: 403,

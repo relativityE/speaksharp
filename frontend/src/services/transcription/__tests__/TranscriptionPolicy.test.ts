@@ -142,6 +142,15 @@ describe('TranscriptionPolicy', () => {
             expect(policy.preferredMode).toBe('private');
             expect(policy.executionIntent).toContain('private');
         });
+
+        it('keeps trial-style Pro users off Cloud when paid Cloud access is disabled', () => {
+            const policy = buildPolicyForUser(true, 'cloud', { allowCloud: false });
+            expect(policy.allowNative).toBe(true);
+            expect(policy.allowPrivate).toBe(true);
+            expect(policy.allowCloud).toBe(false);
+            expect(policy.preferredMode).toBe('private');
+            expect(policy.executionIntent).toContain('private');
+        });
     });
 
     describe('Pre-built Policies', () => {

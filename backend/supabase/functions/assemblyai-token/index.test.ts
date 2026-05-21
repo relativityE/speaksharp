@@ -114,6 +114,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
         createMockSupabase({
           user: { id: "pro-user" },
           subscriptionStatus: "pro",
+          stripeSubscriptionId: "sub_paid_123",
           usageLimit: {
             can_start: true,
             subscription_status: "pro",
@@ -155,14 +156,14 @@ Deno.test("assemblyai-token edge function", async (t) => {
       assertEquals(res.status, 403);
       assertEquals(
         json.error,
-        "Pro trial or subscription required for AssemblyAI features",
+        "Paid Pro subscription required for Cloud transcription",
       );
       assertEquals(assemblyAiCalled, false);
     },
   );
 
   await t.step(
-    "allows active trial users before generating a paid token",
+    "denies active trial users before generating a paid token",
     async () => {
       let assemblyAiCalled = false;
       const fetchImpl: typeof fetch = () => {
@@ -195,9 +196,12 @@ Deno.test("assemblyai-token edge function", async (t) => {
       );
       const json = await res.json();
 
-      assertEquals(res.status, 200);
-      assertEquals(json.token, "active-trial-token");
-      assertEquals(assemblyAiCalled, true);
+      assertEquals(res.status, 403);
+      assertEquals(
+        json.error,
+        "Paid Pro subscription required for Cloud transcription",
+      );
+      assertEquals(assemblyAiCalled, false);
     },
   );
 
@@ -230,7 +234,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
       assertEquals(res.status, 403);
       assertEquals(
         json.error,
-        "Pro trial or subscription required for AssemblyAI features",
+        "Paid Pro subscription required for Cloud transcription",
       );
       assertEquals(assemblyAiCalled, false);
     },
@@ -291,6 +295,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
         createMockSupabase({
           user: { id: "over-quota-user" },
           subscriptionStatus: "pro",
+          stripeSubscriptionId: "sub_paid_123",
           usageLimit: {
             can_start: false,
             subscription_status: "pro",

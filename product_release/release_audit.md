@@ -35,7 +35,7 @@ SpeakSharp is no longer in a blanket "all release paths blocked" posture. Contro
 
 | Category | Status | Risk Level | Rationale |
 | :--- | :--- | :--- | :--- |
-| **Financial Security** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **CRITICAL** | Basic Cloud-token denial and active trial-Pro token issuance are live-confirmed; over-limit and expired-trial denial remain pending. |
+| **Financial Security** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **CRITICAL** | Basic/trial Cloud-token denial is covered locally after Cloud was moved to paid-Pro only; live paid-token, over-limit, and expired-trial denial remain pending. |
 | **User Privacy** | 🟡 DB SAVE VERIFIED / BROWSER TRANSCRIPT PENDING | LOW | Private DB policy now allows Pro `engine='private'` save/readback. Browser Private trace now proves audio frames and model inference happen, but the model returned empty text on the short fixture; live probes now use a 122.514s speech fixture and emit audio RMS/peak for the next retest. |
 | **Operational Stability** | 🟡 CAUTION | MEDIUM | Stabilization churn has created "Test-Aware" production debt. |
 | **Product Integrity** | 🟡 **PARTIAL LIVE VALIDATION PASSED** | **HIGH** | Negative duration rejection and trial one-account behavior are live-confirmed; invalid-attempt throttling remains pending. |
@@ -59,7 +59,7 @@ The original audit identified the correct launch blockers. Follow-up verificatio
 | Gate | Current Verification | Status |
 | :--- | :--- | :--- |
 | **G1: Fail-Closed Usage** | Deployed `check-usage-limit` returns structured 401 for missing auth and `can_start:true` only for authenticated Basic happy path. | RPC/DB-error fail-closed simulation still pending. |
-| **G2: Usage-Aware Token** | Live Basic user gets HTTP 403; live active trial-Pro user gets HTTP 200 token with `expires_in:600`. | Over-limit and expired-trial token denial still pending. |
+| **G2: Usage-Aware Token** | Local Edge tests now require a paid Pro subscription id before minting a Cloud token; Basic and active-trial users get HTTP 403 before provider token creation. | Live paid-token, over-limit, and expired-trial token denial still pending after deploy. |
 | **G3: Negative Duration** | Live `update_user_usage(-100, 'native')` returned `{"error":"invalid_duration","success":false}`. | Passed for direct negative-duration RPC. |
 | **G4: Trial Abuse Gate** | Live automatic trial activation passed; trial access is tied to account creation. GitHub `Live Release Matrix` run `25635969309` proved 9 invalid attempts returned `[400,400,400,400,400,400,400,400,429]`. | Passed for live invalid-attempt throttle. |
 | **Q1: Pro Session Warning** | Pro users with finite daily remaining time receive the 5-minute warning; GitHub CI is green on `56ce972`. | Live/manual validation pending. |

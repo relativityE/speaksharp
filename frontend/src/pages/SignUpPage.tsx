@@ -104,7 +104,7 @@ export default function SignUpPage() {
                                 />
                             </div>
                             <p className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
-                                New accounts include a 60-minute Pro trial automatically. No code required.
+                                New accounts include a 60-minute Pro trial automatically. Cloud requires paid Pro.
                             </p>
 
                             {error && (

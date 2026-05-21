@@ -22,6 +22,7 @@ interface LiveRecordingCardProps {
     isListening: boolean;
     isReady: boolean;
     isProUser: boolean;
+    canUseCloudStt?: boolean;
     statusMessage?: string; // Optional message from the STT service
     formattedTime: string;
     elapsedSeconds: number; // Added for minimum session duration check
@@ -49,6 +50,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     isListening,
     isReady,
     isProUser,
+    canUseCloudStt = isProUser,
     statusMessage: _statusMessage,
     formattedTime,
     elapsedSeconds,
@@ -150,12 +152,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     value="cloud"
                                     className="items-start py-2.5"
                                     data-testid={TEST_IDS.STT_MODE_CLOUD}
-                                    disabled={!isProUser}
+                                    disabled={!canUseCloudStt}
                                 >
                                     <span className="flex flex-col gap-0.5">
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud transcription {!isProUser ? '(Pro)' : ''}</span>
+                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud transcription {!canUseCloudStt ? '(Paid Pro)' : ''}</span>
                                         <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                            Uses AssemblyAI. Audio is processed externally.
+                                            Paid provider transcription. Audio is processed externally.
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>

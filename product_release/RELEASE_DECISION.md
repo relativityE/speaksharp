@@ -15,7 +15,7 @@
 | Scheduled soak | PASS: GitHub run `26083232887` on `main`. |
 | Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
 | Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
-| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` after deploy validation: fresh account, automatic 60-minute trial, Private STT first, Cloud optional, save/history check required. |
+| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` after deploy validation: fresh account, automatic 60-minute trial, Private STT first, Cloud paid-only, save/history check required. |
 | Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
 
 <!-- PRODUCT_RELEASE_SYNC_END -->
@@ -77,7 +77,7 @@
 | Cloud/Private scope defined | ✅ |
 | Native browser-dependent disclaimer ready | ✅ Captured in release limitations and RC Gate 5 UX smoke |
 | Feedback channel ready | ✅ Observability API Smoke `25764783852` plus manual fallback |
-| Tester instructions ready | ✅ `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` defines Vercel URL, fresh signup, automatic 60-minute trial, Private-first STT, optional Cloud, known limitations, and save/history feedback question |
+| Tester instructions ready | ✅ `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` defines Vercel URL, fresh signup, automatic 60-minute trial, Private-first STT, Cloud paid-only, known limitations, and save/history feedback question |
 | Automatic trial prerequisites documented | ✅ Trial entitlement migration plus Supabase URL are required; no tester code or admin secret is needed |
 | Production test flags checked | 🟡 HUMAN VERIFY | Confirm Vercel production does not set `VITE_TEST_MODE` or E2E/test flags before sending tester invites |
 | Gate 4 SCA critical audit recorded | ✅ Full RC run `25769178359` |

@@ -1,4 +1,4 @@
-import { render, screen } from '../../../../tests/support/test-utils';
+import { fireEvent, render, screen } from '../../../../tests/support/test-utils';
 import { describe, it, expect, vi } from 'vitest';
 import { LiveRecordingCard } from '../LiveRecordingCard';
 import { TEST_IDS } from '@/constants/testIds';
@@ -43,5 +43,15 @@ describe('LiveRecordingCard', () => {
 
         expect(screen.queryByText(/^Error occurred$/i)).toBeNull();
         expect(screen.getByText(/Recording could not start/i)).toBeDefined();
+    });
+
+    it('keeps Cloud disabled for trial-style Pro access without paid Cloud entitlement', async () => {
+        render(<LiveRecordingCard {...defaultProps} isProUser={true} canUseCloudStt={false} />);
+
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+
+        expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).not.toHaveAttribute('data-disabled');
+        expect(await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveAttribute('data-disabled');
+        expect(screen.getByText(/Cloud transcription \(Paid Pro\)/i)).toBeDefined();
     });
 });

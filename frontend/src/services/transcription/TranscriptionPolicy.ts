@@ -176,14 +176,22 @@ export function isModeAllowed(
  */
 export function buildPolicyForUser(
     isProUser: boolean,
-    uiMode?: TranscriptionMode | null
+    uiMode?: TranscriptionMode | null,
+    options?: { allowCloud?: boolean }
 ): TranscriptionPolicy {
     const base = isProUser ? PROD_PRO_POLICY : PROD_BASIC_POLICY;
+    const allowCloud = isProUser ? options?.allowCloud ?? base.allowCloud : false;
+    const hasExplicitMode = uiMode !== undefined && uiMode !== null;
+    const preferredMode = uiMode === 'cloud' && !allowCloud
+        ? base.preferredMode
+        : uiMode ?? base.preferredMode;
+
     return {
         ...base,
-        preferredMode: uiMode ?? base.preferredMode,
+        allowCloud,
+        preferredMode,
         // Disable fallback if user explicitly selected a mode (Privacy Guard)
-        allowFallback: uiMode ? false : base.allowFallback,
-        executionIntent: `${base.executionIntent}-${uiMode ?? 'default'}`,
+        allowFallback: hasExplicitMode ? false : base.allowFallback,
+        executionIntent: `${base.executionIntent}-${preferredMode ?? 'default'}`,
     };
 }

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { getEffectiveSubscriptionStatus, isPro as checkIsPro } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, hasPaidProEntitlement, isPro as checkIsPro } from '@/constants/subscriptionTiers';
 import { useUsageLimit } from '@/hooks/useUsageLimit';
 import type { TranscriptionPolicy, TranscriptionMode } from '../../services/transcription/TranscriptionPolicy';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
@@ -101,7 +101,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = checkIsPro(effectiveSubscriptionStatus);
-    const canAccessAdvancedModes = isProUser || isDevUser;
+    const canUseProSttModes = isProUser || isDevUser;
+    const canAccessAdvancedModes = canUseProSttModes;
+    const canUseCloudStt = hasPaidProEntitlement(profile) || isDevUser;
 
     type Mode = 'cloud' | 'private' | 'native';
     const [selectedMode, setSelectedMode] = useState<Mode>(isProUser ? 'private' : (isDevUser ? 'cloud' : 'native'));
@@ -192,8 +194,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
         } else {
             reset();
             // Build policy based on user tier and selected mode
-            const finalMode = canAccessAdvancedModes ? selectedMode : 'native';
-            const policy = buildPolicyForUser(isProUser, finalMode as TranscriptionMode);
+            const requestedMode = canAccessAdvancedModes ? selectedMode : 'native';
+            const finalMode = requestedMode === 'cloud' && !canUseCloudStt ? 'private' : requestedMode;
+            const policy = buildPolicyForUser(canUseProSttModes, finalMode as TranscriptionMode, { allowCloud: canUseCloudStt });
             await startListening(policy);
         }
     };
@@ -234,7 +237,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                             <DropdownMenuContent className="w-56">
                                     <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
                                         <DropdownMenuRadioItem value="private" disabled={!canAccessAdvancedModes}>Private</DropdownMenuRadioItem>
-                                        <DropdownMenuRadioItem value="cloud" disabled={!canAccessAdvancedModes}>Cloud</DropdownMenuRadioItem>
+                                        <DropdownMenuRadioItem value="cloud" disabled={!canUseCloudStt}>Cloud (Paid Pro)</DropdownMenuRadioItem>
                                         <DropdownMenuRadioItem value="native">Native</DropdownMenuRadioItem>
                                     </DropdownMenuRadioGroup>
                             </DropdownMenuContent>
