@@ -1,11 +1,20 @@
-name: Setup Test Users
+name: Test User Admin
 
 on:
   workflow_dispatch:
     inputs:
+      action:
+        description: 'Action'
+        required: true
+        default: 'setup'
+        type: choice
+        options:
+          - setup
+          - query
+          - create
       mode:
         description: 'Target Mode'
-        required: true
+        required: false
         default: 'e2e'
         type: choice
         options:
@@ -29,9 +38,25 @@ on:
         required: false
         default: '0'
         type: string
+      create_email:
+        description: 'Create action only: email'
+        required: false
+        type: string
+      create_password:
+        description: 'Create action only: password, or leave blank to use SOAK_TEST_PASSWORD'
+        required: false
+        type: string
+      create_tier:
+        description: 'Create action only: user tier'
+        required: false
+        default: 'free'
+        type: choice
+        options:
+          - free
+          - pro
 
 jobs:
-  setup-test-user:
+  test-user-admin:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -43,7 +68,7 @@ jobs:
         uses: ./.github/actions/setup-environment
 
       - name: Generate and set SOAK_TEST_PASSWORD
-        if: ${{ github.event.inputs.password_action == 'generate_new_credentials' }}
+        if: ${{ github.event.inputs.action == 'setup' && github.event.inputs.password_action == 'generate_new_credentials' }}
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
@@ -59,16 +84,20 @@ jobs:
           # Export for use in this workflow run
           echo "SOAK_TEST_PASSWORD=$NEW_PASSWORD" >> $GITHUB_ENV
 
-      - name: Setup test users
+      - name: Run test user admin action
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SOAK_TEST_PASSWORD: ${{ env.SOAK_TEST_PASSWORD || secrets.SOAK_TEST_PASSWORD }}
+          ACTION: ${{ github.event.inputs.action }}
           MODE: ${{ github.event.inputs.mode }}
           NEW_BASIC_COUNT: ${{ github.event.inputs.new_basic_count }}
           NEW_PRO_COUNT: ${{ github.event.inputs.new_pro_count }}
+          CREATE_USER_EMAIL: ${{ github.event.inputs.create_email }}
+          CREATE_USER_PASSWORD: ${{ github.event.inputs.create_password }}
+          CREATE_USER_TIER: ${{ github.event.inputs.create_tier }}
         run: |
-          if [ -z "$SOAK_TEST_PASSWORD" ]; then
+          if [ "$ACTION" = "setup" ] && [ -z "$SOAK_TEST_PASSWORD" ]; then
             echo "❌ Error: SOAK_TEST_PASSWORD is not set."
             echo ""
             echo "Choose one of these options:"
@@ -81,11 +110,13 @@ jobs:
 
       - name: Summary
         env:
+          ACTION: ${{ github.event.inputs.action }}
           MODE: ${{ github.event.inputs.mode }}
           PASSWORD_ACTION: ${{ github.event.inputs.password_action }}
         run: |
-          echo "### Test User Setup Complete" >> $GITHUB_STEP_SUMMARY
+          echo "### Test User Admin Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Action:** $ACTION" >> $GITHUB_STEP_SUMMARY
           echo "**Mode:** $MODE" >> $GITHUB_STEP_SUMMARY
           echo "**Password Strategy:** $PASSWORD_ACTION" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

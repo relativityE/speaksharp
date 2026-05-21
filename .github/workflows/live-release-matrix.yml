@@ -2,12 +2,31 @@ name: Live Release Matrix
 
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: 'Suite to run'
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - custom-words
+          - native-preflight
+          - cloud-token-gates
+          - promo-throttle
+          - expired-promo-denial
+          - cloud-artifact
+          - private-cache
+          - stripe-webhook-readiness
+          - stripe-checkout-readiness
+          - promo-private-artifact
 
 permissions:
   contents: read
 
 jobs:
   generate-promo:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'promo-private-artifact' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -44,6 +63,7 @@ jobs:
           echo "Generated one-time promo code for this live matrix run." >> "$GITHUB_STEP_SUMMARY"
 
   live-custom-words:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'custom-words' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -59,8 +79,8 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          E2E_FREE_EMAIL: ${{ secrets.E2E_FREE_EMAIL }}
-          E2E_FREE_PASSWORD: ${{ secrets.E2E_FREE_PASSWORD }}
+          E2E_FREE_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
+          E2E_FREE_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/user-filler-words-persistence.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
@@ -76,6 +96,7 @@ jobs:
           retention-days: 14
 
   live-native-preflight:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'native-preflight' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -91,8 +112,8 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
-          E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
+          E2E_PRO_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          E2E_PRO_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/analytics-live-native-probe.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
@@ -108,6 +129,7 @@ jobs:
           retention-days: 14
 
   live-cloud-token-gates:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'cloud-token-gates' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -141,6 +163,7 @@ jobs:
           retention-days: 14
 
   live-promo-throttle:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'promo-throttle' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -174,6 +197,7 @@ jobs:
           retention-days: 14
 
   live-expired-promo-denial:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'expired-promo-denial' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -207,6 +231,7 @@ jobs:
           retention-days: 14
 
   live-cloud-artifact:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'cloud-artifact' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     concurrency:
@@ -225,8 +250,8 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
-          E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
+          E2E_PRO_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          E2E_PRO_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
         # Cloud streaming is provider-limited. Keep one smoke, one worker, no immediate retries.
         # After AssemblyAI 1008/3009 "Too many concurrent sessions", wait 5-10 minutes before rerun.
@@ -244,6 +269,7 @@ jobs:
           retention-days: 14
 
   live-private-cache:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'private-cache' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -259,8 +285,8 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
-          E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
+          E2E_PRO_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          E2E_PRO_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/private-cache.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
@@ -276,6 +302,7 @@ jobs:
           retention-days: 14
 
   live-stripe-webhook-readiness:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stripe-webhook-readiness' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -303,6 +330,7 @@ jobs:
           retention-days: 14
 
   live-stripe-checkout-readiness:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stripe-checkout-readiness' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -316,8 +344,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
-          E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
+          E2E_PRO_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          E2E_PRO_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/stripe-checkout-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
       - name: Upload Stripe Checkout Artifacts
@@ -332,6 +360,7 @@ jobs:
           retention-days: 14
 
   live-promo-private-artifact:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'promo-private-artifact' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: generate-promo

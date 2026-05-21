@@ -38,8 +38,8 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          E2E_PRO_EMAIL: ${{ secrets.E2E_PRO_EMAIL }}
-          E2E_PRO_PASSWORD: ${{ secrets.E2E_PRO_PASSWORD }}
+          E2E_PRO_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          E2E_PRO_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
           STT_ARTIFACT_MODE: ${{ github.event.inputs.mode || 'all' }}
         # Cloud streaming is provider-limited. This matrix is serial, workers=1, retries=0.

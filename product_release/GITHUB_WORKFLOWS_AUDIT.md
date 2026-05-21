@@ -35,7 +35,7 @@ The objective is not to keep every historical workflow alive. The objective is t
 |---|---|---:|---|
 | `.github/workflows/ci.yml` | `CI - Test Audit` run `25944598514` on `main` after `1066ba6d` | 🟢 PASSING | Includes unit, E2E, Lighthouse/SQM/report aggregation; Node 20 artifact annotation resolved by action upgrades. |
 | `.github/workflows/canary.yml` | `Production Canary Smoke Test` run `25944598537` on `main` after `1066ba6d` | 🟢 PASSING | Deployed smoke remains required. |
-| `.github/workflows/deploy-edge-functions.yml` | `Deploy Edge Functions` run `25944598524` on `main` after `1066ba6d` | 🟢 PASSING | Edge deploy path is currently green. |
+| `.github/workflows/deploy-supabase-migrations.yml` | `Deploy Supabase` | 🟢 CONSOLIDATED | Edge Function deploy and manual migration/secrets deploy now share one workflow with operation flags. |
 | Lighthouse/SQM | Performance 98, Accessibility 94, Best Practices 100, SEO 100 | 🟢 PASSING | Release score floor currently satisfied. |
 
 ---
@@ -57,15 +57,12 @@ The objective is not to keep every historical workflow alive. The objective is t
 |---|---|---|---|---|---|---|
 | `.github/workflows/ci.yml` | Primary quality gate: prepare, Edge Function tests, mocked E2E shards, Lighthouse, SQM/report aggregation. | Push, PR, manual | Yes | 🟢 PASSING ON `1066ba6d` | **Keep required** | `CI - Test Audit` run `25944598514` passed on `main`; artifact actions are upgraded to Node 24-compatible versions. |
 | `.github/workflows/canary.yml` | Production deployed smoke: provision canary user, login, Native session, save/read. | Main push, daily schedule, manual | Yes | 🟢 PASSING ON `1066ba6d` | **Keep required** | Production canary passed against `https://speaksharp-public.vercel.app` in run `25944598537`; keep as deployed smoke because it catches real route/runtime drift. |
-| `.github/workflows/deploy-supabase-migrations.yml` | Manual production DB migration and Edge Function deployment. | Manual only | Yes, before backend release | 🟢 MANUAL RUNS PASSING | **Keep or split deliberately** | Manual runs `25576997106` and `25573238473` passed on 2026-05-08. Negative-increment and promo-throttle live smokes are still required after deploy. |
-| `.github/workflows/deploy-edge-functions.yml` | Deploy Edge Functions on main push/manual. | Main push, manual | Yes if used instead of migration workflow deploy step | 🟢 PASSING ON `1066ba6d` | **Keep required while deploy ownership is clarified** | Edge Function deploy passed on `main` in run `25944598524`. Longer-term owner decision remains: either this deploys functions, or migration workflow does, not both ambiguously. |
+| `.github/workflows/deploy-supabase-migrations.yml` | Deploy Supabase Edge Functions on push/manual, or manually run migrations/secrets/all with confirmation. | Main push, manual | No competing Edge deploy workflow remains | 🟢 CONSOLIDATED | **Keep** | This is now the authoritative Supabase deploy workflow. |
 | **Next-session proposed: live user-filler persistence** | Manual GitHub-secret-backed live test for custom word persistence across logout/login. | Manual only | Yes before human tester confidence on custom words | ⚪ MISSING WORKFLOW | **Add or run through a controlled manual workflow** | Local `.env*` does not expose `E2E_FREE_EMAIL`/`E2E_FREE_PASSWORD`, but GitHub secrets do. Add/run a workflow that executes `VITE_USE_LIVE_DB=true tests/live/user-filler-words-persistence.live.spec.ts` with those secrets, then record add -> logout/relogin -> visible -> cleanup evidence. |
 | **Next-session proposed: observability smoke** | Manual GitHub/dashboard checklist for frontend Sentry, Edge Function Sentry/log ingest, Stripe webhook smoke, PostHog launch events. | Manual only | Yes before broad tester rollout | ⚪ MISSING WORKFLOW / DASHBOARD CHECK | **Add checklist or manual dispatch helper** | Frontend trace showed Sentry ingest HTTP 200, but dashboard visibility, Edge Function ingest, Stripe webhook, and PostHog event verification remain unproven. |
 | `.github/workflows/benchmarks.yml` | STT ceiling measurement for AssemblyAI and browser engines. | Weekly schedule, manual | Yes for accuracy claims; not required for every PR | 🟡 PARTIAL EVIDENCE / BROWSER RERUN PENDING | **Fix as manual/non-blocking release evidence** | AssemblyAI benchmark passed in run `25622187317` with 0.00% WER / 100.00% accuracy. Local Private CPU baseline passed at 4.11% WER / 95.89% accuracy. Browser Native/WebGPU still need valid transcript-producing runs. |
 | `.github/workflows/soak-test.yml` | Real Supabase/browser/API load and memory smoke. | Daily schedule, manual | No for fast release gate; useful before broader launch | 🟡 ALIGNED / RERUN PENDING | **Keep manual/advisory** | YAML now calls the current soak command and manual dispatch accepts `new_basic_count` / `new_pro_count`; successful soak artifact or explicit deferral still needed. |
-| `.github/workflows/setup-test-users.yml` | Admin utility to provision E2E/soak users. | Manual | No, except as dependency for soak/live suites | 🟡 USEFUL UTILITY | **Keep manual** | Confirm current secrets and scripts work when soak/live tests are needed. |
-| `.github/workflows/create-user.yml` | Manual call to `create-user` Edge Function. | Manual | No | 🟡 UTILITY / POSSIBLY REDUNDANT | **Keep or retire after deploy decision** | Decide whether `setup-test-users` supersedes it. |
-| `.github/workflows/query-users.yml` | Admin utility for soak user inspection. | Manual | No | 🟡 UTILITY | **Keep manual** | Optional; not a release gate. |
+| `.github/workflows/setup-test-users.yml` | Test user admin: setup, query, or create. | Manual | Replaces previous `create-user.yml` and `query-users.yml` | 🟢 CONSOLIDATED | **Keep** | Single user-admin entrypoint. |
 
 ---
 
@@ -79,7 +76,7 @@ The objective is not to keep every historical workflow alive. The objective is t
 | Benchmark command naming | `benchmark:cloud` is the canonical workflow command; `benchmark:assemblyai` remains as the vendor-specific implementation alias. | Avoids baking the current vendor into release workflow language while preserving local specificity. | ✅ Fixed; workflow calls `pnpm benchmark:cloud`. |
 | Benchmark spec drift | `benchmarks.yml` calls `tests/live/benchmark.live.spec.ts`; current files are engine-specific benchmark specs. | Browser benchmark job targets a missing/stale file. | Target existing benchmark specs or create a single orchestrating spec intentionally. |
 | Soak dispatch/count alignment | `soak-test.yml` calls `pnpm test:soak:ui:cloud`; manual dispatch now accepts `new_basic_count` / `new_pro_count`, and `scripts/trigger-soak.mjs` sends those names. | Workflow naming is aligned; proof still requires a fresh manual soak run. | Keep soak manual/advisory and attach the next successful artifact when broader-launch evidence is needed. |
-| Duplicate Edge Function deploy paths | Both `deploy-edge-functions.yml` and `deploy-supabase-migrations.yml` deploy Edge Functions. | Risk of partial/stale deploys and unclear owner. | Pick one authoritative production function deploy path. |
+| Duplicate Edge Function deploy paths | Previously both `deploy-edge-functions.yml` and `deploy-supabase-migrations.yml` deployed Edge Functions. | Risk of partial/stale deploys and unclear owner. | Resolved by consolidating into `Deploy Supabase`. |
 | Edge/Deno tests absent from required CI | Edge Function Deno tests were runnable locally but not part of `.github/workflows/ci.yml`. | Runtime/security regressions in quota, token, promo, webhook, or AI functions could miss the main gate. | ✅ Fixed in CI; latest `CI - Test Audit` run `25610699098` passed on `56ce972`. |
 | Report job masks upstream failure when E2E is skipped | Latest `CI - Test Audit` failed unit tests first, then report also failed because E2E did not run and `test-results/playwright/results.json` was absent. | CI became noisier than the true failure. | 🟡 Local fix applied: report metrics default E2E counts to zero when upstream required jobs prevent E2E artifacts. |
 | Local Codex sandbox blocks focused E2E preview bind | Focused local Playwright promo journey failed before test execution with `listen EPERM: operation not permitted 127.0.0.1:4173`. | Not app evidence; it prevents local browser validation inside this sandbox. | ⚪ Revisit only if normal Terminal or GitHub Actions reproduces the same bind failure. |
@@ -112,9 +109,9 @@ Workflow evidence status on 2026-05-15: `CI - Test Audit` run `25944598514`, pro
 
 | Workflow | Release Role |
 |---|---|
-| `setup-test-users.yml` | Keep for provisioning live/soak users. |
-| `create-user.yml` | Keep only if it remains useful for one-off user provisioning. |
-| `query-users.yml` | Keep as non-blocking inspection tool. |
+| `setup-test-users.yml` | Keep for setup, query, and one-off test-user creation. |
+| `create-user.yml` | Retired. One-off user provisioning now uses `setup-test-users.yml` with `action=create`. |
+| `query-users.yml` | Retired. Soak-user inspection now uses `setup-test-users.yml` with `action=query`. |
 
 ---
 

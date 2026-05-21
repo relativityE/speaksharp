@@ -1,20 +1,64 @@
-# Force re-index 2026-03-24
-name: Deploy Supabase Migrations (Manual Approval Required)
+name: Deploy Supabase
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
-      confirm:
-        description: 'Type "DEPLOY" to confirm migration'
+      operation:
+        description: 'What to deploy'
         required: true
+        default: edge-functions
+        type: choice
+        options:
+          - edge-functions
+          - migrations
+          - migrations-and-edge-functions
+          - secrets
+          - all
+      confirm:
+        description: 'Type "DEPLOY" for migrations, secrets, or all'
+        required: false
         default: ''
 
 jobs:
-  deploy-migrations:
+  deploy-edge-functions:
+    if: ${{ github.event_name == 'push' || github.event.inputs.operation == 'edge-functions' }}
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          version: latest
+
+      - name: Deploy Edge Functions
+        working-directory: backend/supabase
+        run: |
+          supabase functions deploy stripe-webhook --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy apply-promo --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy check-usage-limit --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy create-user --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy observability-smoke --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy assemblyai-token --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID"
+
+  deploy-production-db:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.operation != 'edge-functions' }}
     environment: production-db
     runs-on: ubuntu-latest
     timeout-minutes: 60
-
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      OPERATION: ${{ github.event.inputs.operation }}
     steps:
       - name: Validate confirmation
         run: |
@@ -28,19 +72,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - uses: supabase/setup-cli@v2
+        env:
+          SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
         with:
-          node-version: '20'
-
-      - name: Install Supabase CLI
-        run: |
-          # Use npx to run supabase CLI (no global install needed)
-          npx supabase@latest --version
+          version: latest
 
       - name: Validate environment secrets
-        env:
-          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
         run: |
           if [ -z "$SUPABASE_PROJECT_ID" ]; then
             echo "❌ Missing SUPABASE_PROJECT_ID (expected as GitHub secret)" >&2
@@ -49,35 +87,28 @@ jobs:
           echo "✅ Project ID validated"
 
       - name: Link to Supabase project
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        working-directory: backend/supabase
         run: |
-          cd backend/supabase
-          # SUPABASE_ACCESS_TOKEN env var is used automatically by CLI
-          npx supabase link --project-ref "$SUPABASE_PROJECT_ID"
+          supabase link --project-ref "$SUPABASE_PROJECT_ID"
           echo "✅ Linked to Supabase project"
 
       - name: Push migrations to production
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        if: ${{ github.event.inputs.operation == 'migrations' || github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
+        working-directory: backend/supabase
         run: |
-          cd backend/supabase
-          # Repair history for the baseline migration that was moved correctly but is flagged as missing
           echo "🛠️ Repairing migration history..."
-          npx supabase migration repair 20260116000000 --status applied
-          
+          supabase migration repair 20260116000000 --status applied
+
           echo "🚀 Pushing migrations to production..."
-          npx supabase db push
+          supabase db push
           echo "✅ Migrations applied successfully"
 
-      - name: Set Supabase Secrets
+      - name: Set Supabase secrets
+        if: ${{ github.event.inputs.operation == 'secrets' || github.event.inputs.operation == 'all' }}
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           PROMO_GEN_ADMIN_SECRET: ${{ secrets.PROMO_GEN_ADMIN_SECRET }}
+        working-directory: backend/supabase
         run: |
           if [ -z "$AGENT_SECRET" ]; then
             echo "❌ AGENT_SECRET not available in GitHub Secrets!"
@@ -87,40 +118,38 @@ jobs:
             echo "❌ PROMO_GEN_ADMIN_SECRET not available in GitHub Secrets!"
             exit 1
           fi
-          cd backend/supabase
-          # Set the secret in Supabase Cloud
-          # Using wildcard or multiple origins if needed, but here we set the canonical production URL.
-          npx supabase secrets set AGENT_SECRET="$AGENT_SECRET" PROMO_GEN_ADMIN_SECRET="$PROMO_GEN_ADMIN_SECRET" ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5173" --project-ref "$SUPABASE_PROJECT_ID"
+          supabase secrets set AGENT_SECRET="$AGENT_SECRET" PROMO_GEN_ADMIN_SECRET="$PROMO_GEN_ADMIN_SECRET" ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5173" --project-ref "$SUPABASE_PROJECT_ID"
           echo "✅ AGENT_SECRET, PROMO_GEN_ADMIN_SECRET, and ALLOWED_ORIGIN synchronized to Supabase"
 
       - name: Deploy Edge Functions
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        if: ${{ github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
+        working-directory: backend/supabase
         run: |
-          cd backend/supabase
-          echo "🚀 Deploying Edge Functions..."
-          npx supabase functions deploy assemblyai-token --no-verify-jwt
-          npx supabase functions deploy check-usage-limit --no-verify-jwt
-          npx supabase functions deploy get-ai-suggestions --no-verify-jwt
-          npx supabase functions deploy stripe-checkout --no-verify-jwt
-          npx supabase functions deploy stripe-webhook --no-verify-jwt
-          npx supabase functions deploy apply-promo --no-verify-jwt
-          npx supabase functions deploy create-user --no-verify-jwt
+          supabase functions deploy stripe-webhook --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy apply-promo --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy check-usage-limit --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy create-user --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy observability-smoke --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy assemblyai-token --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
+          supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID"
           echo "✅ Edge Functions deployed successfully"
 
       - name: Save migration list to file
+        if: ${{ github.event.inputs.operation == 'migrations' || github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
+        working-directory: backend/supabase
         run: |
-          cd backend/supabase
-          npx supabase migration list > migration_list.txt || true
+          supabase migration list > migration_list.txt || true
           head -n 300 migration_list.txt > migration_list_trimmed.txt || true
           echo "Saved migration list"
 
       - name: Add migration list to job summary
+        if: ${{ github.event.inputs.operation == 'migrations' || github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
         run: |
-          echo "### Migration list" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          sed -n '1,200p' backend/supabase/migration_list_trimmed.txt >> $GITHUB_STEP_SUMMARY || true
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "### Migration list" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          sed -n '1,200p' backend/supabase/migration_list_trimmed.txt >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "✅ Migration list added to job summary"
 
       - name: Post-deployment summary
@@ -128,9 +157,9 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo "✅ Deployment Complete"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "Operation: $OPERATION"
           echo ""
           echo "⚠️  IMPORTANT - Post-Deployment Actions:"
-          echo "  1. Rotate/delete the temporary service key in Supabase Dashboard"
-          echo "  2. Verify migrations in Supabase Dashboard"
-          echo "  3. Test affected features in production"
-          echo "  4. Monitor error logs for 24h"
+          echo "  1. Verify Supabase Dashboard state for changed resources"
+          echo "  2. Test affected features in production"
+          echo "  3. Monitor error logs for 24h"

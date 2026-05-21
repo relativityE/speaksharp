@@ -26,13 +26,14 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env.development') });
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SOAK_TEST_PASSWORD = process.env.SOAK_TEST_PASSWORD;
+const ACTION = process.env.ACTION || process.env.USER_ADMIN_ACTION || 'setup';
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error('❌ Missing required env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY');
     process.exit(1);
 }
 
-if (!SOAK_TEST_PASSWORD) {
+if (ACTION === 'setup' && !SOAK_TEST_PASSWORD) {
     console.error('❌ Missing required env var: SOAK_TEST_PASSWORD');
     process.exit(1);
 }
@@ -152,9 +153,15 @@ async function renameOldUser(users) {
 
 
 async function createUserWithTier(email, tier) {
+    const password = process.env.CREATE_USER_PASSWORD || SOAK_TEST_PASSWORD;
+    if (!password) {
+        console.error('❌ Missing password. Set CREATE_USER_PASSWORD or SOAK_TEST_PASSWORD.');
+        process.exit(1);
+    }
+
     const { data, error } = await supabase.auth.admin.createUser({
         email,
-        password: SOAK_TEST_PASSWORD,
+        password,
         email_confirm: true
     });
 
@@ -168,6 +175,48 @@ async function createUserWithTier(email, tier) {
     await supabase.from('user_profiles').upsert({ id: data.user.id, subscription_status: tier }, { onConflict: 'id' });
 
     return data.user;
+}
+
+async function printSoakUsers() {
+    const soakUsers = await listExistingSoakUsers();
+    const results = soakUsers.sort((a, b) => {
+        const aNum = parseInt(a.email.match(/\d+/) || '0', 10);
+        const bNum = parseInt(b.email.match(/\d+/) || '0', 10);
+        return aNum - bNum;
+    });
+
+    console.log(`Found ${results.length} soak test users.\n`);
+    console.log('Email'.padEnd(25) + '| Tier');
+    console.log('-'.repeat(40));
+    results.forEach(r => {
+        console.log(`${r.email.padEnd(25)} | ${r.tier}`);
+    });
+}
+
+async function createSingleUser() {
+    const email = process.env.CREATE_USER_EMAIL;
+    const tier = process.env.CREATE_USER_TIER || 'free';
+
+    if (!email) {
+        console.error('❌ Missing CREATE_USER_EMAIL.');
+        process.exit(1);
+    }
+
+    if (!['free', 'pro'].includes(tier)) {
+        console.error(`❌ Invalid CREATE_USER_TIER: ${tier}. Expected "free" or "pro".`);
+        process.exit(1);
+    }
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('👤 Test User Create');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`User: ${email}`);
+    console.log(`Tier: ${tier}`);
+
+    const user = await createUserWithTier(email, tier);
+    if (!user) process.exit(1);
+
+    console.log(`✅ Successfully provisioned ${email} (${user.id})`);
 }
 
 
@@ -215,6 +264,21 @@ async function syncUserTiers(users, targetFree, targetPro) {
 // ============================================
 
 async function main() {
+    if (!['setup', 'query', 'create'].includes(ACTION)) {
+        console.error(`❌ Invalid ACTION: ${ACTION}. Expected setup, query, or create.`);
+        process.exit(1);
+    }
+
+    if (ACTION === 'query') {
+        await printSoakUsers();
+        return;
+    }
+
+    if (ACTION === 'create') {
+        await createSingleUser();
+        return;
+    }
+
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🧪 Test User Registry Setup');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

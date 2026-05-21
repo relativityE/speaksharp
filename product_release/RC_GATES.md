@@ -45,12 +45,12 @@ Required maintained tests and workflows:
 
 | Risk | Regression Test / Workflow | Required Evidence |
 |---|---|---|
-| Expired promo or stale profile grants Pro | `.github/workflows/expired-promo-live-smoke.yml`, `tests/live/expired-promo-denial.live.spec.ts`, `frontend/src/constants/__tests__/subscriptionTiers.test.ts`, `frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` | Effective tier becomes `free`, stored profile downgrades to `free`, Pro badge hidden, STT mode forced to Native |
+| Expired promo or stale profile grants Pro | `.github/workflows/live-release-matrix.yml` with `suite=expired-promo-denial`, `tests/live/expired-promo-denial.live.spec.ts`, `frontend/src/constants/__tests__/subscriptionTiers.test.ts`, `frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` | Effective tier becomes `free`, stored profile downgrades to `free`, Pro badge hidden, STT mode forced to Native |
 | Basic/free access sanity | `tests/live/expired-promo-denial.live.spec.ts`, `tests/e2e/user-features.e2e.spec.ts` | Baseline users retain Native/free-safe path and do not retain Cloud/Private entitlement |
 | Pro Cloud artifact path | `.github/workflows/pro-stt-artifact-matrix.yml`, `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Cloud selected, token issued to Pro, transcript visible, stop/save, history/detail, AI feedback, PDF transcript text |
-| Pro Private artifact/cache path | `.github/workflows/private-cache-live-smoke.yml`, `tests/live/private-cache.live.spec.ts` | Private starts, caches, saves, and remains usable on second start |
+| Pro Private artifact/cache path | `.github/workflows/live-release-matrix.yml` with `suite=private-cache`, `tests/live/private-cache.live.spec.ts` | Private starts, caches, saves, and remains usable on second start |
 | Native Chrome mic | `scripts/manual-native-chrome-proof.mjs` | Real Chrome `getUserMedia`, live transcript, stop/save, history, analytics |
-| CI/deploy/canary | `.github/workflows/ci.yml`, `.github/workflows/deploy-edge-functions.yml`, production canary workflow | Latest release commit has green CI, deploy, and canary |
+| CI/deploy/canary | `.github/workflows/ci.yml`, `.github/workflows/deploy-supabase-migrations.yml`, production canary workflow | Latest release commit has green CI, deploy, and canary |
 | Session save/history/analytics retrieval | `tests/e2e/analytics-truth.e2e.spec.ts`, `tests/e2e/user-features.e2e.spec.ts`, `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Saved transcript appears in history/detail, analytics values survive reload/export, Cloud PDF includes transcript text |
 | Custom filler words save/retrieval | `tests/live/user-filler-words-persistence.live.spec.ts`, `tests/e2e/user-filler-words.e2e.spec.ts`, `frontend/src/utils/__tests__/fillerWordUtils.test.ts` | Custom words persist, reload, and affect analysis without regex/query breakage |
 
