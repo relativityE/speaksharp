@@ -204,6 +204,51 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('filler-count-value')).toHaveTextContent('4');
     });
 
+    it('explains session detail metrics so users can understand the numbers', () => {
+        renderComponent({
+            sessionId: 'session-1',
+            sessionHistory: [
+                {
+                    id: 'session-1',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 30,
+                    total_words: 60,
+                    wpm: 120,
+                    clarity_score: 93,
+                    filler_words: { um: { count: 2 } },
+                    transcript: 'um this is a short practice sample with um enough words to explain the score',
+                },
+            ],
+        });
+
+        expect(screen.getByTestId('stat-card-speaking_pace-explanation')).toHaveTextContent(/target range/i);
+        expect(screen.getByTestId('clarity-score-value-explanation')).toHaveTextContent(/filler/i);
+        expect(screen.getByTestId('filler-count-value-explanation')).toHaveTextContent(/captured words/i);
+    });
+
+    it('does not show a fake perfect clarity score when a saved session has no transcript or words', () => {
+        renderComponent({
+            sessionId: 'empty-session',
+            sessionHistory: [
+                {
+                    id: 'empty-session',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 30,
+                    total_words: 0,
+                    wpm: 0,
+                    clarity_score: 100,
+                    filler_words: {},
+                    transcript: '',
+                },
+            ],
+        });
+
+        expect(screen.getByTestId('clarity-score-value')).toHaveTextContent('--');
+        expect(screen.getByTestId('clarity-score-value-explanation')).toHaveTextContent(/cannot be scored/i);
+    });
+
     it('shows saved recording mode metadata in the session detail view', () => {
         renderComponent({
             sessionId: 'session-1',

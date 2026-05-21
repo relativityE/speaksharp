@@ -61,6 +61,7 @@ interface StatCardProps {
     label: string;
     value: string | number;
     unit?: string;
+    description?: string;
     className?: string;
     testId?: string;
 }
@@ -229,7 +230,7 @@ const ANALYSIS_STORAGE_KEY = 'speaksharp_selected_analysis_slides_v6';
 
 // --- Sub-components ---
 
-const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className, testId }) => (
+const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, className, testId }) => (
     <Card className={`bg-card border-border p-6 rounded-xl shadow-sm ${className}`} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
         <div className="flex items-center justify-between mb-4">
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${label.includes('Filler') ? 'bg-accent/10 text-accent' : 'bg-primary/10 text-primary'}`}>
@@ -252,6 +253,11 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, className
                 {unit && <span className="text-sm font-medium text-muted-foreground ml-1">{unit}</span>}
             </div>
             <p className="text-sm text-muted-foreground mt-1 font-medium">{label}</p>
+            {description && (
+                <p className="mt-3 text-xs leading-snug text-muted-foreground" data-testid={`${testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}-explanation`}>
+                    {description}
+                </p>
+            )}
         </div>
     </Card>
 );
@@ -658,19 +664,22 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             label="Speaking Pace"
                             value={targetSessionMetrics.wpm}
                             unit="WPM"
+                            description={targetSessionMetrics.wpmExplanation}
                             testId={TEST_IDS.STAT_CARD_SPEAKING_PACE}
                         />
                         <StatCard
                             icon={<Target />}
                             label="Clarity Score"
-                            value={targetSessionMetrics.clarityScore}
-                            unit="%"
+                            value={targetSessionMetrics.isClarityScorable ? targetSessionMetrics.clarityScore : '--'}
+                            unit={targetSessionMetrics.isClarityScorable ? '%' : undefined}
+                            description={targetSessionMetrics.clarityExplanation}
                             testId={TEST_IDS.CLARITY_SCORE_VALUE}
                         />
                         <StatCard
                             icon={<TrendingUp />}
                             label="Filler Words"
                             value={targetSessionMetrics.fillerCount}
+                            description={targetSessionMetrics.fillerExplanation}
                             testId={TEST_IDS.FILLER_COUNT_VALUE}
                         />
                     </div>

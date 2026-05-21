@@ -29,4 +29,43 @@ describe('LiveTranscriptPanel', () => {
 
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).textContent).toContain('Hello world speaking now');
     });
+
+    it('does not erase final transcript text when later interim text is empty', () => {
+        const { rerender } = render(
+            <LiveTranscriptPanel
+                transcript="um final words are visible"
+                interimTranscript="temporary interim"
+                isListening={true}
+            />
+        );
+
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('um final words are visible temporary interim');
+
+        rerender(
+            <LiveTranscriptPanel
+                transcript="um final words are visible"
+                interimTranscript=""
+                isListening={true}
+            />
+        );
+
+        expect(screen.queryByText('Listening...')).not.toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('um final words are visible');
+    });
+
+    it('keeps finalized history visible across an engine handoff with a new blank segment', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript=""
+                interimTranscript=""
+                history={[{ mode: 'private', text: 'first finalized private segment' }]}
+                isListening={true}
+            />
+        );
+
+        const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+        expect(transcriptContainer).toHaveTextContent('Chapter 1: Private');
+        expect(transcriptContainer).toHaveTextContent('first finalized private segment');
+        expect(transcriptContainer).toHaveTextContent('Listening...');
+    });
 });
