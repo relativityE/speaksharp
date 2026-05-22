@@ -21,6 +21,15 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 }
 
+type CheckoutPlan = "basic" | "pro";
+
+const normalizePlan = (value: unknown): CheckoutPlan | null => {
+  if (typeof value !== "string") return "pro";
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "basic" || normalized === "pro") return normalized;
+  return null;
+};
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -36,7 +45,8 @@ serve(async (req) => {
       hasUrl: !!Deno.env.get("SUPABASE_URL"),
       hasAnon: !!Deno.env.get("SUPABASE_ANON_KEY"),
       hasStripeKey: !!Deno.env.get("STRIPE_SECRET_KEY"),
-      hasPriceId: !!Deno.env.get("STRIPE_PRO_PRICE_ID"),
+      hasBasicPriceId: !!Deno.env.get("STRIPE_BASIC_PRICE_ID"),
+      hasProPriceId: !!Deno.env.get("STRIPE_PRO_PRICE_ID"),
       hasSiteUrl: !!Deno.env.get("SITE_URL"),
     };
     console.log('[Stripe Checkout] 🔐 Secrets presence:', JSON.stringify(secrets));
@@ -109,11 +119,23 @@ serve(async (req) => {
     }
     console.log(`[Stripe Checkout] ✅ User authenticated: ${user.id} (${user.email || 'no-email'})`);
 
+    const requestBody = await req.json().catch(() => ({})) as { plan?: unknown };
+    const plan = normalizePlan(requestBody.plan);
+    if (!plan) {
+      return createErrorResponse(
+        ErrorCodes.VALIDATION_INVALID_FORMAT,
+        "Invalid checkout plan",
+        corsHeaders,
+        { allowed: ["basic", "pro"] }
+      );
+    }
+
     // 4. Price Config - Use fallback for local dev (prod uses Supabase Secrets)
-    const priceId = Deno.env.get("STRIPE_PRO_PRICE_ID") ?? "price_mock_default";
+    const priceEnvName = plan === "basic" ? "STRIPE_BASIC_PRICE_ID" : "STRIPE_PRO_PRICE_ID";
+    const priceId = Deno.env.get(priceEnvName) ?? "price_mock_default";
     const isUsingMock = priceId === "price_mock_default";
     if (isUsingMock) {
-      console.warn("[Stripe Checkout] ⚠️ Using mock price ID - set STRIPE_PRO_PRICE_ID for real checkout");
+      console.warn(`[Stripe Checkout] ⚠️ Using mock price ID - set ${priceEnvName} for real checkout`);
     }
 
     // 5. Determine return URL base (Strictly from Secrets)
@@ -129,7 +151,7 @@ serve(async (req) => {
     console.log(`[Stripe Checkout] 🔐 Using SITE_URL: ${effectiveSiteUrl}`);
 
     // 5. Stripe Session Creation
-    console.log(`[Stripe Checkout] 💳 Creating Stripe Session with Price ID: ${priceId}`);
+    console.log(`[Stripe Checkout] 💳 Creating Stripe Session for ${plan} with Price ID: ${priceId}`);
     try {
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
@@ -145,10 +167,12 @@ serve(async (req) => {
         customer_email: user.email,
         metadata: {
           userId: user.id,
+          plan,
         },
         subscription_data: {
           metadata: {
             userId: user.id,
+            plan,
           },
         },
       })

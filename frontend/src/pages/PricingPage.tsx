@@ -7,6 +7,7 @@ import logger from '../lib/logger';
 
 interface Tier {
   name: string;
+  plan: 'basic' | 'pro';
   price: string;
   priceDescription: string;
   features: string[];
@@ -17,8 +18,9 @@ interface Tier {
 const tiers: Tier[] = [
   {
     name: 'Basic',
-    price: '$0',
-    priceDescription: 'For browser practice',
+    plan: 'basic',
+    price: '$2.99',
+    priceDescription: 'per month',
     features: [
       `Up to ${SUBSCRIPTION_LIMITS.BASIC_MONTHLY_MINUTES} mins of practice per month`,
       'Basic analytics',
@@ -26,11 +28,12 @@ const tiers: Tier[] = [
       'AI-assisted feedback',
       'Watermarked PDF exports',
     ],
-    cta: 'Continue with Basic',
+    cta: 'Choose Basic',
   },
   {
     name: 'Pro',
-    price: '$10',
+    plan: 'pro',
+    price: '$7.99',
     priceDescription: 'per month',
     features: [
       'Up to 2 hours/day and 50 hours/month',
@@ -46,18 +49,16 @@ const tiers: Tier[] = [
 ];
 
 const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
-  const isBasic = tier.name === 'Basic';
-
   const handleUpgrade = async () => {
-    if (isBasic) return;
-
     try {
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase client not available");
 
-      // Backend uses STRIPE_PRO_PRICE_ID env var, no need to send priceId
       const { data, error } = await supabase.functions.invoke('stripe-checkout', {
-        body: { returnUrlOrigin: window.location.origin }
+        body: {
+          plan: tier.plan,
+          returnUrlOrigin: window.location.origin,
+        }
       });
 
       if (error) throw error;
@@ -100,9 +101,8 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
           onClick={() => { void handleUpgrade(); }}
           className="w-full"
           variant={tier.isPopular ? 'default' : 'outline'}
-          disabled={isBasic}
         >
-          {isBasic ? 'Current Plan' : tier.cta}
+          {tier.cta}
         </Button>
       </div>
     </Card>

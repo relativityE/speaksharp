@@ -94,7 +94,9 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         try {
             const supabase = getSupabaseClient();
             if (!supabase) throw new Error("Supabase client not available");
-            const { data, error } = await supabase.functions.invoke('stripe-checkout');
+            const { data, error } = await supabase.functions.invoke('stripe-checkout', {
+                body: { plan: 'pro' },
+            });
             if (error) throw error;
             if (data?.checkoutUrl) {
                 window.location.href = data.checkoutUrl;

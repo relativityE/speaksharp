@@ -39,16 +39,16 @@ describe('PricingPage', () => {
             renderPricingPage();
 
             expect(screen.getByText('Basic')).toBeInTheDocument();
-            expect(screen.getByText('$0')).toBeInTheDocument();
-            expect(screen.getByText('For browser practice')).toBeInTheDocument();
+            expect(screen.getByText('$2.99')).toBeInTheDocument();
+            expect(screen.getAllByText('per month').length).toBeGreaterThanOrEqual(2);
         });
 
         it('should render Pro tier', () => {
             renderPricingPage();
 
             expect(screen.getByText('Pro')).toBeInTheDocument();
-            expect(screen.getByText('$10')).toBeInTheDocument();
-            expect(screen.getByText('per month')).toBeInTheDocument();
+            expect(screen.getByText('$7.99')).toBeInTheDocument();
+            expect(screen.getAllByText('per month').length).toBeGreaterThanOrEqual(2);
         });
 
         it('should render Basic tier features', () => {
@@ -75,17 +75,17 @@ describe('PricingPage', () => {
         it('should render CTA buttons', () => {
             renderPricingPage();
 
-            expect(screen.getByText('Current Plan')).toBeInTheDocument();
+            expect(screen.getByText('Choose Basic')).toBeInTheDocument();
             expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
         });
     });
 
     describe('Button States', () => {
-        it('should disable Basic tier button', () => {
+        it('should enable Basic tier button', () => {
             renderPricingPage();
 
-            const basicButton = screen.getByText('Current Plan');
-            expect(basicButton).toBeDisabled();
+            const basicButton = screen.getByText('Choose Basic');
+            expect(basicButton).not.toBeDisabled();
         });
 
         it('should enable Pro tier button', () => {
@@ -117,15 +117,47 @@ describe('PricingPage', () => {
             await user.click(proButton);
 
             await waitFor(() => {
-                // Backend now uses STRIPE_PRO_PRICE_ID env var, no body needed
                 expect(mockInvoke).toHaveBeenCalledWith('stripe-checkout', expect.objectContaining({
                     body: expect.objectContaining({
+                        plan: 'pro',
                         returnUrlOrigin: expect.any(String)
                     })
                 }));
             });
 
             // Restore original location
+            Object.defineProperty(window, 'location', {
+                value: originalLocation,
+                writable: true,
+            });
+        });
+
+        it('should call stripe-checkout with basic plan when choosing Basic', async () => {
+            const user = userEvent.setup();
+            mockInvoke.mockResolvedValue({
+                data: { checkoutUrl: 'https://checkout.stripe.com/basic-test' },
+                error: null,
+            });
+
+            const originalLocation = window.location;
+            Object.defineProperty(window, 'location', {
+                value: { href: '', origin: 'http://localhost' },
+                writable: true,
+            });
+
+            renderPricingPage();
+
+            await user.click(screen.getByText('Choose Basic'));
+
+            await waitFor(() => {
+                expect(mockInvoke).toHaveBeenCalledWith('stripe-checkout', expect.objectContaining({
+                    body: expect.objectContaining({
+                        plan: 'basic',
+                        returnUrlOrigin: expect.any(String)
+                    })
+                }));
+            });
+
             Object.defineProperty(window, 'location', {
                 value: originalLocation,
                 writable: true,

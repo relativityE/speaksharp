@@ -35,6 +35,7 @@ const Navigation = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
+        body: JSON.stringify({ plan: 'pro' }),
       });
       const data = await response.json();
       if (data.checkoutUrl) {

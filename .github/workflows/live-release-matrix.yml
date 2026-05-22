@@ -17,6 +17,7 @@ on:
           - private-cache
           - stripe-webhook-readiness
           - stripe-checkout-readiness
+          - stripe-price-audit
 
 permissions:
   contents: read
@@ -250,3 +251,27 @@ jobs:
             playwright-report/
             test-results/live/
           retention-days: 14
+
+  live-stripe-price-audit:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stripe-price-audit' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+
+      - name: Audit Stripe Price Configuration
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_BASIC_PRICE_ID: ${{ secrets.STRIPE_BASIC_PRICE_ID }}
+          STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_PRO_PRICE_ID }}
+          EXPECTED_STRIPE_BASIC_AMOUNT: '299'
+          EXPECTED_STRIPE_PRO_AMOUNT: '799'
+          EXPECTED_STRIPE_BASIC_CURRENCY: usd
+          EXPECTED_STRIPE_PRO_CURRENCY: usd
+          EXPECTED_STRIPE_BASIC_INTERVAL: month
+          EXPECTED_STRIPE_PRO_INTERVAL: month
+        run: node scripts/stripe-price-audit.mjs

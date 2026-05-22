@@ -49,6 +49,29 @@ Deno.test("stripe-webhook handlers", async (t) => {
     assertEquals(capturedArgs.p_user_id, "user_1");
   });
 
+  await t.step("handleCheckoutCompleted - activates paid Basic without Pro upgrade", async () => {
+    const event = {
+      id: "evt_basic",
+      type: "checkout.session.completed",
+      data: { object: { metadata: { userId: "user_1", plan: "basic" }, subscription: "sub_basic" } }
+    };
+
+    let capturedArgs: any;
+    const mockSupabase = {
+      rpc: (_fn: string, args: any) => {
+        capturedArgs = args;
+        return Promise.resolve({ data: { success: true, skipped: false }, error: null });
+      }
+    };
+
+    const response = await handler(createRequest(event), mockStripe, mockSupabase, "secret");
+
+    assertEquals(response.status, 200);
+    assertEquals(capturedArgs.p_action, "activate_basic");
+    assertEquals(capturedArgs.p_user_id, "user_1");
+    assertEquals(capturedArgs.p_subscription_id, "sub_basic");
+  });
+
   await t.step("handleCheckoutCompleted - fails without userId", async () => {
     const event = {
       id: "evt_1",
@@ -117,11 +140,11 @@ Deno.test("stripe-webhook subscription.updated handlers", async (t) => {
     body: JSON.stringify(event)
   });
 
-  const getArgs = async (status: string) => {
+  const getArgs = async (status: string, plan = "pro") => {
     const event = {
       id: "evt_1",
       type: "customer.subscription.updated",
-      data: { object: { id: "sub_1", status } }
+      data: { object: { id: "sub_1", status, metadata: { userId: "user_1", plan } } }
     };
 
     let capturedArgs: any;
@@ -149,7 +172,11 @@ Deno.test("stripe-webhook subscription.updated handlers", async (t) => {
   });
 
   await t.step("handleSubscriptionUpdated - no action on active status", async () => {
-    assertEquals(await getArgs("active"), "none");
+    assertEquals(await getArgs("active"), "upgrade_to_pro");
+  });
+
+  await t.step("handleSubscriptionUpdated - restores paid Basic on active status", async () => {
+    assertEquals(await getArgs("active", "basic"), "activate_basic");
   });
 });
 

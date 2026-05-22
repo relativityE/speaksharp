@@ -5,6 +5,15 @@ import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shar
 
 type SupabaseClient = any;
 type StripeClient = any;
+type BillingPlan = 'basic' | 'pro';
+
+function normalizeBillingPlan(value: unknown): BillingPlan {
+  return typeof value === 'string' && value.toLowerCase() === 'basic' ? 'basic' : 'pro';
+}
+
+function actionForPlan(plan: BillingPlan) {
+  return plan === 'basic' ? 'activate_basic' : 'upgrade_to_pro';
+}
 
 export async function handler(
   req: Request,
@@ -23,12 +32,14 @@ export async function handler(
     let action = 'none';
     let userId = null;
     let subscriptionId = null;
+    let plan: BillingPlan = 'pro';
 
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object
         userId = session.metadata?.userId
         subscriptionId = session.subscription
+        plan = normalizeBillingPlan(session.metadata?.plan)
 
         if (!userId) {
           console.error("[Stripe] Missing userId in checkout session metadata")
@@ -38,7 +49,7 @@ export async function handler(
             {}
           )
         }
-        action = 'upgrade_to_pro';
+        action = actionForPlan(plan);
         break;
       }
 
@@ -53,9 +64,13 @@ export async function handler(
         const subscription = event.data.object
         subscriptionId = subscription.id
         const status = subscription.status
+        userId = subscription.metadata?.userId ?? null
+        plan = normalizeBillingPlan(subscription.metadata?.plan)
 
         if (status === "canceled" || status === "unpaid" || status === "past_due") {
           action = 'downgrade_to_basic';
+        } else if (status === "active" && userId) {
+          action = actionForPlan(plan);
         }
         break;
       }
@@ -98,6 +113,8 @@ export async function handler(
 
     if (action === 'upgrade_to_pro') {
       console.log(`[Stripe] ✅ User ${userId} upgraded to Pro successfully`)
+    } else if (action === 'activate_basic') {
+      console.log(`[Stripe] ✅ User ${userId} activated paid Basic successfully`)
     } else if (action === 'downgrade_to_basic') {
       console.log(`[Stripe] ✅ Subscription ${subscriptionId} downgraded successfully`)
     }
