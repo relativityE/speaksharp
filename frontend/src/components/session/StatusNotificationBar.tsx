@@ -13,8 +13,8 @@ interface StatusNotificationBarProps {
 const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: string; textClass: string; iconClass: string }> = {
     idle: {
         icon: Info,
-        bgClass: 'bg-white border-slate-300 shadow-sm',
-        textClass: 'text-slate-700',
+        bgClass: 'bg-card border-border shadow-sm',
+        textClass: 'text-foreground',
         iconClass: 'text-muted-foreground',
     },
     initializing: {
@@ -31,8 +31,8 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
     },
     ready: {
         icon: CheckCircle2,
-        bgClass: 'bg-white border-slate-300 shadow-sm',
-        textClass: 'text-slate-700',
+        bgClass: 'bg-card border-border shadow-sm',
+        textClass: 'text-foreground',
         iconClass: 'text-success',
     },
     recording: {
@@ -73,7 +73,7 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
     },
     info: {
         icon: Info,
-        bgClass: 'bg-white border-border shadow-sm',
+        bgClass: 'bg-card border-border shadow-sm',
         textClass: 'text-foreground',
         iconClass: 'text-primary',
     },

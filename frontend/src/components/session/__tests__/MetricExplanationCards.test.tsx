@@ -35,6 +35,20 @@ describe('session metric explanation cards', () => {
         expect(screen.getByTestId('wpm-explanation')).toHaveTextContent('above the target range');
     });
 
+    it('does not label unmeasured pace as optimal', () => {
+        render(
+            <SpeakingRateCard
+                wpm={0}
+                wpmLabel=""
+                wpmExplanation="Waiting for enough transcribed speech to measure pace."
+            />
+        );
+
+        expect(screen.getByTestId('wpm-value')).toHaveTextContent('0');
+        expect(screen.getByText('Not Measured')).toBeInTheDocument();
+        expect(screen.queryByText('Optimal')).not.toBeInTheDocument();
+    });
+
     it('connects filler totals to the captured transcript instead of only listing words', () => {
         render(
             <FillerWordsCard

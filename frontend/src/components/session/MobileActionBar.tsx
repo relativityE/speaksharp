@@ -29,7 +29,7 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
     }
 
     return (
-        <div className="fixed bottom-0 left-0 right-0 px-4 pt-3 pb-[calc(0.875rem+env(safe-area-inset-bottom))] bg-white/95 backdrop-blur-xl md:hidden z-40 flex flex-col items-center gap-2.5 shadow-[0_-10px_30px_rgba(15,23,42,0.10)] safe-area-bottom border-t border-border">
+        <div className="fixed bottom-0 left-0 right-0 px-4 pt-3 pb-[calc(0.875rem+env(safe-area-inset-bottom))] bg-background/95 backdrop-blur-xl md:hidden z-40 flex flex-col items-center gap-2.5 shadow-[0_-10px_30px_rgba(15,23,42,0.10)] safe-area-bottom border-t border-border">
             {isFrozen && (
                 <Button
                     onClick={onSwitchToNative}

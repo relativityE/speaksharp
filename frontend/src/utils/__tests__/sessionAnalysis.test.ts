@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     calculateCoreSessionMetrics,
+    getWpmLabel,
     getSessionAnalysisMetrics,
 } from '../sessionAnalysis';
 import type { PracticeSession } from '@/types/session';
@@ -30,6 +31,28 @@ describe('sessionAnalysis metric truth', () => {
         expect(metrics.clarityLabel).toBe('Not enough speech to score');
         expect(metrics.clarityExplanation).toBe('No transcript was captured, so clarity cannot be scored yet.');
         expect(metrics.fillerExplanation).toBe('No transcript was captured, so filler words cannot be verified yet.');
+    });
+
+    it('never reports low or missing WPM as optimal', () => {
+        expect(getWpmLabel(0)).toBe('Not Measured');
+        expect(getWpmLabel(20)).toBe('Too Slow');
+        expect(getWpmLabel(129)).toBe('Too Slow');
+        expect(getWpmLabel(140)).toBe('Optimal Range');
+    });
+
+    it('uses supplied live filler counts when they exceed final transcript text', () => {
+        const metrics = calculateCoreSessionMetrics({
+            transcript: 'This final transcript dropped the filler words',
+            durationSeconds: 30,
+            fillerData: {
+                um: { count: 2 },
+                total: { count: 2 },
+            },
+        });
+
+        expect(metrics.fillerCount).toBe(2);
+        expect(metrics.fillerData.total.count).toBe(2);
+        expect(metrics.clarityScore).toBeLessThan(100);
     });
 
     it('uses one derivation path for persisted session metrics and repairs stale filler totals from transcript', () => {

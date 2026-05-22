@@ -117,6 +117,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
         {!suggestions && !isLoading && !error && (
           <div className="text-center text-muted-foreground py-4">
             <p>Click the button to get AI-powered feedback on your speech.</p>
+            <p className="mt-2 text-xs">
+              Your transcript is securely processed by our AI feedback provider only when you request suggestions.
+            </p>
           </div>
         )}
 

@@ -61,7 +61,7 @@ describe('StatusNotificationBar', () => {
         render(<StatusNotificationBar status={{ type: 'ready', message: 'Mic ready' }} />);
 
         const statusBar = screen.getByTestId('live-session-header');
-        expect(statusBar).toHaveClass('bg-white', 'border-slate-300');
+        expect(statusBar).toHaveClass('bg-card', 'border-border');
         expect(statusBar).not.toHaveClass('bg-emerald-50', 'border-emerald-200');
     });
 

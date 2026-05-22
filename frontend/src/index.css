@@ -73,23 +73,23 @@ All colors MUST be HSL.
   }
 
   .dark {
-    --background: 216 29% 93%;
-    --foreground: 221 39% 11%;
+    --background: 222 42% 8%;
+    --foreground: 210 35% 96%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 221 39% 11%;
+    --card: 222 35% 11%;
+    --card-foreground: 210 35% 96%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 221 39% 11%;
+    --popover: 222 35% 11%;
+    --popover-foreground: 210 35% 96%;
 
     --primary: 38 92% 50%;
     --primary-foreground: 221 39% 11%;
 
-    --secondary: 210 17% 96%;
-    --secondary-foreground: 221 39% 11%;
+    --secondary: 217 24% 18%;
+    --secondary-foreground: 210 35% 96%;
 
-    --muted: 210 17% 95%;
-    --muted-foreground: 215 19% 35%;
+    --muted: 217 24% 16%;
+    --muted-foreground: 215 18% 72%;
 
     --accent: 176 77% 26%;
     --accent-foreground: 0 0% 100%;
@@ -100,20 +100,20 @@ All colors MUST be HSL.
     --success: 160 84% 30%;
     --success-foreground: 0 0% 100%;
 
-    --border: 214 32% 84%;
-    --border-strong: 215 26% 80%;
-    --input: 214 32% 84%;
+    --border: 217 24% 24%;
+    --border-strong: 217 24% 32%;
+    --input: 217 24% 24%;
     --ring: 38 92% 50%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 221 39% 11%;
+    --sidebar-background: 222 35% 11%;
+    --sidebar-foreground: 210 35% 96%;
     --sidebar-primary: 38 92% 50%;
     --sidebar-primary-foreground: 221 39% 11%;
-    --sidebar-accent: 210 17% 95%;
-    --sidebar-accent-foreground: 221 39% 11%;
-    --sidebar-border: 215 18% 87%;
+    --sidebar-accent: 217 24% 16%;
+    --sidebar-accent-foreground: 210 35% 96%;
+    --sidebar-border: 217 24% 24%;
     --sidebar-ring: 38 92% 50%;
 
     --chart-1: 38 92% 50%;
@@ -126,11 +126,11 @@ All colors MUST be HSL.
 
 /* Utility classes for specific visual effects */
 .glass {
-  @apply bg-white/75 backdrop-blur-2xl border border-border/70 shadow-card;
+  @apply bg-card/75 backdrop-blur-2xl border border-border/70 shadow-card;
 }
 
 .glass-strong {
-  @apply bg-white/90 backdrop-blur-2xl border border-border shadow-card;
+  @apply bg-card/90 backdrop-blur-2xl border border-border shadow-card;
 }
 
 .text-gradient-brand {
@@ -151,6 +151,10 @@ All colors MUST be HSL.
   background-image: linear-gradient(135deg, hsl(32 95% 36%), hsl(24 90% 38%), hsl(18 84% 34%));
 }
 
+.dark .text-gradient-hero {
+  background-image: linear-gradient(135deg, hsl(42 96% 66%), hsl(32 95% 58%), hsl(22 90% 62%));
+}
+
 .text-gradient-warm {
   @apply bg-clip-text text-transparent;
   background-image: linear-gradient(135deg, hsl(40 85% 55%), hsl(25 90% 55%));
@@ -160,12 +164,12 @@ All colors MUST be HSL.
   background-image:
     radial-gradient(at 78% 8%, hsl(38 92% 50% / 0.10) 0%, rgba(0, 0, 0, 0) 34%),
     radial-gradient(at 12% 74%, hsl(176 77% 26% / 0.055) 0%, rgba(0, 0, 0, 0) 42%),
-    linear-gradient(180deg, hsl(216 29% 93%) 0%, hsl(216 29% 93%) 100%);
+    linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--background)) 100%);
 }
 
 .bg-grid {
-  background-image: linear-gradient(hsl(215 18% 87% / 0.36) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(215 18% 87% / 0.36) 1px, transparent 1px);
+  background-image: linear-gradient(hsl(var(--border) / 0.36) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.36) 1px, transparent 1px);
   background-size: 60px 60px;
 }
 

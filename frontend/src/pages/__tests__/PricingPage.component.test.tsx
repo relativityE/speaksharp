@@ -75,7 +75,7 @@ describe('PricingPage', () => {
         it('should render CTA buttons', () => {
             renderPricingPage();
 
-            expect(screen.getByText('Continue with Basic')).toBeInTheDocument();
+            expect(screen.getByText('Current Plan')).toBeInTheDocument();
             expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
         });
     });
@@ -84,7 +84,7 @@ describe('PricingPage', () => {
         it('should disable Basic tier button', () => {
             renderPricingPage();
 
-            const basicButton = screen.getByText('Continue with Basic');
+            const basicButton = screen.getByText('Current Plan');
             expect(basicButton).toBeDisabled();
         });
 

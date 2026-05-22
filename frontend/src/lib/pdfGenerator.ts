@@ -6,6 +6,7 @@ import { format, parseISO } from 'date-fns';
 import logger from './logger';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { countFillerWords } from '@/utils/fillerWordUtils';
+import { getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
 
 // A more specific type for the internal, undocumented API
 interface jsPDFInternal {
@@ -59,6 +60,7 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
   try {
     toast.info("Generating PDF...", { id: 'pdf-gen' });
     const doc = new jsPDF();
+    const metrics = getSessionAnalysisMetrics(session);
 
     // --- Header ---
     doc.setFontSize(20);
@@ -80,7 +82,8 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
 
     const analyticsData = [
       ['Metric', 'Value'],
-      ['Speaking Pace (WPM)', session.wpm?.toString() || 'N/A'],
+      ['Speaking Pace (WPM)', `${metrics.wpm} (${metrics.wpmLabel})`],
+      ['Clarity Score', `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`],
       ['Transcription Mode', formatSessionRecordingMode(session)],
       ['Silence Percentage', formatOptionalNumber(session.pause_metrics?.silencePercentage, value => `${value.toFixed(1)}%`)],
       ['Short Pauses (0.5-1.5s)', formatOptionalNumber(session.pause_metrics?.transitionPauses, value => value.toString(), '0')],
@@ -113,6 +116,35 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
     doc.setFontSize(10);
     const transcriptLines = doc.splitTextToSize(session.transcript || 'No transcript available.', 180);
     doc.text(transcriptLines, 14, 32);
+
+    if (session.ai_suggestions) {
+      doc.addPage();
+      doc.setFontSize(16);
+      doc.text('AI-Powered Suggestions', 14, 22);
+      doc.setFontSize(11);
+
+      let y = 34;
+      if (session.ai_suggestions.summary) {
+        const summaryLines = doc.splitTextToSize(session.ai_suggestions.summary, 180);
+        doc.text(summaryLines, 14, y);
+        y += summaryLines.length * 6 + 8;
+      }
+
+      session.ai_suggestions.suggestions?.forEach((suggestion, index) => {
+        if (y > 260) {
+          doc.addPage();
+          y = 22;
+        }
+
+        doc.setFontSize(12);
+        doc.text(`${index + 1}. ${suggestion.title}`, 14, y);
+        y += 7;
+        doc.setFontSize(10);
+        const descriptionLines = doc.splitTextToSize(suggestion.description, 180);
+        doc.text(descriptionLines, 18, y);
+        y += descriptionLines.length * 5 + 6;
+      });
+    }
 
     // --- Footer & Watermark ---
     const pageCount = (doc.internal as unknown as jsPDFInternal).getNumberOfPages();

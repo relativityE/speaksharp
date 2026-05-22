@@ -21,7 +21,7 @@ import { pushE2EEvent } from '@/lib/e2eProbe';
 import { DistributedLock } from '@/lib/DistributedLock';
 import { validateEngine, STTEngine } from '@/contracts/STTEngine';
 import { FillerCounts } from '@/utils/fillerWordUtils';
-import { calculateCoreSessionMetrics } from '@/utils/sessionAnalysis';
+import { calculateCoreSessionMetrics, getFillerTotal } from '@/utils/sessionAnalysis';
 import { updateSession } from '@/lib/storage';
 
 declare global {
@@ -1266,6 +1266,7 @@ export class SpeechRuntimeController {
                             const sessionMetrics = calculateCoreSessionMetrics({
                                 transcript: finalTranscript,
                                 durationSeconds: duration,
+                                fillerData: getFillerTotal(store.fillerData) > 0 ? store.fillerData : undefined,
                                 userWords: this.userWords,
                             });
                             const fillerWords = sessionMetrics.fillerData;

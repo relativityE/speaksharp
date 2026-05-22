@@ -133,6 +133,10 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     }, [storeIsListening, vocal]);
 
     useEffect(() => {
+        useSessionStore.getState().updateFillerData(filler.counts);
+    }, [filler.counts]);
+
+    useEffect(() => {
         const nextSnapshot = JSON.stringify(vocal.pauseMetrics);
         if (pauseMetricsSnapshotRef.current === nextSnapshot) return;
 

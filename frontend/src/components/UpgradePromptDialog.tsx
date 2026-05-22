@@ -9,9 +9,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { getSupabaseClient } from "@/lib/supabaseClient";
-import logger from "@/lib/logger";
-import { toast } from '@/lib/toast';
+import { useNavigate } from 'react-router-dom';
 
 interface UpgradePromptDialogProps {
   open: boolean;
@@ -19,25 +17,11 @@ interface UpgradePromptDialogProps {
 }
 
 export const UpgradePromptDialog: React.FC<UpgradePromptDialogProps> = ({ open, onOpenChange }) => {
+  const navigate = useNavigate();
 
-  const handleUpgrade = async () => {
-    try {
-      const supabase = getSupabaseClient();
-      if (!supabase) throw new Error("Supabase client not available");
-      const { data, error } = await supabase.functions.invoke('stripe-checkout');
-      if (error) throw error;
-      // The edge function returns a URL to the Stripe checkout page
-      if (data?.checkoutUrl && typeof data.checkoutUrl === 'string' && data.checkoutUrl.startsWith('https://checkout.stripe.com')) {
-        window.location.href = data.checkoutUrl;
-      } else {
-        const errorMsg = data?.checkoutUrl ? "Security Error: Invalid checkout URL" : "No checkout URL returned";
-        toast.error(errorMsg);
-        throw new Error(errorMsg);
-      }
-    } catch (err: unknown) {
-      logger.error({ err }, 'Error creating Stripe checkout session:');
-      toast.error("Subscription failed. Please try again later.");
-    }
+  const handleUpgrade = () => {
+    onOpenChange(false);
+    navigate('/pricing');
   };
 
   return (
@@ -51,7 +35,7 @@ export const UpgradePromptDialog: React.FC<UpgradePromptDialogProps> = ({ open, 
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Maybe Later</AlertDialogCancel>
-          <AlertDialogAction onClick={() => { void handleUpgrade(); }} data-testid="upgrade-prompt-dialog-upgrade-button">View Plans</AlertDialogAction>
+          <AlertDialogAction onClick={handleUpgrade} data-testid="upgrade-prompt-dialog-upgrade-button">View Plans</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

@@ -43,19 +43,18 @@ export const calculateWpm = (wordCount: number, durationSeconds: number): number
     durationSeconds > 0 ? Math.round((wordCount / durationSeconds) * 60) : 0;
 
 export const getWpmLabel = (wpm: number): string =>
-    wpm >= 130 && wpm <= 150
+    wpm <= 0
+        ? 'Not Measured'
+        : wpm >= 130 && wpm <= 150
         ? 'Optimal Range'
         : wpm > 150
             ? 'Too Fast'
-            : wpm < 60
-                ? ''
-                : 'Too Slow';
+            : 'Too Slow';
 
 export const getWpmExplanation = (wpm: number, wordCount: number): string => {
     if (wordCount <= 0 || wpm <= 0) return 'Waiting for enough transcribed speech to measure pace.';
     if (wpm >= 130 && wpm <= 150) return 'You are inside the target 130-150 WPM range.';
     if (wpm > 150) return 'You are above the target range; slow slightly so listeners can track each idea.';
-    if (wpm < 60) return 'This is too little speech to judge pace reliably yet.';
     return 'You are below the target range; tighten pauses or add a little energy.';
 };
 
@@ -137,8 +136,10 @@ export const calculateCoreSessionMetrics = ({
     fillerData,
     userWords = [],
 }: CoreSessionMetricsInput): CoreSessionMetrics => {
-    const derivedFillerData = fillerData
-        ? (fillerData as FillerCounts)
+    const normalizedFillerData = fillerData as FillerCounts | null | undefined;
+    const hasSuppliedFillerData = normalizedFillerData && Object.keys(normalizedFillerData).length > 0;
+    const derivedFillerData = hasSuppliedFillerData
+        ? normalizedFillerData
         : countFillerWords(transcript, userWords);
     const wordCount = countTranscriptWords(transcript);
     const wpm = calculateWpm(wordCount, durationSeconds);

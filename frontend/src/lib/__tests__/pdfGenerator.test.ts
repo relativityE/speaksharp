@@ -86,6 +86,8 @@ describe('generateSessionPdf', () => {
       startY: 70,
       body: expect.arrayContaining([
         ['Metric', 'Value'],
+        ['Speaking Pace (WPM)', '1 (Too Slow)'],
+        ['Clarity Score', '0% (Keep practicing)'],
         ['Transcription Mode', 'Not recorded'],
       ])
     }));
@@ -185,6 +187,26 @@ describe('generateSessionPdf', () => {
 
     expect(savedPdf.text).toContain('(Transcript) Tj');
     expect(savedPdf.text).toContain('(No transcript available.) Tj');
+  });
+
+  it('includes AI suggestions when they exist on the session', async () => {
+    await generateSessionPdf({
+      ...mockSession,
+      ai_suggestions: {
+        summary: 'You used a clear opening and can improve pacing.',
+        suggestions: [
+          {
+            title: 'Pause with intent',
+            description: 'Replace filler words with a short pause before the next idea.',
+          },
+        ],
+      },
+    });
+    const savedPdf = await getSavedPdf();
+
+    expect(savedPdf.text).toContain('(AI-Powered Suggestions) Tj');
+    expect(savedPdf.text).toContain('(You used a clear opening and can improve pacing.) Tj');
+    expect(savedPdf.text).toContain('(1. Pause with intent) Tj');
   });
 
   it.each([

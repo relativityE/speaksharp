@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '../../../tests/support/test-utils';
+import { render, screen, fireEvent } from '../../../tests/support/test-utils';
 import { describe, it, expect, vi } from 'vitest';
 import { UpgradePromptDialog } from '@/components/UpgradePromptDialog';
 
@@ -34,24 +34,12 @@ describe('UpgradePromptDialog', () => {
         expect(onOpenChange).toHaveBeenCalledWith(false);
     });
 
-    it('calls the upgrade function and redirects on "View Plans" click', async () => {
-        vi.mocked(mockSupabase.functions.invoke).mockResolvedValue({
-            data: { checkoutUrl: 'https://checkout.stripe.com/pay/abc' },
-            error: null,
-        });
-
-        Object.defineProperty(window, 'location', {
-            value: { href: '' },
-            writable: true,
-        });
-
-        render(<UpgradePromptDialog open={true} onOpenChange={() => { }} />);
+    it('opens pricing instead of surprise-starting Stripe checkout on "View Plans" click', () => {
+        const onOpenChange = vi.fn();
+        render(<UpgradePromptDialog open={true} onOpenChange={onOpenChange} />);
         fireEvent.click(screen.getByTestId('upgrade-prompt-dialog-upgrade-button'));
 
-        await waitFor(() => {
-            expect(mockSupabase.functions.invoke).toHaveBeenCalledWith('stripe-checkout');
-        });
-
-        expect(window.location.href).toBe('https://checkout.stripe.com/pay/abc');
+        expect(onOpenChange).toHaveBeenCalledWith(false);
+        expect(mockSupabase.functions.invoke).not.toHaveBeenCalled();
     });
 });
