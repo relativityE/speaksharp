@@ -117,14 +117,29 @@ jobs:
         if: ${{ github.event.inputs.operation == 'secrets' || github.event.inputs.operation == 'all' }}
         env:
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
+          STRIPE_BASIC_PRICE_ID: ${{ secrets.STRIPE_BASIC_PRICE_ID }}
+          STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_PRO_PRICE_ID }}
         working-directory: backend/supabase
         run: |
           if [ -z "$AGENT_SECRET" ]; then
             echo "❌ AGENT_SECRET not available in GitHub Secrets!"
             exit 1
           fi
-          supabase secrets set AGENT_SECRET="$AGENT_SECRET" ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5173" --project-ref "$SUPABASE_PROJECT_ID"
-          echo "✅ AGENT_SECRET and ALLOWED_ORIGIN synchronized to Supabase"
+          if [ -z "$STRIPE_BASIC_PRICE_ID" ]; then
+            echo "❌ STRIPE_BASIC_PRICE_ID not available in GitHub Secrets!"
+            exit 1
+          fi
+          if [ -z "$STRIPE_PRO_PRICE_ID" ]; then
+            echo "❌ STRIPE_PRO_PRICE_ID not available in GitHub Secrets!"
+            exit 1
+          fi
+          supabase secrets set \
+            AGENT_SECRET="$AGENT_SECRET" \
+            ALLOWED_ORIGIN="https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5173" \
+            STRIPE_BASIC_PRICE_ID="$STRIPE_BASIC_PRICE_ID" \
+            STRIPE_PRO_PRICE_ID="$STRIPE_PRO_PRICE_ID" \
+            --project-ref "$SUPABASE_PROJECT_ID"
+          echo "✅ AGENT_SECRET, ALLOWED_ORIGIN, and Stripe price IDs synchronized to Supabase"
 
       - name: Deploy Edge Functions
         if: ${{ github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
