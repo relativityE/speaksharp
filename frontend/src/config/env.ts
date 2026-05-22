@@ -25,13 +25,6 @@ export const SUPABASE_ANON_KEY = getEnvVar('VITE_SUPABASE_ANON_KEY');
 import { ENV } from './TestFlags';
 export const IS_TEST_ENVIRONMENT = ENV.isTest;
 
-// ServiceWorker registration timeout (in milliseconds)
-export const SW_TIMEOUT_MS = 2000;
-
-// Landing page redirect delay (in milliseconds)
-// This controls how long authenticated users see the landing page before auto-redirect
-export const LANDING_PAGE_REDIRECT_MS = 2000;
-
 // Minimum session duration required for saving (in seconds)
 // Sessions shorter than this don't generate meaningful metrics
 export const MIN_SESSION_DURATION_SECONDS = 5;

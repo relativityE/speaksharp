@@ -54,6 +54,31 @@ const getPdfFillerTableData = (session: Session): Array<[string, number]> => {
   return getFillerTableData(derivedCounts) as Array<[string, number]>;
 };
 
+const writePaginatedText = (
+  doc: jsPDF,
+  text: string,
+  x: number,
+  startY: number,
+  maxWidth: number,
+  lineHeight = 5,
+  bottomMargin = 18
+): number => {
+  const lines = doc.splitTextToSize(text, maxWidth);
+  const pageHeight = (doc.internal as unknown as jsPDFInternal).pageSize.height;
+  let y = startY;
+
+  for (const line of lines) {
+    if (y > pageHeight - bottomMargin) {
+      doc.addPage();
+      y = 22;
+    }
+    doc.text(line, x, y);
+    y += lineHeight;
+  }
+
+  return y;
+};
+
 export const generateSessionPdf = async (session: Session, username: string = 'User', _isPro: boolean = false) => {
   const identifier = username && username !== 'User' ? username : session.user_id;
 
@@ -114,8 +139,7 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
     doc.setFontSize(16);
     doc.text('Transcript', 14, 22);
     doc.setFontSize(10);
-    const transcriptLines = doc.splitTextToSize(session.transcript || 'No transcript available.', 180);
-    doc.text(transcriptLines, 14, 32);
+    writePaginatedText(doc, session.transcript || 'No transcript available.', 14, 32, 180);
 
     if (session.ai_suggestions) {
       doc.addPage();
@@ -125,9 +149,7 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
 
       let y = 34;
       if (session.ai_suggestions.summary) {
-        const summaryLines = doc.splitTextToSize(session.ai_suggestions.summary, 180);
-        doc.text(summaryLines, 14, y);
-        y += summaryLines.length * 6 + 8;
+        y = writePaginatedText(doc, session.ai_suggestions.summary, 14, y, 180, 6) + 8;
       }
 
       session.ai_suggestions.suggestions?.forEach((suggestion, index) => {
@@ -140,9 +162,7 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
         doc.text(`${index + 1}. ${suggestion.title}`, 14, y);
         y += 7;
         doc.setFontSize(10);
-        const descriptionLines = doc.splitTextToSize(suggestion.description, 180);
-        doc.text(descriptionLines, 18, y);
-        y += descriptionLines.length * 5 + 6;
+        y = writePaginatedText(doc, suggestion.description, 18, y, 180, 5) + 6;
       });
     }
 

@@ -77,4 +77,26 @@ describe('sessionAnalysis metric truth', () => {
         expect(metrics.wpm).toBe(8);
         expect(metrics.clarityScore).toBeLessThan(100);
     });
+
+    it('includes custom filler words when repairing persisted session metrics from transcript', () => {
+        const session = {
+            id: 'session-2',
+            user_id: 'user-1',
+            created_at: '2026-05-21T12:00:00.000Z',
+            updated_at: '2026-05-21T12:00:00.000Z',
+            title: 'Custom filler truth check',
+            duration: 60,
+            transcript: 'basically this basically needs to count',
+            custom_words: { basically: { count: 0 } },
+            filler_words: { total: { count: 0 } },
+            clarity_score: null,
+            wpm: null,
+        } as unknown as PracticeSession;
+
+        const metrics = getSessionAnalysisMetrics(session);
+
+        expect(metrics.fillerData.basically.count).toBe(2);
+        expect(metrics.fillerData.total.count).toBe(2);
+        expect(metrics.fillerCount).toBe(2);
+    });
 });

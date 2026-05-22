@@ -31,7 +31,9 @@ class AnalyticsBuffer {
   private readonly BATCH_SIZE = 10;
 
   private constructor() {
-    // Initialization logic
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', () => this.drainSynchronously());
+    }
   }
 
   public static getInstance(): AnalyticsBuffer {
@@ -51,11 +53,12 @@ class AnalyticsBuffer {
       event,
       properties,
       priority,
-      timestamp: performance.now()
+      timestamp: Date.now()
     };
 
     // CRITICAL Tier: Immediate delivery
     if (priority === 'CRITICAL' && this.ready) {
+      this.drainSynchronously();
       this.send(analyticsEvent);
       return;
     }
@@ -126,6 +129,14 @@ class AnalyticsBuffer {
       this.isFlushing = false;
       logger.debug('[AnalyticsBuffer] Background flush complete');
     }
+  }
+
+  private drainSynchronously(): void {
+    while (this.queue.length > 0) {
+      const event = this.queue.shift();
+      if (event) this.send(event);
+    }
+    this.isFlushing = false;
   }
 
   /**

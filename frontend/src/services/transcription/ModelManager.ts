@@ -101,6 +101,10 @@ export class ModelManager {
             const request = indexedDB.open(dbName);
 
             request.onerror = () => resolve(false);
+            request.onblocked = () => {
+                logger.warn({ dbName, storeName }, '[ModelManager] IndexedDB open blocked by another tab');
+                resolve(false);
+            };
             request.onupgradeneeded = () => {
                 request.transaction?.abort();
                 resolve(false);

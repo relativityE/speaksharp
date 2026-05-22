@@ -166,27 +166,18 @@ Deno.serve(async (req: Request) => {
         console.log(`[Provisioning] Decision - Tier: ${tier}, Limit: ${usageLimit} (Input Status: '${subscription_status}')`);
 
         const normalizedEmail = String(email).trim().toLowerCase();
-        const { error: trialUpsertError } = await supabase
+        const { data: trialEntitlement, error: trialUpsertError } = await supabase
             .from('trial_entitlements')
             .upsert({
                 email: normalizedEmail,
                 user_id: userId,
-            }, { onConflict: 'email' });
+            }, { onConflict: 'email' })
+            .select('trial_started_at,trial_expires_at')
+            .single();
 
         if (trialUpsertError) {
             console.error("Trial entitlement provisioning failed:", trialUpsertError);
             return new Response(JSON.stringify({ error: "trial_provision_failed", details: trialUpsertError }), { status: 500 });
-        }
-
-        const { data: trialEntitlement, error: trialError } = await supabase
-            .from('trial_entitlements')
-            .select('trial_started_at,trial_expires_at')
-            .eq('email', normalizedEmail)
-            .single();
-
-        if (trialError) {
-            console.error("Trial entitlement lookup failed:", trialError);
-            return new Response(JSON.stringify({ error: "trial_lookup_failed", details: trialError }), { status: 500 });
         }
 
         console.log(`Upserting profile for ${userId} (status: ${tier})`);

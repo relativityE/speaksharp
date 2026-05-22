@@ -80,24 +80,25 @@ export class DistributedLock {
 
     public release(): void {
         const lock = this.getLock();
-        if (lock && lock.tabId === this.tabId) {
-            // Lifecycle Guard: Lock Release Invariant
-            // Enforce that a lock can only be released if the state is explicitly TERMINATED.
-            if (lock.state !== 'TERMINATED') {
-                const diagnostic = lock.state || '(unknown)';
-                const msg = `Lock release violation: Cannot release from state '${diagnostic}'. Only TERMINATED allowed.`;
-                logger.error({ state: diagnostic }, msg);
-                
-                // We throw in all environments as this represents a critical lifecycle violation 
-                // that leads to orphaned locks or session hijacking.
-                throw new Error(msg);
+        try {
+            if (lock && lock.tabId === this.tabId) {
+                // Lifecycle Guard: Lock Release Invariant
+                // Enforce that a lock can only be released if the state is explicitly TERMINATED.
+                if (lock.state !== 'TERMINATED') {
+                    const diagnostic = lock.state || '(unknown)';
+                    const msg = `Lock release violation: Cannot release from state '${diagnostic}'. Only TERMINATED allowed.`;
+                    logger.error({ state: diagnostic }, msg);
+
+                    // We throw in all environments as this represents a critical lifecycle violation.
+                    throw new Error(msg);
+                }
+
+                safeLocalStorageRemove(DistributedLock.LOCK_KEY);
+                logger.info('[DistributedLock] 🔓 Lock released');
             }
-
-            safeLocalStorageRemove(DistributedLock.LOCK_KEY);
-            logger.info('[DistributedLock] 🔓 Lock released');
+        } finally {
+            this.stopHeartbeat();
         }
-
-        this.stopHeartbeat();
     }
 
     public getLock(): LockInfo | null {

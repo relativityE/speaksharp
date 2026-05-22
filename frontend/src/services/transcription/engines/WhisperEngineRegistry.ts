@@ -27,6 +27,9 @@ export class WhisperEngineRegistry {
     public static WARMUP_TIMEOUT = 5000; // Fail fast to deterministic CPU fallback during first-use setup.
     private static progressListeners = new Set<(progress: number) => void>();
     private static heartbeatInterval: NodeJS.Timeout | null = null;
+    private static webLockRelease: (() => void) | null = null;
+    private static coordinationChannel: BroadcastChannel | null = null;
+    private static coordinationPingListener: ((event: MessageEvent) => void) | null = null;
 
     private static getChannelName(): string {
         // Use unique names in test to prevent cross-process coordination collisions
@@ -94,18 +97,38 @@ export class WhisperEngineRegistry {
     private static async acquireWithCoordination(_onProgress?: (progress: number) => void): Promise<unknown> {
         // Use Web Locks if available (modern, stable)
         if (typeof navigator !== 'undefined' && navigator.locks) {
-            return navigator.locks.request(this.getChannelName(), { ifAvailable: true }, async (lock) => {
-                if (!lock) {
-                    throw new Error('WebGPU in use by another tab');
-                }
-                this.state = RegistryState.Initializing;
-                return await this.warmupWithTimeout(this.WARMUP_TIMEOUT);
+            return new Promise<unknown>((resolve, reject) => {
+                navigator.locks.request(this.getChannelName(), { ifAvailable: true }, async (lock) => {
+                    if (!lock) {
+                        reject(new Error('WebGPU in use by another tab'));
+                        return;
+                    }
+
+                    try {
+                        this.state = RegistryState.Initializing;
+                        const warmedSession = await this.warmupWithTimeout(this.WARMUP_TIMEOUT);
+                        resolve(warmedSession);
+
+                        // Keep the browser-level lock while the warmed session is actively held.
+                        await new Promise<void>((release) => {
+                            this.webLockRelease = release;
+                        });
+                    } catch (error) {
+                        reject(error);
+                    } finally {
+                        this.webLockRelease = null;
+                    }
+                }).catch(reject);
             });
         }
 
         // Fallback to BroadcastChannel coordination (legacy/older browsers)
+        if (typeof BroadcastChannel === 'undefined') {
+            this.state = RegistryState.Initializing;
+            return await this.warmupWithTimeout(this.WARMUP_TIMEOUT);
+        }
+
         const channel = new BroadcastChannel(this.getChannelName());
-        let pingListener: ((event: MessageEvent) => void) | null = null;
 
         try {
             const hasExistingSession = await new Promise<boolean>((resolve) => {
@@ -128,20 +151,43 @@ export class WhisperEngineRegistry {
                 throw new Error('WebGPU in use by another tab');
             }
 
-            pingListener = (event: MessageEvent) => {
-                if (event.data.type === 'acquire-ping') {
-                    channel.postMessage({ type: 'acquire-pong' });
-                }
-            };
-            channel.addEventListener('message', pingListener);
-
             this.state = RegistryState.Initializing;
-            return await this.warmupWithTimeout(this.WARMUP_TIMEOUT);
+            const warmedSession = await this.warmupWithTimeout(this.WARMUP_TIMEOUT);
+            this.ensureCoordinationResponder();
+            return warmedSession;
 
         } finally {
-            if (pingListener) channel.removeEventListener('message', pingListener);
             channel.close();
         }
+    }
+
+    private static ensureCoordinationResponder(): void {
+        if (this.coordinationChannel) return;
+
+        const channel = new BroadcastChannel(this.getChannelName());
+        const listener = (event: MessageEvent) => {
+            if (event.data?.type === 'acquire-ping' && this.session) {
+                channel.postMessage({ type: 'acquire-pong' });
+            }
+        };
+
+        channel.addEventListener('message', listener);
+        this.coordinationChannel = channel;
+        this.coordinationPingListener = listener;
+    }
+
+    private static releaseCoordinationLock(): void {
+        this.webLockRelease?.();
+        this.webLockRelease = null;
+
+        if (this.coordinationChannel) {
+            if (this.coordinationPingListener) {
+                this.coordinationChannel.removeEventListener('message', this.coordinationPingListener);
+            }
+            this.coordinationChannel.close();
+        }
+        this.coordinationChannel = null;
+        this.coordinationPingListener = null;
     }
 
     private static async warmupWithTimeout(ms: number): Promise<unknown> {
@@ -225,6 +271,8 @@ export class WhisperEngineRegistry {
         this.refCount = Math.max(0, this.refCount - 1);
 
         if (this.refCount === 0) {
+            this.releaseCoordinationLock();
+
             if (this.purgeTimeout) clearTimeout(this.purgeTimeout);
             this.purgeTimeout = setTimeout(() => {
                 if (this.refCount === 0) {
@@ -250,6 +298,7 @@ export class WhisperEngineRegistry {
         this.state = RegistryState.Destroyed;
         this.refCount = 0;
         this.stopHeartbeat();
+        this.releaseCoordinationLock();
 
         if (this.purgeTimeout) {
             clearTimeout(this.purgeTimeout);

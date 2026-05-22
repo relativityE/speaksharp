@@ -53,6 +53,23 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     }));
   });
 
+  it('flushes queued events before sending a critical event to preserve ordering', () => {
+    analyticsBuffer.ready = true;
+    analyticsBuffer.queue.push({
+      event: 'QUEUED_EVENT',
+      properties: { step: 1 },
+      priority: 'LOW',
+      timestamp: Date.now(),
+    });
+
+    analyticsBuffer.push('CRITICAL_EVENT', { crash: true }, 'CRITICAL');
+
+    expect(vi.mocked(posthog.capture).mock.calls.map(([event]) => event)).toEqual([
+      'QUEUED_EVENT',
+      'CRITICAL_EVENT',
+    ]);
+  });
+
   it('should drop oldest events when BATCH_SIZE exceeded (Backpressure)', async () => {
     const MAX = analyticsBuffer.MAX_QUEUE_SIZE;
     
@@ -97,14 +114,15 @@ describe('AnalyticsBuffer (Hardened Background Asset)', () => {
     expect(posthog.capture).toHaveBeenCalledTimes(25);
   });
 
-  it('should attach monotonic timestamps and priority metadata', async () => {
+  it('should attach absolute timestamps and priority metadata', async () => {
+    vi.setSystemTime(new Date('2026-05-22T12:00:00.000Z'));
     analyticsBuffer.ready = true;
     analyticsBuffer.push('TimestampTest', { data: 1 }, 'HIGH');
     
     await vi.advanceTimersByTimeAsync(0);
     expect(posthog.capture).toHaveBeenCalledWith('TimestampTest', expect.objectContaining({
         $priority: 'HIGH',
-        $ts: expect.any(Number)
+        $ts: new Date('2026-05-22T12:00:00.000Z').getTime()
     }));
   });
 });

@@ -166,7 +166,8 @@ export const calculateCoreSessionMetrics = ({
 
 export const getSessionAnalysisMetrics = (session: PracticeSession): CoreSessionMetrics => {
     const persistedFillerCount = getFillerTotal(session.filler_words);
-    const transcriptFillerData = countFillerWords(session.transcript || '');
+    const customWordsList = Object.keys(session.custom_words || {});
+    const transcriptFillerData = countFillerWords(session.transcript || '', customWordsList);
     const transcriptFillerCount = getFillerTotal(transcriptFillerData);
     const shouldUseTranscriptFillers = transcriptFillerCount > persistedFillerCount;
     const fillerData = shouldUseTranscriptFillers ? transcriptFillerData : session.filler_words;

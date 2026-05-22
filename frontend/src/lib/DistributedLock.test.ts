@@ -70,6 +70,16 @@ describe('DistributedLock', () => {
         expect(localStorage.getItem('speaksharp_active_session_lock')).toBe(null);
     });
 
+    it('stops heartbeat even when release rejects from a non-terminal state', () => {
+        lock1.acquire('RECORDING');
+        const timestampBeforeRelease = lock1.getLock()?.timestamp;
+
+        expect(() => lock1.release()).toThrow(/Cannot release from state/);
+
+        vi.advanceTimersByTime(4100);
+        expect(lock1.getLock()?.timestamp).toBe(timestampBeforeRelease);
+    });
+
     it('should EXPLICITLY reject if existing lock is in a failure state', () => {
         lock1.acquire('FAILED_VISIBLE');
         

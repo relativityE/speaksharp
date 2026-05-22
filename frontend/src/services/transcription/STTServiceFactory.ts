@@ -37,7 +37,7 @@ export class STTServiceFactory {
         offFrame: () => { },
         stop: () => { },
         close: () => { },
-        _mediaStream: new MediaStream()
+        _mediaStream: typeof MediaStream !== 'undefined' ? new MediaStream() : null
       };
       logger.info('[STTServiceFactory] 🎤 Injecting narrow Mic bypass for CI/E2E environment');
     }

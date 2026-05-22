@@ -12,5 +12,5 @@ export interface MicStream {
   offFrame: (callback: (frame: Float32Array) => void) => void;
   stop: () => void;
   close: () => void;
-  _mediaStream: MediaStream;
+  _mediaStream: MediaStream | null;
 }

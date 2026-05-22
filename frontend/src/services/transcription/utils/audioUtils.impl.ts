@@ -39,7 +39,7 @@ export async function createMicStreamImpl(
       offFrame: () => { },
       stop: () => { },
       close: () => { },
-      _mediaStream: new MediaStream(),
+      _mediaStream: typeof MediaStream !== 'undefined' ? new MediaStream() : null,
     };
 
     // Expose for E2E synchronization

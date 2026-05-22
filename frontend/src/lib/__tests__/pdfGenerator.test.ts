@@ -189,6 +189,20 @@ describe('generateSessionPdf', () => {
     expect(savedPdf.text).toContain('(No transcript available.) Tj');
   });
 
+  it('paginates long transcripts instead of drawing them off the page', async () => {
+    const longTranscript = Array.from({ length: 180 }, (_, index) => `Line ${index + 1} of the transcript.`).join('\n');
+
+    await generateSessionPdf({
+      ...mockSession,
+      transcript: longTranscript,
+    });
+    const savedPdf = await getSavedPdf();
+
+    expect(savedPdf.text).toContain('(Line 1 of the transcript.) Tj');
+    expect(savedPdf.text).toContain('(Line 180 of the transcript.) Tj');
+    expect(savedPdf.text).toContain('(Page 4 of');
+  });
+
   it('includes AI suggestions when they exist on the session', async () => {
     await generateSessionPdf({
       ...mockSession,
