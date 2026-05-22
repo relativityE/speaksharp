@@ -110,7 +110,7 @@ jobs:
         working-directory: backend/supabase
         run: |
           echo "🔎 Linting production public schema..."
-          supabase db lint --linked --schema public --fail-on error
+          supabase db lint --linked --schema public --fail-on warning
           echo "✅ Production public schema lint passed"
 
       - name: Set Supabase secrets
