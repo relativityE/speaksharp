@@ -46,6 +46,8 @@ JOIN public.trial_entitlements te ON te.email = lower(trim(u.email))
 WHERE up.id = u.id
   AND (up.trial_started_at IS NULL OR up.trial_expires_at IS NULL);
 
+DROP FUNCTION IF EXISTS public.effective_subscription_tier(TEXT, TIMESTAMPTZ, TEXT, TEXT) CASCADE;
+
 CREATE OR REPLACE FUNCTION public.effective_subscription_tier(
   p_subscription_status TEXT,
   p_trial_expires_at TIMESTAMPTZ DEFAULT NULL,

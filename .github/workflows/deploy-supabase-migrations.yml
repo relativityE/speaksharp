@@ -98,9 +98,20 @@ jobs:
           echo "🛠️ Repairing migration history..."
           supabase migration repair 20260116000000 --status applied
 
+          echo "🔎 Dry-running migrations before production apply..."
+          supabase db push --dry-run
+
           echo "🚀 Pushing migrations to production..."
-          supabase db push
+          supabase db push --yes
           echo "✅ Migrations applied successfully"
+
+      - name: Lint production public schema
+        if: ${{ github.event.inputs.operation == 'migrations' || github.event.inputs.operation == 'migrations-and-edge-functions' || github.event.inputs.operation == 'all' }}
+        working-directory: backend/supabase
+        run: |
+          echo "🔎 Linting production public schema..."
+          supabase db lint --linked --schema public --fail-on error
+          echo "✅ Production public schema lint passed"
 
       - name: Set Supabase secrets
         if: ${{ github.event.inputs.operation == 'secrets' || github.event.inputs.operation == 'all' }}

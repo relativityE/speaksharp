@@ -47,6 +47,8 @@ UPDATE public.user_profiles
 SET subscription_status = 'basic'
 WHERE lower(COALESCE(subscription_status, '')) = 'free';
 
+DROP FUNCTION IF EXISTS public.effective_subscription_tier(TEXT, TIMESTAMPTZ, TEXT, TEXT) CASCADE;
+
 CREATE OR REPLACE FUNCTION public.effective_subscription_tier(
   p_subscription_status TEXT,
   p_trial_expires_at TIMESTAMPTZ DEFAULT NULL,
