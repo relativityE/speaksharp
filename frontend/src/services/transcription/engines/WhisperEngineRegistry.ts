@@ -24,7 +24,9 @@ export class WhisperEngineRegistry {
     private static state: RegistryState = RegistryState.Idle;
     private static abortController: AbortController | null = null;
     private static initPromise: Promise<unknown> | null = null;
-    public static WARMUP_TIMEOUT = 5000; // Fail fast to deterministic CPU fallback during first-use setup.
+    private static activeWarmupPromise: Promise<unknown> | null = null;
+    public static WARMUP_SLOW_WARNING_MS = 5000;
+    public static WARMUP_TIMEOUT = 30000; // Hard ceiling for genuinely stuck setup.
     private static progressListeners = new Set<(progress: number) => void>();
     private static heartbeatInterval: NodeJS.Timeout | null = null;
     private static webLockRelease: (() => void) | null = null;
@@ -61,10 +63,17 @@ export class WhisperEngineRegistry {
         if (this.state === RegistryState.Initializing && this.initPromise) {
             logger.info('[WhisperRegistry] Waiting for existing initialization...');
             try {
-                // Hardened acquisition: Deadlocks must fail fast, not hang CI.
                 return await Promise.race([
                     this.initPromise,
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Registry deadlock detected during wait')), 5000))
+                    new Promise((_, reject) => {
+                        const timeout = setTimeout(
+                            () => reject(new Error('Registry deadlock detected during wait')),
+                            this.WARMUP_TIMEOUT
+                        );
+                        if (typeof timeout.unref === 'function') {
+                            timeout.unref();
+                        }
+                    })
                 ]);
             } finally {
                 if (onProgress) this.progressListeners.delete(onProgress);
@@ -191,14 +200,50 @@ export class WhisperEngineRegistry {
     }
 
     private static async warmupWithTimeout(ms: number): Promise<unknown> {
-        return Promise.race([
-            this.warmupEngine(),
-            new Promise<never>((_, reject) => {
-                setTimeout(() => {
-                    reject(new Error(`Whisper engine initialization timed out after ${ms}ms.`));
-                }, ms);
-            })
-        ]);
+        const warmupPromise = this.activeWarmupPromise;
+        if (warmupPromise) {
+            logger.info('[WhisperRegistry] Reusing active model warmup instead of starting another download');
+        } else {
+            this.activeWarmupPromise = this.warmupEngine().finally(() => {
+                this.activeWarmupPromise = null;
+            });
+        }
+
+        const activeWarmup = this.activeWarmupPromise;
+        if (!activeWarmup) {
+            throw new Error('Whisper engine warmup failed to initialize.');
+        }
+
+        const slowLoadWarning = setTimeout(() => {
+            logger.warn(
+                { warningMs: this.WARMUP_SLOW_WARNING_MS, timeoutMs: ms },
+                '[WhisperRegistry] Model setup is taking longer than expected; keeping the original warmup alive'
+            );
+        }, this.WARMUP_SLOW_WARNING_MS);
+
+        if (typeof slowLoadWarning?.unref === 'function') {
+            slowLoadWarning.unref();
+        }
+
+        let hardTimeout: NodeJS.Timeout | null = null;
+
+        try {
+            return await Promise.race([
+                activeWarmup,
+                new Promise<never>((_, reject) => {
+                    hardTimeout = setTimeout(() => {
+                        logger.error({ timeoutMs: ms }, '[WhisperRegistry] Model setup exceeded hard timeout');
+                        reject(new Error(`Whisper engine initialization timed out after ${ms}ms.`));
+                    }, ms);
+                    if (typeof hardTimeout?.unref === 'function') {
+                        hardTimeout.unref();
+                    }
+                }),
+            ]);
+        } finally {
+            clearTimeout(slowLoadWarning);
+            if (hardTimeout) clearTimeout(hardTimeout);
+        }
     }
 
     private static async warmupEngine(): Promise<unknown> {
@@ -293,6 +338,7 @@ export class WhisperEngineRegistry {
         const oldManager = this.manager;
 
         this.initPromise = null;
+        this.activeWarmupPromise = null;
         this.session = null;
         this.manager = null;
         this.state = RegistryState.Destroyed;
