@@ -427,9 +427,19 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         return;
       }
 
-      // PauseDetector now runs per-frame in the listener (for analytics metrics).
-      // Whisper handles silence natively — empty results are caught by the
-      // `if (newText.trim())` guard below, so we never discard audio here.
+      // PauseDetector runs per-frame in the listener for accurate RMS tracking.
+      // Gate transcription on meaningful silence to prevent Whisper hallucinations
+      // on ambient noise chunks (Whisper produces garbage like "the" on near-silence).
+      const isSilent = this.pauseDetector.isMeaningfullySilent();
+      if (!force && isSilent) {
+        logger.debug({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          samples: concatenated.length,
+        }, '[PrivateWhisper] 🤫 Silence detected (per-frame) — skipping transcription');
+        this.clearAudioBuffer();
+        return;
+      }
 
       if (this.currentTranscript.length === 0) {
         const expectedDurationSec = concatenated.length / 16000;

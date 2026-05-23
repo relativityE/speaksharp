@@ -117,7 +117,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         vi.useRealTimers();
     });
 
-    it('PauseDetector tracks metrics but does not gate transcription', async () => {
+    it('PauseDetector per-frame tracking gates transcription on silence', async () => {
         vi.useFakeTimers();
         await privateWhisper.init();
 
@@ -134,17 +134,17 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         await privateWhisper.start(mockMic);
 
-        // Even with PauseDetector reporting silence, audio should still be transcribed
+        // PauseDetector reports silence (per-frame tracking)
         mocks.isMeaningfullySilent.mockReturnValue(true);
 
-        // Provide enough audio to meet the batching threshold
-        if (frameCallback) frameCallback(new Float32Array(128000).fill(0.5));
+        // Send enough audio to meet threshold
+        if (frameCallback) frameCallback(new Float32Array(128000).fill(0.001));
 
         // Advance timer to trigger processAudio
         await vi.advanceTimersByTimeAsync(1100);
 
-        // Transcribe SHOULD be called — PauseDetector no longer gates transcription
-        expect(mocks.transcribe).toHaveBeenCalled();
+        // Silence detected → transcription skipped
+        expect(mocks.transcribe).not.toHaveBeenCalled();
 
         await privateWhisper.stop();
         vi.useRealTimers();
