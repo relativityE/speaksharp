@@ -353,4 +353,12 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('session-engine-badge-private-session')).toHaveTextContent('Private');
         expect(screen.getByTestId('session-engine-badge-native-session')).toHaveTextContent('Native Browser');
     });
+
+    it('shows an explicit open-session link on each history item so testers can verify saved sessions', () => {
+        renderComponent({ sessionHistory: mockSessionHistory });
+
+        const openLink = screen.getAllByRole('link', { name: /open saved session details/i })[0];
+
+        expect(openLink).toHaveAttribute('href', '/analytics/session-1');
+    });
 });

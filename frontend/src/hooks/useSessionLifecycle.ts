@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import posthog from 'posthog-js';
+import * as Sentry from '@sentry/react';
 import logger from '../lib/logger';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthProvider } from '../contexts/AuthProvider';
@@ -18,6 +19,29 @@ import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
+
+const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
+    const err = error as { name?: string; message?: string } | null;
+    const rawMessage = err?.message?.trim() || '';
+    const micPermissionError =
+        err?.name === 'NotAllowedError' ||
+        err?.name === 'PermissionDeniedError' ||
+        /permission|notallowed|mic_stream_unavailable|media devices/i.test(rawMessage);
+
+    if (micPermissionError) {
+        return 'Microphone access is blocked. Allow microphone access and try again.';
+    }
+
+    if (mode === 'private') {
+        return 'Private transcription could not start. Try again, or switch to Native for this session.';
+    }
+
+    if (mode === 'cloud') {
+        return 'Cloud transcription could not start. Try again, or switch to Private or Native.';
+    }
+
+    return rawMessage || 'Recording could not start. Try again.';
+};
 
 export const useSessionLifecycle = () => {
     const { session } = useAuthProvider();
@@ -58,7 +82,7 @@ export const useSessionLifecycle = () => {
 
     // Pure Projection from FSM (Source of Truth)
     // We drive the "recording" visual strictly from the authoritative runtimeState.
-    const isRecordingIntent = ['RECORDING', 'ENGINE_INITIALIZING', 'INITIATING', 'STOPPING'].includes(runtimeState);
+    const isRecordingIntent = ['RECORDING', 'STOPPING'].includes(runtimeState);
 
     // Stable ref for handleStartStop to prevent dependency loops
     const handleStartStopRef = useRef<((options?: { skipRedirect?: boolean; stopReason?: string }) => Promise<void>) | null>(null);
@@ -214,13 +238,42 @@ export const useSessionLifecycle = () => {
                 posthog.capture('session_started', { mode: latestMode });
             } catch (error) {
                 const err = error as Error;
-                logger.error({ error: err, stack: err?.stack }, '[useSessionLifecycle] Failed to start recording');
-                setSTTStatus({ type: 'error', message: `⚠️ Failed to start recording: ${err?.message || 'Unknown'}` });
+                const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
+                const latestMode = requestedMode === 'cloud' && !canUseCloudStt ? defaultMode : requestedMode;
+                const message = getStartFailureMessage(err, latestMode);
+                logger.error({ error: err, stack: err?.stack, mode: latestMode }, '[useSessionLifecycle] Failed to start recording');
+                Sentry.withScope((scope) => {
+                    scope.setTag('surface', 'recording_start');
+                    scope.setTag('stt_mode', latestMode);
+                    scope.setContext('recording_start', {
+                        requestedMode,
+                        latestMode,
+                        canUseCloudStt,
+                        canUseProSttModes,
+                        runtimeState,
+                        userTier: effectiveSubscriptionStatus,
+                    });
+                    Sentry.captureException(err);
+                });
+                posthog.capture('recording_start_failed', {
+                    mode: latestMode,
+                    requested_mode: requestedMode,
+                    runtime_state: runtimeState,
+                    user_tier: effectiveSubscriptionStatus,
+                    error_name: err?.name || 'Error',
+                    error_message: err?.message || 'Unknown',
+                });
+                try {
+                    await speechRuntimeController.reset('start_failed');
+                } catch (resetError) {
+                    logger.warn({ err: resetError }, '[useSessionLifecycle] Failed to reset after start error');
+                }
+                setSTTStatus({ type: 'error', message: `⚠️ ${message}` });
             } finally {
                 isProcessingRef.current = false;
             }
         }
-    }, [isListening, elapsedTime, updateStreak, queryClient, isProUser, canUseProSttModes, canUseCloudStt, usageLimit, defaultMode, isLockHeldByOther, setSTTStatus, userFillerWords, runtimeState]);
+    }, [isListening, elapsedTime, updateStreak, queryClient, isProUser, canUseProSttModes, canUseCloudStt, usageLimit, defaultMode, isLockHeldByOther, setSTTStatus, userFillerWords, runtimeState, effectiveSubscriptionStatus]);
 
     // ✅ Keep the stable ref up to date with the latest callback
     handleStartStopRef.current = handleStartStop;
@@ -426,7 +479,7 @@ export const useSessionLifecycle = () => {
         isProUser: canUseProSttModes,
         canUseCloudStt,
         activeEngine,
-        isButtonDisabled: !['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED', 'ENGINE_INITIALIZING'].includes(runtimeState), // Permitting ENGINE_INITIALIZING allows "Stop" (Cancel) during downloads.
+        isButtonDisabled: !['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED'].includes(runtimeState),
         usageLimit,
         history,
         profileLoading: false,

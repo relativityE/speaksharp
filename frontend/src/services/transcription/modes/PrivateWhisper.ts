@@ -55,15 +55,29 @@ declare global {
     __PrivateWhisper_INT_TEST__?: PrivateWhisper;
     __e2e_stt_engine_ready_fired__?: boolean;
     __PRIVATE_TRANSCRIPT_TRACE__?: boolean;
+    __PRIVATE_INFERENCE_AUDIO_CHUNKS__?: PrivateInferenceAudioCapture[];
   }
 }
 // Toast removed from here to centralized UI layer
 // import { toast } from '../../../lib/toast';
 
 type Status = 'uninitialized' | 'idle' | 'loading' | 'transcribing' | 'stopped' | 'error';
+type PrivateInferenceAudioCapture = {
+  createdAt: string;
+  samples: number;
+  durationSec: number;
+  rms: number;
+  peak: number;
+  wavDataUrl: string;
+  transcript?: string;
+  error?: string;
+};
+
 const PRIVATE_STT_SAMPLE_RATE = 16_000;
-const MIN_TRANSCRIPTION_SECONDS = 1.5;
+const MIN_TRANSCRIPTION_SECONDS = 4.25;
 const MIN_TRANSCRIPTION_SAMPLES = PRIVATE_STT_SAMPLE_RATE * MIN_TRANSCRIPTION_SECONDS;
+const MAX_RETRY_SECONDS = 12;
+const MAX_RETRY_SAMPLES = PRIVATE_STT_SAMPLE_RATE * MAX_RETRY_SECONDS;
 const PROCESSING_INTERVAL_MS = 250;
 
 const isPrivateTranscriptTraceEnabled = () =>
@@ -86,6 +100,66 @@ function summarizeAudioEnergy(audio: Float32Array) {
     rms: audio.length > 0 ? Math.sqrt(sumSquares / audio.length) : 0,
     peak,
   };
+}
+
+function encodePcm16WavDataUrl(audio: Float32Array, sampleRate = PRIVATE_STT_SAMPLE_RATE): string {
+  const bytesPerSample = 2;
+  const dataBytes = audio.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataBytes);
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+
+  const writeString = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) {
+      view.setUint8(offset + i, value.charCodeAt(i));
+    }
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataBytes, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * bytesPerSample, true);
+  view.setUint16(32, bytesPerSample, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataBytes, true);
+
+  let offset = 44;
+  for (let i = 0; i < audio.length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, audio[i] ?? 0));
+    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    offset += bytesPerSample;
+  }
+
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+
+  return `data:audio/wav;base64,${btoa(binary)}`;
+}
+
+function capturePrivateInferenceAudio(audio: Float32Array): number | null {
+  if (!isPrivateTranscriptTraceEnabled()) return null;
+
+  const energy = summarizeAudioEnergy(audio);
+  window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ = window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ ?? [];
+  window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__.push({
+    createdAt: new Date().toISOString(),
+    samples: audio.length,
+    durationSec: audio.length / PRIVATE_STT_SAMPLE_RATE,
+    rms: Number(energy.rms.toFixed(6)),
+    peak: Number(energy.peak.toFixed(6)),
+    wavDataUrl: encodePcm16WavDataUrl(audio),
+  });
+
+  return window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__.length - 1;
 }
 
 /**
@@ -148,6 +222,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private mic: MicStream | null = null;
   private audioChunks: Float32Array[] = [];
   private bufferedSampleCount: number = 0;
+  private retryAudioBuffer: Float32Array | null = null;
   private isProcessing: boolean = false;
   private processingInterval: NodeJS.Timeout | null = null;
   private pauseDetector: PauseDetector;
@@ -267,6 +342,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
     this.status = 'transcribing';
     this.clearAudioBuffer();
+    this.clearRetryAudioBuffer();
     this.currentTranscript = '';
     this.updateHeartbeat();
 
@@ -323,7 +399,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     try {
       // Concatenate all chunks using shared utility
-      const concatenated = concatenateFloat32Arrays(this.audioChunks);
+      const liveAudio = concatenateFloat32Arrays(this.audioChunks);
+      const concatenated = this.retryAudioBuffer
+        ? concatenateFloat32Arrays([this.retryAudioBuffer, liveAudio])
+        : liveAudio;
       if (isPrivateTranscriptTraceEnabled()) {
         const energy = summarizeAudioEnergy(concatenated);
         logger.info({
@@ -370,7 +449,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
       const processedAudio = concatenated;
 
-      // Atomically capture and clear in same synchronous tick
+      // Atomically capture and clear live frames in the same synchronous tick.
+      // New frames that arrive while inference is running will be appended to a
+      // fresh buffer by the mic listener and processed on a later interval.
       this.clearAudioBuffer();
 
       // Perform transcription using the PrivateSTT facade
@@ -384,6 +465,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           peak: Number(energy.peak.toFixed(6)),
         }, '[PRIVATE_TRACE] model_inference_start');
       }
+      const capturedAudioIndex = capturePrivateInferenceAudio(processedAudio);
       const result = await this.privateSTT.transcribe(processedAudio);
       if (this.status !== 'transcribing') {
         return;
@@ -399,13 +481,22 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       }
 
       if (result.isOk === false) {
+        if (capturedAudioIndex !== null) {
+          const captured = window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__?.[capturedAudioIndex];
+          if (captured) captured.error = result.error?.message;
+        }
         throw result.error;
       }
 
       // Append new text to transcript (incremental)
       const newText = result.data || '';
+      if (capturedAudioIndex !== null) {
+        const captured = window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__?.[capturedAudioIndex];
+        if (captured) captured.transcript = newText;
+      }
 
       if (newText.trim()) {
+        this.clearRetryAudioBuffer();
         logger.info({ sId: this.serviceId, rId: this.instanceId, newText, latencyMs: (performance.now() - tStart).toFixed(2) }, '[PrivateWhisper] ✨ Transcription success');
         this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${newText}` : newText;
         if (this.onTranscriptUpdate) {
@@ -418,6 +509,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           }
           this.onTranscriptUpdate({ transcript: { final: newText } });
         }
+      } else {
+        this.retainAudioForRetry(processedAudio);
       }
 
     } catch (err: unknown) {
@@ -483,6 +576,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.cleanupFrameListener();
     this.isProcessing = false;
     this.clearAudioBuffer();
+    this.clearRetryAudioBuffer();
 
     // Strict cleanup of the underlying engine
     await this.privateSTT.destroy();
@@ -506,5 +600,28 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private clearAudioBuffer(): void {
     this.audioChunks.length = 0;
     this.bufferedSampleCount = 0;
+  }
+
+  private clearRetryAudioBuffer(): void {
+    this.retryAudioBuffer = null;
+  }
+
+  private retainAudioForRetry(audio: Float32Array): void {
+    if (audio.length === 0) {
+      this.clearRetryAudioBuffer();
+      return;
+    }
+
+    const start = Math.max(0, audio.length - MAX_RETRY_SAMPLES);
+    this.retryAudioBuffer = audio.slice(start);
+
+    if (isPrivateTranscriptTraceEnabled()) {
+      logger.info({
+        sId: this.serviceId,
+        rId: this.instanceId,
+        samples: this.retryAudioBuffer.length,
+        durationSec: Number((this.retryAudioBuffer.length / PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+      }, '[PRIVATE_TRACE] retained_empty_result_audio');
+    }
   }
 }

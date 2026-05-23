@@ -550,11 +550,17 @@ export class SpeechRuntimeController {
     }
 
     private async transition(newState: RuntimeState, error?: Error, token?: LifecycleToken): Promise<void> {
+        if (newState === 'RECORDING') {
+            if (!this.canTransitionToRecording()) {
+                return;
+            }
+        }
+
         const previousState = this.state;
         this.state = newState;
         this.syncProvider(this.lifecycleVersion);
 
-        logger.info({ from: previousState, to: newState }, '[SpeechRuntimeController] \u{26A1} Transition');
+        logger.info({ from: previousState, to: newState }, '[SpeechRuntimeController] ⚡ Transition');
         const store = useSessionStore.getState();
         if (newState === 'FAILED_VISIBLE') {
             logger.warn({
@@ -569,7 +575,7 @@ export class SpeechRuntimeController {
                 transcriptLength: this.getStoreTranscriptLength(),
                 lifecycleVersion: this.lifecycleVersion,
                 tokenVersion: token?.version ?? null,
-            }, '[CLOUD_LIFECYCLE_FAIL]');
+            }, '[RECORDING_LIFECYCLE_FAIL]');
         }
 
         const isExitTransition =
@@ -611,13 +617,8 @@ export class SpeechRuntimeController {
         }
 
         if (newState === 'RECORDING') {
-            if (!this.canTransitionToRecording()) {
-                return;
-            }
             store.setSTTStatus({ type: 'recording', message: 'Recording active' });
         }
-
-        this.state = newState;
 
         if (newState === 'RECORDING' || newState === 'ENGINE_INITIALIZING' || newState === 'INITIATING') {
             this.stopIdleTimer();
@@ -930,6 +931,13 @@ export class SpeechRuntimeController {
                 return;
             }
 
+            if (this.state === 'FAILED_VISIBLE' || this.state === 'TERMINATED') {
+                this.resetEphemeralState('retry_after_start_failure');
+                this.state = 'IDLE';
+                this.lock.updateState('IDLE');
+                useSessionStore.getState().setRuntimeState('IDLE');
+            }
+
             if (this.state !== 'READY' && this.state !== 'IDLE' && this.state !== 'FAILED') {
                 return;
             }
@@ -941,8 +949,15 @@ export class SpeechRuntimeController {
             const version = this.lifecycleVersion;
             if (version !== this.lifecycleVersion) return;
 
+            if (this.service?.isServiceDestroyed()) {
+                this.service = null;
+            }
+
             if (!this.service) {
-                this.service = getTranscriptionService(this.serviceCallbacks, this.lock);
+                this.service = getTranscriptionService({
+                    ...this.serviceCallbacks,
+                    ...this.subscriberCallbacks,
+                }, this.lock);
             }
 
             pushE2EEvent('SR_START_ENTER');
@@ -987,8 +1002,6 @@ export class SpeechRuntimeController {
                 }
             }
 
-            useSessionStore.getState().setStartTime(Date.now());
-
             const service = this.service;
             if (!service) throw new Error('SERVICE_MISSING');
 
@@ -998,9 +1011,15 @@ export class SpeechRuntimeController {
 
             try {
                 pushE2EEvent('SR_BEFORE_START_TRANSCRIPTION');
-                this.isEmissionsSafe = true; // 🛡️ Coordination: Enable controller-side flush before engine start
                 await service.startTranscription(policy, userWords);
                 pushE2EEvent('SR_AFTER_START_TRANSCRIPTION');
+                const serviceState = typeof service.getState === 'function'
+                    ? service.getState()
+                    : (service.fsm?.is('RECORDING') ? 'RECORDING' : 'UNKNOWN');
+                if (serviceState !== 'RECORDING') {
+                    throw new Error(`TRANSCRIPTION_START_DID_NOT_RECORD:${serviceState}`);
+                }
+                this.isEmissionsSafe = true;
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {
                     await this.transition('READY', undefined, _token);
                     return;
@@ -1074,6 +1093,7 @@ export class SpeechRuntimeController {
                     }
                 }
             } catch (err: unknown) {
+                this.isEmissionsSafe = false;
                 await this.transition('FAILED', err as Error, _token);
                 throw err;
             }
@@ -1378,6 +1398,10 @@ export class SpeechRuntimeController {
         // Lifecycle guard — prevent stale execution after unmount
         const version = this.lifecycleVersion;
 
+        if (this.service?.isServiceDestroyed()) {
+            this.service = null;
+        }
+
         if (!this.service) {
             this.service = getTranscriptionService({
                 ...this.serviceCallbacks,
@@ -1521,6 +1545,9 @@ export class SpeechRuntimeController {
     public async switchToNative(): Promise<void> {
         return this.enqueue(async (token) => {
             if (token.cancelled || token.version !== this.lifecycleVersion) return;
+            if (this.service?.isServiceDestroyed()) {
+                this.service = null;
+            }
             const serviceWithHandoff = this.service as { switchToNativeSegmented?: () => Promise<void> };
             if (serviceWithHandoff && typeof serviceWithHandoff.switchToNativeSegmented === 'function') {
                 await serviceWithHandoff.switchToNativeSegmented();

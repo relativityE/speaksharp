@@ -123,7 +123,7 @@ export const useSessionStore = create<SessionStore>((set) => {
         logger.debug({ runtimeState }, '[useSessionStore] setRuntimeState');
         set({
             runtimeState,
-            isListening: runtimeState === 'RECORDING' || runtimeState === 'ENGINE_INITIALIZING' || runtimeState === 'INITIATING',
+            isListening: runtimeState === 'RECORDING',
             isInitiating: runtimeState === 'INITIATING',
             isReady: runtimeState === 'READY',
         });
@@ -175,8 +175,12 @@ export const useSessionStore = create<SessionStore>((set) => {
     setSTTStatus: (status) => {
         logger.debug({ type: status.type, message: status.message, timestamp: Date.now() }, '[STORE UPDATE]');
         set((state) => {
-            // ✅ GUARD: Don't allow overwriting 'recording' with 'idle' or 'ready' silently
-            if (state.sttStatus.type === 'recording' && (status.type === 'idle' || status.type === 'ready')) {
+            // Guard active recordings, but allow recovery once runtime has left RECORDING.
+            if (
+                state.runtimeState === 'RECORDING' &&
+                state.sttStatus.type === 'recording' &&
+                (status.type === 'idle' || status.type === 'ready')
+            ) {
                 logger.warn({ status, currentState: state.sttStatus.type }, '[Store] ⚠️ Attempted to overwrite recording state');
                 return state;
             }

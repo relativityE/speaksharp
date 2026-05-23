@@ -28,9 +28,22 @@ describe('sessionAnalysis metric truth', () => {
 
         expect(metrics.clarityScore).toBe(0);
         expect(metrics.isClarityScorable).toBe(false);
-        expect(metrics.clarityLabel).toBe('Not enough speech to score');
+        expect(metrics.clarityLabel).toBe('Not enough reliable speech to score');
         expect(metrics.clarityExplanation).toBe('No transcript was captured, so clarity cannot be scored yet.');
         expect(metrics.fillerExplanation).toBe('No transcript was captured, so filler words cannot be verified yet.');
+    });
+
+    it('does not score a one-word partial transcript as great clarity for a saved session', () => {
+        const metrics = calculateCoreSessionMetrics({
+            transcript: 'Well',
+            durationSeconds: 15,
+        });
+
+        expect(metrics.wordCount).toBe(1);
+        expect(metrics.isClarityScorable).toBe(false);
+        expect(metrics.clarityLabel).toBe('Not enough reliable speech to score');
+        expect(metrics.clarityExplanation).toMatch(/too little captured speech/i);
+        expect(metrics.fillerExplanation).toMatch(/too little captured speech/i);
     });
 
     it('never reports low or missing WPM as optimal', () => {

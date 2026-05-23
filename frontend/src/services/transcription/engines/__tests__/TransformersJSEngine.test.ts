@@ -231,8 +231,11 @@ describe('TransformersJSEngine (Unit)', () => {
     });
 
     it('should exercise destroy method', async () => {
+        await engine.init();
         await engine.destroy();
-        expect(true).toBe(true); // Verification that it runs without error
+        await expect(engine.transcribe(new Float32Array(16000))).resolves.toEqual(expect.objectContaining({
+            isOk: false,
+        }));
     });
 
     it('should exercise environmental branches', async () => {

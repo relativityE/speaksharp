@@ -229,8 +229,18 @@ describe('useSpeechRecognition', () => {
     expect(speechRuntimeController.startRecording).toHaveBeenCalled();
   });
 
-  it('should handle partial transcript updates (Placeholder)', () => {
-    expect(true).toBe(true);
+  it('should expose interim transcript updates from the recording state', () => {
+    vi.mocked(useTranscriptionState).mockReturnValue({
+      ...mockUseTranscriptionState,
+      interimTranscript: 'um I am testing the private flow',
+      finalChunks: [],
+      isRecording: true,
+    } as unknown as ReturnType<typeof useTranscriptionState>);
+
+    const { result } = renderHook(() => useSpeechRecognition(), { wrapper });
+
+    expect(result.current.interimTranscript).toBe('um I am testing the private flow');
+    expect(result.current.isListening).toBe(true);
   });
 
   it('should handle errors during startListening', async () => {

@@ -24,6 +24,7 @@ interface CoreSessionMetricsInput {
 }
 
 const ERROR_TAG_REGEX = /\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi;
+const MIN_RELIABLE_SCORING_WORDS = 3;
 
 export const countTranscriptWords = (transcript: string): number =>
     transcript.match(/\b[\p{L}\p{N}][\p{L}\p{N}'-]*\b/gu)?.length ?? 0;
@@ -105,6 +106,9 @@ export const getClarityExplanation = ({
     if (wordCount <= 0) {
         return 'No transcript was captured, so clarity cannot be scored yet.';
     }
+    if (wordCount < MIN_RELIABLE_SCORING_WORDS) {
+        return 'There is too little captured speech to score clarity reliably.';
+    }
     if (errorCount > 0) {
         return 'The transcript contains inaudible or error markers, which lowers the score.';
     }
@@ -125,6 +129,7 @@ export const getClarityExplanation = ({
 
 export const getFillerExplanation = (fillerCount: number, wordCount: number): string => {
     if (wordCount <= 0) return 'No transcript was captured, so filler words cannot be verified yet.';
+    if (wordCount < MIN_RELIABLE_SCORING_WORDS) return 'There is too little captured speech to verify filler words reliably.';
     if (fillerCount === 0) return 'No filler words were detected in the captured transcript.';
     const rate = (fillerCount / Math.max(1, wordCount)) * 100;
     return `${fillerCount} filler ${fillerCount === 1 ? 'word' : 'words'} detected, about ${rate.toFixed(1)}% of captured words.`;
@@ -145,8 +150,8 @@ export const calculateCoreSessionMetrics = ({
     const wpm = calculateWpm(wordCount, durationSeconds);
     const fillerCount = getFillerTotal(derivedFillerData);
     const errorCount = (transcript.match(ERROR_TAG_REGEX) || []).length;
-    const clarityScore = calculateClarityScore({ wordCount, fillerCount, errorCount, wpm });
-    const isClarityScorable = wordCount > 0;
+    const isClarityScorable = wordCount >= MIN_RELIABLE_SCORING_WORDS;
+    const clarityScore = isClarityScorable ? calculateClarityScore({ wordCount, fillerCount, errorCount, wpm }) : 0;
 
     return {
         wordCount,
@@ -157,7 +162,7 @@ export const calculateCoreSessionMetrics = ({
         fillerData: derivedFillerData,
         fillerExplanation: getFillerExplanation(fillerCount, wordCount),
         clarityScore,
-        clarityLabel: isClarityScorable ? getClarityLabel(clarityScore) : 'Not enough speech to score',
+        clarityLabel: isClarityScorable ? getClarityLabel(clarityScore) : 'Not enough reliable speech to score',
         clarityExplanation: getClarityExplanation({ wordCount, fillerCount, errorCount, wpm }),
         isClarityScorable,
         errorCount,
@@ -192,7 +197,7 @@ export const getSessionAnalysisMetrics = (session: PracticeSession): CoreSession
         wpmLabel: getWpmLabel(wpm),
         wpmExplanation: getWpmExplanation(wpm, wordCount),
         clarityScore,
-        clarityLabel: wordCount > 0 ? getClarityLabel(clarityScore) : 'Not enough speech to score',
+        clarityLabel: wordCount >= MIN_RELIABLE_SCORING_WORDS ? getClarityLabel(clarityScore) : 'Not enough reliable speech to score',
         clarityExplanation: getClarityExplanation({
             wordCount,
             fillerCount: metrics.fillerCount,
@@ -200,6 +205,6 @@ export const getSessionAnalysisMetrics = (session: PracticeSession): CoreSession
             wpm,
         }),
         fillerExplanation: getFillerExplanation(metrics.fillerCount, wordCount),
-        isClarityScorable: wordCount > 0,
+        isClarityScorable: wordCount >= MIN_RELIABLE_SCORING_WORDS,
     };
 };

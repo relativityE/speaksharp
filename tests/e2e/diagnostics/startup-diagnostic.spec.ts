@@ -35,18 +35,22 @@ test('SPA startup diagnostic', async ({ page }) => {
   // detect hydration
   const rootExists = await page.locator('#root').count();
   logger.info({ rootExists }, 'Root node exists:');
+  expect(rootExists, 'React root should be present after navigation').toBeGreaterThan(0);
 
   // detect readiness signal
   const readyAttr = await page.locator('html[data-app-ready]').count();
   logger.info({ readyAttr }, 'Ready attribute count:');
+  expect(readyAttr, 'App readiness attribute should be present').toBeGreaterThan(0);
 
   // detect React render
   const bodyText = await page.textContent('body');
   logger.info({ snippet: bodyText?.slice(0, 120) }, 'Body snippet:');
+  expect(bodyText ?? '', 'Page should render user-visible SpeakSharp content').toContain('SpeakSharp');
 
   // detect boot signal - use unknown as cast instead of any
   const booted = await page.evaluate(() => (window as unknown as { __APP_BOOTED__?: boolean }).__APP_BOOTED__);
   logger.info({ booted }, 'App booted:');
+  expect(booted, 'Boot marker should be true').toBe(true);
 
   // Confirm Net Mocks (API Interception)
   // We check if a request to supabase was intercepted
@@ -61,6 +65,5 @@ test('SPA startup diagnostic', async ({ page }) => {
     logger.warn('Interception Check: NO API REQUESTS DETECTED');
   }
 
-  // do NOT fail test
-  expect(true).toBe(true);
+  // Network interception is diagnostic-only; boot/readiness assertions above are the gate.
 });

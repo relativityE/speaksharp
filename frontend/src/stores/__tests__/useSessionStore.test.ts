@@ -36,6 +36,24 @@ describe('useSessionStore', () => {
         });
     });
 
+    describe('runtime recording truth', () => {
+        it('does not mark pre-recording startup states as active listening', () => {
+            useSessionStore.getState().setRuntimeState('INITIATING');
+            expect(useSessionStore.getState().isListening).toBe(false);
+            expect(useSessionStore.getState().startTime).toBeNull();
+
+            useSessionStore.getState().setRuntimeState('ENGINE_INITIALIZING');
+            expect(useSessionStore.getState().isListening).toBe(false);
+            expect(useSessionStore.getState().startTime).toBeNull();
+        });
+
+        it('marks only confirmed RECORDING as active listening', () => {
+            useSessionStore.getState().setRuntimeState('RECORDING');
+
+            expect(useSessionStore.getState().isListening).toBe(true);
+        });
+    });
+
     describe('stopSession', () => {
         it('sets isListening to false and clears startTime', () => {
             // Arrange: start a session first
@@ -141,6 +159,28 @@ describe('useSessionStore', () => {
             expect(state.fillerData).toEqual({});
             expect(state.elapsedTime).toBe(0);
             expect(state.startTime).toBeNull();
+        });
+    });
+
+    describe('setSTTStatus guard', () => {
+        it('allows error status to replace recording status', () => {
+            useSessionStore.getState().setSTTStatus({ type: 'recording', message: 'Recording active' });
+            useSessionStore.getState().setSTTStatus({ type: 'error', message: 'Mic failed' });
+            expect(useSessionStore.getState().sttStatus.type).toBe('error');
+        });
+
+        it('blocks idle from replacing recording status when still recording', () => {
+            useSessionStore.getState().setRuntimeState('RECORDING');
+            useSessionStore.getState().setSTTStatus({ type: 'recording', message: 'Recording active' });
+            useSessionStore.getState().setSTTStatus({ type: 'idle', message: 'Ready' });
+            expect(useSessionStore.getState().sttStatus.type).toBe('recording');
+        });
+
+        it('allows idle to replace recording status when runtimeState is NOT RECORDING', () => {
+            useSessionStore.getState().setRuntimeState('FAILED');
+            useSessionStore.getState().setSTTStatus({ type: 'recording', message: 'Recording active' });
+            useSessionStore.getState().setSTTStatus({ type: 'idle', message: 'Ready' });
+            expect(useSessionStore.getState().sttStatus.type).toBe('idle');
         });
     });
 });

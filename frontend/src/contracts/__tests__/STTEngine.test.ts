@@ -1,6 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { validateEngine } from '../STTEngine';
+import { STTEngine, validateEngine } from '../STTEngine';
 import { Result } from '@/services/transcription/modes/types';
+import type { EngineType } from '../IPrivateSTTEngine';
+
+class ReusableTestEngine extends STTEngine {
+    public readonly type = 'mock' as EngineType;
+    public starts = 0;
+    protected async onInit() { return Result.ok(undefined); }
+    protected async onStart() { this.starts += 1; }
+    protected async onStop() {}
+    protected async onDestroy() {}
+    async transcribe() { return Result.ok('test'); }
+}
 
 describe('STTEngine Contract Validation (structural-only)', () => {
     it('should pass for a valid engine structure', () => {
@@ -72,5 +83,16 @@ describe('STTEngine Contract Validation (structural-only)', () => {
 
         expect(() => validateEngine(invalidEngine)).toThrow(/STT_ENGINE_INVALID/);
         expect(() => validateEngine(invalidEngine)).toThrow(/missing required method 'start'/);
+    });
+
+    it('clears the terminated flag on init so a warm-up engine can be reused', async () => {
+        const engine = new ReusableTestEngine();
+
+        await engine.init();
+        await engine.destroy();
+        await engine.init();
+        await engine.start();
+
+        expect(engine.starts).toBe(1);
     });
 });

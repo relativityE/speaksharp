@@ -80,4 +80,38 @@ describe('StatusNotificationBar', () => {
         expect(screen.queryByText(/^Error occurred$/i)).toBeNull();
         expect(screen.getByText(/Recording could not start/i)).toBeDefined();
     });
+
+    it('keeps Private download progress visible without overloading the status copy', () => {
+        vi.mocked(useSessionStore).mockImplementation((selector: unknown) => {
+            const state = {
+                activeEngine: 'none',
+                isListening: false,
+            };
+            return typeof selector === 'function' ? selector(state) : state;
+        });
+
+        render(<StatusNotificationBar status={{ type: 'downloading', message: 'Downloading private model... 35%', progress: 35 }} />);
+
+        expect(screen.getByTestId('status-message-text')).toHaveTextContent(/Downloading private model/i);
+        expect(screen.queryByText(/choose Browser, or Cloud if included in your plan/i)).toBeNull();
+        expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('Private Model');
+        expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('35%');
+    });
+
+    it('shows Private ready state and far-right cached progress without extra guidance copy', () => {
+        vi.mocked(useSessionStore).mockImplementation((selector: unknown) => {
+            const state = {
+                activeEngine: 'none',
+                isListening: false,
+            };
+            return typeof selector === 'function' ? selector(state) : state;
+        });
+
+        render(<StatusNotificationBar status={{ type: 'ready', message: 'Private model cached. Ready to record.', progress: 100 }} />);
+
+        expect(screen.getByTestId('status-message-text')).toHaveTextContent(/Private model cached/i);
+        expect(screen.queryByText(/Private is ready/i)).toBeNull();
+        expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('Cached');
+        expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('100%');
+    });
 });

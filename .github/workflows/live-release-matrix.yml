@@ -15,6 +15,7 @@ on:
           - cloud-token-gates
           - cloud-artifact
           - private-cache
+          - first-time-tester-private-trial
           - stripe-webhook-readiness
           - stripe-checkout-readiness
           - stripe-price-audit
@@ -188,6 +189,37 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: live-private-cache-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14
+
+  live-first-time-tester-private-trial:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'first-time-tester-private-trial' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Run First-Time Tester Private Trial Proof
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          BASE_URL: https://speaksharp-public.vercel.app/
+        run: pnpm exec playwright test tests/live/first-time-tester-private-trial.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
+
+      - name: Upload First-Time Tester Private Trial Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-first-time-tester-private-trial-artifacts
           path: |
             blob-report/live/
             playwright-report/

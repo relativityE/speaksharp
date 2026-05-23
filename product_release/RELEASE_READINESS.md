@@ -1,17 +1,17 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-21
+**Last Reviewed:** 2026-05-22
 **Version:** v0.6.19-rc0
-**Last Updated:** 2026-05-21
+**Last Updated:** 2026-05-22
 
 # Release Readiness Checklist (Launch Gate)
 
 <!-- PRODUCT_RELEASE_SYNC_START -->
 
-## Current Evidence Snapshot (2026-05-21)
+## Current Evidence Snapshot (2026-05-22)
 
 | Item | Current Status |
 |---|---|
-| Controlled desktop tester release | HOLD by product decision until final human UX review; Basic-tier cutover, metric explanations, deploy, CI, and production canary are green. |
+| Controlled desktop tester release | BLOCKED by Tester A manual walkthrough. The 2026-05-22 rehearsal inventory remains the current risk context: fresh first-time tester evidence shows the Private STT path failing recording-state truth, transcript, filler, analytics, and History expectations. |
 | Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
 | Latest release evidence commit | `88f277d4` (`Cut over baseline tier to Basic`). |
 | CI/Test Audit | PASS: GitHub run `26231514902` on `main`. |
@@ -20,24 +20,29 @@
 | Scheduled soak | PASS: GitHub run `26083232887` on `main`. |
 | Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
 | Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
-| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`: fresh account, automatic 60-minute trial, Private STT first, Cloud paid-only, save/history check required. |
-| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
+| Tester instructions | Do not distribute broadly yet. `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` has the corrected no-promo/private-first copy, but Tester A reproduced a Private STT blocker that prevents distribution. |
+| Latest live rehearsal evidence | `SOFT_RELEASE_REHEARSAL_BUG_INVENTORY.md` dated 2026-05-22, especially SR-014/SR-015 and the visible Chrome Tester B evidence SR-021/SR-022/SR-023. |
+| Documentation rule | This snapshot and the 2026-05-22 rehearsal inventory supersede older GO/HOLD language, older run IDs, or stale status tables lower in this file until those sections are next deeply reconciled. |
 
 <!-- PRODUCT_RELEASE_SYNC_END -->
 
 This document serves as the final authoritative gate for the SpeakSharp production launch. Controlled tester readiness and broad public launch readiness are intentionally separated.
 
-## 🟡 Current Verdict: Controlled Tester HOLD FOR FINAL HUMAN UX REVIEW / Public Launch NO-GO
+## 🔴 Current Verdict: Controlled Tester BLOCKED BY TESTER A WALKTHROUGH / Public Launch NO-GO
+
+## 2026-05-22 Rehearsal Override
+
+The latest live rehearsal and Tester A/B walkthroughs found blockers in the exact first-time tester path. Fresh trial accounts using Private STT can enter misleading recording states, fail to show usable transcript text, fail to detect filler words, and fail to save a session to History/Analytics. Visible Chrome Tester B evidence also shows Private saving partial transcripts, Native producing either no transcript or duplicated transcripts, and History card clicks not opening detail. Treat `SOFT_RELEASE_REHEARSAL_BUG_INVENTORY.md` as the current tester-release authority until SR-014/SR-015/SR-021/SR-022/SR-023 and related metric-trust findings are fixed or revalidated.
 
 ## Final Launch Gate
 
-Controlled tester status: **GO WITH LIMITATIONS**
+Controlled tester status: **BLOCKED BY TESTER A MANUAL WALKTHROUGH**
 
 Public launch status: **NO-GO**
 
 ### Required Before Launch
 
-- [x] Controlled desktop tester release packet is green with documented limitations.
+- [ ] Controlled desktop tester release packet is green with documented limitations. Current distribution is blocked by Tester A Private STT findings in the 2026-05-22 rehearsal inventory.
 - [x] CI/Test Audit is green on `main`: run `26231514902`.
 - [x] Production canary is green on `main`: push run `26231514911`.
 - [x] Supabase deploy is green on `main`: run `26231515067`.
@@ -69,6 +74,7 @@ Public launch status: **NO-GO**
 | **G3** | **Non-Negative Duration Constraint**| Integrity | ✅ **LIVE NEGATIVE-DURATION SMOKE PASSED** |
 | **G4** | **Trial Abuse Gate** | Security | 🟡 **ONE-TIME/REUSE VERIFIED / THROTTLE PENDING** |
 | **G5** | **Production Secret Audit** | Security | 🟡 IN REVIEW |
+| **G6** | **Fresh Trial Private STT Transcript/Save/History Path** | Product Truth | 🔴 **BLOCKED BY TESTER A WALKTHROUGH** |
 
 ---
 

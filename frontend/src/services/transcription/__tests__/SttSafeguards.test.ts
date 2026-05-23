@@ -113,6 +113,7 @@ describe('STT Safeguards Unit Tests', () => {
         (controller as unknown as { service: TranscriptionService }).service = service;
         controller.setSubscriberCallbacks({
             session: { user: { id: 'user-123' } } as unknown as Session,
+            mockMic: mockMic as unknown as import('../utils/types').MicStream,
         });
     });
 
@@ -137,6 +138,56 @@ describe('STT Safeguards Unit Tests', () => {
         await controller.whenStable();
 
         expect(service.getSessionId()).toBe('test-session-id');
+        expect(storageMocks.saveSession).toHaveBeenCalled();
+    });
+
+    it('should not create a saved session if the engine start never reaches recording', async () => {
+        vi.spyOn(service, 'startTranscription').mockResolvedValue(undefined);
+        vi.spyOn(service, 'getState').mockReturnValue('FAILED');
+
+        await expect(controller.startRecording(mockPolicy)).rejects.toThrow('TRANSCRIPTION_START_DID_NOT_RECORD:FAILED');
+        await controller.whenStable();
+
+        expect(storageMocks.saveSession).not.toHaveBeenCalled();
+    });
+
+    it('should allow a new start attempt after a visible start failure', async () => {
+        const startSpy = vi.spyOn(service, 'startTranscription');
+        const stateSpy = vi.spyOn(service, 'getState');
+
+        startSpy.mockResolvedValueOnce(undefined);
+        stateSpy.mockReturnValueOnce('FAILED');
+
+        await expect(controller.startRecording(mockPolicy)).rejects.toThrow('TRANSCRIPTION_START_DID_NOT_RECORD:FAILED');
+        await controller.whenStable();
+        expect(controller.getState()).toBe('FAILED_VISIBLE');
+
+        storageMocks.saveSession.mockClear();
+        startSpy.mockResolvedValue(undefined);
+        stateSpy.mockReturnValue('RECORDING');
+
+        await controller.startRecording(mockPolicy);
+        await controller.whenStable();
+
+        expect(storageMocks.saveSession).toHaveBeenCalled();
+    });
+
+    it('should replace a destroyed service before a later recording attempt', async () => {
+        await service.destroy();
+        expect(service.isServiceDestroyed()).toBe(true);
+        (controller as unknown as { service: TranscriptionService }).service = service;
+
+        storageMocks.saveSession.mockResolvedValue({
+            session: { id: 'recovered-session-id' },
+            usageExceeded: false
+        });
+
+        await controller.startRecording(mockPolicy);
+        await controller.whenStable();
+
+        const activeService = (controller as unknown as { service: TranscriptionService }).service;
+        expect(activeService).not.toBe(service);
+        expect(activeService?.isServiceDestroyed()).toBe(false);
         expect(storageMocks.saveSession).toHaveBeenCalled();
     });
 

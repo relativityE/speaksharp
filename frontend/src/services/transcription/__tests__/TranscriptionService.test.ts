@@ -10,6 +10,16 @@ import { STTEngine } from '../../../contracts/STTEngine';
 import { Result, TranscriptionModeOptions } from '../modes/types';
 import { EngineType } from '../../../contracts/IPrivateSTTEngine';
 
+vi.mock('@/lib/toast', () => ({
+    toast: {
+        info: vi.fn(),
+        success: vi.fn(),
+        error: vi.fn(),
+        warning: vi.fn(),
+        dismiss: vi.fn(),
+    },
+}));
+
 describe('TranscriptionService', () => {
     let service: TranscriptionService;
     let TranscriptionServiceClass: typeof TranscriptionService;
@@ -92,6 +102,48 @@ describe('TranscriptionService', () => {
         expect(service.getMode()).toBe('mock');
     });
 
+    it('toasts alternative STT guidance once during Private download and ready state on completion', async () => {
+        const { toast } = await import('@/lib/toast');
+        const privateService = new (TranscriptionServiceClass as unknown as new (o: TranscriptionServiceOptions) => TranscriptionService)({
+            onTranscriptUpdate: mockOnTranscriptUpdate,
+            onModelLoadProgress: mockOnModelLoadProgress,
+            onReady: mockOnReady,
+            session: null,
+            navigate: vi.fn(),
+            getAssemblyAIToken: mockGetToken,
+            policy: {
+                allowNative: true,
+                allowCloud: true,
+                allowPrivate: true,
+                preferredMode: 'private',
+                allowFallback: false,
+                executionIntent: 'private-download-toast-test'
+            } as TranscriptionPolicy,
+            mockMic: {
+                stream: {} as MediaStream,
+                stop: vi.fn(),
+                clone: vi.fn(),
+                onFrame: vi.fn().mockReturnValue(() => { }),
+            } as unknown as MicStream
+        });
+
+        (privateService as unknown as { processModelLoadProgress: (progress: number | null) => void }).processModelLoadProgress(12);
+        (privateService as unknown as { processModelLoadProgress: (progress: number | null) => void }).processModelLoadProgress(42);
+        (privateService as unknown as { processModelLoadProgress: (progress: number | null) => void }).processModelLoadProgress(100);
+
+        expect(toast.info).toHaveBeenCalledTimes(1);
+        expect(toast.info).toHaveBeenCalledWith(
+            expect.stringMatching(/choose Browser, or Cloud if included in your plan/i),
+            expect.objectContaining({ id: 'private-model-alternative-stt', duration: 5000 })
+        );
+        expect(toast.success).toHaveBeenCalledWith(
+            expect.stringMatching(/Private is ready/i),
+            expect.objectContaining({ id: 'private-model-ready', duration: 5000 })
+        );
+
+        await privateService.destroy();
+    });
+
     it('should sanitize transcripts effectively', async () => {
         const { sttRegistry } = await import('../STTRegistry');
         
@@ -130,6 +182,31 @@ describe('TranscriptionService', () => {
                 partial: ''
             }
         }));
+    });
+
+    it('should reject startTranscription when strategy start fails', async () => {
+        const { sttRegistry } = await import('../STTRegistry');
+        const startError = new Error('SIMULATED_ENGINE_START_FAILURE');
+
+        class FailingStartEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            public async checkAvailability() { return { isAvailable: true }; }
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() { throw startError; }
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+        }
+
+        const failingEngine = new FailingStartEngine({} as unknown as TranscriptionModeOptions);
+        sttRegistry.registerStatic('transformers-js', failingEngine);
+        sttRegistry.registerStatic('mock', failingEngine);
+
+        await expect(service.startTranscription()).rejects.toThrow('SIMULATED_ENGINE_START_FAILURE');
+        expect(service.getState()).toBe('FAILED');
     });
 
     it('should sanitize bracketed and parenthetical transcript metadata tags', () => {

@@ -9,7 +9,6 @@ describe('LiveRecordingCard', () => {
         isListening: false,
         isReady: true,
         isProUser: false,
-        modelLoadingProgress: null,
         formattedTime: '00:00',
         elapsedSeconds: 0,
         isButtonDisabled: false,
@@ -45,6 +44,40 @@ describe('LiveRecordingCard', () => {
         expect(screen.getByText(/Recording could not start/i)).toBeDefined();
     });
 
+    it('does not show active recording controls for startup states before recording is confirmed', () => {
+        render(
+            <LiveRecordingCard
+                {...defaultProps}
+                isListening={false}
+                recordingIntent={false}
+                fsmState="ENGINE_INITIALIZING"
+                statusMessage="Starting microphone..."
+                isButtonDisabled={true}
+            />
+        );
+
+        const startButton = screen.getByLabelText('Start Recording');
+        expect(startButton).toBeDisabled();
+        expect(startButton).toHaveAttribute('data-recording', 'false');
+        expect(screen.queryByLabelText('Stop Recording')).toBeNull();
+    });
+
+    it('shows Stop only for confirmed active recording', () => {
+        render(
+            <LiveRecordingCard
+                {...defaultProps}
+                isListening={true}
+                recordingIntent={true}
+                fsmState="RECORDING"
+                statusMessage="Recording active"
+            />
+        );
+
+        const stopButton = screen.getByLabelText('Stop Recording');
+        expect(stopButton).toHaveAttribute('data-recording', 'true');
+        expect(screen.queryByLabelText('Start Recording')).toBeNull();
+    });
+
     it('keeps Cloud disabled for trial-style Pro access without paid Cloud entitlement', async () => {
         render(<LiveRecordingCard {...defaultProps} isProUser={true} canUseCloudStt={false} />);
 
@@ -52,6 +85,46 @@ describe('LiveRecordingCard', () => {
 
         expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).not.toHaveAttribute('data-disabled');
         expect(await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveAttribute('data-disabled');
-        expect(screen.getByText(/Cloud transcription \(Paid Pro\)/i)).toBeDefined();
+        expect(screen.getByText(/Cloud \(Paid Pro\)/i)).toBeDefined();
+        expect(screen.getByText(/Most reliable option/i)).toBeDefined();
+    });
+
+    it('lets a trial user switch to Browser while Private setup is downloading', async () => {
+        const onModeChange = vi.fn();
+        render(
+            <LiveRecordingCard
+                {...defaultProps}
+                mode="private"
+                isProUser={true}
+                canUseCloudStt={false}
+                onModeChange={onModeChange}
+            />
+        );
+
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        expect(await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveAttribute('data-disabled');
+        fireEvent.click(await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE));
+
+        expect(onModeChange).toHaveBeenCalledWith('native');
+    });
+
+    it('lets a paid Pro user switch to Cloud while Private setup is downloading', async () => {
+        const onModeChange = vi.fn();
+        render(
+            <LiveRecordingCard
+                {...defaultProps}
+                mode="private"
+                isProUser={true}
+                canUseCloudStt={true}
+                onModeChange={onModeChange}
+            />
+        );
+
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        const cloudOption = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
+        expect(cloudOption).not.toHaveAttribute('data-disabled');
+        fireEvent.click(cloudOption);
+
+        expect(onModeChange).toHaveBeenCalledWith('cloud');
     });
 });

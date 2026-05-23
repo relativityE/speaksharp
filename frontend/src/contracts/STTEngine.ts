@@ -112,6 +112,7 @@ export abstract class STTEngine implements IPrivateSTTEngine, ITranscriptionEngi
    * Common Initialization Logic
    */
   async init(timeoutMs?: number, isMock?: boolean): Promise<Result<void, Error>> {
+    this.isTerminated = false;
     logger.info({
       type: this.type,
       instanceId: this.instanceId,

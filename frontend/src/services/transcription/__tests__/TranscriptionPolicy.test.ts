@@ -134,13 +134,22 @@ describe('TranscriptionPolicy', () => {
             expect(policy.allowNative).toBe(PROD_PRO_POLICY.allowNative);
             expect(policy.allowCloud).toBe(PROD_PRO_POLICY.allowCloud);
             expect(policy.allowPrivate).toBe(PROD_PRO_POLICY.allowPrivate);
+            expect(policy.allowFallback).toBe(false);
             expect(policy.executionIntent).toContain('prod-pro');
         });
 
         it('should apply UI mode override', () => {
             const policy = buildPolicyForUser(true, 'private');
             expect(policy.preferredMode).toBe('private');
+            expect(policy.allowFallback).toBe(false);
             expect(policy.executionIntent).toContain('private');
+        });
+
+        it('keeps alternative STT choices manual instead of enabling automatic fallback', () => {
+            expect(buildPolicyForUser(true).allowFallback).toBe(false);
+            expect(buildPolicyForUser(true, 'private').allowFallback).toBe(false);
+            expect(buildPolicyForUser(true, 'native').allowFallback).toBe(false);
+            expect(buildPolicyForUser(true, 'cloud', { allowCloud: true }).allowFallback).toBe(false);
         });
 
         it('keeps trial-style Pro users off Cloud when paid Cloud access is disabled', () => {
@@ -149,6 +158,7 @@ describe('TranscriptionPolicy', () => {
             expect(policy.allowPrivate).toBe(true);
             expect(policy.allowCloud).toBe(false);
             expect(policy.preferredMode).toBe('private');
+            expect(policy.allowFallback).toBe(false);
             expect(policy.executionIntent).toContain('private');
         });
     });
@@ -164,6 +174,7 @@ describe('TranscriptionPolicy', () => {
             expect(PROD_PRO_POLICY.allowNative).toBe(true);
             expect(PROD_PRO_POLICY.allowCloud).toBe(true);
             expect(PROD_PRO_POLICY.allowPrivate).toBe(true);
+            expect(PROD_PRO_POLICY.allowFallback).toBe(false);
         });
 
         it('E2E policies should be deterministic', () => {

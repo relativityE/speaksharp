@@ -47,10 +47,11 @@ const defaultLifecycle = {
 
 // Mock child components to isolate logic
 vi.mock('@/components/session/LiveRecordingCard', () => ({
-    LiveRecordingCard: ({ mode, onModeChange }: { mode: string, onModeChange: (m: string) => void }) => (
+    LiveRecordingCard: ({ mode, onModeChange, onStartStop }: { mode: string, onModeChange: (m: string) => void, onStartStop: () => void }) => (
         <div data-testid="recording-card">
             <span data-testid="mode-display">{mode}</span>
             <button onClick={() => onModeChange('cloud')} data-testid="switch-mode-btn">Switch to Cloud</button>
+            <button onClick={onStartStop} data-testid="start-stop-btn">Start/Stop</button>
         </div>
     ),
 }));
@@ -128,13 +129,11 @@ describe('SessionPage Logic', () => {
 
     describe('Interaction Logic', () => {
         it('should call handleStartStop via controlled button', () => {
-            expect(true).toBe(true); // Explicit assertion for linter
             render(<SessionPage />);
 
-            // Since we mocked LiveRecordingCard, we don't have the real button, 
-            // but the mock can call handleStartStop?
-            // Actually, the previous mock for LiveRecordingCard didn't have a button for handleStartStop.
-            // Let's update the LiveRecordingCard mock.
+            screen.getByTestId('start-stop-btn').click();
+
+            expect(mockHandleStartStop).toHaveBeenCalledTimes(1);
         });
     });
 

@@ -8,6 +8,7 @@ import { STTStrategy } from './STTStrategy';
 import { STTStrategyFactory } from './STTStrategyFactory';
 import { STTNegotiator } from './STTNegotiator';
 import logger from '@/lib/logger';
+import { toast } from '@/lib/toast';
 import {
   TranscriptionPolicy,
   TranscriptionMode,
@@ -143,6 +144,7 @@ export default class TranscriptionService {
   private downloadController: AbortController | null = null;
   private modelLoadingProgress: number | null = 0;
   private privateModelReady: boolean = false;
+  private privateDownloadAlternativeToastShown: boolean = false;
   private activeSubscriberId: string | null = null;
   private isTerminated: boolean = false;
   private isDestroyed: boolean = false;
@@ -710,7 +712,7 @@ export default class TranscriptionService {
 
     if (this.fsm.is('CLEANING_UP')) {
       logger.warn('[TranscriptionService] startTranscription rejected - still cleaning up');
-      return;
+      throw new Error('TRANSCRIPTION_SERVICE_CLEANING_UP');
     }
 
     // 1. Session Isolation: Clear existing session if active
@@ -757,6 +759,7 @@ export default class TranscriptionService {
     } catch (error) {
       logger.error({ mode, runId: this.runId, error }, '[TranscriptionService] startTranscription FAILED');
       // FSM and UI status already updated in initializeStrategy/executeStrategy
+      throw error;
     }
   }
 
@@ -771,7 +774,7 @@ export default class TranscriptionService {
       this.startTimestamp = Date.now();
     } else {
       logger.warn({ state: this.fsm.getState() }, '[TranscriptionService] executeStrategy aborted: FSM not in READY state');
-      return;
+      throw new Error(`TRANSCRIPTION_START_BLOCKED_STATE:${this.fsm.getState()}`);
     }
 
     const runId = this.runId; // 🛡️ Step 4: Capture runId for async coupling
@@ -783,8 +786,6 @@ export default class TranscriptionService {
         strategyObj: this.strategy?.constructor?.name
       }, '[TranscriptionService] 🚦 Executing strategy start...');
 
-      this.emissionsEnabled = true;
-      this.flushPendingTranscripts();
       this.attachMicFramePump(mode);
       await this.strategy.start(this.mic!, this.options.userWords ?? []);
 
@@ -794,6 +795,8 @@ export default class TranscriptionService {
       }
 
       this.fsm.transition({ type: 'ENGINE_STARTED' });
+      this.emissionsEnabled = true;
+      this.flushPendingTranscripts();
       logger.info({ runId }, '[TranscriptionService] Strategy started successfully');
       this.startTime = Date.now();
       this.options.onModeChange?.(mode);
@@ -1480,12 +1483,24 @@ export default class TranscriptionService {
       state.setModelLoadingProgress(percent);
       if (percent !== null) {
         if (percent >= 100) {
+          this.privateDownloadAlternativeToastShown = false;
+          toast.success('Private is ready. You can select it for on-device transcription.', {
+            id: 'private-model-ready',
+            duration: 5000,
+          });
           state.setSTTStatus({
             type: 'ready',
             message: 'Private model cached. Ready to record.',
             detail: 'Private STT should start without downloading next time.'
           });
         } else {
+          if (!this.privateDownloadAlternativeToastShown && percent > 0) {
+            this.privateDownloadAlternativeToastShown = true;
+            toast.info('Private is setting up in the background. You can choose Browser, or Cloud if included in your plan, while it downloads.', {
+              id: 'private-model-alternative-stt',
+              duration: 5000,
+            });
+          }
           state.setSTTStatus({
             type: 'downloading',
             message: `Downloading private model... ${percent}%`,

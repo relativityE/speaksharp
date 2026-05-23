@@ -77,6 +77,7 @@ const DEFAULT_LIFECYCLE_MOCK = {
     setMode: vi.fn(),
     handleStartStop: vi.fn(),
     isButtonDisabled: false,
+    canUseCloudStt: false,
     showAnalyticsPrompt: false,
     sessionFeedbackMessage: null,
     sunsetModal: { type: 'daily', open: false }
@@ -120,11 +121,11 @@ describe('SessionPage - STT Mode Selection UI', () => {
 
         render(<SessionPage />);
 
-        const trigger = screen.getByText(/Native/i);
+        const trigger = screen.getByTestId(TEST_IDS.STT_MODE_SELECT);
         await user.click(trigger);
 
-        const onDeviceItem = await screen.findByText(/Private/i);
-        const cloudItem = await screen.findByText(/Cloud/i);
+        const onDeviceItem = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
+        const cloudItem = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
 
         expect(onDeviceItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
         expect(cloudItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
@@ -135,16 +136,17 @@ describe('SessionPage - STT Mode Selection UI', () => {
 
         mockUseSessionLifecycle.mockReturnValue({
             ...DEFAULT_LIFECYCLE_MOCK,
-            isProUser: true
+            isProUser: true,
+            canUseCloudStt: true
         } as unknown as ReturnType<typeof useSessionLifecycle>);
 
         render(<SessionPage />);
 
-        const trigger = screen.getByText(/Native/i);
+        const trigger = screen.getByTestId(TEST_IDS.STT_MODE_SELECT);
         await user.click(trigger);
 
-        const onDeviceItem = await screen.findByText(/Private/i);
-        const cloudItem = await screen.findByText(/Cloud/i);
+        const onDeviceItem = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
+        const cloudItem = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
 
         expect(onDeviceItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
         expect(cloudItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
@@ -169,5 +171,54 @@ describe('SessionPage - STT Mode Selection UI', () => {
         await user.click(privateItem);
 
         expect(setModeSpy).toHaveBeenCalledWith('private');
+    });
+
+    it('keeps Browser available while a trial user has Private setup downloading', async () => {
+        const user = userEvent.setup({ pointerEventsCheck: 0 });
+        const setModeSpy = vi.fn();
+
+        mockUseSessionLifecycle.mockReturnValue({
+            ...DEFAULT_LIFECYCLE_MOCK,
+            mode: 'private',
+            isProUser: true,
+            canUseCloudStt: false,
+            modelLoadingProgress: 42,
+            setMode: setModeSpy
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+
+        render(<SessionPage />);
+
+        await user.click(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        const browserItem = await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE);
+        const cloudItem = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
+
+        expect(cloudItem.closest('[role="menuitemradio"]')).toHaveAttribute('aria-disabled', 'true');
+        await user.click(browserItem);
+
+        expect(setModeSpy).toHaveBeenCalledWith('native');
+    });
+
+    it('keeps Cloud available during Private setup only for paid Pro users', async () => {
+        const user = userEvent.setup({ pointerEventsCheck: 0 });
+        const setModeSpy = vi.fn();
+
+        mockUseSessionLifecycle.mockReturnValue({
+            ...DEFAULT_LIFECYCLE_MOCK,
+            mode: 'private',
+            isProUser: true,
+            canUseCloudStt: true,
+            modelLoadingProgress: 42,
+            setMode: setModeSpy
+        } as unknown as ReturnType<typeof useSessionLifecycle>);
+
+        render(<SessionPage />);
+
+        await user.click(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+        const cloudItem = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
+
+        expect(cloudItem.closest('[role="menuitemradio"]')).not.toHaveAttribute('aria-disabled', 'true');
+        await user.click(cloudItem);
+
+        expect(setModeSpy).toHaveBeenCalledWith('cloud');
     });
 });

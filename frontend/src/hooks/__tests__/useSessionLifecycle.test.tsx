@@ -467,6 +467,66 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
+    it('resets runtime state after a recording start failure so the UI cannot remain active', async () => {
+        vi.mocked(speechRuntimeController.startRecording).mockRejectedValueOnce(
+            Object.assign(new Error('mic_stream_unavailable'), { name: 'NotAllowedError' })
+        );
+
+        const mockStore = createTestSessionStore({
+            isListening: false,
+            runtimeState: 'READY',
+            sttMode: 'private',
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useProfile).mockReturnValue({
+            profile: {
+                id: 'test-user',
+                subscription_status: 'pro',
+                email: 'test@example.com'
+            } as UserProfile,
+            isVerified: true
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                daily_remaining: 7200,
+                daily_limit: 7200,
+                monthly_remaining: 180000,
+                monthly_limit: 180000,
+                remaining_seconds: -1,
+                can_start: true,
+                subscription_status: 'pro',
+                is_pro: true,
+                streak_count: 0,
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        const { result } = renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await act(async () => {
+            await result.current.handleStartStop();
+        });
+
+        expect(speechRuntimeController.reset).toHaveBeenCalledWith('start_failed');
+        expect(mockStore.getState().sttStatus).toEqual({
+            type: 'error',
+            message: '⚠️ Microphone access is blocked. Allow microphone access and try again.'
+        });
+    });
+
     it('should not show saved success when stopRecording discards an empty session', async () => {
         vi.mocked(speechRuntimeController.stopRecording).mockResolvedValueOnce(null);
 

@@ -83,15 +83,15 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         : _statusMessage;
     const getModeLabel = (m: RecordingMode) => {
         switch (m) {
-            case 'native': return 'Native Browser';
+            case 'native': return 'Browser';
             case 'private': return 'Private';
             case 'cloud': return 'Cloud';
         }
     };
     const modeDescriptions: Record<RecordingMode, string> = {
-        native: 'Uses your browser speech recognition. Availability varies.',
-        private: 'Private local transcription after one-time model setup.',
-        cloud: 'High-reliability cloud transcription processed externally.',
+        native: 'Fastest setup. Uses your browser and works best in Chrome.',
+        private: 'Keeps audio on this device after a one-time setup.',
+        cloud: 'Most reliable option for paid Pro. Audio is processed securely in the cloud.',
         mock: 'Test transcription mode.',
     };
 
@@ -129,9 +129,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
                                 <DropdownMenuRadioItem value="native" className="items-start py-2.5" data-testid={TEST_IDS.STT_MODE_NATIVE}>
                                     <span className="flex flex-col gap-0.5">
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Native browser transcription</span>
+                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Browser</span>
                                         <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                            Uses your browser speech recognition. Availability varies.
+                                            Fastest setup. Works best in Chrome.
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>
@@ -142,9 +142,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     disabled={!isProUser}
                                 >
                                     <span className="flex flex-col gap-0.5">
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Private local {!isProUser ? '(Pro)' : ''}</span>
+                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Private {!isProUser ? '(Pro)' : ''}</span>
                                         <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                            Runs locally after one-time setup. Best for privacy.
+                                            Keeps audio on this device after setup.
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>
@@ -155,9 +155,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     disabled={!canUseCloudStt}
                                 >
                                     <span className="flex flex-col gap-0.5">
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud transcription {!canUseCloudStt ? '(Paid Pro)' : ''}</span>
+                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud {!canUseCloudStt ? '(Paid Pro)' : ''}</span>
                                         <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                            Paid provider transcription. Audio is processed externally.
+                                            Most reliable option. Audio is processed securely in the cloud.
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>

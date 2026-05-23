@@ -246,6 +246,8 @@ describe('useSessionLifecycle Timer Logic', () => {
             )
         });
 
-        expect(true).toBe(true);
+        expect(store.getState().isListening).toBe(false);
+        expect(store.getState().elapsedTime).toBe(0);
+        expect(store.getState().tick).not.toHaveBeenCalled();
     });
 });

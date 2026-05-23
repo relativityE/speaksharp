@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from '@/lib/toast';
-import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor } from 'lucide-react';
+import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye } from 'lucide-react';
 import logger from '../lib/logger';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -348,6 +348,15 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                 </div>
 
                 <div className="pl-4 border-l border-border hidden md:block" data-testid={`download-pdf-container-${session.id}`}>
+                    <NavLink
+                        to={`/analytics/${session.id}`}
+                        className="mb-2 inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-white px-3 text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        aria-label="Open saved session details"
+                        data-testid={`open-session-detail-${session.id}`}
+                    >
+                        <Eye className="h-4 w-4" aria-hidden="true" />
+                        Open
+                    </NavLink>
                     <Button
                         variant="secondary"
                         size="sm"
@@ -366,19 +375,30 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                 </div>
             </div>
             <div className="w-full flex justify-end md:hidden pt-4 border-t border-border mt-4" data-testid={`download-pdf-container-mobile-${session.id}`}>
-                <Button
-                    variant="secondary"
-                    size="sm"
-                    className="w-full gap-2 text-muted-foreground"
-                    onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        void generateSessionPdf(session, profileName);
-                    }}
-                    data-testid={`download-pdf-btn-mobile-${session.id}`}
-                >
-                    <Download className="h-4 w-4" /> Download Session PDF
-                </Button>
+                <div className="flex w-full flex-col gap-2">
+                    <NavLink
+                        to={`/analytics/${session.id}`}
+                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-border bg-white px-3 text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        aria-label="Open saved session details"
+                        data-testid={`open-session-detail-mobile-${session.id}`}
+                    >
+                        <Eye className="h-4 w-4" aria-hidden="true" />
+                        Open Saved Session
+                    </NavLink>
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        className="w-full gap-2 text-muted-foreground"
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            void generateSessionPdf(session, profileName);
+                        }}
+                        data-testid={`download-pdf-btn-mobile-${session.id}`}
+                    >
+                        <Download className="h-4 w-4" /> Download Session PDF
+                    </Button>
+                </div>
             </div>
         </div>
     );

@@ -83,12 +83,9 @@ describe('TranscriptionService Max Attempts', () => {
         registry.register('transformers-js', () => mockEngine);
 
         await service.init();
-        
-        // 3. Trigger 3 consecutive failures
-        for (let i = 0; i < 3; i++) {
-            await service.startTranscription();
-            expect(service.getState()).toBe('DOWNLOAD_REQUIRED');
-        }
+        expect(service.getState()).toBe('DOWNLOAD_REQUIRED');
+
+        await expect(service.startTranscription()).rejects.toThrow('TRANSCRIPTION_START_BLOCKED_STATE:DOWNLOAD_REQUIRED');
 
         // 4. Verification of "No Implicit Fallback"
         // Mode remains 'private' despite failures, conforming to Phase 4.3 invariant
