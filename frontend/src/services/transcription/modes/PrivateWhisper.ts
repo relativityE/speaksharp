@@ -44,6 +44,7 @@ import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
 import { TranscriptUpdate } from '../../../types/transcription';
 import { ENV } from '../../../config/TestFlags';
 import { PauseDetector } from '../../audio/pauseDetector';
+import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_DERIVED, SESSION_PAUSE, samplesToSeconds } from '../sttConstants';
 
 // Extend Window interface for E2E test flags
 declare global {
@@ -73,12 +74,12 @@ type PrivateInferenceAudioCapture = {
   error?: string;
 };
 
-const PRIVATE_STT_SAMPLE_RATE = 16_000;
-const MIN_TRANSCRIPTION_SECONDS = 8;
-const MIN_TRANSCRIPTION_SAMPLES = PRIVATE_STT_SAMPLE_RATE * MIN_TRANSCRIPTION_SECONDS;
-const MAX_RETRY_SECONDS = 12;
-const MAX_RETRY_SAMPLES = PRIVATE_STT_SAMPLE_RATE * MAX_RETRY_SECONDS;
-const PROCESSING_INTERVAL_MS = 250;
+const PRIVATE_STT_SAMPLE_RATE = PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ;
+const MIN_TRANSCRIPTION_SAMPLES = PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES;
+const MAX_RETRY_SAMPLES = PRIV_STT_DERIVED.MAX_RETRY_SAMPLES;
+const PROCESSING_INTERVAL_MS = PRIV_STT.PROCESSING_INTERVAL_MS;
+const SPEECH_START_MIN_SAMPLES = PRIV_STT_DERIVED.SPEECH_START_MIN_SAMPLES;
+const SPEECH_START_PREROLL_SAMPLES = PRIV_STT_DERIVED.SPEECH_START_PREROLL_SAMPLES;
 
 const isPrivateTranscriptTraceEnabled = () =>
   typeof window !== 'undefined' && Boolean(window.__PRIVATE_TRANSCRIPT_TRACE__);
@@ -100,6 +101,16 @@ function summarizeAudioEnergy(audio: Float32Array) {
     rms: audio.length > 0 ? Math.sqrt(sumSquares / audio.length) : 0,
     peak,
   };
+}
+
+function isNonSpeechMetadataOnlyTranscript(text: string): boolean {
+  const stripped = text
+    .replace(/\[[A-Z_\s]+\]/gi, '')
+    .replace(/\([a-z\s]+\)/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  return text.trim().length > 0 && stripped.length === 0;
 }
 
 function encodePcm16WavDataUrl(audio: Float32Array, sampleRate = PRIVATE_STT_SAMPLE_RATE): string {
@@ -153,7 +164,7 @@ function capturePrivateInferenceAudio(audio: Float32Array): number | null {
   window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__.push({
     createdAt: new Date().toISOString(),
     samples: audio.length,
-    durationSec: audio.length / PRIVATE_STT_SAMPLE_RATE,
+    durationSec: samplesToSeconds(audio.length, PRIVATE_STT_SAMPLE_RATE),
     rms: Number(energy.rms.toFixed(6)),
     peak: Number(energy.peak.toFixed(6)),
     wavDataUrl: encodePcm16WavDataUrl(audio),
@@ -222,6 +233,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private mic: MicStream | null = null;
   private audioChunks: Float32Array[] = [];
   private bufferedSampleCount: number = 0;
+  private prerollAudioChunks: Float32Array[] = [];
+  private prerollSampleCount: number = 0;
+  private speechStartAudioChunks: Float32Array[] = [];
+  private consecutiveSpeechSamples: number = 0;
+  private hasDetectedSpeech: boolean = false;
   private retryAudioBuffer: Float32Array | null = null;
   private isProcessing: boolean = false;
   private processingInterval: NodeJS.Timeout | null = null;
@@ -343,6 +359,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.status = 'transcribing';
     this.clearAudioBuffer();
     this.clearRetryAudioBuffer();
+    this.clearSpeechStartState();
     this.currentTranscript = '';
     this.updateHeartbeat();
 
@@ -352,19 +369,59 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     const listener = (frame: Float32Array) => {
       // Copy the frame to avoid buffer detachment issues
       const clonedFrame = frame.slice(0);
-      this.audioChunks.push(clonedFrame);
-      this.bufferedSampleCount += clonedFrame.length;
 
       // Track silence per-frame for accurate pause metrics (analytics only)
       this.pauseDetector.processAudioFrame(clonedFrame);
+      const energy = summarizeAudioEnergy(clonedFrame);
+      const isSpeechFrame = energy.rms >= PRIV_STT.SPEECH_START_RMS_THRESHOLD;
+
+      if (!this.hasDetectedSpeech) {
+        if (isSpeechFrame) {
+          this.speechStartAudioChunks.push(clonedFrame);
+          this.consecutiveSpeechSamples += clonedFrame.length;
+        } else {
+          this.speechStartAudioChunks = [];
+          this.consecutiveSpeechSamples = 0;
+          this.addPrerollFrame(clonedFrame);
+        }
+
+        if (this.consecutiveSpeechSamples >= SPEECH_START_MIN_SAMPLES) {
+          this.hasDetectedSpeech = true;
+          this.audioChunks = [
+            ...this.prerollAudioChunks.map((chunk) => chunk.slice(0)),
+            ...this.speechStartAudioChunks.map((chunk) => chunk.slice(0)),
+          ];
+          this.bufferedSampleCount = this.prerollSampleCount + this.consecutiveSpeechSamples;
+          this.prerollAudioChunks = [];
+          this.prerollSampleCount = 0;
+          this.speechStartAudioChunks = [];
+
+          if (isPrivateTranscriptTraceEnabled()) {
+            logger.info({
+              sId: this.serviceId,
+              rId: this.instanceId,
+              bufferedSamples: this.bufferedSampleCount,
+              speechStartMinSamples: SPEECH_START_MIN_SAMPLES,
+              prerollSamples: SPEECH_START_PREROLL_SAMPLES,
+            }, '[PRIVATE_TRACE] speech_start_detected_with_preroll');
+          }
+        }
+      } else {
+        this.audioChunks.push(clonedFrame);
+        this.bufferedSampleCount += clonedFrame.length;
+      }
 
       if (isPrivateTranscriptTraceEnabled()) {
         logger.info({
           sId: this.serviceId,
           rId: this.instanceId,
           frameSamples: clonedFrame.length,
+          frameRms: Number(energy.rms.toFixed(6)),
+          isSpeechFrame,
+          hasDetectedSpeech: this.hasDetectedSpeech,
           bufferedChunks: this.audioChunks.length,
           bufferedSamples: this.bufferedSampleCount,
+          prerollSamples: this.prerollSampleCount,
         }, '[PRIVATE_TRACE] audio_frame_in');
       }
 
@@ -393,6 +450,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     if (this.audioChunks.length === 0) {
       return; // No audio to process
     }
+    if (!force && !this.hasDetectedSpeech) {
+      return; // Do not let initial room silence become the first Whisper chunk.
+    }
     if (!force && this.bufferedSampleCount < MIN_TRANSCRIPTION_SAMPLES) {
       return; // Avoid repeated concatenation copies until there is enough audio.
     }
@@ -416,7 +476,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           liveSamples: liveAudio.length,
           retrySamples: this.retryAudioBuffer?.length ?? 0,
           samples: concatenated.length,
-          durationSec: Number((concatenated.length / PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+          durationSec: Number(samplesToSeconds(concatenated.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
           rms: Number(energy.rms.toFixed(6)),
           peak: Number(energy.peak.toFixed(6)),
         }, '[PRIVATE_TRACE] processor_output');
@@ -427,22 +487,40 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         return;
       }
 
-      // PauseDetector runs per-frame in the listener for accurate RMS tracking.
-      // Gate transcription on meaningful silence to prevent Whisper hallucinations
-      // on ambient noise chunks (Whisper produces garbage like "the" on near-silence).
-      const isSilent = this.pauseDetector.isMeaningfullySilent();
-      if (!force && isSilent) {
+      const energy = summarizeAudioEnergy(concatenated);
+      const isBufferSilent = energy.rms < SESSION_PAUSE.SILENCE_RMS_THRESHOLD;
+      if (isPrivateTranscriptTraceEnabled()) {
+        logger.info({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          force,
+          samples: concatenated.length,
+          durationSec: Number(samplesToSeconds(concatenated.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+          rms: Number(energy.rms.toFixed(6)),
+          peak: Number(energy.peak.toFixed(6)),
+          silenceThreshold: SESSION_PAUSE.SILENCE_RMS_THRESHOLD,
+          isBufferSilent,
+          isPauseDetectorSilent: this.pauseDetector.isMeaningfullySilent(),
+        }, '[PRIVATE_TRACE] silence_gate_decision');
+      }
+
+      // Gate transcription on the audio buffer that would be sent to Whisper.
+      // The pause detector describes current session state; using it here can
+      // discard speech if the user talks, then pauses before the first chunk.
+      if (!force && isBufferSilent) {
         logger.debug({
           sId: this.serviceId,
           rId: this.instanceId,
           samples: concatenated.length,
-        }, '[PrivateWhisper] 🤫 Silence detected (per-frame) — skipping transcription');
+          rms: Number(energy.rms.toFixed(6)),
+          threshold: SESSION_PAUSE.SILENCE_RMS_THRESHOLD,
+        }, '[PrivateWhisper] 🤫 Silent buffer detected — skipping transcription');
         this.clearAudioBuffer();
         return;
       }
 
       if (this.currentTranscript.length === 0) {
-        const expectedDurationSec = concatenated.length / 16000;
+        const expectedDurationSec = samplesToSeconds(concatenated.length, PRIVATE_STT_SAMPLE_RATE);
         logger.info({ sId: this.serviceId, rId: this.instanceId, samples: concatenated.length, expectedDurationSec }, '[PrivateWhisper] 🎤 Processing chunk');
       }
 
@@ -494,6 +572,16 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       if (capturedAudioIndex !== null) {
         const captured = window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__?.[capturedAudioIndex];
         if (captured) captured.transcript = newText;
+      }
+
+      if (isNonSpeechMetadataOnlyTranscript(newText)) {
+        this.clearRetryAudioBuffer();
+        logger.info({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          preview: newText.slice(0, 120),
+        }, '[PrivateWhisper] Dropping non-speech metadata chunk without retry');
+        return;
       }
 
       if (newText.trim()) {
@@ -578,6 +666,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.isProcessing = false;
     this.clearAudioBuffer();
     this.clearRetryAudioBuffer();
+    this.clearSpeechStartState();
 
     // Strict cleanup of the underlying engine
     await this.privateSTT.destroy();
@@ -607,6 +696,32 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.retryAudioBuffer = null;
   }
 
+  private addPrerollFrame(frame: Float32Array): void {
+    this.prerollAudioChunks.push(frame);
+    this.prerollSampleCount += frame.length;
+
+    while (this.prerollSampleCount > SPEECH_START_PREROLL_SAMPLES && this.prerollAudioChunks.length > 0) {
+      const first = this.prerollAudioChunks[0];
+      const overflow = this.prerollSampleCount - SPEECH_START_PREROLL_SAMPLES;
+
+      if (first.length <= overflow) {
+        this.prerollSampleCount -= first.length;
+        this.prerollAudioChunks.shift();
+      } else {
+        this.prerollAudioChunks[0] = first.slice(overflow);
+        this.prerollSampleCount -= overflow;
+      }
+    }
+  }
+
+  private clearSpeechStartState(): void {
+    this.prerollAudioChunks = [];
+    this.prerollSampleCount = 0;
+    this.speechStartAudioChunks = [];
+    this.consecutiveSpeechSamples = 0;
+    this.hasDetectedSpeech = false;
+  }
+
   private retainAudioForRetry(audio: Float32Array): void {
     if (audio.length === 0) {
       this.clearRetryAudioBuffer();
@@ -621,7 +736,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         sId: this.serviceId,
         rId: this.instanceId,
         samples: this.retryAudioBuffer.length,
-        durationSec: Number((this.retryAudioBuffer.length / PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+        durationSec: Number(samplesToSeconds(this.retryAudioBuffer.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
       }, '[PRIVATE_TRACE] retained_empty_result_audio');
     }
   }
