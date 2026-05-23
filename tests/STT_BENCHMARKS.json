@@ -23,7 +23,7 @@
         ]
       },
       "cpu": {
-        "expectedAccuracy": 95.89,
+        "expectedAccuracy": 93.89,
         "provider": "TransformersJS",
         "history": [
           {
@@ -42,6 +42,15 @@
             "trials": 10,
             "ceiling_wer": 0.0411,
             "ceiling_accuracy_pct": 95.89,
+            "environment": "node-cpu-baseline"
+          },
+          {
+            "timestamp": "2026-05-23T09:18:51.385Z",
+            "model": "TransformersJS whisper-tiny.en (Node CPU)",
+            "corpus": "harvard-list-1",
+            "trials": 10,
+            "ceiling_wer": 0.0611,
+            "ceiling_accuracy_pct": 93.89,
             "environment": "node-cpu-baseline"
           }
         ]
