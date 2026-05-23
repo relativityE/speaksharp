@@ -107,6 +107,18 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('analytics-dashboard-empty-state')).toBeInTheDocument();
     });
 
+    it('hides the upgrade prompt when effective trial access is Pro even if the profile has not hydrated it yet', () => {
+        renderComponent({
+            sessionHistory: [],
+            isProUser: true,
+            profile: { ...mockProfile, subscription_status: 'basic' },
+        });
+
+        expect(screen.getByTestId('analytics-dashboard-empty-state')).toBeInTheDocument();
+        expect(screen.queryByTestId('analytics-upgrade-button')).not.toBeInTheDocument();
+        expect(screen.queryByText(/Want unlimited sessions/i)).not.toBeInTheDocument();
+    });
+
     it('should render dashboard content when data exists', () => {
         renderComponent({ sessionHistory: mockSessionHistory });
 

@@ -188,6 +188,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
             <PageHeader isPro={isProUser} sessionId={sessionId} onUpgrade={() => { void handleUpgrade(); }} />
             <AnalyticsDashboard
                 profile={profile || null}
+                isProUser={isProUser}
                 sessionHistory={sessionHistory || []}
                 overallStats={overallStats}
                 fillerWordTrends={fillerWordTrends}

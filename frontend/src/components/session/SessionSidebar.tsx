@@ -238,7 +238,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                             <DropdownMenuContent className="w-56">
                                     <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
                                         <DropdownMenuRadioItem value="private" disabled={!canAccessAdvancedModes}>Private</DropdownMenuRadioItem>
-                                        <DropdownMenuRadioItem value="cloud" disabled={!canUseCloudStt}>Cloud (Paid Pro)</DropdownMenuRadioItem>
+                                        <DropdownMenuRadioItem value="cloud" disabled={!canUseCloudStt}>Cloud (Pro feature only)</DropdownMenuRadioItem>
                                         <DropdownMenuRadioItem value="native">Native</DropdownMenuRadioItem>
                                     </DropdownMenuRadioGroup>
                             </DropdownMenuContent>

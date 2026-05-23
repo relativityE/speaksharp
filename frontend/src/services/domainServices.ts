@@ -25,6 +25,7 @@
 
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import logger from '../lib/logger';
+import type { PostgrestError } from '@supabase/supabase-js';
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
 import { UserGoals } from '@/types/goals';
@@ -282,7 +283,8 @@ export const goalsService = {
             .single();
 
         if (error) {
-            if (error.code === 'PGRST116') {
+            const status = (error as PostgrestError & { status?: number | string }).status;
+            if (error.code === 'PGRST116' || error.code === '42501' || error.code === '403' || status === 403 || status === '403') {
                 logger.debug({ userId }, '[goalsService.get] Goals not found');
                 return null;
             }

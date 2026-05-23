@@ -46,6 +46,7 @@ import { isPro as checkIsPro } from '@/constants/subscriptionTiers';
  */
 interface AnalyticsDashboardProps {
     profile: UserProfile | null;
+    isProUser?: boolean;
     sessionHistory: PracticeSession[];
     overallStats: OverallStats;
     fillerWordTrends: FillerWordTrends;
@@ -423,6 +424,7 @@ export const AnalyticsDashboardSkeleton: React.FC = () => (
 
 export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     profile,
+    isProUser: effectiveIsProUser,
     sessionHistory,
     overallStats,
     fillerWordTrends,
@@ -474,7 +476,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         return DEFAULT_ANALYSIS_SLIDES;
     });
 
-    const isProUser = checkIsPro(profile?.subscription_status);
+    const isProUser = effectiveIsProUser ?? checkIsPro(profile?.subscription_status);
 
     // Stat card selection state with localStorage persistence
     const [selectedStatCards, setSelectedStatCards] = useState<string[]>(() => {
