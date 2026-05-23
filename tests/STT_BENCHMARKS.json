@@ -52,6 +52,15 @@
             "ceiling_wer": 0.0611,
             "ceiling_accuracy_pct": 93.89,
             "environment": "node-cpu-baseline"
+          },
+          {
+            "timestamp": "2026-05-23T12:00:38.593Z",
+            "model": "TransformersJS whisper-tiny.en (Node CPU)",
+            "corpus": "harvard-list-1",
+            "trials": 10,
+            "ceiling_wer": 0.0611,
+            "ceiling_accuracy_pct": 93.89,
+            "environment": "node-cpu-baseline"
           }
         ]
       }

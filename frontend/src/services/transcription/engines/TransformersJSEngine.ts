@@ -21,6 +21,7 @@ import { MicStream } from '@/services/transcription/utils/types';
 import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { STTEngine } from '@/contracts/STTEngine';
+import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
 
 // Lazy-load transformers.js to avoid bundle bloat
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
@@ -272,12 +273,12 @@ export class TransformersJSEngine extends STTEngine {
                 text?: string;
                 transcript?: string;
             }
-            const audioLengthSeconds = audio.length / 16000;
+            const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
             const modelName = 'whisper-tiny.en';
             const isEnglishOnly = modelName.endsWith('.en');
             const options: Record<string, unknown> = {
-                chunk_length_s: 30,
-                stride_length_s: audioLengthSeconds < 30 ? 0 : 5,
+                chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
+                stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
                 return_timestamps: false,
             };
             if (!isEnglishOnly) {

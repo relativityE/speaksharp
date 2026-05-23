@@ -33,11 +33,21 @@ declare global {
         STTEngine?: typeof STTEngine;
         Result?: typeof Result;
         __PRIVATE_TRANSCRIPT_TRACE__?: boolean;
+        __NATIVE_BROWSER_TRACE__?: Array<Record<string, unknown>>;
     }
 }
 
 const isPrivateTranscriptTraceEnabled = () =>
     typeof window !== 'undefined' && Boolean(window.__PRIVATE_TRANSCRIPT_TRACE__);
+
+const pushNativeRuntimeTrace = (event: string, payload: Record<string, unknown> = {}) => {
+    if (typeof window === 'undefined' || !window.__NATIVE_BROWSER_TRACE__) return;
+    window.__NATIVE_BROWSER_TRACE__.push({
+        t: Number(performance.now().toFixed(1)),
+        event,
+        ...payload,
+    });
+};
 
 export type RuntimeState =
     | 'IDLE'
@@ -103,6 +113,7 @@ export class SpeechRuntimeController {
     private lockWatchdogInterval: NodeJS.Timeout | null = null;
     private isSubscriberReady: boolean = false;
     private isEmissionsSafe: boolean = false;
+    private transcriptEmissionSequence = 0;
 
     // Segmented Emission Queue
     private emissionQueue: TranscriptUpdate[] = [];
@@ -850,9 +861,26 @@ export class SpeechRuntimeController {
         const store = useSessionStore.getState();
         const currentTranscript = store.transcript.transcript;
 
+        const pushNativeStoreTrace = (event: string, payload: Record<string, unknown> = {}) => {
+            if (typeof window === 'undefined' || !window.__NATIVE_BROWSER_TRACE__) return;
+            window.__NATIVE_BROWSER_TRACE__.push({
+                t: Number(performance.now().toFixed(1)),
+                event,
+                currentTranscript,
+                partial: data.transcript.partial ?? '',
+                final: data.transcript.final ?? '',
+                chunkCount: store.chunks.length,
+                ...payload,
+            });
+        };
+
         // 🛡️ USER_ID EMISSION GUARD: Ensure transcripts belong to the session starter
         const currentUserId = this.session?.user?.id;
         if (this.capturedUserId && currentUserId && currentUserId !== this.capturedUserId) {
+            pushNativeStoreTrace('store_guard_user_mismatch', {
+                expected: this.capturedUserId,
+                actual: currentUserId,
+            });
             logger.warn({
                 expected: this.capturedUserId,
                 actual: currentUserId
@@ -860,15 +888,25 @@ export class SpeechRuntimeController {
             return;
         }
 
+        pushNativeStoreTrace('store_received_update', {
+            hasFinal: Boolean(data.transcript.final),
+            hasPartial: Boolean(data.transcript.partial),
+        });
+
         if (data.transcript.final) {
+            this.transcriptEmissionSequence += 1;
             const finalTranscript = data.transcript.final.trim();
             const currentTrimmed = currentTranscript.trim();
             if (!finalTranscript) {
+                pushNativeStoreTrace('store_skip_empty_final');
                 return;
             }
 
             const lastChunk = store.chunks[store.chunks.length - 1];
             if (lastChunk?.isFinal && lastChunk.transcript.trim() === finalTranscript) {
+                pushNativeStoreTrace('store_skip_duplicate_last_chunk', {
+                    finalTranscript,
+                });
                 return;
             }
             if (isPrivateTranscriptTraceEnabled()) {
@@ -880,11 +918,19 @@ export class SpeechRuntimeController {
             }
 
             if (currentTrimmed === finalTranscript || currentTrimmed.endsWith(finalTranscript)) {
+                pushNativeStoreTrace('store_skip_final_already_present', {
+                    currentTrimmed,
+                    finalTranscript,
+                });
                 return;
             }
 
             if (currentTrimmed && finalTranscript.startsWith(currentTrimmed)) {
                 const suffix = finalTranscript.slice(currentTrimmed.length).trim();
+                pushNativeStoreTrace('store_replace_with_provider_full_final', {
+                    suffix,
+                    finalTranscript,
+                });
                 store.updateTranscript(finalTranscript, '');
                 if (suffix) {
                     store.addChunk({
@@ -897,6 +943,10 @@ export class SpeechRuntimeController {
             }
 
             const newFullText = currentTranscript ? `${currentTranscript} ${finalTranscript}` : finalTranscript;
+            pushNativeStoreTrace('store_apply_final', {
+                finalTranscript,
+                newFullText,
+            });
             store.updateTranscript(newFullText, '');
             store.addChunk({
                 transcript: finalTranscript,
@@ -904,13 +954,28 @@ export class SpeechRuntimeController {
                 isFinal: true
             });
         } else if (data.transcript.partial && !data.transcript.partial.startsWith('Downloading model')) {
+            const partialSequence = this.transcriptEmissionSequence;
             if (isPrivateTranscriptTraceEnabled()) {
                 logger.info({
                     currentLength: currentTranscript.length,
                     partialLength: data.transcript.partial.length,
                 }, '[PRIVATE_TRACE] store_partial_transcript_apply');
             }
-            queueMicrotask(() => store.updateTranscript(currentTranscript, data.transcript.partial));
+            pushNativeStoreTrace('store_apply_partial', {
+                partialTranscript: data.transcript.partial,
+                partialSequence,
+            });
+            if (partialSequence === this.transcriptEmissionSequence) {
+                store.updateTranscript(currentTranscript, data.transcript.partial);
+            } else {
+                pushNativeStoreTrace('store_skip_stale_partial', {
+                    partialTranscript: data.transcript.partial,
+                    partialSequence,
+                    currentSequence: this.transcriptEmissionSequence,
+                });
+            }
+        } else {
+            pushNativeStoreTrace('store_skip_no_final_or_partial');
         }
     }
 
@@ -933,9 +998,26 @@ export class SpeechRuntimeController {
         this.userWords = userWords;
         const recordingId = crypto.randomUUID();
         this.currentRecordingId = recordingId;
+        pushNativeRuntimeTrace('controller_start_requested', {
+            recordingId,
+            state: this.state,
+            policyMode: policy?.preferredMode ?? null,
+            lifecycleVersion: this.lifecycleVersion,
+        });
 
         return this.enqueue(async (_token) => {
+            pushNativeRuntimeTrace('controller_start_queue_enter', {
+                recordingId,
+                state: this.state,
+                tokenVersion: _token.version,
+                lifecycleVersion: this.lifecycleVersion,
+                currentRecordingId: this.currentRecordingId,
+            });
             if (this.currentRecordingId !== recordingId) {
+                pushNativeRuntimeTrace('controller_start_skip_superseded_recording', {
+                    recordingId,
+                    currentRecordingId: this.currentRecordingId,
+                });
                 return;
             }
 
@@ -947,6 +1029,9 @@ export class SpeechRuntimeController {
             }
 
             if (this.state !== 'READY' && this.state !== 'IDLE' && this.state !== 'FAILED') {
+                pushNativeRuntimeTrace('controller_start_skip_bad_state', {
+                    state: this.state,
+                });
                 return;
             }
 
@@ -955,13 +1040,21 @@ export class SpeechRuntimeController {
             }
 
             const version = this.lifecycleVersion;
-            if (version !== this.lifecycleVersion) return;
+            if (version !== this.lifecycleVersion) {
+                pushNativeRuntimeTrace('controller_start_skip_version_changed_before_service', {
+                    version,
+                    lifecycleVersion: this.lifecycleVersion,
+                });
+                return;
+            }
 
             if (this.service?.isServiceDestroyed()) {
+                pushNativeRuntimeTrace('controller_start_service_destroyed_reset');
                 this.service = null;
             }
 
             if (!this.service) {
+                pushNativeRuntimeTrace('controller_start_create_service');
                 this.service = getTranscriptionService({
                     ...this.serviceCallbacks,
                     ...this.subscriberCallbacks,
@@ -970,6 +1063,10 @@ export class SpeechRuntimeController {
 
             pushE2EEvent('SR_START_ENTER');
             const acquired = this.lock.acquire('INITIATING');
+            pushNativeRuntimeTrace('controller_lock_acquire_result', {
+                acquired,
+                state: this.state,
+            });
             pushE2EEvent('SR_LOCK_ACQUIRED');
             if (!acquired) {
                 useSessionStore.getState().setSTTStatus({
@@ -983,15 +1080,27 @@ export class SpeechRuntimeController {
             this.resetAnalysisStateForNewRecording();
 
             await this.transition('INITIATING', undefined, _token);
+            pushNativeRuntimeTrace('controller_transition_initiating_done', {
+                tokenCancelled: _token.cancelled,
+                tokenVersion: _token.version,
+                lifecycleVersion: this.lifecycleVersion,
+            });
             pushE2EEvent('SR_AFTER_INITIATING');
             if (_token.cancelled || _token.version !== this.lifecycleVersion) {
+                pushNativeRuntimeTrace('controller_start_abort_after_initiating', {
+                    tokenCancelled: _token.cancelled,
+                    tokenVersion: _token.version,
+                    lifecycleVersion: this.lifecycleVersion,
+                });
                 await this.transition('READY', undefined, _token);
                 return;
             }
 
             const mode = this.policy?.preferredMode || 'private';
             if (this.service) {
+                pushNativeRuntimeTrace('controller_warmup_start', { mode });
                 await this.service.warmUp(mode);
+                pushNativeRuntimeTrace('controller_warmup_done', { mode });
                 pushE2EEvent('SR_AFTER_WARMUP');
                 pushE2EEvent('SR_TOKEN_CHECK', {
                     cancelled: _token.cancelled,
@@ -1000,6 +1109,11 @@ export class SpeechRuntimeController {
                 });
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {
                     pushE2EEvent('SR_ABORT_TOKEN');
+                    pushNativeRuntimeTrace('controller_start_abort_after_warmup', {
+                        tokenCancelled: _token.cancelled,
+                        tokenVersion: _token.version,
+                        lifecycleVersion: this.lifecycleVersion,
+                    });
                     await this.transition('READY', undefined, _token);
                     return;
                 }
@@ -1014,12 +1128,18 @@ export class SpeechRuntimeController {
             if (!service) throw new Error('SERVICE_MISSING');
 
             pushE2EEvent('SR_BEFORE_ENGINE_INIT');
+            pushNativeRuntimeTrace('controller_transition_engine_initializing_start');
             await this.transition('ENGINE_INITIALIZING', undefined, _token);
+            pushNativeRuntimeTrace('controller_transition_engine_initializing_done');
             pushE2EEvent('SR_AFTER_ENGINE_INIT');
 
             try {
                 pushE2EEvent('SR_BEFORE_START_TRANSCRIPTION');
+                pushNativeRuntimeTrace('controller_service_startTranscription_start', {
+                    mode: policy?.preferredMode ?? null,
+                });
                 await service.startTranscription(policy, userWords);
+                pushNativeRuntimeTrace('controller_service_startTranscription_done');
                 pushE2EEvent('SR_AFTER_START_TRANSCRIPTION');
                 const serviceState = typeof service.getState === 'function'
                     ? service.getState()
@@ -1041,10 +1161,16 @@ export class SpeechRuntimeController {
                 }
                 this.setEngineReady(true);
                 this.isEmissionsSafe = true;
+                pushNativeRuntimeTrace('controller_recording_invariant_start');
                 await this.checkRecordingInvariant();
+                pushNativeRuntimeTrace('controller_recording_invariant_done');
 
                 const supabase = getSupabaseClient();
+                pushNativeRuntimeTrace('controller_supabase_session_start');
                 const { data: { session } } = await supabase.auth.getSession();
+                pushNativeRuntimeTrace('controller_supabase_session_done', {
+                    hasUser: Boolean(session?.user?.id),
+                });
                 if (_token.cancelled || _token.version !== this.lifecycleVersion) {
                     await this.transition('READY', undefined, _token);
                     return;
@@ -1074,7 +1200,14 @@ export class SpeechRuntimeController {
                     };
 
                     this.updateSessionPersisted(false);
+                    pushNativeRuntimeTrace('controller_placeholder_save_start', {
+                        mode,
+                    });
                     const saveResult = await saveSession(sessionData, { id: userId } as UserProfile, mode, idempotencyKey, metadata);
+                    pushNativeRuntimeTrace('controller_placeholder_save_done', {
+                        hasDbSession: Boolean(saveResult?.session),
+                        usageExceeded: Boolean(saveResult?.usageExceeded),
+                    });
                     const dbSession = saveResult?.session;
 
                     if (dbSession) {
@@ -1302,6 +1435,12 @@ export class SpeechRuntimeController {
                             const wpm = sessionMetrics.wpm;
                             const accuracy = result.stats.accuracy;
                             const clarityScore = sessionMetrics.clarityScore;
+                            const currentStoreTranscript = store.transcript.transcript.trim();
+                            const currentStorePartial = store.transcript.partial.trim();
+                            const isPromotingOnlyPartial =
+                                currentStorePartial &&
+                                !currentStoreTranscript &&
+                                finalTranscript === currentStorePartial;
 
                             if (store.chunks.length === 0) {
                                 store.setChunks([{
@@ -1309,6 +1448,9 @@ export class SpeechRuntimeController {
                                     timestamp: startTime || Date.now(),
                                     isFinal: true
                                 }]);
+                                if (isPromotingOnlyPartial) {
+                                    store.updateTranscript(finalTranscript, '');
+                                }
                             } else if (finalTranscript && finalTranscript.length > store.transcript.transcript.length) {
                                 const currentTranscript = store.transcript.transcript.trim();
                                 const correctionSuffix = currentTranscript && finalTranscript.startsWith(currentTranscript)
@@ -1322,6 +1464,7 @@ export class SpeechRuntimeController {
                                         isFinal: true,
                                         isCorrection: true
                                     });
+                                    store.updateTranscript(finalTranscript, '');
                                 }
                             }
 

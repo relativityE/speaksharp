@@ -17,6 +17,8 @@ export type AudioWorkerResponse =
     | { type: 'FLOAT_TO_INT16_RESULT', correlationId: string, result: Int16Array, base64?: string }
     | { type: 'ERROR', correlationId: string, message: string };
 
+const FALLBACK_WORKER_AUDIO_SAMPLE_RATE_HZ = 16_000;
+
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
 ctx.onmessage = (event: MessageEvent<AudioWorkerMessage>) => {
@@ -74,7 +76,7 @@ export function writeString(view: DataView, offset: number, string: string): voi
     }
 }
 
-export function floatToWav(samples: Float32Array, sampleRate = 16000): Uint8Array {
+export function floatToWav(samples: Float32Array, sampleRate = FALLBACK_WORKER_AUDIO_SAMPLE_RATE_HZ): Uint8Array {
     const buffer = new ArrayBuffer(44 + samples.length * 2);
     const view = new DataView(buffer);
 
@@ -101,7 +103,11 @@ export function floatToWav(samples: Float32Array, sampleRate = 16000): Uint8Arra
     return new Uint8Array(buffer);
 }
 
-export function downsampleAudio(audio: Float32Array, inputSampleRate: number, targetSampleRate: number = 16000): Float32Array {
+export function downsampleAudio(
+    audio: Float32Array,
+    inputSampleRate: number,
+    targetSampleRate: number = FALLBACK_WORKER_AUDIO_SAMPLE_RATE_HZ,
+): Float32Array {
     if (inputSampleRate === targetSampleRate) return audio;
     const ratio = inputSampleRate / targetSampleRate;
     const newLength = Math.floor(audio.length / ratio);

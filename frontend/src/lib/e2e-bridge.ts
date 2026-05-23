@@ -88,7 +88,12 @@ export const initializeE2EEnvironment = async (): Promise<void> => {
             logger.info('[E2E Bridge] MSW worker started successfully');
         }
 
-        setupSpeechRecognitionMock();
+        const e2eConfig = getE2EConfig();
+        if (e2eConfig.stt.mode === 'mock') {
+            setupSpeechRecognitionMock();
+        } else {
+            logger.info('[E2E Bridge] Preserving real SpeechRecognition for live STT mode');
+        }
 
         window.mswReady = true;
         useReadinessStore.getState().setReady('msw');
@@ -400,4 +405,3 @@ export const setupSpeechRecognitionMock = () => {
         dispatchE2EEvent('e2e:bridge-ready');
     }
 };
-

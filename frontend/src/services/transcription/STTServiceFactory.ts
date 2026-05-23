@@ -2,6 +2,7 @@ import TranscriptionService, { TranscriptionServiceOptions } from './Transcripti
 import logger from '../../lib/logger';
 import { ENV } from '../../config/TestFlags';
 import { STT_CONFIG } from '@/config';
+import { PRIV_CLOUD_AUDIO } from './sttConstants';
 
 /**
  * ARCHITECTURE:
@@ -32,7 +33,7 @@ export class STTServiceFactory {
     if ((isE2E || isCI) && !options.mockMic) {
       options.mockMic = {
         state: 'ready',
-        sampleRate: 16000,
+        sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
         onFrame: () => () => { },
         offFrame: () => { },
         stop: () => { },

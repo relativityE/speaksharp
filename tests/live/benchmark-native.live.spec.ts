@@ -4,14 +4,14 @@
 import { test, expect } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, expectBenchmarkRecordingStarted, collectBenchmarkPreconditionSnapshot, expectBenchmarkTranscriptOutput } from './helpers/benchmark-utils';
-import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, expectBenchmarkRecordingStarted, collectBenchmarkPreconditionSnapshot, expectBenchmarkTranscriptOutput, assertNativeSpeechRecognitionIsReal } from './helpers/benchmark-utils';
+import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
     launchOptions: {
         args: [
             ...AUDIO_ARGS,
-            `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_AUDIO}`,
+            `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_LONG_AUDIO}`,
         ]
     }
 });
@@ -51,6 +51,7 @@ test('measure Native STT', async ({ page }) => {
         
 
         await selectBenchmarkMode(page, 'native');
+        await assertNativeSpeechRecognitionIsReal(page, `native-trial-${trial}-speech-recognition-preflight`);
         console.log(`NATIVE_BENCHMARK_PREFLIGHT ${JSON.stringify(await collectBenchmarkPreconditionSnapshot(page, `native-trial-${trial}-before-start`))}`);
 
         await page.getByTestId('session-start-stop-button').click();

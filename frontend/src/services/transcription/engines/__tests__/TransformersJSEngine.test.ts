@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TransformersJSEngine } from '../TransformersJSEngine';
 import { ENV } from '@/config/TestFlags';
+import { PRIV_STT } from '../../sttConstants';
 import { setupStrictZero } from '../../../../../../tests/setupStrictZero';
 
 // Hoist mock factories to top of file
@@ -132,7 +133,7 @@ describe('TransformersJSEngine (Unit)', () => {
 
         expect(result.isOk).toBe(true);
         expect(transcriber).toHaveBeenCalledWith(expect.any(Float32Array), expect.objectContaining({
-            chunk_length_s: 30,
+            chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
             stride_length_s: 0,
             return_timestamps: false,
         }));

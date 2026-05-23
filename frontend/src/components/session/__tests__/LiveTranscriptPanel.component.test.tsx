@@ -68,4 +68,19 @@ describe('LiveTranscriptPanel', () => {
         expect(transcriptContainer).toHaveTextContent('first finalized private segment');
         expect(transcriptContainer).toHaveTextContent('Listening...');
     });
+
+    it('keeps the live transcript scrollable without a visible scrollbar', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript="first sentence second sentence third sentence"
+                interimTranscript=""
+                isListening={true}
+            />
+        );
+
+        const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+        expect(transcriptContainer).toHaveAttribute('data-scrollable-transcript', 'true');
+        expect(transcriptContainer).toHaveClass('overflow-y-auto');
+        expect(transcriptContainer).toHaveClass('live-transcript-scroll');
+    });
 });

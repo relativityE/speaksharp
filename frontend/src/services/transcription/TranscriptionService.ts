@@ -25,6 +25,7 @@ import { FailureManager } from './FailureManager';
 import { MicStream } from './utils/types';
 import { STT_CONFIG } from '@/config';
 import { ENV } from '@/config/TestFlags';
+import { PRIV_CLOUD_AUDIO } from './sttConstants';
 import { sessionManager } from './SessionManager';
 import { DistributedLock } from '@/lib/DistributedLock';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
@@ -880,7 +881,7 @@ export default class TranscriptionService {
     const mediaStream = typeof MediaStream !== 'undefined' ? new MediaStream() : ({} as MediaStream);
     return {
       state: 'ready',
-      sampleRate: 16000,
+      sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
       onFrame: () => () => { },
       offFrame: () => { },
       stop: () => { },

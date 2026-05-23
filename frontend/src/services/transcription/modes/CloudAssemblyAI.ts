@@ -5,8 +5,9 @@ import { getSupabaseClient } from '../../../lib/supabaseClient';
 import type { Session } from '@supabase/supabase-js';
 import { floatToInt16Async } from '../utils/AudioProcessor';
 import { ENV } from '../../../config/TestFlags';
-import { FILLER_WORD_KEYS, STT_CONFIG } from '../../../config';
+import { FILLER_WORD_KEYS } from '../../../config';
 import { TranscriptionError } from '../errors';
+import { CLOUD_STT, CLOUD_STT_DERIVED } from '../sttConstants';
 import logger from '../../../lib/logger';
 import type { MicStream } from '../utils/types';
 
@@ -35,14 +36,12 @@ interface AssemblyAIMessage {
 // Internal connection state tracking
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
-const ASSEMBLYAI_SAMPLE_RATE = 16000;
 // AssemblyAI requires each binary audio WebSocket payload to contain 50-1000ms
 // of PCM audio. At 16kHz that is 800-16000 samples; we send 50ms chunks.
 // Do not send raw browser callback frames directly: they can be ~2-3ms and
 // trigger provider "Input Duration Violation" errors before transcription starts.
-const MIN_STREAMING_CHUNK_MS = STT_CONFIG.ASSEMBLYAI_MIN_PACKET_MS;
-const MIN_STREAMING_CHUNK_SAMPLES = Math.floor((ASSEMBLYAI_SAMPLE_RATE * MIN_STREAMING_CHUNK_MS) / 1000);
-const MAX_QUEUED_AUDIO_FRAMES = 4000;
+const MIN_STREAMING_CHUNK_SAMPLES = CLOUD_STT_DERIVED.MIN_PACKET_SAMPLES;
+const MAX_QUEUED_AUDIO_FRAMES = CLOUD_STT.MAX_QUEUED_AUDIO_FRAMES;
 const CLOUD_DEFAULT_KEYTERMS = [
   ...Object.values(FILLER_WORD_KEYS),
   'umm',
@@ -96,8 +95,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
   // Reconnection logic
   private reconnectionAttempts: number = 0;
-  private maxReconnectionAttempts: number = 5;
-  private baseReconnectDelay: number = 1000;
+  private maxReconnectionAttempts: number = CLOUD_STT.MAX_RECONNECT_ATTEMPTS;
+  private baseReconnectDelay: number = CLOUD_STT.BASE_RECONNECT_DELAY_MS;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private isReconnect: boolean = false;
   private session: Session | null = null;
@@ -386,9 +385,9 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
       const vocabulary = this.getCloudKeyterms();
       const connectionParams = new URLSearchParams({
-        sample_rate: '16000',
-        encoding: 'pcm_s16le',
-        speech_model: 'universal-streaming-english',
+        sample_rate: String(CLOUD_STT.SAMPLE_RATE_HZ),
+        encoding: CLOUD_STT.ENCODING,
+        speech_model: CLOUD_STT.SPEECH_MODEL,
         format_turns: 'true',
         token,
       });
@@ -593,8 +592,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       this.isReconnect = true;
 
       // Exponential Backoff with Jitter
-      const exp = Math.min(Math.pow(2, this.reconnectionAttempts), 16);
-      const jitter = Math.random() * 200;
+      const exp = Math.min(Math.pow(2, this.reconnectionAttempts), CLOUD_STT.RECONNECT_EXPONENT_CAP);
+      const jitter = Math.random() * CLOUD_STT.RECONNECT_JITTER_MS;
       const delay = (this.baseReconnectDelay * exp) + jitter;
 
       logger.warn({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] Connection lost. Reconnecting in ${Math.round(delay)}ms...`);
@@ -647,7 +646,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
           const timeout = setTimeout(() => {
             logger.warn('[CloudAssemblyAI] Socket close timed out. Forcing closure.');
             resolve();
-          }, 2000); // 2s safety timeout
+          }, CLOUD_STT.SOCKET_CLOSE_TIMEOUT_MS);
 
           if (this.socket) {
             this.socket.onclose = () => {

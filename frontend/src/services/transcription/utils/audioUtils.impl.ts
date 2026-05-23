@@ -1,6 +1,7 @@
 import logger from '../../../lib/logger';
 import { MicStream, MicStreamOptions } from './types';
 import { ENV } from '../../../config/TestFlags';
+import { PRIV_CLOUD_AUDIO } from '../sttConstants';
 
 // This file contains the actual implementation for creating a microphone stream
 // and is dynamically imported by the 'safe' wrapper file (audioUtils.ts).
@@ -26,7 +27,10 @@ interface WindowWithwebkitAudioContext extends Window {
 }
 
 export async function createMicStreamImpl(
-  { sampleRate = 16000, frameSize = 1024 }: MicStreamOptions = {}
+  {
+    sampleRate = PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+    frameSize = PRIV_CLOUD_AUDIO.DEFAULT_FRAME_SIZE_SAMPLES,
+  }: MicStreamOptions = {}
 ): Promise<MicStream> {
   // In test mode, return a mock stream to avoid hardware errors in CI.
   // CRITICAL: Bypass mock if we are explicitly running driver-dependent tests.
@@ -55,7 +59,9 @@ export async function createMicStreamImpl(
     throw new Error('Media devices not available in this environment');
   }
 
-  const audioCtx = new (window.AudioContext || (window as unknown as WindowWithwebkitAudioContext).webkitAudioContext)({ sampleRate: 48000 });
+  const audioCtx = new (window.AudioContext || (window as unknown as WindowWithwebkitAudioContext).webkitAudioContext)({
+    sampleRate: PRIV_CLOUD_AUDIO.MIC_CONTEXT_SAMPLE_RATE_HZ,
+  });
 
   let mediaStream: MediaStream;
 

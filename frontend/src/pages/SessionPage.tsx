@@ -30,6 +30,7 @@ export const SessionPage: React.FC = () => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
+    const previousTranscriptScrollHeightRef = useRef(0);
 
     const {
         isListening,
@@ -57,10 +58,19 @@ export const SessionPage: React.FC = () => {
         history
     } = useSessionLifecycle();
 
-    // Auto-scroll transcript to bottom
+    // Keep live transcript pinned only while the user is already reading the latest text.
     useEffect(() => {
-        if (transcriptContainerRef.current && transcriptContent) {
-            transcriptContainerRef.current.scrollTop = transcriptContainerRef.current.scrollHeight;
+        const container = transcriptContainerRef.current;
+        if (container && transcriptContent) {
+            const previousScrollHeight = previousTranscriptScrollHeightRef.current;
+            const previousDistanceFromBottom = previousScrollHeight - container.clientHeight - container.scrollTop;
+            const wasAtBottom = previousScrollHeight <= container.clientHeight || previousDistanceFromBottom <= 48;
+
+            if (wasAtBottom) {
+                container.scrollTop = container.scrollHeight;
+            }
+
+            previousTranscriptScrollHeightRef.current = container.scrollHeight;
         }
     }, [transcriptContent, interimTranscript]);
 

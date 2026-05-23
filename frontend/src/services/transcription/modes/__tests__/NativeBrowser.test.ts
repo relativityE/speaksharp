@@ -24,6 +24,7 @@ const mockRecognition = {
   onend: null as ((event: Event) => void) | null,
   continuous: false,
   interimResults: false,
+  lang: '',
 };
 
 const mockSpeechRecognitionStatic = vi.fn(() => mockRecognition);
@@ -40,6 +41,7 @@ describe('NativeBrowser Transcription Mode', () => {
     // Reset mutable properties
     mockRecognition.continuous = false;
     mockRecognition.interimResults = false;
+    mockRecognition.lang = '';
     mockRecognition.onresult = null;
 
     nativeBrowser = new NativeBrowser({
@@ -58,6 +60,7 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(mockSpeechRecognitionStatic).toHaveBeenCalled();
       expect(mockRecognition.continuous).toBe(true);
       expect(mockRecognition.interimResults).toBe(true);
+      expect(mockRecognition.lang).toBe('en-US');
     });
  
     it('should call start on the recognition object when start is called', async () => {
@@ -144,7 +147,7 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(await nativeBrowser.getTranscript()).toBe('hello world');
     });
 
-    it('keeps a richer interim hypothesis visible when the browser briefly retracts it', async () => {
+    it('uses the latest interim hypothesis when the browser revises text', async () => {
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
       if (mockRecognition.onstart) mockRecognition.onstart({} as Event);
@@ -157,7 +160,7 @@ describe('NativeBrowser Transcription Mode', () => {
       mockRecognition.onresult?.({ results: [retractedResult], resultIndex: 0 } as unknown as MockSpeechEvent);
 
       expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
-        transcript: { partial: 'um I think' },
+        transcript: { partial: 'um' },
       });
     });
 

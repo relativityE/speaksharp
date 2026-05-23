@@ -34,7 +34,24 @@ import logger from '@/lib/logger';
 import { ModelManager } from '@/services/transcription/ModelManager';
 import { MicStream } from '@/services/transcription/utils/types';
 import { getEngine } from '@/services/transcription/STTRegistry';
+import { PRIV_STT_V4 } from '../sttConstants';
 // Stale import removed
+
+const PRIVATE_ENGINE_OVERRIDE_KEY = 'speaksharp.private.engine';
+
+function getPrivateEngineOverride(): EngineType | null {
+    if (typeof window === 'undefined') return null;
+
+    const queryValue = new URLSearchParams(window.location.search).get('privateEngine');
+    const storedValue = window.localStorage.getItem(PRIVATE_ENGINE_OVERRIDE_KEY);
+    const value = queryValue || storedValue;
+
+    if (value === 'transformers-js-v4' || value === 'transformers-js' || value === 'whisper-turbo') {
+        return value;
+    }
+
+    return null;
+}
 
 /**
  * Dual-engine Private STT facade
@@ -82,12 +99,15 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🚀 Privacy-first engine selection started...');
 
+        const explicitEngine = options.forceEngine || getPrivateEngineOverride();
+
         // 1. Manual engine override
-        if (options.forceEngine) {
+        if (explicitEngine) {
             const res = await (async (): Promise<Result<EngineType, Error>> => {
-                if (options.forceEngine === 'whisper-turbo') return this.initFastEngine();
-                if (options.forceEngine === 'transformers-js') return this.initSafeEngine();
-                if (options.forceEngine === 'mock') {
+                if (explicitEngine === 'whisper-turbo') return this.initFastEngine();
+                if (explicitEngine === 'transformers-js') return this.initSafeEngine();
+                if (explicitEngine === 'transformers-js-v4') return this.initV4Engine();
+                if (explicitEngine === 'mock') {
                     const factory = getEngine('mock');
                     if (factory) {
                         const engine = factory(this.options as TranscriptionModeOptions);
@@ -101,7 +121,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                     }
                     return { isOk: false, error: new Error('Mock engine requested but not registered in STTRegistry') };
                 }
-                return { isOk: false as const, error: new Error(`Unknown engine type: ${options.forceEngine}`) };
+                return { isOk: false as const, error: new Error(`Unknown engine type: ${explicitEngine}`) };
             })();
             return res.isOk ? Result.ok(undefined) : (res as Result<void, Error>);
         }
@@ -216,10 +236,19 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         // 2. Determine best available engine.
         // Launch policy: CPU/TransformersJS is the deterministic first-run path.
-        const preferredEngine = 'transformers-js' as const;
+        const preferredEngine = (getPrivateEngineOverride() || 'transformers-js') as EngineType;
+
+        if (preferredEngine === 'transformers-js-v4') {
+            return {
+                isAvailable: true,
+                message: `Private v4 model will download on first use (~${PRIV_STT_V4.EXPECTED_Q8_DOWNLOAD_MB} MB).`,
+                sizeMB: PRIV_STT_V4.EXPECTED_Q8_DOWNLOAD_MB,
+            };
+        }
 
         // 2.5 Consult the registry first if a mock is provided
-        const mockFactory = getEngine(preferredEngine)
+        const legacyPreferredEngine = preferredEngine === 'whisper-turbo' ? 'whisper-turbo' : 'transformers-js';
+        const mockFactory = getEngine(legacyPreferredEngine)
             || getEngine('transformers-js')
             || getEngine('whisper-turbo')
             || getEngine('mock');
@@ -230,14 +259,14 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         }
 
         // 3. Probe Cache for the preferred model
-        const isDownloaded = await ModelManager.isModelDownloaded(preferredEngine);
+        const isDownloaded = await ModelManager.isModelDownloaded(legacyPreferredEngine);
 
         if (!isDownloaded) {
             return {
                 isAvailable: false,
                 reason: 'CACHE_MISS',
                 message: 'Private model unavailable at first-use.',
-                sizeMB: ModelManager.getModelSizeMB(preferredEngine)
+                sizeMB: ModelManager.getModelSizeMB(legacyPreferredEngine)
             };
         }
 
@@ -328,6 +357,42 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             this.engine = engine;
             this._engineType = 'transformers-js';
             return { isOk: true, data: 'transformers-js' as EngineType };
+        } catch (error) {
+            const e = error instanceof Error ? error : new Error(String(error));
+            return { isOk: false, error: e };
+        }
+    }
+
+    private async initV4Engine(timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
+        const options = this.options as TranscriptionModeOptions;
+        try {
+            const factory = getEngine('transformers-js-v4');
+            if (factory) {
+                logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🧪 TransformersJSV4 resolved via Registry');
+                const engine = factory(options);
+                validateEngine(engine);
+                const result = await engine.init(timeoutMs, isMock);
+                if (result && typeof result === 'object' && 'isOk' in result && result.isOk === false) {
+                    return { isOk: false, error: (result as { error: Error }).error };
+                }
+                this.engine = engine as unknown as IPrivateSTTEngine;
+                this._engineType = 'transformers-js-v4';
+                return { isOk: true, data: 'transformers-js-v4' as EngineType };
+            }
+
+            logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 📦 Loading production TransformersJSV4 module...');
+            const { TransformersJSV4Engine } = await import('./TransformersJSV4Engine');
+            const engine = new TransformersJSV4Engine(options);
+            validateEngine(engine);
+            const resultRaw = await engine.init(timeoutMs, isMock);
+            const result = resultRaw as unknown as Record<string, unknown>;
+            if (result && 'isOk' in result && result.isOk === false) {
+                return { isOk: false, error: result.error as Error };
+            }
+
+            this.engine = engine;
+            this._engineType = 'transformers-js-v4';
+            return { isOk: true, data: 'transformers-js-v4' as EngineType };
         } catch (error) {
             const e = error instanceof Error ? error : new Error(String(error));
             return { isOk: false, error: e };

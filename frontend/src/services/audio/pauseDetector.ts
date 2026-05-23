@@ -1,7 +1,7 @@
 // Pause detection via audio amplitude analysis
 // Detects silence gaps > 500ms as pauses
 
-import { PAUSE_DETECTION } from '../../config';
+import { SESSION_PAUSE } from '../transcription/sttConstants';
 
 export interface PauseMetrics {
     totalPauses: number;
@@ -26,8 +26,8 @@ export class PauseDetector {
     private readonly MAX_ROLLING_SAMPLES = 50; // ~5 seconds at 100ms updates
 
     constructor(
-        silenceThreshold: number = PAUSE_DETECTION.SILENCE_THRESHOLD,
-        minPauseDuration: number = PAUSE_DETECTION.MIN_PAUSE_DURATION_MS
+        silenceThreshold: number = SESSION_PAUSE.SILENCE_RMS_THRESHOLD,
+        minPauseDuration: number = SESSION_PAUSE.MIN_SILENCE_MS
     ) {
         this.baseThreshold = silenceThreshold;
         this.silenceThreshold = silenceThreshold;

@@ -76,15 +76,8 @@ const initializeStores = async () => {
     if (vocab) {
         for (const [k, v] of Object.entries(vocab)) mockVocabularyStore.set(k, v as MockVocabularyWord[]);
     } else {
-        // Initial Seed
-        mockVocabularyStore.set('test-user-123', [
-            { id: 'vocab-1', user_id: 'test-user-123', word: 'Kubernetes', created_at: new Date(Date.now() - 7 * 86400000).toISOString() },
-            { id: 'vocab-2', user_id: 'test-user-123', word: 'microservices', created_at: new Date(Date.now() - 6 * 86400000).toISOString() },
-            { id: 'vocab-3', user_id: 'test-user-123', word: 'CI/CD', created_at: new Date(Date.now() - 5 * 86400000).toISOString() },
-            { id: 'vocab-4', user_id: 'test-user-123', word: 'serverless', created_at: new Date(Date.now() - 3 * 86400000).toISOString() },
-            { id: 'vocab-5', user_id: 'test-user-123', word: 'neural networks', created_at: new Date(Date.now() - 2 * 86400000).toISOString() },
-            { id: 'vocab-6', user_id: 'test-user-123', word: 'gradient descent', created_at: new Date(Date.now() - 1 * 86400000).toISOString() },
-        ]);
+        // Fresh tester accounts should not start with custom tracked words.
+        mockVocabularyStore.set('test-user-123', []);
         await saveToDB('vocabulary', Object.fromEntries(mockVocabularyStore));
     }
 
@@ -385,6 +378,14 @@ export const handlers: RequestHandler[] = [
     const isPro = authHeader.includes('mock-pro-token');
 
     return HttpResponse.json({
+      can_start: true,
+      daily_remaining: 999 * 60,
+      daily_limit: 999 * 60,
+      monthly_remaining: 999 * 60,
+      monthly_limit: 999 * 60,
+      remaining_seconds: 999 * 60,
+      subscription_status: isPro ? 'pro' : 'basic',
+      streak_count: 0,
       allowed: true,
       remaining_minutes: 999,
       limit_minutes: 999,
@@ -422,20 +423,12 @@ export const handlers: RequestHandler[] = [
 
 // Export reset function for test setup
 export async function resetMockVocabularyStore() {
-  // Reset to pre-populated default state
-  mockVocabularyStore.set('test-user-123', [
-    { id: 'vocab-1', user_id: 'test-user-123', word: 'Kubernetes', created_at: new Date(Date.now() - 7 * 86400000).toISOString() },
-    { id: 'vocab-2', user_id: 'test-user-123', word: 'microservices', created_at: new Date(Date.now() - 6 * 86400000).toISOString() },
-    { id: 'vocab-3', user_id: 'test-user-123', word: 'CI/CD', created_at: new Date(Date.now() - 5 * 86400000).toISOString() },
-    { id: 'vocab-4', user_id: 'test-user-123', word: 'serverless', created_at: new Date(Date.now() - 3 * 86400000).toISOString() },
-    { id: 'vocab-5', user_id: 'test-user-123', word: 'neural networks', created_at: new Date(Date.now() - 2 * 86400000).toISOString() },
-    { id: 'vocab-6', user_id: 'test-user-123', word: 'gradient descent', created_at: new Date(Date.now() - 1 * 86400000).toISOString() },
-  ]);
+  mockVocabularyStore.set('test-user-123', []);
   
   mockSessionStore.set('test-user-123', [...MOCK_SESSION_HISTORY] as MockPracticeSession[]);
   
   await saveToDB('vocabulary', Object.fromEntries(mockVocabularyStore));
   await saveToDB('sessions', Object.fromEntries(mockSessionStore));
   
-  logger.info('[MSW] All mock stores reset with pre-populated data');
+  logger.info('[MSW] All mock stores reset with fresh-tester data');
 }

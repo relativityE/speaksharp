@@ -42,8 +42,9 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             </div>
             <div
                 ref={containerRef}
-                className="flex-1 overflow-y-auto p-3 rounded-lg bg-muted/22 leading-relaxed transition-all min-h-[160px]"
+                className="live-transcript-scroll flex-1 overflow-y-auto p-3 pr-5 rounded-lg bg-muted/22 leading-relaxed transition-all min-h-[160px]"
                 data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
+                data-scrollable-transcript="true"
                 aria-live="polite"
                 aria-label="Live transcript of your speech"
                 role="log"

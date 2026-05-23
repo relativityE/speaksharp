@@ -11,6 +11,8 @@ interface PcmDownsamplerOptions {
   };
 }
 
+const FALLBACK_WORKLET_TARGET_SAMPLE_RATE_HZ = 16_000;
+
 /**
  * An AudioWorkletProcessor for downsampling audio to a target sample rate.
  * This implementation uses a simple averaging algorithm to resample the audio,
@@ -24,7 +26,7 @@ class PcmDownsampler extends AudioWorkletProcessor {
 
   constructor(options: PcmDownsamplerOptions) {
     super();
-    this.targetSampleRate = options.processorOptions.targetSampleRate || 16000;
+    this.targetSampleRate = options.processorOptions.targetSampleRate ?? FALLBACK_WORKLET_TARGET_SAMPLE_RATE_HZ;
     this.sourceSampleRate = sampleRate; // `sampleRate` is a global in AudioWorkletGlobalScope
 
     // Calculate the ratio and initialize buffer for unprocessed samples

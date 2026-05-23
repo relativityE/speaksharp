@@ -17,6 +17,8 @@ type BenchmarkPreconditionSnapshot = {
         hasMediaDevices: boolean;
         hasGetUserMedia: boolean;
         hasWebGPU: boolean;
+        speechRecognitionName: string | null;
+        speechRecognitionIsMock: boolean;
         userAgent: string;
     };
     ui?: {
@@ -94,7 +96,13 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
         const profileText = document.querySelector('[data-testid="pro-badge"], [data-testid="nav-upgrade-button"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null;
         const debugWindow = window as Window & {
             __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown>;
+            SpeechRecognition?: unknown;
+            webkitSpeechRecognition?: unknown;
         };
+        const speechRecognition = debugWindow.SpeechRecognition ?? debugWindow.webkitSpeechRecognition;
+        const speechRecognitionName = typeof speechRecognition === 'function'
+            ? speechRecognition.name
+            : null;
 
         return {
             label: snapshotLabel,
@@ -111,6 +119,8 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
                 hasMediaDevices: Boolean(navigator.mediaDevices),
                 hasGetUserMedia: Boolean(navigator.mediaDevices?.getUserMedia),
                 hasWebGPU: Boolean('gpu' in navigator),
+                speechRecognitionName,
+                speechRecognitionIsMock: speechRecognitionName === 'MockSpeechRecognition',
                 userAgent: navigator.userAgent,
             },
             ui: {
@@ -132,6 +142,16 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
         snapshotError: error instanceof Error ? error.message : String(error),
         url: page.url(),
     }));
+}
+
+export async function assertNativeSpeechRecognitionIsReal(page: Page, label: string) {
+    const snapshot = await collectBenchmarkPreconditionSnapshot(page, label);
+    if (snapshot.browser?.speechRecognitionIsMock) {
+        throw new Error(
+            `Native benchmark is using MockSpeechRecognition, which is silent by default. ` +
+            `Run live Native benchmarks without VITE_TEST_MODE=true.\n${JSON.stringify(snapshot, null, 2)}`
+        );
+    }
 }
 
 export async function assertPreStartMode(page: Page, mode: 'native' | 'cloud' | 'private') {

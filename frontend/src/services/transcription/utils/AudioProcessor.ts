@@ -9,6 +9,8 @@
  * consistent audio handling across all transcription modes.
  */
 
+import { AUDIO_DEFAULTS } from './audioDefaults';
+
 /**
  * Convert Float32Array audio samples to Int16Array.
  * Used by CloudAssemblyAI for WebSocket streaming.
@@ -29,10 +31,10 @@ export function floatToInt16(float32Array: Float32Array): Int16Array {
  * Used by OnDeviceWhisper for inference.
  *
  * @param samples - Audio samples in Float32 format
- * @param sampleRate - Sample rate (default: 16000 Hz for Whisper)
+ * @param sampleRate - Sample rate
  * @returns WAV file as Uint8Array
  */
-export function floatToWav(samples: Float32Array, sampleRate = 16000): Uint8Array {
+export function floatToWav(samples: Float32Array, sampleRate = AUDIO_DEFAULTS.SAMPLE_RATE_HZ): Uint8Array {
     const buffer = new ArrayBuffer(44 + samples.length * 2);
     const view = new DataView(buffer);
 
@@ -160,7 +162,11 @@ export class AudioBuffer {
  * @param targetSampleRate - Target sample rate (e.g., 16000)
  * @returns Downsampled Float32Array
  */
-export function downsampleAudio(audio: Float32Array, inputSampleRate: number, targetSampleRate: number = 16000): Float32Array {
+export function downsampleAudio(
+    audio: Float32Array,
+    inputSampleRate: number,
+    targetSampleRate: number = AUDIO_DEFAULTS.SAMPLE_RATE_HZ,
+): Float32Array {
     if (inputSampleRate === targetSampleRate) {
         return audio;
     }
@@ -226,7 +232,11 @@ export function terminateWorker(): void {
 /**
  * Asynchronously downsamples audio in a background worker.
  */
-export async function downsampleAudioAsync(audio: Float32Array, inputRate: number, targetRate: number = 16000): Promise<Float32Array> {
+export async function downsampleAudioAsync(
+    audio: Float32Array,
+    inputRate: number,
+    targetRate: number = AUDIO_DEFAULTS.SAMPLE_RATE_HZ,
+): Promise<Float32Array> {
     const worker = getWorker();
     const correlationId = generateCorrelationId();
 
@@ -252,7 +262,10 @@ export async function downsampleAudioAsync(audio: Float32Array, inputRate: numbe
 /**
  * Asynchronously converts Float32 to WAV in a background worker.
  */
-export async function floatToWavAsync(samples: Float32Array, sampleRate: number = 16000): Promise<Uint8Array> {
+export async function floatToWavAsync(
+    samples: Float32Array,
+    sampleRate: number = AUDIO_DEFAULTS.SAMPLE_RATE_HZ,
+): Promise<Uint8Array> {
     const worker = getWorker();
     const correlationId = generateCorrelationId();
 

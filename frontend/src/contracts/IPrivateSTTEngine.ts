@@ -14,7 +14,7 @@ import { Result } from '@/services/transcription/modes/types';
 /**
  * Engine type identifier
  */
-export type EngineType = 'whisper-turbo' | 'transformers-js' | 'mock' | 'native' | 'cloud' | 'native-browser' | 'assemblyai';
+export type EngineType = 'whisper-turbo' | 'transformers-js' | 'transformers-js-v4' | 'mock' | 'native' | 'cloud' | 'native-browser' | 'assemblyai';
 
 /**
  * Callbacks for engine lifecycle events
