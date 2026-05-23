@@ -74,7 +74,7 @@ type PrivateInferenceAudioCapture = {
 };
 
 const PRIVATE_STT_SAMPLE_RATE = 16_000;
-const MIN_TRANSCRIPTION_SECONDS = 4.25;
+const MIN_TRANSCRIPTION_SECONDS = 8;
 const MIN_TRANSCRIPTION_SAMPLES = PRIVATE_STT_SAMPLE_RATE * MIN_TRANSCRIPTION_SECONDS;
 const MAX_RETRY_SECONDS = 12;
 const MAX_RETRY_SAMPLES = PRIVATE_STT_SAMPLE_RATE * MAX_RETRY_SECONDS;
@@ -355,6 +355,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       this.audioChunks.push(clonedFrame);
       this.bufferedSampleCount += clonedFrame.length;
 
+      // Track silence per-frame for accurate pause metrics (analytics only)
+      this.pauseDetector.processAudioFrame(clonedFrame);
+
       if (isPrivateTranscriptTraceEnabled()) {
         logger.info({
           sId: this.serviceId,
@@ -410,7 +413,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           rId: this.instanceId,
           force,
           chunks: this.audioChunks.length,
+          liveSamples: liveAudio.length,
+          retrySamples: this.retryAudioBuffer?.length ?? 0,
           samples: concatenated.length,
+          durationSec: Number((concatenated.length / PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
           rms: Number(energy.rms.toFixed(6)),
           peak: Number(energy.peak.toFixed(6)),
         }, '[PRIVATE_TRACE] processor_output');
@@ -421,26 +427,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         return;
       }
 
-      // Feed frame to PauseDetector for metrics and state
-      this.pauseDetector.processAudioFrame(concatenated);
-
-      // SNR-aware VAD: Only transcribe if NOT meaningfully silent (respects micro-pauses)
-      const isSilent = this.pauseDetector.isMeaningfullySilent();
-
-      if (isSilent) {
-        if (concatenated.length > 500 && Math.random() > 0.9) {
-          logger.debug({
-            sId: this.serviceId,
-            rId: this.instanceId,
-            silenceDuration: this.pauseDetector.getCurrentSilenceDurationSeconds(),
-            samples: concatenated.length
-          }, '[PrivateWhisper] 🤫 Meaningful silence detected - skipping chunk');
-        }
-        this.clearAudioBuffer(); // Clear buffer to prevent backlog
-        return;
-      }
-
-      logger.info({ sId: this.serviceId, rId: this.instanceId, samples: concatenated.length }, '[PrivateWhisper] 🔊 Speech detected');
+      // PauseDetector now runs per-frame in the listener (for analytics metrics).
+      // Whisper handles silence natively — empty results are caught by the
+      // `if (newText.trim())` guard below, so we never discard audio here.
 
       if (this.currentTranscript.length === 0) {
         const expectedDurationSec = concatenated.length / 16000;
@@ -476,6 +465,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           rId: this.instanceId,
           ok: result.isOk,
           textLength: result.isOk ? (result.data || '').length : 0,
+          trimLength: result.isOk ? (result.data || '').trim().length : 0,
+          preview: result.isOk ? (result.data || '').slice(0, 120) : '',
           error: result.isOk ? null : result.error?.message,
         }, '[PRIVATE_TRACE] model_inference_result');
       }

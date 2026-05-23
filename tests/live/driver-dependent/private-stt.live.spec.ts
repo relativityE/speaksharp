@@ -61,7 +61,7 @@ declare global {
 // Root cause: --use-file-for-fake-audio-capture streams from T=0; WASM init takes ~20s.
 // The 2.4s file was exhausted before the engine was ready. 10s guarantees audio is
 // still playing when data-state='recording' fires. (Expert-confirmed fix.)
-const syntheticAudio = path.resolve(__dirname, '../../fixtures/120sec_tone_16k.wav');
+const syntheticAudio = path.resolve(__dirname, '../../fixtures/harvard_benchmark_16k_loop_120s.wav');
 
 test.use({
     launchOptions: {
@@ -105,7 +105,7 @@ test.describe('Private STT Real Audio (High Fidelity)', () => {
         debugLog(`📂 Audio file: ${syntheticAudio}`);
 
         // 1. Login as Pro user (Private STT requires Pro)
-        await programmaticLoginWithRoutes(page, { subscriptionStatus: 'pro' });
+        await programmaticLoginWithRoutes(page, { userType: 'pro' });
 
         // 2. Navigate to session page
         await navigateToRoute(page, '/session');

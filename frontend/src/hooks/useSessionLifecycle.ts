@@ -189,6 +189,7 @@ export const useSessionLifecycle = () => {
             // ✅ Starting: Reset guards FIRST (Robust synchronous reset)
             hasAutoStoppedRef.current = false;
             hasVADStoppedRef.current = false;
+            lastActivityTimeRef.current = Date.now();
 
             if (usageLimit && !usageLimit.can_start) {
                 const errorMsg = usageLimit.error || 'Daily usage limit reached.';
@@ -349,6 +350,8 @@ export const useSessionLifecycle = () => {
             lastActivityTimeRef.current = Date.now();
             return;
         }
+
+        lastActivityTimeRef.current = Date.now();
 
         if (transcript.transcript !== lastTranscriptRef.current) {
             lastTranscriptRef.current = transcript.transcript;

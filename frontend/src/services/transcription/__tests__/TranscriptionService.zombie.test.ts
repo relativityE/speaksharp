@@ -15,6 +15,19 @@ import { TranscriptionModeOptions } from '../modes/types';
 
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
 
+vi.mock('../ModelManager', () => ({
+    ModelManager: {
+        isModelDownloaded: vi.fn().mockResolvedValue(true),
+        getModelSizeMB: vi.fn().mockReturnValue(100)
+    }
+}));
+vi.mock('@/services/transcription/ModelManager', () => ({
+    ModelManager: {
+        isModelDownloaded: vi.fn().mockResolvedValue(true),
+        getModelSizeMB: vi.fn().mockReturnValue(100)
+    }
+}));
+
 class MockEngine extends STTEngine {
     public override get type() { return this.name as EngineType; }
     public async checkAvailability() { return { isAvailable: true }; }
@@ -89,6 +102,7 @@ describe('TranscriptionService - Zombie Prevention', () => {
         sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { instances.assemblyai = new MockEngine('cloud', opts); return instances.assemblyai; });
         sttRegistry.register('native-browser', (opts: TranscriptionModeOptions) => { instances['native-browser'] = new MockEngine('native', opts); return instances['native-browser']; });
         sttRegistry.register('whisper-turbo', (opts: TranscriptionModeOptions) => { instances['whisper-turbo'] = new MockEngine('transformers-js', opts); return instances['whisper-turbo']; });
+        sttRegistry.register('transformers-js', (opts: TranscriptionModeOptions) => { instances['whisper-turbo'] = new MockEngine('transformers-js', opts); return instances['whisper-turbo']; });
 
         service = new TestTranscriptionService(mockOptions);
         // Start init with a valid mock environment already present

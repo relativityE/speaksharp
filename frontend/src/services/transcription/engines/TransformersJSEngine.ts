@@ -24,6 +24,52 @@ import { STTEngine } from '@/contracts/STTEngine';
 
 // Lazy-load transformers.js to avoid bundle bloat
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
+type UnknownRecord = Record<string, unknown>;
+
+const isPrivateTranscriptTraceEnabled = () =>
+    typeof window !== 'undefined' &&
+    Boolean((window as unknown as { __PRIVATE_TRANSCRIPT_TRACE__?: boolean }).__PRIVATE_TRANSCRIPT_TRACE__);
+
+function summarizeRawResult(result: unknown): UnknownRecord {
+    if (typeof result === 'string') {
+        return {
+            kind: 'string',
+            length: result.length,
+            trimLength: result.trim().length,
+            preview: result.slice(0, 120),
+        };
+    }
+
+    if (!result || typeof result !== 'object') {
+        return {
+            kind: result === null ? 'null' : typeof result,
+        };
+    }
+
+    const record = result as UnknownRecord;
+    const summary: UnknownRecord = {
+        kind: 'object',
+        keys: Object.keys(record).sort(),
+    };
+
+    for (const key of ['text', 'transcript', 'chunks', 'segments']) {
+        const value = record[key];
+        if (typeof value === 'string') {
+            summary[key] = {
+                type: 'string',
+                length: value.length,
+                trimLength: value.trim().length,
+                preview: value.slice(0, 120),
+            };
+        } else if (Array.isArray(value)) {
+            summary[key] = { type: 'array', length: value.length };
+        } else if (value !== undefined) {
+            summary[key] = { type: typeof value };
+        }
+    }
+
+    return summary;
+}
 
 export class TransformersJSEngine extends STTEngine {
     public readonly type: EngineType = 'transformers-js';
@@ -227,13 +273,18 @@ export class TransformersJSEngine extends STTEngine {
                 transcript?: string;
             }
             const audioLengthSeconds = audio.length / 16000;
-            const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, {
-                chunk_length_s: Math.min(30, Math.max(1, Math.ceil(audioLengthSeconds))),
-                stride_length_s: audioLengthSeconds < 10 ? 0 : 5,
-                task: 'transcribe',
-                language: 'english',
+            const modelName = 'whisper-tiny.en';
+            const isEnglishOnly = modelName.endsWith('.en');
+            const options: Record<string, unknown> = {
+                chunk_length_s: 30,
+                stride_length_s: audioLengthSeconds < 30 ? 0 : 5,
                 return_timestamps: false,
-            });
+            };
+            if (!isEnglishOnly) {
+                options.task = 'transcribe';
+                options.language = 'english';
+            }
+            const result = await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(audio, options);
 
             const latency = performance.now() - start;
             logger.info({
@@ -251,6 +302,19 @@ export class TransformersJSEngine extends STTEngine {
             const transcript = typeof result === 'string'
                 ? result
                 : (result as TranscriptionResult).text ?? (result as TranscriptionResult).transcript ?? '';
+
+            if (isPrivateTranscriptTraceEnabled()) {
+                logger.info({
+                    sId: this.serviceId,
+                    rId: this.runId,
+                    eId: this.instanceId,
+                    audio_samples: audio.length,
+                    audio_length_s: Number(audioLengthSeconds.toFixed(3)),
+                    extracted_length: transcript.length,
+                    extracted_trim_length: transcript.trim().length,
+                    raw_result: summarizeRawResult(result),
+                }, '[PRIVATE_DIAG] transformers_result_shape');
+            }
 
             this.currentTranscript = transcript; // Sync with orchestrator buffer
             this.updateHeartbeat();

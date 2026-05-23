@@ -14,6 +14,13 @@ import type { sttRegistry as SttRegistry } from '../STTRegistry';
 
 import { STTEngine } from '../../../contracts/STTEngine';
 
+vi.mock('../ModelManager', () => ({
+    ModelManager: {
+        isModelDownloaded: vi.fn().mockResolvedValue(true),
+        getModelSizeMB: vi.fn().mockReturnValue(100)
+    }
+}));
+
 class MockHeartbeatEngine extends STTEngine {
     public override readonly type = 'transformers-js' as EngineType;
 

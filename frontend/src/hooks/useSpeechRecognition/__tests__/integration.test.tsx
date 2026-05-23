@@ -95,7 +95,7 @@ describe('useSpeechRecognition Integration', () => {
         });
 
         vi.mocked(_getEngine).mockImplementation((type) => {
-            if (type === 'native' || type === 'mock-engine' || type === 'private') {
+            if (type === 'native' || type === 'mock-engine' || type === 'private' || type === 'transformers-js' || type === 'whisper-turbo') {
                 return (opts: TranscriptionModeOptions) => {
                     service!.updateCallbacks(opts);
                     return service! as unknown as _ITranscriptionEngine;

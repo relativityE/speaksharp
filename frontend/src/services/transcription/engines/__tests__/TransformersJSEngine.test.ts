@@ -132,10 +132,8 @@ describe('TransformersJSEngine (Unit)', () => {
 
         expect(result.isOk).toBe(true);
         expect(transcriber).toHaveBeenCalledWith(expect.any(Float32Array), expect.objectContaining({
-            chunk_length_s: 2,
+            chunk_length_s: 30,
             stride_length_s: 0,
-            task: 'transcribe',
-            language: 'english',
             return_timestamps: false,
         }));
     });

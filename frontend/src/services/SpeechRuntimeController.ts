@@ -630,6 +630,14 @@ export class SpeechRuntimeController {
 
         if (newState === 'FAILED') {
             this.commandQueue = Promise.resolve();
+            if (error) {
+                const rawMessage = error.message || '';
+                const isMicPermissionError = /permission|not-allowed|service-not-allowed|microphone|mic/i.test(rawMessage);
+                const displayMessage = isMicPermissionError
+                    ? 'Microphone access is denied. Please grant permission in your browser settings.'
+                    : rawMessage;
+                store.setSTTStatus({ type: 'error', message: displayMessage });
+            }
             if (this.sessionId) {
                 // Ensure this is properly tracked or caught
                 completeSession(this.sessionId, {
@@ -638,7 +646,7 @@ export class SpeechRuntimeController {
                     reason: 'Controller transitioned to FAILED state'
                 }).catch(() => { });
             }
-            await this.transition('FAILED_VISIBLE', undefined, token);
+            await this.transition('FAILED_VISIBLE', error, token);
         }
 
         if (newState === 'FAILED_VISIBLE') {

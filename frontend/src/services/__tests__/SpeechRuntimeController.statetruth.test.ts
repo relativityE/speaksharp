@@ -45,7 +45,7 @@ describe('SpeechRuntimeController State Truth & Guards', () => {
             updatePolicy: vi.fn().mockResolvedValue(undefined),
             warmUp: vi.fn().mockResolvedValue(undefined),
             getMode: vi.fn().mockReturnValue('native'),
-            getStrategy: vi.fn().mockReturnValue({ start: vi.fn(), stop: vi.fn() }),
+            getStrategy: vi.fn().mockReturnValue({ init: vi.fn(), start: vi.fn(), stop: vi.fn() }),
             fsm: { is: vi.fn().mockReturnValue(false) },
             subscribe: vi.fn(() => vi.fn()),
             destroy: async () => {},

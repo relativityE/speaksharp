@@ -33,17 +33,21 @@ speak "The stale smell of old beer lingers. \
        The twister left no trace of the town." \
     "$FIXTURE_DIR/harvard_sentences_16k.wav"
 
-speak "The stale smell of old beer lingers. \
-       A dash of pepper spoils beef stew. \
-       The swan dive was far short of perfect. \
-       The box was thrown beside the parked truck. \
-       The twister left no trace of the town. \
-       They told wild tales to frighten him. \
-       We find joy in the simplest things. \
-       The puppy chewed up the new shoes. \
-       A smooth road makes driving pleasant. \
-       The quick brown fox jumps over the lazy dog." \
+speak "Um, the stale smell of old beer, like, lingers. \
+       Basically, a dash of pepper spoils beef stew. \
+       Well, the swan dive was far short of perfect. \
+       You know, the box was thrown beside the parked truck. \
+       Literally, the twister left no trace of the town. \
+       They, like, told wild tales to frighten him. \
+       We, um, find joy in the simplest things. \
+       The puppy, like, chewed up the new shoes. \
+       A smooth road, you know, makes driving pleasant. \
+       Basically, the quick brown fox jumps over the lazy dog." \
     "$FIXTURE_DIR/harvard_benchmark_16k.wav"
+
+# Loop the benchmark audio to create a 120s version
+echo "🔄 Looping harvard_benchmark_16k.wav to create harvard_benchmark_16k_loop_120s.wav..."
+ffmpeg -y -stream_loop -1 -i "$FIXTURE_DIR/harvard_benchmark_16k.wav" -t 120 "$FIXTURE_DIR/harvard_benchmark_16k_loop_120s.wav" 2>/dev/null
 
 echo "✅ Fixtures generated. Validating..."
 for f in "$FIXTURE_DIR"/harvard_*.wav; do

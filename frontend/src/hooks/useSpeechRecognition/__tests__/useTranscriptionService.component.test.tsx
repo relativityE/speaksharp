@@ -9,6 +9,13 @@ import type { SpeechRuntimeController } from '@/services/SpeechRuntimeController
 import type { useSessionStore as useSessionStoreType } from '@/stores/useSessionStore';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
 
+vi.mock('@/services/transcription/ModelManager', () => ({
+  ModelManager: {
+    isModelDownloaded: vi.fn().mockResolvedValue(true),
+    getModelSizeMB: vi.fn().mockReturnValue(100)
+  }
+}));
+
 /**
  * @file useTranscriptionService.component.test.tsx
  * @description Contract verification for the transcription hook lifecycle.

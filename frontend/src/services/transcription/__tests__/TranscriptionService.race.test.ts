@@ -72,8 +72,6 @@ describe('TranscriptionService - Race Conditions', () => {
         // Arrange
         const engine = new MockRaceEngine();
         
-        await setupStrictZero();
-        registry = (await import('../STTRegistry')).sttRegistry;
         registry.register('whisper-turbo', () => engine);
         registry.register('transformers-js', () => engine);
         registry.register('mock', () => engine);
@@ -136,8 +134,6 @@ describe('TranscriptionService - Race Conditions', () => {
         vi.spyOn(engine, 'init').mockImplementation(() => initPromiseResolves as Promise<Result<void, Error>>);
         
         // 1. Inject into STTRegistry
-        await setupStrictZero();
-        registry = (await import('../STTRegistry')).sttRegistry;
         registry.register('whisper-turbo', () => engine);
         registry.register('transformers-js', () => engine);
         

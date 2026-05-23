@@ -32,7 +32,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../audio/pauseDetector', () => ({
-    default: vi.fn().mockImplementation(() => ({
+    PauseDetector: vi.fn().mockImplementation(() => ({
         isMeaningfullySilent: mocks.isMeaningfullySilent,
         processAudioFrame: mocks.processAudioFrame,
         getCurrentSilenceDurationSeconds: vi.fn().mockReturnValue(0)
@@ -105,7 +105,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         // Simulate enough audio for the production batching threshold.
         if (frameCallback) {
-            frameCallback(new Float32Array(64000).fill(0.5));
+            frameCallback(new Float32Array(128000).fill(0.5));
         }
 
         // Fast forward 1.1 seconds to trigger interval (1000ms loop)
@@ -117,14 +117,15 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         vi.useRealTimers();
     });
 
-    it('RMS VAD: drops silent chunks (RMS < 0.01)', async () => {
+    it('PauseDetector tracks metrics but does not gate transcription', async () => {
         vi.useFakeTimers();
         await privateWhisper.init();
 
+        let frameCallback: ((frame: Float32Array) => void) | undefined;
         const mockMic: MicStream = {
             state: 'ready',
             sampleRate: 16000,
-            onFrame: vi.fn((_cb: (frame: Float32Array) => void) => { return () => { }; }),
+            onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
             offFrame: vi.fn(),
             stop: vi.fn(),
             close: vi.fn(),
@@ -133,14 +134,17 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         await privateWhisper.start(mockMic);
 
-        // Simulate silence in PauseDetector mock
+        // Even with PauseDetector reporting silence, audio should still be transcribed
         mocks.isMeaningfullySilent.mockReturnValue(true);
+
+        // Provide enough audio to meet the batching threshold
+        if (frameCallback) frameCallback(new Float32Array(128000).fill(0.5));
 
         // Advance timer to trigger processAudio
         await vi.advanceTimersByTimeAsync(1100);
 
-        // Verify: transcribe should NOT be called because RMS is 0 (mocked)
-        expect(mocks.transcribe).not.toHaveBeenCalled();
+        // Transcribe SHOULD be called — PauseDetector no longer gates transcription
+        expect(mocks.transcribe).toHaveBeenCalled();
 
         await privateWhisper.stop();
         vi.useRealTimers();
@@ -164,7 +168,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         await privateWhisper.start(mockMic);
 
         // Simulate audio frame (high amplitude squares) above the batching threshold.
-        const audioFrame = new Float32Array(64000).fill(0.5);
+        const audioFrame = new Float32Array(128000).fill(0.5);
         if (frameCallback) {
             frameCallback(audioFrame);
         }
@@ -196,14 +200,14 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         await privateWhisper.start(mockMic);
 
         // 1. Send first frame above the production batching threshold
-        if (frameCallback) frameCallback(new Float32Array(64000).fill(0.5));
+        if (frameCallback) frameCallback(new Float32Array(128000).fill(0.5));
 
         // 2. Trigger processing at 500ms
         await vi.advanceTimersByTimeAsync(500);
         expect(mocks.transcribe).toHaveBeenCalledTimes(1);
 
         // 3. CRITICAL: While "thinking" (it's awaiting the 200ms mock delay), send more audio
-        if (frameCallback) frameCallback(new Float32Array(64000).fill(0.1));
+        if (frameCallback) frameCallback(new Float32Array(128000).fill(0.1));
 
         // 4. Advance past the 200ms think time + microtask flush
         await vi.advanceTimersByTimeAsync(250);

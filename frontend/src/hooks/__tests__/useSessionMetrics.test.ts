@@ -80,7 +80,7 @@ describe('useSessionMetrics', () => {
             );
             expect(result.current.clarityScore).toBe(0);
             expect(result.current.isClarityScorable).toBe(false);
-            expect(result.current.clarityLabel).toBe('Not enough speech to score');
+            expect(result.current.clarityLabel).toBe('Not enough reliable speech to score');
             expect(result.current.clarityExplanation).toContain('No transcript was captured');
         });
 
