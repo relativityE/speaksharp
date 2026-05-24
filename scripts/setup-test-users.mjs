@@ -169,11 +169,27 @@ async function createUserWithTier(email, tier) {
         return null;
     }
 
+    const profilePatch = buildProfilePatchForTier(tier, email);
+
     // Try update first (for profile cleanup) then upsert
-    await supabase.from('user_profiles').update({ subscription_status: tier }).eq('id', data.user.id);
-    await supabase.from('user_profiles').upsert({ id: data.user.id, subscription_status: tier }, { onConflict: 'id' });
+    await supabase.from('user_profiles').update(profilePatch).eq('id', data.user.id);
+    await supabase.from('user_profiles').upsert({ id: data.user.id, ...profilePatch }, { onConflict: 'id' });
 
     return data.user;
+}
+
+function syntheticSubscriptionId(email) {
+    const stableEmailSlug = email.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return `sub_test_${stableEmailSlug || 'user'}`;
+}
+
+function buildProfilePatchForTier(tier, email) {
+    const paidSubscriptionId = tier === 'pro' ? syntheticSubscriptionId(email) : null;
+    return {
+        subscription_status: tier,
+        stripe_subscription_id: paidSubscriptionId,
+        subscription_id: paidSubscriptionId,
+    };
 }
 
 async function printSoakUsers() {
@@ -230,9 +246,10 @@ async function syncUserTiers(users, targetBasic, targetPro) {
             console.log(`  [SYNC] ${target.email}: ${user.tier} -> ${target.tier}`);
 
             // Try Update first (more surgical, avoids some permission traps)
+            const profilePatch = buildProfilePatchForTier(target.tier, target.email);
             const { error: updateError } = await supabase
                 .from('user_profiles')
-                .update({ subscription_status: target.tier })
+                .update(profilePatch)
                 .eq('id', user.id);
 
             if (updateError) {
@@ -241,7 +258,7 @@ async function syncUserTiers(users, targetBasic, targetPro) {
 
                 const { error: upsertError } = await supabase.from('user_profiles').upsert({
                     id: user.id,
-                    subscription_status: target.tier
+                    ...profilePatch
                 }, { onConflict: 'id' });
 
                 if (upsertError) {
@@ -344,7 +361,7 @@ async function main() {
                     console.log(`      User already exists, skipping creation.`);
                     created++; // Count as "available"
                 } else {
-                    console.error(`      ❌ Failed to create ${email}:`, error.message);
+                    console.error(`      ❌ Failed to create ${target.email}:`, error.message);
                 }
             } else {
                 console.log(`      ✅ Created ${data.user.id}`);
