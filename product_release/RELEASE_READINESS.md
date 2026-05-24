@@ -43,6 +43,9 @@ Public launch status: **NO-GO**
 ### Required Before Launch
 
 - [ ] Controlled desktop tester release packet is green with documented limitations. May 24 browser evidence clears signup → Private → save → History/detail, but transcript quality and analytics interpretation need final review before wider distribution.
+- [ ] Private model preload is confirmed in the browser artifact: after profile hydration, `useSessionLifecycle` sets the default Private mode and emits `SESSION_LIFECYCLE_WARMUP` before the user presses Start Recording. The artifact must show model setup/warm-up happening during idle page time, or explicitly show a `download-required` setup state before recording starts.
+- [ ] The STT mode selector sets expectations before the user records: Private copy is visible inline in the selector, states that processing is on-device/private, and warns that first words may take about 5 seconds.
+- [ ] A single full tester journey passes the binary gate below without fail criteria.
 - [x] CI/Test Audit is green on `main`: run `26231514902`.
 - [x] Production canary is green on `main`: push run `26231514911`.
 - [x] Supabase deploy is green on `main`: run `26231515067`.
@@ -62,6 +65,27 @@ Public launch status: **NO-GO**
 - **READY** only if every required item is checked.
 - **CONDITIONAL** only if no P0 remains and all unchecked items have an explicit owner and mitigation.
 - **NOT READY** if any P0 remains.
+
+### Controlled Tester Binary Gate
+
+The controlled tester packet is green only when one uninterrupted browser run proves all of the following:
+
+- Fresh trial account is created without promo-code or entitlement confusion.
+- Private STT is selected, or already selected by default, and recording starts within two user actions after mic permission is handled.
+- Private shows immediate visual feedback while listening/processing, and transcript text appears within 10 seconds of the first spoken word.
+- At least two spoken filler words appear in the analytics panel.
+- Session saves without error.
+- History shows the new session and opens the correct saved detail.
+- The user-facing clarity/analytics copy makes it clear what to improve next.
+- Browser console has no unhandled JavaScript error during the run.
+
+The run fails if any of the following occurs:
+
+- The user sees a blank or inert recording surface for more than 10 seconds with no visual feedback.
+- Analytics shows zero fillers after the test speaker deliberately used fillers.
+- The session does not appear in History or opens the wrong detail.
+- Any unhandled JavaScript error appears in the browser trace.
+- The feedback is a number-only score that does not explain what the user should do differently.
 
 ---
 

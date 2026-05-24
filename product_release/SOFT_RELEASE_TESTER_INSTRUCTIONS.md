@@ -17,7 +17,7 @@ Setup:
 Your new account includes 1 hour of trial access automatically. The timer starts when the account is created. Cloud STT is available with Pro. Trial access includes Private STT, so this test focuses on Private STT.
 
 What to test:
-1. Start with Private STT for your first session. This may do a one-time private model setup in your browser.
+1. Start with Private STT for your first session. This may do a one-time private model setup in your browser. It runs on your device, so first words can take about 5 seconds to appear.
 2. Record a 1-2 minute speaking session. Please include a few deliberate filler words such as "um", "uh", and "like".
 3. Stop and review your analytics.
 4. Confirm the session appears in History and opens to the saved analytics/session detail.

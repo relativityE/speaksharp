@@ -89,9 +89,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         }
     };
     const modeDescriptions: Record<RecordingMode, string> = {
-        native: 'Fastest setup. Uses your browser and works best in Chrome.',
-        private: 'Keeps audio on this device after a one-time setup.',
-        cloud: 'Most reliable option. Cloud STT is a Pro feature.',
+        native: 'Fast in Chrome or Edge. Uses your browser speech service.',
+        private: 'On-device and private. First words may take ~5s; nothing leaves your browser.',
+        cloud: 'Fastest and most reliable. Pro feature; audio is processed securely in the cloud.',
         mock: 'Test transcription mode.',
     };
 
@@ -131,7 +131,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <span className="flex flex-col gap-0.5">
                                         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Browser</span>
                                         <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                            Fastest setup. Works best in Chrome.
+                                            Fast in Chrome or Edge. Uses your browser speech service.
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>
@@ -144,7 +144,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <span className="flex flex-col gap-0.5">
                                         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Private {!isProUser ? '(Pro)' : ''}</span>
                                         <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                            Keeps audio on this device after setup.
+                                            On-device and private. First words may take ~5s.
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>
@@ -157,7 +157,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <span className="flex flex-col gap-0.5">
                                         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud {!canUseCloudStt ? '(Pro feature)' : ''}</span>
                                         <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                            Most reliable option. Audio is processed securely in the cloud.
+                                            Fastest and most reliable. Pro feature; processed in the cloud.
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>

@@ -233,8 +233,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                             {selectedMode === 'private' && (
                                 <span
                                     className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-primary/30 bg-primary/5 text-primary"
-                                    title="Processes on your device. First words appear in ~5s. Nothing leaves your browser."
-                                    aria-label="Private transcription details: Processes on your device. First words appear in about 5 seconds. Nothing leaves your browser."
+                                    title="On-device and private. First words may take ~5s; nothing leaves your browser."
+                                    aria-label="Private transcription details: On-device and private. First words may take about 5 seconds. Nothing leaves your browser."
                                 >
                                     <Info className="h-3.5 w-3.5" />
                                 </span>
@@ -248,9 +248,30 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                             </DropdownMenuTrigger>
                             <DropdownMenuContent className="w-56">
                                     <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
-                                        <DropdownMenuRadioItem value="private" disabled={!canAccessAdvancedModes}>Private</DropdownMenuRadioItem>
-                                        <DropdownMenuRadioItem value="cloud" disabled={!canUseCloudStt}>Cloud (Pro feature)</DropdownMenuRadioItem>
-                                        <DropdownMenuRadioItem value="native">Native</DropdownMenuRadioItem>
+                                        <DropdownMenuRadioItem value="private" disabled={!canAccessAdvancedModes} className="items-start py-2.5">
+                                            <span className="flex flex-col gap-0.5">
+                                                <span>Private</span>
+                                                <span className="text-xs font-normal text-muted-foreground">
+                                                    On-device. First words may take ~5s.
+                                                </span>
+                                            </span>
+                                        </DropdownMenuRadioItem>
+                                        <DropdownMenuRadioItem value="cloud" disabled={!canUseCloudStt} className="items-start py-2.5">
+                                            <span className="flex flex-col gap-0.5">
+                                                <span>Cloud (Pro feature)</span>
+                                                <span className="text-xs font-normal text-muted-foreground">
+                                                    Fastest option. Audio is processed securely in the cloud.
+                                                </span>
+                                            </span>
+                                        </DropdownMenuRadioItem>
+                                        <DropdownMenuRadioItem value="native" className="items-start py-2.5">
+                                            <span className="flex flex-col gap-0.5">
+                                                <span>Native</span>
+                                                <span className="text-xs font-normal text-muted-foreground">
+                                                    Browser speech service. Works best in Chrome or Edge.
+                                                </span>
+                                            </span>
+                                        </DropdownMenuRadioItem>
                                     </DropdownMenuRadioGroup>
                             </DropdownMenuContent>
                         </DropdownMenu>
