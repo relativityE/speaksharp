@@ -84,9 +84,21 @@ describe('LiveRecordingCard', () => {
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
         expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).not.toHaveAttribute('data-disabled');
-        expect(await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveAttribute('data-disabled');
+        const cloudOption = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
+        expect(cloudOption).toHaveAttribute('data-disabled');
         expect(screen.getByText(/Cloud \(Pro feature\)/i)).toBeDefined();
-        expect(screen.getByText(/Most reliable option/i)).toBeDefined();
+        expect(cloudOption.textContent).toMatch(/Fastest and most reliable|Pro feature/i);
+    });
+
+    it('sets Private latency and privacy expectations before recording', async () => {
+        render(<LiveRecordingCard {...defaultProps} mode="private" isProUser={true} canUseCloudStt={false} />);
+
+        expect(screen.getByText(/nothing leaves your browser/i)).toBeDefined();
+
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+
+        expect((await screen.findAllByText(/On-device and private/i)).length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/First words may take ~5s/i).length).toBeGreaterThan(0);
     });
 
     it('lets a trial user switch to Browser while Private setup is downloading', async () => {

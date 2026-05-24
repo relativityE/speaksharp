@@ -23,10 +23,30 @@ test.describe('First-time tester automatic trial Private STT path @live', () => 
     test.setTimeout(360_000);
 
     await page.addInitScript(() => {
-      window.__E2E_CONTEXT__ = true;
-      window.REAL_WHISPER_TEST = true;
-      window.__FORCE_TRANSFORMERS_JS__ = true;
-      window.__STT_LOAD_TIMEOUT__ = 180000;
+      const win = window as unknown as {
+        __E2E_CONTEXT__?: boolean
+        REAL_WHISPER_TEST?: boolean
+        __FORCE_TRANSFORMERS_JS__?: boolean
+        __STT_LOAD_TIMEOUT__?: number
+        __RC_GATE_EVENTS__?: Array<{ event: string, payload: Record<string, unknown>, timestamp: number }>
+        __SS_E2E__?: {
+          isActive: boolean
+          pushEvent?: (event: string, payload: Record<string, unknown>) => void
+        }
+      };
+
+      win.__E2E_CONTEXT__ = true;
+      win.REAL_WHISPER_TEST = true;
+      win.__FORCE_TRANSFORMERS_JS__ = true;
+      win.__STT_LOAD_TIMEOUT__ = 180000;
+      win.__RC_GATE_EVENTS__ = [];
+      win.__SS_E2E__ = {
+        ...(win.__SS_E2E__ ?? {}),
+        isActive: true,
+        pushEvent(event, payload) {
+          win.__RC_GATE_EVENTS__?.push({ event, payload, timestamp: Date.now() });
+        },
+      };
     });
 
     const hardFailures: string[] = [];
@@ -76,11 +96,15 @@ test.describe('First-time tester automatic trial Private STT path @live', () => 
     });
 
     let firstUseReady: FirstUseSnapshot;
+    let warmupEvidence: WarmupEvidence;
     await test.step('Prepare uncached Private model with visible status feedback', async () => {
       await preparePrivateModelIfPrompted(page);
       firstUseReady = await getFirstUseSnapshot(page);
+      warmupEvidence = await getWarmupEvidence(page);
       console.log(`FIRST_TIME_TESTER_STEP private_ready ${JSON.stringify(firstUseReady)}`);
+      console.log(`FIRST_TIME_TESTER_STEP private_warmup ${JSON.stringify(warmupEvidence)}`);
       expect(isPrivateReadySnapshot(firstUseReady), JSON.stringify(firstUseReady)).toBe(true);
+      expect(warmupEvidence!.privateWarmupBeforeStart, JSON.stringify(warmupEvidence)).toBe(true);
     });
 
     let recordingEvidence: RecordingEvidence;
@@ -99,6 +123,7 @@ test.describe('First-time tester automatic trial Private STT path @live', () => 
     console.log(`LIVE_FIRST_TIME_TESTER_PRIVATE_TRIAL_EVIDENCE ${JSON.stringify({
       email,
       firstUseReady: firstUseReady!,
+      warmupEvidence: warmupEvidence!,
       recordingEvidence: recordingEvidence!,
       historyEvidence: historyEvidence!,
       afterRecording,
@@ -246,6 +271,34 @@ type FirstUseSnapshot = {
   sttReady: string | null
   statusText: string
   downloadVisible: boolean
+}
+
+type WarmupEvidence = {
+  privateWarmupBeforeStart: boolean
+  warmupTimestamp: number | null
+  startTimestamp: number | null
+  events: Array<{ event: string, payload: Record<string, unknown>, timestamp: number }>
+}
+
+async function getWarmupEvidence(page: Page): Promise<WarmupEvidence> {
+  return await page.evaluate(() => {
+    const win = window as unknown as {
+      __RC_GATE_EVENTS__?: Array<{ event: string, payload: Record<string, unknown>, timestamp: number }>
+    };
+    const events = win.__RC_GATE_EVENTS__ ?? [];
+    const warmup = events.find((entry) =>
+      entry.event === 'SESSION_LIFECYCLE_WARMUP' &&
+      entry.payload?.mode === 'private'
+    );
+    const start = events.find((entry) => entry.event === 'SR_START_ENTER');
+
+    return {
+      privateWarmupBeforeStart: Boolean(warmup) && (!start || warmup.timestamp < start.timestamp),
+      warmupTimestamp: warmup?.timestamp ?? null,
+      startTimestamp: start?.timestamp ?? null,
+      events,
+    };
+  });
 }
 
 async function getFirstUseSnapshot(page: Page): Promise<FirstUseSnapshot> {

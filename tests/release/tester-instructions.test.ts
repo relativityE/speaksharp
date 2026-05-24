@@ -18,4 +18,39 @@ describe('soft release tester instructions', () => {
         expect(instructions).toMatch(/Cloud STT is available with Pro\. Trial access includes Private STT/i);
         expect(instructions).not.toMatch(/optionally try cloud/i);
     });
+
+    it('sets Private first-text expectations before testers record', () => {
+        const instructions = readReleaseDoc('SOFT_RELEASE_TESTER_INSTRUCTIONS.md');
+
+        expect(instructions).toMatch(/runs on your device/i);
+        expect(instructions).toMatch(/first words can take about 5 seconds to appear/i);
+    });
+});
+
+describe('release candidate gate evidence contract', () => {
+    it('requires latest complete passing artifacts, not stale passing evidence', () => {
+        const readiness = readReleaseDoc('RELEASE_READINESS.md');
+
+        expect(readiness).toMatch(/latest complete passing run/i);
+        expect(readiness).toMatch(/newer run fails any required criterion/i);
+        expect(readiness).toMatch(/parent gate returns to red/i);
+        expect(readiness).toMatch(/Last updated by: \[initials\] \[date\] \[artifact path\]/i);
+    });
+
+    it('folds the STT binary gates into their parent RC gates with named artifacts', () => {
+        const readiness = readReleaseDoc('RELEASE_READINESS.md');
+
+        expect(readiness).toMatch(/G6 Fresh Trial Private STT Transcript\/Save\/History Path/i);
+        expect(readiness).toMatch(/SESSION_LIFECYCLE_WARMUP/i);
+        expect(readiness).toMatch(/speaksharp-private-human-\[timestamp\]\.json/i);
+        expect(readiness).toMatch(/onspeechstart -> first onresult/i);
+        expect(readiness).toMatch(/4-word sequence appearing more than once/i);
+        expect(readiness).toMatch(/speaksharp-native-\[timestamp\]\.json/i);
+        expect(readiness).toMatch(/AssemblyAI token HTTP 200/i);
+        expect(readiness).toMatch(/cloud-artifact-\[timestamp\]\.log/i);
+        expect(readiness).toMatch(/like = 1/i);
+        expect(readiness).toMatch(/basically = 1/i);
+        expect(readiness).toMatch(/within ±15%/i);
+        expect(readiness).toMatch(/Session Status UX/i);
+    });
 });
