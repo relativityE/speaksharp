@@ -104,7 +104,7 @@ export default function SignUpPage() {
                                 />
                             </div>
                             <p className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
-                                New accounts include a 60-minute Pro trial automatically. Cloud is a Pro feature only.
+                                New accounts include a 60-minute Pro trial automatically. Cloud STT is available with Pro. Trial access includes Private STT.
                             </p>
 
                             {error && (

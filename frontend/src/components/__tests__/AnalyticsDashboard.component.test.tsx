@@ -52,6 +52,7 @@ const mockStats = {
     averageWPM: 120,
     avgFillerWordsPerMin: 5,
     totalPracticeTime: 300,
+    averageSessionLength: 30,
     avgAccuracy: 85,
     chartData: [
         { date: '2023-01-01', 'FW/min': 5, clarity: 80 },
@@ -234,7 +235,7 @@ describe('AnalyticsDashboard', () => {
             ],
         });
 
-        expect(screen.getByTestId('stat-card-speaking_pace-explanation')).toHaveTextContent(/target range/i);
+        expect(screen.getByTestId('stat-card-speaking_pace-explanation')).toHaveTextContent(/a little relaxed/i);
         expect(screen.getByTestId('clarity-score-value-explanation')).toHaveTextContent(/filler/i);
         expect(screen.getByTestId('filler-count-value-explanation')).toHaveTextContent(/captured words/i);
     });

@@ -91,7 +91,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const modeDescriptions: Record<RecordingMode, string> = {
         native: 'Fastest setup. Uses your browser and works best in Chrome.',
         private: 'Keeps audio on this device after a one-time setup.',
-        cloud: 'Most reliable option. Cloud is a Pro feature only.',
+        cloud: 'Most reliable option. Cloud STT is a Pro feature.',
         mock: 'Test transcription mode.',
     };
 
@@ -155,7 +155,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     disabled={!canUseCloudStt}
                                 >
                                     <span className="flex flex-col gap-0.5">
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud {!canUseCloudStt ? '(Pro feature only)' : ''}</span>
+                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud {!canUseCloudStt ? '(Pro feature)' : ''}</span>
                                         <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
                                             Most reliable option. Audio is processed securely in the cloud.
                                         </span>

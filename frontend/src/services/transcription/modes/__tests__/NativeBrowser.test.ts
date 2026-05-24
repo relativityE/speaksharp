@@ -24,6 +24,7 @@ const mockRecognition = {
   onend: null as ((event: Event) => void) | null,
   continuous: false,
   interimResults: false,
+  maxAlternatives: 0,
   lang: '',
 };
 
@@ -38,9 +39,13 @@ describe('NativeBrowser Transcription Mode', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    );
     // Reset mutable properties
     mockRecognition.continuous = false;
     mockRecognition.interimResults = false;
+    mockRecognition.maxAlternatives = 0;
     mockRecognition.lang = '';
     mockRecognition.onresult = null;
 
@@ -58,8 +63,9 @@ describe('NativeBrowser Transcription Mode', () => {
     it('should initialize and set up recognition properties', async () => {
       await nativeBrowser.init();
       expect(mockSpeechRecognitionStatic).toHaveBeenCalled();
-      expect(mockRecognition.continuous).toBe(true);
+      expect(mockRecognition.continuous).toBe(false);
       expect(mockRecognition.interimResults).toBe(true);
+      expect(mockRecognition.maxAlternatives).toBe(1);
       expect(mockRecognition.lang).toBe('en-US');
     });
  
@@ -147,6 +153,36 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(await nativeBrowser.getTranscript()).toBe('hello world');
     });
 
+    it('REGRESSION: allows final result index 0 again after browser recognition restart', async () => {
+      vi.useFakeTimers();
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      if (mockRecognition.onstart) mockRecognition.onstart({} as Event);
+      await startPromise;
+
+      const firstResult = Object.assign([{ transcript: 'first phrase', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [firstResult], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      mockRecognition.onend?.({} as Event);
+      await vi.advanceTimersByTimeAsync(310);
+      expect(mockRecognition.start).toHaveBeenCalledTimes(2);
+
+      mockRecognition.onstart?.({} as Event);
+      const secondResult = Object.assign([{ transcript: 'second phrase', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [secondResult], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate).toHaveBeenCalledTimes(2);
+      expect(onTranscriptUpdate).toHaveBeenNthCalledWith(1, {
+        transcript: { final: 'first phrase' },
+      });
+      expect(onTranscriptUpdate).toHaveBeenNthCalledWith(2, {
+        transcript: { final: 'second phrase' },
+      });
+      expect(await nativeBrowser.getTranscript()).toBe('first phrase second phrase');
+
+      vi.useRealTimers();
+    });
+
     it('uses the latest interim hypothesis when the browser revises text', async () => {
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
@@ -177,8 +213,8 @@ describe('NativeBrowser Transcription Mode', () => {
         mockRecognition.onend({} as Event);
       }
  
-      // Fast forward past the 50ms delay
-      await vi.advanceTimersByTimeAsync(60);
+      // Fast forward past the production restart debounce.
+      await vi.advanceTimersByTimeAsync(310);
  
       // Should have started again
       expect(mockRecognition.start).toHaveBeenCalledTimes(2);
@@ -191,7 +227,7 @@ describe('NativeBrowser Transcription Mode', () => {
         mockRecognition.onend({} as Event);
       }
  
-      await vi.advanceTimersByTimeAsync(60);
+      await vi.advanceTimersByTimeAsync(310);
  
       // Should have started a 3rd time
       expect(mockRecognition.start).toHaveBeenCalledTimes(3);

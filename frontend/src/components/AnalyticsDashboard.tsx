@@ -22,7 +22,7 @@ import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
-import { getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
+import { ANALYTICS_THRESHOLDS, getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
 
 import type { PracticeSession } from '@/types/session';
 import type { UserProfile } from '@/types/user';
@@ -133,7 +133,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
         id: 'avg_session_length',
         label: 'Avg. Session Length',
         icon: <Activity size={24} className="text-muted-foreground" />,
-        getValue: (stats) => stats.totalSessions > 0 ? Math.round(stats.totalPracticeTime / stats.totalSessions) : 0,
+        getValue: (stats) => stats.averageSessionLength,
         unit: 'mins',
         description: 'Average duration per session'
     },
@@ -242,7 +242,7 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
             {label.includes('Pace') && (
                 <span className="flex items-center gap-1 text-sm text-success font-medium">
                     <TrendingUp className="w-4 h-4" />
-                    Target: 130-150
+                    Target: {ANALYTICS_THRESHOLDS.TARGET_WPM_MIN}-{ANALYTICS_THRESHOLDS.TARGET_WPM_MAX}
                 </span>
             )}
         </div>

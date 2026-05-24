@@ -18,7 +18,7 @@ DECLARE
     v_weekly_sessions_count INT;
     v_total_sessions INT;
     v_total_duration_seconds INT;
-    v_sum_wpm FLOAT8;
+    v_total_words INT;
     v_sum_clarity FLOAT8;
     v_total_filler_words INT;
 BEGIN
@@ -29,12 +29,12 @@ BEGIN
     SELECT
         count(*),
         coalesce(sum(duration), 0),
-        coalesce(sum(coalesce(wpm, CASE WHEN duration > 0 THEN (total_words::float / (duration / 60.0)) ELSE 0 END)), 0),
+        coalesce(sum(total_words), 0),
         coalesce(sum(coalesce(clarity_score, accuracy * 100, 0)), 0)
     INTO
         v_total_sessions,
         v_total_duration_seconds,
-        v_sum_wpm,
+        v_total_words,
         v_sum_clarity
     FROM sessions
     WHERE user_id = p_user_id;
@@ -49,7 +49,8 @@ BEGIN
     v_overall_stats := jsonb_build_object(
         'totalSessions', v_total_sessions,
         'totalPracticeTime', round(v_total_duration_seconds / 60.0),
-        'avgWpm', CASE WHEN v_total_sessions > 0 THEN round(v_sum_wpm / v_total_sessions) ELSE 0 END,
+        'averageSessionLength', CASE WHEN v_total_sessions > 0 THEN round((v_total_duration_seconds / 60.0) / v_total_sessions) ELSE 0 END,
+        'avgWpm', CASE WHEN v_total_duration_seconds > 0 THEN round(v_total_words / (v_total_duration_seconds / 60.0)) ELSE 0 END,
         'avgFillerWordsPerMin', CASE WHEN v_total_duration_seconds > 0 THEN (v_total_filler_words / (v_total_duration_seconds / 60.0))::numeric(10,1)::text ELSE '0.0' END,
         'avgAccuracy', CASE WHEN v_total_sessions > 0 THEN (v_sum_clarity / v_total_sessions)::numeric(10,1)::text ELSE '0.0' END
     );
@@ -117,32 +118,38 @@ BEGIN
     ) d;
 
     WITH last_10_sessions AS (
-        SELECT id, created_at, row_number() OVER (ORDER BY created_at DESC) as rn
+        SELECT id, created_at, duration, row_number() OVER (ORDER BY created_at DESC) as rn
         FROM sessions
         WHERE user_id = p_user_id
         LIMIT 10
     ),
+    window_minutes AS (
+        SELECT
+            coalesce(sum(duration) FILTER (WHERE rn <= 5), 0) / 60.0 as current_minutes,
+            coalesce(sum(duration) FILTER (WHERE rn > 5), 0) / 60.0 as previous_minutes
+        FROM last_10_sessions
+    ),
     filler_counts AS (
         SELECT
-            l.rn,
             v.key as word,
-            (v.value->>'count')::int as count
+            coalesce(sum((v.value->>'count')::int) FILTER (WHERE l.rn <= 5), 0) as current_count,
+            coalesce(sum((v.value->>'count')::int) FILTER (WHERE l.rn > 5), 0) as previous_count
         FROM last_10_sessions l
         JOIN sessions s ON s.id = l.id
         CROSS JOIN LATERAL jsonb_each(s.filler_words) AS v(key, value)
         WHERE v.key != 'total'
-    ),
-    averages AS (
-        SELECT
-            word,
-            avg(count) FILTER (WHERE rn <= 5) as current_avg,
-            avg(count) FILTER (WHERE rn > 5) as previous_avg
-        FROM filler_counts
         GROUP BY word
     )
-    SELECT coalesce(jsonb_object_agg(word, jsonb_build_object('current', coalesce(current_avg, 0), 'previous', coalesce(previous_avg, 0))), '{}'::jsonb)
+    SELECT coalesce(jsonb_object_agg(
+        word,
+        jsonb_build_object(
+            'current', CASE WHEN wm.current_minutes > 0 THEN (current_count / wm.current_minutes)::numeric(10,2) ELSE 0 END,
+            'previous', CASE WHEN wm.previous_minutes > 0 THEN (previous_count / wm.previous_minutes)::numeric(10,2) ELSE 0 END
+        )
+    ), '{}'::jsonb)
     INTO v_filler_word_trends
-    FROM averages;
+    FROM filler_counts
+    CROSS JOIN window_minutes wm;
 
     RETURN jsonb_build_object(
         'overallStats', v_overall_stats || jsonb_build_object('chartData', v_chart_data),

@@ -54,6 +54,7 @@ const isPrivateTranscriptTraceEnabled = () =>
  */
 export function sanitizeTranscriptText(raw: string): string {
   return raw
+    .replace(/>>/g, '')
     .replace(/\[[A-Z_\s]+\]/gi, '')
     .replace(/\([a-z\s]+\)/gi, '')
     .replace(/\s{2,}/g, ' ')
@@ -553,6 +554,7 @@ export default class TranscriptionService {
         pushE2EEvent('ENGINE_READY', { serviceId: this.serviceId, source: 'TranscriptionService', sessionId: this.sessionId });
       }
     } catch (error: unknown) {
+      console.error('[DIAGNOSTIC HEARTBEAT ERROR]', error);
       const err = error as { code?: string; message?: string };
       // CACHE_MISS can be thrown or returned during init
       if (err?.code === 'CACHE_MISS' || err?.message?.includes('CACHE_MISS')) {
@@ -1147,6 +1149,19 @@ export default class TranscriptionService {
    */
   public updateCallbacks(newOptions: Partial<TranscriptionServiceOptions>): void {
     this.options = { ...this.options, ...newOptions };
+
+    this.strategyCallbacks.session = this.options.session;
+    this.strategyCallbacks.navigate = this.options.navigate;
+    this.strategyCallbacks.getAssemblyAIToken = this.options.getAssemblyAIToken;
+    this.strategyCallbacks.userWords = this.options.userWords ?? [];
+    const updateableStrategy = this.strategy as (STTStrategy & { updateOptions?: (options: Partial<TranscriptionModeOptions>) => void }) | null;
+    updateableStrategy?.updateOptions?.({
+      session: this.options.session,
+      navigate: this.options.navigate,
+      getAssemblyAIToken: this.options.getAssemblyAIToken,
+      userWords: this.options.userWords ?? [],
+    });
+
     // Project current FSM state to sync UI status (Step 5: SSOT)
     if (isBridgeActive()) {
       const win = window as unknown as Record<string, { _activeCallbacks?: TranscriptionModeOptions }>;

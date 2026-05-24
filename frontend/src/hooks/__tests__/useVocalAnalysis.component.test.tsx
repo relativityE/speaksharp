@@ -18,6 +18,7 @@ vi.mock('@/services/audio/pauseDetector', () => {
                 extendedPauses: 2,
             }),
             reset: vi.fn(),
+            isMeaningfullySilent: vi.fn().mockReturnValue(false),
         })),
     };
 });

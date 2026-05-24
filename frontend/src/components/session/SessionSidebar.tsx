@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthProvider } from '@/contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
-import { getEffectiveSubscriptionStatus, hasPaidProEntitlement, isPro as checkIsPro } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement, isActiveTrialProfile, isPro as checkIsPro } from '@/constants/subscriptionTiers';
 import { useUsageLimit } from '@/hooks/useUsageLimit';
 import type { TranscriptionPolicy, TranscriptionMode } from '../../services/transcription/TranscriptionPolicy';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
 import logger from '../../lib/logger';
-import { Mic, Square, Loader2, Zap, Cloud, Computer, Lock } from 'lucide-react';
+import { Mic, Square, Loader2, Zap, Cloud, Computer, Lock, Info } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -101,13 +101,13 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = checkIsPro(effectiveSubscriptionStatus);
-    const canUseProSttModes = isProUser || isDevUser;
-    const canAccessAdvancedModes = canUseProSttModes;
+    const canUsePrivateStt = isProUser || isActiveTrialProfile(profile) || isDevUser;
+    const canAccessAdvancedModes = canUsePrivateStt;
     const isE2EProHarness = import.meta.env.MODE !== 'production' && import.meta.env.VITE_TEST_MODE === 'true' && isProUser;
-    const canUseCloudStt = (isProUser && (hasPaidProEntitlement(profile) || isE2EProHarness)) || isDevUser;
+    const canUseCloudStt = (isProUser && (hasCloudSttEntitlement(profile) || isE2EProHarness)) || isDevUser;
 
     type Mode = 'cloud' | 'private' | 'native';
-    const [selectedMode, setSelectedMode] = useState<Mode>(isProUser ? 'private' : (isDevUser ? 'cloud' : 'native'));
+    const [selectedMode, setSelectedMode] = useState<Mode>(isDevUser ? 'cloud' : 'private');
 
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
     const [completedSessions, setCompletedSessions] = useState<PracticeSession[]>([]);
@@ -197,7 +197,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
             // Build policy based on user tier and selected mode
             const requestedMode = canAccessAdvancedModes ? selectedMode : 'native';
             const finalMode = requestedMode === 'cloud' && !canUseCloudStt ? 'private' : requestedMode;
-            const policy = buildPolicyForUser(canUseProSttModes, finalMode as TranscriptionMode, { allowCloud: canUseCloudStt });
+            const policy = buildPolicyForUser(canUsePrivateStt, finalMode as TranscriptionMode, { allowCloud: canUseCloudStt });
             await startListening(policy);
         }
     };
@@ -228,7 +228,18 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                     <ErrorDisplay error={error} />
 
                     <div className="space-y-2 border-b pb-4">
-                        <Label className="text-sm font-medium">Transcription Mode</Label>
+                        <div className="flex items-center gap-2">
+                            <Label className="text-sm font-medium">Transcription Mode</Label>
+                            {selectedMode === 'private' && (
+                                <span
+                                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-primary/30 bg-primary/5 text-primary"
+                                    title="Processes on your device. First words appear in ~5s. Nothing leaves your browser."
+                                    aria-label="Private transcription details: Processes on your device. First words appear in about 5 seconds. Nothing leaves your browser."
+                                >
+                                    <Info className="h-3.5 w-3.5" />
+                                </span>
+                            )}
+                        </div>
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button variant="outline" className="w-full" disabled={isListening || isModelLoading || isConnecting}>
@@ -238,7 +249,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                             <DropdownMenuContent className="w-56">
                                     <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
                                         <DropdownMenuRadioItem value="private" disabled={!canAccessAdvancedModes}>Private</DropdownMenuRadioItem>
-                                        <DropdownMenuRadioItem value="cloud" disabled={!canUseCloudStt}>Cloud (Pro feature only)</DropdownMenuRadioItem>
+                                        <DropdownMenuRadioItem value="cloud" disabled={!canUseCloudStt}>Cloud (Pro feature)</DropdownMenuRadioItem>
                                         <DropdownMenuRadioItem value="native">Native</DropdownMenuRadioItem>
                                     </DropdownMenuRadioGroup>
                             </DropdownMenuContent>

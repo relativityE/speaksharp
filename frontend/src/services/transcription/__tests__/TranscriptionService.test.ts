@@ -212,6 +212,7 @@ describe('TranscriptionService', () => {
     it('should sanitize bracketed and parenthetical transcript metadata tags', () => {
         expect(sanitizeTranscriptText('[MUSIC] Hello  (applause) world [BLANK_AUDIO]')).toBe('Hello world');
         expect(sanitizeTranscriptText('Testing (laughter) one [SILENCE] two')).toBe('Testing one two');
+        expect(sanitizeTranscriptText('>> On the stale smell')).toBe('On the stale smell');
     });
 
     it('should synchronously rehydrate transcript and recording status on subscription', () => {

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
-import { calculateCoreSessionMetrics } from '../utils/sessionAnalysis';
+import { calculateCoreSessionMetrics, calculateWpm } from '../utils/sessionAnalysis';
 import type { Chunk } from './useSpeechRecognition/types';
 
 interface UseSessionMetricsProps {
@@ -54,7 +54,7 @@ export const useSessionMetrics = ({
 
         // Effective time is the smaller of the window or elapsed time
         const effectiveWindowSec = Math.min(elapsedTime, rollingWindowMs / 1000);
-        const rollingWpm = effectiveWindowSec > 0 ? Math.round((recentWordCount / effectiveWindowSec) * 60) : 0;
+        const rollingWpm = calculateWpm(recentWordCount, effectiveWindowSec);
 
         return {
             formattedTime,

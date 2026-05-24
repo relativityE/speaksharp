@@ -48,6 +48,22 @@ describe('native browser strategies', () => {
     expect(update.interimTranscript).toBe('like lingers on a dash of pepper');
   });
 
+  it('only emits changed interim result slots from resultIndex onward', () => {
+    const strategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: chromeUa });
+    const finalized = new Set<number>();
+    const update = strategy.extractTranscripts({
+      resultIndex: 1,
+      results: [result('like lingers on', false), result('a dash of pepper', false)],
+    }, finalized);
+
+    expect(update.rawResults).toEqual([
+      { index: 0, isFinal: false, transcript: 'like lingers on' },
+      { index: 1, isFinal: false, transcript: 'a dash of pepper' },
+    ]);
+    expect(update.finalTranscript).toBe('');
+    expect(update.interimTranscript).toBe('a dash of pepper');
+  });
+
   it('emits each final result slot only once', () => {
     const strategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: chromeUa });
     const finalized = new Set<number>();

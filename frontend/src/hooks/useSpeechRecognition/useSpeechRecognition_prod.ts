@@ -20,7 +20,31 @@ import { E2E_DETERMINISTIC_NATIVE, buildPolicyForUser } from './types';
 import type { FillerCounts } from '../../utils/fillerWordUtils';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '../../services/SpeechRuntimeController';
-import { getEffectiveSubscriptionStatus, hasPaidProEntitlement, isPro } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement, isPro } from '@/constants/subscriptionTiers';
+
+function getCloudTokenFailureMessage(err: unknown): string {
+    const errorLike = err as {
+        message?: string;
+        status?: number;
+        context?: { status?: number };
+    };
+    const message = errorLike?.message ?? String(err);
+    const status = errorLike?.context?.status ?? errorLike?.status;
+
+    if (status === 403 || /Cloud STT is available with Pro|Trial access includes Private STT/i.test(message)) {
+        return 'Cloud STT is available with Pro. Trial access includes Private STT.';
+    }
+
+    if (status === 401 || /Invalid or expired token|Missing Authorization/i.test(message)) {
+        return 'Please sign in again before using Cloud STT.';
+    }
+
+    if (status === 429 || /Usage limit reached/i.test(message)) {
+        return 'Daily usage limit reached.';
+    }
+
+    return 'Cloud STT Service Unavailable. Check connection or switch modes.';
+}
 
 // Error handling helper
 function handleTranscriptionError(err: Error) {
@@ -83,7 +107,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
     const isEffectiveProUser = isPro(effectiveSubscriptionStatus) || isDevUser;
     const isE2EProHarness = import.meta.env.MODE !== 'production' && import.meta.env.VITE_TEST_MODE === 'true' && isEffectiveProUser;
-    const canUseCloudStt = (isEffectiveProUser && (hasPaidProEntitlement(profile) || isE2EProHarness)) || isDevUser;
+    const canUseCloudStt = (isEffectiveProUser && (hasCloudSttEntitlement(profile) || isE2EProHarness)) || isDevUser;
     const effectivePolicyMode = isEffectiveProUser
         ? sttMode === 'cloud' && !canUseCloudStt ? 'private' : sttMode
         : 'native';
@@ -107,8 +131,10 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
             if (error) throw new Error(`Token function error: ${error.message}`);
             return data.token;
         } catch (err: unknown) {
-            logger.error({ err }, "Error getting AssemblyAI token");
-            toast.error("Cloud STT Service Unavailable. Check connection or switch modes.");
+            const message = err instanceof Error ? err.message : String(err);
+            logger.error({ err, message }, "Error getting AssemblyAI token");
+            logger.error(`[CloudAssemblyAI] AssemblyAI token callback failed: ${message}`);
+            toast.error(getCloudTokenFailureMessage(err));
             return null;
         }
     }, []);
@@ -131,6 +157,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         onStatusChange: (status: SttStatus) => {
             if (status.type === 'error') handleTranscriptionError(new Error(status.message));
             if (status.type === 'info') toast.info(status.message);
+            if (status.type === 'warning') toast.warning(status.message);
         },
         onError: handleTranscriptionError
     });
@@ -139,6 +166,12 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     useEffect(() => {
         vocal.setIsActive(storeIsListening);
     }, [storeIsListening, vocal]);
+
+    useEffect(() => {
+        if (vocal.micWarning) {
+            toast.warning(vocal.micWarning, { id: 'mic-warning-toast', duration: 4000 });
+        }
+    }, [vocal.micWarning]);
 
     useEffect(() => {
         const nextSnapshot = JSON.stringify(filler.counts);
@@ -218,5 +251,8 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         stopListening,
         reset,
         pauseMetrics: vocal.pauseMetrics,
+        micWarning: vocal.micWarning,
+        micLevel: vocal.micLevel,
+        hasSpeechActivity: vocal.hasSpeechActivity,
     };
 };

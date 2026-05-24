@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Lightbulb, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ANALYTICS_THRESHOLDS } from '@/utils/sessionAnalysis';
 
 const TIPS = [
     {
@@ -10,7 +11,7 @@ const TIPS = [
     },
     {
         title: "Watch Your Pace",
-        description: "Aim for 130-150 words per minute. Speaking too fast can reduce clarity, while too slow can lose engagement."
+        description: `Aim for ${ANALYTICS_THRESHOLDS.TARGET_WPM_MIN}-${ANALYTICS_THRESHOLDS.TARGET_WPM_MAX} words per minute. Speaking too fast can reduce clarity, while too slow can lose engagement.`
     },
     {
         title: "Eliminate Filler Words",

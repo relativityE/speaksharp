@@ -15,6 +15,7 @@ const mockPauseDetectorInstance = {
         extendedPauses: 0,
     })),
     reset: vi.fn(),
+    isMeaningfullySilent: vi.fn().mockReturnValue(false),
 };
 
 // Mock PauseDetector class
@@ -83,5 +84,77 @@ describe('useVocalAnalysis', () => {
 
         // Should still only be 1 instantiation
         expect(PauseDetector).toHaveBeenCalledTimes(1);
+    });
+
+    it('should detect clipping and set micWarning after 3 clipping frames', () => {
+        const { result } = renderHook(() => useVocalAnalysis());
+
+        act(() => {
+            result.current.setIsActive(true);
+        });
+
+        // Frame 1
+        act(() => {
+            result.current.processAudioFrame(new Float32Array([1.0]));
+        });
+        expect(result.current.micWarning).toBeNull();
+
+        // Frame 2
+        act(() => {
+            result.current.processAudioFrame(new Float32Array([1.0]));
+        });
+        expect(result.current.micWarning).toBeNull();
+
+        // Frame 3
+        act(() => {
+            result.current.processAudioFrame(new Float32Array([1.0]));
+        });
+        expect(result.current.micWarning).toBe('Audio is clipping. Please speak further from the microphone.');
+    });
+
+    it('should detect low volume and set micWarning after 5 seconds', () => {
+        vi.useFakeTimers();
+        const { result } = renderHook(() => useVocalAnalysis());
+
+        act(() => {
+            result.current.setIsActive(true);
+        });
+
+        // First frame is processed
+        act(() => {
+            result.current.processAudioFrame(new Float32Array([0.0]));
+        });
+        expect(result.current.micWarning).toBeNull();
+
+        // Advance timers by 5 seconds
+        act(() => {
+            vi.advanceTimersByTime(5000);
+        });
+
+        // Process another low volume frame
+        act(() => {
+            result.current.processAudioFrame(new Float32Array([0.0]));
+        });
+
+        expect(result.current.micWarning).toBe('Microphone volume too low.');
+        vi.useRealTimers();
+    });
+
+    it('should detect hum and set micWarning when silent with high noise', () => {
+        const { result } = renderHook(() => useVocalAnalysis());
+
+        act(() => {
+            result.current.setIsActive(true);
+        });
+
+        // Mock pause detector to report silence
+        mockPauseDetectorInstance.isMeaningfullySilent.mockReturnValue(true);
+
+        act(() => {
+            // Process high RMS frame (RMS of constant [0.03] is 0.03 >= 0.025)
+            result.current.processAudioFrame(new Float32Array([0.03]));
+        });
+
+        expect(result.current.micWarning).toBe('High background noise/hum detected.');
     });
 });

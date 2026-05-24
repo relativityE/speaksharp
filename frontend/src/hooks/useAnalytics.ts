@@ -85,11 +85,15 @@ export const useAnalytics = () => {
         // Use pre-computed summary from RPC if available and appropriate
         if (shouldUseRPC && summaryData) {
             logger.debug('[useAnalytics] Using summary data from RPC');
+            const rpcOverallStats = summaryData.overallStats as unknown as Record<string, unknown>;
             return {
                 ...summaryData,
                 overallStats: {
                     ...summaryData.overallStats,
-                    averageWPM: (summaryData.overallStats as unknown as Record<string, unknown>).avgWpm as number || 0
+                    averageSessionLength: (rpcOverallStats.averageSessionLength as number)
+                        || (rpcOverallStats.avgSessionLength as number)
+                        || 0,
+                    averageWPM: rpcOverallStats.avgWpm as number || 0
                 }
             };
         }
@@ -101,6 +105,7 @@ export const useAnalytics = () => {
                 overallStats: {
                     totalSessions: 0,
                     totalPracticeTime: 0,
+                    averageSessionLength: 0,
                     averageWPM: 0,
                     avgFillerWordsPerMin: "0.0",
                     avgAccuracy: "0.0",

@@ -1,6 +1,11 @@
 import type { PracticeSession } from '@/types/session';
 import { calculateWordErrorRate } from './wer';
-import { getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
+import {
+    calculateAverageSessionLengthMinutes,
+    calculateRatePerMinute,
+    calculateRoundedMinutes,
+    getSessionAnalysisMetrics,
+} from '@/utils/sessionAnalysis';
 
 /**
  * P1 TECH DEBT: Client-side Aggregation
@@ -26,6 +31,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         return {
             totalSessions: 0,
             totalPracticeTime: 0,
+            averageSessionLength: 0,
             averageWPM: 0,
             avgFillerWordsPerMin: "0.0",
             avgAccuracy: "0.0",
@@ -37,7 +43,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
 
     // P1 FIX: Single-pass aggregation for efficiency
     let totalDurationSeconds = 0;
-    let sumWpm = 0;
+    let totalWords = 0;
     let totalFillerWords = 0;
     let totalAccuracy = 0;
 
@@ -46,9 +52,7 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         totalDurationSeconds += duration;
 
         const sessionMetrics = getSessionAnalysisMetrics(s);
-        const sessionWpm = sessionMetrics.wpm;
-
-        sumWpm += sessionWpm;
+        totalWords += sessionMetrics.wordCount;
 
         totalFillerWords += sessionMetrics.fillerCount;
         totalAccuracy += typeof s.accuracy === 'number'
@@ -57,15 +61,18 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
     }
 
     // totalPracticeTime: rounded for display (e.g., "1 min")
-    const totalPracticeTime = Math.round(totalDurationSeconds / 60);
+    const totalPracticeTime = calculateRoundedMinutes(totalDurationSeconds);
+    const averageSessionLength = calculateAverageSessionLengthMinutes(totalDurationSeconds, totalSessions);
     // totalPracticeTimeMinutes: precise for rate calculations (industry standard)
     const totalPracticeTimeMinutes = totalDurationSeconds / 60;
 
-    const averageWPM = Math.round(sumWpm / totalSessions);
+    // Speaking-rate standard: aggregate words over aggregate speaking time.
+    // Averaging per-session WPM lets very short sessions distort the result.
+    const averageWPM = totalPracticeTimeMinutes > 0
+        ? Math.round(totalWords / totalPracticeTimeMinutes)
+        : 0;
     // Industry standard: Filler Rate = Total Fillers / Total Speaking Time (precise minutes)
-    const avgFillerWordsPerMin = totalPracticeTimeMinutes > 0
-        ? (totalFillerWords / totalPracticeTimeMinutes).toFixed(1)
-        : "0.0";
+    const avgFillerWordsPerMin = calculateRatePerMinute(totalFillerWords, totalDurationSeconds, 1);
     const avgAccuracy = totalSessions > 0 ? (totalAccuracy / totalSessions).toFixed(1) : "0.0";
 
     const chartData = sessionHistory.slice(0, 10).map(s => {
@@ -73,26 +80,26 @@ export const calculateOverallStats = (sessionHistory: PracticeSession[]) => {
         const sessionMetrics = getSessionAnalysisMetrics(s);
         const totalFillerCount = sessionMetrics.fillerCount;
 
-        const durationMins = duration / 60;
-        const fwPerMin = durationMins > 0 ? totalFillerCount / durationMins : 0;
-
         return {
             date: new Date(s.created_at).toLocaleDateString(),
-            'FW/min': duration > 0 ? fwPerMin.toFixed(2) : "0.0",
+            'FW/min': calculateRatePerMinute(totalFillerCount, duration, 2),
             clarity: sessionMetrics.clarityScore
         };
     }).reverse();
 
-    return { totalSessions, totalPracticeTime, averageWPM, avgFillerWordsPerMin, avgAccuracy, chartData };
+    return { totalSessions, totalPracticeTime, averageSessionLength, averageWPM, avgFillerWordsPerMin, avgAccuracy, chartData };
 };
 
 export const calculateFillerWordTrends = (sessionHistory: PracticeSession[]) => {
     const trendData: { [key: string]: { current: number; previous: number } } = {};
     if (sessionHistory.length > 0) {
-        // Industry Standard: Use 5-session rolling average for stable trend analysis
-        const getAvgForWindow = (window: PracticeSession[]): { [key: string]: number } => {
+        // Use a 5-session rolling window, but normalize by speaking time so
+        // short sessions do not distort filler trends.
+        const getRatesForWindow = (window: PracticeSession[]): { [key: string]: number } => {
             if (window.length === 0) return {};
             const counts: { [key: string]: number } = {};
+            const totalMinutes = window.reduce((sum, s) => sum + ((s.duration || 0) / 60), 0);
+            if (totalMinutes <= 0) return {};
             window.forEach(s => {
                 Object.entries(getSessionAnalysisMetrics(s).fillerData || {}).forEach(([word, data]) => {
                     if (word !== 'total') {
@@ -100,26 +107,28 @@ export const calculateFillerWordTrends = (sessionHistory: PracticeSession[]) => 
                     }
                 });
             });
-            const avgCounts: { [key: string]: number } = {};
-            Object.keys(counts).forEach(k => avgCounts[k] = counts[k] / window.length);
-            return avgCounts;
+            const rates: { [key: string]: number } = {};
+            Object.keys(counts).forEach(k => {
+                rates[k] = Number((counts[k] / totalMinutes).toFixed(2));
+            });
+            return rates;
         };
 
         const currentWindow = sessionHistory.slice(0, 5);
         const previousWindow = sessionHistory.slice(5, 10);
 
-        const currentAvgs = getAvgForWindow(currentWindow);
-        const previousAvgs = getAvgForWindow(previousWindow);
+        const currentRates = getRatesForWindow(currentWindow);
+        const previousRates = getRatesForWindow(previousWindow);
 
         const allKeys = new Set([
-            ...Object.keys(currentAvgs),
-            ...Object.keys(previousAvgs)
+            ...Object.keys(currentRates),
+            ...Object.keys(previousRates)
         ]);
 
         allKeys.forEach(key => {
             trendData[key] = {
-                current: currentAvgs[key] || 0,
-                previous: previousAvgs[key] || 0
+                current: currentRates[key] || 0,
+                previous: previousRates[key] || 0
             };
         });
     }

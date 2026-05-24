@@ -7,6 +7,7 @@ type RecognitionLike = {
   lang?: string;
   interimResults: boolean;
   continuous: boolean;
+  maxAlternatives?: number;
 };
 
 type RecognitionResultLike = {
@@ -56,6 +57,8 @@ const extractByWebSpeechContract = (
   const interimParts: string[] = [];
   const finalParts: string[] = [];
 
+  const firstChangedIndex = Math.max(0, event.resultIndex ?? 0);
+
   for (let i = 0; i < event.results.length; i += 1) {
     const result = event.results[i];
     const transcript = normalizeTranscript(result?.[0]?.transcript ?? '');
@@ -63,9 +66,10 @@ const extractByWebSpeechContract = (
     rawResults.push({ index: i, isFinal, transcript });
 
     if (!transcript) continue;
+    if (i < firstChangedIndex) continue;
 
     if (isFinal) {
-      if (i >= event.resultIndex && !finalizedResultIndexes.has(i)) {
+      if (!finalizedResultIndexes.has(i)) {
         finalizedResultIndexes.add(i);
         finalParts.push(transcript);
       }
@@ -81,21 +85,26 @@ const extractByWebSpeechContract = (
   };
 };
 
-const configureStandardWebSpeech = (recognition: RecognitionLike) => {
+const configureStandardWebSpeech = (
+  recognition: RecognitionLike,
+  continuous: boolean = NATIVE_STT.CONTINUOUS,
+) => {
   recognition.lang = NATIVE_STT.LANG;
   recognition.interimResults = NATIVE_STT.INTERIM_RESULTS;
-  recognition.continuous = NATIVE_STT.CONTINUOUS;
+  recognition.continuous = continuous;
+  recognition.maxAlternatives = NATIVE_STT.MAX_ALTERNATIVES;
 };
 
 const makeStrategy = (
   browserFamily: BrowserFamily,
   compatibilityMode: CompatibilityMode,
   userMessage: string | null,
+  continuous: boolean = NATIVE_STT.CONTINUOUS,
 ): NativeBrowserStrategy => ({
   browserFamily,
   compatibilityMode,
   userMessage,
-  configure: configureStandardWebSpeech,
+  configure: (recognition) => configureStandardWebSpeech(recognition, continuous),
   extractTranscripts: extractByWebSpeechContract,
 });
 
@@ -114,7 +123,7 @@ export function resolveNativeBrowserStrategy(options: {
   const browserFamily = getBrowserFamily(options.userAgent);
 
   if (browserFamily === 'chrome' || browserFamily === 'edge') {
-    return makeStrategy(browserFamily, 'verified', null);
+    return makeStrategy(browserFamily, 'verified', null, NATIVE_STT.CONTINUOUS);
   }
 
   if (browserFamily === 'safari') {

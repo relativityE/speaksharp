@@ -8,11 +8,34 @@ interface LiveTranscriptPanelProps {
     transcript: string;
     interimTranscript?: string;
     isListening: boolean;
+    sttMode?: string;
+    micLevel?: number;
+    hasSpeechActivity?: boolean;
     containerRef?: React.RefObject<HTMLDivElement>;
     userWords?: string[];
     className?: string;
     history?: Array<{ mode: string; text: string }>;
 }
+
+const WaveformMeter: React.FC<{ level: number; isProcessing: boolean }> = ({ level, isProcessing }) => {
+    const visibleLevel = Math.max(0.08, Math.min(level, 1));
+    const bars = [0.35, 0.62, 0.9, 0.5, 0.74];
+
+    return (
+        <div className="flex h-8 items-center justify-center gap-1" aria-hidden="true">
+            {bars.map((weight, index) => (
+                <span
+                    key={index}
+                    className={`w-1.5 rounded-full bg-primary transition-[height,opacity] duration-150 ${isProcessing ? 'animate-pulse' : ''}`}
+                    style={{
+                        height: `${8 + (visibleLevel * weight * 24)}px`,
+                        opacity: 0.35 + (visibleLevel * 0.65),
+                    }}
+                />
+            ))}
+        </div>
+    );
+};
 
 /**
  * Presentational component for the live transcript display.
@@ -22,6 +45,9 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     transcript,
     interimTranscript = '',
     isListening,
+    sttMode,
+    micLevel = 0,
+    hasSpeechActivity = false,
     containerRef,
     userWords = [],
     className = "",
@@ -29,16 +55,32 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
 }) => {
     const tokens = parseTranscriptForHighlighting(transcript, userWords);
     const hasTranscript = transcript.trim() !== '';
-    const hasInterimTranscript = interimTranscript.trim() !== '';
+    const displayInterimTranscript =
+        transcript.trim() === interimTranscript.trim() ? '' : interimTranscript;
+    const hasInterimTranscript = displayInterimTranscript.trim() !== '';
+    const showPrivateFeedback = sttMode === 'private' && isListening;
+    const privateStatus = hasTranscript || hasInterimTranscript
+        ? 'Live text'
+        : hasSpeechActivity
+            ? 'Processing locally...'
+            : 'Listening...';
 
     return (
         <div
             className={`bg-card border border-border rounded-xl p-4 shadow-card flex flex-col ${className}`}
             data-testid={TEST_IDS.TRANSCRIPT_PANEL}
         >
-            <div className="flex items-center gap-2 mb-2">
-                <div className="w-1 h-5 bg-primary rounded"></div>
-                <h3 className="text-lg font-semibold text-foreground">Live Transcript</h3>
+            <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                    <div className="w-1 h-5 bg-primary rounded"></div>
+                    <h3 className="text-lg font-semibold text-foreground">Live Transcript</h3>
+                </div>
+                {showPrivateFeedback && (
+                    <div className="flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary">
+                        <WaveformMeter level={micLevel} isProcessing={hasSpeechActivity && !hasTranscript && !hasInterimTranscript} />
+                        <span>{privateStatus}</span>
+                    </div>
+                )}
             </div>
             <div
                 ref={containerRef}
@@ -85,7 +127,19 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
 
                 {/* Current Active Segment */}
                 {isListening && !hasTranscript && !hasInterimTranscript ? (
-                    <p className="text-muted-foreground animate-pulse">Listening...</p>
+                    sttMode === 'private' ? (
+                        <div className="flex min-h-[120px] flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+                            <div className={`relative flex h-14 w-14 items-center justify-center rounded-full border border-primary/25 bg-primary/5 ${hasSpeechActivity ? 'shadow-[0_0_0_8px_hsl(var(--primary)/0.08)]' : ''}`}>
+                                {hasSpeechActivity && <span className="absolute inset-0 rounded-full border border-primary/30 animate-ping" />}
+                                <WaveformMeter level={micLevel} isProcessing={hasSpeechActivity} />
+                            </div>
+                            <p className={hasSpeechActivity ? 'text-primary font-medium' : 'animate-pulse'}>
+                                {hasSpeechActivity ? 'Processing locally...' : 'Listening...'}
+                            </p>
+                        </div>
+                    ) : (
+                        <p className="text-muted-foreground animate-pulse">Listening...</p>
+                    )
                 ) : hasTranscript || hasInterimTranscript ? (
                     <div className="text-foreground text-lg leading-relaxed">
                         {tokens.map((token) => {
@@ -112,7 +166,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         {hasInterimTranscript && (
                             <span className="text-muted-foreground">
                                 {hasTranscript ? ' ' : ''}
-                                {interimTranscript}
+                                {displayInterimTranscript}
                             </span>
                         )}
                     </div>

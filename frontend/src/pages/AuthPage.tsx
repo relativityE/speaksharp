@@ -228,7 +228,7 @@ export default function AuthPage() {
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
                     <p className="text-sm font-semibold text-foreground">60-minute Pro trial included</p>
                     <p className="text-xs leading-relaxed text-muted-foreground">
-                      New accounts can try Private transcription, analytics, and feedback immediately. Cloud is a Pro feature only.
+                      New accounts can try Private transcription, analytics, and feedback immediately. Cloud STT is available with Pro. Trial access includes Private STT.
                     </p>
                     {inlineError && (
                       <p

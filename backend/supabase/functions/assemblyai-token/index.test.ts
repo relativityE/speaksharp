@@ -156,7 +156,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
       assertEquals(res.status, 403);
       assertEquals(
         json.error,
-        "Paid Pro subscription required for Cloud transcription",
+        "Cloud STT is available with Pro. Trial access includes Private STT.",
       );
       assertEquals(assemblyAiCalled, false);
     },
@@ -199,7 +199,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
       assertEquals(res.status, 403);
       assertEquals(
         json.error,
-        "Paid Pro subscription required for Cloud transcription",
+        "Cloud STT is available with Pro. Trial access includes Private STT.",
       );
       assertEquals(assemblyAiCalled, false);
     },
@@ -234,7 +234,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
       assertEquals(res.status, 403);
       assertEquals(
         json.error,
-        "Paid Pro subscription required for Cloud transcription",
+        "Cloud STT is available with Pro. Trial access includes Private STT.",
       );
       assertEquals(assemblyAiCalled, false);
     },

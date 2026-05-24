@@ -7,14 +7,14 @@
 ## Share With Each Tester
 
 ```text
-I'm running a small soft release test of SpeakSharp today.
+I'm running a small soft release test of SpeakSharp.
 
 Link: https://speaksharp-public.vercel.app
 
 Setup:
 1. Create a new account with your own email and password.
 
-Your new account includes 1 hour of trial access automatically. The timer starts when the account is created. Cloud STT is reserved for paid Pro accounts, so this test focuses on Private STT.
+Your new account includes 1 hour of trial access automatically. The timer starts when the account is created. Cloud STT is available with Pro. Trial access includes Private STT, so this test focuses on Private STT.
 
 What to test:
 1. Start with Private STT for your first session. This may do a one-time private model setup in your browser.
@@ -25,7 +25,7 @@ What to test:
 
 Known limitations:
 - Native browser STT is browser-dependent and is validated mainly for Chrome.
-- Cloud STT is paid-only during this round and may appear disabled during trial access.
+- Cloud STT is a Pro feature and may appear disabled during trial access.
 - Some backend/internal labels may still say "basic" while the user-facing baseline plan says Basic.
 
 Please report:

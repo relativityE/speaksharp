@@ -31,6 +31,7 @@ describe('STTAccuracyVsBenchmark', () => {
             overallStats: {
                 totalSessions: 0,
                 totalPracticeTime: 0,
+                averageSessionLength: 0,
                 averageWPM: 0,
                 avgFillerWordsPerMin: "0.0",
                 avgAccuracy: "0.0",
@@ -77,6 +78,7 @@ describe('STTAccuracyVsBenchmark', () => {
             overallStats: {
                 totalSessions: 0,
                 totalPracticeTime: 0,
+                averageSessionLength: 0,
                 averageWPM: 0,
                 avgFillerWordsPerMin: "0.0",
                 avgAccuracy: "0.0",
@@ -109,6 +111,7 @@ describe('STTAccuracyVsBenchmark', () => {
             overallStats: {
                 totalSessions: 0,
                 totalPracticeTime: 0,
+                averageSessionLength: 0,
                 averageWPM: 0,
                 avgFillerWordsPerMin: "0.0",
                 avgAccuracy: "0.0",
@@ -148,6 +151,7 @@ describe('STTAccuracyVsBenchmark', () => {
             overallStats: {
                 totalSessions: 0,
                 totalPracticeTime: 0,
+                averageSessionLength: 0,
                 averageWPM: 0,
                 avgFillerWordsPerMin: "0.0",
                 avgAccuracy: "0.0",

@@ -34,7 +34,7 @@ export async function createMicStreamImpl(
 ): Promise<MicStream> {
   // In test mode, return a mock stream to avoid hardware errors in CI.
   // CRITICAL: Bypass mock if we are explicitly running driver-dependent tests.
-  if (ENV.IS_E2E && ENV.ENGINE_TYPE !== 'real') {
+  if (ENV.isTest && ENV.engineType !== 'real') {
     logger.info('Mocking microphone stream for TEST_ENVIRONMENT');
     const mockStream: MicStream = {
       state: 'ready',

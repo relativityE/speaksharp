@@ -1,6 +1,7 @@
 import React from 'react';
 import { Lightbulb } from 'lucide-react';
 import type { PauseMetrics } from '@/services/audio/pauseDetector';
+import { ANALYTICS_THRESHOLDS } from '@/utils/sessionAnalysis';
 
 interface SpeakingTip {
     title: string;
@@ -10,7 +11,7 @@ interface SpeakingTip {
 const defaultTips: SpeakingTip[] = [
     {
         title: 'Pace Yourself',
-        description: 'Maintain 120-160 words per minute for optimal clarity',
+        description: `Maintain ${ANALYTICS_THRESHOLDS.TARGET_WPM_MIN}-${ANALYTICS_THRESHOLDS.TARGET_WPM_MAX} words per minute for easy listening`,
     },
     {
         title: 'Pause Instead',
@@ -46,14 +47,14 @@ export const SpeakingTipsCard: React.FC<SpeakingTipsCardProps> = ({
     className = "",
 }) => {
     const tip = React.useMemo<SpeakingTip>(() => {
-        if (wpm > 160) {
+        if (wpm > ANALYTICS_THRESHOLDS.TARGET_WPM_MAX) {
             return {
                 title: 'Slow Down',
                 description: 'Your pace is running fast. Add a beat between key ideas so listeners can keep up.',
             };
         }
 
-        if (wpm > 0 && wpm < 110) {
+        if (wpm > 0 && wpm < ANALYTICS_THRESHOLDS.TARGET_WPM_MIN) {
             return {
                 title: 'Add Energy',
                 description: 'Your pace is relaxed. Try a little more momentum while keeping your pauses intentional.',

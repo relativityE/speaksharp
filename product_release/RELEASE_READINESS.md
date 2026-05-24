@@ -1,17 +1,17 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-22
+**Last Reviewed:** 2026-05-24
 **Version:** v0.6.19-rc0
-**Last Updated:** 2026-05-22
+**Last Updated:** 2026-05-24
 
 # Release Readiness Checklist (Launch Gate)
 
 <!-- PRODUCT_RELEASE_SYNC_START -->
 
-## Current Evidence Snapshot (2026-05-22)
+## Current Evidence Snapshot (2026-05-24)
 
 | Item | Current Status |
 |---|---|
-| Controlled desktop tester release | BLOCKED by Tester A manual walkthrough. The 2026-05-22 rehearsal inventory remains the current risk context: fresh first-time tester evidence shows the Private STT path failing recording-state truth, transcript, filler, analytics, and History expectations. |
+| Controlled desktop tester release | 🟡 CONDITIONAL: May 24 visible Chrome preview evidence shows fresh trial signup, Private v4 selection, recording, transcript, save, Analytics history, and saved detail open. Remaining risk is transcript accuracy/latency quality, not broken navigation or persistence. |
 | Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
 | Latest release evidence commit | `88f277d4` (`Cut over baseline tier to Basic`). |
 | CI/Test Audit | PASS: GitHub run `26231514902` on `main`. |
@@ -20,29 +20,29 @@
 | Scheduled soak | PASS: GitHub run `26083232887` on `main`. |
 | Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
 | Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
-| Tester instructions | Do not distribute broadly yet. `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` has the corrected no-promo/private-first copy, but Tester A reproduced a Private STT blocker that prevents distribution. |
-| Latest live rehearsal evidence | `SOFT_RELEASE_REHEARSAL_BUG_INVENTORY.md` dated 2026-05-22, especially SR-014/SR-015 and the visible Chrome Tester B evidence SR-021/SR-022/SR-023. |
+| Tester instructions | `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` is current: no promo-code flow, automatic 1-hour trial, Private-first, Cloud described as Pro. |
+| Latest live browser evidence | May 24 local production preview (`4173`) in visible Chrome (`9222`): Private v4 artifact `/private/tmp/speaksharp-private-v4-user-journey-1779642331871.json`; Native artifact `/private/tmp/speaksharp-native-human-trace-1779642680154.json`; saved Private session detail `/analytics/84db0581-6a47-4f7a-ae62-5abaefaecacf`. |
 | Documentation rule | This snapshot and the 2026-05-22 rehearsal inventory supersede older GO/HOLD language, older run IDs, or stale status tables lower in this file until those sections are next deeply reconciled. |
 
 <!-- PRODUCT_RELEASE_SYNC_END -->
 
 This document serves as the final authoritative gate for the SpeakSharp production launch. Controlled tester readiness and broad public launch readiness are intentionally separated.
 
-## 🔴 Current Verdict: Controlled Tester BLOCKED BY TESTER A WALKTHROUGH / Public Launch NO-GO
+## 🟡 Current Verdict: Controlled Tester CONDITIONAL / Public Launch NO-GO
 
-## 2026-05-22 Rehearsal Override
+## 2026-05-24 Browser Evidence Update
 
-The latest live rehearsal and Tester A/B walkthroughs found blockers in the exact first-time tester path. Fresh trial accounts using Private STT can enter misleading recording states, fail to show usable transcript text, fail to detect filler words, and fail to save a session to History/Analytics. Visible Chrome Tester B evidence also shows Private saving partial transcripts, Native producing either no transcript or duplicated transcripts, and History card clicks not opening detail. Treat `SOFT_RELEASE_REHEARSAL_BUG_INVENTORY.md` as the current tester-release authority until SR-014/SR-015/SR-021/SR-022/SR-023 and related metric-trust findings are fixed or revalidated.
+The May 22 rehearsal inventory remains useful historical context, but the May 24 visible Chrome preview run changed the current risk boundary. Fresh trial signup now lands with Private enabled, Private v4 records real microphone speech, transcript text appears, the session saves, the saved session appears at the top of Analytics/History, and the saved detail opens with transcript, engine metadata, WPM, clarity, and filler counts. Native Chrome also produces coherent Web Speech result events with real microphone input. Remaining controlled-tester risk is transcript quality and metric interpretation, especially Private first-text latency/accuracy and whether WPM/clarity explanations remain fair when STT misses words.
 
 ## Final Launch Gate
 
-Controlled tester status: **BLOCKED BY TESTER A MANUAL WALKTHROUGH**
+Controlled tester status: **CONDITIONAL**
 
 Public launch status: **NO-GO**
 
 ### Required Before Launch
 
-- [ ] Controlled desktop tester release packet is green with documented limitations. Current distribution is blocked by Tester A Private STT findings in the 2026-05-22 rehearsal inventory.
+- [ ] Controlled desktop tester release packet is green with documented limitations. May 24 browser evidence clears signup → Private → save → History/detail, but transcript quality and analytics interpretation need final review before wider distribution.
 - [x] CI/Test Audit is green on `main`: run `26231514902`.
 - [x] Production canary is green on `main`: push run `26231514911`.
 - [x] Supabase deploy is green on `main`: run `26231515067`.
@@ -74,7 +74,7 @@ Public launch status: **NO-GO**
 | **G3** | **Non-Negative Duration Constraint**| Integrity | ✅ **LIVE NEGATIVE-DURATION SMOKE PASSED** |
 | **G4** | **Trial Abuse Gate** | Security | 🟡 **ONE-TIME/REUSE VERIFIED / THROTTLE PENDING** |
 | **G5** | **Production Secret Audit** | Security | 🟡 IN REVIEW |
-| **G6** | **Fresh Trial Private STT Transcript/Save/History Path** | Product Truth | 🔴 **BLOCKED BY TESTER A WALKTHROUGH** |
+| **G6** | **Fresh Trial Private STT Transcript/Save/History Path** | Product Truth | 🟡 **BROWSER PATH PASSED / QUALITY REVIEW PENDING** |
 
 ---
 
@@ -101,7 +101,7 @@ This matrix tracks user-visible feature readiness. A feature is not release-read
 | **Private STT Default** | Pro users see Private as the recommended/default STT mode. | Recent STT UX work orders Private first; mocked E2E covers orchestration. | 🟡 PENDING | Browser-test new Pro/trial user landing state. |
 | **Private Download & Cache** | Missing model shows explicit setup/download/progress, then reuses browser cache on later starts. | Code now probes Whisper Turbo's real IndexedDB model stores and normalizes progress values for UI display. The same-origin CPU bundle includes verified split Transformers.js ONNX files plus tokenizer/config metadata. Local `@xenova/transformers` pipeline load succeeds with `allowRemoteModels=false`. Run `25634578516` proved Private transcript/save/history/AI/PDF artifact path. Run `25642824527` proved first-start cache population, second-start reuse, no second download prompt, and successful second recording start/stop. | ✅ LIVE ARTIFACT + CACHE PASSED | Keep Private artifact and cache proofs in release reruns. |
 | **Private Engine Policy** | For launch, Private defaults to CPU/Transformers.js for deterministic first-use behavior. WebGPU/WhisperTurbo is an accelerated path only after support is verified or explicitly selected for validation. Native is an explicit recovery/baseline option after Private cannot run. | Unit tests reflect CPU-first default and explicit WebGPU override. Post-deploy DB/RPC smoke proved Pro trial users can save `engine='private'`; previous `engine_not_allowed_for_tier` blocker is cleared at the database layer. | 🟡 DB POLICY VERIFIED / BROWSER TRANSCRIPT PENDING | Validate CPU-first Private transcript/save/history end-to-end in a real browser, separately validate explicit WebGPU path as manual/hardware evidence, and verify no silent Cloud fallback. |
-| **Cloud STT** | Pro users may explicitly choose Cloud as a first-class option. | Live Cloud is currently blocked: the frontend allows trial/Pro-like access, but the backend Edge Function `assemblyai-token` returns a 403 error (`Paid Pro subscription required`) because it checks for active paid Stripe IDs and does not authorize trial profiles (`trial_expires_at`). | 🔴 BLOCKED BY BACKEND 403 | Resolve the subscription entitlement check in the `assemblyai-token` Edge Function to permit active trial profiles. |
+| **Cloud STT** | Paid Pro users may explicitly choose Cloud as a first-class option. Trial/basic users are informed that Cloud STT is available with Pro and trial access includes Private STT. | Supabase Edge Function logs show `assemblyai-token` intentionally rejected a `basic` user with a future `trial_expires_at`. This is expected entitlement behavior, not an AssemblyAI provider failure. | 🟡 PAID-PRO BROWSER VALIDATION PENDING | Keep backend paid-Pro entitlement unchanged. Verify Cloud with a paid-Pro profile that has a Stripe/subscription ID; classify 403 entitlement denials separately from true AssemblyAI token/provider failures. |
 | **Transcript Propagation** | Live transcript updates and `TRANSCRIPT_PULSE` telemetry come from the same successful path. | Current CI/Test Audit run `26231514902` is green on `main`. Public-launch ledger evidence records Basic first-use PASS, Private/Cloud provider-level artifact evidence, physical real-mic Cloud proof, and PDF/AI proof. | 🟢 CONTROLLED TESTER + PUBLIC CLOUD EVIDENCE GREEN | Keep physical evidence separate from CI/provider-level evidence in future claims. |
 | **Session Persistence** | Finalized sessions persist the full coaching-analysis snapshot needed for returning-user comparison: transcript, duration, total words, WPM, clarity, filler/custom word counts, pause metrics, AI suggestions, engine metadata, and optional ground-truth/WER fields. | Stop-session persistence now writes the shared analysis snapshot; targeted unit tests pass. Commit `479edda3` centralized session/page analytics metrics and commit `7790988d` aligned CI expectations with that product truth. | 🟡 FIX PUSHED / LIVE VALIDATION PENDING | Verify live save/read after Native, Private, and Cloud sessions. |
 | **Analytics** | WPM, clarity, filler words, pause/session history, WER-ready fields, and trends are computed from the same source as the session page unless new persisted data justifies recalculation. | Session page, Analytics, persistence, PDF-adjacent report state, and tests now use shared metric helpers. Filler totals intentionally match live transcript highlighting, including `like`/`so`, so analytics no longer diverges from what the user saw during the session. Production canary run `25993614589` passed after the push. | 🟡 PATCH DEPLOYED / USER LIVE RECHECK PENDING | Browser-test Native/Cloud/Private sessions and verify WPM, clarity, filler, custom-word, and pause numbers change with input, then save/reload for session-over-session comparison. |

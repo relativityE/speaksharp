@@ -26,6 +26,18 @@ import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
 // Lazy-load transformers.js to avoid bundle bloat
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
 type UnknownRecord = Record<string, unknown>;
+type WorkerResponse =
+    | { id: number; type: 'ready' }
+    | { id: number; type: 'progress'; progress: number }
+    | { id: number; type: 'loaded'; loadTimeMs: number; model: string }
+    | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string }
+    | { id: number; type: 'destroyed' }
+    | { id: number; type: 'error'; errorName: string; errorMessage: string };
+
+type PendingWorkerRequest = {
+    resolve: (response: WorkerResponse) => void;
+    reject: (error: Error) => void;
+};
 
 const isPrivateTranscriptTraceEnabled = () =>
     typeof window !== 'undefined' &&
@@ -75,6 +87,9 @@ function summarizeRawResult(result: unknown): UnknownRecord {
 export class TransformersJSEngine extends STTEngine {
     public readonly type: EngineType = 'transformers-js';
     private transcriber: Pipeline | null = null;
+    private worker: Worker | null = null;
+    private workerRequestId: number = 0;
+    private pendingWorkerRequests = new Map<number, PendingWorkerRequest>();
 
     constructor(options?: TranscriptionModeOptions) {
         super(options);
@@ -90,7 +105,7 @@ export class TransformersJSEngine extends STTEngine {
 
     protected async loadModel(isMock?: boolean): Promise<Result<void, Error>> {
         const options = (this.options || {}) as TranscriptionModeOptions;
-        if (this.transcriber) {
+        if (this.transcriber || this.worker) {
             logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Engine already initialized, skipping.');
             if (options.onReady) options.onReady();
             return Result.ok(undefined);
@@ -104,6 +119,16 @@ export class TransformersJSEngine extends STTEngine {
         }
 
         try {
+            if (this.shouldUseWorker()) {
+                await this.initWorker(isMock);
+                if (options.onModelLoadProgress) {
+                    options.onModelLoadProgress(100);
+                }
+                this.updateHeartbeat();
+                options.onReady?.();
+                return Result.ok(undefined);
+            }
+
             // Lazy import transformers.js
             const transformers = await import('@xenova/transformers');
             const { pipeline, env } = transformers;
@@ -258,16 +283,75 @@ export class TransformersJSEngine extends STTEngine {
     protected async onDestroy(): Promise<void> {
         logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[TransformersJS] Destroying engine resources...');
         this.transcriber = null;
+        if (this.worker) {
+            try {
+                await this.sendWorkerRequest({ type: 'destroy' });
+            } catch (error) {
+                logger.warn({
+                    sId: this.serviceId,
+                    rId: this.runId,
+                    eId: this.instanceId,
+                    err: error,
+                }, '[TransformersJS] Worker destroy request failed.');
+            }
+            this.worker.terminate();
+            this.worker = null;
+        }
+        this.pendingWorkerRequests.forEach(({ reject }) => reject(new Error('TransformersJS worker destroyed.')));
+        this.pendingWorkerRequests.clear();
     }
 
     async transcribe(audio: Float32Array): Promise<Result<string, Error>> {
-        if (!this.transcriber) {
+        if (!this.transcriber && !this.worker) {
             return { isOk: false, error: new Error('TransformersJS engine not initialized. Call init() first.') };
         }
 
         this.updateHeartbeat(); // Standard contract: update heartbeat on activity
 
         try {
+            if (this.worker) {
+                const workerAudio = audio.slice(0);
+                const response = await this.sendWorkerRequest(
+                    { type: 'transcribe', audio: workerAudio },
+                    [workerAudio.buffer],
+                );
+                if (response.type !== 'result') {
+                    throw new Error(`Unexpected TransformersJS worker response: ${response.type}`);
+                }
+
+                logger.info({
+                    sId: this.serviceId,
+                    rId: this.runId,
+                    eId: this.instanceId,
+                    event: 'inference_complete',
+                    latency_ms: response.latencyMs,
+                    audio_length_s: response.audioLengthSeconds,
+                    engine: 'transformersjs-worker',
+                    result_shape: response.resultShape
+                }, '[TransformersJS] Worker transcription complete.');
+
+                if (isPrivateTranscriptTraceEnabled()) {
+                    logger.info({
+                        sId: this.serviceId,
+                        rId: this.runId,
+                        eId: this.instanceId,
+                        audio_samples: audio.length,
+                        audio_length_s: Number(response.audioLengthSeconds.toFixed(3)),
+                        extracted_length: response.transcript.length,
+                        extracted_trim_length: response.transcript.trim().length,
+                        raw_result: {
+                            kind: 'worker-result',
+                            resultShape: response.resultShape,
+                            preview: response.transcript.slice(0, 120),
+                        },
+                    }, '[PRIVATE_DIAG] transformers_worker_result_shape');
+                }
+
+                this.currentTranscript = response.transcript;
+                this.updateHeartbeat();
+                return { isOk: true, data: response.transcript };
+            }
+
             const start = performance.now();
             interface TranscriptionResult {
                 text?: string;
@@ -329,5 +413,73 @@ export class TransformersJSEngine extends STTEngine {
 
     async terminate(): Promise<void> {
         await this.destroy();
+    }
+
+    private shouldUseWorker(): boolean {
+        return typeof window !== 'undefined' &&
+            typeof Worker !== 'undefined' &&
+            typeof navigator !== 'undefined' &&
+            !navigator.userAgent.includes('HappyDOM') &&
+            !ENV.isTest;
+    }
+
+    private async initWorker(isMock?: boolean): Promise<void> {
+        const options = (this.options || {}) as TranscriptionModeOptions;
+        this.worker = new Worker(new URL('./transformers-js.worker.ts', import.meta.url), { type: 'module' });
+        this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+            const response = event.data;
+            if (response.type === 'progress') {
+                options.onModelLoadProgress?.(response.progress);
+                return;
+            }
+
+            if (response.type === 'loaded') {
+                logger.info({
+                    sId: this.serviceId,
+                    rId: this.runId,
+                    eId: this.instanceId,
+                    event: 'model_loaded',
+                    model: response.model,
+                    load_time_ms: response.loadTimeMs,
+                    engine: 'transformersjs-worker',
+                }, '[TransformersJS] Worker engine initialized successfully.');
+                return;
+            }
+
+            const pending = this.pendingWorkerRequests.get(response.id);
+            if (!pending) return;
+            this.pendingWorkerRequests.delete(response.id);
+
+            if (response.type === 'error') {
+                pending.reject(new Error(response.errorMessage));
+            } else {
+                pending.resolve(response);
+            }
+        };
+        this.worker.onerror = (event) => {
+            const error = new Error(event.message || 'TransformersJS worker failed.');
+            this.pendingWorkerRequests.forEach(({ reject }) => reject(error));
+            this.pendingWorkerRequests.clear();
+        };
+
+        const response = await this.sendWorkerRequest({ type: 'init', isE2E: Boolean(isMock) });
+        if (response.type !== 'ready') {
+            throw new Error(`Unexpected TransformersJS worker init response: ${response.type}`);
+        }
+    }
+
+    private sendWorkerRequest(
+        request: { type: 'init'; isE2E: boolean } | { type: 'transcribe'; audio: Float32Array } | { type: 'destroy' },
+        transfer?: Transferable[],
+    ): Promise<WorkerResponse> {
+        if (!this.worker) {
+            return Promise.reject(new Error('TransformersJS worker is not available.'));
+        }
+
+        const id = ++this.workerRequestId;
+        return new Promise((resolve, reject) => {
+            this.pendingWorkerRequests.set(id, { resolve, reject });
+            this.worker?.postMessage({ id, ...request }, transfer ?? []);
+        });
     }
 }

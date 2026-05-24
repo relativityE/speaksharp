@@ -300,6 +300,7 @@
     "packageJson": {
       "dependencies": [
         "npm:@esbuild/darwin-arm64@~0.25.12",
+        "npm:@huggingface/transformers@^4.2.0",
         "npm:@lhci/cli@~0.15.1",
         "npm:@playwright/test@^1.57.0",
         "npm:@radix-ui/react-alert-dialog@^1.1.15",

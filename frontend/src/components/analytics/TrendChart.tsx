@@ -1,6 +1,7 @@
 import React from 'react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Card } from '@/components/ui/card';
+import { ANALYTICS_THRESHOLDS } from '@/utils/sessionAnalysis';
 
 interface TrendDataPoint {
     date: string;
@@ -18,7 +19,7 @@ interface TrendChartProps {
 
 export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, description }) => {
     const metricConfig = {
-        wpm: { color: 'hsl(var(--primary))', label: 'WPM (Target: 130-150)', unit: '' },
+        wpm: { color: 'hsl(var(--primary))', label: `WPM (Target: ${ANALYTICS_THRESHOLDS.TARGET_WPM_MIN}-${ANALYTICS_THRESHOLDS.TARGET_WPM_MAX})`, unit: '' },
         clarity: { color: 'hsl(var(--chart-2))', label: 'Clarity', unit: '%' },
         fillers: { color: 'hsl(var(--secondary))', label: 'Fillers', unit: '' },
     };

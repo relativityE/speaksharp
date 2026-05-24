@@ -85,7 +85,7 @@ describe('LiveRecordingCard', () => {
 
         expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).not.toHaveAttribute('data-disabled');
         expect(await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveAttribute('data-disabled');
-        expect(screen.getByText(/Cloud \(Pro feature only\)/i)).toBeDefined();
+        expect(screen.getByText(/Cloud \(Pro feature\)/i)).toBeDefined();
         expect(screen.getByText(/Most reliable option/i)).toBeDefined();
     });
 

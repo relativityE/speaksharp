@@ -38,6 +38,9 @@ const { hoistedFactory } = vi.hoisted(() => ({
 vi.mock('@/services/transcription/STTStrategyFactory', () => ({
     STTStrategyFactory: hoistedFactory as unknown as typeof _STTStrategyFactory
 }));
+vi.mock('../../../../services/transcription/STTStrategyFactory', () => ({
+    STTStrategyFactory: hoistedFactory as unknown as typeof _STTStrategyFactory
+}));
 
 describe('useSpeechRecognition Integration', () => {
     let service: MockTranscriptionService | null = null;

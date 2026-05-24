@@ -68,14 +68,25 @@ vi.mock('@/services/transcription/utils/AudioProcessor', () => {
 });
 
 // Mock heavy dependencies that trigger Worker chains
-vi.mock('@/services/transcription/modes/PrivateWhisper', () => ({
-    default: vi.fn().mockImplementation(() => ({
-        init: vi.fn().mockResolvedValue(undefined),
-        start: vi.fn().mockResolvedValue(undefined),
-        stop: vi.fn().mockResolvedValue(''),
-        terminate: vi.fn().mockResolvedValue(undefined)
-    }))
-}));
+vi.mock('@/services/transcription/modes/PrivateWhisper', () => {
+    class MockPrivateWhisper {
+        public readonly type = 'whisper-turbo';
+        public async init() { return { isOk: true }; }
+        public async start() {}
+        public async stop() {}
+        public async terminate() {}
+        public async destroy() {}
+        public async getTranscript() { return ''; }
+        public async checkAvailability() { return { isAvailable: true }; }
+        public getLastHeartbeatTimestamp() { return Date.now(); }
+        public getEngineType() { return 'whisper-turbo'; }
+        public updateOptions() {}
+    }
+    return {
+        default: MockPrivateWhisper,
+        __esModule: true
+    };
+});
 
 // Mock useProfile (Safe infrastructure mock)
 vi.mock('@/hooks/useProfile', () => ({

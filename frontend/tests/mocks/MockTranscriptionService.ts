@@ -148,6 +148,10 @@ export class MockTranscriptionService {
         return this._isDestroyed || this.state === 'TERMINATED';
     }
 
+    checkAvailability = async (): Promise<{ isAvailable: boolean }> => {
+        return { isAvailable: true };
+    };
+
     updatePolicy = vi.fn();
 
     resetEphemeralState(): void {

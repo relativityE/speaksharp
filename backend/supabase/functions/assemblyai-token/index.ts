@@ -118,7 +118,7 @@ export async function handler(
       );
       return new Response(
         JSON.stringify({
-          error: "Paid Pro subscription required for Cloud transcription",
+          error: "Cloud STT is available with Pro. Trial access includes Private STT.",
         }),
         {
           status: 403,

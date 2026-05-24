@@ -4,8 +4,9 @@ import {
     TIER_LIMITS,
     isPro,
     isBasic,
-    getEffectiveSubscriptionStatus,
-    hasPaidProEntitlement,
+	    getEffectiveSubscriptionStatus,
+	    hasCloudSttEntitlement,
+	    hasPaidProEntitlement,
     isActiveTrialProfile,
     getTierLabel,
     getTierLimits,
@@ -82,7 +83,7 @@ describe('subscriptionTiers', () => {
         });
     });
 
-    describe('hasPaidProEntitlement', () => {
+	    describe('hasPaidProEntitlement', () => {
         it('does not treat active trial as paid Pro', () => {
             expect(hasPaidProEntitlement({
                 subscription_status: 'basic',
@@ -100,9 +101,36 @@ describe('subscriptionTiers', () => {
                 subscription_status: 'pro',
             })).toBe(false);
         });
-    });
+	    });
 
-    describe('getTierLabel', () => {
+	    describe('hasCloudSttEntitlement', () => {
+	        it('does not allow active trial profiles to use Cloud STT', () => {
+	            expect(hasCloudSttEntitlement({
+	                subscription_status: 'basic',
+	                trial_expires_at: '2999-01-01T00:00:00.000Z',
+	            })).toBe(false);
+	        });
+
+	        it('allows paid Pro profiles to use Cloud STT', () => {
+	            expect(hasCloudSttEntitlement({
+	                subscription_status: 'pro',
+	                stripe_subscription_id: 'sub_123',
+	            })).toBe(true);
+	        });
+
+	        it('does not allow expired trials or unpaid Pro-shaped profiles to use Cloud STT', () => {
+	            expect(hasCloudSttEntitlement({
+	                subscription_status: 'basic',
+	                trial_expires_at: '2024-01-01T00:00:00.000Z',
+	            })).toBe(false);
+
+	            expect(hasCloudSttEntitlement({
+	                subscription_status: 'pro',
+	            })).toBe(false);
+	        });
+	    });
+
+	    describe('getTierLabel', () => {
         it('returns "Pro" for pro users', () => {
             expect(getTierLabel('pro')).toBe('Pro');
         });

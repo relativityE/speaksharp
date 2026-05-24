@@ -4,11 +4,11 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NavigateFunction } from 'react-router-dom';
-import TranscriptionService, { TranscriptionServiceOptions } from '../TranscriptionService';
-import { TranscriptionPolicy, PROD_BASIC_POLICY } from '../TranscriptionPolicy';
+import type TranscriptionService from '../TranscriptionService';
+import type { TranscriptionServiceOptions } from '../TranscriptionService';
+import { PROD_BASIC_POLICY } from '../TranscriptionPolicy';
 import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
-import { sttRegistry } from '../STTRegistry';
 import { EngineType } from '../../../contracts/IPrivateSTTEngine';
 import { MicStream } from '../utils/types';
 import { TranscriptionModeOptions } from '../modes/types';
@@ -48,15 +48,10 @@ class MockEngine extends STTEngine {
     terminate = vi.fn().mockImplementation(() => super.terminate());
 }
 
-// Testable subclass to expose protected methods if needed
-class TestTranscriptionService extends TranscriptionService {
-    public async triggerStartTranscription(runtimePolicy: TranscriptionPolicy) {
-        return this.startTranscription(runtimePolicy);
-    }
-}
-
 describe('TranscriptionService - Zombie Prevention', () => {
-    let service: TestTranscriptionService;
+    let service: TranscriptionService;
+    let TranscriptionServiceClass: typeof import('../TranscriptionService').default;
+    let sttRegistryInstance: typeof import('../STTRegistry').sttRegistry;
 
     // Base options with valid policy
     const mockOptions: TranscriptionServiceOptions = {
@@ -92,6 +87,10 @@ describe('TranscriptionService - Zombie Prevention', () => {
         // 1. Setup T=0 Environment
         await setupStrictZero();
 
+        TranscriptionServiceClass = (await import('../TranscriptionService')).default;
+        const registryModule = await import('../STTRegistry');
+        sttRegistryInstance = registryModule.sttRegistry;
+
         // 2. Inject core mock engines so that beforeEach init() bypasses checkAvailability
         const instances = {
             assemblyai: new MockEngine('cloud'),
@@ -99,12 +98,12 @@ describe('TranscriptionService - Zombie Prevention', () => {
             'whisper-turbo': new MockEngine('private')
         };
         
-        sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { instances.assemblyai = new MockEngine('cloud', opts); return instances.assemblyai; });
-        sttRegistry.register('native-browser', (opts: TranscriptionModeOptions) => { instances['native-browser'] = new MockEngine('native', opts); return instances['native-browser']; });
-        sttRegistry.register('whisper-turbo', (opts: TranscriptionModeOptions) => { instances['whisper-turbo'] = new MockEngine('transformers-js', opts); return instances['whisper-turbo']; });
-        sttRegistry.register('transformers-js', (opts: TranscriptionModeOptions) => { instances['whisper-turbo'] = new MockEngine('transformers-js', opts); return instances['whisper-turbo']; });
+        sttRegistryInstance.register('assemblyai', (opts: TranscriptionModeOptions) => { instances.assemblyai = new MockEngine('cloud', opts); return instances.assemblyai; });
+        sttRegistryInstance.register('native-browser', (opts: TranscriptionModeOptions) => { instances['native-browser'] = new MockEngine('native', opts); return instances['native-browser']; });
+        sttRegistryInstance.register('whisper-turbo', (opts: TranscriptionModeOptions) => { instances['whisper-turbo'] = new MockEngine('transformers-js', opts); return instances['whisper-turbo']; });
+        sttRegistryInstance.register('transformers-js', (opts: TranscriptionModeOptions) => { instances['whisper-turbo'] = new MockEngine('transformers-js', opts); return instances['whisper-turbo']; });
 
-        service = new TestTranscriptionService(mockOptions);
+        service = new TranscriptionServiceClass(mockOptions);
         // Start init with a valid mock environment already present
         await service.init();
     });
@@ -121,17 +120,17 @@ describe('TranscriptionService - Zombie Prevention', () => {
     it('should terminate old instance before switching modes (Behavior-based)', async () => {
         // Arrange
         const cloudEngine = new MockEngine('cloud');
-        sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { (cloudEngine as unknown as { options: TranscriptionModeOptions }).options = opts; return cloudEngine; });
+        sttRegistryInstance.register('assemblyai', (opts: TranscriptionModeOptions) => { (cloudEngine as unknown as { options: TranscriptionModeOptions }).options = opts; return cloudEngine; });
         
         // Spies on the newly created Cloud mock 
         const cloudSpy = vi.spyOn(cloudEngine, 'terminate');
 
         // 1. Initialize Cloud mode
-        await service.triggerStartTranscription({ ...mockOptions.policy!, preferredMode: 'cloud' });
+        await service.startTranscription({ ...mockOptions.policy!, preferredMode: 'cloud' });
         expect(service.getState()).toBe('RECORDING');
 
         // 2. Initialize Private mode (should trigger terminate on cloud)
-        await service.triggerStartTranscription({ ...mockOptions.policy!, preferredMode: 'private' });
+        await service.startTranscription({ ...mockOptions.policy!, preferredMode: 'private' });
 
         // ASSERT BEHAVIOR: Old instance terminated
         expect(cloudSpy).toHaveBeenCalled();
@@ -141,12 +140,12 @@ describe('TranscriptionService - Zombie Prevention', () => {
     it('should handle concurrent terminate calls gracefully (Behavior-based)', async () => {
         // Arrange
         const cloudEngine = new MockEngine('cloud');
-        sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { (cloudEngine as unknown as { options: TranscriptionModeOptions }).options = opts; return cloudEngine; });
+        sttRegistryInstance.register('assemblyai', (opts: TranscriptionModeOptions) => { (cloudEngine as unknown as { options: TranscriptionModeOptions }).options = opts; return cloudEngine; });
         
         // Make terminate take some time
         cloudEngine.terminate.mockImplementation(() => new Promise(res => setTimeout(res, 50)));
 
-        await service.triggerStartTranscription({ ...PROD_BASIC_POLICY, allowCloud: true, allowPrivate: true, preferredMode: 'cloud' });
+        await service.startTranscription({ ...PROD_BASIC_POLICY, allowCloud: true, allowPrivate: true, preferredMode: 'cloud' });
         expect(service.getState()).toBe('RECORDING');
 
         // RAPID DESTROY CALLS
@@ -187,9 +186,9 @@ describe('TranscriptionService - Zombie Prevention', () => {
         const cloudEngine = new MockEngine('cloud');
 
         // 1. Inject into STTRegistry - share the same instance
-        sttRegistry.register('assemblyai', (opts: TranscriptionModeOptions) => { (cloudEngine as unknown as { options: TranscriptionModeOptions }).options = opts; return cloudEngine; });
+        sttRegistryInstance.register('assemblyai', (opts: TranscriptionModeOptions) => { (cloudEngine as unknown as { options: TranscriptionModeOptions }).options = opts; return cloudEngine; });
 
-        await service.triggerStartTranscription({ ...mockOptions.policy!, preferredMode: 'cloud' });
+        await service.startTranscription({ ...mockOptions.policy!, preferredMode: 'cloud' });
         await service.destroy();
 
         expect(service.isServiceDestroyed()).toBe(true);

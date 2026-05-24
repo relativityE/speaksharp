@@ -152,7 +152,7 @@ export class TransformersJSV4Engine extends STTEngine {
                 event: 'model_loaded',
                 model: PRIV_STT_V4.MODEL_ID,
                 dtype: PRIV_STT_V4.DTYPE,
-                expected_download_mb: PRIV_STT_V4.EXPECTED_Q8_DOWNLOAD_MB,
+                expected_download_mb: PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB,
                 load_time_ms: Math.round(loadTime),
                 engine: 'transformersjs-v4',
             }, '[TransformersJSV4] Engine initialized successfully.');

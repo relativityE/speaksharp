@@ -241,8 +241,8 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         if (preferredEngine === 'transformers-js-v4') {
             return {
                 isAvailable: true,
-                message: `Private v4 model will download on first use (~${PRIV_STT_V4.EXPECTED_Q8_DOWNLOAD_MB} MB).`,
-                sizeMB: PRIV_STT_V4.EXPECTED_Q8_DOWNLOAD_MB,
+                message: `Private v4 model will download on first use (~${PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB} MB).`,
+                sizeMB: PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB,
             };
         }
 

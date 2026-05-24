@@ -12,7 +12,7 @@ import { useSessionMetrics } from './useSessionMetrics';
 import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
 import { useStreak } from './useStreak';
 import { useUserFillerWords } from './useUserFillerWords';
-import { getEffectiveSubscriptionStatus, hasPaidProEntitlement, isPro } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement, isActiveTrialProfile, isPro } from '@/constants/subscriptionTiers';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
@@ -61,10 +61,10 @@ export const useSessionLifecycle = () => {
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = isPro(effectiveSubscriptionStatus);
     const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
-    const canUseProSttModes = isProUser || isDevUser;
+    const canUsePrivateStt = isProUser || isActiveTrialProfile(profile) || isDevUser;
     const isE2EProHarness = import.meta.env.MODE !== 'production' && import.meta.env.VITE_TEST_MODE === 'true' && isProUser;
-    const canUseCloudStt = (isProUser && (hasPaidProEntitlement(profile) || isE2EProHarness)) || isDevUser;
-    const shouldForceNativeMode = !canUseProSttModes;
+    const canUseCloudStt = (isProUser && (hasCloudSttEntitlement(profile) || isE2EProHarness)) || isDevUser;
+    const shouldForceNativeMode = !canUsePrivateStt;
     const profileReadyForStt = isVerified && !!profile?.id && typeof profile?.subscription_status === 'string';
 
     const sttStatus = useSessionStore(state => state.sttStatus);
@@ -116,7 +116,9 @@ export const useSessionLifecycle = () => {
         isReady,
         modelLoadingProgress,
         mode: activeMode,
-        pauseMetrics
+        pauseMetrics,
+        micLevel,
+        hasSpeechActivity
     } = speechRecognition;
 
     // ✅ STABLE REFS for cleanup effects - defined AFTER speechRecognition
@@ -234,7 +236,7 @@ export const useSessionLifecycle = () => {
                 // SpeechRuntimeController.startRecording() handles FSM, Service Init, and DB Session
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
                 const latestMode = requestedMode === 'cloud' && !canUseCloudStt ? defaultMode : requestedMode;
-                const selectedPolicy = buildPolicyForUser(canUseProSttModes, latestMode, { allowCloud: canUseCloudStt });
+                const selectedPolicy = buildPolicyForUser(canUsePrivateStt, latestMode, { allowCloud: canUseCloudStt });
                 await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
                 posthog.capture('session_started', { mode: latestMode });
             } catch (error) {
@@ -250,7 +252,7 @@ export const useSessionLifecycle = () => {
                         requestedMode,
                         latestMode,
                         canUseCloudStt,
-                        canUseProSttModes,
+                        canUsePrivateStt,
                         runtimeState,
                         userTier: effectiveSubscriptionStatus,
                     });
@@ -274,7 +276,7 @@ export const useSessionLifecycle = () => {
                 isProcessingRef.current = false;
             }
         }
-    }, [isListening, elapsedTime, updateStreak, queryClient, isProUser, canUseProSttModes, canUseCloudStt, usageLimit, defaultMode, isLockHeldByOther, setSTTStatus, userFillerWords, runtimeState, effectiveSubscriptionStatus]);
+    }, [isListening, elapsedTime, updateStreak, queryClient, isProUser, canUsePrivateStt, canUseCloudStt, usageLimit, defaultMode, isLockHeldByOther, setSTTStatus, userFillerWords, runtimeState, effectiveSubscriptionStatus]);
 
     // ✅ Keep the stable ref up to date with the latest callback
     handleStartStopRef.current = handleStartStop;
@@ -464,7 +466,7 @@ export const useSessionLifecycle = () => {
             const safeMode = m === 'cloud' && !canUseCloudStt ? defaultMode : m;
             modeSourceRef.current = 'user';
             setSTTMode(safeMode);
-            speechRuntimeController.updatePolicy(buildPolicyForUser(canUseProSttModes, safeMode, { allowCloud: canUseCloudStt }));
+            speechRuntimeController.updatePolicy(buildPolicyForUser(canUsePrivateStt, safeMode, { allowCloud: canUseCloudStt }));
             speechRuntimeController.syncForensicState();
         },
         recordingIntent: isRecordingIntent,
@@ -476,10 +478,12 @@ export const useSessionLifecycle = () => {
         sunsetModal,
         setSunsetModal,
         pauseMetrics,
+        micLevel,
+        hasSpeechActivity,
         transcriptContent: transcript.transcript,
         interimTranscript,
         fillerData,
-        isProUser: canUseProSttModes,
+        isProUser: canUsePrivateStt,
         canUseCloudStt,
         activeEngine,
         isButtonDisabled: !['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED'].includes(runtimeState),

@@ -136,7 +136,10 @@ vi.mock('../useSpeechRecognition', () => ({
         pauseMetrics: basePauseMetrics,
         modelLoadingProgress: null,
         sttStatus: baseSttStatus,
-        mode: 'native'
+        mode: 'native',
+        micWarning: null,
+        micLevel: 0,
+        hasSpeechActivity: false,
     })),
 }));
 
@@ -175,6 +178,7 @@ vi.mock('../useUserFillerWords', () => ({
 vi.mock('@/constants/subscriptionTiers', () => ({
     isPro: vi.fn((status: string | undefined) => status === 'pro'),
     hasPaidProEntitlement: vi.fn(() => false),
+    hasCloudSttEntitlement: vi.fn(() => false),
     getEffectiveSubscriptionStatus: vi.fn((usageStatus: string | undefined, profile: { subscription_status?: string } | null | undefined) => usageStatus ?? profile?.subscription_status ?? 'basic'),
 }));
 
@@ -256,7 +260,10 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             pauseMetrics: basePauseMetrics,
             modelLoadingProgress: null,
             sttStatus: { type: 'ready', message: 'Recording' },
-            mode: 'native'
+            mode: 'native',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
         });
 
         vi.mocked(useUsageLimit).mockReturnValue({
@@ -308,7 +315,10 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             pauseMetrics: basePauseMetrics,
             modelLoadingProgress: null,
             sttStatus: { type: 'ready', message: 'Recording' },
-            mode: 'native'
+            mode: 'native',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
         });
 
         vi.mocked(useUsageLimit).mockReturnValue({
@@ -374,7 +384,10 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             pauseMetrics: basePauseMetrics,
             modelLoadingProgress: null,
             sttStatus: { type: 'ready', message: 'Recording' },
-            mode: 'native'
+            mode: 'native',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
         });
 
         vi.mocked(useUsageLimit).mockReturnValue({
@@ -563,7 +576,10 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 message: "We didn't detect enough speech to save this session.",
                 detail: 'Try recording again and speak for at least a few seconds.'
             },
-            mode: 'native'
+            mode: 'native',
+            micWarning: null,
+            micLevel: 0,
+            hasSpeechActivity: false,
         });
 
         const { result } = renderHook(() => useSessionLifecycle(), {

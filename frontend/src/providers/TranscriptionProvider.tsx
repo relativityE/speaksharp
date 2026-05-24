@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, ReactNode } from 'react';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
-import { getEffectiveSubscriptionStatus, hasPaidProEntitlement } from '@/constants/subscriptionTiers';
+import { getEffectiveSubscriptionStatus, hasCloudSttEntitlement } from '@/constants/subscriptionTiers';
 import { syncProfileReady } from '@/lib/forensicAnchors';
 import logger from '@/lib/logger';
 import ProfileContext from '@/contexts/ProfileContext';
@@ -83,7 +83,7 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
         const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
         const isPro = tier === 'pro' || isDevUser;
         const isE2EProHarness = import.meta.env.MODE !== 'production' && import.meta.env.VITE_TEST_MODE === 'true' && isPro;
-        const canUseCloud = (isPro && (hasPaidProEntitlement(policyProfile) || isE2EProHarness)) || isDevUser;
+        const canUseCloud = (isPro && (hasCloudSttEntitlement(policyProfile) || isE2EProHarness)) || isDevUser;
         const requestedMode = isPro ? currentSelectedMode : null;
         const safeMode = requestedMode === 'cloud' && !canUseCloud ? 'private' : requestedMode;
         const newPolicy = buildPolicyForUser(isPro, safeMode, { allowCloud: canUseCloud });

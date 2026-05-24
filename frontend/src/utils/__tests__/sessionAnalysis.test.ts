@@ -16,8 +16,8 @@ describe('sessionAnalysis metric truth', () => {
         expect(metrics.wordCount).toBe(10);
         expect(metrics.fillerCount).toBe(3);
         expect(metrics.fillerData.total.count).toBe(3);
-        expect(metrics.fillerExplanation).toContain('3 filler words detected');
-        expect(metrics.clarityExplanation).toContain('3 filler words');
+        expect(metrics.fillerExplanation).toContain('This is likely noticeable; pause before restarting a thought');
+        expect(metrics.clarityExplanation).toContain('Replace the next one with a brief pause');
     });
 
     it('does not report perfect clarity for missing speech', () => {
@@ -111,5 +111,30 @@ describe('sessionAnalysis metric truth', () => {
         expect(metrics.fillerData.basically.count).toBe(2);
         expect(metrics.fillerData.total.count).toBe(2);
         expect(metrics.fillerCount).toBe(2);
+    });
+
+    it('turns Cloud-quality transcript evidence into plain-language coaching', () => {
+        const metrics = calculateCoreSessionMetrics({
+            transcript: 'The stale smell of old beer, like, lingers, basically, a dash of pepper spoils beef stew. Well, the swan dive was far short of perfect.',
+            durationSeconds: 26.194,
+        });
+
+        expect(metrics.wordCount).toBe(25);
+        expect(metrics.fillerCount).toBe(2);
+        expect(metrics.wpm).toBe(57);
+        expect(metrics.wpmExplanation).toContain('very slow for most listeners');
+        expect(metrics.fillerExplanation).toContain('Pick one repeat filler to replace with silence next time');
+        expect(metrics.clarityExplanation).toContain('Replace the next one with a brief pause');
+    });
+
+    it('explains clean transcripts as a next-step coaching opportunity instead of a bare score', () => {
+        const metrics = calculateCoreSessionMetrics({
+            transcript: 'This answer is clear direct and easy for the audience to follow without filler words today',
+            durationSeconds: 7,
+        });
+
+        expect(metrics.fillerCount).toBe(0);
+        expect(metrics.fillerExplanation).toContain('Keep using silence as your reset');
+        expect(metrics.clarityExplanation).toContain('Focus the next run on pacing and emphasis');
     });
 });

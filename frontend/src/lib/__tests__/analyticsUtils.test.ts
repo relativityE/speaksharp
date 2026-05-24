@@ -37,16 +37,43 @@ describe('analyticsUtils', () => {
             expect(stats.avgFillerWordsPerMin).toBe('1.5');
             expect(stats.avgAccuracy).toBe('92.5');
         });
+
+        it('uses aggregate words over aggregate time so short sessions do not distort average WPM', () => {
+            const stats = calculateOverallStats([
+                {
+                    id: 'short-fast',
+                    created_at: '2026-05-24T12:00:00.000Z',
+                    user_id: 'user-1',
+                    duration: 10,
+                    total_words: 40,
+                    transcript: Array.from({ length: 40 }, (_, index) => `word${index}`).join(' '),
+                    filler_words: {},
+                    title: 'Short fast session',
+                },
+                {
+                    id: 'long-normal',
+                    created_at: '2026-05-24T12:10:00.000Z',
+                    user_id: 'user-1',
+                    duration: 110,
+                    total_words: 110,
+                    transcript: Array.from({ length: 110 }, (_, index) => `word${index}`).join(' '),
+                    filler_words: {},
+                    title: 'Long normal session',
+                },
+            ] as PracticeSession[]);
+
+            expect(stats.averageWPM).toBe(75);
+        });
     });
 
     describe('calculateFillerWordTrends', () => {
-        it('should calculate filler word trends correctly', () => {
+        it('normalizes filler word trends by speaking time', () => {
             const trends = calculateFillerWordTrends(mockSessionHistory);
-            expect(trends.um.current).toBe(7.5); // Average of (5 + 10) / 2
+            expect(trends.um.current).toBe(1); // 15 ums / 15 speaking minutes
             expect(trends.um.previous).toBe(0);
-            expect(trends.uh.current).toBe(1.5); // Average of (3 + 0) / 2
+            expect(trends.uh.current).toBe(0.2); // 3 uhs / 15 speaking minutes
             expect(trends.uh.previous).toBe(0);
-            expect(trends.like.current).toBe(2.5); // Average of (0 + 5) / 2
+            expect(trends.like.current).toBe(0.33); // 5 likes / 15 speaking minutes
             expect(trends.like.previous).toBe(0);
         });
     });

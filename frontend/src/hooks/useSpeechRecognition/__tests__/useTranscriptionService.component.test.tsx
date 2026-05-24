@@ -45,7 +45,7 @@ describe('useTranscriptionService (Contract Verification)', () => {
     await setupStrictZero();
 
     // ✅ SIMPLEST FIX: Use doMock post-reset to unify the Factory identity
-    vi.doMock('@/services/transcription/STTStrategyFactory', () => ({
+    const mockStrategyFactory = {
       STTStrategyFactory: {
         create: vi.fn().mockImplementation(() => ({
           init: vi.fn().mockResolvedValue({ isOk: true }),
@@ -57,11 +57,13 @@ describe('useTranscriptionService (Contract Verification)', () => {
           resume: vi.fn().mockResolvedValue(undefined),
           destroy: vi.fn().mockResolvedValue(undefined),
           terminate: vi.fn().mockResolvedValue(undefined),
-          getLastHeartbeatTimestamp: vi.fn().mockReturnValue(Date.now()),
+          getLastHeartbeatTimestamp: vi.fn().mockImplementation(() => Date.now()),
           getEngineType: () => 'mock-engine'
         }))
       }
-    }));
+    };
+    vi.doMock('@/services/transcription/STTStrategyFactory', () => mockStrategyFactory);
+    vi.doMock('../../../../services/transcription/STTStrategyFactory', () => mockStrategyFactory);
 
     // Step 2: Dynamic Import AFTER setup to ensure instance identity parity
     const hookModule = await import('../useTranscriptionService');
@@ -91,6 +93,8 @@ describe('useTranscriptionService (Contract Verification)', () => {
   });
 
   afterEach(async () => {
+    vi.doUnmock('@/services/transcription/STTStrategyFactory');
+    vi.doUnmock('../../../../services/transcription/STTStrategyFactory');
     if (typeof window !== 'undefined') {
       const win = window as unknown as Record<string, unknown>;
       delete win.__SS_E2E__;
@@ -139,11 +143,13 @@ describe('useTranscriptionService (Contract Verification)', () => {
       await speechRuntimeController.warmUp();
       await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
     });
+    await speechRuntimeController.whenStable();
     expect(result.current.isListening).toBe(true);
 
     await act(async () => {
       await result.current.stopListening();
     });
+    await speechRuntimeController.whenStable();
 
     expect(speechRuntimeController.getStore().getState().isListening).toBe(false);
     expect(speechRuntimeController.getStore().getState().runtimeState).toBe('READY');
@@ -156,6 +162,7 @@ describe('useTranscriptionService (Contract Verification)', () => {
       await speechRuntimeController.warmUp();
       await result.current.startListening(E2E_DETERMINISTIC_NATIVE);
     });
+    await speechRuntimeController.whenStable();
     expect(speechRuntimeController.getStore().getState().runtimeState).toBe('RECORDING');
 
     await act(async () => {

@@ -20,12 +20,22 @@ vi.mock('../ModelManager', () => ({
         getModelSizeMB: vi.fn().mockReturnValue(100)
     }
 }));
+vi.mock('@/services/transcription/ModelManager', () => ({
+    ModelManager: {
+        isModelDownloaded: vi.fn().mockResolvedValue(true),
+        getModelSizeMB: vi.fn().mockReturnValue(100)
+    }
+}));
 
 class MockHeartbeatEngine extends STTEngine {
     public override readonly type = 'transformers-js' as EngineType;
 
     constructor(options?: TranscriptionModeOptions) {
         super(options);
+    }
+
+    public override async checkAvailability() {
+        return { isAvailable: true };
     }
 
     protected async onInit() { return Result.ok(undefined); }

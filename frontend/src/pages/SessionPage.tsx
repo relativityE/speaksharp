@@ -48,6 +48,8 @@ export const SessionPage: React.FC = () => {
         sunsetModal,
         setSunsetModal,
         pauseMetrics,
+        micLevel,
+        hasSpeechActivity,
         transcriptContent,
         interimTranscript,
         fillerData,
@@ -214,6 +216,9 @@ export const SessionPage: React.FC = () => {
                                     interimTranscript={interimTranscript}
                                     history={history}
                                     isListening={isListening}
+                                    sttMode={mode}
+                                    micLevel={micLevel}
+                                    hasSpeechActivity={hasSpeechActivity}
                                     containerRef={transcriptContainerRef}
                                     className="min-h-[360px] bg-white border border-border rounded-lg h-full"
                                 />

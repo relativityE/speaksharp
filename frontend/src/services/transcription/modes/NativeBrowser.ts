@@ -11,8 +11,20 @@ import { NativeBrowserStrategy, resolveNativeBrowserStrategy } from './nativeBro
 declare global {
   interface Window {
     __NATIVE_BROWSER_TRACE__?: Array<Record<string, unknown>>;
+    __NATIVE_PARALLEL_CAPTURE_TRACE__?: boolean;
+    __NATIVE_PARALLEL_CAPTURE__?: NativeParallelMicCapture[];
   }
 }
+
+type NativeParallelMicCapture = {
+  createdAt: string;
+  samples: number;
+  durationSec: number;
+  sampleRate: number;
+  rms: number;
+  peak: number;
+  wavDataUrl: string;
+};
 
 function pushNativeTrace(event: string, payload: Record<string, unknown> = {}): void {
   if (typeof window === 'undefined') return;
@@ -27,6 +39,83 @@ function pushNativeTrace(event: string, payload: Record<string, unknown> = {}): 
   if (window.__NATIVE_BROWSER_TRACE__.length > 500) {
     window.__NATIVE_BROWSER_TRACE__.shift();
   }
+}
+
+function isNativeParallelCaptureEnabled(): boolean {
+  return typeof window !== 'undefined' && Boolean(window.__NATIVE_PARALLEL_CAPTURE_TRACE__);
+}
+
+function summarizeAudioEnergy(audio: Float32Array) {
+  let sumSquares = 0;
+  let peak = 0;
+
+  for (let i = 0; i < audio.length; i += 1) {
+    const sample = audio[i] ?? 0;
+    const abs = Math.abs(sample);
+    sumSquares += sample * sample;
+    if (abs > peak) peak = abs;
+  }
+
+  return {
+    rms: audio.length > 0 ? Math.sqrt(sumSquares / audio.length) : 0,
+    peak,
+  };
+}
+
+function concatenateFrames(frames: Float32Array[]): Float32Array {
+  const totalLength = frames.reduce((sum, frame) => sum + frame.length, 0);
+  const output = new Float32Array(totalLength);
+  let offset = 0;
+
+  for (const frame of frames) {
+    output.set(frame, offset);
+    offset += frame.length;
+  }
+
+  return output;
+}
+
+function encodePcm16WavDataUrl(audio: Float32Array, sampleRate: number): string {
+  const bytesPerSample = 2;
+  const dataBytes = audio.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataBytes);
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+
+  const writeString = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) {
+      view.setUint8(offset + i, value.charCodeAt(i));
+    }
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataBytes, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * bytesPerSample, true);
+  view.setUint16(32, bytesPerSample, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataBytes, true);
+
+  let offset = 44;
+  for (let i = 0; i < audio.length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, audio[i] ?? 0));
+    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    offset += bytesPerSample;
+  }
+
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+
+  return `data:audio/wav;base64,${btoa(binary)}`;
 }
 
 // A simplified interface for the SpeechRecognition event
@@ -87,6 +176,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   private finalizedResultIndexes = new Set<number>();
   private lastInterim = '';
   private browserStrategy: NativeBrowserStrategy | null = null;
+  private acousticReadySignaled = false;
+  private parallelCaptureDisposer: (() => void) | null = null;
+  private parallelCaptureFrames: Float32Array[] = [];
+  private parallelCaptureSampleRate = 0;
 
   constructor(options: Partial<TranscriptionModeOptions> = {}, mockEngine?: IPrivateSTTEngine) {
     super(options as TranscriptionModeOptions);
@@ -293,6 +386,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     this.recognition.onaudiostart = () => {
       pushNativeTrace('onaudiostart', { sId: this.serviceId, rId: this.runId, eId: this.instanceId });
       logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] onaudiostart');
+      this.signalAcousticReady('onaudiostart');
     };
 
     this.recognition.onaudioend = () => {
@@ -313,6 +407,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     this.recognition.onspeechstart = () => {
       pushNativeTrace('onspeechstart', { sId: this.serviceId, rId: this.runId, eId: this.instanceId });
       logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] onspeechstart');
+      this.signalAcousticReady('onspeechstart');
     };
 
     this.recognition.onspeechend = () => {
@@ -336,10 +431,15 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       if (!this.isListening || this.isRestarting) return;
 
       try {
-        logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] onend reached, attempting immediate restart...');
+        logger.info({
+          sId: this.serviceId,
+          rId: this.runId,
+          eId: this.instanceId,
+          debounceMs: NATIVE_STT.RESTART_DEBOUNCE_MS,
+        }, '[NativeBrowser] onend reached, attempting debounced restart...');
         this.isRestarting = true;
 
-        queueMicrotask(() => {
+        setTimeout(() => {
           if (this.isListening && this.recognition) {
             try {
               this.recognition.start();
@@ -351,7 +451,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
           } else {
             this.isRestarting = false;
           }
-        });
+        }, NATIVE_STT.RESTART_DEBOUNCE_MS);
       } catch (error) {
         logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, error }, "Error in NativeBrowser onend handler:");
         this.isRestarting = false;
@@ -361,9 +461,16 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     this.recognition.onstart = () => {
       pushNativeTrace('onstart', { sId: this.serviceId, rId: this.runId, eId: this.instanceId });
       logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Recognition started');
+      this.finalizedResultIndexes.clear();
+      this.lastInterim = '';
+      pushNativeTrace('recognition_cycle_reset', {
+        sId: this.serviceId,
+        rId: this.runId,
+        eId: this.instanceId,
+        reason: 'onstart',
+      });
       this.isListening = true;
       this.updateHeartbeat();
-      this.onReady?.();
     };
 
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Init complete.');
@@ -403,6 +510,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       this.currentTranscript = '';
       this.finalizedResultIndexes.clear();
       this.lastInterim = '';
+      this.acousticReadySignaled = false;
       return;
     }
 
@@ -415,6 +523,8 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       this.currentTranscript = '';
       this.finalizedResultIndexes.clear();
       this.lastInterim = '';
+      this.acousticReadySignaled = false;
+      this.startParallelCapture(_mic);
       await this.startRecognitionAndWaitForReady();
     }
 
@@ -524,6 +634,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       currentTranscript: this.currentTranscript,
     });
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Finalizing transcription shutdown');
+    this.flushParallelCapture();
     
     if (this.mockEngine) {
       pushNativeTrace('onStop_mock_engine_branch', {
@@ -604,6 +715,87 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     });
   }
 
+  private startParallelCapture(mic?: MicStream): void {
+    this.flushParallelCapture();
+    this.parallelCaptureFrames = [];
+    this.parallelCaptureSampleRate = mic?.sampleRate ?? 0;
+
+    if (!isNativeParallelCaptureEnabled() || !mic || typeof mic.onFrame !== 'function') {
+      pushNativeTrace('parallel_capture_skipped', {
+        sId: this.serviceId,
+        rId: this.runId,
+        eId: this.instanceId,
+        enabled: isNativeParallelCaptureEnabled(),
+        hasMic: Boolean(mic),
+        hasOnFrame: Boolean(mic && typeof mic.onFrame === 'function'),
+      });
+      return;
+    }
+
+    this.parallelCaptureDisposer = mic.onFrame((frame: Float32Array) => {
+      this.parallelCaptureFrames.push(frame.slice(0));
+    });
+
+    pushNativeTrace('parallel_capture_started', {
+      sId: this.serviceId,
+      rId: this.runId,
+      eId: this.instanceId,
+      sampleRate: this.parallelCaptureSampleRate,
+    });
+  }
+
+  private flushParallelCapture(): void {
+    if (this.parallelCaptureDisposer) {
+      this.parallelCaptureDisposer();
+      this.parallelCaptureDisposer = null;
+    }
+
+    if (!isNativeParallelCaptureEnabled() || this.parallelCaptureFrames.length === 0) {
+      this.parallelCaptureFrames = [];
+      this.parallelCaptureSampleRate = 0;
+      return;
+    }
+
+    const sampleRate = this.parallelCaptureSampleRate || 16000;
+    const audio = concatenateFrames(this.parallelCaptureFrames);
+    const energy = summarizeAudioEnergy(audio);
+    const capture: NativeParallelMicCapture = {
+      createdAt: new Date().toISOString(),
+      samples: audio.length,
+      durationSec: audio.length / sampleRate,
+      sampleRate,
+      rms: Number(energy.rms.toFixed(6)),
+      peak: Number(energy.peak.toFixed(6)),
+      wavDataUrl: encodePcm16WavDataUrl(audio, sampleRate),
+    };
+
+    window.__NATIVE_PARALLEL_CAPTURE__ = window.__NATIVE_PARALLEL_CAPTURE__ ?? [];
+    window.__NATIVE_PARALLEL_CAPTURE__.push(capture);
+    pushNativeTrace('parallel_capture_saved', {
+      sId: this.serviceId,
+      rId: this.runId,
+      eId: this.instanceId,
+      samples: capture.samples,
+      durationSec: Number(capture.durationSec.toFixed(3)),
+      sampleRate: capture.sampleRate,
+      rms: capture.rms,
+      peak: capture.peak,
+    });
+    logger.info({
+      sId: this.serviceId,
+      rId: this.runId,
+      eId: this.instanceId,
+      samples: capture.samples,
+      durationSec: Number(capture.durationSec.toFixed(3)),
+      sampleRate: capture.sampleRate,
+      rms: capture.rms,
+      peak: capture.peak,
+    }, '[NativeBrowser] Parallel mic capture saved');
+
+    this.parallelCaptureFrames = [];
+    this.parallelCaptureSampleRate = 0;
+  }
+
   private getLatestInterimTranscript(nextInterim: string): string {
     const normalizedNext = nextInterim.trim();
     if (!normalizedNext) {
@@ -625,6 +817,18 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       normalizedNext,
     });
     return this.lastInterim;
+  }
+
+  private signalAcousticReady(source: 'onaudiostart' | 'onspeechstart'): void {
+    if (this.acousticReadySignaled) return;
+    this.acousticReadySignaled = true;
+    pushNativeTrace('acoustic_ready', {
+      sId: this.serviceId,
+      rId: this.runId,
+      eId: this.instanceId,
+      source,
+    });
+    this.onReady?.();
   }
 
   public async pause(): Promise<void> {
