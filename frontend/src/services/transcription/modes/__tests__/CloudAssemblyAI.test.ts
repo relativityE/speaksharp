@@ -113,6 +113,28 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         expect(onReady).toHaveBeenCalled();
     });
 
+    it('prefers the app-provided AssemblyAI token callback over direct fetch', async () => {
+        const getAssemblyAIToken = vi.fn().mockResolvedValue('callback-token');
+        mode = new CloudAssemblyAI({
+            runId: 'test-instance',
+            onTranscriptUpdate,
+            onModelLoadProgress: vi.fn(),
+            onReady,
+            onError,
+            session: { access_token: 'fake-access-token' } as Session,
+            getAssemblyAIToken,
+        });
+        vi.spyOn(mode, 'isE2EEnvironment').mockReturnValue(false);
+
+        await mode.init();
+        await mode.start();
+
+        const socket = LAST_SOCKET();
+        expect(getAssemblyAIToken).toHaveBeenCalledTimes(1);
+        expect(mockFetch).not.toHaveBeenCalled();
+        expect(socket.url).toContain('token=callback-token');
+    });
+
     it('should include custom words in keyterms_prompt when Cloud starts with user words', async () => {
         await mode.init();
         await mode.start(undefined, ['CanaryBoostTest', 'Productization']);
@@ -122,10 +144,12 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
 
         const keyterms = new URL(socket.url).searchParams.get('keyterms_prompt');
         expect(keyterms).toBeTruthy();
-        expect(keyterms).toContain('um');
-        expect(keyterms).toContain('uh');
-        expect(keyterms).toContain('canaryboosttest');
-        expect(keyterms).toContain('productization');
+        expect(JSON.parse(keyterms!)).toEqual(expect.arrayContaining([
+            'um',
+            'uh',
+            'canaryboosttest',
+            'productization',
+        ]));
     });
 
     it('should include default filler keyterms when Cloud starts without user words', async () => {
@@ -137,10 +161,12 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
 
         const keyterms = new URL(socket.url).searchParams.get('keyterms_prompt');
         expect(keyterms).toBeTruthy();
-        expect(keyterms).toContain('um');
-        expect(keyterms).toContain('umm');
-        expect(keyterms).toContain('uh');
-        expect(keyterms).toContain('you know');
+        expect(JSON.parse(keyterms!)).toEqual(expect.arrayContaining([
+            'um',
+            'umm',
+            'uh',
+            'you know',
+        ]));
     });
 
     it('Pillar 2: should ignore events from zombie connections (Identity Hardening)', async () => {

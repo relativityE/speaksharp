@@ -312,6 +312,17 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     }
 
     try {
+      const callbackToken = await this.modeOptions?.getAssemblyAIToken?.();
+      if (callbackToken) {
+        logger.info({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          eId: this.instanceId,
+          source: 'modeOptions.getAssemblyAIToken',
+        }, '[CloudAssemblyAI] token fetched');
+        return callbackToken;
+      }
+
       // Use the session passed in the config if available, otherwise fetch from client
       const supabase = getSupabaseClient();
       const session = this.session ?? (await supabase.auth.getSession()).data.session;
@@ -326,7 +337,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       });
 
       if (!response.ok) {
-        throw new Error(`Auth failed: ${response.status}`);
+        const body = await response.text().catch(() => '');
+        throw new Error(`Auth failed: ${response.status} ${body.slice(0, 300)}`);
       }
 
       const data = await response.json();
@@ -340,7 +352,14 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       return data.token;
 
     } catch (error) {
-      logger.error({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId, err: error }, '[CloudAssemblyAI] ❌ Auth token fetch failed');
+      logger.error({
+        sId: this.serviceId,
+        rId: this.instanceId,
+        eId: this.instanceId,
+        err: error,
+        message: error instanceof Error ? error.message : String(error),
+      }, '[CloudAssemblyAI] ❌ Auth token fetch failed');
+      logger.error(`[CloudAssemblyAI] Auth token fetch failed: ${error instanceof Error ? error.message : String(error)}`);
 
       // Fallback to mock in development
       if (this.isDevelopmentEnvironment()) {
@@ -393,7 +412,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       });
 
       if (vocabulary.length > 0) {
-        connectionParams.set('keyterms_prompt', vocabulary.join(','));
+        connectionParams.set('keyterms_prompt', JSON.stringify(vocabulary));
       }
 
       const wsUrl = `wss://streaming.assemblyai.com/v3/ws?${connectionParams.toString()}`;
