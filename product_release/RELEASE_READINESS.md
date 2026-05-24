@@ -66,29 +66,6 @@ Public launch status: **NO-GO**
 - **CONDITIONAL** only if no P0 remains and all unchecked items have an explicit owner and mitigation.
 - **NOT READY** if any P0 remains.
 
-### Controlled Tester Binary Gate
-
-The controlled tester packet is green only when one uninterrupted browser run proves all of the following:
-
-- Fresh trial account is created without promo-code or entitlement confusion.
-- Private STT is selected, or already selected by default, and recording starts within two user actions after mic permission is handled.
-- Private shows immediate visual feedback while listening/processing, and transcript text appears within 10 seconds of the first spoken word.
-- At least two spoken filler words appear in the analytics panel.
-- Session saves without error.
-- History shows the new session and opens the correct saved detail.
-- The user-facing clarity/analytics copy makes it clear what to improve next.
-- Browser console has no unhandled JavaScript error during the run.
-
-The run fails if any of the following occurs:
-
-- The user sees a blank or inert recording surface for more than 10 seconds with no visual feedback.
-- Analytics shows zero fillers after the test speaker deliberately used fillers.
-- The session does not appear in History or opens the wrong detail.
-- Any unhandled JavaScript error appears in the browser trace.
-- The feedback is a number-only score that does not explain what the user should do differently.
-
----
-
 ## 🛠️ Critical Launch Gates (P0)
 
 | ID | Requirement | Category | Status |
@@ -99,6 +76,18 @@ The run fails if any of the following occurs:
 | **G4** | **Trial Abuse Gate** | Security | 🟡 **ONE-TIME/REUSE VERIFIED / THROTTLE PENDING** |
 | **G5** | **Production Secret Audit** | Security | 🟡 IN REVIEW |
 | **G6** | **Fresh Trial Private STT Transcript/Save/History Path** | Product Truth | 🟡 **BROWSER PATH PASSED / QUALITY REVIEW PENDING** |
+
+### RC Gate Evidence Criteria
+
+Each gate is green only when the definition of green is backed by a named artifact that a reviewer can inspect without relying on operator memory. The active artifact is always the latest complete passing run. If a newer run fails any required criterion, the parent gate returns to red until a later complete run passes every criterion.
+
+| Parent Gate | Definition of Green | Evidence Artifact |
+|---|---|---|
+| **G6 Fresh Trial Private STT Transcript/Save/History Path** | Fresh trial account is created without promo-code confusion; Private is selected or defaulted; Private warm-up starts before recording or setup/download is shown before recording; recording starts within two user actions after mic permission; Private shows immediate listening/processing feedback; chunk 0 RMS is >= 0.05 for a normal real-human pass; first partial appears in < 6s with recognizable words; transcript text appears within 10s of first spoken word; at least two deliberate fillers appear in analytics; session saves; History opens the correct saved detail; no unhandled console errors. | `/private/tmp/speaksharp-private-human-[timestamp].json` plus saved detail URL and screenshot. Artifact must include `SESSION_LIFECYCLE_WARMUP`, chunk RMS/duration rows, first partial timestamp/text, console events, save result, and history/detail proof. |
+| **Native STT** | Real Chrome/Edge mic run uses the browser Web Speech path; `onspeechstart -> first onresult` is < 3s; first result contains words from the spoken phrase; no repeated phrase loop; no unrecovered `onerror` (`no-speech`, `network`, or similar); restart after `onend` fires within 300-400ms when still recording. | `/private/tmp/speaksharp-native-[timestamp].json`. Artifact must include Web Speech event timestamps, raw/final transcript events, restart events, and browser console events. |
+| **Cloud STT** | Paid-Pro profile receives AssemblyAI token HTTP 200; WebSocket opens; first Turn/transcript event appears in < 3s after speech starts; session saves; History/detail and analytics open; trial/basic 403s remain classified as expected entitlement denials, not provider failures. | `/private/tmp/speaksharp-cloud-[timestamp].json` or `/private/tmp/cloud-artifact-[timestamp].log` with token status/body, WebSocket lifecycle, first transcript timing, save result, and detail URL. |
+| **Analytics** | Filler count matches spoken transcript (`like` and `basically` count exactly for the Cloud baseline); WPM is within 10% of transcript words divided by speaking duration; clarity label/copy can be explained by a non-technical user as a concrete behavior to improve; session page, Analytics, persistence, and history/detail use the shared calculation source. | Analytics screenshot plus persisted session JSON/DB row from the same Cloud or Private session. Artifact must show transcript, duration, word count, WPM, clarity, filler/custom-word counts, and guidance copy. |
+| **Session Status UX** | Private mode presents active visual feedback immediately after recording starts and a distinct processing state before first text; no blank or inert recording surface persists for > 10s; mode selector shows Private latency/privacy tradeoff inline before recording. | Browser screenshot/video or trace from the Private human pass showing mode selector copy, listening/processing state, first text timestamp, and console events. |
 
 ---
 
