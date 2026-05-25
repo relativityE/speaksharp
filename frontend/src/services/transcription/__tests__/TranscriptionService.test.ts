@@ -102,7 +102,7 @@ describe('TranscriptionService', () => {
         expect(service.getMode()).toBe('mock');
     });
 
-    it('toasts alternative STT guidance once during Private download and ready state on completion', async () => {
+    it('does not claim Private is ready at download completion before model initialization succeeds', async () => {
         const { toast } = await import('@/lib/toast');
         const privateService = new (TranscriptionServiceClass as unknown as new (o: TranscriptionServiceOptions) => TranscriptionService)({
             onTranscriptUpdate: mockOnTranscriptUpdate,
@@ -136,10 +136,7 @@ describe('TranscriptionService', () => {
             expect.stringMatching(/choose Browser, or Cloud if included in your plan/i),
             expect.objectContaining({ id: 'private-model-alternative-stt', duration: 5000 })
         );
-        expect(toast.success).toHaveBeenCalledWith(
-            expect.stringMatching(/Private is ready/i),
-            expect.objectContaining({ id: 'private-model-ready', duration: 5000 })
-        );
+        expect(toast.success).not.toHaveBeenCalled();
 
         await privateService.destroy();
     });

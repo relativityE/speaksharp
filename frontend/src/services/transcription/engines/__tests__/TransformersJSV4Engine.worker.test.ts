@@ -35,8 +35,8 @@ class FakeWorker {
                     data: {
                         id: message.id,
                         type: 'result',
-                        transcript: 'worker transcript',
-                        latencyMs: 42,
+                        transcript: 'v4 worker transcript',
+                        latencyMs: 37,
                         audioLengthSeconds: 1,
                         resultShape: 'text',
                     },
@@ -50,7 +50,7 @@ class FakeWorker {
                         id: message.id,
                         type: 'error',
                         errorName: 'Error',
-                        errorMessage: 'worker transcription failed',
+                        errorMessage: 'v4 worker transcription failed',
                     },
                 } as MessageEvent);
                 return;
@@ -75,7 +75,7 @@ class FakeWorker {
     }
 }
 
-describe('TransformersJSEngine worker message contract', () => {
+describe('TransformersJSV4Engine worker message contract', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         vi.unstubAllGlobals();
@@ -93,9 +93,9 @@ describe('TransformersJSEngine worker message contract', () => {
         vi.unstubAllGlobals();
     });
 
-    it('contract: init resolves when the worker responds with ready', async () => {
-        const { TransformersJSEngine } = await import('../TransformersJSEngine');
-        const engine = new TransformersJSEngine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+    it('contract: init resolves when the v4 worker responds with ready', async () => {
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
 
         const result = await engine.init();
 
@@ -109,14 +109,15 @@ describe('TransformersJSEngine worker message contract', () => {
         await engine.destroy();
     });
 
-    it('contract: init fails instead of hanging forever when the worker never responds', async () => {
+    it('contract: init fails instead of hanging forever when the v4 worker never responds', async () => {
         vi.useFakeTimers();
         fakeWorkerMode = 'silent';
-        const { TransformersJSEngine, TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS } = await import('../TransformersJSEngine');
-        const engine = new TransformersJSEngine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const { PRIV_STT_V4 } = await import('../../sttConstants');
+        const engine = new TransformersJSV4Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
 
         const initPromise = engine.init();
-        await vi.advanceTimersByTimeAsync(TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS);
+        await vi.advanceTimersByTimeAsync(PRIV_STT_V4.WORKER_REQUEST_TIMEOUT_MS);
         const result = await initPromise;
 
         expect(result.isOk).toBe(false);
@@ -124,10 +125,10 @@ describe('TransformersJSEngine worker message contract', () => {
         expect(fakeWorkerInstances[0]?.terminate).toHaveBeenCalled();
     });
 
-    it('contract: transcribe resolves with the worker transcript result', async () => {
+    it('contract: transcribe resolves with the v4 worker transcript result', async () => {
         fakeWorkerMode = 'transcribe-result';
-        const { TransformersJSEngine } = await import('../TransformersJSEngine');
-        const engine = new TransformersJSEngine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
 
         const init = await engine.init();
         const result = await engine.transcribe(new Float32Array(16000));
@@ -135,7 +136,7 @@ describe('TransformersJSEngine worker message contract', () => {
         expect(init.isOk).toBe(true);
         expect(result).toEqual(expect.objectContaining({
             isOk: true,
-            data: 'worker transcript',
+            data: 'v4 worker transcript',
         }));
         expect(fakeWorkerInstances[0]?.postMessage).toHaveBeenCalledWith(
             expect.objectContaining({ type: 'transcribe', audio: expect.any(Float32Array) }),
@@ -145,17 +146,17 @@ describe('TransformersJSEngine worker message contract', () => {
         await engine.destroy();
     });
 
-    it('contract: transcribe returns an error when the worker reports failure', async () => {
+    it('contract: transcribe returns an error when the v4 worker reports failure', async () => {
         fakeWorkerMode = 'transcribe-error';
-        const { TransformersJSEngine } = await import('../TransformersJSEngine');
-        const engine = new TransformersJSEngine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
+        const { TransformersJSV4Engine } = await import('../TransformersJSV4Engine');
+        const engine = new TransformersJSV4Engine({ onReady: vi.fn(), onTranscriptUpdate: vi.fn() });
 
         const init = await engine.init();
         const result = await engine.transcribe(new Float32Array(16000));
 
         expect(init.isOk).toBe(true);
         expect(result.isOk).toBe(false);
-        expect((result as { isOk: false; error: Error }).error.message).toContain('worker transcription failed');
+        expect((result as { isOk: false; error: Error }).error.message).toContain('v4 worker transcription failed');
 
         await engine.destroy();
     });

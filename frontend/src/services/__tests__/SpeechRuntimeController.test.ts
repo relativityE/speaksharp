@@ -261,4 +261,17 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             executionIntent: 'prod-pro-native',
         }));
     });
+
+    it('replaces an earlier partial-like final when a provider sends a fuller final with punctuation changes', () => {
+        const store = useSessionStore.getState();
+        store.updateTranscript('you know the box was thrown', '');
+
+        (controller as unknown as { pushTranscriptToStore: (data: { transcript: { final: string } }) => void }).pushTranscriptToStore({
+            transcript: {
+                final: 'You know, the box was thrown beside the parked truck.',
+            },
+        });
+
+        expect(useSessionStore.getState().transcript.transcript).toBe('You know, the box was thrown beside the parked truck.');
+    });
 });

@@ -1,0 +1,189 @@
+import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_V4, samplesToSeconds } from '../sttConstants';
+
+type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
+
+type WorkerRequest =
+    | { id: number; type: 'init'; isE2E: boolean }
+    | { id: number; type: 'transcribe'; audio: Float32Array }
+    | { id: number; type: 'destroy' };
+
+type WorkerResponse =
+    | { id: number; type: 'ready' }
+    | { id: number; type: 'progress'; progress: number }
+    | { id: number; type: 'loaded'; loadTimeMs: number; model: string; device: string }
+    | { id: number; type: 'warmed'; warmupMs: number }
+    | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string }
+    | { id: number; type: 'destroyed' }
+    | { id: number; type: 'error'; errorName: string; errorMessage: string };
+
+interface TranscriptionResult {
+    text?: string;
+    transcript?: string;
+}
+
+let transcriber: Pipeline | null = null;
+
+function post(response: WorkerResponse): void {
+    self.postMessage(response);
+}
+
+function getPreferredDevice(): string | undefined {
+    if (PRIV_STT_V4.DEVICE) {
+        return PRIV_STT_V4.DEVICE;
+    }
+
+    return typeof navigator !== 'undefined' && 'gpu' in navigator ? 'webgpu' : undefined;
+}
+
+function getAsrOptions(audioLengthSeconds: number): Record<string, unknown> {
+    const options: Record<string, unknown> = {
+        chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
+        stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
+        return_timestamps: false,
+    };
+
+    if (!PRIV_STT_V4.MODEL_ID.endsWith('.en')) {
+        options.language = 'en';
+        options.task = 'transcribe';
+    }
+
+    return options;
+}
+
+async function createPipeline(progress_callback: (data: unknown) => void): Promise<{ pipe: Pipeline; device: string }> {
+    const transformers = await import('@huggingface/transformers');
+    const { pipeline, env, LogLevel } = transformers;
+
+    env.allowLocalModels = false;
+    env.allowRemoteModels = true;
+    env.useBrowserCache = true;
+    env.logLevel = LogLevel.ERROR;
+
+    const preferredDevice = getPreferredDevice();
+    const options: Record<string, unknown> = {
+        dtype: PRIV_STT_V4.DTYPE,
+        progress_callback,
+    };
+    if (preferredDevice) {
+        options.device = preferredDevice;
+    }
+
+    try {
+        return {
+            pipe: await pipeline('automatic-speech-recognition', PRIV_STT_V4.MODEL_ID, options),
+            device: preferredDevice ?? 'wasm-default',
+        };
+    } catch (error) {
+        if (!preferredDevice) {
+            throw error;
+        }
+
+        const fallbackOptions = { ...options };
+        delete fallbackOptions.device;
+        return {
+            pipe: await pipeline('automatic-speech-recognition', PRIV_STT_V4.MODEL_ID, fallbackOptions),
+            device: 'wasm-fallback',
+        };
+    }
+}
+
+async function warmUp(id: number): Promise<void> {
+    if (!transcriber) {
+        throw new Error('TransformersJSV4 worker engine not initialized. Call init() first.');
+    }
+
+    const warmupAudio = new Float32Array(PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
+    const start = performance.now();
+    await (transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<unknown>)(warmupAudio, {
+        chunk_length_s: 0,
+        return_timestamps: false,
+    });
+    post({ id, type: 'warmed', warmupMs: Math.round(performance.now() - start) });
+}
+
+async function init(id: number, isE2E: boolean): Promise<void> {
+    if (transcriber) {
+        post({ id, type: 'ready' });
+        return;
+    }
+
+    if (isE2E) {
+        post({ id, type: 'ready' });
+        return;
+    }
+
+    const progress_callback = (data: unknown) => {
+        const progress = typeof data === 'object' && data !== null && 'progress' in data
+            ? Number((data as { progress?: number }).progress)
+            : undefined;
+        if (progress !== undefined && Number.isFinite(progress)) {
+            post({ id, type: 'progress', progress });
+        }
+    };
+
+    const loadStart = performance.now();
+    const loaded = await createPipeline(progress_callback);
+    transcriber = loaded.pipe;
+    post({
+        id,
+        type: 'loaded',
+        loadTimeMs: Math.round(performance.now() - loadStart),
+        model: PRIV_STT_V4.MODEL_ID,
+        device: loaded.device,
+    });
+    await warmUp(id);
+    post({ id, type: 'ready' });
+}
+
+async function transcribe(id: number, audio: Float32Array): Promise<void> {
+    if (!transcriber) {
+        throw new Error('TransformersJSV4 worker engine not initialized. Call init() first.');
+    }
+
+    const start = performance.now();
+    const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
+    const result = await (transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(
+        audio,
+        getAsrOptions(audioLengthSeconds),
+    );
+    const transcript = typeof result === 'string'
+        ? result
+        : result.text ?? result.transcript ?? '';
+
+    post({
+        id,
+        type: 'result',
+        transcript,
+        latencyMs: Math.round(performance.now() - start),
+        audioLengthSeconds,
+        resultShape: typeof result === 'string' ? 'string' : Object.keys(result).sort().join(','),
+    });
+}
+
+self.onmessage = (event: MessageEvent<WorkerRequest>) => {
+    const request = event.data;
+    void (async () => {
+        try {
+            switch (request.type) {
+                case 'init':
+                    await init(request.id, request.isE2E);
+                    break;
+                case 'transcribe':
+                    await transcribe(request.id, request.audio);
+                    break;
+                case 'destroy':
+                    transcriber = null;
+                    post({ id: request.id, type: 'destroyed' });
+                    break;
+            }
+        } catch (error) {
+            const e = error instanceof Error ? error : new Error(String(error));
+            post({
+                id: request.id,
+                type: 'error',
+                errorName: e.name,
+                errorMessage: e.message,
+            });
+        }
+    })();
+};

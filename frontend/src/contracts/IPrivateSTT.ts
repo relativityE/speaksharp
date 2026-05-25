@@ -1,5 +1,6 @@
 import { EngineType } from './IPrivateSTTEngine';
 import { TranscriptionModeOptions, Result } from '../services/transcription/modes/types';
+import { AvailabilityResult } from '../services/transcription/STTStrategy';
 
 export interface PrivateSTTInitOptions extends TranscriptionModeOptions {
     forceEngine?: EngineType;
@@ -7,6 +8,7 @@ export interface PrivateSTTInitOptions extends TranscriptionModeOptions {
 }
 
 export interface IPrivateSTT {
+    checkAvailability(): Promise<AvailabilityResult>;
     init(timeoutMs?: number): Promise<Result<void, Error>>;
 
     /**

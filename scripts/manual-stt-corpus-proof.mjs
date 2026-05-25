@@ -13,6 +13,7 @@ dotenv.config({ path: path.resolve(process.cwd(), 'frontend/.env'), override: fa
 const execFileAsync = promisify(execFile);
 
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:4173';
+const AUTH_MODE = process.env.STT_AUTH || 'existing';
 const EMAIL = process.env.PRO_TEST_EMAIL
   ?? process.env.E2E_PRO_EMAIL
   ?? process.env.BASIC_TEST_EMAIL
@@ -33,8 +34,13 @@ const FIXTURE_LIST = (process.env.STT_FIXTURES || 'h1_1')
 const PLAYBACK_GRACE_MS = Number(process.env.STT_PLAYBACK_GRACE_MS || 800);
 const POST_PLAYBACK_WAIT_MS = Number(process.env.STT_POST_PLAYBACK_WAIT_MS || 10_000);
 const FIRST_TEXT_TIMEOUT_MS = Number(process.env.STT_FIRST_TEXT_TIMEOUT_MS || 20_000);
+const PRIVATE_SETUP_CLICK_DELAY_MS = Number(process.env.STT_PRIVATE_SETUP_CLICK_DELAY_MS || 0);
 const HEADLESS = process.env.HEADLESS === 'true';
 const MAX_WER = process.env.STT_MAX_WER == null ? null : Number(process.env.STT_MAX_WER);
+const SIGNUP_EMAIL = process.env.STT_SIGNUP_EMAIL || `stt-corpus-${Date.now()}@speaksharp.app`;
+const SIGNUP_PASSWORD = process.env.STT_SIGNUP_PASSWORD || `SttCorpus${Date.now()}!Aa9`;
+const CLEAR_PRIVATE_CACHE = process.env.STT_CLEAR_PRIVATE_CACHE === 'true';
+const PRIVATE_ENGINE = process.env.STT_PRIVATE_ENGINE || '';
 
 function compact(text) {
   return (text || '').replace(/\s+/g, ' ').trim();
@@ -75,7 +81,7 @@ function calculateWordErrorRate(reference, hypothesis) {
   return dp[ref.length][hyp.length] / ref.length;
 }
 
-async function loadHarvardFixtures() {
+async function loadFixtures() {
   const sourcePath = path.resolve('tests/fixtures/stt-isomorphic/harvard-sentences.ts');
   const source = await readFile(sourcePath, 'utf8');
   const matches = [...source.matchAll(/\{\s*id:\s*'([^']+)'\s*,\s*transcript:\s*"([^"]+)"\s*\}/g)];
@@ -89,6 +95,23 @@ async function loadHarvardFixtures() {
       id,
       transcript,
       audioPath: path.resolve(`tests/fixtures/stt-isomorphic/audio/${id}.wav`),
+      type: 'harvard',
+    });
+  }
+
+  const fillerSourcePath = path.resolve('tests/fixtures/stt-isomorphic/filler-sentences.ts');
+  const fillerSource = await readFile(fillerSourcePath, 'utf8');
+  const fillerBlocks = [...fillerSource.matchAll(/\{\s*id:\s*"([^"]+)"[\s\S]*?audio:\s*"([^"]+)"[\s\S]*?transcript:\s*"([^"]+)"[\s\S]*?expectedFillers:\s*\{([\s\S]*?)\}\s*\}/g)];
+  for (const [, id, audio, transcript, fillerBlock] of fillerBlocks) {
+    const expectedFillers = Object.fromEntries(
+      [...fillerBlock.matchAll(/"([^"]+)":\s*(\d+)/g)].map(([, filler, count]) => [filler, Number(count)]),
+    );
+    byId.set(id, {
+      id,
+      transcript,
+      audioPath: path.resolve(`tests/fixtures/stt-isomorphic/audio/${audio}`),
+      type: 'filler',
+      expectedFillers,
     });
   }
 
@@ -100,6 +123,23 @@ async function loadHarvardFixtures() {
 }
 
 async function signIn(page) {
+  if (AUTH_MODE === 'fresh') {
+    await page.goto(`${BASE_URL}/auth/signup`, { waitUntil: 'domcontentloaded' });
+    await page.getByTestId('email-input').fill(SIGNUP_EMAIL);
+    await page.getByTestId('password-input').fill(SIGNUP_PASSWORD);
+    await Promise.all([
+      page.waitForResponse((response) => response.url().includes('/auth/v1/signup') || response.url().includes('/auth/v1/token'), { timeout: 60_000 }).catch(() => null),
+      page.getByTestId('sign-up-submit').click(),
+    ]);
+    await page.waitForURL(/\/session/, { timeout: 60_000 });
+    evidence.auth = {
+      mode: 'fresh',
+      email: SIGNUP_EMAIL,
+      password: SIGNUP_PASSWORD,
+    };
+    return;
+  }
+
   if (!EMAIL || !PASSWORD) {
     throw new Error('A test login is required for STT corpus proof. Set PRO_TEST_EMAIL/PRO_TEST_PASSWORD, E2E_PRO_EMAIL/E2E_PRO_PASSWORD, or BASIC_TEST_EMAIL/BASIC_TEST_PASSWORD.');
   }
@@ -112,6 +152,65 @@ async function signIn(page) {
     page.getByTestId('sign-in-submit').click(),
   ]);
   await page.waitForURL(/\/session/, { timeout: 60_000 });
+}
+
+async function clearPrivateModelStorage(page) {
+  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
+  const result = await page.evaluate(async () => {
+    const deletedCaches = [];
+    if ('caches' in window) {
+      for (const name of await caches.keys()) {
+        if (/transformers|whisper|model/i.test(name)) {
+          await caches.delete(name);
+          deletedCaches.push(name);
+        }
+      }
+    }
+
+    const deletedDatabases = [];
+    if ('indexedDB' in window) {
+      for (const dbName of ['models', 'transformers-cache', 'whisper-models']) {
+        await new Promise((resolve) => {
+          const request = indexedDB.deleteDatabase(dbName);
+          request.onsuccess = () => {
+            deletedDatabases.push(dbName);
+            resolve(undefined);
+          };
+          request.onerror = () => resolve(undefined);
+          request.onblocked = () => resolve(undefined);
+        });
+      }
+    }
+
+    localStorage.removeItem('speaksharp.private.engine');
+
+    return {
+      deletedCaches,
+      deletedDatabases,
+    };
+  });
+  evidence.privateCacheReset = result;
+  console.log(`STT_PRIVATE_CACHE_RESET ${JSON.stringify(result)}`);
+}
+
+const DEFAULT_FILLER_WORDS = [
+  'um',
+  'uh',
+  'like',
+  'basically',
+  'literally',
+  'well',
+  'you know',
+  'i mean',
+];
+
+function countFillerOccurrences(transcript, fillers) {
+  const normalized = normalizeForWer(transcript);
+  return Object.fromEntries(fillers.map((filler) => {
+    const escaped = filler.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+    const matches = normalized.match(new RegExp(`\\b${escaped}\\b`, 'gi'));
+    return [filler, matches?.length ?? 0];
+  }));
 }
 
 async function selectMode(page, mode) {
@@ -133,8 +232,117 @@ async function selectMode(page, mode) {
   throw new Error(`Could not select STT mode "${mode}"; final state=${await select.getAttribute('data-state')}`);
 }
 
+async function getPrivateReadinessSnapshot(page) {
+  return page.evaluate(async () => {
+    const root = document.documentElement;
+    const downloadButton = document.querySelector('[data-testid="status-download-model-button"], [data-testid="download-model-button"]');
+    const setupPanel = document.querySelector('[data-testid="private-setup-panel"]');
+    const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
+    const cacheNames = 'caches' in window ? await caches.keys() : [];
+    let transformerCacheKeyCount = 0;
+    const transformerCacheName = cacheNames.find((name) => /transformers/i.test(name)) ?? null;
+    if (transformerCacheName) {
+      transformerCacheKeyCount = (await (await caches.open(transformerCacheName)).keys()).length;
+    }
+
+    return {
+      modelStatus: root.getAttribute('data-model-status'),
+      runtimeState: root.getAttribute('data-runtime-state'),
+      sttReady: root.getAttribute('data-stt-ready'),
+      statusText: statusNode?.textContent?.trim() ?? '',
+      downloadVisible: Boolean(downloadButton && getComputedStyle(downloadButton).display !== 'none'),
+      downloadButtonText: downloadButton?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      setupPanelText: setupPanel?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      transformerCacheName,
+      transformerCacheKeyCount,
+    };
+  });
+}
+
+function isPrivateReadySnapshot(snapshot) {
+  return Boolean(
+    snapshot &&
+    !snapshot.downloadVisible &&
+    snapshot.modelStatus === 'ready'
+  );
+}
+
+async function preparePrivateModel(page) {
+  const before = await getPrivateReadinessSnapshot(page);
+  await markPhase(page, 'private_model_readiness_before', before);
+
+  const downloadButton = page.locator('[data-testid="status-download-model-button"], [data-testid="download-model-button"]').first();
+  if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    if (PRIVATE_SETUP_CLICK_DELAY_MS > 0) {
+      await markPhase(page, 'private_model_download_visible_hold', {
+        holdMs: PRIVATE_SETUP_CLICK_DELAY_MS,
+        readiness: await getPrivateReadinessSnapshot(page),
+      });
+      await page.waitForTimeout(PRIVATE_SETUP_CLICK_DELAY_MS);
+    }
+    await markPhase(page, 'private_model_download_click', await getPrivateReadinessSnapshot(page));
+    await downloadButton.click();
+  }
+
+  await page.waitForFunction(() => {
+    const root = document.documentElement;
+    const downloadButton = document.querySelector('[data-testid="status-download-model-button"], [data-testid="download-model-button"]');
+    const downloadVisible = Boolean(downloadButton && getComputedStyle(downloadButton).display !== 'none');
+    return !downloadVisible && root.getAttribute('data-model-status') === 'ready';
+  }, null, { timeout: 180_000 });
+
+  const after = await getPrivateReadinessSnapshot(page);
+  await markPhase(page, 'private_model_readiness_after', after);
+  if (!isPrivateReadySnapshot(after)) {
+    throw new Error(`Private model is not ready before recording: ${JSON.stringify(after)}`);
+  }
+  return { before, after };
+}
+
+async function clickStartStopButton(page, phase) {
+  const button = page.getByTestId('session-start-stop-button');
+  try {
+    await button.click({ timeout: 5_000 });
+    return { method: 'playwright-click' };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await markPhase(page, `${phase}_playwright_click_failed`, { message });
+    const postClickState = await page.evaluate(() => ({
+      recording: document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') ?? null,
+      runtimeState: document.documentElement.getAttribute('data-runtime-state'),
+      modelStatus: document.documentElement.getAttribute('data-model-status'),
+      disabled: (document.querySelector('[data-testid="session-start-stop-button"]') instanceof HTMLButtonElement)
+        ? document.querySelector('[data-testid="session-start-stop-button"]')?.disabled
+        : null,
+    }));
+    await markPhase(page, `${phase}_post_click_state`, postClickState);
+    if (phase === 'click_start' && ['INITIATING', 'ENGINE_INITIALIZING', 'RECORDING'].includes(postClickState.runtimeState)) {
+      return { method: 'playwright-click-transition-observed', originalError: message, postClickState };
+    }
+    if (phase === 'click_stop' && (postClickState.recording === 'false' || ['READY', 'IDLE'].includes(postClickState.runtimeState))) {
+      return { method: 'playwright-click-transition-observed', originalError: message, postClickState };
+    }
+    const fallback = await page.evaluate(() => {
+      const button = document.querySelector('[data-testid="session-start-stop-button"]');
+      if (!(button instanceof HTMLButtonElement)) {
+        return { clicked: false, reason: 'button_not_found' };
+      }
+      if (button.disabled) {
+        return { clicked: false, reason: 'button_disabled' };
+      }
+      button.click();
+      return { clicked: true };
+    });
+    await markPhase(page, `${phase}_dom_click_fallback`, fallback);
+    if (!fallback.clicked) {
+      throw new Error(`Could not click session start/stop button for ${phase}: ${JSON.stringify(fallback)}; original=${message}`);
+    }
+    return { method: 'dom-click-fallback', originalError: message };
+  }
+}
+
 async function waitForNativeReady(page) {
-  await page.waitForFunction(
+  const ready = await page.waitForFunction(
     () => {
       const trace = window.__NATIVE_BROWSER_TRACE__ || [];
       return trace.some((entry) => entry.event === 'onaudiostart' || entry.event === 'onspeechstart' || entry.event === 'acoustic_ready');
@@ -142,6 +350,32 @@ async function waitForNativeReady(page) {
     null,
     { timeout: 12_000 },
   ).catch(() => undefined);
+  return Boolean(ready);
+}
+
+async function waitForRecordingGoSignal(page, mode) {
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') === 'true',
+    null,
+    { timeout: 60_000 },
+  );
+
+  if (mode === 'native') {
+    await markPhase(page, 'wait_native_ready_start');
+    const nativeReady = await waitForNativeReady(page);
+    await markPhase(page, nativeReady ? 'wait_native_ready_done' : 'wait_native_ready_timeout');
+    if (!nativeReady) {
+      throw new Error('Native mic go signal did not arrive before fixture playback.');
+    }
+  }
+
+  if (mode === 'private') {
+    const ready = await getPrivateReadinessSnapshot(page);
+    await markPhase(page, 'private_go_signal_check', ready);
+    if (!isPrivateReadySnapshot(ready)) {
+      throw new Error(`Private go signal denied; model not ready at recording start: ${JSON.stringify(ready)}`);
+    }
+  }
 }
 
 async function readTranscript(page) {
@@ -181,50 +415,118 @@ async function playFixture(audioPath) {
   await execFileAsync('/usr/bin/afplay', [audioPath], { timeout: 45_000 });
 }
 
+async function markPhase(page, phase, detail = {}) {
+  const stamped = {
+    phase,
+    t: Date.now(),
+    detail,
+  };
+  await page.evaluate((entry) => {
+    window.__STT_CORPUS_PHASES__ = window.__STT_CORPUS_PHASES__ ?? [];
+    window.__STT_CORPUS_PHASES__.push({
+      ...entry,
+      perfNow: Number(performance.now().toFixed(1)),
+      recording: document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') ?? null,
+      transcript: document.querySelector('[data-testid="transcript-container"]')?.textContent ?? null,
+      runtimeState: document.documentElement.getAttribute('data-runtime-state'),
+      sessionPersisted: document.documentElement.getAttribute('data-session-persisted'),
+    });
+  }, stamped).catch(() => undefined);
+}
+
+async function collectTraceSnapshot(page, mode) {
+  return page.evaluate((currentMode) => ({
+    phases: window.__STT_CORPUS_PHASES__ ?? [],
+    nativeTrace: currentMode === 'native' ? window.__NATIVE_BROWSER_TRACE__ ?? [] : undefined,
+    nativeParallelCapture: currentMode === 'native' ? (window.__NATIVE_PARALLEL_CAPTURE__ ?? []).map((capture) => ({
+      createdAt: capture.createdAt,
+      samples: capture.samples,
+      durationSec: capture.durationSec,
+      sampleRate: capture.sampleRate,
+      rms: capture.rms,
+      peak: capture.peak,
+      wavDataUrlBytes: capture.wavDataUrl?.length ?? 0,
+    })) : undefined,
+    privateTrace: currentMode === 'private' ? window.__PRIVATE_STT_TIMELINE__ ?? [] : undefined,
+    privateAudioChunks: currentMode === 'private' ? (window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ ?? []).map((chunk) => ({
+      samples: chunk.samples,
+      durationSec: chunk.durationSec,
+      rms: chunk.rms,
+      peak: chunk.peak,
+      transcript: chunk.transcript,
+      rejectedReason: chunk.rejectedReason,
+      wavDataUrlBytes: chunk.wavDataUrl?.length ?? 0,
+    })) : undefined,
+  }), mode).catch(() => ({}));
+}
+
 async function runFixture(page, mode, fixture) {
-  await page.goto(`${BASE_URL}/session`, { waitUntil: 'domcontentloaded' });
+  const sessionUrl = new URL('/session', BASE_URL);
+  if (mode === 'private' && PRIVATE_ENGINE) {
+    sessionUrl.searchParams.set('privateEngine', PRIVATE_ENGINE);
+  }
+  await page.goto(sessionUrl.toString(), { waitUntil: 'domcontentloaded' });
   await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 60_000 });
   await selectMode(page, mode);
 
   await page.evaluate(() => {
+    window.__STT_CORPUS_PHASES__ = [];
     window.__NATIVE_BROWSER_TRACE__ = [];
     window.__PRIVATE_TRANSCRIPT_TRACE__ = true;
     window.__NATIVE_PARALLEL_CAPTURE_TRACE__ = true;
+    window.__NATIVE_PARALLEL_CAPTURE__ = [];
+    window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ = [];
   });
+  await markPhase(page, 'ready_to_start', { mode, fixture: fixture.id });
+  const privateReadiness = mode === 'private' ? await preparePrivateModel(page) : undefined;
 
   const startButton = page.getByTestId('session-start-stop-button');
-  await startButton.click();
-  await page.waitForFunction(
-    () => document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') === 'true',
-    null,
-    { timeout: 60_000 },
-  );
+  await markPhase(page, 'click_start');
+  const startClick = await clickStartStopButton(page, 'click_start');
+  await markPhase(page, 'click_start_done', startClick);
+  await waitForRecordingGoSignal(page, mode);
+  await markPhase(page, 'recording_attribute_true');
 
   const startedAt = Date.now();
-  if (mode === 'native') await waitForNativeReady(page);
   await page.waitForTimeout(PLAYBACK_GRACE_MS);
+  await markPhase(page, 'playback_grace_done', { playbackGraceMs: PLAYBACK_GRACE_MS });
 
   const firstTextPromise = waitForFirstText(page, startedAt);
+  await markPhase(page, 'afplay_start', { audioPath: fixture.audioPath });
   await playFixture(fixture.audioPath);
+  await markPhase(page, 'afplay_end', { audioPath: fixture.audioPath });
   const firstText = await firstTextPromise;
+  await markPhase(page, 'first_text_observed', firstText);
   await page.waitForTimeout(POST_PLAYBACK_WAIT_MS);
+  await markPhase(page, 'post_playback_wait_done', { postPlaybackWaitMs: POST_PLAYBACK_WAIT_MS });
 
   const transcript = await readTranscript(page);
-  await startButton.click().catch(() => undefined);
+  await markPhase(page, 'click_stop', { transcript });
+  const stopClick = await clickStartStopButton(page, 'click_stop').catch((error) => ({
+    method: 'failed',
+    error: error instanceof Error ? error.message : String(error),
+  }));
+  await markPhase(page, 'click_stop_done', stopClick);
   await page.waitForFunction(
     () => document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') === 'false',
     null,
     { timeout: 60_000 },
   ).catch(() => undefined);
+  await markPhase(page, 'recording_attribute_false');
   await page.waitForTimeout(2_000);
+  await markPhase(page, 'after_stop_settle');
+
+  const traceSnapshot = await collectTraceSnapshot(page, mode);
 
   const normalizedTranscript = normalizeForWer(transcript);
   const wer = calculateWordErrorRate(fixture.transcript, transcript);
   const result = {
     mode,
     fixture: fixture.id,
+    fixtureType: fixture.type,
     audioPath: fixture.audioPath,
     truth: fixture.transcript,
+    expectedFillers: fixture.expectedFillers,
     transcript,
     normalizedTranscript,
     wordCount: words(transcript).length,
@@ -232,20 +534,34 @@ async function runFixture(page, mode, fixture) {
     accuracyPct: Number(((1 - wer) * 100).toFixed(2)),
     firstText,
     sessionPersisted: await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false),
-    nativeTrace: mode === 'native' ? await page.evaluate(() => window.__NATIVE_BROWSER_TRACE__ || []) : undefined,
-    privateTrace: mode === 'private' ? await page.evaluate(() => window.__PRIVATE_INFERENCE_TRACE__ || window.__PRIVATE_TRANSCRIPT_TRACE__ || []) : undefined,
+    privateReadiness,
+    phases: traceSnapshot.phases,
+    nativeTrace: traceSnapshot.nativeTrace,
+    nativeParallelCapture: traceSnapshot.nativeParallelCapture,
+    privateTrace: traceSnapshot.privateTrace,
+    privateAudioChunks: traceSnapshot.privateAudioChunks,
   };
 
   await page.goto(`${BASE_URL}/analytics`, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
   await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 30_000 }).catch(() => undefined);
+  await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => undefined);
+  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 30_000 }).catch(() => undefined);
   result.historyVisible = await page.getByTestId(/^session-history-item-/).first().isVisible({ timeout: 15_000 }).catch(() => false);
+  result.detailVisible = await page.getByTestId(/^open-session-detail-/).first().isVisible({ timeout: 5_000 }).catch(() => false);
   result.analyticsBodySample = compact(await page.locator('body').textContent().catch(() => '')).slice(0, 1000);
   result.truthWordsHeard = words(fixture.transcript).filter((word) => new RegExp(`\\b${word}\\b`, 'i').test(result.normalizedTranscript));
   result.inputLikelyContaminated = result.wordCount > 0 && result.truthWordsHeard.length === 0;
-  result.journeyPass = Boolean(result.sessionPersisted && result.historyVisible && result.firstText.timestampMs != null);
+  if (fixture.expectedFillers) {
+    const expectedKeys = Object.keys(fixture.expectedFillers);
+    result.observedFillers = countFillerOccurrences(transcript, [...new Set([...expectedKeys, ...DEFAULT_FILLER_WORDS])]);
+    result.fillerPass = expectedKeys.every((filler) => result.observedFillers[filler] === fixture.expectedFillers[filler]);
+  }
+  result.journeyPass = Boolean(result.sessionPersisted && result.historyVisible && result.detailVisible && result.firstText.timestampMs != null);
   result.meetsWerThreshold = MAX_WER == null ? null : result.wer <= MAX_WER;
   result.verdict = result.inputLikelyContaminated
     ? 'input-contaminated-or-fixture-not-captured'
+    : result.fillerPass === false
+      ? 'filler-count-mismatch'
     : result.journeyPass
       ? 'journey-completed'
       : 'journey-incomplete';
@@ -258,7 +574,13 @@ const evidence = {
   modes: MODE_LIST,
   fixtures: FIXTURE_LIST,
   maxWer: MAX_WER,
+  clearPrivateCache: CLEAR_PRIVATE_CACHE,
+  privateEngine: PRIVATE_ENGINE || 'default',
   microphonePath: 'real browser getUserMedia with afplay through the physical speaker/mic path',
+  auth: {
+    mode: AUTH_MODE,
+    email: AUTH_MODE === 'fresh' ? SIGNUP_EMAIL : EMAIL,
+  },
   startedAt: new Date().toISOString(),
   consoleEvents: [],
   pageErrors: [],
@@ -276,7 +598,7 @@ const browser = await chromium.launch({
 });
 
 try {
-  const fixtures = await loadHarvardFixtures();
+  const fixtures = await loadFixtures();
   const context = await browser.newContext({
     permissions: ['microphone'],
     viewport: { width: 1440, height: 1000 },
@@ -294,6 +616,10 @@ try {
     url: request.url(),
     errorText: request.failure()?.errorText,
   }));
+
+  if (CLEAR_PRIVATE_CACHE) {
+    await clearPrivateModelStorage(page);
+  }
 
   await signIn(page);
 
@@ -329,6 +655,7 @@ try {
   evidence.gatePass = evidence.runnerPass && evidence.results.every((result) => (
     result.journeyPass === true &&
     result.inputLikelyContaminated !== true &&
+    result.fillerPass !== false &&
     (MAX_WER == null || result.meetsWerThreshold === true)
   ));
   evidence.pass = evidence.gatePass;

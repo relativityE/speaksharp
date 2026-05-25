@@ -226,16 +226,32 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(mockTJInit).not.toHaveBeenCalled();
     });
 
-    it('contract: v4 availability reports the q4 split download size', async () => {
+    it('contract: availability is a pure cache probe and does not instantiate registry engines', async () => {
+        const factory = vi.fn((options) => new StubTJ(options));
+        const { sttRegistry } = await import('../../STTRegistry');
+        sttRegistry.clear();
+        sttRegistry.register('transformers-js', factory);
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        const availability = await pstt.checkAvailability();
+
+        expect(availability.isAvailable).toBe(false);
+        expect(availability.reason).toBe('CACHE_MISS');
+        expect(factory).not.toHaveBeenCalled();
+    });
+
+    it('contract: v4 availability reports cache miss and q4 split size before explicit setup', async () => {
+        globalThis.__TEST__ = false;
         window.localStorage.setItem('speaksharp.private.engine', 'transformers-js-v4');
 
         const { PrivateSTT } = await import('../PrivateSTT');
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         const availability = await pstt.checkAvailability();
 
-        expect(availability.isAvailable).toBe(true);
+        expect(availability.isAvailable).toBe(false);
+        expect(availability.reason).toBe('CACHE_MISS');
         expect(availability.sizeMB).toBe(PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB);
-        expect(availability.message).toContain(`${PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB} MB`);
     });
 
     it('contract: reports the actual registry fallback engine when preferred factory is absent', async () => {

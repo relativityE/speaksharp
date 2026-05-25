@@ -7,10 +7,12 @@ import {
     AUDIO_WORKER_REQUEST_TIMEOUT_MS,
     floatToInt16,
     floatToWav,
+    floatToWavAsync,
     concatenateFloat32Arrays,
     AudioBuffer,
     downsampleAudio,
     downsampleAudioAsync,
+    floatToInt16Async,
     terminateWorker,
 } from '../AudioProcessor';
 
@@ -169,6 +171,62 @@ describe('downsampleAudio', () => {
 });
 
 describe('async audio worker message contract', () => {
+    class RespondingWorker {
+        listeners = new Set<(event: MessageEvent) => void>();
+        postMessage = vi.fn((message: { type: string; correlationId: string }) => {
+            queueMicrotask(() => {
+                const wrongCorrelation = { data: { type: 'ERROR', correlationId: 'wrong-id', message: 'wrong request' } } as MessageEvent;
+                this.listeners.forEach((listener) => listener(wrongCorrelation));
+
+                const response = (() => {
+                    if (message.type === 'DOWNSAMPLE') {
+                        return {
+                            type: 'DOWNSAMPLE_RESULT',
+                            correlationId: message.correlationId,
+                            result: new Float32Array([0.25, 0.5]),
+                        };
+                    }
+                    if (message.type === 'FLOAT_TO_WAV') {
+                        return {
+                            type: 'FLOAT_TO_WAV_RESULT',
+                            correlationId: message.correlationId,
+                            result: new Uint8Array([82, 73, 70, 70]),
+                        };
+                    }
+                    return {
+                        type: 'FLOAT_TO_INT16_RESULT',
+                        correlationId: message.correlationId,
+                        result: new Int16Array([32767, -32768]),
+                        base64: 'fake-base64',
+                    };
+                })();
+
+                this.listeners.forEach((listener) => listener({ data: response } as MessageEvent));
+            });
+        });
+        addEventListener = vi.fn((_type: string, listener: (event: MessageEvent) => void) => {
+            this.listeners.add(listener);
+        });
+        removeEventListener = vi.fn((_type: string, listener: (event: MessageEvent) => void) => {
+            this.listeners.delete(listener);
+        });
+        terminate = vi.fn();
+    }
+
+    class ErrorWorker extends RespondingWorker {
+        override postMessage = vi.fn((message: { type: string; correlationId: string }) => {
+            queueMicrotask(() => {
+                this.listeners.forEach((listener) => listener({
+                    data: {
+                        type: 'ERROR',
+                        correlationId: message.correlationId,
+                        message: `${message.type} failed`,
+                    },
+                } as MessageEvent));
+            });
+        });
+    }
+
     class SilentWorker {
         addEventListener = vi.fn();
         removeEventListener = vi.fn();
@@ -200,5 +258,40 @@ describe('async audio worker message contract', () => {
         const outcome = await handledResult;
         expect(outcome.ok).toBe(false);
         expect('error' in outcome ? outcome.error.message : '').toContain('Audio worker request timed out');
+    });
+
+    it('resolves downsample responses by matching correlation id', async () => {
+        vi.useRealTimers();
+        vi.stubGlobal('Worker', RespondingWorker);
+
+        const result = await downsampleAudioAsync(new Float32Array([1, 2, 3, 4]), 32000, 16000);
+
+        expect(result).toEqual(new Float32Array([0.25, 0.5]));
+    });
+
+    it('resolves WAV conversion responses from the worker', async () => {
+        vi.useRealTimers();
+        vi.stubGlobal('Worker', RespondingWorker);
+
+        const result = await floatToWavAsync(new Float32Array([0, 1]), 16000);
+
+        expect(result).toEqual(new Uint8Array([82, 73, 70, 70]));
+    });
+
+    it('resolves Int16 conversion responses with base64 payload from the worker', async () => {
+        vi.useRealTimers();
+        vi.stubGlobal('Worker', RespondingWorker);
+
+        const result = await floatToInt16Async(new Float32Array([1, -1]));
+
+        expect(result.result).toEqual(new Int16Array([32767, -32768]));
+        expect(result.base64).toBe('fake-base64');
+    });
+
+    it('rejects worker ERROR responses with the worker message', async () => {
+        vi.useRealTimers();
+        vi.stubGlobal('Worker', ErrorWorker);
+
+        await expect(floatToWavAsync(new Float32Array([0]), 16000)).rejects.toThrow('FLOAT_TO_WAV failed');
     });
 });

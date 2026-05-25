@@ -1,6 +1,6 @@
 import { TranscriptionMode } from '../services/transcription/TranscriptionPolicy';
 
-export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 'recording' | 'paused' | 'fallback' | 'error' | 'info' | 'warning' | 'download-required';
+export type SttStatusType = 'idle' | 'initializing' | 'downloading' | 'ready' | 'recording' | 'paused' | 'fallback' | 'error' | 'info' | 'warning' | 'download-required' | 'init-failed';
 
 export interface SttStatus {
     type: SttStatusType;

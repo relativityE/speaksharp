@@ -85,6 +85,7 @@ export const PRIV_STT_V4 = {
   },
   DEVICE: null,
   EXPECTED_Q4_SPLIT_DOWNLOAD_MB: 120,
+  WORKER_REQUEST_TIMEOUT_MS: 90_000,
 } as const;
 
 const ASSEMBLYAI_PACKET_MS_BOUNDS = {

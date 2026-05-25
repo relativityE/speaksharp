@@ -13,6 +13,7 @@ export type TranscriptionState =
     | 'DOWNLOAD_REQUIRED'
     | 'DOWNLOADING'
     | 'DOWNLOAD_COMPLETE'
+    | 'INIT_FAILED'
     | 'FAILED'
     | 'TERMINATED';
 
@@ -33,6 +34,7 @@ export type TranscriptionEvent =
     | { type: 'DOWNLOAD_REQUIRED' }
     | { type: 'DOWNLOAD_STARTED' }
     | { type: 'DOWNLOAD_FINISHED' }
+    | { type: 'INIT_FAILED'; error: Error }
     | { type: 'TERMINATE_REQUESTED' }
     | { type: 'TERMINATE_COMPLETED' }
     | { type: 'FALLBACK_REQUESTED' }
@@ -69,7 +71,6 @@ export class TranscriptionFSM {
         { from: 'FAILED', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' }, // Allow fallback/retry
 
         { from: 'ENGINE_INITIALIZING', to: 'READY', event: 'ENGINE_INIT_SUCCESS' },
-        { from: 'DOWNLOADING', to: 'READY', event: 'ENGINE_INIT_SUCCESS' },
         { from: 'READY', to: 'RECORDING', event: 'ENGINE_STARTED' },
         { from: 'ENGINE_INITIALIZING', to: 'RECORDING', event: 'ENGINE_STARTED' },
         { from: 'ENGINE_INITIALIZING', to: 'IDLE', event: 'STOP_REQUESTED' },
@@ -83,7 +84,14 @@ export class TranscriptionFSM {
         { from: 'DOWNLOAD_REQUIRED', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' },
         { from: 'DOWNLOAD_REQUIRED', to: 'DOWNLOADING', event: 'DOWNLOAD_STARTED' },
         { from: 'DOWNLOADING', to: 'DOWNLOAD_COMPLETE', event: 'DOWNLOAD_FINISHED' },
+        { from: 'DOWNLOAD_COMPLETE', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' },
         { from: 'DOWNLOADING', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' },
+        { from: 'ENGINE_INITIALIZING', to: 'INIT_FAILED', event: 'INIT_FAILED' },
+        { from: 'DOWNLOAD_COMPLETE', to: 'INIT_FAILED', event: 'INIT_FAILED' },
+        { from: 'DOWNLOADING', to: 'INIT_FAILED', event: 'INIT_FAILED' },
+        { from: 'INIT_FAILED', to: 'ENGINE_INITIALIZING', event: 'ENGINE_INIT_REQUESTED' },
+        { from: 'INIT_FAILED', to: 'DOWNLOAD_REQUIRED', event: 'DOWNLOAD_REQUIRED' },
+        { from: 'INIT_FAILED', to: 'IDLE', event: 'RESET_REQUESTED' },
         { from: 'DOWNLOADING', to: 'FAILED', event: 'ERROR_OCCURRED' },
         { from: 'DOWNLOADING', to: 'IDLE', event: 'RESET_REQUESTED' },
         { from: 'DOWNLOAD_COMPLETE', to: 'IDLE', event: 'RESET_REQUESTED' },
@@ -108,6 +116,7 @@ export class TranscriptionFSM {
         { from: 'RECORDING', to: 'FAILED', event: 'ERROR_OCCURRED' },
         { from: 'PAUSED', to: 'FAILED', event: 'ERROR_OCCURRED' },
         { from: 'STOPPING', to: 'FAILED', event: 'ERROR_OCCURRED' },
+        { from: 'INIT_FAILED', to: 'FAILED', event: 'ERROR_OCCURRED' },
 
         // Terminal & Cleanup Sequence
         { from: 'IDLE', to: 'TERMINATED', event: 'TERMINATE_REQUESTED' },
@@ -119,6 +128,7 @@ export class TranscriptionFSM {
         { from: 'PAUSED', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'STOPPING', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'DOWNLOAD_REQUIRED', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
+        { from: 'INIT_FAILED', to: 'CLEANING_UP', event: 'TERMINATE_REQUESTED' },
         { from: 'CLEANING_UP', to: 'TERMINATED', event: 'TERMINATE_COMPLETED' },
 
         // Finalize cleanup - Strict outbound transitions per Senior Audit
@@ -135,6 +145,7 @@ export class TranscriptionFSM {
         { from: 'RECORDING', to: 'RECORDING', event: 'POLICY_UPDATED' },
         { from: 'PAUSED', to: 'PAUSED', event: 'POLICY_UPDATED' },
         { from: 'FAILED', to: 'FAILED', event: 'POLICY_UPDATED' },
+        { from: 'INIT_FAILED', to: 'INIT_FAILED', event: 'POLICY_UPDATED' },
         { from: 'RECORDING', to: 'ENGINE_INITIALIZING', event: 'FALLBACK_REQUESTED' },
         { from: 'ENGINE_INITIALIZING', to: 'ENGINE_INITIALIZING', event: 'FALLBACK_REQUESTED' },
     ];

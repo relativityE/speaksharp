@@ -98,7 +98,7 @@ describe('StatusNotificationBar', () => {
         expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('35%');
     });
 
-    it('shows Private ready state and far-right cached progress without extra guidance copy', () => {
+    it('keeps the status bar read-only for Private setup prompts', () => {
         vi.mocked(useSessionStore).mockImplementation((selector: unknown) => {
             const state = {
                 activeEngine: 'none',
@@ -107,11 +107,40 @@ describe('StatusNotificationBar', () => {
             return typeof selector === 'function' ? selector(state) : state;
         });
 
-        render(<StatusNotificationBar status={{ type: 'ready', message: 'Private model cached. Ready to record.', progress: 100 }} />);
+        render(<StatusNotificationBar status={{ type: 'download-required', message: 'Private model needs a one-time download.' }} />);
 
-        expect(screen.getByTestId('status-message-text')).toHaveTextContent(/Private model cached/i);
-        expect(screen.queryByText(/Private is ready/i)).toBeNull();
-        expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('Cached');
+        expect(screen.getByTestId('status-message-text')).toHaveTextContent(/Private model needs/i);
+        expect(screen.queryByTestId('status-download-model-button')).toBeNull();
+    });
+
+    it('hides the Private setup action once setup progress exists', () => {
+        vi.mocked(useSessionStore).mockImplementation((selector: unknown) => {
+            const state = {
+                activeEngine: 'none',
+                isListening: false,
+            };
+            return typeof selector === 'function' ? selector(state) : state;
+        });
+
+        render(<StatusNotificationBar status={{ type: 'download-required', message: 'Private model needs a one-time download.', progress: 100 }} />);
+
+        expect(screen.queryByTestId('status-download-model-button')).toBeNull();
+        expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('Complete');
+    });
+
+    it('shows Private initialized state and far-right complete progress without extra guidance copy', () => {
+        vi.mocked(useSessionStore).mockImplementation((selector: unknown) => {
+            const state = {
+                activeEngine: 'none',
+                isListening: false,
+            };
+            return typeof selector === 'function' ? selector(state) : state;
+        });
+
+        render(<StatusNotificationBar status={{ type: 'ready', message: 'Private ready. Nothing leaves your browser.', progress: 100 }} />);
+
+        expect(screen.getByTestId('status-message-text')).toHaveTextContent(/Private ready/i);
+        expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('Complete');
         expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('100%');
     });
 });

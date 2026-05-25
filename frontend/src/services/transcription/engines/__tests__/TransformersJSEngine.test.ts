@@ -139,6 +139,36 @@ describe('TransformersJSEngine (Unit)', () => {
         }));
     });
 
+    it('uses Whisper stride only when the audio exceeds the model window', async () => {
+        const transcriber = vi.fn(async () => ({ text: 'long chunk with stride' }));
+        mockPipeline.mockImplementationOnce(async () => transcriber);
+
+        await engine.init();
+        const result = await engine.transcribe(new Float32Array((PRIV_STT.WHISPER_WINDOW_SECONDS + 1) * 16000));
+
+        expect(result.isOk).toBe(true);
+        expect(transcriber).toHaveBeenCalledWith(expect.any(Float32Array), expect.objectContaining({
+            chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
+            stride_length_s: PRIV_STT.WHISPER_STRIDE_SECONDS,
+            return_timestamps: false,
+        }));
+    });
+
+    it('does not reload the model when initialized twice', async () => {
+        const callbacks = {
+            onReady: vi.fn(),
+            onModelLoadProgress: vi.fn(),
+            onTranscriptUpdate: vi.fn(),
+        };
+        engine = new TransformersJSEngine(callbacks);
+
+        await expect(engine.init()).resolves.toEqual(expect.objectContaining({ isOk: true }));
+        await expect(engine.init()).resolves.toEqual(expect.objectContaining({ isOk: true }));
+
+        expect(mockPipeline).toHaveBeenCalledTimes(1);
+        expect(callbacks.onReady).toHaveBeenCalled();
+    });
+
     it('should read transformers.js ASR text output shape', async () => {
         mockPipeline.mockImplementationOnce(async () => {
             return async () => ({ text: 'And so my fellow Americans' });
@@ -151,6 +181,34 @@ describe('TransformersJSEngine (Unit)', () => {
         expect(result.isOk).toBe(true);
         const successResult = result as unknown as { isOk: true; data: string };
         expect(successResult.data).toBe('And so my fellow Americans');
+    });
+
+    it('should read bare string ASR output shape', async () => {
+        mockPipeline.mockImplementationOnce(async () => {
+            return async () => 'Bare string transcription result';
+        });
+
+        await engine.init();
+
+        const result = await engine.transcribe(new Float32Array(16000));
+
+        expect(result.isOk).toBe(true);
+        const successResult = result as unknown as { isOk: true; data: string };
+        expect(successResult.data).toBe('Bare string transcription result');
+    });
+
+    it('should return an empty transcript for unknown object output shapes', async () => {
+        mockPipeline.mockImplementationOnce(async () => {
+            return async () => ({ chunks: [] });
+        });
+
+        await engine.init();
+
+        const result = await engine.transcribe(new Float32Array(16000));
+
+        expect(result.isOk).toBe(true);
+        const successResult = result as unknown as { isOk: true; data: string };
+        expect(successResult.data).toBe('');
     });
 
     it('should keep backward compatibility with legacy transcript output shape', async () => {
@@ -232,6 +290,16 @@ describe('TransformersJSEngine (Unit)', () => {
     it('should exercise destroy method', async () => {
         await engine.init();
         await engine.destroy();
+        await expect(engine.transcribe(new Float32Array(16000))).resolves.toEqual(expect.objectContaining({
+            isOk: false,
+        }));
+    });
+
+    it('exposes pause, resume, and terminate lifecycle methods without mutating transcript output', async () => {
+        await engine.init();
+        await expect(engine.pause()).resolves.toBeUndefined();
+        await expect(engine.resume()).resolves.toBeUndefined();
+        await expect(engine.terminate()).resolves.toBeUndefined();
         await expect(engine.transcribe(new Float32Array(16000))).resolves.toEqual(expect.objectContaining({
             isOk: false,
         }));

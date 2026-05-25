@@ -20,8 +20,15 @@ const mockRecognition = {
   abort: vi.fn(),
   onresult: null as ((event: MockSpeechEvent) => void) | null,
   onstart: null as ((event: Event) => void) | null,
-  onerror: vi.fn(),
+  onerror: null as ((event: { error: string }) => void) | null,
   onend: null as ((event: Event) => void) | null,
+  onaudiostart: null as (() => void) | null,
+  onaudioend: null as (() => void) | null,
+  onspeechstart: null as (() => void) | null,
+  onspeechend: null as (() => void) | null,
+  onsoundstart: null as (() => void) | null,
+  onsoundend: null as (() => void) | null,
+  onnomatch: null as (() => void) | null,
   continuous: false,
   interimResults: false,
   maxAlternatives: 0,
@@ -49,6 +56,16 @@ describe('NativeBrowser Transcription Mode', () => {
     mockRecognition.maxAlternatives = 0;
     mockRecognition.lang = '';
     mockRecognition.onresult = null;
+    mockRecognition.onstart = null;
+    mockRecognition.onerror = null;
+    mockRecognition.onend = null;
+    mockRecognition.onaudiostart = null;
+    mockRecognition.onaudioend = null;
+    mockRecognition.onspeechstart = null;
+    mockRecognition.onspeechend = null;
+    mockRecognition.onsoundstart = null;
+    mockRecognition.onsoundend = null;
+    mockRecognition.onnomatch = null;
 
     nativeBrowser = new NativeBrowser({
       onTranscriptUpdate,
@@ -94,6 +111,71 @@ describe('NativeBrowser Transcription Mode', () => {
       await stopPromise;
 
       expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('contract: start fails with actionable error when SpeechRecognition never fires onstart', async () => {
+      vi.useFakeTimers();
+      await nativeBrowser.init();
+
+      const startPromise = nativeBrowser.start();
+      const handledStart = startPromise.then(
+        () => ({ ok: true as const }),
+        (error: Error) => ({ ok: false as const, error }),
+      );
+      await vi.advanceTimersByTimeAsync(3000);
+
+      const outcome = await handledStart;
+      expect(outcome.ok).toBe(false);
+      expect(outcome.ok ? '' : outcome.error.message).toMatch(/did not start/i);
+      vi.useRealTimers();
+    });
+
+    it('contract: start fails when SpeechRecognition reports an immediate startup error', async () => {
+      await nativeBrowser.init();
+
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onerror?.({ error: 'network' });
+
+      await expect(startPromise).rejects.toThrow(/failed to start: network/i);
+    });
+
+    it('contract: stop resolves even if SpeechRecognition never emits onend', async () => {
+      vi.useFakeTimers();
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const stopPromise = nativeBrowser.stop();
+      await vi.advanceTimersByTimeAsync(1000);
+
+      await expect(stopPromise).resolves.toBeUndefined();
+      expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it('contract: stop resolves when SpeechRecognition.stop throws', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+      mockRecognition.stop.mockImplementationOnce(() => {
+        throw new Error('already stopped');
+      });
+
+      await expect(nativeBrowser.stop()).resolves.toBeUndefined();
+    });
+
+    it('contract: acoustic readiness fires once across audiostart and speechstart', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      mockRecognition.onaudiostart?.();
+      mockRecognition.onspeechstart?.();
+
+      expect(onReady).toHaveBeenCalledTimes(1);
     });
   });
  
@@ -284,9 +366,21 @@ describe('NativeBrowser Transcription Mode', () => {
       mockRecognition.onstart?.({} as Event);
       await startPromise;
 
-      mockRecognition.onerror?.({ error: 'no-speech' } as unknown as Event);
+      mockRecognition.onerror?.({ error: 'no-speech' });
 
       expect(onError).not.toHaveBeenCalled();
+    });
+
+    it('contract: permission errors surface a user-actionable transcription error', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      mockRecognition.onerror?.({ error: 'not-allowed' });
+
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError.mock.calls[0]?.[0]?.message).toMatch(/microphone permission denied/i);
     });
   });
 });

@@ -237,50 +237,30 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 
     public async checkAvailability(): Promise<import('../STTStrategy').AvailabilityResult> {
-        // 1. Registry Lookup (Environment Agnostic)
-        // If an engine is already instantiated (e.g. Mock), delegate to it.
+        // Availability is a pure readiness probe. It must never instantiate an
+        // engine or call pipeline(), because that can silently download model
+        // assets before the user explicitly chooses Private setup.
         if (this.engine) {
             logger.debug('[PrivateSTT] Delegating availability to active engine');
             return this.engine.checkAvailability();
         }
 
-        // If a manifest exists, we MUST still probe the actual engine or manager
-        const hasManifest = getEngine('whisper-turbo') || getEngine('transformers-js') || getEngine('mock');
-        logger.debug({ hasManifest }, '[PrivateSTT] Base manifest check');
-
-        // 2. Determine best available engine.
-        // Launch policy: CPU/TransformersJS is the deterministic first-run path.
         const preferredEngine = (getPrivateEngineOverride() || 'transformers-js') as EngineType;
-
-        if (preferredEngine === 'transformers-js-v4') {
-            return {
-                isAvailable: true,
-                message: `Private v4 model will download on first use (~${PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB} MB).`,
-                sizeMB: PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB,
-            };
-        }
-
-        // 2.5 Consult the registry first if a mock is provided
-        const legacyPreferredEngine = preferredEngine === 'whisper-turbo' ? 'whisper-turbo' : 'transformers-js';
-        const mockFactory = getEngine(legacyPreferredEngine)
-            || getEngine('transformers-js')
-            || getEngine('whisper-turbo')
-            || getEngine('mock');
-        if (mockFactory) {
-            logger.debug(`[PrivateSTT] Delegating availability to mock factory`);
-            const tempMock = mockFactory((this.options || {}) as TranscriptionModeOptions);
-            return tempMock.checkAvailability();
-        }
-
-        // 3. Probe Cache for the preferred model
-        const isDownloaded = await ModelManager.isModelDownloaded(legacyPreferredEngine);
+        const cacheEngine =
+            preferredEngine === 'whisper-turbo' ? 'whisper-turbo'
+                : preferredEngine === 'transformers-js-v4' ? 'transformers-js-v4'
+                    : 'transformers-js';
+        const isDownloaded = await ModelManager.isModelDownloaded(cacheEngine);
 
         if (!isDownloaded) {
+            const sizeMB = preferredEngine === 'transformers-js-v4'
+                ? PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB
+                : ModelManager.getModelSizeMB(cacheEngine);
             return {
                 isAvailable: false,
                 reason: 'CACHE_MISS',
                 message: 'Private model unavailable at first-use.',
-                sizeMB: ModelManager.getModelSizeMB(legacyPreferredEngine)
+                sizeMB,
             };
         }
 

@@ -407,6 +407,19 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[PrivateWhisper] Initialized (dual-engine facade).');
   }
 
+  public async checkAvailability(): Promise<import('../STTStrategy').AvailabilityResult> {
+    if (typeof this.privateSTT.checkAvailability === 'function') {
+      return this.privateSTT.checkAvailability();
+    }
+
+    logger.error({ sId: this.serviceId, rId: this.instanceId }, '[PrivateWhisper] PrivateSTT facade does not expose checkAvailability');
+    return {
+      isAvailable: false,
+      reason: 'UNKNOWN',
+      message: 'Private STT availability could not be checked before setup.',
+    };
+  }
+
   protected async onInit(timeoutMs?: number): Promise<Result<void, Error>> {
     if (this.status === 'idle' || this.status === 'transcribing') {
       logger.info({ sId: this.serviceId, rId: this.instanceId }, `[PrivateWhisper] Already ${this.status}, skipping init.`);
@@ -971,15 +984,15 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             rms: Number(energy.rms.toFixed(6)),
             durationSec: Number(processedDurationSec.toFixed(3)),
           }, '[PrivateWhisper] Holding first transcript until it has speech-like substance');
-          if (canEmitPartial && this.onTranscriptUpdate) {
+          if (canEmitPartial) {
             pushPrivateTimeline('first_transcript_provisional_partial_emit', {
               serviceId: this.serviceId,
               runId: this.instanceId,
               textLength: newText.trim().length,
               preview: newText.trim().slice(0, 160),
               reason: 'pre_final_threshold',
+              emittedToUi: false,
             });
-            this.onTranscriptUpdate({ transcript: { partial: newText.trim() } });
           }
           this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'first_transcript_substance');
           return;
@@ -1014,15 +1027,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             previousPreview: previousCandidate?.slice(0, 120) ?? null,
             stablePrefix: stablePrefix.slice(0, 120),
           }, '[PrivateWhisper] Holding first transcript until local agreement confirms it');
-          if (this.onTranscriptUpdate) {
-            pushPrivateTimeline('first_transcript_provisional_partial_emit', {
-              serviceId: this.serviceId,
-              runId: this.instanceId,
-              textLength: newText.trim().length,
-              preview: newText.trim().slice(0, 160),
-            });
-            this.onTranscriptUpdate({ transcript: { partial: newText.trim() } });
-          }
+          pushPrivateTimeline('first_transcript_provisional_partial_emit', {
+            serviceId: this.serviceId,
+            runId: this.instanceId,
+            textLength: newText.trim().length,
+            preview: newText.trim().slice(0, 160),
+            emittedToUi: false,
+          });
           this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'first_transcript_local_agreement');
           return;
         }
@@ -1046,16 +1057,14 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
               stablePrefixWordCount,
               minWords: PRIV_STT.FIRST_TRANSCRIPT_MIN_WORDS,
             }, '[PrivateWhisper] Holding first transcript because stable prefix is too short');
-            if (this.onTranscriptUpdate) {
-              pushPrivateTimeline('first_transcript_provisional_partial_emit', {
-                serviceId: this.serviceId,
-                runId: this.instanceId,
-                textLength: newText.trim().length,
-                preview: newText.trim().slice(0, 160),
-                reason: 'stable_prefix_too_short',
-              });
-              this.onTranscriptUpdate({ transcript: { partial: newText.trim() } });
-            }
+            pushPrivateTimeline('first_transcript_provisional_partial_emit', {
+              serviceId: this.serviceId,
+              runId: this.instanceId,
+              textLength: newText.trim().length,
+              preview: newText.trim().slice(0, 160),
+              reason: 'stable_prefix_too_short',
+              emittedToUi: false,
+            });
             this.pendingFirstTranscript = newText;
             this.firstTranscriptAgreementRounds = 1;
             this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'first_transcript_stable_prefix_too_short');

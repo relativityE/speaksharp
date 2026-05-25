@@ -65,6 +65,12 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
         textClass: 'text-foreground',
         iconClass: 'text-primary',
     },
+    'init-failed': {
+        icon: AlertCircle,
+        bgClass: 'bg-red-50 border-red-200 shadow-sm',
+        textClass: 'text-foreground',
+        iconClass: 'text-destructive',
+    },
     warning: {
         icon: AlertTriangle,
         bgClass: 'bg-amber-50 border-amber-200 shadow-sm',
@@ -89,7 +95,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     const config = statusConfig[status.type];
     const Icon = config.icon;
     const isAnimated = status.type === 'initializing' || status.type === 'downloading';
-    const isProminent = status.type === 'download-required' || status.type === 'downloading' || status.type === 'error';
+    const isProminent = status.type === 'download-required' || status.type === 'downloading' || status.type === 'init-failed' || status.type === 'error';
 
     // Secondary status follows the caller-filtered status so inactive private setup
     // progress does not leak into Basic/Native Browser views.
@@ -124,6 +130,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 break;
             case 'downloading':
                 displayMessage = 'Downloading private model...';
+                break;
+            case 'init-failed':
+                displayMessage = 'Private setup failed. Retry setup.';
                 break;
             case 'info':
                 displayMessage = 'Information';
@@ -197,7 +206,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                             Private Model
                         </span>
                         <span className="text-[10px] font-normal text-muted-foreground">
-                            {modelLoadingProgress === 100 ? 'Cached' : 'Downloading...'}
+                            {modelLoadingProgress === 100 ? 'Complete' : 'Downloading...'}
                         </span>
                     </div>
                     <div className="flex min-w-0 flex-1 items-center gap-3 sm:w-32 sm:flex-none">

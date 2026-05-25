@@ -111,6 +111,10 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     const effectivePolicyMode = isEffectiveProUser
         ? sttMode === 'cloud' && !canUseCloudStt ? 'private' : sttMode
         : 'native';
+    const transcriptionPolicy = useMemo(
+        () => buildPolicyForUser(isEffectiveProUser, effectivePolicyMode, { allowCloud: canUseCloudStt }),
+        [isEffectiveProUser, effectivePolicyMode, canUseCloudStt],
+    );
     useTranscriptionControl();
     const filler = useFillerWords(finalChunks as unknown as Chunk[], storeTranscript.partial, userWords);
     const vocal = useVocalAnalysis();
@@ -150,7 +154,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         session: session ?? null,
         navigate,
         userWords: userVocabulary,
-        policy: buildPolicyForUser(isEffectiveProUser, effectivePolicyMode, { allowCloud: canUseCloudStt }),
+        policy: transcriptionPolicy,
         onReady: () => {
             logger.info('[useSpeechRecognition] Service ready signal received');
         },

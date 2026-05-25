@@ -45,7 +45,7 @@ export const MobileActionBar: React.FC<MobileActionBarProps> = ({
                 size="lg"
                 variant={isListening ? 'destructive' : 'default'}
                 className="h-12 w-full max-w-sm text-base font-semibold shadow-sm"
-                disabled={isButtonDisabled || modelLoadingProgress !== null}
+                disabled={isButtonDisabled || (modelLoadingProgress !== null && modelLoadingProgress < 100)}
                 data-testid={`${TEST_IDS.SESSION_START_STOP_BUTTON}-mobile`}
             >
                 {modelLoadingProgress !== null ? (

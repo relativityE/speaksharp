@@ -15,7 +15,14 @@ export default defineConfig(({ mode }) => {
   // __dirname is frontend/, so we need to go up one level to find .env files
   const env = loadEnv(mode, path.resolve(__dirname, '..'), '');
   const isTestMode = mode === 'test';
+  const buildStamp = Date.now();
   console.log(`[Vite] Mode: ${mode}`);
+
+  const assetFileName = (assetInfo) => {
+    const sourceName = assetInfo.names?.[0] ?? assetInfo.name ?? '';
+    const ext = sourceName.endsWith('.ts') ? 'js' : '[ext]';
+    return `assets/[name]-[hash]-${buildStamp}.${ext}`;
+  };
 
   return {
     root: __dirname,
@@ -85,9 +92,9 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           // Add timestamp to filenames to force cache bust
-          entryFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
-          chunkFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
-          assetFileNames: `assets/[name]-[hash]-${Date.now()}.[ext]`,
+          entryFileNames: `assets/[name]-[hash]-${buildStamp}.js`,
+          chunkFileNames: `assets/[name]-[hash]-${buildStamp}.js`,
+          assetFileNames: assetFileName,
           manualChunks: {
             'vendor-react': ['react', 'react-dom', 'react-router-dom'],
             'vendor-supabase': ['@supabase/supabase-js'],

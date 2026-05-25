@@ -93,12 +93,45 @@ describe('LiveRecordingCard', () => {
     it('sets Private latency and privacy expectations before recording', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="private" isProUser={true} canUseCloudStt={false} />);
 
-        expect(screen.getByText(/nothing leaves your browser/i)).toBeDefined();
+        expect(screen.getByText(/One-time local model setup required/i)).toBeDefined();
+        expect(screen.getByText(/nothing leaves your browser after setup/i)).toBeDefined();
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
-        expect((await screen.findAllByText(/On-device and private/i)).length).toBeGreaterThan(0);
-        expect(screen.getAllByText(/First words may take ~5s/i).length).toBeGreaterThan(0);
+        expect((await screen.findAllByText(/One-time local model setup required/i)).length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/Nothing leaves your browser after setup/i).length).toBeGreaterThan(0);
+    });
+
+    it('shows one obvious Private setup action in the recording card when the model is missing', () => {
+        const onPrivateSetup = vi.fn();
+        render(
+            <LiveRecordingCard
+                {...defaultProps}
+                mode="private"
+                isProUser={true}
+                canUseCloudStt={false}
+                sttStatusType="download-required"
+                isButtonDisabled={true}
+                onPrivateSetup={onPrivateSetup}
+            />
+        );
+
+        expect(screen.getByTestId('private-setup-panel')).toHaveTextContent(/Download the local model once/i);
+        expect(screen.getByTestId('private-setup-panel')).toHaveTextContent(/Download the local model once/i);
+        const setupButton = screen.getByTestId('download-model-button');
+        expect(setupButton).toHaveTextContent(/Download Private Model/i);
+        fireEvent.click(setupButton);
+        expect(onPrivateSetup).toHaveBeenCalledOnce();
+    });
+
+    it('discloses that Browser STT sends Chrome and Edge audio to external speech servers', async () => {
+        render(<LiveRecordingCard {...defaultProps} mode="native" isProUser={true} canUseCloudStt={false} />);
+
+        expect(screen.getByText(/audio is sent to Google or Microsoft's servers/i)).toBeDefined();
+
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+
+        expect((await screen.findAllByText(/audio is sent to Google or Microsoft's servers/i)).length).toBeGreaterThan(0);
     });
 
     it('explains why Private is unavailable for basic or expired-trial users', async () => {

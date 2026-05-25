@@ -49,6 +49,19 @@ const pushNativeRuntimeTrace = (event: string, payload: Record<string, unknown> 
     });
 };
 
+const normalizeTranscriptPrefix = (text: string): string =>
+    text
+        .toLowerCase()
+        .replace(/[^\w\s']/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+const hasProviderFullTranscriptPrefix = (currentTranscript: string, finalTranscript: string): boolean => {
+    const normalizedCurrent = normalizeTranscriptPrefix(currentTranscript);
+    const normalizedFinal = normalizeTranscriptPrefix(finalTranscript);
+    return Boolean(normalizedCurrent && normalizedFinal.startsWith(normalizedCurrent));
+};
+
 export type RuntimeState =
     | 'IDLE'
     | 'INITIATING'
@@ -931,11 +944,12 @@ export class SpeechRuntimeController {
                 return;
             }
 
-            if (currentTrimmed && finalTranscript.startsWith(currentTrimmed)) {
+            if (currentTrimmed && hasProviderFullTranscriptPrefix(currentTrimmed, finalTranscript)) {
                 const suffix = finalTranscript.slice(currentTrimmed.length).trim();
                 pushNativeStoreTrace('store_replace_with_provider_full_final', {
                     suffix,
                     finalTranscript,
+                    normalizedPrefixMatch: true,
                 });
                 store.updateTranscript(finalTranscript, '');
                 if (suffix) {
@@ -1381,7 +1395,26 @@ export class SpeechRuntimeController {
                     const sessionId = this.sessionId;
                     const startTime = service.getStartTime();
                     result = await service.stopTranscription();
-                    if (token.cancelled || token.version !== this.lifecycleVersion) return null;
+                    if (token.cancelled) {
+                        logger.warn({
+                            mode: service.getMode?.() ?? stopEntryMode,
+                            sessionId,
+                            resultSuccess: result?.success ?? null,
+                            resultTranscriptLength: result?.transcript?.length ?? 0,
+                            storeTranscriptLength: this.getStoreTranscriptLength(),
+                        }, '[DEBUG-STOP] Stop token was cancelled after stop result; continuing finalization for captured session');
+                    }
+                    if (token.version !== this.lifecycleVersion) {
+                        logger.warn({
+                            mode: service.getMode?.() ?? stopEntryMode,
+                            sessionId,
+                            tokenVersion: token.version,
+                            lifecycleVersion: this.lifecycleVersion,
+                            resultSuccess: result?.success ?? null,
+                            resultTranscriptLength: result?.transcript?.length ?? 0,
+                            storeTranscriptLength: this.getStoreTranscriptLength(),
+                        }, '[DEBUG-STOP] Lifecycle version changed after stop result; continuing session finalization for captured session');
+                    }
 
                     if (result && sessionId) {
                         const duration = startTime ? (Date.now() - startTime) / 1000 : 0;
@@ -1425,7 +1458,20 @@ export class SpeechRuntimeController {
                                 status: 'failed',
                                 reason: 'No meaningful speech detected; session was not saved to history.'
                             });
-                            if (token.cancelled || token.version !== this.lifecycleVersion) return null;
+                            if (token.cancelled) {
+                                logger.warn({
+                                    mode: service.getMode?.() ?? stopEntryMode,
+                                    sessionId,
+                                }, '[DEBUG-STOP] Stop token cancelled after failed-session completion; preserving warning state');
+                            }
+                            if (token.version !== this.lifecycleVersion) {
+                                logger.warn({
+                                    mode: service.getMode?.() ?? stopEntryMode,
+                                    sessionId,
+                                    tokenVersion: token.version,
+                                    lifecycleVersion: this.lifecycleVersion,
+                                }, '[DEBUG-STOP] Lifecycle changed after failed-session completion; preserving user-facing warning');
+                            }
 
                             guardedStopStatus = {
                                 type: 'warning',
@@ -1495,7 +1541,22 @@ export class SpeechRuntimeController {
                                 transcript: finalTranscript,
                                 duration: Math.round(duration)
                             });
-                            if (token.cancelled || token.version !== this.lifecycleVersion) return null;
+                            if (token.cancelled) {
+                                logger.warn({
+                                    mode: service.getMode?.() ?? stopEntryMode,
+                                    sessionId,
+                                    transcriptLength: finalTranscript.length,
+                                }, '[DEBUG-STOP] Stop token cancelled after session completion; continuing rich metrics update');
+                            }
+                            if (token.version !== this.lifecycleVersion) {
+                                logger.warn({
+                                    mode: service.getMode?.() ?? stopEntryMode,
+                                    sessionId,
+                                    tokenVersion: token.version,
+                                    lifecycleVersion: this.lifecycleVersion,
+                                    transcriptLength: finalTranscript.length,
+                                }, '[DEBUG-STOP] Lifecycle changed after session completion; continuing rich metrics update');
+                            }
 
                             logger.info({ sessionId }, '[DEBUG-STOP] updateSession starting');
                             await updateSession(sessionId, {

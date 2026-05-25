@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
 import { Settings } from 'lucide-react';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
 import { UserFillerWordsManager } from '@/components/session/UserFillerWordsManager';
 import { SessionPageSkeleton } from '@/components/session/SessionPageSkeleton';
 import { ClarityScoreCard } from '@/components/session/ClarityScoreCard';
@@ -125,7 +125,6 @@ export const SessionPage: React.FC = () => {
 
     const visibleModelLoadingProgress =
         isProUser && mode === 'private' ? modelLoadingProgress : null;
-
     // 2. Compose Final Status (Attach active Private model progress only)
     const displayStatus: SttStatus = {
         ...baseStatus,
@@ -145,31 +144,6 @@ export const SessionPage: React.FC = () => {
                     <p className="text-xs text-muted-foreground">Record, review, and track your speaking patterns</p>
                 </div>
 
-                {/* Manual Download Trigger */}
-                {isProUser && mode === 'private' && sttStatus.type === 'download-required' && (
-                    <div className="md:col-start-3 justify-self-center md:justify-self-end animate-in fade-in slide-in-from-top-2 duration-500" data-model-status="not-downloaded">
-                        <Button
-                            size="sm"
-                            onClick={() => {
-                                void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
-                            }}
-                            className="gap-2 h-11 w-full min-w-40 px-4 text-xs font-semibold leading-tight transition-all group sm:w-auto"
-                            data-testid="download-model-button"
-                        >
-                            <div className="relative">
-                                <Settings className="h-4 w-4 animate-spin-slow group-hover:scale-110 transition-transform" />
-                                <div className="absolute -top-1 -right-1 h-1.5 w-1.5 bg-primary-foreground rounded-full animate-pulse" />
-                            </div>
-                            <span className="flex flex-col items-start text-left">
-                                <span>Download</span>
-                                <span>Offline Model</span>
-                            </span>
-                        </Button>
-                        <p className="mt-2 max-w-48 text-center text-[11px] leading-snug text-muted-foreground md:text-right">
-                            One-time private setup. Your transcription runs locally after download.
-                        </p>
-                    </div>
-                )}
             </div>
 
             {/* Status Bar - Spans full width of the main content area */}
@@ -202,6 +176,9 @@ export const SessionPage: React.FC = () => {
                                     elapsedSeconds={elapsedTime}
                                     isButtonDisabled={isButtonDisabled}
                                     onModeChange={setMode}
+                                    onPrivateSetup={() => {
+                                        void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
+                                    }}
                                     onStartStop={() => { void handleStartStop(); }}
                                     className="min-h-[300px] md:min-h-[340px]"
                                 />

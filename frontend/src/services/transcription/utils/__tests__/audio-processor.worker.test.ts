@@ -22,6 +22,13 @@ describe('audio-processor.worker', () => {
             expect(result[2]).toBe(-32768);
             expect(result[3]).toBe(Math.floor(0.5 * 32767));
         });
+
+        it('clamps out-of-range samples before converting to signed PCM', () => {
+            const result = floatToInt16(new Float32Array([2, -2]));
+
+            expect(result[0]).toBe(32767);
+            expect(result[1]).toBe(-32768);
+        });
     });
 
     describe('downsampleAudio', () => {
@@ -38,6 +45,15 @@ describe('audio-processor.worker', () => {
             expect(result[0]).toBe(1);
             expect(result[1]).toBe(3);
             expect(result[2]).toBe(5);
+        });
+
+        it('uses linear interpolation for non-integer source positions', () => {
+            const audio = new Float32Array([0, 10, 20, 30, 40]);
+            const result = downsampleAudio(audio, 40000, 16000);
+
+            expect(result.length).toBe(2);
+            expect(result[0]).toBe(0);
+            expect(result[1]).toBeCloseTo(25, 5);
         });
 
         it('rejects upsampling because synthetic samples would corrupt STT timing', () => {
@@ -62,6 +78,15 @@ describe('audio-processor.worker', () => {
             expect(String.fromCharCode(result[12], result[13], result[14], result[15])).toBe('fmt ');
             // data header
             expect(String.fromCharCode(result[36], result[37], result[38], result[39])).toBe('data');
+        });
+
+        it('writes the requested sample rate and byte rate into the WAV header', () => {
+            const result = floatToWav(new Float32Array([0]), 22050);
+            const view = new DataView(result.buffer);
+
+            expect(view.getUint32(24, true)).toBe(22050);
+            expect(view.getUint32(28, true)).toBe(44100);
+            expect(view.getUint32(40, true)).toBe(2);
         });
     });
 

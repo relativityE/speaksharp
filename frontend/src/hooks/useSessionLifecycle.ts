@@ -75,6 +75,10 @@ export const useSessionLifecycle = () => {
     const setSunsetModal = useSessionStore(state => state.setSunsetModal);
     const defaultMode: TranscriptionMode = shouldForceNativeMode ? 'native' : 'private';
     const effectiveMode: TranscriptionMode = sttMode ?? defaultMode;
+    const [privateModelStatus, setPrivateModelStatus] = useState<string>(() => {
+        if (typeof document === 'undefined') return 'idle';
+        return document.documentElement.getAttribute('data-model-status') || 'idle';
+    });
 
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const isProcessingRef = useRef(false);
@@ -299,6 +303,20 @@ export const useSessionLifecycle = () => {
         }
     }, [isListening, tick]);
 
+    useEffect(() => {
+        if (typeof document === 'undefined') return;
+
+        const root = document.documentElement;
+        const syncModelStatus = () => {
+            setPrivateModelStatus(root.getAttribute('data-model-status') || 'idle');
+        };
+        syncModelStatus();
+
+        const observer = new MutationObserver(syncModelStatus);
+        observer.observe(root, { attributes: true, attributeFilter: ['data-model-status'] });
+        return () => observer.disconnect();
+    }, []);
+
 
     // Tier enforcement: Auto-stop and 5-minute warning for any tier with a finite daily cap.
     useEffect(() => {
@@ -486,7 +504,8 @@ export const useSessionLifecycle = () => {
         isProUser: canUsePrivateStt,
         canUseCloudStt,
         activeEngine,
-        isButtonDisabled: !['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED'].includes(runtimeState),
+        isButtonDisabled: !['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED'].includes(runtimeState)
+            || (effectiveMode === 'private' && privateModelStatus !== 'ready'),
         usageLimit,
         history,
         profileLoading: false,

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { Mic, Square, ChevronDown, AlertCircle, Shield } from 'lucide-react';
+import { Download, Mic, Square, ChevronDown, AlertCircle, Shield } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
@@ -36,6 +36,7 @@ interface LiveRecordingCardProps {
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
     onStartStop: () => void;
+    onPrivateSetup?: () => void;
 }
 
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
@@ -63,6 +64,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     className = "",
     onModeChange,
     onStartStop,
+    onPrivateSetup,
 }) => {
     // Deriving visibility and recording state from the master FSM + Intent
     // isIndicatorVisible: Shows the waveform when the engine is active OR initializing
@@ -89,14 +91,15 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         }
     };
     const modeDescriptions: Record<RecordingMode, string> = {
-        native: 'Fast in Chrome or Edge. Uses your browser speech service.',
-        private: 'On-device and private. First words may take ~5s; nothing leaves your browser.',
-        cloud: 'Fastest and most reliable. Pro feature; audio is processed securely in the cloud.',
+        native: "Uses your browser's built-in speech service. In Chrome and Edge, audio is sent to Google or Microsoft's servers.",
+        private: 'On-device. One-time local model setup required. Nothing leaves your browser after setup.',
+        cloud: 'Fastest and most accurate. Pro feature. Audio is processed securely by AssemblyAI.',
         mock: 'Test transcription mode.',
     };
     const privateModeDescription = isProUser
-        ? 'On-device and private. First words may take ~5s.'
-        : 'On-device and private. Available with active trial or Pro.';
+        ? 'On-device. One-time local model setup required. Nothing leaves your browser after setup.'
+        : 'On-device. Available with active trial or Pro.';
+    const needsPrivateSetup = mode === 'private' && sttStatusType === 'download-required' && !isListening;
 
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
@@ -134,7 +137,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <span className="flex flex-col gap-0.5">
                                         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Browser</span>
                                         <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                            Fast in Chrome or Edge. Uses your browser speech service.
+                                            Uses your browser&apos;s built-in speech service. In Chrome and Edge, audio is sent to Google or Microsoft&apos;s servers.
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>
@@ -160,7 +163,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <span className="flex flex-col gap-0.5">
                                         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud {!canUseCloudStt ? '(Pro feature)' : ''}</span>
                                         <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                            Fastest and most reliable. Pro feature; processed in the cloud.
+                                            Fastest and most accurate. Pro feature. Audio is processed securely by AssemblyAI.
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>
@@ -170,6 +173,33 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                 </div>
 
                 <div className="flex flex-1 flex-col items-center justify-center gap-5">
+                    {needsPrivateSetup && (
+                        <div
+                            className="w-full max-w-md rounded-lg border border-primary/30 bg-primary/8 p-4 text-left shadow-sm"
+                            data-testid="private-setup-panel"
+                        >
+                            <div className="flex items-start gap-3">
+                                <div className="mt-0.5 rounded-md bg-primary/15 p-2 text-primary">
+                                    <Download className="h-4 w-4" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <p className="text-xs leading-snug text-muted-foreground">
+                                        Download the local model once in this browser before recording. After setup, Private runs on-device.
+                                    </p>
+                                    <Button
+                                        type="button"
+                                        onClick={onPrivateSetup}
+                                        className="mt-3 h-10 w-full gap-2 text-xs font-semibold sm:w-auto"
+                                        data-testid="download-model-button"
+                                    >
+                                        <Download className="h-4 w-4" />
+                                        Download Private Model
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Proportional Vertical Stack: Mic + Timer */}
                     <div className="flex flex-col items-center gap-4">
                         {/* Mic Button (Balanced with Timer weight) */}

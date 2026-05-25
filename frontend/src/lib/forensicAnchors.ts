@@ -65,6 +65,7 @@ export type TranscriptionState =
   | 'DOWNLOAD_REQUIRED'
   | 'DOWNLOADING'
   | 'DOWNLOAD_COMPLETE'
+  | 'INIT_FAILED'
   | 'FAILED'
   | 'TERMINATED';
 
@@ -82,6 +83,7 @@ export function mapToRuntimeState(state: TranscriptionState): RuntimeState {
     case 'DOWNLOAD_REQUIRED': return 'IDLE';
     case 'DOWNLOADING': return 'ENGINE_INITIALIZING';
     case 'DOWNLOAD_COMPLETE': return 'IDLE';
+    case 'INIT_FAILED': return 'FAILED';
     case 'FAILED': return 'FAILED';
     case 'TERMINATED': return 'TERMINATED';
     default: {

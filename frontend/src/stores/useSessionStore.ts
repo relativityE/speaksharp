@@ -121,11 +121,22 @@ export const useSessionStore = create<SessionStore>((set) => {
 
     setRuntimeState: (runtimeState) => {
         logger.debug({ runtimeState }, '[useSessionStore] setRuntimeState');
-        set({
-            runtimeState,
-            isListening: runtimeState === 'RECORDING',
-            isInitiating: runtimeState === 'INITIATING',
-            isReady: runtimeState === 'READY',
+        set((state) => {
+            const next = {
+                runtimeState,
+                isListening: runtimeState === 'RECORDING',
+                isInitiating: runtimeState === 'INITIATING',
+                isReady: runtimeState === 'READY',
+            };
+            if (
+                state.runtimeState === next.runtimeState &&
+                state.isListening === next.isListening &&
+                state.isInitiating === next.isInitiating &&
+                state.isReady === next.isReady
+            ) {
+                return state;
+            }
+            return next;
         });
     },
 
@@ -175,6 +186,14 @@ export const useSessionStore = create<SessionStore>((set) => {
     setSTTStatus: (status) => {
         logger.debug({ type: status.type, message: status.message, timestamp: Date.now() }, '[STORE UPDATE]');
         set((state) => {
+            if (
+                state.sttStatus.type === status.type &&
+                state.sttStatus.message === status.message &&
+                state.sttStatus.progress === status.progress &&
+                state.sttStatus.isFrozen === status.isFrozen
+            ) {
+                return state;
+            }
             // Guard active recordings, but allow recovery once runtime has left RECORDING.
             if (
                 state.runtimeState === 'RECORDING' &&
@@ -190,6 +209,10 @@ export const useSessionStore = create<SessionStore>((set) => {
 
     setSTTMode: (mode) => {
         set((state) => {
+            if (state.sttMode === mode) {
+                syncForensicAnchors(state.runtimeState, mode);
+                return state;
+            }
             const next = {
                 ...state,
                 sttMode: mode,
@@ -201,13 +224,16 @@ export const useSessionStore = create<SessionStore>((set) => {
     },
 
     setActiveEngine: (engine) =>
-        set({
-            activeEngine: engine,
+        set((state) => {
+            if (state.activeEngine === engine) return state;
+            return { activeEngine: engine };
         }),
 
     setModelLoadingProgress: (progress) => {
-        set({
-            modelLoadingProgress: normalizeModelLoadingProgress(progress),
+        const normalized = normalizeModelLoadingProgress(progress);
+        set((state) => {
+            if (state.modelLoadingProgress === normalized) return state;
+            return { modelLoadingProgress: normalized };
         });
     },
 

@@ -25,6 +25,7 @@ vi.mock('@xenova/transformers', () => ({}));
 // We hoist the mocks so we can access them in the test body if needed
 const mocks = vi.hoisted(() => ({
     init: vi.fn(),
+    checkAvailability: vi.fn(),
     transcribe: vi.fn(),
     reset: vi.fn(),
     stop: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock('../../audio/pauseDetector', () => ({
 vi.mock('../../engines/PrivateSTT', () => {
     const MockPrivateSTT = vi.fn().mockImplementation(() => ({
         init: mocks.init,
+        checkAvailability: mocks.checkAvailability,
         transcribe: mocks.transcribe,
         getEngineType: vi.fn().mockReturnValue('whisper-turbo')
     }));
@@ -65,6 +67,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         // Setup successful init
         mocks.init.mockResolvedValue(Result.ok('whisper-turbo'));
+        mocks.checkAvailability.mockResolvedValue({ isAvailable: false, reason: 'CACHE_MISS', message: 'Download required' });
 
         // Setup successful transcription
         mocks.transcribe.mockResolvedValue(Result.ok('Test transcript'));
@@ -77,6 +80,14 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         expect(mocks.init).toHaveBeenCalled();
         // Check if callbacks are passed? 
         // PrivateWhisper likely passes its own internal callbacks or the ones provided.
+    });
+
+    it('delegates availability checks to PrivateSTT before initializing', async () => {
+        const availability = await privateWhisper.checkAvailability();
+
+        expect(mocks.checkAvailability).toHaveBeenCalledOnce();
+        expect(availability).toEqual({ isAvailable: false, reason: 'CACHE_MISS', message: 'Download required' });
+        expect(mocks.init).not.toHaveBeenCalled();
     });
 
     it('buffers audio and transcribes periodically', async () => {
@@ -378,7 +389,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
 
         expect(mocks.transcribe).toHaveBeenCalledTimes(2);
-        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledTimes(2);
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledTimes(1);
 
         const tailLongEnoughToForce = new Float32Array(PRIV_STT_DERIVED.FORCE_FINAL_MIN_SAMPLES + 100).fill(0.05);
         frameCallback?.(tailLongEnoughToForce);
@@ -386,7 +397,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         await privateWhisper.stop();
 
         expect(mocks.transcribe).toHaveBeenCalledTimes(3);
-        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledTimes(2);
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledTimes(1);
         vi.useRealTimers();
     });
 
@@ -434,10 +445,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         expect((mocks.transcribe.mock.calls[1][0] as Float32Array).length).toBe(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES * 2);
         expect((mocks.transcribe.mock.calls[2][0] as Float32Array).length).toBe(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES * 3);
         expect((mocks.transcribe.mock.calls[3][0] as Float32Array).length).toBeGreaterThanOrEqual(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES);
-        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledTimes(1);
-        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledWith({
-            transcript: { partial: 'Fresh transcript has enough words' },
-        });
+        expect(mockCallbacks.onTranscriptUpdate).not.toHaveBeenCalled();
 
         await privateWhisper.stop();
         vi.useRealTimers();
@@ -466,22 +474,16 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         frameCallback?.(new Float32Array(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS * PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ).fill(0.11));
         await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
-        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledTimes(1);
-        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
-            transcript: { partial: 'unconfirmed opener has words' },
-        });
+        expect(mockCallbacks.onTranscriptUpdate).not.toHaveBeenCalled();
 
         frameCallback?.(new Float32Array(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS * PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ).fill(0.22));
         await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
-        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledTimes(2);
-        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
-            transcript: { partial: 'different opener text continues' },
-        });
+        expect(mockCallbacks.onTranscriptUpdate).not.toHaveBeenCalled();
 
         frameCallback?.(new Float32Array(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS * PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ).fill(0.33));
         await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
 
-        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledTimes(3);
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledTimes(1);
         expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledWith({
             transcript: { final: 'different opener text continues' },
         });
@@ -529,11 +531,12 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         vi.useRealTimers();
     });
 
-    it('REGRESSION: holds exact first-result hallucinations but allows real thanks phrases as partials', async () => {
+    it('REGRESSION: holds exact first-result hallucinations but allows real thanks phrases once confirmed', async () => {
         vi.useFakeTimers();
         mocks.transcribe
             .mockResolvedValueOnce(Result.ok('Thanks.'))
-            .mockResolvedValueOnce(Result.ok('Thanks everyone for joining today'));
+            .mockResolvedValueOnce(Result.ok('Thanks everyone for joining today'))
+            .mockResolvedValueOnce(Result.ok('Thanks everyone for joining today again'));
         await privateWhisper.init();
 
         let frameCallback: ((frame: Float32Array) => void) | undefined;
@@ -549,15 +552,18 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         await privateWhisper.start(mockMic);
 
-        frameCallback?.(new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES).fill(0.5));
+        frameCallback?.(new Float32Array(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS * PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ).fill(0.5));
         await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
         expect(mockCallbacks.onTranscriptUpdate).not.toHaveBeenCalled();
 
-        frameCallback?.(new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES).fill(0.5));
+        frameCallback?.(new Float32Array(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS * PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ).fill(0.5));
         await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
         expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledWith({
-            transcript: { partial: 'Thanks everyone for joining today' },
+            transcript: { final: 'Thanks everyone for joining today' },
         });
+
+        frameCallback?.(new Float32Array(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS * PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ).fill(0.5));
+        await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
 
         await privateWhisper.stop();
         vi.useRealTimers();

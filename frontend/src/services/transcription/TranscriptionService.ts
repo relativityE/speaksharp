@@ -161,6 +161,73 @@ export default class TranscriptionService {
     syncEngineReady(ready);
   }
 
+  private markPrivateModelReady(): void {
+    if (this.mode !== 'private') return;
+
+    this.privateModelReady = true;
+    this.privateDownloadAlternativeToastShown = false;
+    this.modelLoadingProgress = 100;
+
+    const state = (useSessionStore as unknown as {
+      getState: () => {
+        setModelLoadingProgress: (p: number | null) => void;
+        setSTTStatus: (status: SttStatus) => void;
+      }
+    }).getState?.();
+
+    if (state) {
+      state.setModelLoadingProgress(100);
+      state.setSTTStatus({
+        type: 'ready',
+        message: 'Private ready. Nothing leaves your browser.',
+        detail: 'On-device transcription is initialized for this browser tab.',
+        progress: 100
+      });
+    }
+
+    toast.success('Private is ready. Nothing leaves your browser.', {
+      id: 'private-model-ready',
+      duration: 5000,
+    });
+
+    setTimeout(() => {
+      const currentState = (useSessionStore as unknown as {
+        getState: () => {
+          modelLoadingProgress: number | null;
+          setModelLoadingProgress: (p: number | null) => void;
+        }
+      }).getState?.();
+      if (currentState && currentState.modelLoadingProgress === 100) {
+        currentState.setModelLoadingProgress(null);
+      }
+    }, 5000);
+  }
+
+  private markPrivateModelInitFailed(error: unknown): void {
+    if (this.mode !== 'private') return;
+
+    this.privateModelReady = false;
+    this.modelLoadingProgress = null;
+    this.setEngineReady(false);
+
+    const err = error instanceof Error ? error : new Error(String(error));
+    const state = (useSessionStore as unknown as {
+      getState: () => {
+        setModelLoadingProgress: (p: number | null) => void;
+        setSTTStatus: (status: SttStatus) => void;
+      }
+    }).getState?.();
+
+    if (state) {
+      state.setModelLoadingProgress(null);
+      state.setSTTStatus({
+        type: 'init-failed',
+        message: 'Private setup failed. Retry setup.',
+        detail: err.message || 'The local model could not finish initializing.'
+      });
+    }
+  }
+
   private canFallbackToNative(): boolean {
     return Boolean(
       this.policy.allowFallback &&
@@ -556,6 +623,7 @@ export default class TranscriptionService {
       if (this.fsm.is('ENGINE_INITIALIZING') || this.fsm.is('DOWNLOADING')) {
         logger.info({ runId: this.runId, mode: this.mode }, '[TranscriptionService] Strategy initialized. Transitioning to READY.');
         this.fsm.transition({ type: 'ENGINE_INIT_SUCCESS' });
+        this.markPrivateModelReady();
         pushE2EEvent('ENGINE_READY', { serviceId: this.serviceId, source: 'TranscriptionService', sessionId: this.sessionId });
       }
     } catch (error: unknown) {
@@ -582,6 +650,12 @@ export default class TranscriptionService {
           errorMessage: err?.message,
           errorCode: err?.code,
         }, '[TranscriptionService] Private model setup failed. Restoring explicit retry state.');
+
+        this.markPrivateModelInitFailed(error);
+        if (this.fsm.is('ENGINE_INITIALIZING') || this.fsm.is('DOWNLOADING') || this.fsm.is('DOWNLOAD_COMPLETE')) {
+          this.fsm.transition({ type: 'INIT_FAILED', error: error as Error });
+          return;
+        }
 
         if (!this.fsm.is('READY') && !this.fsm.is('RECORDING')) {
           this.fsm.transition({ type: 'DOWNLOAD_REQUIRED' });
@@ -1509,15 +1583,11 @@ export default class TranscriptionService {
       state.setModelLoadingProgress(percent);
       if (percent !== null) {
         if (percent >= 100) {
-          this.privateDownloadAlternativeToastShown = false;
-          toast.success('Private is ready. You can select it for on-device transcription.', {
-            id: 'private-model-ready',
-            duration: 5000,
-          });
           state.setSTTStatus({
-            type: 'ready',
-            message: 'Private model cached. Ready to record.',
-            detail: 'Private STT should start without downloading next time.'
+            type: 'initializing',
+            message: 'Download complete. Preparing Private model...',
+            detail: 'Keep this tab open while the local model finishes initializing.',
+            progress: 100
           });
         } else {
           if (!this.privateDownloadAlternativeToastShown && percent > 0) {
@@ -1537,18 +1607,8 @@ export default class TranscriptionService {
       }
     }
 
-    if (percent === 100) {
-      if (isBridgeActive()) {
-        if (state) state.setModelLoadingProgress(null);
-      } else {
-        setTimeout(() => {
-          const currentState = (useSessionStore as unknown as { getState: () => { modelLoadingProgress: number | null, setModelLoadingProgress: (p: number | null) => void } }).getState?.();
-          if (currentState && currentState.modelLoadingProgress === 100) {
-            currentState.setModelLoadingProgress(null);
-          }
-        }, 1500);
-      }
-    }
+    // Progress 100 means the bytes are present. It does not mean the model is
+    // usable; markPrivateModelReady() owns the user-visible ready transition.
   }
 
   /**
@@ -1587,7 +1647,8 @@ export default class TranscriptionService {
         CLEANING_UP: 'idle',
         DOWNLOAD_REQUIRED: 'download-required',
         DOWNLOADING: 'loading',
-        DOWNLOAD_COMPLETE: 'ready',
+        DOWNLOAD_COMPLETE: 'loading',
+        INIT_FAILED: 'init-failed',
         FAILED: 'error',
         TERMINATED: 'idle',
       };
@@ -1620,9 +1681,14 @@ export default class TranscriptionService {
         detail: 'Keep this tab open until the model is cached.'
       }; break;
       case 'DOWNLOAD_COMPLETE': status = {
-        type: 'ready',
-        message: 'Private model cached. Ready to record.',
-        detail: 'Private STT should start without downloading next time.'
+        type: 'initializing',
+        message: 'Download complete. Preparing Private model...',
+        detail: 'Keep this tab open while the local model finishes initializing.'
+      }; break;
+      case 'INIT_FAILED': status = {
+        type: 'init-failed',
+        message: 'Private setup failed. Retry setup.',
+        detail: this.lastError?.message || 'The local model could not finish initializing.'
       }; break;
       case 'FAILED': status = { type: 'error', message: this.lastError?.message || 'Recording could not start. Check microphone permission and try again.' }; break;
       case 'STOPPING':
@@ -1643,7 +1709,7 @@ export default class TranscriptionService {
     if (store) {
       const currentStatus = store.sttStatus;
       // 🛡️ SSOT GUARD: Never overwrite active recording or controller-managed errors with service-level pulses
-      const recoveryStatusTypes = new Set<SttStatus['type']>(['download-required', 'downloading', 'ready']);
+      const recoveryStatusTypes = new Set<SttStatus['type']>(['download-required', 'downloading', 'ready', 'initializing', 'init-failed']);
       if (currentStatus?.type === 'recording' || currentStatus?.type === 'error') {
         if (status.type !== 'recording' && status.type !== 'error' && !recoveryStatusTypes.has(status.type)) {
           return;
