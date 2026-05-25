@@ -655,7 +655,13 @@ export class SpeechRuntimeController {
                     status: 'failed',
                     duration: 0,
                     reason: 'Controller transitioned to FAILED state'
-                }).catch(() => { });
+                }).catch((completeError) => {
+                    logger.warn({
+                        completeError,
+                        sessionId: this.sessionId,
+                        state: this.state,
+                    }, '[SpeechRuntimeController] Failed to mark session failed after FAILED transition');
+                });
             }
             await this.transition('FAILED_VISIBLE', error, token);
         }
@@ -1273,7 +1279,14 @@ export class SpeechRuntimeController {
         if (svc) {
             this.stopWatchdog();
             this.stopHeartbeat();
-            svc.destroy().catch(() => { });
+            svc.destroy().catch((destroyError) => {
+                logger.warn({
+                    destroyError,
+                    reason,
+                    state: this.state,
+                    lifecycleVersion: this.lifecycleVersion,
+                }, '[SpeechRuntimeController] Service destroy failed during hard reset');
+            });
         }
 
         this.serviceUnsubscribe = null;
@@ -1537,7 +1550,13 @@ export class SpeechRuntimeController {
                     completeSession(this.sessionId, {
                         status: 'failed',
                         reason: `Stop recording failed: ${(err as Error).message}`
-                    }).catch(() => { });
+                    }).catch((completeError) => {
+                        logger.warn({
+                            completeError,
+                            sessionId: this.sessionId,
+                            state: this.state,
+                        }, '[SpeechRuntimeController] Failed to mark session failed after stopRecording error');
+                    });
                 }
                 await this.transition('FAILED', err as Error, token);
                 throw err;
@@ -1681,7 +1700,14 @@ export class SpeechRuntimeController {
             this.stopWatchdog();
             this.stopHeartbeat();
             if (this.sessionId) {
-                completeSession(this.sessionId, { status: 'failed', reason: error.message }).catch(() => { });
+                completeSession(this.sessionId, { status: 'failed', reason: error.message }).catch((completeError) => {
+                    logger.warn({
+                        completeError,
+                        sessionId: this.sessionId,
+                        heartbeatError: error,
+                        state: this.state,
+                    }, '[SpeechRuntimeController] Failed to mark session failed after heartbeat failure');
+                });
             }
             await this.transition('FAILED', error, token);
             if (this.service) {

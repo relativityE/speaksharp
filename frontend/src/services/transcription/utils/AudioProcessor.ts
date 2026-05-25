@@ -10,6 +10,7 @@
  */
 
 import { AUDIO_DEFAULTS } from './audioDefaults';
+import logger from '@/lib/logger';
 
 /**
  * Convert Float32Array audio samples to Int16Array.
@@ -218,7 +219,11 @@ function getWorker(): Worker {
         let workerUrl: URL | string;
         try {
             workerUrl = new URL('./audio-processor.worker.ts', import.meta.url);
-        } catch {
+        } catch (workerUrlError) {
+            logger.warn({
+                workerUrlError,
+                importMetaUrl: import.meta.url,
+            }, '[AudioProcessor] Worker URL construction failed; falling back to relative worker path');
             workerUrl = './audio-processor.worker.ts';
         }
         audioWorker = new Worker(workerUrl, { type: 'module' });

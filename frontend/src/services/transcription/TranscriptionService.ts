@@ -316,7 +316,12 @@ export default class TranscriptionService {
 
         if (canFallback) {
           logger.warn({ from: this.mode }, '[TranscriptionService] Attempting native fallback');
-          void this.warmUp('native').catch(() => {
+          void this.warmUp('native').catch((fallbackError) => {
+            logger.error({
+              originalError: error,
+              fallbackError,
+              from: this.mode,
+            }, '[TranscriptionService] Native fallback warmup failed after strategy error');
             this.fsm.transition({ type: 'ERROR_OCCURRED', error });
             this.options.onError?.(error);
           });
@@ -598,7 +603,12 @@ export default class TranscriptionService {
           errorMessage: err?.message,
           errorCode: err?.code,
         }, '[TranscriptionService] Init failed, attempting native fallback');
-        return this.warmUp('native').catch(() => {
+        return this.warmUp('native').catch((fallbackError) => {
+          logger.error({
+            originalError: error,
+            fallbackError,
+            mode,
+          }, '[TranscriptionService] Native fallback warmup failed after init error');
           this.fsm.transition({ type: 'ERROR_OCCURRED', error: error as Error });
         });
       }

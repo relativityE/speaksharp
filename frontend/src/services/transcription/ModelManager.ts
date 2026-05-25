@@ -104,7 +104,12 @@ export class ModelManager {
             const parsed = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
             const pathname = decodeURIComponent(parsed.pathname);
             return pathname.includes(this.TRANSFORMERS_MODEL_PATH) && pathname.endsWith(requiredFile);
-        } catch {
+        } catch (error) {
+            logger.debug({
+                error,
+                url,
+                requiredFile,
+            }, '[ModelManager] Cache URL parse failed; falling back to string asset matching');
             return url.includes(this.TRANSFORMERS_MODEL_PATH) && url.split('?')[0]?.endsWith(requiredFile);
         }
     }

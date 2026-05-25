@@ -444,7 +444,11 @@ export class TransformersJSEngine extends STTEngine {
         let workerUrl: URL | string;
         try {
             workerUrl = new URL('./transformers-js.worker.ts', import.meta.url);
-        } catch {
+        } catch (workerUrlError) {
+            logger.warn({
+                workerUrlError,
+                importMetaUrl: import.meta.url,
+            }, '[TransformersJSEngine] Worker URL construction failed; falling back to relative worker path');
             workerUrl = './transformers-js.worker.ts';
         }
         this.worker = new Worker(workerUrl, { type: 'module' });
