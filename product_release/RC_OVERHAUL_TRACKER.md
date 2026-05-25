@@ -40,7 +40,7 @@ Status values:
 
 | Work Item | Area | Gate | Status | Required Outcome | Evidence / Notes |
 |---|---|---|---|---|---|
-| WI-20 | Targeted coverage floors | Gate 1 | Open | Add per-module floors only after contract tests land. | Candidate floors: audio utils 80%, analytics math 85%, STT worker 70%, transcription services 70%, NativeBrowser branch floor. |
+| WI-20 | Targeted coverage floors | Gate 1 | Done | Add per-module floors only after contract tests land. | Added targeted floors for ModelManager, Transformers.js worker, NativeBrowser, native strategies, AudioProcessor, audio worker, sessionAnalysis, and fillerWordUtils. Floors are based on measured contract coverage, with lower-but-explicit Native/STT engine floors where browser evidence remains the higher authority. |
 | WI-21 | Coverage source of truth | All | Done | Clarify raw coverage artifact is source; generated PRD/SQM can lag or report null Lighthouse. | `RC_GATES.md` now states raw coverage JSON, Playwright reports, Vitest output, Lighthouse JSON, workflow logs, and browser traces win when generated summaries disagree. |
 
 ## Advisory / Non-Blocking Buckets
