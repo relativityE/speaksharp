@@ -96,7 +96,7 @@ Required maintained tests and workflows:
 | Pro Private artifact/cache path | `.github/workflows/live-release-matrix.yml` with `suite=private-cache`, `tests/live/private-cache.live.spec.ts` | Private starts, caches, saves, and remains usable on second start |
 | Native Chrome mic | `scripts/manual-native-chrome-proof.mjs` | Real Chrome `getUserMedia`, live transcript, stop/save, history, analytics |
 | STT corpus accuracy - deterministic | Harvard WAV/truth fixtures through fake-device browser harness | Code-correctness evidence for chunking, buffering, RMS gates, worker messages, WER scoring, and transcript output against known audio. Native Web Speech may count here only after a probe proves Chrome transcribes the intended fake-audio fixture. |
-| STT corpus accuracy - real mic | Harvard WAV/truth fixtures played with `afplay` through real mic | Product-readiness evidence for the full user audio path. This is the release-time STT evidence for Native Chrome and also validates Private/Cloud under realistic input conditions. |
+| STT corpus accuracy - real mic | `pnpm rc:stt:corpus` with Harvard WAV/truth fixtures played with `afplay` through real mic | Product-readiness evidence for the full user audio path. This is the release-time STT evidence for Native Chrome and also validates Private/Cloud under realistic input conditions. |
 | Filler value corpus | `conv_01.wav`, `conv_02.wav`, and fixture truth lists | Expected filler counts are explicit and must match transcript-derived analytics; Harvard WER alone does not prove filler detection. |
 | CI/deploy/canary | `.github/workflows/ci.yml`, `.github/workflows/deploy-supabase-migrations.yml`, production canary workflow | Latest release commit has green CI, deploy, and canary |
 | Session save/history/analytics retrieval | `tests/e2e/analytics-truth.e2e.spec.ts`, `tests/e2e/user-features.e2e.spec.ts`, `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Saved transcript appears in history/detail, analytics values survive reload/export, Cloud PDF includes transcript text |
@@ -122,6 +122,14 @@ Sub-gates:
 | STT-C Filler Value | `conv_01.wav`, `conv_02.wav`, and explicit filler truth lists | Transcript-derived analytics show the expected filler counts and actionable guidance. |
 
 Native Chrome is launch-critical for onboarding. It must have real-mic artifact evidence with recognizable transcript, no repetition loop, no unrecovered `onerror`, and a completed save/history/analytics journey. Fake-device Native evidence is diagnostic only until Chrome Web Speech is proven to transcribe the selected fake WAV content.
+
+Real-mic corpus command:
+
+```bash
+BASE_URL=http://127.0.0.1:4173 STT_MODES=native,private,cloud STT_FIXTURES=h1_1,h1_2 pnpm rc:stt:corpus
+```
+
+The command writes a JSON artifact under `/private/tmp` unless `STT_CORPUS_OUT` is set. For a full STT-A calibration run, set `STT_FIXTURES=h1_1,h1_2,h1_3,h1_4,h1_5,h1_6,h1_7,h1_8,h1_9,h1_10`.
 
 ## Gate 2 - SAST / Code Review
 

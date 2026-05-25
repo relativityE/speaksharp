@@ -81,6 +81,7 @@
     "benchmark:browser": "node scripts/pnpm-only.mjs && playwright test tests/live/benchmark-native.live.spec.ts tests/live/benchmark-cpu.live.spec.ts tests/live/benchmark-webgpu.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list",
     "benchmark:cloud": "node scripts/pnpm-only.mjs && tsx scripts/benchmark-assemblyai-ceiling.mts",
     "benchmark:assemblyai": "node scripts/pnpm-only.mjs && tsx scripts/benchmark-assemblyai-ceiling.mts",
+    "rc:stt:corpus": "node scripts/manual-stt-corpus-proof.mjs",
     "prepare": "HUSKY=0 husky install",
     "preinstall": "npx only-allow pnpm"
   },

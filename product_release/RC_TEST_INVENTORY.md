@@ -71,7 +71,7 @@ STT correctness now has two different release layers because they catch differen
 | Layer | Mic Path | Purpose | Gate Role |
 |---|---|---|---|
 | Fake-device corpus | Chrome fake media device plus checked-in WAV fixtures | Deterministic code-correctness proof for chunking, buffering, RMS gates, worker messages, WER, transcript output, and filler analytics. | RC-counted only for engines proven to receive the intended fixture audio. |
-| Real-mic corpus | `afplay` through the machine's speaker into the real browser microphone | Product-readiness proof for mic permission, hardware input, `AudioContext`, browser audio processing, Native Web Speech provider behavior, transcript, save/history, and analytics. | RC-counted release-time evidence. |
+| Real-mic corpus | `pnpm rc:stt:corpus` plays fixtures with `afplay` through the machine's speaker into the real browser microphone | Product-readiness proof for mic permission, hardware input, `AudioContext`, browser audio processing, Native Web Speech provider behavior, transcript, save/history, and analytics. | RC-counted release-time evidence. |
 
 The fake-device layer is not a shortcut around real-mic testing. Fake-device failures usually point at app-controlled code. Real-mic failures point at the full user path and still block RC until triaged. Native Chrome is launch-critical, so its real-mic corpus and journey evidence must be green for the onboarding path to close.
 
