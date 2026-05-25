@@ -43,8 +43,8 @@ test.describe('Upgrade Flow Payload Verification', () => {
         try {
             await upgradeButton.waitFor({ state: 'visible', timeout: 10000 });
             await upgradeButton.click();
-        } catch {
-            // Upgrade button not found on Analytics
+        } catch (error) {
+            throw new Error(`Upgrade button was not visible/clickable on Analytics, so checkout readiness could not be tested: ${error instanceof Error ? error.message : String(error)}`);
         }
 
         // 4. Assert Request Captured

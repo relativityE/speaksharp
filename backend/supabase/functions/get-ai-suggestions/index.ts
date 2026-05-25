@@ -37,7 +37,8 @@ function extractJsonObject(text: string): string | null {
   try {
     JSON.parse(cleaned);
     return cleaned;
-  } catch {
+  } catch (error) {
+    console.warn('AI suggestions response was not valid JSON before object extraction fallback:', error);
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start === -1 || end === -1 || end <= start) return null;

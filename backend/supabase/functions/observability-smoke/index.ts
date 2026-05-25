@@ -62,7 +62,8 @@ export async function handler(req: Request) {
 async function readJson(req: Request): Promise<SmokeRequest> {
   try {
     return await req.json() as SmokeRequest;
-  } catch {
+  } catch (error) {
+    console.warn('Observability smoke request body was not valid JSON; using empty proof payload:', error);
     return {};
   }
 }
