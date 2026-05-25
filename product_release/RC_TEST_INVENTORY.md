@@ -78,6 +78,36 @@ Every RC-counted test must identify the independent source of truth it enforces.
 
 Existing tests whose expected values were copied from the current implementation are **suspect**. They can remain in the suite, but they should not be promoted to RC-counted evidence until reviewed against one of the contract sources above.
 
+## RC-Counted Browser And Live Ledger
+
+These are the named browser/live/canary files that currently count toward RC status. Files outside this ledger may still run in CI, but they do not close an RC gate unless promoted here with a contract source.
+
+| File / Workflow | Gate | Contract Source | Counted Claim |
+|---|---|---|---|
+| `tests/e2e/primary-journey.e2e.spec.ts` | Gate 1 / Gate 5 | Human journey | Core mocked user journey reaches session flow by tier and STT mode. |
+| `tests/e2e/user-features.e2e.spec.ts` | Gate 1 / Gate 5 | Product rule / human journey | Pro/basic feature matrix, export, and visible feature access behave as promised. |
+| `tests/e2e/error-states.e2e.spec.ts` | Gate 5 | Human journey | Common failures surface actionable UI instead of silent or cryptic breakage. |
+| `tests/e2e/analytics-truth.e2e.spec.ts` | Gate 1 / Gate 3 | Math / persistence contract | Transcript-derived analytics persist through reload/history/export with expected arithmetic. |
+| `tests/e2e/user-facing-regressions.e2e.spec.ts` | Gate 1 / Gate 5 | Human journey | Analytics guidance and release-critical copy remain understandable and actionable. |
+| `tests/e2e/user-filler-words.e2e.spec.ts` | Gate 1 | Product rule / regex safety | Custom filler words persist and affect analysis without query/regex regressions. |
+| `tests/e2e/engine-lifecycle.e2e.spec.ts` | Gate 1 | State machine | Engine selection/lifecycle remains coherent through browser-level flows. |
+| `tests/e2e/goal-setting.e2e.spec.ts` | Gate 5 | Human journey | Goal-setting UX remains usable; advisory unless current release scope includes goals. |
+| `tests/e2e/analytics-suite.e2e.spec.ts` | Gate 1 | Product truth / math | Analytics page aggregates meaningful session data; secondary to `analytics-truth` when overlapping. |
+| `tests/e2e/infra.probe.e2e.spec.ts` | Gate 1 baseline | Message/probe contract | Built app boots with expected readiness markers; not product proof alone. |
+| `tests/live/cloud-token-gates.live.spec.ts` | Gate 3 | Security/product rule | Deployed Cloud token denials for Basic, expired trial, and over-quota are fail-closed. |
+| `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Gate 1 / Gate 3 | Human journey / running app | Real Pro STT path creates transcript, save/history/detail, AI feedback, and PDF artifact. |
+| `tests/live/private-cache.live.spec.ts` | Gate 1 / Gate 3 | State machine / running app | Private model/cache path starts and remains usable across repeated starts. |
+| `tests/live/first-time-tester-private-trial.live.spec.ts` | Gate 1 / Gate 5 | Human journey | Fresh active-trial tester can reach Private STT path and produce release evidence. |
+| `tests/live/user-filler-words-persistence.live.spec.ts` | Gate 1 / Gate 3 | Product rule / persistence | Custom filler words persist in the deployed app and are retrievable for the same user. |
+| `tests/live/stt-switching-contract.live.spec.ts` | Gate 3 | State machine / running app | Deployed STT mode switching follows entitlement and lifecycle rules. |
+| `tests/live/stripe-checkout-readiness.live.spec.ts` | Gate 3 | Running app / payment rule | Stripe checkout readiness works in test mode without production-charge assumptions. |
+| `tests/live/stripe-webhook-readiness.live.spec.ts` | Gate 3 | Running app / webhook rule | Stripe webhook readiness is observable against deployed infrastructure. |
+| `tests/live/stripe-security.canary.spec.ts` | Gate 2 / Gate 3 | Security rule | Checkout origin cannot be client-spoofed into unsafe redirects. |
+| `tests/canary/smoke.canary.spec.ts` | Gate 1 / Gate 5 | Human journey / running app | Production app is reachable and minimally usable with provisioned user. |
+| `tests/canary/user-filler-words.canary.spec.ts` | Gate 1 | Product rule / running app | Production custom-filler path remains alive; secondary to live persistence matrix. |
+
+Non-counted unless explicitly promoted: `tests/e2e/dump-ground/*`, `tests/e2e/diagnostics/*`, `tests/live/benchmark-*.live.spec.ts`, `tests/live/stt-accuracy-integration.live.spec.ts`, `tests/live/stt-integration.live.spec.ts`, `tests/live/live-transcript.live.spec.ts`, `tests/live/analytics-live-native-probe.live.spec.ts`, `tests/live/analytics-journey.live.spec.ts`, `tests/live/auth.live.spec.ts`, `tests/live/upgrade.live.spec.ts`, `tests/live/tester-b-private-native-stt.live.spec.ts`, `tests/live/driver-dependent/private-stt.live.spec.ts`, `tests/soak/*`, and `tests/stt-correctness/wer-baseline.spec.ts`. These remain diagnostic, advisory, legacy-overlap, or release-scope-dependent until a specific RC contract promotes them.
+
 ## Gate Coverage Map
 
 ### Gate 1 - Product Truth
