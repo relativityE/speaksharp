@@ -15,6 +15,7 @@ import { Result } from '../../modes/types';
 import type { PrivateSTT as PrivateSTTType } from '../PrivateSTT';
 import { ENV } from '../../../../config/TestFlags';
 import { STTEngine } from '../../../../contracts/STTEngine';
+import { PRIV_STT_V4 } from '../../sttConstants';
 
 // Mock underlying libraries to avoid resolution errors
 vi.mock('whisper-turbo', () => ({}));
@@ -40,6 +41,7 @@ vi.mock('@/config/TestFlags', async (importOriginal) => {
 // Top-level mocks for control in tests
 const mockWTEInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 const mockTJInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
+const mockV4Init = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 const mockEInit = vi.fn().mockResolvedValue({ isOk: true, data: undefined });
 
 class StubWTE extends STTEngine {
@@ -58,6 +60,18 @@ class StubTJ extends STTEngine {
     type = 'transformers-js' as const;
     checkAvailability = vi.fn().mockResolvedValue({ available: true });
     protected onInit = mockTJInit;
+    onStart = vi.fn().mockResolvedValue(undefined);
+    onStop = vi.fn().mockResolvedValue(undefined);
+    onPause = vi.fn().mockResolvedValue(undefined);
+    onResume = vi.fn().mockResolvedValue(undefined);
+    onDestroy = vi.fn().mockResolvedValue(undefined);
+    transcribe = vi.fn();
+}
+
+class StubV4 extends STTEngine {
+    type = 'transformers-js-v4' as const;
+    checkAvailability = vi.fn().mockResolvedValue({ available: true });
+    protected onInit = mockV4Init;
     onStart = vi.fn().mockResolvedValue(undefined);
     onStop = vi.fn().mockResolvedValue(undefined);
     onPause = vi.fn().mockResolvedValue(undefined);
@@ -92,12 +106,14 @@ describe('PrivateSTT (Routing Logic)', () => {
         const { sttRegistry } = await import('../../STTRegistry');
         sttRegistry.register('whisper-turbo', (options) => new StubWTE(options));
         sttRegistry.register('transformers-js', (options) => new StubTJ(options));
+        sttRegistry.register('transformers-js-v4', (options) => new StubV4(options));
         sttRegistry.register('mock', (options) => new StubE(options));
 
         // 3. Configure Local Test State
         const win = window as unknown as { __SS_E2E__: { isActive: boolean, engineType: string } };
         win.__SS_E2E__.isActive = false; 
         win.__SS_E2E__.engineType = 'mock';
+        window.localStorage.clear();
 
         // Reset navigator metadata
         vi.stubGlobal('navigator', { ...navigator, gpu: undefined } as unknown as Navigator);
@@ -113,6 +129,7 @@ describe('PrivateSTT (Routing Logic)', () => {
         if (typeof window !== 'undefined') {
             const win = window as unknown as Record<string, unknown>;
             delete win.__SS_E2E__;
+            window.localStorage.clear();
         }
     });
 
@@ -174,6 +191,51 @@ describe('PrivateSTT (Routing Logic)', () => {
         await pstt.init();
 
         expect(pstt.getEngineType()).toBe('whisper-turbo');
+    });
+
+    it('contract: selects experimental v4 only with explicit forceEngine override', async () => {
+        if (window.__SS_E2E__) {
+            window.__SS_E2E__.isActive = true;
+            window.__SS_E2E__.engineType = 'real';
+        }
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js-v4' } as never);
+        const result = await pstt.init();
+
+        expect(result.isOk).toBe(true);
+        expect(mockV4Init).toHaveBeenCalledOnce();
+        expect(mockTJInit).not.toHaveBeenCalled();
+        expect(pstt.getEngineType()).toBe('transformers-js-v4');
+    });
+
+    it('contract: failed explicit v4 init does not silently fall back to default v2', async () => {
+        const v4Error = new Error('missing q4 dtype artifact');
+        mockV4Init.mockResolvedValueOnce({ isOk: false, error: v4Error });
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js-v4' } as never);
+        const result = await pstt.init();
+
+        expect(result.isOk).toBe(false);
+        if (result.isOk) {
+            throw new Error('Expected explicit v4 initialization to fail');
+        }
+        expect(result.error).toBe(v4Error);
+        expect(mockV4Init).toHaveBeenCalledOnce();
+        expect(mockTJInit).not.toHaveBeenCalled();
+    });
+
+    it('contract: v4 availability reports the q4 split download size', async () => {
+        window.localStorage.setItem('speaksharp.private.engine', 'transformers-js-v4');
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        const availability = await pstt.checkAvailability();
+
+        expect(availability.isAvailable).toBe(true);
+        expect(availability.sizeMB).toBe(PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB);
+        expect(availability.message).toContain(`${PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB} MB`);
     });
 
     it('contract: reports the actual registry fallback engine when preferred factory is absent', async () => {

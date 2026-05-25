@@ -70,6 +70,31 @@ describe('transformers-js.worker protocol contract', () => {
         });
     });
 
+    it('contract: model load failure responds with init error instead of ready', async () => {
+        const pipeline = vi.fn(async () => {
+            throw new Error('model artifact unavailable');
+        });
+        vi.doMock('@xenova/transformers', () => ({
+            env: {},
+            pipeline,
+        }));
+
+        await loadWorkerModule();
+        dispatchWorkerMessage({ id: 6, type: 'init', isE2E: false });
+
+        await vi.waitFor(() => {
+            expect(postedMessages).toEqual([
+                expect.objectContaining({
+                    id: 6,
+                    type: 'error',
+                    errorMessage: 'model artifact unavailable',
+                }),
+            ]);
+        });
+        expect(pipeline).toHaveBeenCalledTimes(2);
+        expect(postedMessages).not.toContainEqual(expect.objectContaining({ id: 6, type: 'ready' }));
+    });
+
     it('contract: initialized worker returns a result message for transcribe requests', async () => {
         let observedAudio: Float32Array | null = null;
         let observedOptions: Record<string, unknown> | null = null;
