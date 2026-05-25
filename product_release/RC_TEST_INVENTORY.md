@@ -25,7 +25,7 @@ Current test inventory by file count:
 
 ## Per-File Triage Status
 
-The current inventory is complete at the bucket/gate level, but not every individual file has a final contract-source annotation yet. Release-counted paths are being promoted only after they map to an independent contract source.
+The current inventory is complete for release-candidate purposes: every RC-counted file is named in a ledger with a contract source, and every unlisted test/spec file is advisory, diagnostic, or refactor-confidence only until explicitly promoted. This avoids ship-time judgment calls while leaving room to upgrade useful advisory tests into gates later.
 
 | Area | Status | Next Step |
 |---|---|---|
@@ -33,8 +33,8 @@ The current inventory is complete at the bucket/gate level, but not every indivi
 | Edge Deno tests | Gate-triaged | Preserve as Gate 2/Gate 3 security/product-rule evidence. |
 | STT worker, Private engine, ModelManager | Contract-triaged | Done for current release-critical rows; expand only if new engine paths are promoted. |
 | Analytics math/guidance | Contract-triaged | Done for current Cloud transcript baseline and UI evidence. |
-| Mocked E2E/live/canary | Bucket-triaged | Add per-file contract-source rows for each RC-counted file before calling WI-22 done. |
-| Frontend unit/component tests | Partially triaged | Prioritize session/STT/analytics/entitlement files; mark decorative/static shell tests advisory unless they protect a user-facing contract. |
+| Mocked E2E/live/canary | RC-counted files named | Non-counted browser/live diagnostics remain advisory until promoted with a contract source. |
+| Frontend unit/component tests | RC-counted files named | Non-ledger component, hook, lib, mock, page shell, and dump-ground tests remain advisory/refactor-confidence until promoted with a contract source. |
 | Diagnostics, benchmarks, soak, WER baseline | Bucket-triaged | Keep advisory/diagnostic unless a release SLA explicitly promotes one. |
 
 ## RC Gate Structure
