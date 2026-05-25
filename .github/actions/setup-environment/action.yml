@@ -61,4 +61,6 @@ runs:
       env:
         SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
       with:
-        version: latest
+        # Pin the CLI so parallel CI shards do not fail resolving "latest"
+        # when GitHub release API rate limits are tight.
+        version: 2.75.0

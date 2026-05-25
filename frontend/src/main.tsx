@@ -18,6 +18,7 @@ import { useReadinessStore } from './stores/useReadinessStore';
 declare global {
   interface Window {
     _speakSharpRootInitialized?: boolean;
+    __APP_BOOTED__?: boolean;
     __e2e_e2e_msw_ready_fired__?: boolean;
   }
 }
@@ -25,6 +26,7 @@ declare global {
 // 🛡️ INITIAL BOOT BARRIER: Set to false before any rendering logic starts.
 if (typeof document !== 'undefined') {
   document.documentElement.setAttribute('data-app-ready', 'false');
+  window.__APP_BOOTED__ = false;
 }
 
 // Deterministic Mock Data (CI/E2E)
@@ -179,6 +181,7 @@ const renderApp = async (initialSession: Session | null = null) => {
       // 🛡️ FINAL BOOT SIGNAL: React mount initiated. Unconditional.
       if (typeof document !== 'undefined') {
         document.documentElement.setAttribute('data-app-ready', 'true');
+        window.__APP_BOOTED__ = true;
       }
     } else {
       root.render(
@@ -190,6 +193,7 @@ const renderApp = async (initialSession: Session | null = null) => {
       // 🛡️ FINAL BOOT SIGNAL: Config path mount initiated. Unconditional.
       if (typeof document !== 'undefined') {
         document.documentElement.setAttribute('data-app-ready', 'true');
+        window.__APP_BOOTED__ = true;
       }
     }
   }
