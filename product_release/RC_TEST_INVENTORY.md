@@ -82,6 +82,7 @@ Objective: prove SpeakSharp behaves according to its product contract.
 | `frontend/src/services/transcription/modes/__tests__/nativeBrowserStrategies.test.ts` | Browser strategy contract for Chrome/Edge/Safari/generic/unsupported and Web Speech result-slot extraction. |
 | `frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.worker.test.ts` | Private worker boundary contract: init response and timeout instead of infinite hang. |
 | `frontend/src/services/transcription/engines/__tests__/transformers-js.worker.protocol.test.ts` | Direct Private worker protocol: E2E init, pre-init transcribe error, transcribe result, destroy acknowledgement. |
+| `frontend/src/services/transcription/engines/__tests__/PrivateSTT.test.ts` | Private engine routing contract: default v2 path, explicit legacy override, mock path, and actual fallback engine reporting. |
 | `frontend/src/services/transcription/__tests__/ModelManager.test.ts` | Private model availability decision table for missing, unrelated, partial, and complete model cache. |
 | `tests/live/pro-stt-artifact-matrix.live.spec.ts` / `Pro STT Artifact Matrix` workflow | Real Pro STT artifact path: transcript, save, history/detail, AI/PDF. |
 | `tests/live/private-cache.live.spec.ts` / live matrix | Private setup/cache path. |

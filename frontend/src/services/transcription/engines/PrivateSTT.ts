@@ -143,15 +143,14 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         // 2. Registry-First Resolution (Mock-First / Environment Agnostic)
         // If the registry provides a factory for our preferred engines, use it.
-        const preferredEngine = 'transformers-js';
-        const factory = getEngine(preferredEngine) 
-            || getEngine('transformers-js')
-            || getEngine('whisper-turbo')
-            || getEngine('mock');
+        const registryCandidates: EngineType[] = ['transformers-js', 'whisper-turbo', 'mock'];
+        const registryMatch = registryCandidates
+            .map((engineType) => ({ engineType, factory: getEngine(engineType) }))
+            .find((candidate) => Boolean(candidate.factory));
 
-        if (factory) {
-            logger.info({ sId: this.serviceId, rId: this.runId, engine: preferredEngine }, '[PrivateSTT] 🧪 Injecting MockEngine/Override from Registry');
-            const engine = factory(this.options as TranscriptionModeOptions);
+        if (registryMatch?.factory) {
+            logger.info({ sId: this.serviceId, rId: this.runId, engine: registryMatch.engineType }, '[PrivateSTT] 🧪 Injecting MockEngine/Override from Registry');
+            const engine = registryMatch.factory(this.options as TranscriptionModeOptions);
             validateEngine(engine);
             const initResult = await (engine as unknown as IPrivateSTTEngine).init(timeoutMs, isMock);
             
@@ -162,11 +161,11 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
                 // 🚨 DEFENSE: Purge failed registry engine before fallback
                 await (engine as unknown as IPrivateSTTEngine).terminate?.();
                 const error = initResult ? (initResult as { error?: Error }).error : new Error('Registry engine failed to initialize');
-                logger.warn({ engine: preferredEngine, error }, '[PrivateSTT] Registry engine failed to initialize.');
+                logger.warn({ engine: registryMatch.engineType, error }, '[PrivateSTT] Registry engine failed to initialize.');
                 return { isOk: false, error: error || new Error('Registry engine failed to initialize') };
             }
             this.engine = engine as unknown as IPrivateSTTEngine;
-            this._engineType = preferredEngine;
+            this._engineType = registryMatch.engineType;
             return Result.ok(undefined);
         }
 

@@ -176,6 +176,20 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(pstt.getEngineType()).toBe('whisper-turbo');
     });
 
+    it('contract: reports the actual registry fallback engine when preferred factory is absent', async () => {
+        await setupStrictZero();
+        const { sttRegistry } = await import('../../STTRegistry');
+        sttRegistry.clear();
+        sttRegistry.register('whisper-turbo', (options) => new StubWTE(options));
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        const result = await pstt.init();
+
+        expect(result.isOk).toBe(true);
+        expect(pstt.getEngineType()).toBe('whisper-turbo');
+    });
+
     it('waits for slow engine initialization (No-Timeout validation)', async () => {
         vi.useFakeTimers();
 
