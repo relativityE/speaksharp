@@ -19,7 +19,7 @@ describe('audio-processor.worker', () => {
             expect(result.length).toBe(floatArray.length);
             expect(result[0]).toBe(0);
             expect(result[1]).toBe(32767);
-            expect(result[2]).toBe(-32767);
+            expect(result[2]).toBe(-32768);
             expect(result[3]).toBe(Math.floor(0.5 * 32767));
         });
     });
@@ -38,6 +38,11 @@ describe('audio-processor.worker', () => {
             expect(result[0]).toBe(1);
             expect(result[1]).toBe(3);
             expect(result[2]).toBe(5);
+        });
+
+        it('rejects upsampling because synthetic samples would corrupt STT timing', () => {
+            const audio = new Float32Array([1, 2, 3]);
+            expect(() => downsampleAudio(audio, 8000, 16000)).toThrow('Upsampling is not supported');
         });
     });
 

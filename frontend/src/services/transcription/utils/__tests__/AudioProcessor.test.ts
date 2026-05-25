@@ -4,11 +4,14 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.unmock('../AudioProcessor');
 
 import {
+    AUDIO_WORKER_REQUEST_TIMEOUT_MS,
     floatToInt16,
     floatToWav,
     concatenateFloat32Arrays,
     AudioBuffer,
-    downsampleAudio
+    downsampleAudio,
+    downsampleAudioAsync,
+    terminateWorker,
 } from '../AudioProcessor';
 
 /**
@@ -28,7 +31,7 @@ describe('floatToInt16', () => {
         expect(result[0]).toBe(0);                 // 0 stays 0
         expect(result[1]).toBeCloseTo(16383, -1);  // 0.5 → ~16384
         expect(result[2]).toBe(32767);             // 1.0 → max
-        expect(result[3]).toBe(-32767);            // -1.0 → min (clamped)
+        expect(result[3]).toBe(-32768);            // -1.0 → signed 16-bit min
     });
 
     it('clamps values outside -1 to 1 range', () => {
@@ -162,5 +165,40 @@ describe('downsampleAudio', () => {
         // 3:1 ratio, should have 1 sample
         expect(result.length).toBe(1);
         expect(result[0]).toBeCloseTo(0, 5);
+    });
+});
+
+describe('async audio worker message contract', () => {
+    class SilentWorker {
+        addEventListener = vi.fn();
+        removeEventListener = vi.fn();
+        postMessage = vi.fn();
+        terminate = vi.fn();
+    }
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.stubGlobal('Worker', SilentWorker);
+        terminateWorker();
+    });
+
+    afterEach(() => {
+        terminateWorker();
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    it('rejects instead of hanging forever when the audio worker never responds', async () => {
+        const resultPromise = downsampleAudioAsync(new Float32Array([1, 2, 3, 4]), 32000, 16000);
+        const handledResult = resultPromise.then(
+            () => ({ ok: true as const }),
+            (error: Error) => ({ ok: false as const, error }),
+        );
+
+        await vi.advanceTimersByTimeAsync(AUDIO_WORKER_REQUEST_TIMEOUT_MS);
+
+        const outcome = await handledResult;
+        expect(outcome.ok).toBe(false);
+        expect('error' in outcome ? outcome.error.message : '').toContain('Audio worker request timed out');
     });
 });

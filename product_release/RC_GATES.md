@@ -22,6 +22,42 @@
 
 This is a controlled tester release process, not an enterprise certification audit. A gate is green only when it has a named test, workflow, artifact, or manual checklist with recorded evidence.
 
+## Evidence Rules
+
+RC gates are contract gates, not coverage gates. A counted test must prove an independent requirement, not preserve the current implementation.
+
+### Contract-First Test Rule
+
+Before a test is added to an RC-counted path, the contract source must be clear:
+
+| Contract Source | Examples |
+|---|---|
+| Mathematical definition | RMS, WPM, filler counts, duration arithmetic, analytics formulas |
+| State machine contract | STT restart/stop/error transitions, session lifecycle, entitlement transitions |
+| Message protocol | Worker request/response, engine interface results, Edge Function response shape |
+| Security/product rule | Tier access, quota fail-closed, token denial, CORS, webhook idempotency |
+| Human journey requirement | Fresh signup, recording, transcript, analytics, history/detail, recoverable errors |
+
+If a test's expected value was copied from the current implementation output rather than one of these contract sources, it is suspect and must not be used as RC evidence until reviewed.
+
+### Artifact Freshness Rule
+
+An artifact is stale if any file in the dependency surface of that gate item changed after the artifact was captured. A stale artifact does not count as green. The gate item must be rerun or intentionally downgraded with matching product copy and release notes.
+
+Examples:
+
+| Gate Item | Artifact Becomes Stale When These Change |
+|---|---|
+| Native Chrome mic proof | Native browser strategy, `NativeBrowser.ts`, STT constants, recording UI/copy, browser-support fallback logic |
+| Private STT proof | `PrivateWhisper.ts`, Private engines/workers, `ModelManager.ts`, audio utilities, STT constants, transcript UI/copy |
+| Analytics truth/usefulness | Analytics/session-analysis utilities, filler-word logic, dashboard/detail UI, persistence hooks |
+| Cloud token / paid-Pro path | `assemblyai-token`, entitlement/tier logic, usage/quota checks, Supabase deploy, Cloud client code |
+| UX smoke | Onboarding/session UI, mode selector copy, tester instructions, error-state UI |
+
+### Ship Signal Rule
+
+RC gate status is the ship/no-ship signal. SQM, coverage, Lighthouse, benchmarks, and soak results are advisory unless explicitly named as a blocking gate item. A high SQM score cannot override a red or stale RC gate item.
+
 ## Gate Summary
 
 The everyday CI workflow remains `.github/workflows/ci.yml` and is intentionally not the full release certification suite. RC gates are release-time controls:

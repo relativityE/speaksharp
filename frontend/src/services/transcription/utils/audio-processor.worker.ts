@@ -65,7 +65,8 @@ ctx.onmessage = (event: MessageEvent<AudioWorkerMessage>) => {
 export function floatToInt16(float32Array: Float32Array): Int16Array {
     const int16Array = new Int16Array(float32Array.length);
     for (let i = 0; i < float32Array.length; i++) {
-        int16Array[i] = Math.max(-32768, Math.min(32767, float32Array[i] * 32767));
+        const sample = Math.max(-1, Math.min(1, float32Array[i]));
+        int16Array[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
     }
     return int16Array;
 }
@@ -109,6 +110,9 @@ export function downsampleAudio(
     targetSampleRate: number = FALLBACK_WORKER_AUDIO_SAMPLE_RATE_HZ,
 ): Float32Array {
     if (inputSampleRate === targetSampleRate) return audio;
+    if (inputSampleRate < targetSampleRate) {
+        throw new Error('Upsampling is not supported');
+    }
     const ratio = inputSampleRate / targetSampleRate;
     const newLength = Math.floor(audio.length / ratio);
     const result = new Float32Array(newLength);

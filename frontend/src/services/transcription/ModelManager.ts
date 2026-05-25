@@ -12,6 +12,14 @@ import { ENV } from '@/config/TestFlags';
  */
 export class ModelManager {
     private static readonly TRANSFORMERS_CACHE = 'transformers-cache';
+    private static readonly TRANSFORMERS_MODEL_PATH = 'whisper-tiny.en';
+    private static readonly TRANSFORMERS_REQUIRED_CACHE_FILES = [
+        'config.json',
+        'tokenizer.json',
+        'preprocessor_config.json',
+        'onnx/encoder_model_quantized.onnx',
+        'onnx/decoder_model_merged_quantized.onnx',
+    ] as const;
     private static readonly WHISPER_TURBO_DB = 'models';
     private static readonly WHISPER_TURBO_MODEL_STORE = 'models';
     private static readonly WHISPER_TURBO_AVAILABLE_STORE = 'availableModels';
@@ -72,8 +80,33 @@ export class ModelManager {
             return false;
         }
 
-        logger.info({ engineType: 'transformers-js', cacheName: this.TRANSFORMERS_CACHE, keyCount: keys.length }, '[ModelManager] Model detected in cache');
+        const cachedUrls = keys.map((request) => request.url);
+        const missingFiles = this.TRANSFORMERS_REQUIRED_CACHE_FILES.filter(
+            (requiredFile) => !cachedUrls.some((url) => this.isTransformersModelAsset(url, requiredFile)),
+        );
+
+        if (missingFiles.length > 0) {
+            logger.warn({
+                engineType: 'transformers-js',
+                cacheName: this.TRANSFORMERS_CACHE,
+                keyCount: keys.length,
+                missingFiles,
+            }, '[ModelManager] Cache exists but required model assets are missing');
+            return false;
+        }
+
+        logger.info({ engineType: 'transformers-js', cacheName: this.TRANSFORMERS_CACHE, keyCount: keys.length }, '[ModelManager] Required model assets detected in cache');
         return true;
+    }
+
+    private static isTransformersModelAsset(url: string, requiredFile: string): boolean {
+        try {
+            const parsed = new URL(url, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+            const pathname = decodeURIComponent(parsed.pathname);
+            return pathname.includes(this.TRANSFORMERS_MODEL_PATH) && pathname.endsWith(requiredFile);
+        } catch {
+            return url.includes(this.TRANSFORMERS_MODEL_PATH) && url.split('?')[0]?.endsWith(requiredFile);
+        }
     }
 
     private static async isWhisperTurboDownloaded(): Promise<boolean> {

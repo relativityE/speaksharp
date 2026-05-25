@@ -37,11 +37,14 @@ type WorkerResponse =
 type PendingWorkerRequest = {
     resolve: (response: WorkerResponse) => void;
     reject: (error: Error) => void;
+    timeoutId: ReturnType<typeof setTimeout>;
 };
 
 const isPrivateTranscriptTraceEnabled = () =>
     typeof window !== 'undefined' &&
     Boolean((window as unknown as { __PRIVATE_TRANSCRIPT_TRACE__?: boolean }).__PRIVATE_TRANSCRIPT_TRACE__);
+
+export const TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS = 60_000;
 
 function summarizeRawResult(result: unknown): UnknownRecord {
     if (typeof result === 'string') {
@@ -252,6 +255,16 @@ export class TransformersJSEngine extends STTEngine {
                 errorName: e.name,
                 errorMessage: e.message,
             }, '[TransformersJS] Failed to initialize engine.');
+            const activeWorker = this.worker as Worker | null;
+            if (activeWorker) {
+                activeWorker.terminate();
+                this.worker = null;
+            }
+            this.pendingWorkerRequests.forEach(({ reject, timeoutId }) => {
+                clearTimeout(timeoutId);
+                reject(e);
+            });
+            this.pendingWorkerRequests.clear();
             return Result.err(e);
         }
     }
@@ -297,7 +310,10 @@ export class TransformersJSEngine extends STTEngine {
             this.worker.terminate();
             this.worker = null;
         }
-        this.pendingWorkerRequests.forEach(({ reject }) => reject(new Error('TransformersJS worker destroyed.')));
+        this.pendingWorkerRequests.forEach(({ reject, timeoutId }) => {
+            clearTimeout(timeoutId);
+            reject(new Error('TransformersJS worker destroyed.'));
+        });
         this.pendingWorkerRequests.clear();
     }
 
@@ -425,7 +441,13 @@ export class TransformersJSEngine extends STTEngine {
 
     private async initWorker(isMock?: boolean): Promise<void> {
         const options = (this.options || {}) as TranscriptionModeOptions;
-        this.worker = new Worker(new URL('./transformers-js.worker.ts', import.meta.url), { type: 'module' });
+        let workerUrl: URL | string;
+        try {
+            workerUrl = new URL('./transformers-js.worker.ts', import.meta.url);
+        } catch {
+            workerUrl = './transformers-js.worker.ts';
+        }
+        this.worker = new Worker(workerUrl, { type: 'module' });
         this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
             const response = event.data;
             if (response.type === 'progress') {
@@ -449,6 +471,7 @@ export class TransformersJSEngine extends STTEngine {
             const pending = this.pendingWorkerRequests.get(response.id);
             if (!pending) return;
             this.pendingWorkerRequests.delete(response.id);
+            clearTimeout(pending.timeoutId);
 
             if (response.type === 'error') {
                 pending.reject(new Error(response.errorMessage));
@@ -458,7 +481,10 @@ export class TransformersJSEngine extends STTEngine {
         };
         this.worker.onerror = (event) => {
             const error = new Error(event.message || 'TransformersJS worker failed.');
-            this.pendingWorkerRequests.forEach(({ reject }) => reject(error));
+            this.pendingWorkerRequests.forEach(({ reject, timeoutId }) => {
+                clearTimeout(timeoutId);
+                reject(error);
+            });
             this.pendingWorkerRequests.clear();
         };
 
@@ -478,7 +504,12 @@ export class TransformersJSEngine extends STTEngine {
 
         const id = ++this.workerRequestId;
         return new Promise((resolve, reject) => {
-            this.pendingWorkerRequests.set(id, { resolve, reject });
+            const timeoutId = setTimeout(() => {
+                if (!this.pendingWorkerRequests.has(id)) return;
+                this.pendingWorkerRequests.delete(id);
+                reject(new Error(`TransformersJS worker request timed out after ${TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS}ms (${request.type}).`));
+            }, TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS);
+            this.pendingWorkerRequests.set(id, { resolve, reject, timeoutId });
             this.worker?.postMessage({ id, ...request }, transfer ?? []);
         });
     }

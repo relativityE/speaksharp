@@ -21,7 +21,8 @@ import { AUDIO_DEFAULTS } from './audioDefaults';
 export function floatToInt16(float32Array: Float32Array): Int16Array {
     const int16Array = new Int16Array(float32Array.length);
     for (let i = 0; i < float32Array.length; i++) {
-        int16Array[i] = Math.max(-32768, Math.min(32767, float32Array[i] * 32767));
+        const sample = Math.max(-1, Math.min(1, float32Array[i]));
+        int16Array[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
     }
     return int16Array;
 }
@@ -205,6 +206,7 @@ import { AudioWorkerResponse } from './audio-processor.worker';
 
 let audioWorker: Worker | null = null;
 let workerRequestId = 0;
+export const AUDIO_WORKER_REQUEST_TIMEOUT_MS = 10_000;
 
 function generateCorrelationId(): string {
     return `req-${++workerRequestId}-${Date.now()}`;
@@ -213,7 +215,13 @@ function generateCorrelationId(): string {
 function getWorker(): Worker {
     if (!audioWorker) {
         // Vite syntax for workers
-        audioWorker = new Worker(new URL('./audio-processor.worker.ts', import.meta.url), { type: 'module' });
+        let workerUrl: URL | string;
+        try {
+            workerUrl = new URL('./audio-processor.worker.ts', import.meta.url);
+        } catch {
+            workerUrl = './audio-processor.worker.ts';
+        }
+        audioWorker = new Worker(workerUrl, { type: 'module' });
     }
     return audioWorker;
 }
@@ -241,11 +249,13 @@ export async function downsampleAudioAsync(
     const correlationId = generateCorrelationId();
 
     return new Promise((resolve, reject) => {
+        const timeoutRef: { current?: ReturnType<typeof setTimeout> } = {};
         const handler = (event: MessageEvent<AudioWorkerResponse>) => {
             const data = event.data;
             // Only handle responses for THIS request
             if (data.correlationId !== correlationId) return;
 
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
             if (data.type === 'DOWNSAMPLE_RESULT') {
                 worker.removeEventListener('message', handler);
                 resolve(data.result);
@@ -254,6 +264,10 @@ export async function downsampleAudioAsync(
                 reject(new Error(data.message));
             }
         };
+        timeoutRef.current = setTimeout(() => {
+            worker.removeEventListener('message', handler);
+            reject(new Error(`Audio worker request timed out after ${AUDIO_WORKER_REQUEST_TIMEOUT_MS}ms (DOWNSAMPLE).`));
+        }, AUDIO_WORKER_REQUEST_TIMEOUT_MS);
         worker.addEventListener('message', handler);
         worker.postMessage({ type: 'DOWNSAMPLE', correlationId, audio, inputRate, targetRate }, [audio.buffer]);
     });
@@ -270,11 +284,13 @@ export async function floatToWavAsync(
     const correlationId = generateCorrelationId();
 
     return new Promise((resolve, reject) => {
+        const timeoutRef: { current?: ReturnType<typeof setTimeout> } = {};
         const handler = (event: MessageEvent<AudioWorkerResponse>) => {
             const data = event.data;
             // Only handle responses for THIS request
             if (data.correlationId !== correlationId) return;
 
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
             if (data.type === 'FLOAT_TO_WAV_RESULT') {
                 worker.removeEventListener('message', handler);
                 resolve(data.result);
@@ -283,6 +299,10 @@ export async function floatToWavAsync(
                 reject(new Error(data.message));
             }
         };
+        timeoutRef.current = setTimeout(() => {
+            worker.removeEventListener('message', handler);
+            reject(new Error(`Audio worker request timed out after ${AUDIO_WORKER_REQUEST_TIMEOUT_MS}ms (FLOAT_TO_WAV).`));
+        }, AUDIO_WORKER_REQUEST_TIMEOUT_MS);
         worker.addEventListener('message', handler);
         worker.postMessage({ type: 'FLOAT_TO_WAV', correlationId, samples, sampleRate }, [samples.buffer]);
     });
@@ -297,11 +317,13 @@ export async function floatToInt16Async(float32Array: Float32Array): Promise<{ r
     const correlationId = generateCorrelationId();
 
     return new Promise((resolve, reject) => {
+        const timeoutRef: { current?: ReturnType<typeof setTimeout> } = {};
         const handler = (event: MessageEvent<AudioWorkerResponse>) => {
             const data = event.data;
             // Only handle responses for THIS request
             if (data.correlationId !== correlationId) return;
 
+            if (timeoutRef.current) clearTimeout(timeoutRef.current);
             if (data.type === 'FLOAT_TO_INT16_RESULT') {
                 worker.removeEventListener('message', handler);
                 resolve({ result: data.result, base64: data.base64 || '' });
@@ -310,6 +332,10 @@ export async function floatToInt16Async(float32Array: Float32Array): Promise<{ r
                 reject(new Error(data.message));
             }
         };
+        timeoutRef.current = setTimeout(() => {
+            worker.removeEventListener('message', handler);
+            reject(new Error(`Audio worker request timed out after ${AUDIO_WORKER_REQUEST_TIMEOUT_MS}ms (FLOAT_TO_INT16).`));
+        }, AUDIO_WORKER_REQUEST_TIMEOUT_MS);
         worker.addEventListener('message', handler);
         worker.postMessage({ type: 'FLOAT_TO_INT16', correlationId, float32Array }, [float32Array.buffer]);
     });
