@@ -36,6 +36,7 @@ describe('NativeBrowser Transcription Mode', () => {
   let nativeBrowser: NativeBrowser;
   const onTranscriptUpdate = vi.fn();
   const onReady = vi.fn();
+  const onError = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -52,6 +53,7 @@ describe('NativeBrowser Transcription Mode', () => {
     nativeBrowser = new NativeBrowser({
       onTranscriptUpdate,
       onReady,
+      onError,
       onModelLoadProgress: vi.fn(),
       session: null,
       navigate: vi.fn(),
@@ -233,6 +235,58 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(mockRecognition.start).toHaveBeenCalledTimes(3);
  
       vi.useRealTimers();
+    });
+
+    it('contract: duplicate onend events before the debounce schedule only one restart', async () => {
+      vi.useFakeTimers();
+      await nativeBrowser.init();
+
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      mockRecognition.onend?.({} as Event);
+      mockRecognition.onend?.({} as Event);
+
+      await vi.advanceTimersByTimeAsync(299);
+      expect(mockRecognition.start).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mockRecognition.start).toHaveBeenCalledTimes(2);
+
+      vi.useRealTimers();
+    });
+
+    it('contract: pending restart is cancelled when the user stops before debounce fires', async () => {
+      vi.useFakeTimers();
+      await nativeBrowser.init();
+
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      mockRecognition.onend?.({} as Event);
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      await vi.advanceTimersByTimeAsync(310);
+
+      expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
+      expect(mockRecognition.start).toHaveBeenCalledTimes(1);
+
+      vi.useRealTimers();
+    });
+
+    it('contract: recoverable no-speech errors are traced without surfacing a fatal error', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      mockRecognition.onerror?.({ error: 'no-speech' } as unknown as Event);
+
+      expect(onError).not.toHaveBeenCalled();
     });
   });
 });

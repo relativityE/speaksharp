@@ -28,7 +28,7 @@ Status values:
 | ID | Area | Gate | Status | Required Outcome | Evidence / Notes |
 |---|---|---|---|---|---|
 | RC-10 | Native Chrome proof | Gate 1 / Gate 5 | Red | Real Chrome + real mic artifact with coherent transcript, no repetition, no unrecovered `onerror`. | Existing evidence is not green enough to close the Native item. |
-| RC-11 | Private STT worker contract tests | Gate 1 | In progress | Worker message tests for init/transcribe success, pipeline failure, timeout/error response. | Found and patched no-timeout hang risk in main-thread worker boundary. Added init-ready and silent-worker timeout tests. Dedicated worker script protocol tests still needed. |
+| RC-11 | Private STT worker contract tests | Gate 1 | In progress | Worker message tests for init/transcribe success, pre-init failure, timeout/error response, and destroy acknowledgement. | Found and patched no-timeout hang risk in main-thread worker boundary. Added engine-boundary timeout tests and direct `transformers-js.worker.ts` protocol tests for E2E init, pre-init transcribe error, initialized transcribe result, and destroy acknowledgement. Pipeline failure branch still needs explicit worker-script coverage. |
 | RC-12 | Audio math contract tests | Gate 1 | In progress | Deterministic RMS, peak, sample duration, concatenation, WAV-shape tests from math definitions. | Found and patched audio worker no-timeout hang risk, Float32-to-Int16 signed PCM mismatch, and worker upsampling mismatch. More RMS/Native duplicate helper consolidation still needed. |
 | RC-13 | ModelManager decision table | Gate 1 | In progress | Cached/missing/incomplete/bad model states produce expected Private availability/setup behavior. | Found and patched false-positive cache bug: unrelated/partial Transformers cache no longer marks Private v2 available. Added focused contract tests. |
 | RC-14 | Private engine decision table | Gate 1 | Open | v2 default, v4 experimental, unavailable/bad dtype/fallback behavior explicitly tested. | Protects default Private path and experimental isolation. |
@@ -53,7 +53,7 @@ Status values:
 
 | ID | Area | Gate | Status | Required Outcome | Evidence / Notes |
 |---|---|---|---|---|---|
-| RC-40 | Untracked STT scratch artifacts | Hygiene | Open | Decide keep/move/delete for root/frontend scratch scripts, logs, and screenshots. | Current untracked files include `scratch_capture_run.js`, `test_private_stt_browser.mjs`, `frontend/scratch_transcribe_native_parallel.*`, `test_run.log`, screenshots. Do not count as product code or RC evidence until promoted. |
+| RC-40 | Untracked STT scratch artifacts | Hygiene | Done | Remove root/frontend scratch scripts, logs, and screenshots that are not maintained product code, workflow utility, or RC evidence. | Deleted stale untracked artifacts: `scratch_capture_run.js`, `test_private_stt_browser.mjs`, `frontend/scratch_transcribe_native_parallel.*`, `test_run.log`, `frontend/test_run.log`, and stale screenshots. |
 | RC-41 | Script inventory | All | Open | Classify scripts as gate, workflow utility, advisory benchmark, diagnostic, or retirement candidate. | Prevents stale scripts from becoming accidental release process. |
 
 ## Operating Rule

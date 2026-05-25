@@ -78,6 +78,11 @@ Objective: prove SpeakSharp behaves according to its product contract.
 | `tests/e2e/user-features.e2e.spec.ts` | Pro/basic feature matrix, AI Coach, PDF/export behavior. |
 | `tests/e2e/user-filler-words.e2e.spec.ts` | Custom filler words affect analysis and persist. |
 | `tests/analytics/math-integrity.test.ts` | Analytics formulas stay truthful. |
+| `frontend/src/services/transcription/modes/__tests__/NativeBrowser.test.ts` | Native Web Speech state-machine contract: start/stop, restart debounce, duplicate `onend`, recoverable errors, interim/final emission. |
+| `frontend/src/services/transcription/modes/__tests__/nativeBrowserStrategies.test.ts` | Browser strategy contract for Chrome/Edge/Safari/generic/unsupported and Web Speech result-slot extraction. |
+| `frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.worker.test.ts` | Private worker boundary contract: init response and timeout instead of infinite hang. |
+| `frontend/src/services/transcription/engines/__tests__/transformers-js.worker.protocol.test.ts` | Direct Private worker protocol: E2E init, pre-init transcribe error, transcribe result, destroy acknowledgement. |
+| `frontend/src/services/transcription/__tests__/ModelManager.test.ts` | Private model availability decision table for missing, unrelated, partial, and complete model cache. |
 | `tests/live/pro-stt-artifact-matrix.live.spec.ts` / `Pro STT Artifact Matrix` workflow | Real Pro STT artifact path: transcript, save, history/detail, AI/PDF. |
 | `tests/live/private-cache.live.spec.ts` / live matrix | Private setup/cache path. |
 | `tests/live/first-time-tester-private-trial.live.spec.ts` / live matrix | Fresh trial tester path. |
@@ -241,8 +246,8 @@ Recent release-hardening commits added or tightened the following tests/evidence
 | Gap | Why It Matters | Recommended Action |
 |---|---|---|
 | STT/transcription coverage is uneven. | Private/Native/Cloud are release-critical, but several engine/worker/model files remain under-covered. | Add targeted floors for `services/transcription`, worker, audio utils, and NativeBrowser instead of relying only on global coverage. |
-| `transformers-js.worker.ts` has 0% coverage. | This is the Private latency architecture. | Add worker message-protocol tests: init success/failure, transcribe success/error, timeout/cancel. |
-| `ModelManager.ts` has very low coverage. | Model availability/download/cache choices can break Private first-use. | Add cache/download/missing-model tests. |
+| `transformers-js.worker.ts` previously had 0% meaningful contract coverage. | This is the Private latency architecture. | Initial worker message-protocol tests now cover E2E init, pre-init error, transcribe result, and destroy acknowledgement. Remaining gap: explicit pipeline-load failure branch. |
+| `ModelManager.ts` had very low coverage. | Model availability/download/cache choices can break Private first-use. | Initial decision-table tests now cover no cache, empty cache, unrelated cache, partial Whisper cache, and complete model cache. Remaining gap: download/status/error event behavior. |
 | Native Browser still depends on real browser evidence. | Web Speech behavior cannot be fully mocked. | Keep unit tests for strategy/restart; require latest Chrome trace artifact for RC green. |
 | Analytics UI has some 0% component coverage. | Scoring math is covered better than user interpretation surfaces. | Prioritize tests around exact displayed guidance, not decorative charts. |
 | PRD/SQM metrics aggregation has known reporting caveats. | Raw Lighthouse/coverage artifacts are valid; generated PRD artifact may show stale/null Lighthouse. | Treat raw CI artifacts as source of truth until aggregator is fixed. |
