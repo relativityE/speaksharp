@@ -101,6 +101,17 @@ describe('LiveRecordingCard', () => {
         expect(screen.getAllByText(/First words may take ~5s/i).length).toBeGreaterThan(0);
     });
 
+    it('explains why Private is unavailable for basic or expired-trial users', async () => {
+        render(<LiveRecordingCard {...defaultProps} isProUser={false} canUseCloudStt={false} />);
+
+        fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
+
+        const privateOption = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
+        expect(privateOption).toHaveAttribute('data-disabled');
+        expect(privateOption.textContent).toMatch(/Private \(Pro\)/i);
+        expect(privateOption.textContent).toMatch(/Available with active trial or Pro/i);
+    });
+
     it('lets a trial user switch to Browser while Private setup is downloading', async () => {
         const onModeChange = vi.fn();
         render(

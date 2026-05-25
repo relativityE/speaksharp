@@ -20,8 +20,10 @@ Status values:
 | WI-02 | Named counted tests | All | In progress | Replace vague "counts selectively" with named counted files/workflows per gate. | Inventory now has gate maps; still needs full ledger rows. |
 | WI-03 | SQM caveat | All | Done | Document SQM as advisory/trend, never ship/no-ship. | Raw RC gates remain authority. |
 | WI-06 | Contract source policy | All | Done | RC-counted tests must map to math, state machine, message protocol, security/product rule, or human journey. | Added to `RC_GATES.md` and inventory. |
+| WI-22 | Existing test contract audit | All | In progress | Existing unit, integration, e2e, live, and workflow checks must either name their independent contract source or be marked advisory/diagnostic. | Prevents tests from defending current implementation behavior instead of product requirements. |
+| WI-23 | Actionable error diagnostics | All | In progress | RC-counted tests, browser harnesses, and STT code paths must log caught exceptions with context and severity; no silent catch blocks or cryptic failures. | Found swallowed CI cleanup/telemetry exceptions and patched them to warn with command/path context. STT shutdown/restart/token diagnostics are being tightened. |
 | WI-04 | Manual check ownership | Gate 5 | Open | Browser wording/manual checks need owner, artifact, pass criteria, freshness rule. | Prevents silent skip under release pressure. |
-| WI-05 | Paid-Pro test account policy | Gate 3 | Open | Define known-good Pro account owner, refresh process, and secret update path. | Prevents operational failure being confused with product regression. |
+| WI-05 | Pro cloud-entitled test account policy | Gate 3 | Open | Define known-good Pro account owner, refresh process, and secret update path. | Prevents operational failure being confused with product regression. |
 
 ## Product / Test Gaps
 

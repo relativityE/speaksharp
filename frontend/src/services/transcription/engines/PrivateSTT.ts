@@ -190,7 +190,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     protected async onStop(): Promise<void> {
         if (this.isTerminated) return;
         if (this.engine) {
-            try { await this.engine.stop(); } catch (e) { logger.warn({ e }, '[PrivateSTT] Engine stop failed'); }
+            try { await this.engine.stop(); } catch (error) { logger.warn({ error, engineType: this._engineType }, '[PrivateSTT] Engine stop failed during Private STT shutdown'); }
         }
     }
 
@@ -210,7 +210,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
     protected async onDestroy(): Promise<void> {
         if (this.engine) {
-            try { await this.engine.destroy(); } catch (e) { logger.warn({ e }, '[PrivateSTT] Engine destroy failed'); }
+            try { await this.engine.destroy(); } catch (error) { logger.warn({ error, engineType: this._engineType }, '[PrivateSTT] Engine destroy failed during Private STT teardown'); }
             this.engine = null;
             this._engineType = null;
         }
@@ -425,7 +425,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         if (this.isTerminated) return;
 
         if (this.engine) {
-            try { await this.engine.terminate(); } catch (e) { logger.warn({ e }, '[PrivateSTT] Engine terminate failed'); }
+            try { await this.engine.terminate(); } catch (error) { logger.warn({ error, engineType: this._engineType }, '[PrivateSTT] Engine terminate failed during forced termination'); }
             this.engine = null;
             this._engineType = null;
         }

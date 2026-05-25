@@ -370,7 +370,38 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
     this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       try {
-        logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, error: event.error }, `[NativeBrowser] Speech recognition error: ${event.error}`);
+        pushNativeTrace('onerror', {
+          sId: this.serviceId,
+          rId: this.runId,
+          eId: this.instanceId,
+          error: event.error,
+          isListening: this.isListening,
+          isRestarting: this.isRestarting,
+          currentTranscript: this.currentTranscript,
+        });
+
+        if (event.error === 'no-speech') {
+          logger.warn({
+            sId: this.serviceId,
+            rId: this.runId,
+            eId: this.instanceId,
+            error: event.error,
+            isListening: this.isListening,
+            isRestarting: this.isRestarting,
+            currentTranscript: this.currentTranscript,
+          }, '[NativeBrowser] Speech recognition reported no-speech; this is recoverable if the session restarts and later results arrive');
+          return;
+        }
+
+        logger.error({
+          sId: this.serviceId,
+          rId: this.runId,
+          eId: this.instanceId,
+          error: event.error,
+          isListening: this.isListening,
+          isRestarting: this.isRestarting,
+          currentTranscript: this.currentTranscript,
+        }, `[NativeBrowser] Speech recognition error: ${event.error}`);
 
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
           logger.error({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Microphone permission denied by user or browser settings');
@@ -445,7 +476,13 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
               this.recognition.start();
               this.isRestarting = false;
             } catch (err) {
-              logger.warn({ err }, "[NativeBrowser] Immediate restart failed, using backoff");
+              logger.warn({
+                sId: this.serviceId,
+                rId: this.runId,
+                eId: this.instanceId,
+                err,
+                debounceMs: NATIVE_STT.RESTART_DEBOUNCE_MS,
+              }, "[NativeBrowser] Immediate restart after onend failed; falling back to retryWithBackoff");
               this.retryWithBackoff(0);
             }
           } else {
@@ -698,7 +735,13 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
             eId: this.instanceId,
             error: err instanceof Error ? err.message : String(err),
           });
-          logger.warn({ err }, '[NativeBrowser] Error in recognition.stop()');
+          logger.warn({
+            sId: this.serviceId,
+            rId: this.runId,
+            eId: this.instanceId,
+            err,
+            currentTranscript: this.currentTranscript,
+          }, '[NativeBrowser] recognition.stop() threw during shutdown; resolving stop promise to avoid hanging the UI');
           resolve();
         }
       } else {

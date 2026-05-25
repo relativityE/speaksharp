@@ -1145,7 +1145,16 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
-      logger.error({ sId: this.serviceId, rId: this.instanceId, err: error }, '[PrivateWhisper] Transcription processing failed.');
+      logger.error({
+        sId: this.serviceId,
+        rId: this.instanceId,
+        err: error,
+        audioChunks: this.audioChunks.length,
+        retrySamples: this.retryAudioBuffer?.length ?? 0,
+        hasDetectedSpeech: this.hasDetectedSpeech,
+        consecutiveSpeechSamples: this.consecutiveSpeechSamples,
+        currentTranscript: this.currentTranscript,
+      }, '[PrivateWhisper] Transcription processing failed; preserving diagnostic state for STT trace review');
     } finally {
       this.isProcessing = false;
     }

@@ -112,7 +112,9 @@ process.on('exit', () => {
         try {
             // Using execSync with || true to prevent non-zero exit codes from pkill
             execSync('pkill -9 -f vite || true', { stdio: 'ignore' });
-        } catch (e) { }
+        } catch (error) {
+            console.warn('[CI cleanup] Failed to terminate Vite process during exit cleanup. This does not fail the already-completed CI run, but may leave a local dev server running.', error);
+        }
     }
 });
 
@@ -615,7 +617,9 @@ async function main() {
                                 total: vitestResults.numTotalTests || 0
                             };
                             ciTelemetry.tests.vitest = global.__CI_TELEMETRY__.vitest;
-                        } catch (e) { /* No-op */ }
+                        } catch (error) {
+                            console.warn('[CI telemetry] Failed to parse fallback Vitest results from test-results/unit/results.json. Unit-test counts may be missing from the final summary.', error);
+                        }
                     }
 
                     if (global.__CI_TELEMETRY__.playwright.total === 0) {
@@ -703,7 +707,9 @@ async function main() {
                     };
                     ciTelemetry.tests.playwright = global.__CI_TELEMETRY__.playwright;
                 }
-            } catch (e) { }
+            } catch (error) {
+                console.warn('[CI telemetry] Failed to parse fallback Playwright results from test-results/playwright/results.json. Browser-test counts may be missing from the final summary.', error);
+            }
         }
 
         // Ensure vitest is synced too
@@ -805,7 +811,9 @@ function cleanupArtifacts(rootDir) {
         try {
             execSync('pkill -f vite || true', { stdio: 'ignore' });
             execSync('pkill -f playwright || true', { stdio: 'ignore' });
-        } catch (e) { }
+        } catch (error) {
+            console.warn('[CI clean] Failed to terminate Vite or Playwright during nuclear clean. Continuing cleanup, but stale processes may remain.', error);
+        }
 
         targets.push(
             'frontend/dist',

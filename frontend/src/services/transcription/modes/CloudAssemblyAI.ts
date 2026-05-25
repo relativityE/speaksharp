@@ -337,7 +337,18 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       });
 
       if (!response.ok) {
-        const body = await response.text().catch(() => '');
+        let body = '';
+        try {
+          body = await response.text();
+        } catch (bodyError) {
+          logger.warn({
+            sId: this.serviceId,
+            rId: this.instanceId,
+            eId: this.instanceId,
+            status: response.status,
+            err: bodyError,
+          }, '[CloudAssemblyAI] Token endpoint returned non-2xx, but response body could not be read');
+        }
         throw new Error(`Auth failed: ${response.status} ${body.slice(0, 300)}`);
       }
 
@@ -650,7 +661,15 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
           await this.flushAudioQueue({ forceTail: true });
           this.socket.send(JSON.stringify({ type: 'Terminate' }));
         } catch (err) {
-          logger.warn({ err }, '[CloudAssemblyAI] Error sending terminate_session');
+          logger.warn({
+            sId: this.serviceId,
+            rId: this.instanceId,
+            eId: this.instanceId,
+            err,
+            socketReadyState: this.socket.readyState,
+            pendingAudioSamples: this.pendingAudioSamples,
+            queuedAudioFrames: this.audioQueue.length,
+          }, '[CloudAssemblyAI] Failed to flush tail audio or send terminate message during shutdown');
         }
       }
 

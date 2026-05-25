@@ -94,6 +94,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         cloud: 'Fastest and most reliable. Pro feature; audio is processed securely in the cloud.',
         mock: 'Test transcription mode.',
     };
+    const privateModeDescription = isProUser
+        ? 'On-device and private. First words may take ~5s.'
+        : 'On-device and private. Available with active trial or Pro.';
 
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
@@ -144,7 +147,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <span className="flex flex-col gap-0.5">
                                         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Private {!isProUser ? '(Pro)' : ''}</span>
                                         <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                            On-device and private. First words may take ~5s.
+                                            {privateModeDescription}
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>

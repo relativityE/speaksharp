@@ -58,8 +58,8 @@ async function main() {
     // 2. GH CLI Check
     try {
         execSync('gh --version', { stdio: 'ignore' });
-    } catch (e) {
-        log("❌ Error: GitHub CLI (gh) is not installed. Please install it to use this bridge.", COLORS.red);
+    } catch (error) {
+        log(`❌ Error: GitHub CLI (gh) is not installed or not executable. Command: gh --version. Details: ${error instanceof Error ? error.message : String(error)}`, COLORS.red);
         process.exit(1);
     }
 
@@ -70,8 +70,8 @@ async function main() {
         const inputs = `-f new_basic_count=${basicCount} -f new_pro_count=${proCount}`;
         execSync(`gh workflow run "${WORKFLOW_NAME}" --ref main ${inputs}`, { stdio: 'inherit' });
         log("✅ Workflow dispatch successful.", COLORS.green);
-    } catch (e) {
-        log("❌ Failed to trigger workflow. Ensure you have the necessary permissions.", COLORS.red);
+    } catch (error) {
+        log(`❌ Failed to trigger workflow "${WORKFLOW_NAME}" on ref main with Basic=${basicCount}, Pro=${proCount}. Ensure gh is authenticated and has Actions permission. Details: ${error instanceof Error ? error.message : String(error)}`, COLORS.red);
         process.exit(1);
     }
 
@@ -96,12 +96,12 @@ async function main() {
         // Try to open in browser if on macOS
         try {
             execSync(`open ${url}`);
-        } catch (e) {
-            // Ignore if open fails
+        } catch (error) {
+            log(`ℹ️ Could not open run URL in the desktop browser. The workflow is still running; open this URL manually: ${url}. Details: ${error instanceof Error ? error.message : String(error)}`, COLORS.yellow);
         }
 
-    } catch (e) {
-        log("⚠️  Workflow triggered but failed to fetch run URL. Check GitHub Actions manually.", COLORS.yellow);
+    } catch (error) {
+        log(`⚠️  Workflow triggered but failed to fetch run URL. Check GitHub Actions manually for workflow "${WORKFLOW_NAME}". Details: ${error instanceof Error ? error.message : String(error)}`, COLORS.yellow);
         return;
     }
 
@@ -122,8 +122,8 @@ async function main() {
                 conclusion = data.conclusion;
 
                 process.stdout.write(`\r📌 Status: ${status} ${conclusion ? `(${conclusion})` : ''}   `);
-            } catch (e) {
-                // Ignore transient network errors
+            } catch (error) {
+                log(`\n⚠️  Could not poll workflow run #${runId}; will retry in 10s. Details: ${error instanceof Error ? error.message : String(error)}`, COLORS.yellow);
             }
         }
 
