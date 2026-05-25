@@ -108,6 +108,47 @@ These are the named browser/live/canary files that currently count toward RC sta
 
 Non-counted unless explicitly promoted: `tests/e2e/dump-ground/*`, `tests/e2e/diagnostics/*`, `tests/live/benchmark-*.live.spec.ts`, `tests/live/stt-accuracy-integration.live.spec.ts`, `tests/live/stt-integration.live.spec.ts`, `tests/live/live-transcript.live.spec.ts`, `tests/live/analytics-live-native-probe.live.spec.ts`, `tests/live/analytics-journey.live.spec.ts`, `tests/live/auth.live.spec.ts`, `tests/live/upgrade.live.spec.ts`, `tests/live/tester-b-private-native-stt.live.spec.ts`, `tests/live/driver-dependent/private-stt.live.spec.ts`, `tests/soak/*`, and `tests/stt-correctness/wer-baseline.spec.ts`. These remain diagnostic, advisory, legacy-overlap, or release-scope-dependent until a specific RC contract promotes them.
 
+## RC-Counted Unit / Component Ledger
+
+These unit/component files currently count toward RC because they enforce a product, security, math, state-machine, or message-protocol contract. Other unit/component files may remain useful, but they are advisory unless promoted here.
+
+| File | Gate | Contract Source | Counted Claim |
+|---|---|---|---|
+| `backend/supabase/functions/assemblyai-token/index.test.ts` | Gate 2 / Gate 3 | Security/product rule | Cloud token auth, Pro entitlement, quota, and provider-call behavior are fail-closed. |
+| `backend/supabase/functions/check-usage-limit/index.test.ts` | Gate 2 | Security/product rule | Usage/quota checks deny unsafe starts instead of failing open. |
+| `backend/supabase/functions/check-usage-limit/adversarial.test.ts` | Gate 2 | Security/product rule | Adversarial quota/auth cases remain fail-closed. |
+| `backend/supabase/functions/_shared/cors.test.ts` | Gate 2 | Security rule | Trusted origins are echoed and untrusted origins are not. |
+| `backend/supabase/functions/stripe-webhook/index.test.ts` | Gate 2 / Gate 3 | Security/payment rule | Stripe webhook happy path mutates state through the expected contract. |
+| `backend/supabase/functions/stripe-webhook/adversarial.test.ts` | Gate 2 / Gate 3 | Security/payment rule | Duplicate/replayed webhook events are idempotent and safe. |
+| `backend/supabase/functions/get-ai-suggestions/index.test.ts` | Gate 2 | Security/product rule | AI suggestion function validates auth/input and returns structured errors. |
+| `frontend/src/constants/__tests__/subscriptionTiers.test.ts` | Gate 1 / Gate 2 | Product rule | Basic, active trial, expired trial, and Pro tier semantics match product access. |
+| `frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` | Gate 1 / Gate 2 | State machine / product rule | Session lifecycle enforces STT entitlement and mode availability rules. |
+| `frontend/src/config/__tests__/env.test.ts` | Gate 2 | Security/product rule | Test/E2E flags do not leak into production assumptions. |
+| `frontend/src/services/transcription/modes/__tests__/NativeBrowser.test.ts` | Gate 1 / Gate 5 | State machine | Native Web Speech start/stop/restart/error/interim/final behavior follows the browser strategy contract. |
+| `frontend/src/services/transcription/modes/__tests__/nativeBrowserStrategies.test.ts` | Gate 1 / Gate 5 | State machine / browser contract | Chrome/Edge/Safari/generic/unsupported strategies are configured and extracted predictably. |
+| `frontend/src/services/transcription/modes/__tests__/CloudAssemblyAI.test.ts` | Gate 1 / Gate 3 | Message protocol / product rule | Cloud mode sends expected keyterms/audio frames and handles websocket/token lifecycle. |
+| `frontend/src/services/transcription/modes/__tests__/PrivateWhisper.test.ts` | Gate 1 | State machine / STT contract | Private buffering, rejection, retry, and transcript emission protect first-use and tail behavior. |
+| `frontend/src/services/transcription/engines/__tests__/PrivateSTT.test.ts` | Gate 1 | State machine / product rule | Private engine selection and v2/v4/fallback behavior are explicit and fail predictably. |
+| `frontend/src/services/transcription/engines/__tests__/TransformersJSEngine.worker.test.ts` | Gate 1 | Message protocol | Private worker boundary responds or times out instead of hanging. |
+| `frontend/src/services/transcription/engines/__tests__/transformers-js.worker.protocol.test.ts` | Gate 1 | Message protocol | Worker init/transcribe/error/destroy protocol is honored directly. |
+| `frontend/src/services/transcription/__tests__/ModelManager.test.ts` | Gate 1 | State machine / cache decision table | Private model availability fails closed for missing, partial, unrelated, blocked, or corrupt storage. |
+| `frontend/src/services/transcription/__tests__/TranscriptionPolicy.test.ts` | Gate 2 | Product rule | STT policy allows only the modes permitted by tier and runtime state. |
+| `frontend/src/services/transcription/__tests__/TranscriptionService.race.test.ts` | Gate 2 | State machine | Recording races cannot overwrite the active transcription run. |
+| `frontend/src/services/transcription/__tests__/TranscriptionService.zombie.test.ts` | Gate 2 | State machine | Stale engine callbacks cannot corrupt a later session. |
+| `frontend/src/utils/__tests__/fillerWordUtils.test.ts` | Gate 1 / Gate 2 | Math / regex safety | Default and custom filler matching is countable, escaped, and safe. |
+| `frontend/src/utils/__tests__/sessionAnalysis.test.ts` | Gate 1 | Math / product rule | WPM, filler totals, clarity, and guidance are derived from countable transcript/duration inputs. |
+| `frontend/src/services/transcription/utils/__tests__/AudioProcessor.test.ts` | Gate 1 | Math / message protocol | PCM conversion, WAV shape, concatenation, buffering, downsampling, and worker timeout follow deterministic contracts. |
+| `frontend/src/services/transcription/utils/__tests__/audio-processor.worker.test.ts` | Gate 1 | Math / message protocol | Worker-side audio conversion and downsampling match the same deterministic audio contracts. |
+| `frontend/src/components/session/__tests__/LiveRecordingCard.test.tsx` | Gate 5 | Human journey | Private setup/listening/processing copy and state expectations prevent blank-wait confusion. |
+| `frontend/src/components/session/__tests__/MetricExplanationCards.test.tsx` | Gate 1 / Gate 5 | Human journey / math explanation | Analytics explanations tell users why the number changed and what to try. |
+| `frontend/src/components/session/__tests__/SpeakingTipsCard.component.test.tsx` | Gate 5 | Human journey | Speaking guidance remains actionable and understandable. |
+| `frontend/src/components/session/__tests__/StatusNotificationBar.test.tsx` | Gate 5 | Human journey | Recoverable recording/STT states surface a clear next action. |
+| `frontend/src/hooks/useSpeechRecognition/__tests__/integration.test.tsx` | Gate 2 / Gate 5 | State machine / human journey | Mic denial and speech-recognition integration errors become visible state rather than silent failure. |
+| `tests/analytics/math-integrity.test.ts` | Gate 1 | Math | Known transcript/duration inputs produce hand-checkable WPM and filler values. |
+| `tests/release/tester-instructions.test.ts` | Gate 5 | Human journey / product rule | Tester instructions match current product behavior and do not reference removed promo-code flows. |
+
+Unit/component files not listed above are advisory by default. They still protect local behavior and refactor confidence, but they do not close an RC gate unless this ledger is updated with a contract source and counted claim.
+
 ## Gate Coverage Map
 
 ### Gate 1 - Product Truth
