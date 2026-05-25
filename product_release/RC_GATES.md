@@ -51,12 +51,20 @@ Examples:
 | Native Chrome mic proof | Native browser strategy, `NativeBrowser.ts`, STT constants, recording UI/copy, browser-support fallback logic |
 | Private STT proof | `PrivateWhisper.ts`, Private engines/workers, `ModelManager.ts`, audio utilities, STT constants, transcript UI/copy |
 | Analytics truth/usefulness | Analytics/session-analysis utilities, filler-word logic, dashboard/detail UI, persistence hooks |
-| Cloud token / paid-Pro path | `assemblyai-token`, entitlement/tier logic, usage/quota checks, Supabase deploy, Cloud client code |
+| Cloud token / Pro cloud-entitled path | `assemblyai-token`, entitlement/tier logic, usage/quota checks, Supabase deploy, Cloud client code |
 | UX smoke | Onboarding/session UI, mode selector copy, tester instructions, error-state UI |
 
 ### Ship Signal Rule
 
 RC gate status is the ship/no-ship signal. SQM, coverage, Lighthouse, benchmarks, and soak results are advisory unless explicitly named as a blocking gate item. A high SQM score cannot override a red or stale RC gate item.
+
+### Raw Artifact Source Rule
+
+When generated summaries disagree with raw CI/browser artifacts, the raw artifact wins. Coverage JSON, Playwright reports, Vitest output, Lighthouse JSON, workflow logs, and browser trace files are the source of truth until the aggregator is fixed and rerun on the same commit.
+
+### Pro Test Account Rule
+
+Gate 3 Cloud/Pro evidence requires a known-good Pro cloud-entitled account. The account must be provisioned by the maintained Test User Admin workflow or an equivalent documented operator procedure, and the current credential secret owner/update path must be recorded before an RC run. A stale, trial-only, expired, or visually Pro-but-not-cloud-entitled account does not count as Cloud evidence.
 
 ## Gate Summary
 
@@ -179,6 +187,13 @@ Required maintained checks:
 | Native support expectations | Tester instructions and manual Native proof | Native is explicitly Chrome/browser-dependent and included only with Chrome proof |
 | Errors are actionable | `tests/e2e/error-states.e2e.spec.ts` | User sees recoverable state, not only internal diagnostics |
 | Private first-use setup | `tests/e2e/user-features.e2e.spec.ts`, `tests/live/private-cache.live.spec.ts` | Private setup/cache path is understandable enough to start and rerun without stale cache failure |
+
+Manual Native/Safari/browser wording check:
+
+- **Owner:** release runner for the current RC.
+- **Artifact:** screenshot or browser trace attached to the RC evidence bundle.
+- **Pass:** Native mode copy is visible before or during selection, identifies Native as browser-dependent, and offers Private as the fallback path when the browser does not support reliable Web Speech.
+- **Fail:** unsupported or weak browsers silently fail, or the user only sees internal diagnostics without a clear next action.
 
 Automated UX smoke is green when `pnpm rc:gate:5:ux` passes. Subjective copy polish can continue as P2, but it should not reopen release-critical code unless the smoke finds an unusable onboarding/core-flow issue.
 

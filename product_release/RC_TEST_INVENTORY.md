@@ -171,7 +171,7 @@ Not folded by default: visual polish tests unless the issue makes onboarding/cor
 | `canary.yml` | Gate 1/Gate 5 production smoke | Counted. |
 | `rc-gates.yml` | All gates | Counted umbrella workflow. |
 | `live-release-matrix.yml` | Gate 1 and Gate 3 | Counted release-time evidence. |
-| `pro-stt-artifact-matrix.yml` | Gate 1/Gate 3 paid-Pro STT artifact path | Counted release-time evidence. |
+| `pro-stt-artifact-matrix.yml` | Gate 1/Gate 3 Pro STT artifact path | Counted release-time evidence. |
 | `observability-api-smoke.yml` | Public launch observability/support evidence | Advisory for controlled tester release; counted for public launch readiness. |
 | `benchmarks.yml` | STT/model/provider performance ceiling | Advisory; counted only when changing engine/model/performance SLA. |
 | `soak-test.yml` | Durability/stability | Advisory unless stability is the current release risk. |
@@ -200,7 +200,7 @@ Recent release-hardening commits added or tightened the following tests/evidence
 | `canary.yml` | Push, manual, schedule | Production smoke. | Yes. |
 | `rc-gates.yml` | Manual | Runs the five explicit RC gates. | Yes. |
 | `live-release-matrix.yml` | Manual | Live product truth matrix: custom words, Native preflight, Cloud gates/artifacts, Private cache, first-time tester, Stripe readiness. | Yes, release-time. |
-| `pro-stt-artifact-matrix.yml` | Manual | Paid-Pro STT artifact path. | Yes, release-time or STT changes. |
+| `pro-stt-artifact-matrix.yml` | Manual | Pro STT artifact path. | Yes, release-time or STT changes. |
 | `observability-api-smoke.yml` | Manual | Sentry/PostHog API readback. | Yes, release-time/advisory depending launch scope. |
 | `benchmarks.yml` | Schedule/manual | STT ceiling benchmarks. | Advisory, required only for engine/model changes. |
 | `soak-test.yml` | Schedule/manual | Durability/memory/API stress. | Advisory unless investigating stability. |

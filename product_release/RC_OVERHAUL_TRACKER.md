@@ -22,8 +22,8 @@ Status values:
 | WI-06 | Contract source policy | All | Done | RC-counted tests must map to math, state machine, message protocol, security/product rule, or human journey. | Added to `RC_GATES.md` and inventory. |
 | WI-22 | Existing test contract audit | All | In progress | Existing unit, integration, e2e, live, and workflow checks must either name their independent contract source or be marked advisory/diagnostic. | Prevents tests from defending current implementation behavior instead of product requirements. |
 | WI-23 | Actionable error diagnostics | All | In progress | RC-counted tests, browser harnesses, and STT code paths must log caught exceptions with context and severity; no silent catch blocks or cryptic failures. | Found swallowed CI cleanup/telemetry exceptions and patched them to warn with command/path context. STT shutdown/restart/token diagnostics are being tightened. |
-| WI-04 | Manual check ownership | Gate 5 | Open | Browser wording/manual checks need owner, artifact, pass criteria, freshness rule. | Prevents silent skip under release pressure. |
-| WI-05 | Pro cloud-entitled test account policy | Gate 3 | Open | Define known-good Pro account owner, refresh process, and secret update path. | Prevents operational failure being confused with product regression. |
+| WI-04 | Manual check ownership | Gate 5 | Done | Browser wording/manual checks need owner, artifact, pass criteria, freshness rule. | `RC_GATES.md` now names the release runner as owner and requires a screenshot or browser trace artifact with explicit pass/fail criteria for Native/Safari/browser wording. |
+| WI-05 | Pro cloud-entitled test account policy | Gate 3 | Done | Define known-good Pro account owner, refresh process, and secret update path. | `RC_GATES.md` now requires known-good Pro cloud-entitled credentials provisioned by Test User Admin or equivalent documented operator procedure before Cloud evidence can count. Prevents stale trial/basic accounts being misread as provider failures. |
 
 ## Product / Test Gaps
 
@@ -34,14 +34,14 @@ Status values:
 | WI-12 | Audio math contract tests | Gate 1 | In progress | Deterministic RMS, peak, sample duration, concatenation, WAV-shape tests from math definitions. | Found and patched audio worker no-timeout hang risk, Float32-to-Int16 signed PCM mismatch, and worker upsampling mismatch. More RMS/Native duplicate helper consolidation still needed. |
 | WI-13 | ModelManager decision table | Gate 1 | In progress | Cached/missing/incomplete/bad model states produce expected Private availability/setup behavior. | Found and patched false-positive cache bug: unrelated/partial Transformers cache no longer marks Private v2 available. Added focused contract tests. |
 | WI-14 | Private engine decision table | Gate 1 | Done | v2 default, v4 experimental, unavailable/bad dtype/fallback behavior explicitly tested. | Added contract coverage for registry fallback reporting the actual instantiated engine, explicit v4-only selection, failed v4 init not falling back to v2, and v4 availability reporting q4 split download size. Found and fixed bug where fallback `whisper-turbo`/`mock` engines could be reported as `transformers-js`. |
-| WI-15 | Analytics usefulness artifact | Gate 1 / Gate 5 | Open | Known transcript produces exact filler/WPM and user-readable guidance. | Use Cloud-clean transcript as baseline evidence. |
+| WI-15 | Analytics usefulness artifact | Gate 1 / Gate 5 | Done | Known transcript produces exact filler/WPM and user-readable guidance. | Contract tests passed for the Cloud transcript baseline: `frontend/src/utils/__tests__/sessionAnalysis.test.ts`, `MetricExplanationCards.test.tsx`, `SpeakingTipsCard.component.test.tsx` (15/15 local). Browser UI artifact captured from saved session: `/private/tmp/speaksharp-analytics-ui-artifact-1779705096550.json` with `2 Filler Words`, `81 WPM`, `85%` clarity, and actionable guidance copy. |
 
 ## Coverage Policy Work
 
 | Work Item | Area | Gate | Status | Required Outcome | Evidence / Notes |
 |---|---|---|---|---|---|
 | WI-20 | Targeted coverage floors | Gate 1 | Open | Add per-module floors only after contract tests land. | Candidate floors: audio utils 80%, analytics math 85%, STT worker 70%, transcription services 70%, NativeBrowser branch floor. |
-| WI-21 | Coverage source of truth | All | Open | Clarify raw coverage artifact is source; generated PRD/SQM can lag or report null Lighthouse. | Prevents report aggregator bugs from misleading release status. |
+| WI-21 | Coverage source of truth | All | Done | Clarify raw coverage artifact is source; generated PRD/SQM can lag or report null Lighthouse. | `RC_GATES.md` now states raw coverage JSON, Playwright reports, Vitest output, Lighthouse JSON, workflow logs, and browser traces win when generated summaries disagree. |
 
 ## Advisory / Non-Blocking Buckets
 
