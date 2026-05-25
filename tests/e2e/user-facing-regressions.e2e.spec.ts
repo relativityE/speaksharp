@@ -45,7 +45,7 @@ test.describe('User-facing session and analytics regressions', () => {
     await expect(page.getByTestId(TEST_IDS.WPM_VALUE)).not.toHaveText('0');
     await expect(page.getByText(/target range|too little speech|below the target|above the target/i)).toBeVisible();
     await expect(page.getByText(/filler words detected|captured words/i)).toBeVisible();
-    await expect(page.getByText(/lowering this score|no filler words|rough signal/i)).toBeVisible();
+    await expect(page.getByText(/pulling attention away|replace the next one|no filler words|rough signal/i)).toBeVisible();
   });
 
   test('preserves metric parity from session to analytics detail after save and reload', async ({ page }) => {
