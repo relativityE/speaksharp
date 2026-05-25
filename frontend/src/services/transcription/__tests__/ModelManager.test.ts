@@ -37,6 +37,72 @@ function stubTransformersCache(urls: string[], hasCache = true): void {
     vi.stubGlobal('caches', cacheStorage);
 }
 
+type FakeIndexedDbOptions = {
+    stores?: Record<string, number>;
+    blocked?: boolean;
+    openError?: boolean;
+    upgradeNeeded?: boolean;
+};
+
+function stubIndexedDb({ stores = {}, blocked = false, openError = false, upgradeNeeded = false }: FakeIndexedDbOptions = {}): void {
+    const open = vi.fn(() => {
+        const request = {
+            result: {
+                objectStoreNames: {
+                    contains: (storeName: string) => Object.prototype.hasOwnProperty.call(stores, storeName),
+                },
+                transaction: (storeName: string) => {
+                    const tx = {
+                        objectStore: () => ({
+                            count: () => {
+                                const countRequest = { result: stores[storeName] ?? 0, onsuccess: null as (() => void) | null, onerror: null as (() => void) | null };
+                                queueMicrotask(() => {
+                                    countRequest.onsuccess?.();
+                                    tx.oncomplete?.();
+                                });
+                                return countRequest;
+                            },
+                        }),
+                        oncomplete: null as (() => void) | null,
+                        onerror: null as (() => void) | null,
+                        onabort: null as (() => void) | null,
+                    };
+                    return tx;
+                },
+                close: vi.fn(),
+            },
+            error: openError ? new Error('indexeddb-open-failed') : null,
+            transaction: {
+                abort: vi.fn(),
+            },
+            onerror: null as (() => void) | null,
+            onblocked: null as (() => void) | null,
+            onupgradeneeded: null as (() => void) | null,
+            onsuccess: null as (() => void) | null,
+        };
+
+        queueMicrotask(() => {
+            if (blocked) {
+                request.onblocked?.();
+                return;
+            }
+            if (upgradeNeeded) {
+                request.onupgradeneeded?.();
+                return;
+            }
+            if (openError) {
+                request.onerror?.();
+                return;
+            }
+            request.onsuccess?.();
+        });
+
+        return request;
+    });
+
+    vi.stubGlobal('indexedDB', { open });
+}
+
 describe('ModelManager transformers cache contract', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
@@ -75,5 +141,47 @@ describe('ModelManager transformers cache contract', () => {
         stubTransformersCache(requiredWhisperTinyCacheUrls);
 
         await expect(ModelManager.isModelDownloaded('transformers-js')).resolves.toBe(true);
+    });
+});
+
+describe('ModelManager Whisper Turbo IndexedDB contract', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
+
+    it('reports whisper-turbo unavailable when IndexedDB is unavailable', async () => {
+        vi.stubGlobal('indexedDB', undefined);
+
+        await expect(ModelManager.isModelDownloaded('whisper-turbo')).resolves.toBe(false);
+    });
+
+    it('reports whisper-turbo unavailable when only the model store has entries', async () => {
+        stubIndexedDb({ stores: { models: 1 } });
+
+        await expect(ModelManager.isModelDownloaded('whisper-turbo')).resolves.toBe(false);
+    });
+
+    it('reports whisper-turbo unavailable when only the availability store has entries', async () => {
+        stubIndexedDb({ stores: { availableModels: 1 } });
+
+        await expect(ModelManager.isModelDownloaded('whisper-turbo')).resolves.toBe(false);
+    });
+
+    it('reports whisper-turbo available only when both required stores have entries', async () => {
+        stubIndexedDb({ stores: { models: 1, availableModels: 1 } });
+
+        await expect(ModelManager.isModelDownloaded('whisper-turbo')).resolves.toBe(true);
+    });
+
+    it('fails closed when IndexedDB open is blocked, errors, or needs upgrade', async () => {
+        stubIndexedDb({ stores: { models: 1, availableModels: 1 }, blocked: true });
+        await expect(ModelManager.isModelDownloaded('whisper-turbo')).resolves.toBe(false);
+
+        stubIndexedDb({ stores: { models: 1, availableModels: 1 }, openError: true });
+        await expect(ModelManager.isModelDownloaded('whisper-turbo')).resolves.toBe(false);
+
+        stubIndexedDb({ stores: { models: 1, availableModels: 1 }, upgradeNeeded: true });
+        await expect(ModelManager.isModelDownloaded('whisper-turbo')).resolves.toBe(false);
     });
 });
