@@ -71,16 +71,35 @@ vi.mock('@/services/transcription/utils/AudioProcessor', () => {
 vi.mock('@/services/transcription/modes/PrivateWhisper', () => {
     class MockPrivateWhisper {
         public readonly type = 'whisper-turbo';
-        public async init() { return { isOk: true }; }
-        public async start() {}
-        public async stop() {}
-        public async terminate() {}
-        public async destroy() {}
-        public async getTranscript() { return ''; }
-        public async checkAvailability() { return { isAvailable: true }; }
+        private readonly privateSTT?: {
+            init?: (timeoutMs?: number, isMock?: boolean) => Promise<{ isOk?: boolean; error?: Error }>;
+            start?: (...args: unknown[]) => Promise<void>;
+            stop?: () => Promise<void>;
+            terminate?: () => Promise<void>;
+            destroy?: () => Promise<void>;
+            getTranscript?: () => Promise<string>;
+            checkAvailability?: () => Promise<{ isAvailable: boolean }>;
+            getLastHeartbeatTimestamp?: () => number;
+            getEngineType?: () => string;
+            updateOptions?: (...args: unknown[]) => void;
+        };
+
+        constructor(_options?: unknown, privateSTT?: MockPrivateWhisper['privateSTT']) {
+            this.privateSTT = privateSTT;
+        }
+
+        public async init(timeoutMs?: number, isMock?: boolean) {
+            return this.privateSTT?.init?.(timeoutMs, isMock) ?? { isOk: true };
+        }
+        public async start(...args: unknown[]) { await this.privateSTT?.start?.(...args); }
+        public async stop() { await this.privateSTT?.stop?.(); }
+        public async terminate() { await this.privateSTT?.terminate?.(); }
+        public async destroy() { await this.privateSTT?.destroy?.(); }
+        public async getTranscript() { return this.privateSTT?.getTranscript?.() ?? ''; }
+        public async checkAvailability() { return this.privateSTT?.checkAvailability?.() ?? { isAvailable: true }; }
         public getLastHeartbeatTimestamp() { return Date.now(); }
-        public getEngineType() { return 'whisper-turbo'; }
-        public updateOptions() {}
+        public getEngineType() { return this.privateSTT?.getEngineType?.() ?? 'whisper-turbo'; }
+        public updateOptions(...args: unknown[]) { this.privateSTT?.updateOptions?.(...args); }
     }
     return {
         default: MockPrivateWhisper,

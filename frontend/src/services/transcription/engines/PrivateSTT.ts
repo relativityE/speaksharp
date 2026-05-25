@@ -101,6 +101,21 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         const explicitEngine = options.forceEngine || getPrivateEngineOverride();
 
+        if (this.engine && !explicitEngine) {
+            logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🧪 Initializing injected engine');
+            validateEngine(this.engine);
+            const initResult = await this.engine.init(timeoutMs, isMock);
+            const isOk = initResult ? (initResult as { isOk?: boolean }).isOk !== false : true;
+            if (!isOk) {
+                await this.engine.terminate?.();
+                const error = initResult ? (initResult as { error?: Error }).error : new Error('Injected private engine failed to initialize');
+                logger.warn({ error }, '[PrivateSTT] Injected engine failed to initialize.');
+                return { isOk: false, error: error || new Error('Injected private engine failed to initialize') };
+            }
+            this._engineType = this.engine.type;
+            return Result.ok(undefined);
+        }
+
         // 1. Manual engine override
         if (explicitEngine) {
             const res = await (async (): Promise<Result<EngineType, Error>> => {

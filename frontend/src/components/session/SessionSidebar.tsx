@@ -107,13 +107,28 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const canUseCloudStt = (isProUser && (hasCloudSttEntitlement(profile) || isE2EProHarness)) || isDevUser;
 
     type Mode = 'cloud' | 'private' | 'native';
-    const [selectedMode, setSelectedMode] = useState<Mode>(isDevUser ? 'cloud' : 'private');
+    const getDefaultMode = (): Mode => {
+        if (isDevUser) return 'cloud';
+        if (canAccessAdvancedModes) return 'private';
+        return 'native';
+    };
+    const [selectedMode, setSelectedMode] = useState<Mode>(getDefaultMode);
 
     const [showEndSessionDialog, setShowEndSessionDialog] = useState(false);
     const [completedSessions, setCompletedSessions] = useState<PracticeSession[]>([]);
 
     const isModelLoading = modelLoadingProgress !== null;
     const isConnecting = isListening && !isReady;
+
+    useEffect(() => {
+        if (!canAccessAdvancedModes && selectedMode !== 'native') {
+            setSelectedMode('native');
+            return;
+        }
+        if (selectedMode === 'cloud' && !canUseCloudStt) {
+            setSelectedMode(canAccessAdvancedModes ? 'private' : 'native');
+        }
+    }, [canAccessAdvancedModes, canUseCloudStt, selectedMode]);
 
     // SYSTEMATIC REFINEMENT: Removed redundant model download toast.
     // Progress notifications are now managed centrally by useSpeechRecognition hook.
@@ -248,7 +263,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                             </DropdownMenuTrigger>
                             <DropdownMenuContent className="w-56">
                                     <DropdownMenuRadioGroup value={selectedMode} onValueChange={(value) => setSelectedMode(value as Mode)}>
-                                        <DropdownMenuRadioItem value="private" disabled={!canAccessAdvancedModes} className="items-start py-2.5">
+                                        <DropdownMenuRadioItem value="private" aria-label="Private" disabled={!canAccessAdvancedModes} className="items-start py-2.5">
                                             <span className="flex flex-col gap-0.5">
                                                 <span>Private</span>
                                                 <span className="text-xs font-normal text-muted-foreground">
@@ -256,7 +271,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                                                 </span>
                                             </span>
                                         </DropdownMenuRadioItem>
-                                        <DropdownMenuRadioItem value="cloud" disabled={!canUseCloudStt} className="items-start py-2.5">
+                                        <DropdownMenuRadioItem value="cloud" aria-label="Cloud" disabled={!canUseCloudStt} className="items-start py-2.5">
                                             <span className="flex flex-col gap-0.5">
                                                 <span>Cloud (Pro feature)</span>
                                                 <span className="text-xs font-normal text-muted-foreground">
@@ -264,7 +279,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                                                 </span>
                                             </span>
                                         </DropdownMenuRadioItem>
-                                        <DropdownMenuRadioItem value="native" className="items-start py-2.5">
+                                        <DropdownMenuRadioItem value="native" aria-label="Native" className="items-start py-2.5">
                                             <span className="flex flex-col gap-0.5">
                                                 <span>Native</span>
                                                 <span className="text-xs font-normal text-muted-foreground">

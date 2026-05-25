@@ -103,6 +103,7 @@ describe('Analytics Math Integrity', () => {
             // We need 10 sessions to fill both current and previous windows
             const sessions = Array.from({ length: 10 }).map((_, i) => ({
                 created_at: new Date(2023, 9, i + 1).toISOString(),
+                duration: 60,
                 filler_words: {
                     um: { count: i < 5 ? 5 : 10 }, // 10, 10, 10, 10, 10 (prev) vs 5, 5, 5, 5, 5 (curr)
                     total: { count: i < 5 ? 5 : 10 }
