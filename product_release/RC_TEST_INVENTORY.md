@@ -10,18 +10,32 @@ Current test inventory by file count:
 
 | Bucket | Test Files | Counts Toward RC Gate? | Notes |
 |---|---:|---:|---|
-| Frontend unit/component | 103 | Yes, selectively | Broad correctness coverage; release value depends on domain. |
+| Frontend unit/component | 106 | Yes, selectively | Broad correctness coverage; release value depends on domain. |
 | Supabase Edge Deno tests | 7 | Yes | High-value entitlement, quota, token, CORS, webhook coverage. |
-| Mocked E2E | 11 | Yes | Main everyday browser regression suite. |
+| Mocked E2E | 10 | Yes | Main everyday browser regression suite. |
 | E2E diagnostics / dump ground | 5 | Mostly no | Useful for investigation; should not inflate release confidence. |
 | Live/deployed tests | 19 | Yes, selectively | Highest signal for production integration; slower and secret-dependent. |
 | Benchmarks | 3 | No, unless engine changes | Performance/ceiling evidence, not release correctness. |
 | Canary | 2 | Yes | Production smoke and minimal live sanity. |
 | Release doc assertions | 1 | Yes | Keeps tester instructions aligned with removed promo-code flow and current copy. |
 | Analytics standalone | 1 | Yes | High-value math integrity gate. |
-| Soak | 1 | Advisory | Useful for durability, not every RC unless specifically needed. |
+| Soak | 2 | Advisory | Useful for durability, not every RC unless specifically needed. |
 | STT correctness baseline | 1 | Advisory / targeted | Useful when changing STT engines or fixtures. |
-| **Total** | **153** | Mixed | RC confidence comes from mapped gate evidence, not total count. |
+| **Total** | **157** | Mixed | RC confidence comes from mapped gate evidence, not total count. |
+
+## Per-File Triage Status
+
+The current inventory is complete at the bucket/gate level, but not every individual file has a final contract-source annotation yet. Release-counted paths are being promoted only after they map to an independent contract source.
+
+| Area | Status | Next Step |
+|---|---|---|
+| Workflows and maintained scripts | Bucket-triaged | Keep as gate/advisory/utility unless a workflow changes release meaning. |
+| Edge Deno tests | Gate-triaged | Preserve as Gate 2/Gate 3 security/product-rule evidence. |
+| STT worker, Private engine, ModelManager | Contract-triaged | Done for current release-critical rows; expand only if new engine paths are promoted. |
+| Analytics math/guidance | Contract-triaged | Done for current Cloud transcript baseline and UI evidence. |
+| Mocked E2E/live/canary | Bucket-triaged | Add per-file contract-source rows for each RC-counted file before calling WI-22 done. |
+| Frontend unit/component tests | Partially triaged | Prioritize session/STT/analytics/entitlement files; mark decorative/static shell tests advisory unless they protect a user-facing contract. |
+| Diagnostics, benchmarks, soak, WER baseline | Bucket-triaged | Keep advisory/diagnostic unless a release SLA explicitly promotes one. |
 
 ## RC Gate Structure
 
