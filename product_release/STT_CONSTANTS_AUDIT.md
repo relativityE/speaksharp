@@ -61,10 +61,10 @@ Recommended code home: `frontend/src/services/transcription/sttConstants.ts`
 |---|---|---:|---|
 | Native API | `NativeBrowser.ts` | `SpeechRecognition || webkitSpeechRecognition` | Browser-controlled STT, not app PCM chunks. |
 | Interim results | `NativeBrowser.ts` | `true` | Should be named in the STT constants contract even though not numeric. |
-| Continuous recognition | `NativeBrowser.ts` | `true` | Browser may still end sessions; app restarts on `onend`. |
-| Restart strategy | `NativeBrowser.ts` | immediate microtask, then `retryWithBackoff(0)` | Backoff constants need to be audited in the lower part of `NativeBrowser.ts`. |
+| Continuous recognition | `sttConstants.ts` / `nativeBrowserStrategies.ts` | `false` for configured strategies | Chrome/Edge now use short Web Speech sessions with app-controlled restart. |
+| Restart strategy | `sttConstants.ts` / `NativeBrowser.ts` | `RESTART_DEBOUNCE_MS = 300`, then `retryWithBackoff(0)` on start failure | Backoff constants are named in `NATIVE_STT`. |
 | Final result dedupe | `NativeBrowser.ts` | `Set<number>` result indexes | Lifecycle behavior, not a timing constant, but important for duplicated transcript bugs. |
-| Stable interim behavior | `NativeBrowser.ts` | `lastStableInterim` filtering | Should be documented/tested as Native-specific transcript assembly. |
+| Stable interim behavior | `NativeBrowser.ts` | `lastInterim` replacement | Covered by NativeBrowser contract tests. |
 | Permission check | `NativeBrowser.ts` | `navigator.permissions.query({ name: 'microphone' })` | Browser permission lifecycle belongs in the shared STT readiness contract. |
 
 ## Fixtures And Stimulus
@@ -72,23 +72,21 @@ Recommended code home: `frontend/src/services/transcription/sttConstants.ts`
 | Area | Current source | Current value | Notes |
 |---|---|---:|---|
 | Harvard fixture generation | `scripts/generate-harvard-audio.mjs` | `say -v Alex`, `LEI16@16000` | Good: fixture sample rate matches STT sample rate. |
-| Filler fixture generation | `scripts/generate-fixtures.sh` | `say -r 140 -v Alex`, then `ffmpeg -ar 16000 -ac 1` | Good sample rate, but speaking rate differs from scratch/manual scripts. |
+| Filler fixture generation | `scripts/generate-fixtures.sh` | `say -r 140 -v Alex`, then `ffmpeg -ar 16000 -ac 1` | Good sample rate, but speaking rate differs from manual Native proof script. |
 | Native manual proof script | `scripts/manual-native-chrome-proof.mjs` | `say -v Samantha -r 165` | Different voice/rate from fixtures. Label evidence accordingly. |
-| Scratch Private browser script | `test_private_stt_browser.mjs` | `say -v Samantha -r 160` | Different voice/rate from fixtures. |
-| Scratch capture script | `scratch_capture_run.js` | `say -v Samantha`, no explicit rate | Not comparable unless the rate is recorded. |
 
 ## Contradictions Found
 
 1. Sample rate is duplicated across config, Private, Cloud, TransformersJS, and audio helpers.
-2. Private STT has conflicting minimum-window values: `4.25s`, `5s`, and `8s`.
+2. Private STT now has named first-transcript thresholds, but release evidence still needs a fresh real-human browser artifact.
 3. Private unit tests and comments still assume older polling windows (`500ms` or `1000ms`) while production polls every `250ms`.
 4. Cloud defines both min and max packet sizes, but the implementation visibly derives only the min flush size in the inspected section.
 5. Cloud hardcodes `sample_rate: '16000'` in the provider URL instead of deriving from the same sample-rate constant.
-6. Native Browser has lifecycle constants/settings, but they are embedded as raw behavior rather than named contract values.
+6. Native Browser lifecycle settings are now named, but real Web Speech behavior still requires a fresh Chrome mic artifact.
 7. PauseDetector's rolling-window comment says about 5 seconds at 100ms updates, but the real worklet can deliver much smaller frames.
 8. Private stop-time forced inference bypasses the min-window and silence gate.
 9. Private silence skipping clears live audio but does not clearly clear retained retry audio, so stale retry buffers can survive silence.
-10. Manual/browser/scratch audio stimuli use different voices and rates, so results are not directly comparable unless evidence records stimulus settings.
+10. Manual/browser audio stimuli use different voices and rates, so results are not directly comparable unless evidence records stimulus settings.
 
 ## Proposed STT Constants Module
 
@@ -152,4 +150,3 @@ Do not accept further STT timing changes until:
 3. Unit tests derive sample counts from `secondsToSamples()`.
 4. Browser console evidence records mode, target sample rate, source sample rate, frame cadence, chunk duration, retry duration, and transcript latency.
 5. Manual visible-Chrome Track B passes with logs for Private and Native; Cloud remains optional/cost-gated but should use the same lifecycle evidence format.
-

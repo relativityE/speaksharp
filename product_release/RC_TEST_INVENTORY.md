@@ -205,6 +205,21 @@ Recent release-hardening commits added or tightened the following tests/evidence
 | `soak-test.yml` | Schedule/manual | Durability/memory/API stress. | Advisory unless investigating stability. |
 | `setup-test-users.yml` | Manual | Test user provisioning. | Utility, not a correctness gate. |
 
+## Script Inventory
+
+Scripts are maintained only when they are invoked by package scripts, workflows, or documented release/operator procedures. Everything else must be retired or explicitly marked diagnostic.
+
+| Bucket | Scripts | RC Meaning |
+|---|---|---|
+| Gate runners / CI orchestration | `test-audit.sh`, `run-ci.mjs`, `ci.config.js`, `aggregate-ci.mjs`, `aggregate-playwright.mjs`, `aggregate-vitest.mjs`, `merge-reports.mjs`, `report-ci-timing.mjs`, `run-metrics.sh`, `vitest-ci-reporter.mjs`, `playwright-telemetry-reporter.mjs`, `verify-artifacts.sh`, `verify-build.sh`, `verify-ci-stability.sh` | Maintained Gate 1 / CI evidence plumbing. |
+| Gate 2 security / production hardening | `rc-secret-scan.mjs`, `rc-production-hardening.mjs`, `verify-secret-digest.mjs`, `check-eslint-disable.sh`, `check-test-anti-spy.mjs`, `test-integrity-audit.mjs`, `validate-env.mjs`, `preflight.sh`, `pnpm-only.mjs`, `preinstall.sh` | Maintained Gate 2 / safety plumbing. |
+| Gate 3 / live environment utilities | `setup-test-users.mjs`, `provision-canary.mjs`, `trigger-canary.mjs`, `trigger-soak.mjs`, `live-observability-proof.mjs`, `stripe-price-audit.mjs` | Maintained live/deployed evidence utilities. |
+| Build / local serving utilities | `build.config.js`, `build.config.d.ts`, `serve-e2e.mjs`, `start-server.js`, `generate-lhci-config.js`, `parse-lighthouse.mjs`, `process-lighthouse-report.js`, `print-metrics.mjs`, `update-prd-metrics.mjs`, `validate-tailwind.mjs` | Maintained workflow/support utilities. |
+| STT/model/audio benchmark utilities | `benchmark-assemblyai-ceiling.mts`, `benchmark-filler-ceiling.mts`, `benchmark-whisper-ceiling.mts`, `generate-filler-audio.sh`, `generate-fixtures.sh`, `generate-harvard-audio.mjs`, `download-whisper-model.sh`, `check-whisper-update.sh`, `manual-native-chrome-proof.mjs`, `tools/benchmark-highlighting.ts` | Advisory unless an STT model/provider/performance SLA changes; `manual-native-chrome-proof.mjs` produces Gate 1 evidence when run for RC. |
+| Developer recovery / impact tooling | `detect-impact-automation.mjs`, `detect-impacted-tests.mjs`, `ci/impact-validator.mjs`, `ci-telemetry-utils.mjs`, `dev-init.sh`, `env-stabilizer.sh`, `git-pull-fix.sh`, `vm-recovery.sh`, `tools/inspect-db.ts`, `tools/postinstall-check.ts` | Utility only. Destructive recovery scripts require explicit approval and never count as release evidence. |
+
+Retired during RC cleanup because they were unreferenced, broken, obsolete, or stale local diagnostics: `dump-dom.js`, `screenshot-homepage.js`, `run-screenshots.js`, `provision-visual-user.js`, `reset-and-verify.sh`, `update-model.sh`, `tools/high-fidelity-video-producer.tool.ts`, `tools/quick-video-recorder.tool.ts`, and local `debug_strategy.log`.
+
 ## What Counts For Release Confidence
 
 ### Highest Signal

@@ -54,7 +54,7 @@ Status values:
 | ID | Area | Gate | Status | Required Outcome | Evidence / Notes |
 |---|---|---|---|---|---|
 | RC-40 | Untracked STT scratch artifacts | Hygiene | Done | Remove root/frontend scratch scripts, logs, and screenshots that are not maintained product code, workflow utility, or RC evidence. | Deleted stale untracked artifacts: `scratch_capture_run.js`, `test_private_stt_browser.mjs`, `frontend/scratch_transcribe_native_parallel.*`, `test_run.log`, `frontend/test_run.log`, and stale screenshots. |
-| RC-41 | Script inventory | All | Open | Classify scripts as gate, workflow utility, advisory benchmark, diagnostic, or retirement candidate. | Prevents stale scripts from becoming accidental release process. |
+| RC-41 | Script inventory | All | Done | Classify scripts as gate, workflow utility, advisory benchmark, diagnostic, or retirement candidate. | Added script inventory to `RC_TEST_INVENTORY.md`. Retired unreferenced/broken/stale scripts and local debug log so they cannot masquerade as release process. |
 
 ## Operating Rule
 
