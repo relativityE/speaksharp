@@ -64,6 +64,31 @@ Tests are folded into an RC gate when they prove one of that gate's release-bloc
 | Does it measure speed/quality ceiling but not pass/fail correctness? | Benchmark/advisory. | Promote only if it becomes a release SLA. |
 | Is it a probe used to debug one incident? | Diagnostic/dump-ground. | Retire or promote once the incident becomes a maintained regression. |
 
+## STT Corpus Gate Layers
+
+STT correctness now has two different release layers because they catch different classes of failures.
+
+| Layer | Mic Path | Purpose | Gate Role |
+|---|---|---|---|
+| Fake-device corpus | Chrome fake media device plus checked-in WAV fixtures | Deterministic code-correctness proof for chunking, buffering, RMS gates, worker messages, WER, transcript output, and filler analytics. | RC-counted only for engines proven to receive the intended fixture audio. |
+| Real-mic corpus | `afplay` through the machine's speaker into the real browser microphone | Product-readiness proof for mic permission, hardware input, `AudioContext`, browser audio processing, Native Web Speech provider behavior, transcript, save/history, and analytics. | RC-counted release-time evidence. |
+
+The fake-device layer is not a shortcut around real-mic testing. Fake-device failures usually point at app-controlled code. Real-mic failures point at the full user path and still block RC until triaged. Native Chrome is launch-critical, so its real-mic corpus and journey evidence must be green for the onboarding path to close.
+
+Current fake-device Native probe status:
+
+| Probe | Artifact | Result | RC Meaning |
+|---|---|---|---|
+| Chrome Native Web Speech with `--use-file-for-fake-audio-capture=tests/fixtures/stt-isomorphic/audio/h1_1.wav` | `/private/tmp/speaksharp-native-fake-audio-probe.json` | Web Speech events fired, but transcript was `this one still has a bit next`, not the expected `stale smell old beer lingers`. | Native fake-device WER is diagnostic only until a probe proves the selected fixture audio reaches Web Speech. Private/Cloud fake-device gates can still be developed as deterministic code-correctness checks. |
+
+STT corpus sub-gates:
+
+| Sub-Gate | Corpus | Contract Source | Counted Claim |
+|---|---|---|---|
+| STT-A Accuracy | Ten canonical Harvard sentence WAV/truth fixtures | Ground-truth transcript plus WER arithmetic | Each engine's transcript remains within its calibrated WER floor and produces artifact-backed first-text timing. |
+| STT-B Browser Journey | One or two representative fixtures per engine | Human journey | Recording, transcript, stop/save, history/detail, and analytics complete without fatal console/page/network errors. |
+| STT-C Filler Value | `conv_01.wav`, `conv_02.wav`, and checked-in filler truth | Product rule / math | Filler counts match explicit fixture truth and analytics guidance remains useful. |
+
 ## Contract Source Requirement
 
 Every RC-counted test must identify the independent source of truth it enforces. Coverage from implementation-mirroring tests is not RC confidence.

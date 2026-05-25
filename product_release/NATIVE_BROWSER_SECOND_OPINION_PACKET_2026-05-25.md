@@ -2,7 +2,7 @@
 
 ## Current Verdict
 
-Native Browser STT is still RC-red. The implementation now has the recommended non-continuous Chrome/Edge strategy and detailed trace logging, but the latest browser proof did not produce a useful transcript.
+Native Browser STT is still RC-red and launch-critical. It is the low-friction onboarding STT path that trial users are likely to try first, so it cannot be scoped out or labeled as merely experimental for this release. The implementation now has the recommended non-continuous Chrome/Edge strategy and detailed trace logging, but the latest browser proof did not produce a useful transcript.
 
 ## Evidence Artifact
 
@@ -58,7 +58,7 @@ Specific areas to inspect:
    - Confirm whether this is correct for Chrome with `continuous=false`.
 
 4. Release posture:
-   - If a real human Chrome pass also fails, Native should be labeled browser-dependent/experimental and not treated as the easiest/default path.
+   - If a real human Chrome pass also fails, launch remains blocked until Native is fixed or a replacement low-friction onboarding STT path is proven.
 
 ## Required Next Artifact
 
@@ -71,4 +71,3 @@ Native can only move out of red with a real human Chrome artifact:
   - No repeated 4-word sequence.
   - No unrecovered `onerror`.
   - Session saves and appears in History.
-

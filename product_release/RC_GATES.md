@@ -50,6 +50,7 @@ Examples:
 |---|---|
 | Native Chrome mic proof | Native browser strategy, `NativeBrowser.ts`, STT constants, recording UI/copy, browser-support fallback logic |
 | Private STT proof | `PrivateWhisper.ts`, Private engines/workers, `ModelManager.ts`, audio utilities, STT constants, transcript UI/copy |
+| STT corpus accuracy proof | `PrivateWhisper.ts`, `TransformersJSEngine.ts`, `transformers-js.worker.ts`, `NativeBrowser.ts`, `nativeBrowserStrategies.ts`, `CloudAssemblyAI.ts`, `audioUtils.impl.ts`, `AudioProcessor.ts`, `sttConstants.ts`, `wer.ts`, STT browser harness scripts/config, or any file under `tests/fixtures/stt-isomorphic/` |
 | Analytics truth/usefulness | Analytics/session-analysis utilities, filler-word logic, dashboard/detail UI, persistence hooks |
 | Cloud token / Pro cloud-entitled path | `assemblyai-token`, entitlement/tier logic, usage/quota checks, Supabase deploy, Cloud client code |
 | UX smoke | Onboarding/session UI, mode selector copy, tester instructions, error-state UI |
@@ -94,9 +95,33 @@ Required maintained tests and workflows:
 | Pro Cloud artifact path | `.github/workflows/pro-stt-artifact-matrix.yml`, `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Cloud selected, token issued to Pro, transcript visible, stop/save, history/detail, AI feedback, PDF transcript text |
 | Pro Private artifact/cache path | `.github/workflows/live-release-matrix.yml` with `suite=private-cache`, `tests/live/private-cache.live.spec.ts` | Private starts, caches, saves, and remains usable on second start |
 | Native Chrome mic | `scripts/manual-native-chrome-proof.mjs` | Real Chrome `getUserMedia`, live transcript, stop/save, history, analytics |
+| STT corpus accuracy - deterministic | Harvard WAV/truth fixtures through fake-device browser harness | Code-correctness evidence for chunking, buffering, RMS gates, worker messages, WER scoring, and transcript output against known audio. Native Web Speech may count here only after a probe proves Chrome transcribes the intended fake-audio fixture. |
+| STT corpus accuracy - real mic | Harvard WAV/truth fixtures played with `afplay` through real mic | Product-readiness evidence for the full user audio path. This is the release-time STT evidence for Native Chrome and also validates Private/Cloud under realistic input conditions. |
+| Filler value corpus | `conv_01.wav`, `conv_02.wav`, and fixture truth lists | Expected filler counts are explicit and must match transcript-derived analytics; Harvard WER alone does not prove filler detection. |
 | CI/deploy/canary | `.github/workflows/ci.yml`, `.github/workflows/deploy-supabase-migrations.yml`, production canary workflow | Latest release commit has green CI, deploy, and canary |
 | Session save/history/analytics retrieval | `tests/e2e/analytics-truth.e2e.spec.ts`, `tests/e2e/user-features.e2e.spec.ts`, `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Saved transcript appears in history/detail, analytics values survive reload/export, Cloud PDF includes transcript text |
 | Custom filler words save/retrieval | `tests/live/user-filler-words-persistence.live.spec.ts`, `tests/e2e/user-filler-words.e2e.spec.ts`, `frontend/src/utils/__tests__/fillerWordUtils.test.ts` | Custom words persist, reload, and affect analysis without regex/query breakage |
+
+### STT Corpus Gate Policy
+
+STT release evidence has two complementary layers:
+
+| Layer | Mic Path | Purpose | RC Role |
+|---|---|---|---|
+| Code correctness | Chrome fake media device with checked-in WAV fixtures | Deterministically catches regressions in app-controlled STT code: audio buffering, gates, worker protocol, WER scoring, transcript handling, and filler analytics. | RC-counted for engines proven to receive the intended fixture audio. |
+| Product readiness | Real mic with `afplay` and controlled physical setup | Proves the actual user path: mic permission, `AudioContext`, hardware/browser audio processing, Native Web Speech provider behavior, transcript, save/history, and analytics. | RC-counted release-time evidence for Native, Private, and Cloud. |
+
+A green fake-device run does not substitute for a real-mic pass. A real-mic failure does not by itself identify an app-code bug; it identifies the browser/hardware/provider layer that a user will experience and must be triaged before release.
+
+Sub-gates:
+
+| Sub-Gate | Corpus | Pass Evidence |
+|---|---|---|
+| STT-A Accuracy | Ten canonical Harvard sentence WAV/truth fixtures | Per-engine WER table, transcript, first-text timing, console/page/network errors, and artifact path. Thresholds are set only after a calibration run, then treated as release floors until stale. |
+| STT-B Browser Journey | One or two representative fixtures per engine | Record -> transcript -> stop/save -> history/detail -> analytics completes without fatal console/page/network errors. |
+| STT-C Filler Value | `conv_01.wav`, `conv_02.wav`, and explicit filler truth lists | Transcript-derived analytics show the expected filler counts and actionable guidance. |
+
+Native Chrome is launch-critical for onboarding. It must have real-mic artifact evidence with recognizable transcript, no repetition loop, no unrecovered `onerror`, and a completed save/history/analytics journey. Fake-device Native evidence is diagnostic only until Chrome Web Speech is proven to transcribe the selected fake WAV content.
 
 ## Gate 2 - SAST / Code Review
 

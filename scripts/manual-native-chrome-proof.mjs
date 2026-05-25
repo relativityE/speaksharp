@@ -17,6 +17,8 @@ const SIGNUP_EMAIL = process.env.NATIVE_PROOF_EMAIL || `native-proof-${Date.now(
 const SIGNUP_PASSWORD = process.env.NATIVE_PROOF_PASSWORD || `NativeProof${Date.now()}!`;
 const OUT = process.env.NATIVE_PROOF_OUT || '/private/tmp/native-chrome-proof.json';
 const SPOKEN_SENTENCE = 'Native Chrome microphone proof. The quick brown fox reads clear speech for SpeakSharp release validation.';
+const NATIVE_AUDIO_READY_TIMEOUT_MS = Number(process.env.NATIVE_AUDIO_READY_TIMEOUT_MS || 12_000);
+const NATIVE_AUDIO_READY_GRACE_MS = Number(process.env.NATIVE_AUDIO_READY_GRACE_MS || 300);
 
 function compact(text) {
   return (text || '').replace(/\s+/g, ' ').trim();
@@ -50,6 +52,26 @@ async function speakSentence() {
     await execFileAsync('/usr/bin/say', ['-v', 'Samantha', '-r', '165', chunk], { timeout: 30_000 });
   }
   return { attempted: true, sentence: SPOKEN_SENTENCE };
+}
+
+async function waitForNativeAudioReady(page) {
+  await page.waitForFunction(
+    () => {
+      const trace = window.__NATIVE_BROWSER_TRACE__ || [];
+      return trace.some((entry) => entry.event === 'onaudiostart' || entry.event === 'onspeechstart' || entry.event === 'acoustic_ready');
+    },
+    null,
+    { timeout: NATIVE_AUDIO_READY_TIMEOUT_MS },
+  );
+
+  const readiness = await page.evaluate(() => {
+    const trace = window.__NATIVE_BROWSER_TRACE__ || [];
+    const first = trace.find((entry) => entry.event === 'onaudiostart' || entry.event === 'onspeechstart' || entry.event === 'acoustic_ready');
+    return first ? { event: first.event, t: first.t } : null;
+  });
+
+  await page.waitForTimeout(NATIVE_AUDIO_READY_GRACE_MS);
+  return readiness;
 }
 
 const evidence = {
@@ -123,11 +145,16 @@ try {
   evidence.modeSelected = (await page.getByTestId('stt-mode-select').getAttribute('data-state')) === 'native';
 
   const startButton = page.getByTestId('session-start-stop-button');
+  await page.evaluate(() => {
+    window.__NATIVE_BROWSER_TRACE__ = [];
+    window.__NATIVE_PARALLEL_CAPTURE_TRACE__ = true;
+  });
   await startButton.click();
   await startButton.waitFor({ state: 'visible', timeout: 30_000 });
   await page.waitForFunction(() => document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') === 'true', null, { timeout: 45_000 });
   evidence.recordingStarted = true;
 
+  evidence.nativeAudioReady = await waitForNativeAudioReady(page);
   evidence.audioPlayback = await speakSentence();
   await page.waitForTimeout(8_000);
 
@@ -156,6 +183,19 @@ try {
   }
   evidence.analyticsVisible = /analytics|words per minute|wpm|clarity|filler|session/i.test(compact(await page.locator('body').textContent()));
   evidence.finalUrl = page.url();
+  evidence.nativeTrace = await page.evaluate(() => window.__NATIVE_BROWSER_TRACE__ || []);
+  evidence.nativeParallelCapture = await page.evaluate(() => {
+    const captures = window.__NATIVE_PARALLEL_CAPTURE__ || [];
+    return captures.map((capture) => ({
+      createdAt: capture.createdAt,
+      samples: capture.samples,
+      durationSec: capture.durationSec,
+      sampleRate: capture.sampleRate,
+      rms: capture.rms,
+      peak: capture.peak,
+      wavBytesApprox: typeof capture.wavDataUrl === 'string' ? capture.wavDataUrl.length : 0,
+    }));
+  });
 
   if (!evidence.transcriptVisible) evidence.blockers.push('No non-placeholder live Native transcript from real Chrome/mic path.');
   if (!evidence.saved) evidence.blockers.push('Native session did not expose saved-session marker.');
