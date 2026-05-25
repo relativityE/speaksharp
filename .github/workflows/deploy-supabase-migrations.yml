@@ -36,7 +36,7 @@ jobs:
         env:
           SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
         with:
-          version: 2.75.0
+          version: 2.101.0
 
       - name: Deploy Edge Functions
         working-directory: backend/supabase
@@ -75,7 +75,7 @@ jobs:
         env:
           SUPABASE_CLI_GITHUB_TOKEN: ${{ github.token }}
         with:
-          version: 2.75.0
+          version: 2.101.0
 
       - name: Validate environment secrets
         run: |
