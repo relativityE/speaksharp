@@ -187,7 +187,30 @@ export async function waitForRouteControls(page: Page, route: string, timeout: n
 
   if (pathname === '/session') {
     await page.waitForURL((url) => url.pathname === '/session', { timeout });
+
     const sessionPage = page.getByTestId('session-page');
+    const profileSyncError = page.getByTestId('app-error');
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const routeShell = await Promise.race([
+        sessionPage.waitFor({ state: 'visible', timeout }).then(() => 'session' as const),
+        profileSyncError.waitFor({ state: 'visible', timeout }).then(() => 'profile-error' as const),
+      ]);
+
+      if (routeShell === 'session') {
+        break;
+      }
+
+      logger.warn('[E2E] Profile sync error appeared while waiting for /session; retrying profile hydration.');
+      await page.getByRole('button', { name: /retry sync/i }).click();
+      await profileSyncError.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => undefined);
+
+      if (attempt === 1) {
+        await expect(sessionPage).toBeVisible({ timeout });
+        break;
+      }
+    }
+
     await expect(sessionPage).toBeVisible({ timeout });
 
     const recordingCard = page.getByTestId('live-recording-card');

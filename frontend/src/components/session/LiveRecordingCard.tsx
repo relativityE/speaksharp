@@ -93,7 +93,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         }
     };
     const modeDescriptions: Record<RecordingMode, string> = {
-        native: "Uses your browser's built-in speech service. In Chrome and Edge, audio is sent to Google or Microsoft's servers.",
+        native: "Browser transcription uses your browser's built-in speech recognition. Chrome is recommended. Availability and accuracy vary by browser.",
         private: 'On-device. One-time local model setup required. Nothing leaves your browser after setup.',
         cloud: 'Fastest and most accurate. Pro feature. Audio is processed securely by AssemblyAI.',
         mock: 'Test transcription mode.',
@@ -139,7 +139,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <span className="flex flex-col gap-0.5">
                                         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Browser</span>
                                         <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
-                                            Uses your browser&apos;s built-in speech service. In Chrome and Edge, audio is sent to Google or Microsoft&apos;s servers.
+                                            Browser transcription uses your browser&apos;s built-in speech recognition. Chrome is recommended. Availability and accuracy vary by browser.
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>

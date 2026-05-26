@@ -89,7 +89,7 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     console.log(`LIVE_CLOUD_TOKEN_GATE_EVIDENCE ${JSON.stringify(evidence)}`);
 
     expect(basicResult.status, JSON.stringify(evidence)).toBe(403);
-    expect(basicResult.body?.error, JSON.stringify(evidence)).toMatch(/pro trial or subscription required/i);
+    expect(basicResult.body?.error, JSON.stringify(evidence)).toMatch(/Cloud STT is available with Pro|pro trial or subscription required/i);
     expect(basicResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
     expect(activeTrialResult.status, JSON.stringify(evidence)).toBe(200);
     expect(activeTrialResult.body?.token, JSON.stringify(evidence)).toBeTruthy();

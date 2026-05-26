@@ -25,6 +25,18 @@ describe('soft release tester instructions', () => {
         expect(instructions).toMatch(/runs on your device/i);
         expect(instructions).toMatch(/first words can take about 5 seconds to appear/i);
     });
+
+    it('explicitly covers the current human tester protocol', () => {
+        const instructions = readReleaseDoc('SOFT_RELEASE_TESTER_INSTRUCTIONS.md');
+
+        expect(instructions).toMatch(/Download Private Model/i);
+        expect(instructions).toMatch(/Export a PDF/i);
+        expect(instructions).toMatch(/Custom Words/i);
+        expect(instructions).toMatch(/saved analytics\/session detail/i);
+        expect(instructions).toMatch(/Browser transcription uses your browser's built-in speech recognition/i);
+        expect(instructions).toMatch(/Chrome is recommended/i);
+        expect(instructions).toMatch(/Do not claim Edge support unless an Edge-specific proof has passed/i);
+    });
 });
 
 describe('release candidate gate evidence contract', () => {

@@ -118,14 +118,15 @@ describe('LiveRecordingCard', () => {
         expect(screen.queryByTestId('download-model-button')).toBeNull();
     });
 
-    it('discloses that Browser STT sends Chrome and Edge audio to external speech servers', async () => {
+    it('positions Browser STT as Chrome-recommended and browser-dependent', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" isProUser={true} canUseCloudStt={false} />);
 
-        expect(screen.getByText(/audio is sent to Google or Microsoft's servers/i)).toBeDefined();
+        expect(screen.getByText(/Chrome is recommended/i)).toBeDefined();
+        expect(screen.getByText(/Availability and accuracy vary by browser/i)).toBeDefined();
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
-        expect((await screen.findAllByText(/audio is sent to Google or Microsoft's servers/i)).length).toBeGreaterThan(0);
+        expect((await screen.findAllByText(/Chrome is recommended/i)).length).toBeGreaterThan(0);
     });
 
     it('explains why Private is unavailable for basic or expired-trial users', async () => {

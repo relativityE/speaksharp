@@ -1,5 +1,5 @@
 import { test as base, Page } from '@playwright/test';
-import { programmaticLoginWithRoutes, goToApp } from './helpers';
+import { programmaticLoginWithRoutes } from './helpers';
 import { setupE2EMocks } from './mock-routes';
 
 /**
@@ -47,33 +47,9 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         .forEach(k => localStorage.removeItem(k));
     });
 
-    // 1. Establish Origin & Reset Execution Context
-    await goToApp(page, '/');
-    await page.evaluate(() => {
-      try {
-        // A. Singleton Reset (Fix 5.1/5.2)
-        const win = window as unknown as {
-          __SpeechRuntimeController__?: { __resetForTests: () => void }
-        };
-        if (win.__SpeechRuntimeController__) {
-          win.__SpeechRuntimeController__.__resetForTests();
-          console.log('[E2E] Singleton reset (Base Page Fixture)');
-        }
-
-        // B. Filtered Storage Clearing (Fix 5.3)
-        // Only clear Supabase auth keys to avoid nuking manifest settings 
-        // if they were somehow set earlier (though usually they are set after).
-        Object.keys(localStorage)
-          .filter(k => k.startsWith('sb-'))
-          .forEach(k => localStorage.removeItem(k));
-        
-        console.log('[E2E] Storage isolation complete');
-      } catch (err) {
-        console.warn('[E2E] Isolation failed', err);
-      }
-    });
-
-    // 2. Attach Global Monitors (Console/Errors)
+    // Attach Global Monitors (Console/Errors) before the spec-owned first app load.
+    // Do not boot the app here: route/auth fixtures must install their contracts
+    // first, or profile hydration can race ahead of the mock routes.
     page.on('console', msg => {
       if (msg.type() === 'error') {
         const text = msg.text();

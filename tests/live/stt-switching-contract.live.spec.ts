@@ -11,16 +11,17 @@ import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 const BASE_URL = process.env.BASE_URL;
 const E2E_PRO_EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
 const E2E_PRO_PASSWORD = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
-const E2E_BASIC_EMAIL = process.env.E2E_BASIC_EMAIL;
-const E2E_BASIC_PASSWORD = process.env.E2E_BASIC_PASSWORD;
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const RUN_ID = Date.now();
+const LIVE_TEST_PASSWORD = `SpeakSharp-Live-${RUN_ID}!`;
 
 const TRANSCRIPT_PATTERN = /\b(stale|beer|pepper|beef|swan|park|twister|wild|puppy|quick|brown|fox)\b/i;
 const PLACEHOLDER_TRANSCRIPT_PATTERN = /\b(words appear here|listening)\b/i;
 const MIN_SAVEABLE_RECORDING_MS = 7_000;
 
 type SttMode = 'native' | 'cloud' | 'private';
+type CreatedUser = { id: string; email: string };
 
 type SessionRow = {
   id: string;
@@ -51,6 +52,7 @@ test.use({
 
 test.describe.serial('Live STT switching contract @live', () => {
   let admin: SupabaseClient;
+  const createdUsers: CreatedUser[] = [];
 
   test.beforeAll(() => {
     test.skip(!BASE_URL, 'BASE_URL is required.');
@@ -60,14 +62,30 @@ test.describe.serial('Live STT switching contract @live', () => {
     });
   });
 
+  test.afterAll(async () => {
+    await Promise.allSettled(
+      createdUsers.map((user) => admin.auth.admin.deleteUser(user.id))
+    );
+  });
+
   test.afterEach(async ({ page }) => {
     await stopRecordingIfNeeded(page);
   });
 
   test('Basic user is constrained to Native browser transcription', async ({ page }) => {
-    test.skip(!E2E_BASIC_EMAIL || !E2E_BASIC_PASSWORD, 'E2E Basic credentials are required.');
+    const basicUser = await createLiveUser(admin, `stt-switching-basic-${RUN_ID}@example.com`, {
+      subscription_status: 'basic',
+      trial_started_at: '2024-01-01T00:00:00.000Z',
+      trial_expires_at: '2024-01-01T01:00:00.000Z',
+      daily_usage_seconds: 0,
+      native_usage_seconds: 0,
+      cloud_usage_seconds: 0,
+      stripe_subscription_id: null,
+      subscription_id: null,
+    });
+    createdUsers.push(basicUser);
 
-    await signIn(page, E2E_BASIC_EMAIL!, E2E_BASIC_PASSWORD!);
+    await signIn(page, basicUser.email, LIVE_TEST_PASSWORD);
     await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
     await expect(page.getByTestId('pro-badge')).not.toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('nav-upgrade-button')).toBeVisible({ timeout: 20_000 });
@@ -153,6 +171,34 @@ async function signIn(page: Page, email: string, password: string) {
   await page.getByTestId('email-input').fill(email);
   await page.getByTestId('password-input').fill(password);
   await page.getByTestId('sign-in-submit').click();
+}
+
+async function createLiveUser(
+  admin: SupabaseClient,
+  email: string,
+  profile: Record<string, unknown>
+): Promise<CreatedUser> {
+  const { data, error } = await admin.auth.admin.createUser({
+    email,
+    password: LIVE_TEST_PASSWORD,
+    email_confirm: true,
+  });
+
+  if (error || !data.user) {
+    throw new Error(`Failed to create ${email}: ${error?.message ?? 'no user returned'}`);
+  }
+
+  const { error: profileError } = await admin.from('user_profiles').upsert({
+    id: data.user.id,
+    ...profile,
+  }, { onConflict: 'id' });
+
+  if (profileError) {
+    await admin.auth.admin.deleteUser(data.user.id).catch(() => undefined);
+    throw new Error(`Failed to seed profile for ${email}: ${profileError.message}`);
+  }
+
+  return { id: data.user.id, email };
 }
 
 async function expectProModeDisabled(page: Page, mode: 'private' | 'cloud') {

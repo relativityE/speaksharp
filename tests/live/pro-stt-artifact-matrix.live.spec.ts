@@ -244,6 +244,11 @@ async function assertPdfExport(page: Page, testInfo: TestInfo) {
 
   const pdfText = await extractPdfText(artifactPath);
   expect(pdfText).toContain('SpeakSharp Session Report');
+  expect(pdfText).toContain('Session ID');
+  expect(pdfText).toContain('Speaking Pace');
+  expect(pdfText).toContain('Clarity Score');
+  expect(pdfText).toContain('Total Filler Words');
+  expect(pdfText).toContain('Transcription Mode');
   expect(pdfText).toContain('Transcript');
   expect(pdfText).toMatch(/swan dive|park truck|pepper|twister|quick brown fox|stale smell|old beer/i);
 
@@ -251,6 +256,8 @@ async function assertPdfExport(page: Page, testInfo: TestInfo) {
     filename: downloadedFileName,
     artifact: artifactPath,
     textIncludesTranscript: /swan dive|park truck|pepper|twister|quick brown fox|stale smell|old beer/i.test(pdfText),
+    textIncludesSessionId: pdfText.includes('Session ID'),
+    textIncludesAnalytics: /Speaking Pace|Clarity Score|Total Filler Words|Transcription Mode/.test(pdfText),
     textLength: pdfText.length,
   };
   console.log(`LIVE_PDF_EXPORT_EVIDENCE ${JSON.stringify(evidence)}`);
