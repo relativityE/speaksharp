@@ -1,4 +1,4 @@
-name: STT Ceiling Benchmarks
+name: Controlled STT Benchmarks
 
 on:
   schedule:
@@ -50,8 +50,8 @@ jobs:
           branch: 'chore/benchmark-assemblyai'
           add-paths: tests/STT_BENCHMARKS.json
 
-  benchmark-browser:
-    name: Browser Engine Benchmarks (Private + Native)
+  benchmark-private-browser:
+    name: Private Browser Benchmarks (v2 + v4)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -72,21 +72,23 @@ jobs:
           sudo apt-get install -y espeak-ng ffmpeg
           bash scripts/generate-fixtures.sh
 
-      - name: Run browser benchmark suite
+      - name: Run Private browser benchmark suite
         env:
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
-        run: pnpm exec playwright test tests/live/benchmark-native.live.spec.ts tests/live/benchmark-cpu.live.spec.ts tests/live/benchmark-webgpu.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
+        # Native Web Speech is intentionally excluded: it is browser-dependent
+        # convenience STT, not a corpus-grade benchmark engine.
+        run: pnpm exec playwright test tests/live/benchmark-cpu.live.spec.ts tests/live/benchmark-v4.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
         timeout-minutes: 30  # 5 trials × 38s + WASM init headroom
 
       - name: Open PR with results
         if: success() && inputs.write_results != false
         uses: peter-evans/create-pull-request@v6
         with:
-          commit-message: 'chore: update browser STT ceiling benchmarks'
-          title: '[benchmark] Browser STT ceiling measurement update'
+          commit-message: 'chore: update Private STT ceiling benchmarks'
+          title: '[benchmark] Private STT ceiling measurement update'
           body: |
-            Automated benchmark run (Chromium CPU runner).
-            Note: Whisper (WebGPU) is measured for history but the main ceiling is NOT updated in CI.
+            Automated benchmark run for controlled Private STT engines.
+            Native Web Speech is excluded from WER benchmarking by design.
           branch: 'chore/benchmark-browser'
           add-paths: tests/STT_BENCHMARKS.json

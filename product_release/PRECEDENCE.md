@@ -1,27 +1,12 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-15
+**Last Reviewed:** 2026-05-26
 **Version:** v0.6.19-rc0
-**Last Updated:** 2026-05-15
+**Last Updated:** 2026-05-26
 
 # Operational Precedence Hierarchy
 
-<!-- PRODUCT_RELEASE_SYNC_START -->
-
-## Current Evidence Snapshot (2026-05-15)
-
-| Item | Current Status |
-|---|---|
-| Controlled desktop tester release | GO WITH LIMITATIONS; see `RELEASE_DECISION.md` and `TESTER_RELEASE_MATRIX.md`. |
-| Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
-| Latest release evidence commit | `1066ba6d` (`Use Node 24 artifact actions`). |
-| CI/Test Audit | PASS: GitHub run `25944598514` on `main`. |
-| Production canary | PASS: GitHub run `25944598537` on `main`. |
-| Edge Function deploy | PASS: GitHub run `25944598524` on `main`. |
-| Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
-| Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
-| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
-
-<!-- PRODUCT_RELEASE_SYNC_END -->
+> Precedence contract, not release status.
+> Current ship posture, blockers, and latest run IDs live only in `RELEASE_STATUS.md`.
 
 This document defines the authoritative hierarchy of truth and priority for SpeakSharp. In the event of a conflict between documentation, code, or stakeholder requests during the launch window, this hierarchy MUST be followed strictly.
 
@@ -39,6 +24,12 @@ This document defines the authoritative hierarchy of truth and priority for Spea
 | **6** | **Tests/CI Evidence** | E2E + Unit + Integration + Static Analysis |
 | **7** | **Architecture Intent/Docs** | ARCHITECTURE.md + Design Docs |
 | **8** | **Roadmap/Status/Triage** | Current Status + Backlog + Triage Notes |
+
+## Canonical Release Artifact Rule
+
+Release status may only be taken from `RELEASE_STATUS.md`.
+
+Older reports, bug inventories, second-opinion packets, and forensic audits remain useful evidence, but they are historical. If they conflict with `RELEASE_STATUS.md`, current workflow results, or deployed runtime behavior, the newer canonical source wins.
 
 ---
 

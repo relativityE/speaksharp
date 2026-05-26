@@ -238,7 +238,8 @@ export async function waitForRouteControls(page: Page, route: string, timeout: n
 
 export async function navigateToRoute(page: Page, route: string = '/') {
   await goToApp(page, route);
-  await waitForRouteControls(page, route);
+  const finalPath = new URL(page.url()).pathname;
+  await waitForRouteControls(page, finalPath);
 }
 
 /** @deprecated Use waitForRouteControls. */

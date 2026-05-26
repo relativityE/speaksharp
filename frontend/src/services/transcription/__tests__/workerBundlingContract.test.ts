@@ -39,10 +39,14 @@ describe('worker bundling contract', () => {
       .filter(({ source }) => LEGACY_WORKER_URL_PATTERN.test(source))
       .map(({ file }) => file);
 
-    expect(offenders, [
-      'Web workers must use Vite worker asset imports so deployed builds get fingerprinted worker URLs.',
-      "Use: import workerUrl from './example.worker.ts?worker&url'; new Worker(workerUrl, { type: 'module' });",
-      `Offending files: ${offenders.join(', ') || '(none)'}`,
-    ].join('\n')).toEqual([]);
+    if (offenders.length > 0) {
+      throw new Error([
+        'Web workers must use Vite worker asset imports so deployed builds get fingerprinted worker URLs.',
+        "Use: import workerUrl from './example.worker.ts?worker&url'; new Worker(workerUrl, { type: 'module' });",
+        `Offending files: ${offenders.join(', ')}`,
+      ].join('\n'));
+    }
+
+    expect(offenders).toEqual([]);
   });
 });

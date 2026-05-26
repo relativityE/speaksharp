@@ -1,3 +1,6 @@
+> Archived historical STT evidence.
+> Current STT release positioning lives in `../../RELEASE_STATUS.md`.
+
 # STT Browser Evidence - 2026-05-25
 
 This evidence was captured against local `4173` using Chrome CDP on `9222`, real backend mode (`VITE_SKIP_MSW=true`, `VITE_USE_LIVE_DB=true`), and macOS `say` as the synthetic speaker.

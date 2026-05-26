@@ -6,5 +6,4 @@ Use these current sources instead:
 
 - `product_release/ROADMAP.operational.md`
 - `product_release/BACKLOG.md`
-- `product_release/GITHUB_WORKFLOWS_AUDIT.md`
-- `product_release/RELEASE_READINESS.md`
+- `product_release/RELEASE_STATUS.md`

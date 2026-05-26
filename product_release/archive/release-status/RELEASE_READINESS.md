@@ -1,3 +1,6 @@
+> Archived historical release readiness packet.
+> Current release status lives in `../../RELEASE_STATUS.md`.
+
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-24
 **Version:** v0.6.19-rc0

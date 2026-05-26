@@ -1,3 +1,6 @@
+> Archived historical workflow audit.
+> Current release status lives in `../../RELEASE_STATUS.md`; current gate definitions live in `../../RC_GATES.md`.
+
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-15
 **Version:** v0.6.19-rc0

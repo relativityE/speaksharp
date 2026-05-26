@@ -61,9 +61,9 @@ SpeakSharp is an AI-powered speech coaching application that helps users improve
 
 ## 🗺️ Documentation Map
 
-Before diving deeper, **all new developers must read [docs/OUTLINE.md](./docs/OUTLINE.md)**. 
+Before diving deeper, read [docs/OUTLINE.md](./docs/OUTLINE.md) for the documentation map.
 
-SpeakSharp maintains an extensive, interconnected documentation architecture. `OUTLINE.md` acts as the definitive map ("Single Source of Truth") for where specific types of information (Architecture, Testing Strategy, Roadmaps, Changelogs) are stored, preventing documentation drift and duplication.
+Current release posture, blockers, and latest workflow evidence live in [product_release/RELEASE_STATUS.md](./product_release/RELEASE_STATUS.md). The release-doc inventory and archive pointers live in [product_release/content_list.md](./product_release/content_list.md).
 
 ## Project Structure
 

@@ -1,3 +1,6 @@
+> Archived historical STT constants audit.
+> Current STT release positioning lives in `../../RELEASE_STATUS.md`.
+
 # STT Constants Audit
 
 Date: 2026-05-23

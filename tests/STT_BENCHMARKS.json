@@ -63,11 +63,28 @@
             "environment": "node-cpu-baseline"
           }
         ]
+      },
+      "v4": {
+        "expectedAccuracy": 88.89,
+        "provider": "TransformersJS v4",
+        "history": [
+          {
+            "timestamp": "2026-05-25T00:00:00.000Z",
+            "model": "TransformersJS v4 onnx-community/whisper-tiny.en",
+            "corpus": "harvard-list-1-first3",
+            "trials": 3,
+            "ceiling_wer": 0.1204,
+            "ceiling_accuracy_pct": 87.96,
+            "environment": "local-chromium-worker",
+            "note": "Initial v4 worker mini-corpus: h1_1 11.11% WER, h1_2 25.00% WER, h1_3 0.00% WER. Weekly automation must replace this with full harvard-list-1 evidence."
+          }
+        ]
       }
     },
     "Native": {
       "expectedAccuracy": null,
       "provider": "WebSpeechAPI",
+      "benchmarkPolicy": "Historical measurements are retained for comparison and future investigation. Native Browser STT is excluded from scheduled corpus/WER release benchmarking because Web Speech is browser/server/audio-route dependent.",
       "history": [
         {
           "timestamp": "2026-03-07T13:22:10.929Z",
@@ -84,6 +101,35 @@
           "ceiling_wer": null,
           "ceiling_accuracy_pct": null,
           "environment": "chromium-playwright"
+        },
+        {
+          "timestamp": "2026-05-26T00:00:00.000Z",
+          "corpus": "harvard-h1_1",
+          "trials": 1,
+          "transcript": "stop",
+          "ceiling_wer": 1,
+          "ceiling_accuracy_pct": 0,
+          "environment": "chrome-webspeech-fixture-playback",
+          "note": "Fixture/playback route produced junk transcript and should not be used as a Native release WER benchmark."
+        },
+        {
+          "timestamp": "2026-05-26T00:00:00.000Z",
+          "corpus": "conv_01",
+          "trials": 1,
+          "transcript": "basically we should literally and that",
+          "ceiling_wer": 0.4286,
+          "ceiling_accuracy_pct": 57.14,
+          "environment": "chrome-webspeech-fixture-playback",
+          "note": "Partial/unstable fixture-playback result retained for historical comparison only."
+        },
+        {
+          "timestamp": "2026-05-26T00:00:00.000Z",
+          "corpus": "human-mic-smoke",
+          "trials": 1,
+          "ceiling_wer": null,
+          "ceiling_accuracy_pct": null,
+          "environment": "chrome-desktop-real-mic",
+          "note": "Chrome desktop real-mic journey produced visible transcript and save/history/detail/analytics proof with continuous=true, interimResults=true, maxAlternatives=1. No WER claimed because spoken ground truth was not captured as a corpus fixture."
         }
       ]
     }

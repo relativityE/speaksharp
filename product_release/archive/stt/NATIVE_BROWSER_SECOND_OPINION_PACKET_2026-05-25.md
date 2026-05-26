@@ -1,3 +1,6 @@
+> Archived historical STT reviewer packet.
+> Current STT release positioning lives in `../../RELEASE_STATUS.md`.
+
 # Native Browser STT Second-Opinion Packet - 2026-05-25
 
 ## Current Verdict

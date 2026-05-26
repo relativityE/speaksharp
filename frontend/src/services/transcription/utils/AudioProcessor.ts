@@ -10,7 +10,6 @@
  */
 
 import { AUDIO_DEFAULTS } from './audioDefaults';
-import logger from '@/lib/logger';
 import audioWorkerUrl from './audio-processor.worker.ts?worker&url';
 
 /**

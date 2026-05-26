@@ -1,29 +1,12 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-19
+**Last Reviewed:** 2026-05-26
 **Version:** v0.6.19-rc0
-**Last Updated:** 2026-05-19
+**Last Updated:** 2026-05-26
 
 # Release Risk Tracker (Operational Roadmap)
 
-<!-- PRODUCT_RELEASE_SYNC_START -->
-
-## Current Evidence Snapshot (2026-05-19)
-
-| Item | Current Status |
-|---|---|
-| Controlled desktop tester release | GO WITH LIMITATIONS; see `RELEASE_DECISION.md` and `TESTER_RELEASE_MATRIX.md`. |
-| Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
-| Latest release evidence commit | `69ad3f13` (`Fix E2E final transcript projection`). |
-| CI/Test Audit | PASS: GitHub run `25994869503` on `main`. |
-| Production canary | PASS: GitHub run `26085357729` on `main` schedule; push canary `25994869500` also passed. |
-| Edge Function deploy | PASS: GitHub run `25994869506` on `main`. |
-| Scheduled soak | PASS: GitHub run `26083232887` on `main`. |
-| Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
-| Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
-| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`: fresh account, automatic 60-minute trial, Private STT first, Cloud paid-only, save/history check required. |
-| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
-
-<!-- PRODUCT_RELEASE_SYNC_END -->
+> Roadmap/risk contract, not release status.
+> Current ship posture, blockers, and latest run IDs live only in `RELEASE_STATUS.md`.
 
 This document tracks identified risks and their impact on the 12-hour launch window. It replaces feature-oriented roadmaps during the stabilization phase.
 
@@ -40,8 +23,8 @@ This document tracks identified risks and their impact on the 12-hour launch win
 | **Sentry Ingest** | ✅ OBSERVABILITY API SMOKE PASS | Frontend, Edge, and PostHog provider readback evidence is recorded in `PUBLIC_LAUNCH_LEDGER.md`. | **High**: Blind to launch errors if regressed | No |
 | **Usage Edge CORS** | 🟡 CI/DEPLOY GREEN / HEADER VALIDATION PENDING | `check-usage-limit` uses the shared request-aware CORS helper; Edge Function deploy is green, but deployed header validation should be rechecked after each Edge deploy. | **P1**: JWT still required, but attack surface should match other Edge Functions | No |
 | **Stripe Secret Init** | 🟡 CI/DEPLOY GREEN / LIVE WEBHOOK PENDING | Webhook runtime now lazily validates secrets inside the served handler and returns actionable config errors instead of module-scope crashes; deploy evidence is green, but live webhook/env smoke is pending | **P2/P1 if env missing**: live validation pending | No |
-| **GitHub Canary** | ✅ PASSING | Production canary passed on `main` in scheduled run `26085357729`; CI/Test Audit `25994869503`, Edge Function deploy `25994869506`, and scheduled soak `26083232887` are also green. | **P1**: Keep this green after every deploy | No |
-| **STT Benchmarks** | 🟡 PUBLIC CLAIMS LIMITED | Cloud and Private evidence exists, but Native/WebGPU benchmark claims remain limited. User-facing comparison must continue to say "not benchmarked" where evidence is missing. | **P1 only if benchmark claims are marketed** | Yes |
+| **GitHub Canary** | 🟡 CURRENT RUNS MUST BE READ FROM STATUS SSOT | Canary/CI/RC evidence changes frequently and must not be copied here. Use `RELEASE_STATUS.md` for current workflow posture. | **P1**: Keep this green after every deploy | No |
+| **STT Benchmarks** | 🟡 PUBLIC CLAIMS LIMITED | Private v2, Private v4, and Cloud are the benchmarkable engines in our control. Native Browser STT is browser-dependent convenience STT and must not be marketed as corpus/WER validated unless the exact browser audio route is separately proven. | **P1 only if benchmark claims are marketed** | Yes |
 | **Private Model Cache/Progress** | ✅ CONTROLLED TESTER PASS | Private remains the primary validated Pro path for controlled testers; public ledger records Private artifact evidence. | **P1**: Required for Private STT first-use/second-use trust | No |
 | **Theme / Toast UX** | ✅ CONTROLLED TESTER PASS / P2 POLISH REMAINS | Desktop status/toast/session stability passed controlled burn-down; further visual tuning is post-release unless a new blocker is observed. | **P2**: Polish after tester release | Yes |
 | **AI Parsing** | ✅ PUBLIC LEDGER PASS | AI feedback provider evidence and graceful fallback expectations are recorded in `PUBLIC_LAUNCH_LEDGER.md`. | **P1**: Avoids 500 error on Analytics if regressed | No |
@@ -59,8 +42,8 @@ This document tracks identified risks and their impact on the 12-hour launch win
 2. **Validate AI Suggestions**: Verify the deployed Gemini suggestion path returns safe fallback output on malformed responses and does not 500 the analytics page.
 3. **Stripe Verification**: Complete a live $0.50 transaction to verify webhook parity.
 4. **Env Verification**: Complete the [LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md).
-5. **Canary Maintenance**: Keep GitHub canary and soak green after deploys; latest green evidence is `69ad3f13` plus scheduled May 19 canary/soak.
-6. **Benchmark Workflow Boundary**: Keep user-facing benchmark claims limited. The `STT Ceiling Benchmarks` workflow is currently not launch evidence for Native/WebGPU claims.
+5. **Canary Maintenance**: Keep GitHub canary and soak green after deploys; record changing run IDs only in `RELEASE_STATUS.md`.
+6. **Benchmark Workflow Boundary**: Keep user-facing benchmark claims limited to engines with current benchmark evidence. Native Browser STT is not a corpus/WER release benchmark.
 7. **Usage Edge CORS**: Verify `check-usage-limit` returns request-aware CORS headers for allowed production origins after Edge deploys.
 8. **Soft Release Tester Setup**: Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; ask testers to create a fresh account; the one-hour trial is automatic.
 9. **Production Env Flag Check**: Confirm Vercel production does not set `VITE_TEST_MODE` or E2E/test flags before sending tester invites.

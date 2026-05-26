@@ -1,331 +1,86 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-06
-
+**Last Reviewed:** 2026-05-26
+**Last Updated:** 2026-05-26
 
 # Agent Instructions for SpeakSharp Repository
 
----
+This file is the working guide for agents in the SpeakSharp repo. It should stay durable and procedural. Do not use it for current release status, run IDs, or go/no-go decisions.
 
+## Current Release Truth
 
+- Current release posture, blockers, and latest workflow run IDs live only in [product_release/RELEASE_STATUS.md](./product_release/RELEASE_STATUS.md).
+- Release gate definitions live in [product_release/RC_GATES.md](./product_release/RC_GATES.md).
+- Counted test/workflow inventory lives in [product_release/RC_TEST_INVENTORY.md](./product_release/RC_TEST_INVENTORY.md).
+- Human tester protocol lives in [product_release/SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./product_release/SOFT_RELEASE_TESTER_INSTRUCTIONS.md).
+- Ops dashboard scope lives in [product_release/OPS_HEALTH_DASHBOARD.md](./product_release/OPS_HEALTH_DASHBOARD.md).
+- Historical reports and second-opinion packets are evidence only. If they conflict with `RELEASE_STATUS.md`, the status file wins.
 
+## Operating Principles
 
-To ensure 100% CI reliability, the following surface areas were **FROZEN** during the stabilization sprint. As of v0.6.0, stabilization is finalized and the project is in **Phase 5 (Finalization)**.
+Follow the sequence:
 
-### 📍 Stabilization Roadmap:
-*   Deterministic Navigation (Eliminate `networkidle`) ✅
-*   STT Engine Contract Enforcement (Abstract Base Class) ✅
-*   Heartbeat Stability (Non-silent recovery) ✅
-*   Observability Hardening (CI-blocking lint & Global handlers) ✅
-*   Analytics Decoupling (Non-blocking readiness) ✅
+1. Observe the failure with logs, browser evidence, or a focused test.
+2. Prove the likely boundary before changing code.
+3. Fix the narrowest thing that explains the evidence.
+4. Confirm with the original reproduction or the closest gate-quality proof.
 
-### 🚫 BLOCKED Areas:
-*   **STT Engines**: No new engines or logic changes to existing ones.
-*   **Routing/Layout**: No navigation changes or structural layout shifts.
-*   **Test Helpers**: No modifications to `tests/e2e/helpers.ts` except for contract alignment.
-*   **Env Bridge**: No changes to `TestFlags.ts` or `env.ts` (Frozen Strangler).
-*   **Engine Routing**: No changes to `PrivateSTT.ts` (Frozen Gate).
+Do not revert user work. The worktree may be dirty; inspect before editing and only touch files relevant to the task.
 
-### 🛡️ The Inviolable Sequence
-**OBSERVE → PROVE → FIX → CONFIRM**
-1. **Never FIX before PROVE**: You must reproduce the failure before attempting a fix.
-2. **Never PROVE by reading code alone**: Use high-fidelity probes and trace logs.
-3. **No Production code implementation until fix is confirmed**: Use a "Dumping Ground" spec to validate your hypothesis.
-4. **Final Confirmation**: Fixes must be validated against the original evidence probe.
+## Testing And Gates
 
-### ✅ ALLOWED Areas:
-*   **Contract Enforcement**: Transitioning to `STTEngine` abstract base and `data-route-ready`.
-*   **Test Harness Fixes**: Aligning Playwright fixtures with atomic readiness.
-*   **Observability**: Adding structured logging and error escalation.
+Use package scripts instead of inventing runners.
 
+| Purpose | Command |
+|---|---|
+| Local development | `pnpm dev` |
+| Production build | `pnpm build` |
+| Fast checks | `pnpm test` or `pnpm test:infra` |
+| Unit truth | `pnpm test:unit` |
+| E2E suite | `pnpm test:e2e` |
+| Full local CI parity | `pnpm ci:local` |
+| Release candidate gates | `pnpm rc:gates` |
+| Individual RC gates | `pnpm rc:gate:1:product` through `pnpm rc:gate:5:ux` |
 
+`ci:local` is daily CI confidence. `rc:gates` is release-candidate confidence. If a release-critical change lands after a green run, rerun the relevant gate or document the evidence gap in `RELEASE_STATUS.md`.
 
----
+## STT Release Boundaries
 
-## 🏛️ Invariant Stabilization Principles
+- Private v2, Private v4, and Cloud are the benchmarkable STT paths in our control.
+- Native Browser STT is browser-dependent convenience transcription. Chrome desktop is recommended. Do not treat Native fixture/WER output as release benchmark evidence unless the exact browser audio route is separately proven.
+- Native Chrome desktop uses dictation-style Web Speech configuration: `continuous=true`, `interimResults=true`, `maxAlternatives=1`.
+- Cloud may only be entered by explicit user selection. Private must never silently fall back to Cloud because that changes privacy and cost posture.
+- Private model download must remain explicit user intent: visible download CTA, progress/readiness status, and no silent auto-download.
 
-These tenets govern all stabilization and hardening work in the SpeakSharp repository. They are non-negotiable and must be applied strictly to break "fix-and-fail" loops.
+## Signal And Readiness Discipline
 
-### 🔒 1. The Ruleset (Mechanical Constraint)
-*   **Change one variable at a time**: Never stack fixes or combine refactors with stabilization.
-*   **Atomic Validation**: After each change, run **only** the specific failing test.
-*   **Outcome Verification**: Confirm the outcome changed *exactly* as expected.
-*   **Strict Reversion**: If the outcome is not directly explained by the change → **revert immediately**.
-*   **Problem Integrity**: Do not rename or reinterpret problems; solve them as they exist in the logs.
+- Signals are observable app outputs. They must not change behavior.
+- Flags are inputs/test knobs. They may change behavior.
+- Selectors identify UI elements. They are not readiness proof.
+- Prefer the centralized E2E signal contract when adding or consuming readiness/diagnostic signals.
+- Route helpers should wait for route-specific controls, not only global readiness, when a test needs a specific page to be interactive.
 
-### 🧠 2. The Mental Model (Invariant-Driven)
-*   **Strict System Reality**: Failures are signs that the system has become stricter, exposing pre-existing gaps in observability or lifecycle isolation.
-*   **Invariant Restoration**: Your role is to restore the three core invariants: **Observability** (authoritative signals), **Isolation** (no state leakage), and **Determinism** (readiness-gated execution).
-*   **Mechanical Proof over Narrative**: Rely only on what can be proven in the DOM or logs, never on assumptions of how the code "should" behave.
+## Environment And Safety
 
-### 🧭 3. The Approach (The Inviolable Sequence)
-*   **Observe → Prove → Fix → Confirm**: Never apply a fix without a high-fidelity reproduction probe.
-*   **Observability First**: Fix the signals before the logic. If the test can't see the state, the state doesn't exist for the test.
-*   **Single Source of Truth**: One writer controls one signal. Redundancy is an observability risk.
-*   **Kill the Zombie**: Always unconditionally terminate async processes (watchdogs, intervals) in reset cycles to prevent "state poisoning."
+- Use `rg`/`rg --files` for repository searches.
+- Use `apply_patch` for manual file edits.
+- Do not run destructive cleanup such as `git reset --hard`, broad `git checkout --`, or recovery scripts unless the user explicitly asks.
+- `pnpm reset:clean` is acceptable for local environment instability. Avoid `pnpm reset:env` in dev mode because it can restore files.
+- Secrets are managed through GitHub/Vercel/Supabase systems, not committed `.env` files. Use `gh secret list` only when checking availability.
 
-### 🛠️ 4. Development & Testing Workflow
-*   **Closed-Loop Status**: Keep the user-facing plan/status current during multi-step work. Pause for approval only when a change is risky, destructive, or requires a product/release decision.
-*   **Baseline Transparency**: Use mechanical tallies (pass/fail) to prove convergence at each milestone.
-*   **Tech Debt Isolation**: Log design smells for later paydown; never allow them to drift the stabilization sequence.
+## Documentation Rules
 
----
+- Changing release status, latest run IDs, or current blockers: update only [product_release/RELEASE_STATUS.md](./product_release/RELEASE_STATUS.md).
+- Changing stable product promises: update `product_release/PRD.operational.md`.
+- Changing technical invariants: update `product_release/ARCHITECTURE.operational.md`.
+- Changing launch risk/backlog posture: update `product_release/ROADMAP.operational.md` or `product_release/BACKLOG.md`.
+- Keep archived docs as historical context; do not revive them as current truth.
 
-## 🚨 Critical Environment & Workflow Rules
+## Escalation Format
 
+When blocked, report:
 
-### 1. Mandatory Pre-flight Check (Start Here)
-
-To address persistent environment instability, a new automated pre-flight check has been created. This is now the **mandatory** first step for all sessions.
-
-**Your first action in every session MUST be to execute this script:**
-
-```bash
-pnpm preflight
-```
-
-This script performs a fast, minimal sanity check of your environment to ensure Node.js, pnpm, and all dependencies are correctly installed.
-
-Do not proceed until this script completes successfully. If it fails, follow the "Dead Environment Trap" troubleshooting in `README.md` to stabilize your environment via `pnpm reset:clean`.
-
----
-
-## 🛡️ Project Manifesto & Standards
-
-All coding principles, hardening patterns, and governance rules have been moved to the unified **[.agent/workflows/coding-standards.md](file:///.agent/workflows/coding-standards.md)**. 
-
-Consult that document before making any architectural or implementation decisions.
-
-### 🏗️ SpeakSharp Architecture Patterns
-
-### 💎 Commenting Rules
-*   **No Branding/Numbering**: Never include "Fix #", "Step #", "Expert #", or cryptic numbering like "(T7)" in source code comments. Use only descriptive, functional comments that explain the *why* or the *what*.
-
-### Hardening Patterns (2026-02-12)
-
-The remediation strategy focuses on "defense in depth," addressing vulnerabilities across the frontend, edge functions, and database layers.
-
-  ┌─────────────────────────────────────────────────────────────────────────┐
-  │                    HARDENING ARCHITECTURE OVERVIEW (v3.5.4.1)           │
-  └─────────────────────────────────────────────────────────────────────────┘
-
-  ┌─────────────────────────────┐         ┌─────────────────────────────┐
-  │ CLIENT LAYER (React/Zustand)│         │ LOGIC LAYER (Edge Functions)│
-  │                             │         │                             │
-  │  ┌───────────────────────┐  │         │  ┌───────────────────────┐  │
-  │  │ LocalErrorBoundary    │  │         │  │ safeCompare (const-T) │  │
-  │  └──────────┬────────────┘  │         │  └──────────┬────────────┘  │
-  │             │               │         │             │               │
-  │        (Isolation)          │         │        (Security)           │
-  │             ▼               │         │             ▼               │
-  │  ┌───────────────────────┐  │         │  ┌───────────────────────┐  │
-  │  │ useSessionLifecycle   │──┼────┐    │  │ trial entitlement DB  │  │
-  │  └───────────────────────┘  │    │    │  └──────────┬────────────┘  │
-  │  ┌───────────────────────┐  │    │    │             │               │
-  │  │ useTransService Hook  │  │    │    │        (Integrity)          │
-  │  └───────────────────────┘  │    │    │             ▼               │
-  │             │               │    │    │  ┌───────────────────────┐  │
-  │        (Isolation)          │    │    │  │ update_user_usage RPC │  │
-  │             ▼               │    │    │  └──────────┬────────────┘  │
-  │  ┌───────────────────────┐  │    │    │             │               │
-  │  │ Single-Chain Service  │  │    │    └─────────────┼───────────────┘
-  │  └──────────┬────────────┘  │    │                  │
-  │             │               │    │                  │ (Atomic)
-  │        (Stability)          │    │                  ▼
-  │             ▼               │    │   ┌───────────────────────────────────┐
-  │  ┌───────────────────────┐  │    │   │      DATA LAYER (Supabase)        │
-  │  │ Triple-Tracing Proxy  │──┼────┘   │                                   │
-  │  └───────────────────────┘  │        │  ┌─────────────────────────────┐  │
-  └─────────────────────────────┘        │  │   FOR UPDATE Row Locking    │  │
-                                         │  └─────────────────────────────┘  │
-                                         │           ▲                       │
-                                         │           │ (Cleanup)             │
-                                         │  ┌─────────────────────────────┐  │
-                                         │  │     ON DELETE CASCADE       │  │
-                                         │  └─────────────────────────────┘  │
-                                         └───────────────────────────────────┘
-
-These core patterns were established during the Hardening cycle and refined in v3.6.0 to ensure system-wide stability and security.
-
-### 🎙️ Acoustic Ground Truth Pipeline (Added v0.6.1)
-
-To mathematically verify STT accuracy and ensure zero-regression on NLP models (like filler word counting), SpeakSharp utilizes a dedicated **Acoustic Ground Truth Metric Pipeline**. Agents must adhere to the following when modifying NLP or core audio processing:
-1. **Isolated Validation**: STT accuracy is intentionally decoupled from standard fast-running UI E2E tests to preserve CI execution speed.
-2. **Audio Synthesis**: `scripts/generate-filler-audio.sh` uses macOS `say` and `ffmpeg` to deterministically render 16kHz `.wav` payloads containing specific phonemes ("ums", "ahs", etc.).
-3. **Evaluation Script**: `scripts/benchmark-filler-ceiling.mts` executes these raw `.wav` fixtures through specific machine engines (`Whisper` or `AssemblyAI`) to calculate an exact Word Error Rate (WER).
-4. **Binary Node Dependencies**: When working with machine-learning tools (`@xenova/transformers`, `sharp`, `onnxruntime-node`), architecture-specific binaries (e.g., `darwin-arm64v8`) must be managed carefully. If modifying dependencies in these deep trees, ensure explicit `npm rebuild` within the nested `node_modules` is preserved if required.
-
----
-
-### 2. The Local Command Ladder (Single Source of Truth for Testing)
-
-The primary daily local gate is `pnpm test:full`. Use the explicit command ladder from `package.json`: `pnpm test:infra` for fast health, `pnpm test:unit` for Vitest truth, `pnpm test:e2e` for the full mocked Playwright suite, `pnpm test:full` for the full local gate, and `pnpm ci:full` / `pnpm ci:github` for CI parity/orchestration.
-
-Release-candidate validation is separate from daily CI. Use `pnpm rc:gates` or `pnpm run audit` for the full RC suite, and `pnpm rc:gate:1:product` through `pnpm rc:gate:5:ux` for targeted gate checks. Do not add full RC gates to the main push/PR CI pipeline unless the team explicitly promotes that coverage into everyday correctness.
-
-*   **Always use these scripts for validation.** Do not invent final-validation runners.
-*   Keep `ci:full` aligned with GitHub Actions behavior before any production release.
-
-### 3. Selective Use of `scripts/env-stabilizer.sh`
-
-The `./scripts/env-stabilizer.sh` script (via `pnpm reset:env`) is a powerful tool for recovering a broken environment in CI, but it is **DESTRUCTIVE** in dev mode (it runs `git restore .`).
-
-*   Run `pnpm preflight` first.
-*   If instability persists (e.g., hanging tests, port conflicts), run **`pnpm reset:clean`**. This kills stale processes and wipes Vite caches without touching your code.
-*   **NEVER** run `pnpm reset:env` in dev mode if you have uncommitted changes.
-*   Escalate to the user **before using** `./scripts/vm-recovery.sh` or `pnpm reset:env ci`.
-*   Always read `README.md` to understand setup, workflow, and scripts.
-
-### 4. Handling Silent Crashes in E2E Tests
-
-The E2E test environment has known incompatibilities with heavy WebAssembly-based speech recognition libraries used for on-device transcription. These libraries are loaded via dynamic imports.
-
-*   **Symptom:** When a test triggers the import of these heavy WASM modules, the browser can crash instantly and silently, resulting in a blank screenshot with no console or network errors. This is a fatal, untraceable error.
-*   **Solution:** A source-code-level guard is in place. A `window.TEST_MODE = true` flag is injected by the test setup. The application code (`frontend/src/config/TestFlags.ts`) checks for this flag and conditionally skips mocks if `VITE_USE_REAL_DATABASE` is true to prevent "Identity Hijack" in live tests.
-*   **Implication:** Do not remove this flag or the corresponding check in the application code. If you encounter a similar silent crash, investigate for other dynamic imports of heavy, WebAssembly-based libraries.
-
-### 5. CI Robustness: Standard Subshell Pattern
-To prevent directory drift in CI background processes (e.g., during Lighthouse CI), always use subshells `()` for backgrounded tasks:
-```bash
-(cd frontend && timeout 10 pnpm preview --port 4173 &)
-```
-This ensures the main CI shell's working directory remains stable for subsequent commands (like `node scripts/generate-lhci-config.js`).
-
----
-
-## ⚡ Non-negotiable rules
-
-The core non-negotiable rules for environment stability, testing integrity, and PR submission have been moved to **[.agent/workflows/coding-standards.md](file:///.agent/workflows/coding-standards.md#%E2%9A%A1-non-negotiable-rules)**.
-
-Consult that document for:
-- Environment Setup & Restoration
-- Diagnostic Protocol
-- PR Expectations
-- Absolute Non-Negotiables
-
-___
-
-## ⚡ Quick Reference – Non-Negotiable Rules
-
-6. ✅ **Hardening Protocols** – All agents MUST strictly follow these new stability patterns:
-    *   **Check-Then-Act Provisioning**: All heavy resource acquisition (e.g., model downloads) MUST be decoupled. Background pulses (`warmUp`) probe availability and stop at `DOWNLOAD_REQUIRED`. Explicit user intent MUST transition the FSM to `DOWNLOADING` before proceeding to `strategy.init()`.
-    *   **STT Engine Contract Enforcement**: All engines MUST extend the `STTEngine` abstract base class, ensuring a deterministic lifecycle (`start`, `stop`) and heartbeat monitoring. See `STTEngine.ts` or `PrivateSTT.ts`.
-    *   **Analytics Decoupling**: Telemetry events MUST be buffered via `AnalyticsBuffer` to prevent blocking the UI thread or readiness signals. See `AnalyticsBuffer.ts`.
-    *   **Forensic Signaling Infrastructure**: Use `e2eProbe.ts` as the single authoritative source for internal state telemetry. Never add new `window` properties or custom bridge methods directly to service logic.
-2.  ✅ **Codebase Context** – Inspect `/frontend/src`, `/tests` (E2E/live/support), `/frontend/tests/integration` (legacy integration tests), `/backend/supabase/functions`, and `/docs` before acting.
-3.  ❌ **No Code Reversals Without Consent** – Never undo user work.
-4.  ⏱️ **Timeout Constraint** – Every command must complete within 7 minutes.
-5.  ✅ **Approved Scripts** – Use the current `package.json` scripts for validation and development. The important entry points are:
-
-    | Purpose | Command |
-    |---|---|
-    | Local development | `pnpm dev` |
-    | Production build | `pnpm build` |
-    | Fast default health check | `pnpm test` / `pnpm test:infra` |
-    | Unit truth | `pnpm test:unit` |
-    | Edge Function tests | `pnpm test:edge` |
-    | Full mocked local gate | `pnpm test:full` |
-    | CI parity/orchestrator | `pnpm ci:full` / `pnpm ci:github` |
-    | Full RC gate suite | `pnpm rc:gates` / `pnpm run audit` |
-    | Individual RC gates | `pnpm rc:gate:1:product` through `pnpm rc:gate:5:ux` |
-    | Playwright Chromium install | `pnpm pw:install` |
-    | All Playwright browsers | `pnpm pw:install:all` |
-
-    **Script Taxonomy:** Use `test:*` for development checks, `ci:*` for CI parity/orchestration, and `rc:*` for release-candidate gates. See `README.md` and `product_release/RC_GATES.md` for the current command reference.
-    
-    **Playwright Browsers:** Browser installation is NOT automatic. After `pnpm install`, run `pnpm pw:install` to install Chromium for E2E testing.
-    
-    **Terminology Clarification:**
-    - **Infrastructure Probe**: Refers specifically to `tests/e2e/infra.probe.e2e.spec.ts`. This is the authoritative T=0 environment probe, performing a "Deterministic, Single-Path" validation (Preflight + 1 E2E Journey).
-    
-    **CRITICAL:** `ci:full` is the local CI parity gate. RC gates are a separate release-time layer. If either diverges from the documented GitHub workflows, repair or document the drift before release.
-    
-    **New Configuration Scripts (2025-11-28):**
-    - `build.config.js` - Centralized port configuration (DEV: 5173, PREVIEW: 4173)
-    - `generate-lhci-config.js` - Dynamic Lighthouse CI config generation
-    - `process-lighthouse-report.js` - Robust JSON parsing (replaces `jq`)
-
-6. ✅ **Foreground Logging** – All E2E tasks must run in the foreground with live logs (`tee`) for traceability.
-
----
-
-## 🔍 Task Workflow
-
-1. **Contextual Review** – Read `/docs` and `README.md` before acting.
-    - **Handling Secrets**: Critical credentials (like `ASSEMBLYAI_API_KEY`) are managed via **GitHub Secrets**, not `.env` files. Run `gh secret list` to verify available secrets.
-    - **Cloud Execution**: Consult `tests/TEST_PLAYBOOK.md` to understand how tests are dispatched to the GitHub Cloud via YAML scripts (e.g., `ci:dispatch:soak`).
-2. **Stabilize Environment** – Run **`pnpm reset:clean`** if instability signs (port conflicts, hanging tests) appear. Only use `reset:env` if instructed by the user and you have no uncommitted work.
-3. **Grounding** – Review current workflows, scripts, and audit runners.
-4. **Codebase Deep Dive** – Inspect actual code, not assumptions.
-5. **Strategic Consultation** – Present root cause + 2–3 solution paths **before major changes**.
-6. **Implementation** – Follow coding standards, architecture principles, and scripts.
-7. **Validation** – Complete Pre-Check-In List (see below).
-8. **Submission** – Ask user **before running recovery scripts** (`./scripts/vm-recovery.sh`).
-
----
-
-## 🚦 Pre-Check-In List (MANDATORY)
-
-*Complete before any commit or PR:*
-
-1.  **Run Local Audit Script**
-    ```bash
-    pnpm test:full
-    ```
-    Must pass lint, typecheck, all unit tests, and the full E2E suite.
-
-2.  **Mandatory Pre-Push Validation**
-    Before pushing to `main`, you MUST run:
-    ```bash
-    pnpm ci:full
-    ```
-    This runs the local CI parity/orchestrator. If it fails or diverges from GitHub Actions, DO NOT PUSH a release candidate. Fix the issues or document the parity gap first.
-
-3.  **Supabase Migration Protocol**
-     Required for any PR containing a database migration:
-     - [ ] Ran: `pnpm supabase gen types typescript --local > frontend/src/types/database.types.ts`
-     - [ ] Updated mock factories in `tests/support/factories/` to include new columns
-     - [ ] Ran relevant factory/mock parity checks for the touched data path. Prefer targeted Vitest or Playwright specs over passing unsupported grep flags through `pnpm test`.
-     - [ ] Verified mock headers match PostgREST spec for any new .single() queries
- 
- 4.  **Documentation (SSOT)**
-    *   Review and update the seven mandatory documents as per `docs/OUTLINE.md`: `README.md`, `AGENTS.md`, `docs/OUTLINE.md`, `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/CHANGELOG.md`.
-
-5.  **Branch & Commit Hygiene**
-    *   Branches: `feature/...`, `fix/...`, `chore/...`.
-    *   Commit messages must clearly summarize the changes and their impact.
-
----
-
-## 📢 Escalation Protocol
-
-If blocked:
-
-1.  Summarize the problem.
-2.  List what you tried.
-3.  Provide hypotheses.
-4.  Offer 2–3 solution paths with pros/cons.
-5.  **Pause and wait for user guidance** before proceeding.
-
-Escalation format (required)
-
-If you must escalate, submit a single message with:
-One-line result (what you attempted and outcome).
-Attached artifacts (trace.zip, run.log, screenshots).
-File evidence list (path:lines + snippets).
-Two actionable next steps (with diffs) and the one you recommend.
-
----
-
-## ⚡ Behavioral checklist (short)
-
-Think like a senior: diagnose → propose → try → attach evidence → escalate.
-No “try one quick thing and ask” — do work first.
-Be concise, factual, and cite code.
-
-___
-
-## 🔐 Absolute Non-Negotiables
-
-Moved to **[.agent/workflows/coding-standards.md](file:///.agent/workflows/coding-standards.md#%F0%9F%94%90-absolute-non-negotiables)**.
-
----
+1. One-line result.
+2. Evidence: logs, artifacts, screenshots, and file references.
+3. Hypotheses ranked by likelihood.
+4. Two or three next options with pros/cons.
+5. The option you recommend.

@@ -1,0 +1,95 @@
+{
+  "generatedAt": "2026-05-26T22:25:40.957Z",
+  "baseUrl": "https://speaksharp-public.vercel.app",
+  "repo": "relativityE/speaksharp",
+  "runContext": "local shell",
+  "summary": {
+    "pass": 1,
+    "warn": 0,
+    "fail": 0,
+    "skip": 8
+  },
+  "checks": [
+    {
+      "name": "App",
+      "question": "Can users reach SpeakSharp?",
+      "status": "pass",
+      "detail": "Production app HTTP 200",
+      "latencyMs": 175,
+      "drilldownUrl": "https://speaksharp-public.vercel.app",
+      "checkedAt": "2026-05-26T22:25:41.133Z"
+    },
+    {
+      "name": "Vercel API",
+      "question": "Can we read the latest production deployment?",
+      "status": "skip",
+      "detail": "missing=VERCEL_TOKEN",
+      "latencyMs": 0,
+      "drilldownUrl": null,
+      "checkedAt": "2026-05-26T22:25:41.133Z"
+    },
+    {
+      "name": "Supabase API",
+      "question": "Can clients reach Auth, REST, and Edge Functions?",
+      "status": "skip",
+      "detail": "missing=SUPABASE_URL|VITE_SUPABASE_URL",
+      "latencyMs": 0,
+      "drilldownUrl": null,
+      "checkedAt": "2026-05-26T22:25:41.133Z"
+    },
+    {
+      "name": "AssemblyAI API",
+      "question": "Can Cloud STT provider credentials reach AssemblyAI?",
+      "status": "skip",
+      "detail": "missing=ASSEMBLYAI_API_KEY",
+      "latencyMs": 0,
+      "drilldownUrl": null,
+      "checkedAt": "2026-05-26T22:25:41.133Z"
+    },
+    {
+      "name": "Gemini API",
+      "question": "Can AI suggestions provider credentials reach Gemini?",
+      "status": "skip",
+      "detail": "missing=GEMINI_API_KEY|GOOGLE_API_KEY",
+      "latencyMs": 0,
+      "drilldownUrl": null,
+      "checkedAt": "2026-05-26T22:25:41.133Z"
+    },
+    {
+      "name": "Stripe API",
+      "question": "Can billing credentials reach Stripe and read product prices?",
+      "status": "skip",
+      "detail": "missing=STRIPE_SECRET_KEY",
+      "latencyMs": 0,
+      "drilldownUrl": null,
+      "checkedAt": "2026-05-26T22:25:41.133Z"
+    },
+    {
+      "name": "Sentry API",
+      "question": "Can we query Sentry project health?",
+      "status": "skip",
+      "detail": "missing=SENTRY_ORG",
+      "latencyMs": 0,
+      "drilldownUrl": null,
+      "checkedAt": "2026-05-26T22:25:41.133Z"
+    },
+    {
+      "name": "PostHog API",
+      "question": "Can we query PostHog analytics?",
+      "status": "skip",
+      "detail": "missing=POSTHOG_PROJECT_ID",
+      "latencyMs": 0,
+      "drilldownUrl": null,
+      "checkedAt": "2026-05-26T22:25:41.133Z"
+    },
+    {
+      "name": "GitHub API",
+      "question": "Can we query repository metadata and release workflows?",
+      "status": "skip",
+      "detail": "missing=GITHUB_TOKEN|GH_TOKEN|GH_PAT",
+      "latencyMs": 0,
+      "drilldownUrl": null,
+      "checkedAt": "2026-05-26T22:25:41.133Z"
+    }
+  ]
+}

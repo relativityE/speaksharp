@@ -41,7 +41,7 @@ describe('soft release tester instructions', () => {
 
 describe('release candidate gate evidence contract', () => {
     it('requires latest complete passing artifacts, not stale passing evidence', () => {
-        const readiness = readReleaseDoc('RELEASE_READINESS.md');
+        const readiness = readReleaseDoc('RELEASE_STATUS.md');
 
         expect(readiness).toMatch(/latest complete passing run/i);
         expect(readiness).toMatch(/newer run fails any required criterion/i);
@@ -50,7 +50,7 @@ describe('release candidate gate evidence contract', () => {
     });
 
     it('folds the STT binary gates into their parent RC gates with named artifacts', () => {
-        const readiness = readReleaseDoc('RELEASE_READINESS.md');
+        const readiness = readReleaseDoc('RELEASE_STATUS.md');
 
         expect(readiness).toMatch(/G6 Fresh Trial Private STT Transcript\/Save\/History Path/i);
         expect(readiness).toMatch(/SESSION_LIFECYCLE_WARMUP/i);

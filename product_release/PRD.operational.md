@@ -1,27 +1,12 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-15
+**Last Reviewed:** 2026-05-26
 **Version:** v0.6.19-rc0
-**Last Updated:** 2026-05-15
+**Last Updated:** 2026-05-26
 
 # SpeakSharp Operational PRD (The Contract)
 
-<!-- PRODUCT_RELEASE_SYNC_START -->
-
-## Current Evidence Snapshot (2026-05-15)
-
-| Item | Current Status |
-|---|---|
-| Controlled desktop tester release | GO WITH LIMITATIONS; see `RELEASE_DECISION.md` and `TESTER_RELEASE_MATRIX.md`. |
-| Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
-| Latest release evidence commit | `1066ba6d` (`Use Node 24 artifact actions`). |
-| CI/Test Audit | PASS: GitHub run `25944598514` on `main`. |
-| Production canary | PASS: GitHub run `25944598537` on `main`. |
-| Edge Function deploy | PASS: GitHub run `25944598524` on `main`. |
-| Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
-| Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
-| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
-
-<!-- PRODUCT_RELEASE_SYNC_END -->
+> Contract document, not release status.
+> Current ship posture, blockers, and latest run IDs live only in `RELEASE_STATUS.md`.
 
 This document defines the user-visible guarantees, failure behaviors, and operational constraints that the SpeakSharp platform MUST satisfy for the v0.6.19-rc0 release.
 
@@ -41,7 +26,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 - **Cloud Streaming Audio Contract**: Cloud STT MUST send AssemblyAI PCM audio chunks between 50 ms and 1000 ms long. At the declared 16 kHz sample rate, this means each binary WebSocket payload MUST contain 800-16000 samples. SpeakSharp uses 100 ms chunks (1600 samples) as the default live-microphone target. Sending raw browser callback frames directly is prohibited because tiny frames can be interpreted by AssemblyAI as invalid input duration and rejected before transcription.
 
 ### UX Expectations
-- **Supported Browsers**: Chrome (Desktop), Safari (Desktop/iOS).
+- **Supported Browser Positioning**: Chrome desktop is recommended for Browser transcription. Availability and accuracy vary by browser. Edge/Safari/iOS must not be claimed as verified unless a browser-specific proof passes start, transcript, save, history/detail, and analytics.
 - **Offline Mode**: Private STT requires an initial download but must function without internet thereafter.
 - **CI Reporting**: Local CI/SQM scripts print generated coverage and quality metrics to the console. Markdown coverage tables are not automatically rewritten during local runs.
 
@@ -82,6 +67,7 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 - **Conversion Rate**: Target 2% from Basic to Pro.
 - **STT Accuracy**: WER < 10% for Private, < 8% for Cloud.
 - **Cloud Live Proof**: Cloud release validation requires a live transcript against the canonical `.wav` fixture and matching ground-truth text. Token `200` and WebSocket open are readiness evidence only; success requires non-placeholder transcript text and WER < 8%.
+- **Native Benchmark Boundary**: Native Browser STT is browser-dependent convenience STT. It is not a corpus-grade WER benchmark engine unless the exact fake/fixture audio route is separately proven to reach the browser recognizer.
 - **Retention**: > 30% Day-7 retention for active practitioners.
 
 ---

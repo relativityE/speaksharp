@@ -1,27 +1,12 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-15
+**Last Reviewed:** 2026-05-26
 **Version:** v0.6.19-rc0
-**Last Updated:** 2026-05-15
+**Last Updated:** 2026-05-26
 
 # Operational Architecture Invariants
 
-<!-- PRODUCT_RELEASE_SYNC_START -->
-
-## Current Evidence Snapshot (2026-05-15)
-
-| Item | Current Status |
-|---|---|
-| Controlled desktop tester release | GO WITH LIMITATIONS; see `RELEASE_DECISION.md` and `TESTER_RELEASE_MATRIX.md`. |
-| Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
-| Latest release evidence commit | `1066ba6d` (`Use Node 24 artifact actions`). |
-| CI/Test Audit | PASS: GitHub run `25944598514` on `main`. |
-| Production canary | PASS: GitHub run `25944598537` on `main`. |
-| Edge Function deploy | PASS: GitHub run `25944598524` on `main`. |
-| Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
-| Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
-| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
-
-<!-- PRODUCT_RELEASE_SYNC_END -->
+> Architecture contract, not release status.
+> Current ship posture, blockers, and latest run IDs live only in `RELEASE_STATUS.md`.
 
 This document defines the structural invariants and authoritative sources of truth for the SpeakSharp platform. These rules govern system behavior and take precedence over design patterns or implementation preferences.
 
@@ -74,9 +59,28 @@ This document defines the structural invariants and authoritative sources of tru
 ### Resource Protocol (Check-Then-Act)
 - All heavy resources (Offline Models) MUST be probed for availability before acquisition.
 - Acquisition MUST be triggered by explicit user intent, not background automation.
-- For the launch baseline, Private STT MUST use the deterministic CPU/Transformers.js path first, backed by same-origin model assets and browser cache. WebGPU/WhisperTurbo is an accelerated path only after support is confidently verified or explicitly selected for validation.
-- Native is an explicit recovery/baseline alternative after Private cannot run. Cloud is not part of the Private ladder and may only be entered by explicit user selection.
+- For the launch baseline, Private STT MUST use controlled local Transformers.js engines backed by same-origin worker/model assets and browser cache. Private model download MUST remain user initiated.
+- Native Browser STT is a browser-dependent convenience path. Chrome desktop uses dictation-style Web Speech configuration; other browsers require browser-specific proof before being marketed as verified.
+- Cloud is not part of the Private ladder and may only be entered by explicit user selection.
 
 ### Edge Function Perimeter
 - Public Edge Functions MUST use the shared request-aware CORS helper unless a documented exception exists.
 - Secrets SHOULD be loaded lazily inside handlers or guarded with actionable error responses; module-scope non-null assertions create cold-start crash risk.
+
+### Ops Health Data Path
+
+SpeakSharp ops health is split into a detailed machine record and a simplified operator view:
+
+```text
+GitHub Actions generates detailed ops-health.json
+        ↓
+GitHub uploads ops-health.json and ops-health.md as workflow artifacts
+        ↓
+Future Vercel protected admin page renders a simplified view from the JSON
+```
+
+- GitHub Actions is the credential-backed generator because it can access repository secrets without exposing them to the browser.
+- `ops-health.json` is the detailed diagnostic source of truth: status, short evidence, latency, timestamp, run context, and drill-down URL.
+- `ops-health.md` is the interim operator summary for GitHub workflow summaries and artifacts.
+- A future protected Vercel admin page should render the simple human dashboard from the JSON, not run vendor checks from the browser.
+- Vendor secrets MUST remain server-side in GitHub Actions, Supabase, or a future server-side admin endpoint; they MUST NOT be exposed to frontend code.

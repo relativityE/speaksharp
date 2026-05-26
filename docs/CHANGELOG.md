@@ -5,5 +5,5 @@ This historical changelog was retired because it contained obsolete entitlement 
 Use Git history and the current release docs for launch decisions:
 
 - `product_release/PUBLIC_LAUNCH_LEDGER.md`
-- `product_release/RELEASE_DECISION.md`
+- `product_release/RELEASE_STATUS.md`
 - `product_release/ROADMAP.operational.md`

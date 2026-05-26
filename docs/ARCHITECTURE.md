@@ -5,6 +5,5 @@ This historical architecture document was retired because it described obsolete 
 Use these current sources instead:
 
 - `product_release/PRECEDENCE.md`
-- `product_release/RELEASE_READINESS.md`
-- `product_release/LIVE_TEST_COMBINATIONS.md`
+- `product_release/RELEASE_STATUS.md`
 - `product_release/RC_GATES.md`

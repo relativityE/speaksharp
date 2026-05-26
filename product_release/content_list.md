@@ -1,31 +1,45 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-19
+**Last Reviewed:** 2026-05-26
 **Version:** v0.6.19-rc0
-**Last Updated:** 2026-05-19
+**Last Updated:** 2026-05-26
 
 # Operational Release Artifacts (product_release/)
 
-<!-- PRODUCT_RELEASE_SYNC_START -->
+> Directory inventory, not release status.
+> Current ship posture, blockers, and latest run IDs live only in `RELEASE_STATUS.md`.
 
-## Current Evidence Snapshot (2026-05-19)
+This directory contains both current release controls and historical evidence packets. The most important cleanup rule is simple: do not treat every file in this directory as equally authoritative.
 
-| Item | Current Status |
+## Canonical Current Artifacts
+
+| Artifact | Current Role | Redundancy Status |
+|---|---|---|
+| [RELEASE_STATUS.md](./RELEASE_STATUS.md) | Current go/no-go posture, blockers, latest run IDs, and current STT release claims. | Single source of truth for changing release status. |
+| [PRECEDENCE.md](./PRECEDENCE.md) | Defines truth hierarchy and conflict resolution. | Canonical. |
+| [RC_GATES.md](./RC_GATES.md) | Defines release gates, evidence freshness, SAST/DAST/SCA terms, and STT corpus policy. | Canonical procedure; current run state belongs in `RELEASE_STATUS.md`. |
+| [RC_TEST_INVENTORY.md](./RC_TEST_INVENTORY.md) | Maps counted tests/workflows to RC gates. | Canonical inventory. |
+| [SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./SOFT_RELEASE_TESTER_INSTRUCTIONS.md) | Copy/paste human tester protocol. | Canonical tester-facing copy. |
+| [OPS_HEALTH_DASHBOARD.md](./OPS_HEALTH_DASHBOARD.md) | Simple vendor/tool health dashboard scope. | Canonical ops monitoring scope. |
+| [LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md) | Runtime secrets/config checklist. | Canonical for env/config only; snapshot is older and should not be used for ship status. |
+| [PUBLIC_LAUNCH_LEDGER.md](./PUBLIC_LAUNCH_LEDGER.md) | Broad public-launch evidence ledger. | Canonical for broad public launch only, not soft tester status. |
+
+## Historical Or Superseded Artifacts
+
+These are intentionally retained because they contain useful evidence, root-cause analysis, or reviewer context. They are redundant as current launch-status sources.
+
+| Artifact | Why It Is Historical/Superseded |
 |---|---|
-| Controlled desktop tester release | GO WITH LIMITATIONS; see `RELEASE_DECISION.md` and `TESTER_RELEASE_MATRIX.md`. |
-| Broad public launch | NO-GO until remaining public-launch gates are proven; see `PUBLIC_LAUNCH_LEDGER.md`. |
-| Latest release evidence commit | `69ad3f13` (`Fix E2E final transcript projection`). |
-| CI/Test Audit | PASS: GitHub run `25994869503` on `main`. |
-| Production canary | PASS: GitHub run `26085357729` on `main` schedule; push canary `25994869500` also passed. |
-| Edge Function deploy | PASS: GitHub run `25994869506` on `main`. |
-| Scheduled soak | PASS: GitHub run `26083232887` on `main`. |
-| Lighthouse release scores | Performance 98, Accessibility 94, Best Practices 100, SEO 100. |
-| Artifact action runtime | Node 20 artifact warning resolved by upgrading `actions/upload-artifact` to `v6` and `actions/download-artifact` to `v7`. |
-| Tester instructions | Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`: fresh account, automatic 60-minute trial, Private STT first, Cloud paid-only, save/history check required. |
-| Documentation rule | This snapshot supersedes older run IDs or stale status tables lower in this file until those sections are next deeply reconciled. |
+| [archive/release-status/RELEASE_READINESS.md](./archive/release-status/RELEASE_READINESS.md) | Older master gate that conflicts with `RELEASE_STATUS.md` and `RC_GATES.md`. |
+| [archive/release-status/TESTER_RELEASE_MATRIX.md](./archive/release-status/TESTER_RELEASE_MATRIX.md) | Older tester evidence rollup. Current tester protocol lives in `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; current go/no-go lives in `RELEASE_STATUS.md`. |
+| [archive/release-status/LIVE_TEST_COMBINATIONS.md](./archive/release-status/LIVE_TEST_COMBINATIONS.md) | Older live-test matrix; useful context, but current STT posture lives in `RELEASE_STATUS.md`, `RC_GATES.md`, and `RC_TEST_INVENTORY.md`. |
+| [archive/workflows/GITHUB_WORKFLOWS_AUDIT.md](./archive/workflows/GITHUB_WORKFLOWS_AUDIT.md) | Older workflow audit; current workflow health is visible through RC gates, CI/canary, and ops health. |
+| [archive/audits/release_audit.md](./archive/audits/release_audit.md) | Forensic audit snapshot. Useful history, not current ship signal. |
+| [archive/rehearsals/SOFT_RELEASE_REHEARSAL_BUG_INVENTORY.md](./archive/rehearsals/SOFT_RELEASE_REHEARSAL_BUG_INVENTORY.md) | Rehearsal bug ledger; many items are closed or superseded. |
+| [archive/stt/](./archive/stt/) | Native/Private/Cloud reviewer reports and browser evidence packets. Cite them for rationale, not current release status. |
 
-<!-- PRODUCT_RELEASE_SYNC_END -->
+## Legacy Index
 
-This directory contains the authoritative release control artifacts for the SpeakSharp production launch.
+The sections below are kept for navigation, but the canonical/historical split above controls precedence.
 
 ### 📜 Requirements & Invariants
 - **[PRECEDENCE.md](./PRECEDENCE.md)**: The authoritative hierarchy of truth. Defines the precedence order for all release decisions.
@@ -37,15 +51,13 @@ This directory contains the authoritative release control artifacts for the Spea
 ### ✅ Verification Gates
 - **[LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md)**: The runtime configuration verification gate. Ensures environment variables and secrets are correctly set.
 - **[MANUAL_HARDWARE_VALIDATION.md](./MANUAL_HARDWARE_VALIDATION.md)**: Manual hardware/browser test protocols. Validates the "Hardware Blindspot" (Safari/Microphone/Bluetooth).
-- **[LIVE_TEST_COMBINATIONS.md](./LIVE_TEST_COMBINATIONS.md)**: Production-browser validation matrix for tier, STT engine, cache state, browser, analytics, export, and benchmark combinations.
-- **[GITHUB_WORKFLOWS_AUDIT.md](./GITHUB_WORKFLOWS_AUDIT.md)**: GitHub Actions workflow utility/status audit and repair order.
 - **[RC_GATES.md](./RC_GATES.md)**: Release candidate gate definitions and evidence requirements.
-- **[TESTER_RELEASE_MATRIX.md](./TESTER_RELEASE_MATRIX.md)**: Controlled tester matrix and evidence rollup.
 - **[SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./SOFT_RELEASE_TESTER_INSTRUCTIONS.md)**: Copy/paste tester invite, Private-first test path, trial-access prerequisites, and feedback questions for the controlled soft release.
 
 ### 🛠️ Decision & Recovery
-- **[RELEASE_READINESS.md](./RELEASE_READINESS.md)**: The master "Go/No-Go" gate for the production release decision.
+- **[RELEASE_STATUS.md](./RELEASE_STATUS.md)**: The current go/no-go gate for controlled tester release decisions.
 - **[PUBLIC_LAUNCH_LEDGER.md](./PUBLIC_LAUNCH_LEDGER.md)**: Broad public-launch gate ledger and public evidence tracker.
-- **[RELEASE_DECISION.md](./RELEASE_DECISION.md)**: Controlled tester release decision and caveats.
 - **[RELEASE_RECOVERY.md](./RELEASE_RECOVERY.md)**: The launch-window forward-fix recovery playbook and emergency triage table.
-- **[RECOVERY_STRATEGY.md](./RECOVERY_STRATEGY.md)**: Supporting recovery doctrine. If it conflicts with `RELEASE_RECOVERY.md`, use `RELEASE_RECOVERY.md` during launch.
+
+### 🗄️ Historical Context
+- **[archive/](./archive/)**: Historical evidence and superseded release packets, grouped by audits, recovery, rehearsals, release status, STT, and workflows.

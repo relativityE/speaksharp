@@ -1,3 +1,6 @@
+> Archived historical release decision.
+> Current release status lives in `../../RELEASE_STATUS.md`.
+
 # Controlled Tester Release Decision
 
 <!-- PRODUCT_RELEASE_SYNC_START -->

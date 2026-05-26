@@ -1,3 +1,6 @@
+> Archived historical evidence.
+> Current release status lives in `../../RELEASE_STATUS.md`.
+
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-15
 **Version:** v0.6.19-rc0

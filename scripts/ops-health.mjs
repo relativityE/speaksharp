@@ -8,6 +8,7 @@ const baseUrl = (process.env.BASE_URL || 'https://speaksharp-public.vercel.app')
 const outputDir = process.env.OPS_HEALTH_OUTPUT_DIR || 'ops-health';
 const benchmarksPath = process.env.STT_BENCHMARKS_PATH || 'tests/STT_BENCHMARKS.json';
 const generatedAt = new Date().toISOString();
+const runContext = process.env.GITHUB_ACTIONS === 'true' ? 'GitHub Actions' : 'local shell';
 
 const rows = [];
 
@@ -16,132 +17,105 @@ await row('App', 'Can users reach SpeakSharp?', async () => {
   return simple(app.ok, `Production app HTTP ${app.status}`, baseUrl, app.ms);
 });
 
-await row('Vercel', 'Is hosting/deploy infrastructure healthy?', async () => {
-  const platform = await statusPage('https://www.vercel-status.com/api/v2/summary.json');
-  const deployment = await optionalCheck(async () => {
-    const token = env('VERCEL_TOKEN');
-    const projectId = env('VERCEL_PROJECT_ID', ['VERCEL_PROJECT']);
-    const teamId = optionalEnv('VERCEL_TEAM_ID', ['VERCEL_ORG_ID']);
-    const params = new URLSearchParams({ projectId, target: 'production', limit: '1' });
-    if (teamId) params.set('teamId', teamId);
-    const response = await http(`https://api.vercel.com/v6/deployments?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const body = json(await response.text());
-    return {
-      ok: response.ok && body?.deployments?.[0]?.state === 'READY',
-      detail: body?.deployments?.[0]?.state ? `deploy=${body.deployments[0].state}` : `deploy-http=${response.status}`,
-    };
+await row('Vercel API', 'Can we read the latest production deployment?', async () => {
+  const token = env('VERCEL_TOKEN');
+  const projectId = env('VERCEL_PROJECT_ID', ['VERCEL_PROJECT']);
+  const teamId = optionalEnv('VERCEL_TEAM_ID', ['VERCEL_ORG_ID']);
+  const params = new URLSearchParams({ projectId, target: 'production', limit: '1' });
+  if (teamId) params.set('teamId', teamId);
+  const response = await http(`https://api.vercel.com/v6/deployments?${params}`, {
+    headers: { Authorization: `Bearer ${token}` },
   });
-  return combined([platform, deployment], 'https://vercel.com/dashboard');
+  const body = json(await response.text());
+  const deployment = body?.deployments?.[0];
+  return {
+    status: response.ok && deployment?.state === 'READY' ? 'pass' : 'fail',
+    detail: deployment?.state ? `latest=${deployment.state}; url=${deployment.url ?? 'unknown'}` : `http=${response.status}`,
+    drilldownUrl: 'https://vercel.com/dashboard',
+  };
 });
 
-await row('Supabase', 'Are auth, REST, and Edge Function entrypoints reachable?', async () => {
+await row('Supabase API', 'Can clients reach Auth, REST, and Edge Functions?', async () => {
   const supabaseUrl = env('SUPABASE_URL', ['VITE_SUPABASE_URL']).replace(/\/$/, '');
   const anonKey = env('SUPABASE_ANON_KEY', ['VITE_SUPABASE_ANON_KEY']);
   const auth = await http(`${supabaseUrl}/auth/v1/settings`, {
     headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
   });
-  const edge = await http(`${supabaseUrl}/functions/v1/check-usage-limit`, {
-    method: 'OPTIONS',
-    headers: {
-      apikey: anonKey,
-      Origin: baseUrl,
-      'Access-Control-Request-Method': 'POST',
-    },
+  const rest = await http(`${supabaseUrl}/rest/v1/`, {
+    headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
   });
-  const platform = await statusPage('https://status.supabase.com/api/v2/summary.json');
+  const edge = await edgePreflight('check-usage-limit');
   return combined([
     { ok: auth.ok, detail: `auth=${auth.status}` },
-    { ok: edge.ok, detail: `edge=${edge.status}` },
-    platform,
+    { ok: rest.ok, detail: `rest=${rest.status}` },
+    edge,
   ], 'https://supabase.com/dashboard');
 });
 
-await row('STT/AI Providers', 'Are paid provider APIs reachable?', async () => {
-  const assembly = await optionalCheck(async () => {
-    const response = await http('https://api.assemblyai.com/v2/transcript', {
-      headers: { authorization: env('ASSEMBLYAI_API_KEY') },
-    });
-    return { ok: response.ok, detail: `assemblyai=${response.status}` };
+await row('AssemblyAI API', 'Can Cloud STT provider credentials reach AssemblyAI?', async () => {
+  const response = await http('https://api.assemblyai.com/v2/transcript', {
+    headers: { authorization: env('ASSEMBLYAI_API_KEY') },
   });
-  const gemini = await optionalCheck(async () => {
-    const key = env('GEMINI_API_KEY', ['GOOGLE_API_KEY']);
-    const response = await http(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
-    return { ok: response.ok, detail: `gemini=${response.status}` };
-  });
-  return combined([assembly, gemini], 'https://www.assemblyai.com/dashboard/');
+  return simple(response.ok, `transcript-api=${response.status}`, 'https://www.assemblyai.com/dashboard/', response.ms);
 });
 
-await row('Billing', 'Are Stripe API and webhook config healthy?', async () => {
+await row('Gemini API', 'Can AI suggestions provider credentials reach Gemini?', async () => {
+  const key = env('GEMINI_API_KEY', ['GOOGLE_API_KEY']);
+  const response = await http(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
+  return simple(response.ok, `models=${response.status}`, 'https://aistudio.google.com/', response.ms);
+});
+
+await row('Stripe API', 'Can billing credentials reach Stripe and read product prices?', async () => {
+  const secret = env('STRIPE_SECRET_KEY');
   const stripe = await http('https://api.stripe.com/v1/balance', {
-    headers: { Authorization: `Bearer ${env('STRIPE_SECRET_KEY')}` },
+    headers: { Authorization: `Bearer ${secret}` },
   });
-  const webhookSecret = env('STRIPE_WEBHOOK_SECRET');
-  return combined([
-    { ok: stripe.ok, detail: `stripe=${stripe.status}` },
-    { ok: /^whsec_/.test(webhookSecret), detail: /^whsec_/.test(webhookSecret) ? 'webhook=valid' : 'webhook=invalid' },
-  ], 'https://dashboard.stripe.com/');
-});
-
-await row('Observability', 'Can we query Sentry and PostHog?', async () => {
-  const sentry = await optionalCheck(async () => {
-    const apiBase = (process.env.SENTRY_API_BASE || 'https://sentry.io/api/0').replace(/\/$/, '');
-    const org = env('SENTRY_ORG');
-    const project = env('SENTRY_PROJECT');
-    const response = await http(`${apiBase}/projects/${encodeURIComponent(org)}/${encodeURIComponent(project)}/`, {
-      headers: { Authorization: `Bearer ${env('SENTRY_AUTH_TOKEN')}` },
-    });
-    return { ok: response.ok, detail: `sentry=${response.status}` };
-  });
-  const posthog = await optionalCheck(async () => {
-    const apiHost = (process.env.POSTHOG_API_HOST || 'https://us.posthog.com').replace(/\/$/, '');
-    const projectId = env('POSTHOG_PROJECT_ID');
-    const response = await http(`${apiHost}/api/projects/${encodeURIComponent(projectId)}/query/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${env('POSTHOG_PERSONAL_API_KEY')}`,
-      },
-      body: JSON.stringify({ query: { kind: 'HogQLQuery', query: 'SELECT 1' }, name: 'SpeakSharp ops health query' }),
-    });
-    return { ok: response.ok, detail: `posthog=${response.status}` };
-  });
-  return combined([sentry, posthog], 'https://sentry.io/');
-});
-
-await row('GitHub', 'Are release workflows green?', async () => {
-  const token = env('GITHUB_TOKEN', ['GH_TOKEN']);
   const checks = await Promise.all([
+    { ok: stripe.ok, detail: `balance=${stripe.status}` },
+    stripePrice(secret, 'basic', env('STRIPE_BASIC_PRICE_ID', ['VITE_STRIPE_BASIC_PRICE_ID'])),
+    stripePrice(secret, 'pro', env('STRIPE_PRO_PRICE_ID', ['VITE_STRIPE_PRO_PRICE_ID', 'VITE_STRIPE_PRICE_ID'])),
+  ]);
+  return combined(checks, 'https://dashboard.stripe.com/');
+});
+
+await row('Sentry API', 'Can we query Sentry project health?', async () => {
+  const apiBase = (process.env.SENTRY_API_BASE || 'https://sentry.io/api/0').replace(/\/$/, '');
+  const org = env('SENTRY_ORG');
+  const project = env('SENTRY_PROJECT');
+  const response = await http(`${apiBase}/projects/${encodeURIComponent(org)}/${encodeURIComponent(project)}/`, {
+    headers: { Authorization: `Bearer ${env('SENTRY_AUTH_TOKEN')}` },
+  });
+  return simple(response.ok, `project=${response.status}`, 'https://sentry.io/', response.ms);
+});
+
+await row('PostHog API', 'Can we query PostHog analytics?', async () => {
+  const apiHost = (process.env.POSTHOG_API_HOST || 'https://us.posthog.com').replace(/\/$/, '');
+  const projectId = env('POSTHOG_PROJECT_ID');
+  const response = await http(`${apiHost}/api/projects/${encodeURIComponent(projectId)}/query/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${env('POSTHOG_PERSONAL_API_KEY')}`,
+    },
+    body: JSON.stringify({ query: { kind: 'HogQLQuery', query: 'SELECT 1' }, name: 'SpeakSharp ops health query' }),
+  });
+  return simple(response.ok, `query=${response.status}`, 'https://us.posthog.com/', response.ms);
+});
+
+await row('GitHub API', 'Can we query repository metadata and release workflows?', async () => {
+  const token = env('GITHUB_TOKEN', ['GH_TOKEN', 'GH_PAT']);
+  const body = await githubJson(`/repos/${repo}`, token);
+  const checks = await Promise.all([
+    { ok: body?.full_name === repo, detail: `repo=${body?.full_name ?? 'unknown'}; private=${body?.private === true}` },
     latestWorkflow(token, 'rc-gates.yml', 'rc'),
     latestWorkflow(token, 'ci.yml', 'ci'),
     latestWorkflow(token, 'canary.yml', 'canary'),
-    latestWorkflow(token, 'ops-health.yml', 'ops'),
   ]);
   return combined(checks, `https://github.com/${repo}/actions`);
 });
 
-await row('Benchmarks', 'Are controlled STT benchmark stats fresh?', async () => {
-  const raw = await fs.readFile(benchmarksPath, 'utf8');
-  const data = JSON.parse(raw);
-  const staleDays = Number(process.env.OPS_HEALTH_BENCHMARK_STALE_DAYS || 14);
-  const targets = [
-    ['cloud', data.engines?.Cloud?.history],
-    ['private-v2', data.engines?.Private?.cpu?.history],
-    ['private-v4', data.engines?.Private?.v4?.history],
-  ];
-  const stale = targets
-    .map(([name, history]) => ({ name, age: latestAgeDays(history) }))
-    .filter((entry) => !Number.isFinite(entry.age) || entry.age > staleDays);
-  return {
-    status: stale.length ? 'warn' : 'pass',
-    detail: stale.length ? `stale/missing=${stale.map((entry) => entry.name).join(',')}` : `fresh<=${staleDays}d`,
-    drilldownUrl: `https://github.com/${repo}/actions/workflows/benchmarks.yml`,
-  };
-});
-
 const summary = summarize(rows);
-const payload = { generatedAt, baseUrl, repo, summary, checks: rows };
+const payload = { generatedAt, baseUrl, repo, runContext, summary, checks: rows };
 const markdown = renderMarkdown(payload);
 
 await fs.mkdir(outputDir, { recursive: true });
@@ -176,6 +150,18 @@ async function row(name, question, fn) {
       checkedAt: new Date().toISOString(),
     });
   }
+}
+
+async function plannedRow(name, question, detail, drilldownUrl = null) {
+  rows.push({
+    name,
+    question,
+    status: 'skip',
+    detail: `not-ready: ${detail}`,
+    latencyMs: 0,
+    drilldownUrl,
+    checkedAt: new Date().toISOString(),
+  });
 }
 
 async function optionalCheck(fn) {
@@ -224,6 +210,41 @@ async function latestWorkflow(token, workflowFile, label) {
   return {
     ok: run.conclusion === 'success',
     detail: `${label}=${run.conclusion ?? 'unknown'}`,
+  };
+}
+
+async function edgePreflight(functionName) {
+  const supabaseUrl = env('SUPABASE_URL', ['VITE_SUPABASE_URL']).replace(/\/$/, '');
+  const anonKey = env('SUPABASE_ANON_KEY', ['VITE_SUPABASE_ANON_KEY']);
+  const response = await http(`${supabaseUrl}/functions/v1/${functionName}`, {
+    method: 'OPTIONS',
+    headers: {
+      apikey: anonKey,
+      Origin: baseUrl,
+      'Access-Control-Request-Method': 'POST',
+    },
+  });
+  return {
+    ok: response.ok,
+    detail: `${functionName}=${response.status}`,
+  };
+}
+
+async function stripePrice(secret, label, priceId) {
+  const response = await http(`https://api.stripe.com/v1/prices/${encodeURIComponent(priceId)}`, {
+    headers: { Authorization: `Bearer ${secret}` },
+  });
+  const body = json(await response.text());
+  return {
+    ok: response.ok && body?.active === true,
+    detail: `${label}=${response.status}${body?.active === false ? ':inactive' : ''}`,
+  };
+}
+
+function secretShape(name, value, { minLength = 1 } = {}) {
+  return {
+    ok: typeof value === 'string' && value.length >= minLength,
+    detail: `${name}=${typeof value === 'string' && value.length >= minLength ? 'present' : 'invalid'}`,
   };
 }
 
@@ -289,32 +310,85 @@ function summarize(items) {
   }, { pass: 0, warn: 0, fail: 0, skip: 0 });
 }
 
-function renderMarkdown({ generatedAt, baseUrl, repo, summary, checks }) {
+function renderMarkdown({ generatedAt, baseUrl, repo, runContext, summary, checks }) {
+  const hardFailure = summary.fail > 0;
+  const credentialLimited = runContext !== 'GitHub Actions' && checks.some((check) => /missing=|skip\(/.test(check.detail));
   const lines = [
     '# SpeakSharp Ops Health',
     '',
     `Generated: ${generatedAt}`,
     `Target: ${baseUrl}`,
     `Repository: ${repo}`,
+    `Run context: ${runContext}`,
     '',
-    `Summary: ${summary.pass} pass / ${summary.warn} warn / ${summary.fail} fail / ${summary.skip} skip`,
-    '',
-    '| Status | Area | What It Answers | Detail | Drill-down |',
-    '|---|---|---|---|---|',
+    `Verdict: ${hardFailure ? 'ACTION REQUIRED' : 'NO HARD FAILURES IN CHECKS THAT RAN'}`,
+    `Coverage: ${summary.pass} ok / ${summary.warn} review / ${summary.fail} fail / ${summary.skip} not checked`,
   ];
+
+  if (credentialLimited) {
+    lines.push(
+      '',
+      '> This local run is not authoritative for vendor credentials because GitHub Actions secrets are not available in the local shell. Use the GitHub Ops Health workflow for the secret-backed view.'
+    );
+  }
+
+  lines.push(
+    '',
+    '| Area | Status | Meaning | Evidence | Next Action | Drill-down |',
+    '|---|---|---|---|---|---|',
+  );
 
   for (const check of checks) {
     lines.push([
-      check.status.toUpperCase(),
       esc(check.name),
+      esc(statusBadge(check)),
       esc(check.question),
       esc(check.detail),
+      esc(nextAction(check, runContext)),
       check.drilldownUrl ? `[Open](${check.drilldownUrl})` : '',
     ].join(' | '));
   }
 
-  lines.push('', '> Keep this dashboard simple. It is an early warning board, not a replacement for vendor dashboards.');
+  lines.push(
+    '',
+    '## How To Read This',
+    '',
+    '- `OK` means the check ran and passed.',
+    '- `REVIEW` means no hard outage was proven, but freshness, optional credentials, or external status needs attention.',
+    '- `FAIL` means a launch-relevant dependency or workflow is red.',
+    '- `NOT READY` means the check could not produce a useful signal yet, usually because this run lacks credentials or the integration is intentionally deferred.',
+    '',
+    '> Keep this dashboard simple. It is an early warning board, not a replacement for vendor dashboards.'
+  );
   return `${lines.join('\n')}\n`;
+}
+
+function verdictLabel(check) {
+  if (check.status === 'pass') return 'OK';
+  if (check.status === 'fail') return 'FAIL';
+  if (check.status === 'skip') return 'NOT READY';
+  return 'REVIEW';
+}
+
+function statusBadge(check) {
+  const label = verdictLabel(check);
+  if (check.status === 'pass') return `🟢 ${label}`;
+  if (check.status === 'fail') return `🔴 ${label}`;
+  if (check.status === 'skip') return `🚧 ${label}`;
+  return `⚠️ ${label}`;
+}
+
+function nextAction(check, runContext) {
+  if (check.status === 'pass') return 'No action.';
+  if (/stale\/missing=/.test(check.detail)) return 'Run or refresh the named benchmark before making benchmark claims.';
+  if (/missing=|skip\(/.test(check.detail)) {
+    return runContext === 'GitHub Actions'
+      ? 'Wire the expected GitHub secret name or update the check to the real secret name.'
+      : 'Run the GitHub Ops Health workflow for the secret-backed result.';
+  }
+  if (check.name === 'GitHub') return 'Open Actions and fix the red release workflow before tester release.';
+  if (check.status === 'fail') return 'Open the vendor dashboard or drill-down and resolve before release.';
+  return 'Review before release.';
 }
 
 function esc(value) {

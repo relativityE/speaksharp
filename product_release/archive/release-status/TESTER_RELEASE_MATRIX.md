@@ -1,3 +1,6 @@
+> Archived historical tester matrix.
+> Current release status lives in `../../RELEASE_STATUS.md`; current tester steps live in `../../SOFT_RELEASE_TESTER_INSTRUCTIONS.md`.
+
 # Tester Release Matrix
 
 <!-- PRODUCT_RELEASE_SYNC_START -->

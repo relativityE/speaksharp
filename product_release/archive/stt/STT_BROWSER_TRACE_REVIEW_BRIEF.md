@@ -1,3 +1,6 @@
+> Archived historical STT trace brief.
+> Current STT release positioning lives in `../../RELEASE_STATUS.md`.
+
 # STT Browser Trace Review Brief
 
 Date: 2026-05-23

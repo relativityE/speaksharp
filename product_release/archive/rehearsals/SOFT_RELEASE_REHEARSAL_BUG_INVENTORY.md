@@ -1,3 +1,6 @@
+> Archived historical rehearsal notes.
+> Current release status lives in `../../RELEASE_STATUS.md`.
+
 # SpeakSharp Soft Release Rehearsal Bug Inventory
 
 **Date:** 2026-05-22 14:58 EDT  

@@ -1,3 +1,6 @@
+> Archived historical STT reviewer report.
+> Current STT release positioning lives in `../../RELEASE_STATUS.md`.
+
 # Native Browser STT Second-Opinion Report
 
 **Date:** 2026-05-26  

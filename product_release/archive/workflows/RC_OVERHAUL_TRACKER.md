@@ -1,3 +1,6 @@
+> Archived historical RC overhaul tracker.
+> Current release status lives in `../../RELEASE_STATUS.md`; current gate definitions live in `../../RC_GATES.md`.
+
 # RC Overhaul Tracker
 
 **Last updated:** 2026-05-25
