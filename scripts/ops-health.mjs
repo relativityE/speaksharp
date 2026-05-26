@@ -191,8 +191,8 @@ async function optionalCheck(fn) {
 }
 
 function combined(parts, drilldownUrl) {
-  const failures = parts.filter((part) => part.ok === false);
-  const skipped = parts.filter((part) => part.skipped || part.ok === null);
+  const failures = parts.filter((part) => part.ok === false || part.status === 'fail');
+  const skipped = parts.filter((part) => part.skipped || part.ok === null || part.status === 'warn');
   return {
     status: failures.length ? 'fail' : skipped.length ? 'warn' : 'pass',
     detail: parts.map((part) => part.detail).join('; '),
@@ -218,9 +218,12 @@ async function latestWorkflow(token, workflowFile, label) {
   const body = await githubJson(`/repos/${repo}/actions/workflows/${workflowFile}/runs?per_page=1`, token);
   const run = body.workflow_runs?.[0];
   if (!run) return { ok: false, detail: `${label}=missing` };
+  if (run.status !== 'completed') {
+    return { status: 'warn', detail: `${label}=${run.status}` };
+  }
   return {
-    ok: run.status === 'completed' && run.conclusion === 'success',
-    detail: `${label}=${run.conclusion ?? run.status}`,
+    ok: run.conclusion === 'success',
+    detail: `${label}=${run.conclusion ?? 'unknown'}`,
   };
 }
 
