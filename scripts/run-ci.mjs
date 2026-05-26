@@ -16,8 +16,8 @@ import {
 
 // Structural Simplification - Direct Telemetry
 global.__CI_TELEMETRY__ = {
-    vitest: { passed: 0, failed: 0, total: 0 },
-    playwright: { passed: 0, failed: 0, flaky: 0, skipped: 0, total: 0, shards: {} },
+    vitest: { passed: 0, failed: 0, total: 0, failures: [] },
+    playwright: { passed: 0, failed: 0, flaky: 0, skipped: 0, total: 0, shards: {}, failures: [], flakyTests: [] },
     lighthouse: {
         performance: 0,
         accessibility: 0,
@@ -69,14 +69,17 @@ function buildAuditModel(ciTelemetry) {
             passed: vi?.passed || 0,
             failed: vi?.failed || 0,
             total: vi?.total || 0,
-            ran: unitRan
+            ran: unitRan,
+            failures: vi?.failures || []
         },
         e2e: {
             passed: pw?.passed || 0,
             failed: pw?.failed || 0,
             total: pw?.total || 0,
             flaky: pw?.flaky || 0,
-            ran: e2eRan
+            ran: e2eRan,
+            failures: pw?.failures || [],
+            flakyTests: pw?.flakyTests || []
         },
         lighthouse: ciTelemetry.lighthouse,
         sqm: ciTelemetry.sqm
@@ -208,6 +211,16 @@ export { CI_MODE };
 function generateGitHubSummary(auditModel) {
     if (!process.env.GITHUB_STEP_SUMMARY) return;
 
+    const unitFailures = auditModel.unit.failures?.length
+        ? `\n### Unit Failures\n${auditModel.unit.failures.slice(0, 10).map(failure => `- ${failure.title || failure.file || 'Unknown unit test'}`).join('\n')}`
+        : '';
+    const e2eFailures = auditModel.e2e.failures?.length
+        ? `\n### E2E Failures\n${auditModel.e2e.failures.slice(0, 10).map(failure => `- ${failure.title || 'Unknown E2E test'}`).join('\n')}`
+        : '';
+    const e2eFlaky = auditModel.e2e.flakyTests?.length
+        ? `\n### E2E Flaky\n${auditModel.e2e.flakyTests.slice(0, 10).map(test => `- ${test.title || 'Unknown E2E test'}`).join('\n')}`
+        : '';
+
     const output = `
 ## SpeakSharp CI Summary 🧪🏆
 - **Status**: ${auditModel.status === 'PASSED' ? '✅ PASSED' : '❌ FAILED'}
@@ -215,6 +228,9 @@ function generateGitHubSummary(auditModel) {
 - **Unit Tests**: ${auditModel.unit.passed} / ${auditModel.unit.total}
 - **E2E Tests**: ${auditModel.e2e.passed} / ${auditModel.e2e.total}
 - **Runtime**: ${auditModel.runtime}s
+${unitFailures}
+${e2eFailures}
+${e2eFlaky}
 `;
 
     fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, output);
@@ -614,7 +630,8 @@ async function main() {
                             global.__CI_TELEMETRY__.vitest = {
                                 passed: vitestResults.numPassedTests || 0,
                                 failed: vitestResults.numFailedTests || 0,
-                                total: vitestResults.numTotalTests || 0
+                                total: vitestResults.numTotalTests || 0,
+                                failures: Array.isArray(vitestResults.failures) ? vitestResults.failures : []
                             };
                             ciTelemetry.tests.vitest = global.__CI_TELEMETRY__.vitest;
                         } catch (error) {
@@ -629,7 +646,9 @@ async function main() {
                             failed: ciTelemetry.tests.playwright.failed,
                             flaky: ciTelemetry.tests.playwright.flaky,
                             skipped: ciTelemetry.tests.playwright.skipped,
-                            total: ciTelemetry.tests.playwright.total
+                            total: ciTelemetry.tests.playwright.total,
+                            failures: ciTelemetry.tests.playwright.failures || [],
+                            flakyTests: ciTelemetry.tests.playwright.flakyTests || []
                         };
                     }
 
@@ -698,12 +717,15 @@ async function main() {
                 const pwPath = path.join(rootDir, 'test-results', 'playwright', 'results.json');
                 if (fs.existsSync(pwPath)) {
                     const data = JSON.parse(fs.readFileSync(pwPath));
+                    const playwrightParsed = parsePlaywrightResults(rootDir);
                     global.__CI_TELEMETRY__.playwright = {
                         passed: data.stats.expected || 0,
                         failed: data.stats.unexpected || 0,
                         flaky: data.stats.flaky || 0,
                         skipped: data.stats.skipped || 0,
-                        total: (data.stats.expected || 0) + (data.stats.unexpected || 0) + (data.stats.flaky || 0) + (data.stats.skipped || 0)
+                        total: (data.stats.expected || 0) + (data.stats.unexpected || 0) + (data.stats.flaky || 0) + (data.stats.skipped || 0),
+                        failures: playwrightParsed.failures || [],
+                        flakyTests: playwrightParsed.flakyTests || []
                     };
                     ciTelemetry.tests.playwright = global.__CI_TELEMETRY__.playwright;
                 }
@@ -858,7 +880,13 @@ function printFinalSummary(auditModel) {
     if (!v.ran) {
         console.log(`  Status:  ${ANSI.YELLOW}SKIPPED${ANSI.RESET}\n`);
     } else {
-        console.log(`  Passed:  ${ANSI.GREEN}${v.passed} / ${v.total}${ANSI.RESET}\n`);
+        console.log(`  Passed:  ${v.failed > 0 ? ANSI.RED : ANSI.GREEN}${v.passed} / ${v.total}${ANSI.RESET}`);
+        if (v.failures?.length) {
+            v.failures.slice(0, 5).forEach(failure => {
+                console.log(`  Failed:  ${ANSI.RED}${failure.title || failure.file || 'Unknown unit test'}${ANSI.RESET}`);
+            });
+        }
+        console.log('');
     }
 
     // E2E Tests (Playwright)
@@ -866,8 +894,13 @@ function printFinalSummary(auditModel) {
     if (!p.ran) {
         console.log(`  Status:  ${ANSI.YELLOW}SKIPPED${ANSI.RESET}\n`);
     } else {
-        console.log(`  Passed:  ${ANSI.GREEN}${p.passed} / ${p.total}${ANSI.RESET}`);
+        console.log(`  Passed:  ${p.failed > 0 ? ANSI.RED : ANSI.GREEN}${p.passed} / ${p.total}${ANSI.RESET}`);
         if (p.flaky > 0) console.log(`  Flaky:   ${ANSI.YELLOW}${p.flaky}${ANSI.RESET}`);
+        if (p.failures?.length) {
+            p.failures.slice(0, 5).forEach(failure => {
+                console.log(`  Failed:  ${ANSI.RED}${failure.title || 'Unknown E2E test'}${ANSI.RESET}`);
+            });
+        }
         console.log('');
     }
 
@@ -900,6 +933,21 @@ function printFinalSummary(auditModel) {
     console.log('\n' + renderBox(`FINAL STATUS: ${auditModel.status}`, 44));
 }
 
+function formatFailureList(failures, emptyText) {
+    if (!failures?.length) return emptyText;
+
+    return failures.map((failure, index) => {
+        const title = failure.title || failure.file || `Unknown test ${index + 1}`;
+        const location = failure.file ? `\n  - File: \`${failure.file}\`` : '';
+        const status = failure.status ? `\n  - Status: \`${failure.status}\`` : '';
+        const error = failure.error ? `\n  - Error: ${String(failure.error).replace(/\n/g, '\n    ').slice(0, 1200)}` : '';
+        const attachments = failure.attachments?.length
+            ? `\n  - Artifacts: ${failure.attachments.map(a => a.path || a.name).filter(Boolean).map(a => `\`${a}\``).join(', ')}`
+            : '';
+        return `${index + 1}. **${title}**${location}${status}${error}${attachments}`;
+    }).join('\n');
+}
+
 function generateMarkdownReport(rootDir, auditModel) {
     const reportPath = path.join(rootDir, 'test-results', 'ci-audit.md');
     const p = auditModel.e2e;
@@ -907,6 +955,9 @@ function generateMarkdownReport(rootDir, auditModel) {
     const lh = auditModel.lighthouse;
     const sqm = auditModel.sqm;
     const success = auditModel.status === 'PASSED';
+    const unitFailures = formatFailureList(v.failures, '_No unit-test failures recorded._');
+    const e2eFailures = formatFailureList(p.failures, '_No E2E failures recorded._');
+    const e2eFlaky = formatFailureList(p.flakyTests, '_No flaky E2E tests recorded._');
 
     const content = `# SpeakSharp CI Audit
 > Generated at: ${new Date().toISOString()}
@@ -919,10 +970,21 @@ function generateMarkdownReport(rootDir, auditModel) {
 ## 🧪 Test Results
 ### Unit Tests
 - **Passed**: ${v.passed} / ${v.total}
+- **Failed**: ${v.failed}
+
+#### Unit Failure Names
+${unitFailures}
 
 ### E2E Tests (Playwright)
 - **Passed**: ${p.passed} / ${p.total}
+- **Failed**: ${p.failed}
 - **Flaky**: ${p.flaky}
+
+#### E2E Failure Names
+${e2eFailures}
+
+#### E2E Flaky Test Names
+${e2eFlaky}
 
 ## ⚡ Performance (Lighthouse)
 - **Performance**: ${lh.performance || 'N/A'}

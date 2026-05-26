@@ -41,6 +41,15 @@ export default class TelemetryReporter {
     entry.outcome = outcome;
     entry.retry = result.retry; // Final retry count
     if (result.error) entry.error = result.error;
+    if (result.attachments?.length) {
+      entry.attachments = result.attachments
+        .filter(attachment => attachment.path)
+        .map(attachment => ({
+          name: attachment.name,
+          path: attachment.path,
+          contentType: attachment.contentType
+        }));
+    }
 
     // Console logging for real-time visibility (mirrors original behavior)
     if (outcome === "flaky") {
@@ -74,7 +83,9 @@ export default class TelemetryReporter {
         retries: data.retry,
         duration: totalDuration,
         retryOverheadMs: Math.round(retryOverhead),
-        attempts: data.attempts.length
+        attempts: data.attempts.length,
+        error: data.error?.message?.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').slice(0, 1200) || '',
+        attachments: data.attachments || []
       });
 
       switch (data.outcome) {

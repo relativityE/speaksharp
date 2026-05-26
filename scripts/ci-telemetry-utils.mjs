@@ -49,7 +49,16 @@ export function parsePlaywrightResults(rootDir) {
     const DEBUG = process.env.LOG_LEVEL === 'debug';
     // Standardized Path
     const resultsDir = path.join(rootDir, 'test-results', 'playwright');
-    const telemetry = { passed: 0, failed: 0, flaky: 0, skipped: 0, total: 0, shards: {} };
+    const telemetry = {
+        passed: 0,
+        failed: 0,
+        flaky: 0,
+        skipped: 0,
+        total: 0,
+        shards: {},
+        failures: [],
+        flakyTests: []
+    };
 
     if (!fs.existsSync(resultsDir)) return telemetry;
 
@@ -64,36 +73,74 @@ export function parsePlaywrightResults(rootDir) {
         try {
             const data = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
 
-        function walk(suite) {
-            if (suite.specs) {
-                suite.specs.forEach(spec => {
-                    if (spec.tests) {
-                        spec.tests.forEach(test => {
-                            const status = test.status;
-                            const outcome = test.outcome || (status === 'expected' || status === 'passed' ? 'expected' : 'unexpected');
+            const cleanText = (value, max = 1200) => String(value || '')
+                .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+                .slice(0, max);
+            const normalizeFailure = (test, fallbackTitle = '') => ({
+                title: test.title || fallbackTitle || 'Unknown Playwright test',
+                status: test.status || test.outcome || '',
+                error: cleanText(test.error || test.message || ''),
+                attachments: Array.isArray(test.attachments) ? test.attachments : []
+            });
 
-                            if (outcome === 'skipped' || status === 'skipped') {
-                                telemetry.skipped++;
-                            } else if (outcome === 'expected') {
-                                telemetry.passed++;
-                            } else if (outcome === 'flaky') {
-                                telemetry.flaky++;
-                            } else {
-                                telemetry.failed++;
+            if (Array.isArray(data.tests)) {
+                for (const test of data.tests) {
+                    const status = test.status;
+                    const outcome = test.outcome || (status === 'expected' || status === 'passed' ? 'expected' : status);
+
+                    if (outcome === 'skipped' || status === 'skipped') {
+                        telemetry.skipped++;
+                    } else if (outcome === 'flaky') {
+                        telemetry.flaky++;
+                        telemetry.flakyTests.push(normalizeFailure(test));
+                    } else if (outcome === 'expected' || status === 'passed') {
+                        telemetry.passed++;
+                    } else {
+                        telemetry.failed++;
+                        telemetry.failures.push(normalizeFailure(test));
+                    }
+                    telemetry.total++;
+                }
+            } else {
+                function walk(suite, parents = []) {
+                    const suitePath = suite.title ? [...parents, suite.title] : parents;
+                    if (suite.specs) {
+                        suite.specs.forEach(spec => {
+                            if (spec.tests) {
+                                spec.tests.forEach(test => {
+                                    const status = test.status;
+                                    const outcome = test.outcome || (status === 'expected' || status === 'passed' ? 'expected' : 'unexpected');
+                                    const title = [...suitePath, spec.title, test.title].filter(Boolean).join(' › ');
+                                    const errorResult = test.results?.find(result => result.error || result.errors?.length);
+                                    const error = errorResult?.error?.message || errorResult?.errors?.map(e => e.message).join('\n') || '';
+                                    const attachments = test.results?.flatMap(result => result.attachments || []) || [];
+                                    const failure = normalizeFailure({ title, status, outcome, error, attachments });
+
+                                    if (outcome === 'skipped' || status === 'skipped') {
+                                        telemetry.skipped++;
+                                    } else if (outcome === 'flaky') {
+                                        telemetry.flaky++;
+                                        telemetry.flakyTests.push(failure);
+                                    } else if (outcome === 'expected') {
+                                        telemetry.passed++;
+                                    } else {
+                                        telemetry.failed++;
+                                        telemetry.failures.push(failure);
+                                    }
+                                    telemetry.total++;
+                                });
                             }
-                            telemetry.total++;
                         });
                     }
-                });
-            }
-            if (suite.suites) {
-                suite.suites.forEach(walk);
-            }
-        }
+                    if (suite.suites) {
+                        suite.suites.forEach(child => walk(child, suitePath));
+                    }
+                }
 
-        if (data.suites) {
-            data.suites.forEach(walk);
-        }
+                if (data.suites) {
+                    data.suites.forEach(suite => walk(suite));
+                }
+            }
 
         // 2. Preserve Shard Metadata
         if (data.metadata?.shards || data.shards) {
@@ -195,7 +242,7 @@ export function aggregateShards(rootDir) {
 export function parseVitestResults(rootDir) {
     const DEBUG = process.env.LOG_LEVEL === 'debug';
     const resultsPath = path.join(rootDir, 'test-results', 'unit', 'results.json');
-    const telemetry = { passed: 0, failed: 0, total: 0 };
+    const telemetry = { passed: 0, failed: 0, total: 0, failures: [] };
 
     if (!fs.existsSync(resultsPath)) {
         if (DEBUG) console.log(`[CI DEBUG] Vitest results missing at: ${resultsPath}`);
@@ -207,7 +254,8 @@ export function parseVitestResults(rootDir) {
         return {
             passed: data.numPassedTests || 0,
             failed: data.numFailedTests || 0,
-            total: data.numTotalTests || 0
+            total: data.numTotalTests || 0,
+            failures: Array.isArray(data.failures) ? data.failures : []
         };
     } catch (e) {
         console.warn('⚠️ [CI] Failed to parse Vitest results:', e.message);
