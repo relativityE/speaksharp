@@ -3,6 +3,7 @@ import { createHmac } from 'node:crypto';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+const hasLiveWebhookSecret = Boolean(STRIPE_WEBHOOK_SECRET && !/mock/i.test(STRIPE_WEBHOOK_SECRET));
 
 test('deployed Stripe webhook is configured and rejects unsigned events cleanly', async () => {
   test.skip(!SUPABASE_URL, 'SUPABASE_URL is required for deployed Stripe webhook readiness.');
@@ -38,8 +39,8 @@ test('deployed Stripe webhook is configured and rejects unsigned events cleanly'
 
 test('deployed Stripe webhook accepts a signed no-op Stripe event', async () => {
   test.skip(
-    !SUPABASE_URL || !STRIPE_WEBHOOK_SECRET,
-    'SUPABASE_URL and STRIPE_WEBHOOK_SECRET are required for signed Stripe webhook proof.'
+    !SUPABASE_URL || !hasLiveWebhookSecret,
+    'SUPABASE_URL and a non-mock STRIPE_WEBHOOK_SECRET are required for signed Stripe webhook proof.'
   );
 
   const context = await playwrightRequest.newContext({ baseURL: SUPABASE_URL });

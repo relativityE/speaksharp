@@ -558,12 +558,13 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         frameCallback?.(new Float32Array(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS * PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ).fill(0.5));
         await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
-        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledWith({
-            transcript: { final: 'Thanks everyone for joining today' },
-        });
+        expect(mockCallbacks.onTranscriptUpdate).not.toHaveBeenCalled();
 
         frameCallback?.(new Float32Array(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS * PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ).fill(0.5));
         await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledWith({
+            transcript: { final: 'thanks everyone for joining today' },
+        });
 
         await privateWhisper.stop();
         vi.useRealTimers();

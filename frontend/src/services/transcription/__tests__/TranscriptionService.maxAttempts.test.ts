@@ -83,15 +83,15 @@ describe('TranscriptionService Max Attempts', () => {
         registry.register('transformers-js', () => mockEngine);
 
         await service.init();
-        expect(service.getState()).toBe('DOWNLOAD_REQUIRED');
+        expect(service.getState()).toBe('INIT_FAILED');
 
-        await expect(service.startTranscription()).rejects.toThrow('TRANSCRIPTION_START_BLOCKED_STATE:DOWNLOAD_REQUIRED');
+        await expect(service.startTranscription()).rejects.toThrow('TRANSCRIPTION_START_BLOCKED_STATE:INIT_FAILED');
 
         // 4. Verification of "No Implicit Fallback"
         // Mode remains 'private' despite failures, conforming to Phase 4.3 invariant
         expect(service.getMode()).toBe('private');
         
-        // Final state should remain explicit retry/download, not an implicit Cloud fallback.
-        expect(service.getState()).toBe('DOWNLOAD_REQUIRED');
+        // Final state should remain explicit Private setup failure, not an implicit Cloud fallback.
+        expect(service.getState()).toBe('INIT_FAILED');
     });
 });

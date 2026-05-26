@@ -63,8 +63,8 @@ describe('session metric explanation cards', () => {
         );
 
         expect(screen.getByTestId('filler-count-value')).toHaveTextContent('(3)');
-        expect(screen.getByText('"um"')).toBeInTheDocument();
-        expect(screen.getByText('"like"')).toBeInTheDocument();
+        expect(screen.getByText('um')).toBeInTheDocument();
+        expect(screen.getByText('like')).toBeInTheDocument();
         expect(screen.getByTestId('filler-explanation')).toHaveTextContent('10.0% of captured words');
     });
 

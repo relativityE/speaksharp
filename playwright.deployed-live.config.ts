@@ -9,9 +9,13 @@
  */
 import { defineConfig } from '@playwright/test';
 import { fileURLToPath } from 'url';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
 import { loadEnv, getChromeWithMic, baseConfig } from './playwright.base.config';
 
 loadEnv('test');
+dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local'), override: true });
 
 const LIVE_AUDIO_FIXTURE = fileURLToPath(new URL('./tests/fixtures/harvard_benchmark_16k.wav', import.meta.url));
 const chromeWithMic = getChromeWithMic();
