@@ -86,7 +86,13 @@ export function parsePlaywrightResults(rootDir) {
             if (Array.isArray(data.tests)) {
                 for (const test of data.tests) {
                     const status = test.status;
-                    const outcome = test.outcome || (status === 'expected' || status === 'passed' ? 'expected' : status);
+                    const outcome = test.outcome || (
+                        status === 'expected' || status === 'passed'
+                            ? 'expected'
+                            : status === 'flaky'
+                                ? 'flaky'
+                                : status
+                    );
 
                     if (outcome === 'skipped' || status === 'skipped') {
                         telemetry.skipped++;
@@ -109,7 +115,13 @@ export function parsePlaywrightResults(rootDir) {
                             if (spec.tests) {
                                 spec.tests.forEach(test => {
                                     const status = test.status;
-                                    const outcome = test.outcome || (status === 'expected' || status === 'passed' ? 'expected' : 'unexpected');
+                                    const outcome = test.outcome || (
+                                        status === 'expected' || status === 'passed'
+                                            ? 'expected'
+                                            : status === 'flaky'
+                                                ? 'flaky'
+                                                : 'unexpected'
+                                    );
                                     const title = [...suitePath, spec.title, test.title].filter(Boolean).join(' › ');
                                     const errorResult = test.results?.find(result => result.error || result.errors?.length);
                                     const error = errorResult?.error?.message || errorResult?.errors?.map(e => e.message).join('\n') || '';
