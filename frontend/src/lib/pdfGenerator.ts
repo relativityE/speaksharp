@@ -30,6 +30,16 @@ const getFillerTableData = (fillerWords: Session['filler_words']) =>
     .filter(([, data]) => data.count > 0)
     .map(([word, data]) => [word, data.count]);
 
+const getCustomWordList = (customWords: Session['custom_words']): string[] => {
+  if (!customWords) return [];
+  if (Array.isArray(customWords)) {
+    return customWords
+      .map((item) => typeof item === 'string' ? item : '')
+      .filter(Boolean);
+  }
+  return Object.keys(customWords);
+};
+
 const formatDuration = (seconds: number): string => {
   if (!Number.isFinite(seconds) || seconds <= 0) return '0 seconds';
 
@@ -49,7 +59,7 @@ const getPdfFillerTableData = (session: Session): Array<[string, number]> => {
   const transcript = session.transcript?.trim();
   if (!transcript) return [];
 
-  const customWords = Object.keys(session.custom_words || {});
+  const customWords = getCustomWordList(session.custom_words);
   const derivedCounts = countFillerWords(transcript, customWords);
   return getFillerTableData(derivedCounts) as Array<[string, number]>;
 };
@@ -86,6 +96,19 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
     toast.info("Generating PDF...", { id: 'pdf-gen' });
     const doc = new jsPDF();
     const metrics = getSessionAnalysisMetrics(session);
+    const customWords = getCustomWordList(session.custom_words);
+    const customWordsDetected = customWords.reduce((sum, word) => {
+      const savedCount = session.custom_words?.[word];
+      if (savedCount && typeof savedCount === 'object' && 'count' in savedCount && typeof savedCount.count === 'number') {
+        return sum + savedCount.count;
+      }
+      return sum + (metrics.fillerData[word]?.count ?? 0);
+    }, 0);
+    const engineDetails = [
+      session.model_name,
+      session.engine_version,
+      session.device_type,
+    ].filter(Boolean).join(', ');
 
     // --- Header ---
     doc.setFontSize(20);
@@ -100,6 +123,9 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
       doc.text(`Date: ${session.created_at}`, 14, 32);
     }
     doc.text(`Duration: ${formatDuration(session.duration)}`, 14, 42);
+    if (session.title) {
+      doc.text(`Session: ${session.title}`, 14, 50);
+    }
 
     // --- Analytics ---
     doc.setFontSize(16);
@@ -107,9 +133,15 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
 
     const analyticsData = [
       ['Metric', 'Value'],
+      ['Session ID', session.id],
+      ['Total Words', `${metrics.wordCount}`],
       ['Speaking Pace (WPM)', `${metrics.wpm} (${metrics.wpmLabel})`],
       ['Clarity Score', `${Math.round(metrics.clarityScore)}% (${metrics.clarityLabel})`],
+      ['Total Filler Words', `${metrics.fillerCount}`],
+      ['Tracked Custom Words', customWords.length > 0 ? customWords.join(', ') : 'None'],
+      ['Custom Words Detected', `${customWordsDetected}`],
       ['Transcription Mode', formatSessionRecordingMode(session)],
+      ['Engine Details', engineDetails || 'Not recorded'],
       ['Silence Percentage', formatOptionalNumber(session.pause_metrics?.silencePercentage, value => `${value.toFixed(1)}%`)],
       ['Short Pauses (0.5-1.5s)', formatOptionalNumber(session.pause_metrics?.transitionPauses, value => value.toString(), '0')],
       ['Long Pauses (>1.5s)', formatOptionalNumber(session.pause_metrics?.extendedPauses, value => value.toString(), '0')],

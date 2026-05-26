@@ -216,9 +216,19 @@ export const calculateCoreSessionMetrics = ({
     };
 };
 
+const getCustomWordList = (customWords: PracticeSession['custom_words']): string[] => {
+    if (!customWords) return [];
+    if (Array.isArray(customWords)) {
+        return customWords
+            .map((item) => typeof item === 'string' ? item : '')
+            .filter(Boolean);
+    }
+    return Object.keys(customWords);
+};
+
 export const getSessionAnalysisMetrics = (session: PracticeSession): CoreSessionMetrics => {
     const persistedFillerCount = getFillerTotal(session.filler_words);
-    const customWordsList = Object.keys(session.custom_words || {});
+    const customWordsList = getCustomWordList(session.custom_words);
     const transcriptFillerData = countFillerWords(session.transcript || '', customWordsList);
     const transcriptFillerCount = getFillerTotal(transcriptFillerData);
     const shouldUseTranscriptFillers = transcriptFillerCount > persistedFillerCount;

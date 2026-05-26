@@ -86,9 +86,15 @@ describe('generateSessionPdf', () => {
       startY: 70,
       body: expect.arrayContaining([
         ['Metric', 'Value'],
+        ['Session ID', '123'],
+        ['Total Words', '5'],
         ['Speaking Pace (WPM)', '1 (Too Slow)'],
         ['Clarity Score', '0% (Keep practicing)'],
+        ['Total Filler Words', '8'],
+        ['Tracked Custom Words', 'None'],
+        ['Custom Words Detected', '0'],
         ['Transcription Mode', 'Not recorded'],
+        ['Engine Details', 'Not recorded'],
       ])
     }));
 
@@ -177,6 +183,35 @@ describe('generateSessionPdf', () => {
     expect(autoTable).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({
       head: [['Filler Word', 'Frequency']],
       body: [['so', 2]],
+    }));
+  });
+
+  it('includes custom-word analytics in the PDF report', async () => {
+    await generateSessionPdf({
+      ...mockSession,
+      transcript: 'Um, the stale smell of old beer lingers.',
+      duration: 10,
+      custom_words: {
+        stale: { count: 1 },
+      },
+      filler_words: {
+        stale: { count: 1 },
+        um: { count: 1 },
+        total: { count: 2 },
+      },
+    } as unknown as Session);
+
+    expect(autoTable).toHaveBeenNthCalledWith(1, expect.anything(), expect.objectContaining({
+      body: expect.arrayContaining([
+        ['Tracked Custom Words', 'stale'],
+        ['Custom Words Detected', '1'],
+        ['Total Filler Words', '2'],
+      ]),
+    }));
+
+    expect(autoTable).toHaveBeenNthCalledWith(2, expect.anything(), expect.objectContaining({
+      head: [['Filler Word', 'Frequency']],
+      body: expect.arrayContaining([['stale', 1], ['um', 1]]),
     }));
   });
 

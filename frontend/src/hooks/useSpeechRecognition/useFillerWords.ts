@@ -13,6 +13,7 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
   const lastProcessedIndexRef = useRef<number>(-1);
   // Keep track of userWords to detect changes
   const lastUserWordsRef = useRef<string[]>(userWords);
+  const lastProcessedTextRef = useRef<string>('');
   // Browser STT can revise interim hypotheses by removing fillers before finalizing.
   // Preserve observed interim filler evidence so live metrics do not snap back to
   // an unrealistically clean score.
@@ -21,15 +22,23 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
   // 1. Handle Final Chunks (Incremental)
   useEffect(() => {
     const userWordsChanged = JSON.stringify(lastUserWordsRef.current) !== JSON.stringify(userWords);
+    const allText = finalChunks.map(c => c.transcript).join(' ');
 
     if (userWordsChanged) {
       // Re-process everything if user words change
-      const allText = finalChunks.map(c => c.transcript).join(' ');
       const newCounts = countFillerWords(allText, userWords);
       setAccumulatedCounts(newCounts);
       setObservedInterimCounts(createInitialFillerData(userWords));
       lastProcessedIndexRef.current = finalChunks.length - 1;
+      lastProcessedTextRef.current = allText;
       lastUserWordsRef.current = userWords;
+      return;
+    }
+
+    if (allText !== lastProcessedTextRef.current) {
+      setAccumulatedCounts(countFillerWords(allText, userWords));
+      lastProcessedIndexRef.current = finalChunks.length - 1;
+      lastProcessedTextRef.current = allText;
       return;
     }
 
@@ -72,6 +81,7 @@ export const useFillerWords = (finalChunks: Chunk[], interimTranscript: string, 
       setAccumulatedCounts(createInitialFillerData(userWords));
       setObservedInterimCounts(createInitialFillerData(userWords));
       lastProcessedIndexRef.current = -1;
+      lastProcessedTextRef.current = '';
     }
   }, [finalChunks, userWords]);
 

@@ -98,4 +98,14 @@ describe('useFillerWords', () => {
     rerender({ chunks: [] });
     expect(result.current.totalCount).toBe(0);
   });
+
+  it('counts a UI-added custom word when it appears in final transcript text', () => {
+    const chunks: Chunk[] = [
+      { transcript: 'Um, the stale smell of old beer lingers.', id: 1, timestamp: Date.now() },
+    ];
+    const { result } = renderHook(() => useFillerWords(chunks, '', ['stale']));
+
+    expect(result.current.counts.stale.count).toBe(1);
+    expect(result.current.totalCount).toBeGreaterThanOrEqual(2);
+  });
 });

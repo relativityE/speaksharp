@@ -116,7 +116,20 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
         [isEffectiveProUser, effectivePolicyMode, canUseCloudStt],
     );
     useTranscriptionControl();
-    const filler = useFillerWords(finalChunks as unknown as Chunk[], storeTranscript.partial, userWords);
+    const fillerSourceChunks = useMemo(() => {
+        const transcriptText = stt.transcriptText.trim();
+        if (transcriptText) {
+            return [{
+                id: 'visible-transcript',
+                transcript: transcriptText,
+                timestamp: Date.now(),
+                isFinal: true,
+            }] as unknown as Chunk[];
+        }
+
+        return finalChunks as unknown as Chunk[];
+    }, [finalChunks, stt.transcriptText]);
+    const filler = useFillerWords(fillerSourceChunks, storeTranscript.partial, userWords);
     const vocal = useVocalAnalysis();
     // timer logic is centralized in useSessionStore.tick (driven by useSessionLifecycle)
 
