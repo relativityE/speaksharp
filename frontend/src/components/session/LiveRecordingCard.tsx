@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { Download, Mic, Square, ChevronDown, AlertCircle, Shield } from 'lucide-react';
+import { AlertCircle, Lock, Mic, Square, ChevronDown, Shield } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
@@ -36,7 +36,6 @@ interface LiveRecordingCardProps {
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
     onStartStop: () => void;
-    onPrivateSetup?: () => void;
 }
 
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
@@ -64,7 +63,6 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     className = "",
     onModeChange,
     onStartStop,
-    onPrivateSetup,
 }) => {
     // Deriving visibility and recording state from the master FSM + Intent
     // isIndicatorVisible: Shows the waveform when the engine is active OR initializing
@@ -80,9 +78,13 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
     // Check if session is too short to save
     const isTooShort = isListening && elapsedSeconds > 0 && elapsedSeconds < MIN_SESSION_DURATION_SECONDS;
-    const displayStatusMessage = /^error occurred$/i.test(_statusMessage?.trim() || '')
-        ? 'Recording could not start'
-        : _statusMessage;
+    const isPrivateDownloadRequired = mode === 'private' && sttStatusType === 'download-required' && !isListening;
+    let displayStatusMessage = _statusMessage;
+    if (isPrivateDownloadRequired) {
+        displayStatusMessage = 'Private not ready';
+    } else if (/^error occurred$/i.test(_statusMessage?.trim() || '')) {
+        displayStatusMessage = 'Recording could not start';
+    }
     const getModeLabel = (m: RecordingMode) => {
         switch (m) {
             case 'native': return 'Browser';
@@ -99,11 +101,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const privateModeDescription = isProUser
         ? 'On-device. One-time local model setup required. Nothing leaves your browser after setup.'
         : 'On-device. Available with active trial or Pro.';
-    const needsPrivateSetup = mode === 'private' && sttStatusType === 'download-required' && !isListening;
-
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
-            <div className={`bg-white border border-[hsl(var(--border-strong))] rounded-2xl p-6 sm:p-8 shadow-[var(--shadow-card-primary)] relative z-10 h-full flex flex-col text-center gap-6 ${className}`} data-testid="live-recording-card">
+            <div className={`bg-white border border-[hsl(var(--border-strong))] rounded-xl p-6 sm:p-8 shadow-[var(--shadow-card-primary)] relative z-10 h-full flex flex-col text-center gap-6 ${className}`} data-testid="live-recording-card">
 
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex flex-col items-center gap-2 text-center sm:items-start sm:text-left">
@@ -112,7 +112,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             <span>SECURE</span>
                         </div>
                         <p className="max-w-72 text-xs leading-snug text-muted-foreground">
-                            {modeDescriptions[mode]}
+                            {isPrivateDownloadRequired
+                                ? 'Download the private model to start recording locally.'
+                                : modeDescriptions[mode]}
                         </p>
                     </div>
 
@@ -173,36 +175,21 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                 </div>
 
                 <div className="flex flex-1 flex-col items-center justify-center gap-5">
-                    {needsPrivateSetup && (
-                        <div
-                            className="w-full max-w-md rounded-lg border border-primary/30 bg-primary/8 p-4 text-left shadow-sm"
-                            data-testid="private-setup-panel"
-                        >
-                            <div className="flex items-start gap-3">
-                                <div className="mt-0.5 rounded-md bg-primary/15 p-2 text-primary">
-                                    <Download className="h-4 w-4" />
+                    <div className="flex flex-col items-center gap-4">
+                        {isPrivateDownloadRequired && (
+                            <div className="flex flex-col items-center gap-2 text-center">
+                                <div className="flex h-11 w-11 items-center justify-center rounded-full border border-primary/35 bg-primary/12 text-primary">
+                                    <Lock className="h-5 w-5" />
                                 </div>
-                                <div className="min-w-0 flex-1">
-                                    <p className="text-xs leading-snug text-muted-foreground">
-                                        Download the local model once in this browser before recording. After setup, Private runs on-device.
+                                <div>
+                                    <p className="text-sm font-bold text-foreground">Private not ready</p>
+                                    <p className="mt-1 max-w-xs text-xs leading-snug text-muted-foreground">
+                                        Download the private model to start recording locally.
                                     </p>
-                                    <Button
-                                        type="button"
-                                        onClick={onPrivateSetup}
-                                        className="mt-3 h-10 w-full gap-2 text-xs font-semibold sm:w-auto"
-                                        data-testid="download-model-button"
-                                    >
-                                        <Download className="h-4 w-4" />
-                                        Download Private Model
-                                    </Button>
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )}
 
-                    {/* Proportional Vertical Stack: Mic + Timer */}
-                    <div className="flex flex-col items-center gap-4">
-                        {/* Mic Button (Balanced with Timer weight) */}
                         <div className="relative">
                             {isListening && (
                                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -217,7 +204,8 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                                     data-recording={isRecordingSignal}
                                     aria-label="Start Recording"
-                                    className="w-14 h-14 rounded-full bg-primary hover:bg-[#D97706] text-primary-foreground shadow-[0_4px_12px_rgba(245,158,11,0.25)] hover:scale-105 transition-all duration-300 p-0"
+                                    title={isPrivateDownloadRequired ? 'Download required' : 'Start Recording'}
+                                    className="w-14 h-14 rounded-full bg-primary hover:bg-[#D97706] text-primary-foreground shadow-[0_4px_12px_rgba(245,158,11,0.25)] hover:scale-105 transition-all duration-300 p-0 disabled:cursor-not-allowed disabled:pointer-events-none disabled:bg-slate-200 disabled:text-slate-500 disabled:opacity-100 disabled:shadow-none disabled:ring-1 disabled:ring-slate-300"
                                 >
                                     <Mic className="w-6 h-6" />
                                 </Button>

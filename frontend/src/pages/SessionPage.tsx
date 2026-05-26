@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Settings } from 'lucide-react';
+import { Download, Settings } from 'lucide-react';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
@@ -130,6 +130,14 @@ export const SessionPage: React.FC = () => {
         ...baseStatus,
         progress: visibleModelLoadingProgress ?? undefined
     };
+    const showPrivateDownloadHeaderAction =
+        mode === 'private' &&
+        sttStatus.type === 'download-required' &&
+        visibleModelLoadingProgress === null &&
+        !isListening;
+    const handlePrivateSetup = () => {
+        void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
+    };
 
     return (
         <main 
@@ -141,9 +149,22 @@ export const SessionPage: React.FC = () => {
             <div className="py-4 px-6 max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-3">
                 <div className="text-center md:col-start-2">
                     <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>
-                    <p className="text-xs text-muted-foreground">Record, review, and track your speaking patterns</p>
+                    <p className="text-xs font-medium text-muted-foreground">Record, review, and track your speaking patterns</p>
                 </div>
 
+                <div className="flex justify-center md:col-start-3 md:justify-end">
+                    {showPrivateDownloadHeaderAction && (
+                        <Button
+                            type="button"
+                            onClick={handlePrivateSetup}
+                            className="h-10 w-full max-w-xs gap-2 bg-primary text-xs font-bold text-primary-foreground shadow-[0_8px_20px_rgba(245,158,11,0.24)] hover:bg-[#D97706] md:w-auto"
+                            data-testid="download-model-button"
+                        >
+                            <Download className="h-4 w-4" />
+                            Download Private Model
+                        </Button>
+                    )}
+                </div>
             </div>
 
             {/* Status Bar - Spans full width of the main content area */}
@@ -176,9 +197,6 @@ export const SessionPage: React.FC = () => {
                                     elapsedSeconds={elapsedTime}
                                     isButtonDisabled={isButtonDisabled}
                                     onModeChange={setMode}
-                                    onPrivateSetup={() => {
-                                        void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
-                                    }}
                                     onStartStop={() => { void handleStartStop(); }}
                                     className="min-h-[300px] md:min-h-[340px]"
                                 />
@@ -197,7 +215,7 @@ export const SessionPage: React.FC = () => {
                                     micLevel={micLevel}
                                     hasSpeechActivity={hasSpeechActivity}
                                     containerRef={transcriptContainerRef}
-                                    className="min-h-[360px] bg-white border border-border rounded-lg h-full"
+                                    className="min-h-[360px] bg-white border border-border rounded-xl h-full shadow-card"
                                 />
                             </LocalErrorBoundary>
                         </div>
@@ -210,7 +228,7 @@ export const SessionPage: React.FC = () => {
                                 fillerCount={metrics.fillerCount}
                                 fillerData={fillerData}
                                 fillerExplanation={metrics.fillerExplanation}
-                                className="min-h-[300px] md:min-h-[340px] bg-white border border-border rounded-lg lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
+                                className="min-h-[300px] md:min-h-[340px] bg-white border border-border rounded-xl lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
                                 headerAction={
                                     <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
                                         <PopoverTrigger asChild>
@@ -246,7 +264,7 @@ export const SessionPage: React.FC = () => {
                             clarityLabel={metrics.clarityLabel}
                             clarityExplanation={metrics.clarityExplanation}
                             isClarityScorable={metrics.isClarityScorable}
-                            className="bg-white border border-border rounded-lg h-full"
+                            className="bg-white border border-border rounded-xl h-full"
                         />
                     </LocalErrorBoundary>
                     <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
@@ -254,13 +272,13 @@ export const SessionPage: React.FC = () => {
                             wpm={metrics.wpm}
                             wpmLabel={metrics.wpmLabel}
                             wpmExplanation={metrics.wpmExplanation}
-                            className="bg-white border border-border rounded-lg h-full"
+                            className="bg-white border border-border rounded-xl h-full"
                         />
                     </LocalErrorBoundary>
                     <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
                         <PauseMetricsDisplay
                             metrics={pauseMetrics}
-                            className="bg-white border border-border rounded-lg h-full"
+                            className="bg-white border border-border rounded-xl h-full"
                         />
                     </LocalErrorBoundary>
                 </div>
@@ -273,7 +291,7 @@ export const SessionPage: React.FC = () => {
                             fillerCount={metrics.fillerCount}
                             clarityScore={metrics.clarityScore}
                             pauseMetrics={pauseMetrics}
-                            className="bg-white border border-border rounded-lg compact"
+                            className="bg-white border border-border rounded-xl compact"
                         />
                     </LocalErrorBoundary>
                 </div>

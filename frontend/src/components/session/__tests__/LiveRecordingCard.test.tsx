@@ -102,8 +102,7 @@ describe('LiveRecordingCard', () => {
         expect(screen.getAllByText(/Nothing leaves your browser after setup/i).length).toBeGreaterThan(0);
     });
 
-    it('shows one obvious Private setup action in the recording card when the model is missing', () => {
-        const onPrivateSetup = vi.fn();
+    it('does not place Private setup inside the recording card when the model is missing', () => {
         render(
             <LiveRecordingCard
                 {...defaultProps}
@@ -112,16 +111,11 @@ describe('LiveRecordingCard', () => {
                 canUseCloudStt={false}
                 sttStatusType="download-required"
                 isButtonDisabled={true}
-                onPrivateSetup={onPrivateSetup}
             />
         );
 
-        expect(screen.getByTestId('private-setup-panel')).toHaveTextContent(/Download the local model once/i);
-        expect(screen.getByTestId('private-setup-panel')).toHaveTextContent(/Download the local model once/i);
-        const setupButton = screen.getByTestId('download-model-button');
-        expect(setupButton).toHaveTextContent(/Download Private Model/i);
-        fireEvent.click(setupButton);
-        expect(onPrivateSetup).toHaveBeenCalledOnce();
+        expect(screen.queryByTestId('private-setup-panel')).toBeNull();
+        expect(screen.queryByTestId('download-model-button')).toBeNull();
     });
 
     it('discloses that Browser STT sends Chrome and Edge audio to external speech servers', async () => {

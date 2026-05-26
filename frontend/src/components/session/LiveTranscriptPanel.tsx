@@ -59,11 +59,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
         transcript.trim() === interimTranscript.trim() ? '' : interimTranscript;
     const hasInterimTranscript = displayInterimTranscript.trim() !== '';
     const showPrivateFeedback = sttMode === 'private' && isListening;
-    const privateStatus = hasTranscript || hasInterimTranscript
-        ? 'Live text'
-        : hasSpeechActivity
-            ? 'Processing locally...'
-            : 'Listening...';
+    const privateStatus = hasTranscript || hasInterimTranscript ? 'Live text' : 'Private local';
 
     return (
         <div
@@ -84,7 +80,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             </div>
             <div
                 ref={containerRef}
-                className="live-transcript-scroll flex-1 overflow-y-auto p-3 pr-5 rounded-lg bg-muted/22 leading-relaxed transition-all min-h-[160px]"
+                className="live-transcript-scroll flex-1 overflow-y-auto p-3 pr-5 rounded-lg border border-border/60 bg-slate-50 leading-relaxed transition-all min-h-[160px]"
                 data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
                 data-scrollable-transcript="true"
                 aria-live="polite"

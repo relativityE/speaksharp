@@ -33,6 +33,12 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
                 {headerAction}
             </div>
 
+            {fillerCount === 0 && Object.keys(fillerData).length > 1 && (
+                <p className="mb-3 text-xs font-medium text-muted-foreground">
+                    No filler words detected yet.
+                </p>
+            )}
+
             <div className="space-y-2" data-testid="filler-words-list">
                 {Object.entries(fillerData)
                     .filter(([key]) => key !== 'total')
@@ -43,18 +49,18 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
                         return (
                             <div key={word} className="flex items-center justify-between" data-testid="filler-badge">
                                 <span
-                                    className="text-sm font-bold px-2 py-0.5 rounded border"
+                                    className={`text-sm px-2 py-0.5 rounded border ${isZero ? 'font-semibold text-muted-foreground' : 'font-bold'}`}
                                     style={{
-                                        color: isZero ? 'inherit' : wordColor,
+                                        color: isZero ? undefined : wordColor,
                                         borderColor: isZero ? 'transparent' : `${wordColor}40`,
                                         backgroundColor: isZero ? 'transparent' : `${wordColor}10`
                                     }}
                                 >
-                                    "{word}"
+                                    {word}
                                 </span>
                                 <span
                                     data-testid="filler-badge-count"
-                                    className={`font-bold ${!isZero ? "" : "text-muted-foreground"}`}
+                                    className={`font-bold ${!isZero ? "" : "text-slate-400"}`}
                                     style={{ color: !isZero ? wordColor : undefined }}
                                 >
                                     {data.count}

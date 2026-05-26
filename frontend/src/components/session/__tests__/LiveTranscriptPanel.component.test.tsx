@@ -109,7 +109,8 @@ describe('LiveTranscriptPanel', () => {
         );
 
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('Processing locally...');
-        expect(screen.getAllByText('Processing locally...').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('Processing locally...')).toHaveLength(1);
+        expect(screen.getByText('Private local')).toBeInTheDocument();
     });
 
     it('keeps non-Private modes on the simple listening state', () => {

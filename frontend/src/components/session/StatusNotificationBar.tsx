@@ -109,6 +109,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     if (status.type === 'error' && /^error occurred$/i.test(displayMessage || '')) {
         displayMessage = '';
     }
+    if (status.type === 'download-required') {
+        displayMessage = 'Private model required';
+    }
 
     if (!displayMessage) {
         switch (status.type) {
@@ -126,7 +129,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 displayMessage = 'Recording could not start. Check microphone permission and try again.';
                 break;
             case 'download-required':
-                displayMessage = 'Private setup needed';
+                displayMessage = 'Private model required';
                 break;
             case 'downloading':
                 displayMessage = 'Downloading private model...';
@@ -142,6 +145,11 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
         }
     }
 
+    const displayDetail = (
+        status.type === 'download-required'
+            ? 'Download once to use private local transcription in this browser.'
+            : status.detail || ''
+    );
     const emoji = status.message?.match(/^(?:⛔|⚠️|🚫)/u)?.[0];
 
     return (
@@ -175,9 +183,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                     <span className={`${isProminent ? 'text-sm' : 'text-[13px]'} font-semibold leading-snug ${config.textClass}`} data-testid="status-message-text">
                         {displayMessage}
                     </span>
-                    {status.detail && (
+                    {displayDetail && (
                         <span className={`${isProminent ? 'text-xs' : 'text-[11px]'} font-normal leading-snug text-muted-foreground`}>
-                            {status.detail}
+                            {displayDetail}
                         </span>
                     )}
                 </div>
