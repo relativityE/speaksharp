@@ -124,13 +124,17 @@ export const CLOUD_STT = {
 export const NATIVE_STT = {
   LANG: 'en-US',
   INTERIM_RESULTS: true,
-  CONTINUOUS: false,
+  // Native Browser STT is a session/dictation workflow. Chrome/Edge must stay
+  // continuous to avoid the no-result restart regression from fc0ffc39.
+  CONTINUOUS: true,
   MAX_ALTERNATIVES: 1,
   START_TIMEOUT_MS: 3_000,
   STOP_TIMEOUT_MS: 1_000,
   RESTART_MAX_ATTEMPTS: 3,
   RESTART_BASE_DELAY_MS: 100,
   RESTART_DEBOUNCE_MS: 300,
+  RESULT_STALL_RESTART_MS: 2_500,
+  RESULT_STALL_RESTART_MAX_ATTEMPTS: 2,
 } as const;
 
 export function secondsToSamples(

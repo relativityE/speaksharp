@@ -22,7 +22,7 @@
 
 **Last updated:** 2026-05-19
 **Evidence baseline commit:** `69ad3f13`
-**Verdict:** GO for controlled human tester release. P0 release gates, P1 release-control work, Observability API Smoke, all five RC gates, latest CI, latest Edge deploy, scheduled canary, and scheduled soak are green. Tester share can proceed with the Private-first instructions in `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; Native remains Chrome/browser-dependent and Cloud remains optional/caveated.
+**Verdict:** GO for controlled human tester release. P0 release gates, P1 release-control work, Observability API Smoke, all five RC gates, latest CI, latest Edge deploy, scheduled canary, and scheduled soak are green. Tester share can proceed with the Private-first instructions in `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; Native remains Chrome/browser-dependent and Cloud remains optional/caveated. If Edge has no current passing Native proof, tester-facing copy must say Chrome recommended rather than implying Edge parity.
 **Latest full RC gates:** `Release Candidate Gates` run `25769178359` passed on `e73408c0`.
 **Latest workflow hygiene evidence:** `69ad3f13`; CI/Test Audit run `25994869503`, production canary run `25994869500`, Edge Function deploy run `25994869506`, scheduled production canary run `26085357729`, and scheduled soak run `26083232887` passed on `main`.
 **Latest observability readback:** `Observability API Smoke` run `25764783852` passed.
@@ -35,7 +35,7 @@
 | Basic/basic access sanity | ✅ | ✅ | ✅ | N/A | ✅ | N/A | Green |
 | Cloud Pro | ✅ | ✅ | ✅ | N/A | ✅ | N/A | Green, included |
 | Private Pro | ✅ | ✅ | ✅ | N/A | ✅ | N/A | Green for release |
-| Native Chrome | ✅ | ✅ | ✅ manual | N/A | ✅ | N/A | Green if labeled Chrome/browser-dependent |
+| Native Chrome | ✅ | ✅ | ✅ manual | N/A | ✅ | N/A | Green if labeled Chrome/browser-dependent and `continuous=true` proof remains fresh |
 | Stripe checkout/webhook | ✅ | ✅ | ✅ | N/A | N/A | N/A | Green for test-mode release |
 | CI/deploy/canary | ✅ | ✅ | ✅ | ✅ | N/A | N/A | Green; critical SCA audit recorded |
 | Observability | ✅ | N/A | ✅ | N/A | N/A | ✅ | Green; API readback passed and manual fallback remains available |

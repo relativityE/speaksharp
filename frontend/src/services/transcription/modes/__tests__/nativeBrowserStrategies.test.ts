@@ -1,19 +1,86 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { resolveNativeBrowserStrategy } from '../nativeBrowserStrategies';
 
 const chromeUa = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36';
 const edgeUa = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0';
 const safariUa = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
 const genericUa = 'Mozilla/5.0 CustomBrowser/1.0';
+const braveUaWithToken = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Brave/1.77.101';
+const arcUaWithToken = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Arc/1.89.0';
+const operaUa = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 OPR/115.0.0.0';
+const samsungUa = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/121.0.0.0 Mobile Safari/537.36';
+const electronUa = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) MyApp/1.0 Chrome/120.0.0.0 Electron/28.0.0 Safari/537.36';
 
 function result(transcript: string, isFinal: boolean) {
   return Object.assign([{ transcript }], { isFinal });
 }
 
 describe('native browser strategies', () => {
+  afterEach(() => {
+    delete (globalThis as {
+      __NATIVE_STT_DIAGNOSTIC_CONFIG__?: unknown;
+    }).__NATIVE_STT_DIAGNOSTIC_CONFIG__;
+  });
+
   it('routes Chrome and Edge to verified Web Speech strategies', () => {
     expect(resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: chromeUa }).browserFamily).toBe('chrome');
     expect(resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: edgeUa }).browserFamily).toBe('edge');
+  });
+
+  it('keeps Chrome and Edge in continuous dictation mode', () => {
+    const chromeStrategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: chromeUa });
+    const edgeStrategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: edgeUa });
+    const chromeRecognition = { interimResults: false, continuous: false, maxAlternatives: 1 };
+    const edgeRecognition = { interimResults: false, continuous: false, maxAlternatives: 1 };
+
+    chromeStrategy.configure(chromeRecognition);
+    edgeStrategy.configure(edgeRecognition);
+
+    expect(chromeRecognition.continuous).toBe(true);
+    expect(edgeRecognition.continuous).toBe(true);
+  });
+
+  it('keeps Safari explicitly non-continuous', () => {
+    const safariStrategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: safariUa });
+    const safariRecognition = { interimResults: false, continuous: true, maxAlternatives: 4 };
+
+    safariStrategy.configure(safariRecognition);
+
+    expect(safariRecognition.continuous).toBe(false);
+    expect(safariRecognition.interimResults).toBe(true);
+    expect(safariRecognition.maxAlternatives).toBe(1);
+  });
+
+  it('keeps generic SpeechRecognition browsers in continuous dictation mode', () => {
+    const genericStrategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: genericUa });
+    const genericRecognition = { interimResults: true, continuous: false, maxAlternatives: 1 };
+
+    genericStrategy.configure(genericRecognition);
+
+    expect(genericRecognition.continuous).toBe(true);
+  });
+
+  it('applies the common dictation baseline to Chromium-family browsers', () => {
+    const cases = [
+      braveUaWithToken,
+      arcUaWithToken,
+      operaUa,
+      samsungUa,
+      electronUa,
+    ];
+
+    for (const userAgent of cases) {
+      const strategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent });
+      const recognition = { interimResults: false, continuous: false, maxAlternatives: 1 };
+
+      strategy.configure(recognition);
+
+      expect(strategy.browserFamily).toBe('chrome');
+      expect(strategy.compatibilityMode).toBe('verified');
+      expect(recognition.continuous).toBe(true);
+      expect(recognition.interimResults).toBe(true);
+      expect(recognition.maxAlternatives).toBe(1);
+    }
   });
 
   it('routes Safari to a verified Safari strategy', () => {
@@ -36,6 +103,58 @@ describe('native browser strategies', () => {
     expect(strategy.userMessage).toMatch(/does not provide a usable SpeechRecognition API/i);
   });
 
+  it('applies non-production Native diagnostic URL overrides', () => {
+    (globalThis as {
+      __NATIVE_STT_DIAGNOSTIC_CONFIG__?: {
+        continuous: boolean;
+        interimResults: boolean;
+        maxAlternatives: number;
+      };
+    }).__NATIVE_STT_DIAGNOSTIC_CONFIG__ = {
+      continuous: true,
+      interimResults: false,
+      maxAlternatives: 3,
+    };
+    const strategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: chromeUa });
+    const recognition = {
+      interimResults: true,
+      continuous: false,
+      maxAlternatives: 1,
+    };
+
+    strategy.configure(recognition);
+
+    expect(recognition.continuous).toBe(true);
+    expect(recognition.interimResults).toBe(false);
+    expect(recognition.maxAlternatives).toBe(3);
+  });
+
+  it('ignores malformed Native diagnostic URL overrides', () => {
+    (globalThis as {
+      __NATIVE_STT_DIAGNOSTIC_CONFIG__?: {
+        continuous: unknown;
+        interimResults: unknown;
+        maxAlternatives: unknown;
+      };
+    }).__NATIVE_STT_DIAGNOSTIC_CONFIG__ = {
+      continuous: 'maybe',
+      interimResults: 'maybe',
+      maxAlternatives: 99,
+    };
+    const strategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: chromeUa });
+    const recognition = {
+      interimResults: false,
+      continuous: true,
+      maxAlternatives: 4,
+    };
+
+    strategy.configure(recognition);
+
+    expect(recognition.continuous).toBe(true);
+    expect(recognition.interimResults).toBe(true);
+    expect(recognition.maxAlternatives).toBe(1);
+  });
+
   it('extracts latest interim hypotheses by Web Speech result slots', () => {
     const strategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: chromeUa });
     const finalized = new Set<number>();
@@ -48,7 +167,7 @@ describe('native browser strategies', () => {
     expect(update.interimTranscript).toBe('like lingers on a dash of pepper');
   });
 
-  it('only emits changed interim result slots from resultIndex onward', () => {
+  it('preserves all active interim result slots even when only a later slot changed', () => {
     const strategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: chromeUa });
     const finalized = new Set<number>();
     const update = strategy.extractTranscripts({
@@ -61,7 +180,19 @@ describe('native browser strategies', () => {
       { index: 1, isFinal: false, transcript: 'a dash of pepper' },
     ]);
     expect(update.finalTranscript).toBe('');
-    expect(update.interimTranscript).toBe('a dash of pepper');
+    expect(update.interimTranscript).toBe('like lingers on a dash of pepper');
+  });
+
+  it('does not re-emit earlier final result slots while preserving current interim slots', () => {
+    const strategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: chromeUa });
+    const finalized = new Set<number>([0]);
+    const update = strategy.extractTranscripts({
+      resultIndex: 1,
+      results: [result('native browser proof', true), result('the quick brown fox', false)],
+    }, finalized);
+
+    expect(update.finalTranscript).toBe('');
+    expect(update.interimTranscript).toBe('the quick brown fox');
   });
 
   it('emits each final result slot only once', () => {

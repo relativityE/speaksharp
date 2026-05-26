@@ -7,6 +7,7 @@ vi.mock('@/config/env', () => ({
 }));
 
 import NativeBrowser from '../NativeBrowser';
+import { Result } from '../types';
  
 interface MockSpeechEvent {
   results: Array<Array<{ transcript: string; confidence: number; isFinal: boolean }> & { isFinal: boolean }>;
@@ -66,6 +67,11 @@ describe('NativeBrowser Transcription Mode', () => {
     mockRecognition.onsoundstart = null;
     mockRecognition.onsoundend = null;
     mockRecognition.onnomatch = null;
+    delete (window as Window & { dispatchMockTranscript?: unknown }).dispatchMockTranscript;
+    delete (window as Window & { __SS_E2E__?: unknown }).__SS_E2E__;
+    delete window.__activeSpeechRecognition;
+    delete window.__NATIVE_PARALLEL_CAPTURE_TRACE__;
+    delete window.__NATIVE_PARALLEL_CAPTURE__;
 
     nativeBrowser = new NativeBrowser({
       onTranscriptUpdate,
@@ -82,7 +88,7 @@ describe('NativeBrowser Transcription Mode', () => {
     it('should initialize and set up recognition properties', async () => {
       await nativeBrowser.init();
       expect(mockSpeechRecognitionStatic).toHaveBeenCalled();
-      expect(mockRecognition.continuous).toBe(false);
+      expect(mockRecognition.continuous).toBe(true);
       expect(mockRecognition.interimResults).toBe(true);
       expect(mockRecognition.maxAlternatives).toBe(1);
       expect(mockRecognition.lang).toBe('en-US');
@@ -113,6 +119,26 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
     });
 
+    it('REGRESSION: stop clears E2E recognition bridge and native event handlers', async () => {
+      (window as Window & { __SS_E2E__?: unknown }).__SS_E2E__ = { isActive: true };
+      await nativeBrowser.init();
+
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+      expect(window.__activeSpeechRecognition).toBe(mockRecognition);
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      expect(window.__activeSpeechRecognition).toBeUndefined();
+      expect(mockRecognition.onresult).toBeTypeOf('function');
+      expect(mockRecognition.onerror).toBeTypeOf('function');
+      expect(mockRecognition.onend).toBeTypeOf('function');
+      expect(mockRecognition.onstart).toBeTypeOf('function');
+    });
+
     it('contract: start fails with actionable error when SpeechRecognition never fires onstart', async () => {
       vi.useFakeTimers();
       await nativeBrowser.init();
@@ -127,6 +153,35 @@ describe('NativeBrowser Transcription Mode', () => {
       const outcome = await handledStart;
       expect(outcome.ok).toBe(false);
       expect(outcome.ok ? '' : outcome.error.message).toMatch(/did not start/i);
+      vi.useRealTimers();
+    });
+
+    it('REGRESSION: start failure disposes parallel capture and clears E2E recognition bridge', async () => {
+      vi.useFakeTimers();
+      const dispose = vi.fn();
+      const mic = {
+        sampleRate: 16000,
+        onFrame: vi.fn(() => dispose),
+      };
+      window.__NATIVE_PARALLEL_CAPTURE_TRACE__ = true;
+      (window as Window & { __SS_E2E__?: unknown }).__SS_E2E__ = { isActive: true };
+      await nativeBrowser.init();
+
+      const startPromise = nativeBrowser.start(mic as never);
+      const handledStart = startPromise.then(
+        () => ({ ok: true as const }),
+        (error: Error) => ({ ok: false as const, error }),
+      );
+      expect(window.__activeSpeechRecognition).toBe(mockRecognition);
+
+      await vi.advanceTimersByTimeAsync(3000);
+
+      const outcome = await handledStart;
+      expect(outcome.ok).toBe(false);
+      expect(dispose).toHaveBeenCalledTimes(1);
+      expect(window.__activeSpeechRecognition).toBeUndefined();
+      expect(mockRecognition.onresult).toBeNull();
+      expect(mockRecognition.onend).toBeNull();
       vi.useRealTimers();
     });
 
@@ -154,6 +209,42 @@ describe('NativeBrowser Transcription Mode', () => {
       vi.useRealTimers();
     });
 
+    it('REGRESSION: can start again on the same NativeBrowser instance after stop', async () => {
+      await nativeBrowser.init();
+      const firstStart = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await firstStart;
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      const secondStart = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await secondStart;
+
+      expect(mockRecognition.start).toHaveBeenCalledTimes(2);
+    });
+
+    it('REGRESSION: stop timeout restores the original onend handler before late onend', async () => {
+      vi.useFakeTimers();
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+      const originalOnEnd = mockRecognition.onend;
+
+      const stopPromise = nativeBrowser.stop();
+      await vi.advanceTimersByTimeAsync(1000);
+      await stopPromise;
+
+      expect(mockRecognition.onend).toBe(originalOnEnd);
+      mockRecognition.onend?.({} as Event);
+      await vi.advanceTimersByTimeAsync(310);
+      expect(mockRecognition.start).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
     it('contract: stop resolves when SpeechRecognition.stop throws', async () => {
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
@@ -176,6 +267,38 @@ describe('NativeBrowser Transcription Mode', () => {
       mockRecognition.onspeechstart?.();
 
       expect(onReady).toHaveBeenCalledTimes(1);
+    });
+
+    it('REGRESSION: delegates transcribe calls to the injected mock engine', async () => {
+      const audio = new Float32Array([0.1, 0.2]);
+      const mockEngine = {
+        type: 'mock',
+        checkAvailability: vi.fn(),
+        init: vi.fn(),
+        start: vi.fn(),
+        stop: vi.fn(),
+        pause: vi.fn(),
+        resume: vi.fn(),
+        transcribe: vi.fn(async () => Result.ok('mock transcript')),
+        destroy: vi.fn(),
+        terminate: vi.fn(),
+        updateOptions: vi.fn(),
+        getLastHeartbeatTimestamp: vi.fn(() => Date.now()),
+      };
+      const nativeWithMock = new NativeBrowser({
+        onTranscriptUpdate,
+        onReady,
+        onError,
+        onModelLoadProgress: vi.fn(),
+        session: null,
+        navigate: vi.fn(),
+        getAssemblyAIToken: vi.fn(),
+      }, mockEngine as never);
+
+      const result = await nativeWithMock.transcribe(audio);
+
+      expect(mockEngine.transcribe).toHaveBeenCalledWith(audio);
+      expect(result).toEqual(Result.ok('mock transcript'));
     });
   });
  
@@ -284,6 +407,211 @@ describe('NativeBrowser Transcription Mode', () => {
       });
     });
 
+    it('REGRESSION: promotes meaningful interim transcript on stop when Chrome never finalizes', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const interimResult = Object.assign([{ transcript: 'but you keep', confidence: 0.8, isFinal: false }], { isFinal: false });
+      mockRecognition.onresult?.({ results: [interimResult], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { final: 'but you keep' },
+      });
+      expect(await nativeBrowser.getTranscript()).toBe('but you keep');
+    });
+
+    it('does not promote one-word interim noise on stop', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const interimResult = Object.assign([{ transcript: 'the', confidence: 0.8, isFinal: false }], { isFinal: false });
+      mockRecognition.onresult?.({ results: [interimResult], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      expect(onTranscriptUpdate).toHaveBeenCalledTimes(1);
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { partial: 'the' },
+      });
+      expect(await nativeBrowser.getTranscript()).toBe('');
+    });
+
+    it('REGRESSION: does not promote stopword-heavy interim noise on stop', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const interimResult = Object.assign([{ transcript: 'on the way', confidence: 0.8, isFinal: false }], { isFinal: false });
+      mockRecognition.onresult?.({ results: [interimResult], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      expect(await nativeBrowser.getTranscript()).toBe('');
+    });
+
+    it('REGRESSION: getTranscript returns meaningful Native interim before finalization', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const interimResult = Object.assign([{ transcript: 'quick brown fox', confidence: 0.8, isFinal: false }], { isFinal: false });
+      mockRecognition.onresult?.({ results: [interimResult], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      expect(await nativeBrowser.getTranscript()).toBe('quick brown fox');
+    });
+
+    it('REGRESSION: final-only result does not emit stale buffered partial before final', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const firstWindow = Object.assign([{ transcript: 'native chrome microphone proof', confidence: 0.8, isFinal: false }], { isFinal: false });
+      const secondWindow = Object.assign([{ transcript: 'the quick brown fox', confidence: 0.8, isFinal: false }], { isFinal: false });
+      const finalWindow = Object.assign([{ transcript: 'the quick brown fox', confidence: 0.9, isFinal: true }], { isFinal: true });
+
+      mockRecognition.onresult?.({ results: [firstWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [secondWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
+      onTranscriptUpdate.mockClear();
+      mockRecognition.onresult?.({ results: [finalWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate).toHaveBeenCalledTimes(1);
+      expect(onTranscriptUpdate).toHaveBeenCalledWith({
+        transcript: { final: 'native chrome microphone proof the quick brown fox' },
+      });
+    });
+
+    it('REGRESSION: preserves the best meaningful interim when Chrome later shortens its hypothesis', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const strongInterim = Object.assign([{ transcript: 'native chrome microphone proof', confidence: 0.8, isFinal: false }], { isFinal: false });
+      const shorterInterim = Object.assign([{ transcript: 'native chrome mic', confidence: 0.8, isFinal: false }], { isFinal: false });
+      mockRecognition.onresult?.({ results: [strongInterim], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [shorterInterim], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { final: 'native chrome microphone proof' },
+      });
+      expect(await nativeBrowser.getTranscript()).toBe('native chrome microphone proof');
+    });
+
+    it('REGRESSION: replaces a short final with the richer pending interim when Chrome collapses its hypothesis on stop', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const richInterim = Object.assign([{ transcript: 'native chrome microphone release validation native chrome microphone release validation', confidence: 0.8, isFinal: false }], { isFinal: false });
+      const shortFinal = Object.assign([{ transcript: 'validation', confidence: 0.9, isFinal: true }], { isFinal: true });
+
+      mockRecognition.onresult?.({ results: [richInterim], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [shortFinal], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { final: 'native chrome microphone release validation native chrome microphone release validation' },
+      });
+      expect(await nativeBrowser.getTranscript()).toBe('native chrome microphone release validation native chrome microphone release validation');
+    });
+
+    it('REGRESSION: accumulates rolling Native interim windows when Chrome never finalizes', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const firstWindow = Object.assign([{ transcript: 'native chrome microphone proof', confidence: 0.8, isFinal: false }], { isFinal: false });
+      const secondWindow = Object.assign([{ transcript: 'the quick brown fox reads clearly', confidence: 0.8, isFinal: false }], { isFinal: false });
+
+      mockRecognition.onresult?.({ results: [firstWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [secondWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { partial: 'native chrome microphone proof the quick brown fox reads clearly' },
+      });
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { final: 'native chrome microphone proof the quick brown fox reads clearly' },
+      });
+      expect(await nativeBrowser.getTranscript()).toBe('native chrome microphone proof the quick brown fox reads clearly');
+    });
+
+    it('REGRESSION: merges buffered interim with a later final result without duplicating overlap', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const firstWindow = Object.assign([{ transcript: 'native chrome microphone proof', confidence: 0.8, isFinal: false }], { isFinal: false });
+      const rollingWindow = Object.assign([{ transcript: 'proof the quick brown', confidence: 0.8, isFinal: false }], { isFinal: false });
+      const finalWindow = Object.assign([{ transcript: 'the quick brown fox', confidence: 0.9, isFinal: true }], { isFinal: true });
+
+      mockRecognition.onresult?.({ results: [firstWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [rollingWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [finalWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { final: 'native chrome microphone proof the quick brown fox' },
+      });
+      expect(await nativeBrowser.getTranscript()).toBe('native chrome microphone proof the quick brown fox');
+    });
+
+    it('REGRESSION: restarts a stalled Native recognition cycle after first meaningful interim', async () => {
+      vi.useFakeTimers();
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const firstWindow = Object.assign([{ transcript: 'native chrome microphone', confidence: 0.8, isFinal: false }], { isFinal: false });
+      mockRecognition.onresult?.({ results: [firstWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
+
+      mockRecognition.onend?.({} as Event);
+      await vi.advanceTimersByTimeAsync(310);
+      expect(mockRecognition.start).toHaveBeenCalledTimes(2);
+
+      mockRecognition.onstart?.({} as Event);
+      const secondWindow = Object.assign([{ transcript: 'the quick brown fox continues', confidence: 0.8, isFinal: false }], { isFinal: false });
+      mockRecognition.onresult?.({ results: [secondWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { partial: 'native chrome microphone the quick brown fox continues' },
+      });
+
+      vi.useRealTimers();
+    });
+
     it('REGRESSION: should handle rapid onend events without redundant starts', async () => {
       vi.useFakeTimers();
       await nativeBrowser.init();
@@ -358,6 +686,35 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(mockRecognition.start).toHaveBeenCalledTimes(1);
 
       vi.useRealTimers();
+    });
+
+    it('REGRESSION: terminate performs Native shutdown once without double cleanup', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const terminatePromise = nativeBrowser.terminate();
+      mockRecognition.onend?.({} as Event);
+      await terminatePromise;
+
+      expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
+      await nativeBrowser.terminate();
+      expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('REGRESSION: concurrent terminate calls share one shutdown', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const firstTerminate = nativeBrowser.terminate();
+      const secondTerminate = nativeBrowser.terminate();
+      mockRecognition.onend?.({} as Event);
+      await Promise.all([firstTerminate, secondTerminate]);
+
+      expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
     });
 
     it('contract: recoverable no-speech errors are traced without surfacing a fatal error', async () => {

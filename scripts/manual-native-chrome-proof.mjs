@@ -16,9 +16,21 @@ const PASSWORD = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 const SIGNUP_EMAIL = process.env.NATIVE_PROOF_EMAIL || `native-proof-${Date.now()}@example.com`;
 const SIGNUP_PASSWORD = process.env.NATIVE_PROOF_PASSWORD || `NativeProof${Date.now()}!`;
 const OUT = process.env.NATIVE_PROOF_OUT || '/private/tmp/native-chrome-proof.json';
-const SPOKEN_SENTENCE = 'Native Chrome microphone proof. The quick brown fox reads clear speech for SpeakSharp release validation.';
+const SPOKEN_SENTENCE = process.env.NATIVE_PROOF_SPOKEN_SENTENCE || 'Native Chrome microphone proof. The quick brown fox reads clear speech for SpeakSharp release validation.';
+const SPOKEN_CHUNKS = process.env.NATIVE_PROOF_SPOKEN_CHUNKS
+  ? JSON.parse(process.env.NATIVE_PROOF_SPOKEN_CHUNKS)
+  : null;
+const AUDIO_FILE = process.env.NATIVE_PROOF_AUDIO_FILE ? path.resolve(process.env.NATIVE_PROOF_AUDIO_FILE) : '';
+const USE_FAKE_AUDIO_CAPTURE = process.env.NATIVE_PROOF_FAKE_AUDIO_CAPTURE === 'true';
+const SESSION_QUERY = process.env.NATIVE_PROOF_SESSION_QUERY || '';
+const WAIT_FOR_RESTART_AFTER_CHUNK_INDEX = process.env.NATIVE_PROOF_WAIT_FOR_RESTART_AFTER_CHUNK_INDEX == null
+  ? -1
+  : Number(process.env.NATIVE_PROOF_WAIT_FOR_RESTART_AFTER_CHUNK_INDEX);
+const WAIT_FOR_RESTART_TIMEOUT_MS = Number(process.env.NATIVE_PROOF_WAIT_FOR_RESTART_TIMEOUT_MS || 25_000);
+const MANUAL_SPEAK_MS = Number(process.env.NATIVE_PROOF_MANUAL_SPEAK_MS || 0);
 const NATIVE_AUDIO_READY_TIMEOUT_MS = Number(process.env.NATIVE_AUDIO_READY_TIMEOUT_MS || 12_000);
 const NATIVE_AUDIO_READY_GRACE_MS = Number(process.env.NATIVE_AUDIO_READY_GRACE_MS || 300);
+const POST_AUDIO_WAIT_MS = Number(process.env.NATIVE_PROOF_POST_AUDIO_WAIT_MS || (AUDIO_FILE ? 500 : 8_000));
 
 function compact(text) {
   return (text || '').replace(/\s+/g, ' ').trim();
@@ -41,17 +53,43 @@ async function selectMode(page, mode) {
   throw new Error(`Could not select STT mode ${mode}; final state=${await select.getAttribute('data-state')}`);
 }
 
-async function speakSentence() {
-  if (process.platform !== 'darwin') return { attempted: false, reason: 'non-darwin' };
-  const chunks = [
-    SPOKEN_SENTENCE,
-    'Again, this is Native Chrome browser speech recognition using the real microphone path.',
-  ];
-
-  for (const chunk of chunks) {
-    await execFileAsync('/usr/bin/say', ['-v', 'Samantha', '-r', '165', chunk], { timeout: 30_000 });
+async function speakSentence(page) {
+  if (MANUAL_SPEAK_MS > 0) {
+    console.log(`READY_TO_SPEAK ${JSON.stringify({ sentence: SPOKEN_SENTENCE, durationMs: MANUAL_SPEAK_MS })}`);
+    await page.waitForTimeout(MANUAL_SPEAK_MS);
+    return { attempted: true, source: 'human-mic', sentence: SPOKEN_SENTENCE, durationMs: MANUAL_SPEAK_MS };
   }
-  return { attempted: true, sentence: SPOKEN_SENTENCE };
+
+  if (USE_FAKE_AUDIO_CAPTURE) {
+    return { attempted: false, source: 'chrome-fake-audio-capture', audioFile: AUDIO_FILE, sentence: SPOKEN_SENTENCE };
+  }
+
+  if (process.platform !== 'darwin') return { attempted: false, reason: 'non-darwin' };
+
+  if (AUDIO_FILE) {
+    await execFileAsync('/usr/bin/afplay', [AUDIO_FILE], { timeout: 45_000 });
+    return { attempted: true, source: 'fixture', audioFile: AUDIO_FILE, sentence: SPOKEN_SENTENCE };
+  }
+
+  const chunks = Array.isArray(SPOKEN_CHUNKS) && SPOKEN_CHUNKS.length > 0
+    ? SPOKEN_CHUNKS.map((chunk) => String(chunk))
+    : [SPOKEN_SENTENCE];
+
+  for (const [index, chunk] of chunks.entries()) {
+    await execFileAsync('/usr/bin/say', ['-v', 'Samantha', '-r', '165', chunk], { timeout: 30_000 });
+    if (index === WAIT_FOR_RESTART_AFTER_CHUNK_INDEX) {
+      await page.waitForFunction(
+        () => {
+          const trace = window.__NATIVE_BROWSER_TRACE__ || [];
+          return trace.some((entry) => entry.event === 'recognition_restart_invoked');
+        },
+        null,
+        { timeout: WAIT_FOR_RESTART_TIMEOUT_MS },
+      );
+      await page.waitForTimeout(500);
+    }
+  }
+  return { attempted: true, sentence: SPOKEN_SENTENCE, chunks };
 }
 
 async function waitForNativeAudioReady(page) {
@@ -77,7 +115,11 @@ async function waitForNativeAudioReady(page) {
 const evidence = {
   baseUrl: BASE_URL,
   browser: 'Google Chrome via Playwright channel=chrome, headed',
-  microphonePath: 'real browser getUserMedia, no fake audio flags',
+  microphonePath: USE_FAKE_AUDIO_CAPTURE
+    ? 'SpeakSharp app with Chrome --use-file-for-fake-audio-capture'
+    : 'real browser getUserMedia, no fake audio flags',
+  audioFile: AUDIO_FILE || null,
+  fakeAudioCapture: USE_FAKE_AUDIO_CAPTURE,
   spokenSentence: SPOKEN_SENTENCE,
   startedAt: new Date().toISOString(),
   login: false,
@@ -99,6 +141,10 @@ const browser = await chromium.launch({
   args: [
     '--autoplay-policy=no-user-gesture-required',
     '--disable-blink-features=AutomationControlled',
+    ...(USE_FAKE_AUDIO_CAPTURE && AUDIO_FILE ? [
+      '--use-fake-device-for-media-stream',
+      `--use-file-for-fake-audio-capture=${AUDIO_FILE}`,
+    ] : []),
   ],
 });
 
@@ -138,7 +184,7 @@ try {
     evidence.login = true;
   }
 
-  await page.goto(`${BASE_URL}/session`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${BASE_URL}/session${SESSION_QUERY}`, { waitUntil: 'domcontentloaded' });
   await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 60_000 });
   evidence.profileTextBeforeNative = compact(await page.locator('[data-testid="pro-badge"], [data-testid="nav-upgrade-button"]').first().textContent().catch(() => ''));
   await selectMode(page, 'native');
@@ -155,8 +201,8 @@ try {
   evidence.recordingStarted = true;
 
   evidence.nativeAudioReady = await waitForNativeAudioReady(page);
-  evidence.audioPlayback = await speakSentence();
-  await page.waitForTimeout(8_000);
+  evidence.audioPlayback = await speakSentence(page);
+  await page.waitForTimeout(POST_AUDIO_WAIT_MS);
 
   const transcriptText = compact(await page.getByTestId('transcript-container').textContent().catch(() => ''));
   evidence.transcriptSample = transcriptText.slice(0, 500);
@@ -170,19 +216,6 @@ try {
   });
   await page.waitForTimeout(3_000);
   evidence.saved = await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false);
-
-  await page.goto(`${BASE_URL}/analytics`, { waitUntil: 'domcontentloaded' });
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 60_000 });
-  await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => undefined);
-  const historyItem = page.getByTestId(/^session-history-item-/).first();
-  evidence.historyVisible = await historyItem.isVisible({ timeout: 20_000 }).catch(() => false);
-  evidence.analyticsBodySample = compact(await page.locator('body').textContent()).slice(0, 1000);
-  if (evidence.historyVisible) {
-    await historyItem.click();
-    await page.waitForTimeout(3_000);
-  }
-  evidence.analyticsVisible = /analytics|words per minute|wpm|clarity|filler|session/i.test(compact(await page.locator('body').textContent()));
-  evidence.finalUrl = page.url();
   evidence.nativeTrace = await page.evaluate(() => window.__NATIVE_BROWSER_TRACE__ || []);
   evidence.nativeParallelCapture = await page.evaluate(() => {
     const captures = window.__NATIVE_PARALLEL_CAPTURE__ || [];
@@ -196,6 +229,19 @@ try {
       wavBytesApprox: typeof capture.wavDataUrl === 'string' ? capture.wavDataUrl.length : 0,
     }));
   });
+
+  await page.goto(`${BASE_URL}/analytics`, { waitUntil: 'domcontentloaded' });
+  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 60_000 });
+  await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => undefined);
+  const historyItem = page.getByTestId(/^session-history-item-/).first();
+  evidence.historyVisible = await historyItem.isVisible({ timeout: 20_000 }).catch(() => false);
+  evidence.analyticsBodySample = compact(await page.locator('body').textContent()).slice(0, 1000);
+  if (evidence.historyVisible) {
+    await historyItem.click();
+    await page.waitForTimeout(3_000);
+  }
+  evidence.analyticsVisible = /analytics|words per minute|wpm|clarity|filler|session/i.test(compact(await page.locator('body').textContent()));
+  evidence.finalUrl = page.url();
 
   if (!evidence.transcriptVisible) evidence.blockers.push('No non-placeholder live Native transcript from real Chrome/mic path.');
   if (!evidence.saved) evidence.blockers.push('Native session did not expose saved-session marker.');

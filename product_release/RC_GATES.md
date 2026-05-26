@@ -94,7 +94,7 @@ Required maintained tests and workflows:
 | Basic/basic access sanity | `tests/live/expired-trial-denial.live.spec.ts`, `tests/e2e/user-features.e2e.spec.ts` | Baseline users retain Native/basic-safe path and do not retain Cloud/Private entitlement |
 | Pro Cloud artifact path | `.github/workflows/pro-stt-artifact-matrix.yml`, `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Cloud selected, token issued to Pro, transcript visible, stop/save, history/detail, AI feedback, PDF transcript text |
 | Pro Private artifact/cache path | `.github/workflows/live-release-matrix.yml` with `suite=private-cache`, `tests/live/private-cache.live.spec.ts` | Private starts, caches, saves, and remains usable on second start |
-| Native Chrome mic | `scripts/manual-native-chrome-proof.mjs` | Real Chrome `getUserMedia`, live transcript, stop/save, history, analytics |
+| Native Chrome mic | `scripts/manual-native-chrome-proof.mjs` | Real Chrome `getUserMedia`, live transcript, stop/save, history, analytics, Chrome/Edge `continuous=true`, no duplicate transcript loop |
 | STT corpus accuracy - deterministic | Harvard WAV/truth fixtures through fake-device browser harness | Code-correctness evidence for chunking, buffering, RMS gates, worker messages, WER scoring, and transcript output against known audio. Native Web Speech may count here only after a probe proves Chrome transcribes the intended fake-audio fixture. |
 | STT corpus accuracy - real mic | `pnpm rc:stt:corpus` with Harvard WAV/truth fixtures played with `afplay` through real mic | Product-readiness evidence for the full user audio path. This is the release-time STT evidence for Native Chrome and also validates Private/Cloud under realistic input conditions. |
 | Filler value corpus | `conv_01.wav`, `conv_02.wav`, and fixture truth lists | Expected filler counts are explicit and must match transcript-derived analytics; Harvard WER alone does not prove filler detection. |
@@ -122,6 +122,15 @@ Sub-gates:
 | STT-C Filler Value | `conv_01.wav`, `conv_02.wav`, and explicit filler truth lists | Transcript-derived analytics show the expected filler counts and actionable guidance. |
 
 Native Chrome is launch-critical for onboarding. It must have real-mic artifact evidence with recognizable transcript, no repetition loop, no unrecovered `onerror`, and a completed save/history/analytics journey. Fake-device Native evidence is diagnostic only until Chrome Web Speech is proven to transcribe the selected fake WAV content.
+
+Native regression note, 2026-05-25: commit `fc0ffc39` changed Native Web Speech from `continuous=true` to `continuous=false` after final-result dedup was already present. A/B artifacts showed `continuous=false` produced zero `onresult` events, four VAD truncation drops, and no saved transcript, while `continuous=true` produced interim/final results and completed save/history/analytics. Chrome/Edge Native must not be changed back to `continuous=false` without a fresh real-mic A/B proving transcript, save/history/analytics, and no duplicate loop.
+
+Required Native duplicate-loop coverage:
+
+| Scenario | Required Evidence |
+|---|---|
+| Continuous session, no restart | Say `the quick brown fox` twice in one recognition session; transcript contains the phrase exactly twice, not four times. |
+| Repeat across restart | Say `the quick brown fox`, allow or force recognition `onend` and restart, say it again; transcript contains the phrase exactly twice across the result-index reset boundary. |
 
 Real-mic corpus command:
 
@@ -217,7 +226,7 @@ Required maintained checks:
 | User does not know what to click first | Canary + primary journey smoke | Session entry and recording CTA are reachable |
 | STT mode is unclear | `tests/e2e/user-features.e2e.spec.ts`, Native manual checklist | Private/Cloud/Native selection is visible and current mode is inspectable |
 | Expired trial copy traps user | `tests/live/expired-trial-denial.live.spec.ts` | Continue as Basic/Basic-safe action dismisses dialog and lands in safe state |
-| Native support expectations | Tester instructions and manual Native proof | Native is explicitly Chrome/browser-dependent and included only with Chrome proof |
+| Native support expectations | Tester instructions and manual Native proof | Native is explicitly Chrome/browser-dependent and included only with Chrome proof. If Edge has no passing proof, UI/tester copy must say Chrome recommended instead of implying Edge parity. |
 | Errors are actionable | `tests/e2e/error-states.e2e.spec.ts` | User sees recoverable state, not only internal diagnostics |
 | Private first-use setup | `tests/e2e/user-features.e2e.spec.ts`, `tests/live/private-cache.live.spec.ts` | Private setup/cache path is understandable enough to start and rerun without stale cache failure |
 

@@ -75,6 +75,17 @@ STT correctness now has two different release layers because they catch differen
 
 The fake-device layer is not a shortcut around real-mic testing. Fake-device failures usually point at app-controlled code. Real-mic failures point at the full user path and still block RC until triaged. Native Chrome is launch-critical, so its real-mic corpus and journey evidence must be green for the onboarding path to close.
 
+Native regression note, 2026-05-25: `fc0ffc39` changed Chrome/Edge Web Speech from `continuous=true` to `continuous=false` after index-based final-result dedup already existed. The May 25 A/B artifacts showed `continuous=false` heard audio/speech but emitted zero results and multiple VAD truncation drops; `continuous=true` emitted interim/final results and completed save/history/analytics. The maintained Native strategy tests and manual proof must preserve `continuous=true` for Chrome/Edge unless a new real-mic A/B proves otherwise.
+
+Additional Native repeat coverage required before release sign-off:
+
+| Scenario | Counted Claim |
+|---|---|
+| Intentional repeat in one continuous session | Legitimate repeated content appears exactly as spoken and is not multiplied by result-slot dedup. |
+| Intentional repeat across a recognition restart | Clearing `finalizedResultIndexes` on restart does not re-admit stale Chrome results and multiply the transcript. |
+
+Edge support is not counted as proven by Chrome evidence. Until an Edge proof is captured, tester/UI copy must prefer `Chrome recommended` or equivalent browser-dependent wording rather than implying Edge parity.
+
 Current fake-device Native probe status:
 
 | Probe | Artifact | Result | RC Meaning |
