@@ -139,8 +139,6 @@ async function registerRoute(
 export async function setupSupabaseAuthMocks(page: Page): Promise<void> {
     // GET /auth/v1/user
     await registerRoute(page, '**/auth/v1/user', async (route) => {
-        const page = route.request().frame()?.page();
-        if (!page) return route.continue();
         const state = getPageState(page);
         
         mockLog(`[E2E MOCK] Fulfilling auth/v1/user for: ${state.profile.subscription_status}`);
@@ -200,9 +198,6 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
 
         const acceptHeader = reqHeaders['accept'];
         const isSingleObject = acceptHeader === 'application/vnd.pgrst.object+json';
-        const page = route.request().frame()?.page();
-        if (!page) return route.continue();
-
         const state = getPageState(page);
         const profile = { ...state.profile };
 
@@ -221,8 +216,6 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         const reqHeaders = route.request().headers();
         if (!reqHeaders['accept']) reqHeaders['accept'] = '*/*';
 
-        const page = route.request().frame()?.page();
-        if (!page) return route.continue();
         const state = getPageState(page);
 
         if (method === 'PATCH') {
@@ -325,8 +318,6 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
 
     // POST /rest/v1/rpc/create_session_and_update_usage
     await registerRoute(page, /\/rest\/v1\/rpc\/create_session_and_update_usage(\?.*)?$/, async (route) => {
-        const page = route.request().frame()?.page();
-        if (!page) return route.continue();
         const state = getPageState(page);
 
         const body = JSON.parse(route.request().postData() || '{}');
@@ -360,8 +351,6 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
 
     // POST /rest/v1/rpc/complete_session
     await registerRoute(page, /\/rest\/v1\/rpc\/complete_session(\?.*)?$/, async (route) => {
-        const page = route.request().frame()?.page();
-        if (!page) return route.continue();
         const state = getPageState(page);
 
         const body = JSON.parse(route.request().postData() || '{}');
@@ -397,8 +386,6 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         const reqHeaders = route.request().headers();
         if (!reqHeaders['accept']) reqHeaders['accept'] = '*/*';
 
-        const page = route.request().frame()?.page();
-        if (!page) return route.continue();
         const state = getPageState(page);
 
         const method = route.request().method();
@@ -449,8 +436,6 @@ export async function setupSupabaseDatabaseMocks(page: Page): Promise<void> {
         const reqHeaders = route.request().headers();
         if (!reqHeaders['accept']) reqHeaders['accept'] = '*/*';
 
-        const page = route.request().frame()?.page();
-        if (!page) return route.continue();
         const state = getPageState(page);
 
         const method = route.request().method();
@@ -509,8 +494,6 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
 
     // POST /functions/v1/check-usage-limit
     await registerRoute(page, '**/functions/v1/check-usage-limit', async (route) => {
-        const page = route.request().frame()?.page();
-        if (!page) return route.continue();
         const state = getPageState(page);
         const userType = state.profile.subscription_status || 'basic';
         const isPro = userType === 'pro';

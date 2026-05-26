@@ -2,6 +2,7 @@ import { spawn, execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { CI_CONFIG } from './ci.config.js';
 import {
@@ -89,6 +90,36 @@ function buildAuditModel(ciTelemetry) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
+
+function sha256(text) {
+    return crypto.createHash('sha256').update(text).digest('hex');
+}
+
+function getWorktreeEvidence() {
+    try {
+        const gitSha = execSync('git rev-parse HEAD', { cwd: rootDir, encoding: 'utf8' }).trim();
+        const status = execSync('git status --short', { cwd: rootDir, encoding: 'utf8' })
+            .split('\n')
+            .map(line => line.trimEnd())
+            .filter(Boolean)
+            .sort()
+            .join('\n');
+        const unstagedDiff = execSync('git diff --no-ext-diff --binary', { cwd: rootDir, encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 });
+        const stagedDiff = execSync('git diff --cached --no-ext-diff --binary', { cwd: rootDir, encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 });
+
+        return {
+            gitSha,
+            worktreeFingerprint: sha256(JSON.stringify({ status, stagedDiff, unstagedDiff })),
+        };
+    } catch (error) {
+        console.warn('[CI evidence] Failed to capture git worktree evidence. RC Gate 1 will not reuse this run.', error.message);
+        return {
+            gitSha: null,
+            worktreeFingerprint: null,
+        };
+    }
+}
+
 function getFlagValue(flagName, defaultValue = false) {
     const explicitValue = process.argv.find(arg => arg.startsWith(`${flagName}=`));
     if (!explicitValue) {
@@ -428,6 +459,11 @@ async function main() {
     const isFullMode = process.argv.includes('--full') || process.argv.includes('ci-simulate');
 
     const startTime = Date.now();
+    const rcEvidence = {
+        command: 'pnpm ci:local',
+        startedAt: new Date(startTime).toISOString(),
+        ...getWorktreeEvidence(),
+    };
     let unitFailed = false;
 
     // Converge all paths to auditModel
@@ -550,7 +586,8 @@ async function main() {
                             label: 'INFRA-PROBE',
                             env: {
                                 ...process.env,
-                                PLAYWRIGHT_JSON_OUTPUT_NAME: path.join(rootDir, 'test-results/playwright/infra-results.json')
+                                PLAYWRIGHT_TELEMETRY_CANONICAL: 'false',
+                                PLAYWRIGHT_TELEMETRY_OUTPUT_NAME: path.join(rootDir, 'test-results/playwright/infra-telemetry.json')
                             }
                         });
                         stage.addSubTask('infra-probe', Date.now() - sInfra);
@@ -570,12 +607,14 @@ async function main() {
                                     `--shard=${i}/${totalShards}`,
                                     '--reporter=./scripts/playwright-telemetry-reporter.mjs',
                                     '--reporter=json',
-                                    '--output=test-results/playwright-artifacts'
+                                    `--output=test-results/playwright-artifacts/shard-${i}`
                                 ], { 
                                     label: `E2E-SHARD-${i}`,
                                     env: {
                                         ...process.env,
-                                        PLAYWRIGHT_JSON_OUTPUT_NAME: path.join(rootDir, `test-results/playwright/results-${i}.json`)
+                                        PLAYWRIGHT_JSON_OUTPUT_NAME: path.join(rootDir, `test-results/playwright/results-${i}.json`),
+                                        PLAYWRIGHT_TELEMETRY_CANONICAL: 'false',
+                                        PLAYWRIGHT_TELEMETRY_OUTPUT_NAME: path.join(rootDir, `test-results/playwright/telemetry-${i}.json`)
                                     }
                                 });
                             } catch (err) {
@@ -601,13 +640,15 @@ async function main() {
                                 `--workers=${workerCount}`,
                                 '--reporter=./scripts/playwright-telemetry-reporter.mjs',
                                 '--reporter=json',
-                                '--output=test-results/playwright-artifacts',
+                                '--output=test-results/playwright-artifacts/impact',
                                 ...playwrightFiles
                             ], {
                                 label: 'E2E',
                                 env: {
                                     ...process.env,
-                                    PLAYWRIGHT_JSON_OUTPUT_NAME: path.join(rootDir, 'test-results/playwright/results.json')
+                                    PLAYWRIGHT_JSON_OUTPUT_NAME: path.join(rootDir, 'test-results/playwright/results.json'),
+                                    PLAYWRIGHT_TELEMETRY_CANONICAL: 'false',
+                                    PLAYWRIGHT_TELEMETRY_OUTPUT_NAME: path.join(rootDir, 'test-results/playwright/telemetry-impact.json')
                                 }
                             });
                         }
@@ -753,7 +794,11 @@ async function main() {
         const telemetryData = {
             ...ciTelemetry,
             status: stagesList.some(s => s.status === 'FAILED') ? 'failed' : 'success',
-            totalDuration: ((Date.now() - startTime) / 1000).toFixed(2)
+            totalDuration: ((Date.now() - startTime) / 1000).toFixed(2),
+            rcEvidence: {
+                ...rcEvidence,
+                completedAt: new Date().toISOString(),
+            },
         };
         fs.writeFileSync(telemetryPath, JSON.stringify(telemetryData, null, 2));
         fs.writeFileSync(summaryPath, JSON.stringify(telemetryData, null, 2));

@@ -11,6 +11,10 @@ import { setupE2EManifest, type E2EWindow } from './helpers/setupE2EManifest';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 import { createMockSession } from '../../frontend/src/mocks/test-user-utils';
 import logger from '../../frontend/src/lib/logger';
+import {
+  READINESS_REQUIRED_GLOBAL,
+  type ReadinessSignal,
+} from '../../frontend/src/e2e/signalContract';
 
 export { setupE2EManifest };
 
@@ -24,24 +28,7 @@ export const MOCK_STT_AVAILABILITY = {
 };
 
 // Atomic Readiness Signal Registry (Section 7)
-
-// 1. Unified Readiness Types (Section 7)
-export type ReadinessSignal =
-  | 'boot'
-  | 'layout'
-  | 'auth'
-  | 'stt'
-  | 'msw'
-  | 'analytics'
-  | 'profile';
-
-export const REQUIRED_GLOBAL: ReadinessSignal[] = [
-  'boot',
-  'layout',
-  'auth',
-  'stt',
-  'msw',
-];
+export const REQUIRED_GLOBAL = [...READINESS_REQUIRED_GLOBAL] as ReadinessSignal[];
 
 // 2. Infrastructure Helpers
 const ANSI = {
@@ -187,15 +174,52 @@ export async function goToApp(page: Page, route: string = '/') {
     expect(currentOrigin).toMatch(/localhost|127\.0\.0\.1/);
   }
 
-  await waitForAppReady(page);
+  await waitForAppReadySignal(page);
 }
 
 /** @deprecated Use goToApp instead. Maintained for spec compatibility during migration. */
 export const goToPublicRoute = goToApp;
 /** @deprecated Use goToApp instead. Maintained for spec compatibility during migration. */
 export const goToInfrastructureRoute = goToApp;
-/** @deprecated Use goToApp instead. Maintained for spec compatibility during migration. */
-export const navigateToRoute = goToApp;
+
+export async function waitForRouteControls(page: Page, route: string, timeout: number = 30000) {
+  const pathname = new URL(route, 'http://speaksharp.test').pathname;
+
+  if (pathname === '/session') {
+    await page.waitForURL((url) => url.pathname === '/session', { timeout });
+    const sessionPage = page.getByTestId('session-page');
+    await expect(sessionPage).toBeVisible({ timeout });
+
+    const recordingCard = page.getByTestId('live-recording-card');
+    await expect(recordingCard).toBeVisible({ timeout });
+    await expect(recordingCard.getByTestId('stt-mode-select')).toBeVisible({ timeout });
+
+    const startStopControls = page.locator(
+      '[data-testid="session-start-stop-button"], [data-testid="session-start-stop-button-mobile"]'
+    );
+    await expect(startStopControls.first()).toBeVisible({ timeout });
+    return;
+  }
+
+  if (pathname === '/analytics') {
+    await waitForFeature(page, 'analytics', timeout);
+    await expect(page.getByTestId('analytics-dashboard')).toBeVisible({ timeout });
+    return;
+  }
+
+  if (pathname.startsWith('/analytics/session-')) {
+    await page.waitForURL('**/analytics/session-*', { timeout });
+    await expect(page.getByRole('link', { name: /Back to Dashboard/i })).toBeVisible({ timeout });
+  }
+}
+
+export async function navigateToRoute(page: Page, route: string = '/') {
+  await goToApp(page, route);
+  await waitForRouteControls(page, route);
+}
+
+/** @deprecated Use waitForRouteControls. */
+export const waitForRouteReady = waitForRouteControls;
 
 export async function openSessionDetailFromHistoryItem(page: Page, historyItem: Locator) {
   const sessionHref = await historyItem.evaluate((element) => {
@@ -242,7 +266,7 @@ export async function waitForApp(page: Page) {
 }
 
 
-export async function waitForAppReady(page: Page, timeout: number = 45000) {
+export async function waitForAppReadySignal(page: Page, timeout: number = 45000) {
   debugLog('Awaiting deterministic BOOT BARRIER...');
 
   // 🛡️ AUTHORITATIVE CONTRACT: data-app-ready is set on <html> by forensicAnchors.ts
@@ -253,6 +277,9 @@ export async function waitForAppReady(page: Page, timeout: number = 45000) {
   });
 }
 
+/** @deprecated Use waitForAppReadySignal. */
+export const waitForAppReady = waitForAppReadySignal;
+
 /**
  * Deterministic Profile Readiness Signal
  * Awaits the data-profile-ready="true" signal set by TranscriptionProvider.
@@ -262,6 +289,11 @@ export async function waitForProfileReady(page: Page, timeout: number = 30000) {
   await page.waitForFunction(() => {
     return document.documentElement.getAttribute('data-profile-ready') === 'true';
   }, { timeout });
+}
+
+export async function waitForPersistenceSignal(page: Page, timeout: number = 30000) {
+  debugLog('Awaiting session persistence signal...');
+  await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout });
 }
 
 export async function waitForFeature(page: Page, feature: ReadinessSignal, timeout: number = 30000) {

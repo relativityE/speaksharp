@@ -219,7 +219,9 @@ export async function setupE2EManifest(
     }, 50);
 
     const t0 = performance.now();
-    win.__APP_READY_STATE__ = { msw: true, boot: true };
+    // Seed only the mock-layer readiness that this init script owns.
+    // The app readiness key is `app` and is set by frontend/src/main.tsx after mount.
+    win.__APP_READY_STATE__ = { msw: true };
     win.__E2E_READY__ = true;
     win.TEST_MODE = true;
     

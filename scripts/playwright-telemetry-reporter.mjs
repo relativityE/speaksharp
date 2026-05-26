@@ -105,19 +105,28 @@ export default class TelemetryReporter {
     }
     this.results.stats.total = this.testOutcomes.size;
 
-    // Path A: Expected by run-ci.mjs (Stage 3 Guard)
-    const resultsPathA = path.join(rootDir, "test-results", "playwright-results.json");
-    
-    // Path B: Expected by run-metrics.sh (Stage 5)
-    const resultsDirB = path.join(rootDir, "test-results", "playwright");
-    const resultsPathB = path.join(resultsDirB, "results.json");
-
-    fs.mkdirSync(path.dirname(resultsPathA), { recursive: true });
-    fs.mkdirSync(resultsDirB, { recursive: true });
-
     const content = JSON.stringify(this.results, null, 2);
-    fs.writeFileSync(resultsPathA, content);
-    fs.writeFileSync(resultsPathB, content);
+    const canonicalEnabled = process.env.PLAYWRIGHT_TELEMETRY_CANONICAL !== "false";
+    const telemetryOutputPath = process.env.PLAYWRIGHT_TELEMETRY_OUTPUT_NAME;
+
+    if (telemetryOutputPath) {
+      fs.mkdirSync(path.dirname(telemetryOutputPath), { recursive: true });
+      fs.writeFileSync(telemetryOutputPath, content);
+    }
+
+    if (canonicalEnabled) {
+      // Path A: Expected by run-ci.mjs (Stage 3 Guard)
+      const resultsPathA = path.join(rootDir, "test-results", "playwright-results.json");
+
+      // Path B: Expected by run-metrics.sh (Stage 5)
+      const resultsDirB = path.join(rootDir, "test-results", "playwright");
+      const resultsPathB = path.join(resultsDirB, "results.json");
+
+      fs.mkdirSync(path.dirname(resultsPathA), { recursive: true });
+      fs.mkdirSync(resultsDirB, { recursive: true });
+      fs.writeFileSync(resultsPathA, content);
+      fs.writeFileSync(resultsPathB, content);
+    }
 
     // Direct Telemetry Emission via IPC
     if (process.send) {

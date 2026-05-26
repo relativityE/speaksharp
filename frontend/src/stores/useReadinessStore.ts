@@ -1,5 +1,10 @@
 import { create } from 'zustand';
 import logger from '@/lib/logger';
+import {
+  READINESS_OPTIONAL_FEATURES,
+  READINESS_REQUIRED_GLOBAL,
+  type ReadinessSignal,
+} from '@/e2e/signalContract';
 
 interface AppReadyState {
   [key: string]: boolean | string | number | undefined | Record<string, number>;
@@ -12,15 +17,13 @@ declare global {
   }
 }
 
-export const REQUIRED_GLOBAL = ['app', 'layout', 'auth', 'stt', 'msw'] as const;
+export const REQUIRED_GLOBAL = READINESS_REQUIRED_GLOBAL;
 
 export const checkGlobalReadiness = (signals: Record<string, boolean | Record<string, number>>) => {
   return REQUIRED_GLOBAL.every(k => !!signals[k]);
 };
 
-export const OPTIONAL_FEATURES = ['analytics', 'profile', 'router'] as const;
-
-export type ReadinessSignal = (typeof REQUIRED_GLOBAL)[number] | (typeof OPTIONAL_FEATURES)[number];
+export const OPTIONAL_FEATURES = READINESS_OPTIONAL_FEATURES;
 export type ReadinessAppState = 'BOOTING' | 'SERVICE_READY' | 'ENGINE_READY' | 'SUBSCRIBER_READY' | 'READY';
 
 export type ReadinessSignals = Record<ReadinessSignal, boolean>;
