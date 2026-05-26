@@ -14,6 +14,7 @@ on:
           - native-preflight
           - cloud-token-gates
           - cloud-artifact
+          - stt-switching-contract
           - private-cache
           - first-time-tester-private-trial
           - stripe-webhook-readiness
@@ -160,6 +161,47 @@ jobs:
             blob-report/live/
             playwright-report/
             test-results/live/
+          retention-days: 14
+
+  live-stt-switching-contract:
+    if: ${{ github.event.inputs.suite == 'all' || github.event.inputs.suite == 'stt-switching-contract' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    concurrency:
+      group: live-stt-switching-contract
+      cancel-in-progress: false
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Environment
+        uses: ./.github/actions/setup-environment
+        with:
+          install-playwright: 'true'
+
+      - name: Run Live STT Switching Contract
+        env:
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          E2E_PRO_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          E2E_PRO_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          BASE_URL: https://speaksharp-public.vercel.app/
+        run: pnpm exec playwright test tests/live/stt-switching-contract.live.spec.ts --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=list --workers=1
+
+      - name: Upload STT Switching Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: live-stt-switching-contract-artifacts
+          path: |
+            blob-report/deployed-live/
+            playwright-report/deployed-live/
+            test-results/deployed-live/
           retention-days: 14
 
   live-private-cache:

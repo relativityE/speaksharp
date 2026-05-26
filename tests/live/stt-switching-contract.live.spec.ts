@@ -264,17 +264,31 @@ async function startPrivateSetupIfPrompted(page: Page) {
 
 async function preparePrivateModelIfNeeded(page: Page) {
   const downloadButton = page.getByTestId('download-model-button');
-  if (await downloadButton.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await downloadButton.click();
-  }
+  const startStopButton = page.getByTestId('session-start-stop-button');
+  let downloadClicked = false;
 
-  await page.waitForFunction(() => {
-    const root = document.documentElement;
-    const runtimeState = root.getAttribute('data-runtime-state');
-    const sttReady = root.getAttribute('data-stt-ready');
-    const modelStatus = root.getAttribute('data-model-status');
-    return sttReady === 'true' || runtimeState === 'READY' || runtimeState === 'RECORDING' || modelStatus === 'ready';
-  }, { timeout: 180_000 });
+  try {
+    await expect(async () => {
+      const modelStatus = await page.evaluate(() => document.documentElement.getAttribute('data-model-status'));
+      const startEnabled = await startStopButton.isEnabled().catch(() => false);
+
+      if (startEnabled || modelStatus === 'ready') {
+        return;
+      }
+
+      if (!downloadClicked && await downloadButton.isVisible({ timeout: 500 }).catch(() => false)) {
+        downloadClicked = true;
+        await downloadButton.click();
+      }
+
+      expect({ modelStatus, startEnabled }, 'Private model must be ready or Start must be enabled').toMatchObject({
+        modelStatus: 'ready',
+      });
+    }).toPass({ timeout: 180_000, intervals: [1_000, 2_000, 5_000] });
+  } catch (error) {
+    const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-model-setup-timeout');
+    throw new Error(`Private model setup did not reach start-ready state\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 async function recordCloudWithSwitchAttempt(page: Page) {
