@@ -62,6 +62,62 @@ const hasProviderFullTranscriptPrefix = (currentTranscript: string, finalTranscr
     return Boolean(normalizedCurrent && normalizedFinal.startsWith(normalizedCurrent));
 };
 
+const NATIVE_NOISE_TRANSCRIPTS = new Set([
+    'stop',
+    'start',
+    'test',
+    'testing',
+    'hello',
+    'the',
+    'on the',
+]);
+
+const NATIVE_SAVE_STOPWORDS = new Set([
+    'a',
+    'an',
+    'and',
+    'but',
+    'in',
+    'of',
+    'on',
+    'or',
+    'the',
+    'to',
+    'uh',
+    'um',
+]);
+
+const getNativeMeaningfulWordCount = (transcript: string): number => {
+    const words = transcript
+        .toLowerCase()
+        .replace(/[^a-z0-9'\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .split(' ')
+        .filter(Boolean);
+
+    return words.filter((word) => !NATIVE_SAVE_STOPWORDS.has(word)).length;
+};
+
+const getNativeSaveQualityFailureReason = (transcript: string): string | null => {
+    const normalized = transcript
+        .toLowerCase()
+        .replace(/[^a-z0-9'\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    if (!normalized) return 'empty_transcript';
+    if (NATIVE_NOISE_TRANSCRIPTS.has(normalized)) return 'command_or_noise_transcript';
+
+    const totalWords = normalized.split(' ').filter(Boolean).length;
+    const meaningfulWords = getNativeMeaningfulWordCount(normalized);
+
+    if (totalWords < 3) return 'too_few_words';
+    if (meaningfulWords < 2) return 'too_few_meaningful_words';
+
+    return null;
+};
+
 export type RuntimeState =
     | 'IDLE'
     | 'INITIATING'
@@ -1395,6 +1451,20 @@ export class SpeechRuntimeController {
                     const sessionId = this.sessionId;
                     const startTime = service.getStartTime();
                     result = await service.stopTranscription();
+                    logger.info({
+                        mode: service.getMode?.() ?? stopEntryMode,
+                        sessionId,
+                        hasResult: Boolean(result),
+                        resultSuccess: result?.success ?? null,
+                        resultTranscriptLength: result?.transcript?.length ?? 0,
+                        resultTotalWords: result?.stats?.total_words ?? null,
+                        resultAccuracy: result?.stats?.accuracy ?? null,
+                        storeTranscriptLength: this.getStoreTranscriptLength(),
+                        storePartialLength: useSessionStore.getState().transcript.partial.length,
+                        chunkCount: useSessionStore.getState().chunks.length,
+                        controllerState: this.state,
+                        serviceState: service.getState?.() ?? null,
+                    }, '[DEBUG-STOP] after service.stopTranscription');
                     if (token.cancelled) {
                         logger.warn({
                             mode: service.getMode?.() ?? stopEntryMode,
@@ -1416,6 +1486,14 @@ export class SpeechRuntimeController {
                         }, '[DEBUG-STOP] Lifecycle version changed after stop result; continuing session finalization for captured session');
                     }
 
+                    logger.info({
+                        mode: service.getMode?.() ?? stopEntryMode,
+                        sessionId,
+                        hasResult: Boolean(result),
+                        willEnterFinalizationBranch: Boolean(result && sessionId),
+                        reasonIfNot: !result ? 'missing_stop_result' : !sessionId ? 'missing_session_id' : null,
+                    }, '[DEBUG-STOP] before result/session branch');
+
                     if (result && sessionId) {
                         const duration = startTime ? (Date.now() - startTime) / 1000 : 0;
                         const store = useSessionStore.getState();
@@ -1428,6 +1506,20 @@ export class SpeechRuntimeController {
                             .replace(/\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi, '')
                             .trim();
                         const meaningfulWordCount = meaningfulTranscript.split(/\s+/).filter(Boolean).length;
+                        logger.info({
+                            sessionId,
+                            mode: service.getMode?.() ?? stopEntryMode,
+                            duration,
+                            resultSuccess: result.success ?? null,
+                            resultTranscriptLength: resultTranscript.length,
+                            chunkTranscriptLength: chunkTranscript.length,
+                            storeTranscriptLength: storeTranscript.length,
+                            finalTranscriptLength: finalTranscript.length,
+                            finalWordCount: finalTranscript.split(/\s+/).filter(Boolean).length,
+                            meaningfulWordCount,
+                            fillerCount: getFillerTotal(store.fillerData),
+                            userWordsCount: this.userWords.length,
+                        }, '[DEBUG-STOP] finalization transcript decision');
                         if ((service.getMode?.() ?? stopEntryMode) === 'cloud') {
                             logger.warn({
                                 willSave: Boolean(result && sessionId && finalTranscript),
@@ -1446,18 +1538,33 @@ export class SpeechRuntimeController {
                             }, '[CLOUD_SAVE_DECISION]');
                         }
 
-                        if (meaningfulWordCount === 0) {
+                        const modeForFinalization = service.getMode?.() ?? stopEntryMode;
+                        const nativeSaveQualityFailureReason = modeForFinalization === 'native'
+                            ? getNativeSaveQualityFailureReason(meaningfulTranscript)
+                            : null;
+
+                        if (meaningfulWordCount === 0 || nativeSaveQualityFailureReason) {
                             logger.warn({
                                 sessionId,
                                 transcriptLength: finalTranscript.length,
                                 duration,
-                                mode: service.getMode?.() ?? stopEntryMode,
-                            }, '[SESSION_SAVE_GUARD] Empty or non-speech session discarded');
+                                mode: modeForFinalization,
+                                meaningfulWordCount,
+                                nativeSaveQualityFailureReason,
+                            }, '[SESSION_SAVE_GUARD] Empty, low-quality, or non-speech session discarded');
 
+                            logger.info({
+                                sessionId,
+                                finalTranscriptLength: finalTranscript.length,
+                                meaningfulWordCount,
+                            }, '[DEBUG-STOP] completeSession failed-status starting');
                             await completeSession(sessionId, {
                                 status: 'failed',
-                                reason: 'No meaningful speech detected; session was not saved to history.'
+                                reason: nativeSaveQualityFailureReason
+                                    ? 'Not enough meaningful browser transcript was captured; session was not saved to history.'
+                                    : 'No meaningful speech detected; session was not saved to history.'
                             });
+                            logger.info({ sessionId }, '[DEBUG-STOP] completeSession failed-status done');
                             if (token.cancelled) {
                                 logger.warn({
                                     mode: service.getMode?.() ?? stopEntryMode,
@@ -1475,8 +1582,12 @@ export class SpeechRuntimeController {
 
                             guardedStopStatus = {
                                 type: 'warning',
-                                message: "We didn't detect enough speech to save this session.",
-                                detail: 'Try recording again and speak for at least a few seconds.'
+                                message: nativeSaveQualityFailureReason
+                                    ? "We didn't capture enough speech to save this session."
+                                    : "We didn't detect enough speech to save this session.",
+                                detail: nativeSaveQualityFailureReason
+                                    ? 'Try recording again or switch to Private or Cloud transcription.'
+                                    : 'Try recording again and speak for at least a few seconds.'
                             };
                             store.setSTTStatus(guardedStopStatus);
                             this.updateSessionPersisted(false);
@@ -1536,11 +1647,21 @@ export class SpeechRuntimeController {
                                 updateLocalUsage(userId, Math.round(duration));
                             }
 
+                            logger.info({
+                                sessionId,
+                                finalTranscriptLength: finalTranscript.length,
+                                wordCount,
+                                fillerCount: fillerWords.total.count,
+                                wpm,
+                                clarityScore,
+                                accuracy,
+                            }, '[DEBUG-STOP] completeSession completed-status starting');
                             await completeSession(sessionId, {
                                 status: 'completed',
                                 transcript: finalTranscript,
                                 duration: Math.round(duration)
                             });
+                            logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
                             if (token.cancelled) {
                                 logger.warn({
                                     mode: service.getMode?.() ?? stopEntryMode,
@@ -1584,6 +1705,7 @@ export class SpeechRuntimeController {
                                     wpm,
                                     accuracy
                                 });
+                                logger.info('[DEBUG-STOP] pushed ANALYTICS_COMPLETE');
                             }
 
                             logger.info('[DEBUG-STOP] calling updateSessionPersisted(true)');

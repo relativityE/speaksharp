@@ -16,6 +16,7 @@ import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { STTEngine } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_V4, samplesToSeconds } from '../sttConstants';
+import v4WorkerUrl from './transformers-js-v4.worker.ts?worker&url';
 
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
 type UnknownRecord = Record<string, unknown>;
@@ -390,18 +391,7 @@ export class TransformersJSV4Engine extends STTEngine {
 
     private async initWorker(isMock?: boolean): Promise<void> {
         const options = (this.options || {}) as TranscriptionModeOptions;
-        let workerUrl: URL | string;
-        try {
-            workerUrl = new URL('./transformers-js-v4.worker.ts', import.meta.url);
-        } catch (workerUrlError) {
-            logger.warn({
-                workerUrlError,
-                importMetaUrl: import.meta.url,
-            }, '[TransformersJSV4] Worker URL construction failed; falling back to relative worker path');
-            workerUrl = './transformers-js-v4.worker.ts';
-        }
-
-        this.worker = new Worker(workerUrl, { type: 'module' });
+        this.worker = new Worker(v4WorkerUrl, { type: 'module' });
         this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
             const response = event.data;
             if (response.type === 'progress') {

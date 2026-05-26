@@ -990,7 +990,26 @@ export default class TranscriptionService {
    */
   public async stopTranscription(): Promise<{ success: boolean; transcript: string; stats: TranscriptStats } | null> {
     logger.debug('[TRACE] STOP_TRANSCRIPTION');
-    if (!this.fsm.is('RECORDING') && !this.fsm.is('PAUSED') && !this.fsm.is('ENGINE_INITIALIZING')) return null;
+    logger.info({
+      sId: this.serviceId,
+      rId: this.runId,
+      mode: this.mode,
+      fsmState: this.fsm.getState(),
+      hasStrategy: Boolean(this.strategy),
+      currentTranscriptLength: this.currentTranscript.length,
+      partialTranscriptLength: this.partialTranscript.length,
+    }, '[DEBUG-STOP] TranscriptionService.stopTranscription entry');
+    if (!this.fsm.is('RECORDING') && !this.fsm.is('PAUSED') && !this.fsm.is('ENGINE_INITIALIZING')) {
+      logger.warn({
+        sId: this.serviceId,
+        rId: this.runId,
+        mode: this.mode,
+        fsmState: this.fsm.getState(),
+        currentTranscriptLength: this.currentTranscript.length,
+        partialTranscriptLength: this.partialTranscript.length,
+      }, '[DEBUG-STOP] TranscriptionService.stopTranscription returning null: non-stoppable state');
+      return null;
+    }
 
     this.stopWatchdog();
 
@@ -1020,10 +1039,28 @@ export default class TranscriptionService {
         // the final turn arrives. Stop/save must preserve that visible transcript
         // instead of treating a missing provider final as an empty session.
         transcript = strategyTranscript || this.currentTranscript || this.partialTranscript;
+        logger.info({
+          sId: this.serviceId,
+          rId: this.runId,
+          mode: this.mode,
+          strategyTranscriptLength: strategyTranscript.length,
+          currentTranscriptLength: this.currentTranscript.length,
+          partialTranscriptLength: this.partialTranscript.length,
+          selectedTranscriptLength: transcript.length,
+        }, '[DEBUG-STOP] TranscriptionService.stopTranscription transcript selected');
       }
 
       const duration = this.startTime ? (Date.now() - this.startTime) / 1000 : 0;
       const stats = calculateTranscriptStats([{ transcript }], [], '', duration);
+      logger.info({
+        sId: this.serviceId,
+        rId: this.runId,
+        mode: this.mode,
+        duration,
+        transcriptLength: transcript.length,
+        totalWords: stats.total_words,
+        accuracy: stats.accuracy,
+      }, '[DEBUG-STOP] TranscriptionService.stopTranscription returning result');
 
       this.fsm.transition({ type: 'STOP_COMPLETED' });
       this.isModeLocked = false; // 🔓 Release lock

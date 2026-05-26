@@ -260,6 +260,78 @@ describe('STT Safeguards Unit Tests', () => {
         expect(storageMocks.updateSession).not.toHaveBeenCalled();
     });
 
+    it('should not save low-quality Native command transcripts as completed sessions', async () => {
+        storageMocks.saveSession.mockResolvedValue({
+            session: { id: 'sess-123' },
+            usageExceeded: false
+        });
+
+        vi.spyOn(service, 'getMode').mockReturnValue('native');
+        vi.spyOn(service, 'stopTranscription').mockResolvedValue({
+            success: true,
+            transcript: 'stop',
+            stats: {
+                transcript: 'stop',
+                total_words: 1,
+                accuracy: 1,
+                duration: 8
+            }
+        });
+
+        await controller.startRecording(mockPolicy);
+        controller.confirmSubscriberHandshake();
+        await controller.whenStable();
+        storageMocks.completeSession.mockClear();
+        storageMocks.updateSession.mockClear();
+
+        await vi.advanceTimersByTimeAsync(8000);
+        await controller.stopRecording();
+        await controller.whenStable();
+
+        expect(storageMocks.completeSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
+            status: 'failed',
+            reason: expect.stringMatching(/Not enough meaningful browser transcript/i)
+        }));
+        expect(storageMocks.updateSession).not.toHaveBeenCalled();
+    });
+
+    it('should save short but meaningful Native transcripts', async () => {
+        storageMocks.saveSession.mockResolvedValue({
+            session: { id: 'sess-123' },
+            usageExceeded: false
+        });
+
+        vi.spyOn(service, 'getMode').mockReturnValue('native');
+        vi.spyOn(service, 'stopTranscription').mockResolvedValue({
+            success: true,
+            transcript: 'Yes, I agree',
+            stats: {
+                transcript: 'Yes, I agree',
+                total_words: 3,
+                accuracy: 1,
+                duration: 3
+            }
+        });
+
+        await controller.startRecording(mockPolicy);
+        controller.confirmSubscriberHandshake();
+        await controller.whenStable();
+        storageMocks.completeSession.mockClear();
+        storageMocks.updateSession.mockClear();
+
+        await vi.advanceTimersByTimeAsync(3000);
+        await controller.stopRecording();
+        await controller.whenStable();
+
+        expect(storageMocks.completeSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
+            status: 'completed',
+            transcript: 'Yes, I agree'
+        }));
+        expect(storageMocks.updateSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
+            total_words: 3
+        }));
+    });
+
     it('should persist the full analysis snapshot when transcription stops', async () => {
         storageMocks.saveSession.mockResolvedValue({
             session: { id: 'sess-123' },
