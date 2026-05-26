@@ -8,17 +8,18 @@ The dashboard answers: "Are the tools we rely on reachable and credentialed righ
 
 It is intentionally not a replacement for vendor dashboards. It is an early signal board with drill-down links.
 
-## Current Checks
+## Current Dashboard Rows
 
 | Tool | Signal | Drill-down |
 |---|---|---|
 | SpeakSharp app | Production URL returns HTTP success | Vercel/app URL |
-| Supabase | Auth REST endpoint accepts anon-key access | Supabase dashboard |
-| AssemblyAI | API key can read transcript API | AssemblyAI dashboard |
-| Stripe | API key can read account balance and webhook secret is configured | Stripe dashboard |
-| GitHub | Latest RC gate workflow status is readable | GitHub Actions |
-| Sentry | Project API is reachable | Sentry project |
-| PostHog | Project API is reachable | PostHog project |
+| Vercel | Platform status and latest production deployment if Vercel credentials are configured | Vercel dashboard/status |
+| Supabase | Auth, one Edge Function entrypoint, and Supabase platform status | Supabase dashboard/status |
+| STT/AI Providers | AssemblyAI and Gemini API reachability | AssemblyAI / Google AI Studio |
+| Billing | Stripe API and webhook secret shape | Stripe dashboard |
+| Observability | Sentry and PostHog query access | Sentry / PostHog |
+| GitHub | Latest release-critical workflow rollup | GitHub Actions |
+| Benchmarks | Cloud, Private v2, and Private v4 benchmark freshness | Benchmark workflow |
 
 ## Security Rules
 
@@ -43,12 +44,20 @@ gh workflow run ops-health.yml
 
 The workflow runs every 30 minutes and uploads `ops-health/ops-health.json` plus `ops-health/ops-health.md` as artifacts.
 
+## Work In Progress Checks
+
+Some rows may show `SKIP` or `WARN` until the corresponding secret is added to GitHub Actions. That is intentional: skipped rows are inventory debt, not hidden success.
+
+| Check | Required env/secret |
+|---|---|
+| Vercel deployment health | `VERCEL_TOKEN`, `VERCEL_PROJECT_ID`, optional `VERCEL_TEAM_ID` |
+| Gemini API health | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+| STT benchmark freshness | Fresh `tests/STT_BENCHMARKS.json` history for Cloud, Private v2, and Private v4 |
+
 ## Future Checks
 
-Good next additions:
+Good next additions after the first protected admin view exists:
 
-- Vercel deployment alias and latest production commit.
-- Supabase Edge Function smoke for `assemblyai-token`, `stripe-checkout`, and `check-usage-limit`.
-- Sentry issue count in the last hour.
-- PostHog event ingestion freshness.
-- Latest STT benchmark artifact freshness.
+- Vercel production alias target compared to latest expected GitHub SHA.
+- Authenticated Supabase Edge Function smokes that prove real token paths without mutating production user data.
+- DNS/custom-domain status if SpeakSharp moves to a custom production domain.
