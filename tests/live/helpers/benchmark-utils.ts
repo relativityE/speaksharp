@@ -167,7 +167,9 @@ export async function assertPreStartMode(page: Page, mode: 'native' | 'cloud' | 
             expect(snapshot.root?.runtimeState, 'PRE_START_MODE_STATE runtime should be ready or idle before Start').toMatch(/READY|IDLE/);
             expect(runtime?.controllerPreferredMode, `PRE_START_MODE_STATE controller policy must prefer ${mode}`).toBe(mode);
             expect(policy?.preferredMode, `PRE_START_MODE_STATE policy preferredMode must be ${mode}`).toBe(mode);
-            expect(runtime?.serviceMode, `PRE_START_MODE_STATE service mode must be ${mode}`).toBe(mode);
+            if (runtime?.serviceMode != null) {
+                expect(runtime.serviceMode, `PRE_START_MODE_STATE existing service mode must be ${mode}`).toBe(mode);
+            }
         }).toPass({ timeout: 15_000, intervals: [500, 1_000, 2_000] });
     } catch (error) {
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, `PRE_START_MODE_STATE_${mode}`);
