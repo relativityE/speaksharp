@@ -41,6 +41,10 @@ const SIGNUP_EMAIL = process.env.STT_SIGNUP_EMAIL || `stt-corpus-${Date.now()}@s
 const SIGNUP_PASSWORD = process.env.STT_SIGNUP_PASSWORD || `SttCorpus${Date.now()}!Aa9`;
 const CLEAR_PRIVATE_CACHE = process.env.STT_CLEAR_PRIVATE_CACHE === 'true';
 const PRIVATE_ENGINE = process.env.STT_PRIVATE_ENGINE || '';
+const CUSTOM_WORD = (process.env.STT_CUSTOM_WORD || '').trim().toLowerCase();
+const NATIVE_CONTINUOUS = process.env.STT_NATIVE_CONTINUOUS || '';
+const NATIVE_INTERIM_RESULTS = process.env.STT_NATIVE_INTERIM_RESULTS || '';
+const NATIVE_MAX_ALTERNATIVES = process.env.STT_NATIVE_MAX_ALTERNATIVES || '';
 
 function compact(text) {
   return (text || '').replace(/\s+/g, ' ').trim();
@@ -230,6 +234,61 @@ async function selectMode(page, mode) {
   }
 
   throw new Error(`Could not select STT mode "${mode}"; final state=${await select.getAttribute('data-state')}`);
+}
+
+async function readCustomWordCount(page, word) {
+  const normalizedWord = word.toLowerCase();
+  return page.evaluate((targetWord) => {
+    const rows = [...document.querySelectorAll('[data-testid="filler-badge"]')];
+    for (const row of rows) {
+      const text = row.textContent || '';
+      const normalizedText = text.toLowerCase().replace(/["']/g, '').replace(/\s+/g, ' ').trim();
+      if (!new RegExp(`(^|\\s)${targetWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|\\d|$)`, 'i').test(normalizedText)) continue;
+      const countEl = row.querySelector('[data-testid="filler-badge-count"]');
+      const count = Number((countEl?.textContent || '').trim());
+      return {
+        visible: true,
+        count: Number.isFinite(count) ? count : null,
+        text: text.replace(/\s+/g, ' ').trim(),
+      };
+    }
+    return { visible: false, count: null, text: '' };
+  }, normalizedWord);
+}
+
+async function ensureCustomWordThroughUi(page, word) {
+  if (!word) return null;
+
+  const addButton = page.getByTestId('add-custom-word-button');
+  await addButton.scrollIntoViewIfNeeded();
+  await addButton.click();
+
+  const dialog = page.locator('[role="dialog"]').first();
+  const input = page.getByTestId('user-filler-words-input');
+  await input.waitFor({ state: 'visible', timeout: 10_000 });
+
+  const existingBadge = dialog.getByTestId('filler-word-badge').filter({ hasText: new RegExp(`^${word}$`, 'i') }).first();
+  const existedBefore = await existingBadge.isVisible().catch(() => false);
+  if (existedBefore) {
+    const removeButton = dialog.getByRole('button', { name: new RegExp(`remove ${word}`, 'i') });
+    await removeButton.click();
+    await existingBadge.waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => undefined);
+  }
+
+  await input.fill(word);
+  await page.getByTestId('user-filler-words-add-button').click();
+  await input.waitFor({ state: 'hidden', timeout: 15_000 }).catch(async () => {
+    await input.waitFor({ state: 'visible', timeout: 1_000 });
+    await page.getByTestId('filler-word-badge').filter({ hasText: new RegExp(`^${word}$`, 'i') }).first().waitFor({ state: 'visible', timeout: 5_000 });
+  });
+  await page.keyboard.press('Escape').catch(() => undefined);
+
+  return {
+    word,
+    addedViaUi: true,
+    existedBefore,
+    beforeRecording: await readCustomWordCount(page, word),
+  };
 }
 
 async function getPrivateReadinessSnapshot(page) {
@@ -465,6 +524,17 @@ async function runFixture(page, mode, fixture) {
   if (mode === 'private' && PRIVATE_ENGINE) {
     sessionUrl.searchParams.set('privateEngine', PRIVATE_ENGINE);
   }
+  if (mode === 'native') {
+    if (NATIVE_CONTINUOUS) {
+      sessionUrl.searchParams.set('nativeContinuous', NATIVE_CONTINUOUS);
+    }
+    if (NATIVE_INTERIM_RESULTS) {
+      sessionUrl.searchParams.set('nativeInterimResults', NATIVE_INTERIM_RESULTS);
+    }
+    if (NATIVE_MAX_ALTERNATIVES) {
+      sessionUrl.searchParams.set('nativeMaxAlternatives', NATIVE_MAX_ALTERNATIVES);
+    }
+  }
   await page.goto(sessionUrl.toString(), { waitUntil: 'domcontentloaded' });
   await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 60_000 });
   await selectMode(page, mode);
@@ -478,6 +548,10 @@ async function runFixture(page, mode, fixture) {
     window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ = [];
   });
   await markPhase(page, 'ready_to_start', { mode, fixture: fixture.id });
+  const customWordEvidence = CUSTOM_WORD ? await ensureCustomWordThroughUi(page, CUSTOM_WORD) : undefined;
+  if (customWordEvidence) {
+    await markPhase(page, 'custom_word_added_via_ui', customWordEvidence);
+  }
   const privateReadiness = mode === 'private' ? await preparePrivateModel(page) : undefined;
 
   const startButton = page.getByTestId('session-start-stop-button');
@@ -501,6 +575,10 @@ async function runFixture(page, mode, fixture) {
   await markPhase(page, 'post_playback_wait_done', { postPlaybackWaitMs: POST_PLAYBACK_WAIT_MS });
 
   const transcript = await readTranscript(page);
+  const liveCustomWord = CUSTOM_WORD ? await readCustomWordCount(page, CUSTOM_WORD) : undefined;
+  if (liveCustomWord) {
+    await markPhase(page, 'custom_word_live_count', { word: CUSTOM_WORD, ...liveCustomWord });
+  }
   await markPhase(page, 'click_stop', { transcript });
   const stopClick = await clickStartStopButton(page, 'click_stop').catch((error) => ({
     method: 'failed',
@@ -534,6 +612,11 @@ async function runFixture(page, mode, fixture) {
     accuracyPct: Number(((1 - wer) * 100).toFixed(2)),
     firstText,
     sessionPersisted: await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false),
+    customWord: customWordEvidence ? {
+      ...customWordEvidence,
+      liveAfterTranscript: liveCustomWord,
+      transcriptContainsWord: new RegExp(`\\b${CUSTOM_WORD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(transcript),
+    } : undefined,
     privateReadiness,
     phases: traceSnapshot.phases,
     nativeTrace: traceSnapshot.nativeTrace,
@@ -576,6 +659,12 @@ const evidence = {
   maxWer: MAX_WER,
   clearPrivateCache: CLEAR_PRIVATE_CACHE,
   privateEngine: PRIVATE_ENGINE || 'default',
+  nativeConfig: {
+    continuous: NATIVE_CONTINUOUS || 'default',
+    interimResults: NATIVE_INTERIM_RESULTS || 'default',
+    maxAlternatives: NATIVE_MAX_ALTERNATIVES || 'default',
+  },
+  customWord: CUSTOM_WORD || null,
   microphonePath: 'real browser getUserMedia with afplay through the physical speaker/mic path',
   auth: {
     mode: AUTH_MODE,
@@ -607,7 +696,7 @@ try {
 
   page.on('console', (message) => {
     const text = message.text();
-    if (/STT|Speech|Transcription|AssemblyAI|Native|Private|Cloud|recording|error|failed|warning/i.test(text)) {
+    if (/STT|Speech|Transcription|AssemblyAI|Native|Private|Cloud|recording|error|failed|warning|UserFiller|filler|vocabulary|user_filler_words|Supabase/i.test(text)) {
       evidence.consoleEvents.push({ type: message.type(), text });
     }
   });
@@ -616,6 +705,14 @@ try {
     url: request.url(),
     errorText: request.failure()?.errorText,
   }));
+  page.on('response', async (response) => {
+    if (!/user_filler_words/i.test(response.url()) || response.status() < 400) return;
+    evidence.failedRequests.push({
+      url: response.url(),
+      status: response.status(),
+      body: compact(await response.text().catch(() => '')).slice(0, 500),
+    });
+  });
 
   if (CLEAR_PRIVATE_CACHE) {
     await clearPrivateModelStorage(page);
