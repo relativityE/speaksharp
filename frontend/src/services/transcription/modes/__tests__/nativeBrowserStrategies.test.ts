@@ -23,9 +23,28 @@ describe('native browser strategies', () => {
     }).__NATIVE_STT_DIAGNOSTIC_CONFIG__;
   });
 
-  it('routes Chrome and Edge to verified Web Speech strategies', () => {
+  it('routes Chrome to a verified Web Speech strategy and Edge to a Chromium-compatible strategy until Edge proof exists', () => {
     expect(resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: chromeUa }).browserFamily).toBe('chrome');
-    expect(resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: edgeUa }).browserFamily).toBe('edge');
+    const edgeStrategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: edgeUa });
+    expect(edgeStrategy.browserFamily).toBe('edge');
+    expect(edgeStrategy.compatibilityMode).toBe('chromium-compatible');
+    expect(edgeStrategy.userMessage).toMatch(/Chrome is recommended/i);
+  });
+
+  it('uses browser hints before UA fallback when Chromium browsers expose them', () => {
+    const plainChromiumUa = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36';
+
+    expect(resolveNativeBrowserStrategy({
+      hasSpeechRecognition: true,
+      userAgent: plainChromiumUa,
+      isBrave: true,
+    }).browserFamily).toBe('brave');
+
+    expect(resolveNativeBrowserStrategy({
+      hasSpeechRecognition: true,
+      userAgent: plainChromiumUa,
+      browserBrands: ['Chromium', 'Microsoft Edge'],
+    }).browserFamily).toBe('edge');
   });
 
   it('keeps Chrome and Edge in continuous dictation mode', () => {

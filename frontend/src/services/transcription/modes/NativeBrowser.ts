@@ -170,6 +170,19 @@ interface SpeechRecognitionStatic {
   new(): SpeechRecognition;
 }
 
+type NavigatorWithNativeBrowserHints = Navigator & {
+  brave?: unknown;
+  userAgentData?: {
+    brands?: Array<{ brand: string; version?: string }>;
+  };
+};
+
+const getNativeBrowserDetectionOptions = (nav: NavigatorWithNativeBrowserHints) => ({
+  userAgent: nav.userAgent,
+  browserBrands: nav.userAgentData?.brands?.map((brand) => brand.brand).filter(Boolean),
+  isBrave: Boolean(nav.brave),
+});
+
 /**
  * NativeBrowser implementation of the STTEngine abstract base class.
  * Leverages the browser's built-in SpeechRecognition API.
@@ -312,7 +325,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     const SpeechRecognition = (window.SpeechRecognition || window.webkitSpeechRecognition) as SpeechRecognitionStatic;
     const strategy = resolveNativeBrowserStrategy({
       hasSpeechRecognition: Boolean(SpeechRecognition),
-      userAgent: navigator.userAgent,
+      ...getNativeBrowserDetectionOptions(navigator as NavigatorWithNativeBrowserHints),
     });
     if (!SpeechRecognition) {
       return {
@@ -357,7 +370,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     this.isSupported = !!SpeechRecognition;
     this.browserStrategy = resolveNativeBrowserStrategy({
       hasSpeechRecognition: this.isSupported,
-      userAgent: navigator.userAgent,
+      ...getNativeBrowserDetectionOptions(navigator as NavigatorWithNativeBrowserHints),
     });
 
     if (!this.isSupported) {
@@ -400,7 +413,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
         this.updateHeartbeat();
         const strategy = this.browserStrategy ?? resolveNativeBrowserStrategy({
           hasSpeechRecognition: true,
-          userAgent: navigator.userAgent,
+          ...getNativeBrowserDetectionOptions(navigator as NavigatorWithNativeBrowserHints),
         });
         const { rawResults, finalTranscript, interimTranscript } = strategy.extractTranscripts(
           event,

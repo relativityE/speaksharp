@@ -36,6 +36,11 @@ type NativeDiagnosticGlobal = typeof globalThis & {
   __NATIVE_STT_DIAGNOSTIC_CONFIG__?: NativeDiagnosticConfigOverride;
 };
 
+type BrowserDetectionHints = {
+  brands?: string[];
+  isBrave?: boolean;
+};
+
 type WebSpeechConfig = {
   lang: string;
   interimResults: boolean;
@@ -136,24 +141,29 @@ const getNativeDiagnosticConfigOverride = (): NativeDiagnosticConfigOverride => 
   };
 };
 
-const isChrome = (ua: string): boolean =>
-  /(?:Chrome|Chromium)\//i.test(ua) &&
-  !/(?:Edg|OPR|Opera|SamsungBrowser|Electron|Brave|Arc)\//i.test(ua);
+const hasBrand = (hints: BrowserDetectionHints, pattern: RegExp): boolean =>
+  (hints.brands ?? []).some((brand) => pattern.test(brand));
 
-const isEdge = (ua: string): boolean => /Edg\//i.test(ua);
+const isChrome = (ua: string, hints: BrowserDetectionHints): boolean =>
+  hasBrand(hints, /Google Chrome/i) ||
+  (/(?:Chrome|Chromium)\//i.test(ua) &&
+    !/(?:Edg|OPR|Opera|SamsungBrowser|Electron|Brave|Arc)\//i.test(ua));
+
+const isEdge = (ua: string, hints: BrowserDetectionHints): boolean =>
+  hasBrand(hints, /Microsoft Edge/i) || /Edg\//i.test(ua);
 
 const isSafari = (ua: string): boolean =>
   /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|Edg|OPR|Opera/i.test(ua);
 
-const getBrowserFamily = (ua: string): BrowserFamily => {
-  if (isEdge(ua)) return 'edge';
+const getBrowserFamily = (ua: string, hints: BrowserDetectionHints = {}): BrowserFamily => {
+  if (isEdge(ua, hints)) return 'edge';
   if (/CriOS\//i.test(ua)) return 'chrome-ios';
-  if (/Brave\//i.test(ua)) return 'brave';
-  if (/Arc\//i.test(ua)) return 'arc';
-  if (/(?:OPR|Opera)\//i.test(ua)) return 'opera';
-  if (/SamsungBrowser\//i.test(ua)) return 'samsung';
+  if (hints.isBrave || hasBrand(hints, /Brave/i) || /Brave\//i.test(ua)) return 'brave';
+  if (hasBrand(hints, /Arc/i) || /Arc\//i.test(ua)) return 'arc';
+  if (hasBrand(hints, /Opera|OPR/i) || /(?:OPR|Opera)\//i.test(ua)) return 'opera';
+  if (hasBrand(hints, /Samsung/i) || /SamsungBrowser\//i.test(ua)) return 'samsung';
   if (/Electron\//i.test(ua)) return 'electron';
-  if (isChrome(ua)) return 'chrome';
+  if (isChrome(ua, hints)) return 'chrome';
   if (isSafari(ua)) return 'safari';
   return 'generic';
 };
@@ -220,6 +230,8 @@ const makeStrategy = (
 export function resolveNativeBrowserStrategy(options: {
   hasSpeechRecognition: boolean;
   userAgent: string;
+  browserBrands?: string[];
+  isBrave?: boolean;
 }): NativeBrowserStrategy {
   if (!options.hasSpeechRecognition) {
     return makeStrategy(
@@ -230,14 +242,22 @@ export function resolveNativeBrowserStrategy(options: {
     );
   }
 
-  const browserFamily = getBrowserFamily(options.userAgent);
+  const browserFamily = getBrowserFamily(options.userAgent, {
+    brands: options.browserBrands,
+    isBrave: options.isBrave,
+  });
 
   if (browserFamily === 'chrome') {
     return makeStrategy('chrome', 'verified', null, CHROME_WEB_SPEECH_CONFIG);
   }
 
   if (browserFamily === 'edge') {
-    return makeStrategy('edge', 'verified', null, EDGE_WEB_SPEECH_CONFIG);
+    return makeStrategy(
+      'edge',
+      'chromium-compatible',
+      'Browser STT is using the Microsoft Edge Web Speech implementation. Chrome is recommended until Edge is separately verified; availability and accuracy vary by browser.',
+      EDGE_WEB_SPEECH_CONFIG,
+    );
   }
 
   if (browserFamily === 'brave' || browserFamily === 'arc' || browserFamily === 'opera' || browserFamily === 'samsung' || browserFamily === 'electron') {
