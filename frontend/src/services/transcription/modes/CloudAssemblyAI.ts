@@ -3,7 +3,7 @@ import type { EngineType, IPrivateSTTEngine } from '../../../contracts/IPrivateS
 import { Result, type ITranscriptionEngine, type TranscriptionModeOptions, type Transcript } from './types';
 import { getSupabaseClient } from '../../../lib/supabaseClient';
 import type { Session } from '@supabase/supabase-js';
-import { floatToInt16Async } from '../utils/AudioProcessor';
+import { floatToInt16 } from '../utils/AudioProcessor';
 import { ENV } from '../../../config/TestFlags';
 import { FILLER_WORD_KEYS } from '../../../config';
 import { TranscriptionError } from '../errors';
@@ -797,9 +797,10 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
   private async sendAudioChunk(audioData: Float32Array) {
     try {
-      // PERFORMANCE OPTIMIZATION: Moving heavy audio processing off the main thread.
-      // The worker now handles both Float32 -> Int16 conversion and Base64 encoding.
-      const { result, base64 } = await floatToInt16Async(audioData);
+      // Cloud streams tiny 50ms chunks; synchronous conversion avoids worker
+      // startup/contention failures that can otherwise leave live Cloud stuck
+      // receiving mic frames without sending provider audio.
+      const result = floatToInt16(audioData);
 
       if (this.socket && this.socket.readyState === WebSocket.OPEN) {
         this.socket.send(result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength));
@@ -811,7 +812,6 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
             eId: this.instanceId,
             sentAudioChunks: this.sentAudioChunks,
             samples: audioData.length,
-            base64Length: base64.length,
           }, '[CloudAssemblyAI] audio chunk sent');
         }
       }

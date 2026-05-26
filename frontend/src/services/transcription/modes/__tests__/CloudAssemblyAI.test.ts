@@ -4,6 +4,7 @@ import { Session } from '@supabase/supabase-js';
 // Removed unused TranscriptionModeOptions, Transcript imports
 
 vi.mock('../../utils/AudioProcessor', () => ({
+    floatToInt16: vi.fn((float32Array: Float32Array) => new Int16Array(float32Array.length)),
     floatToInt16Async: vi.fn(async (float32Array: Float32Array) => {
         const result = new Int16Array(float32Array.length);
         return { result, base64: 'mock-base64' };

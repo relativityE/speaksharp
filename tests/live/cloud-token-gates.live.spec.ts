@@ -40,7 +40,7 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     expect(result.body?.token, JSON.stringify(evidence)).toBeFalsy();
   });
 
-  test('allows active trial users and denies expired trial Basic and over-quota Pro before minting AssemblyAI token', async () => {
+  test('allows paid Pro and denies Basic, active trial, and over-quota Pro before minting AssemblyAI token', async () => {
     const basicUser = await createLiveUser(admin, `cloud-basic-${RUN_ID}@example.com`, {
       subscription_status: 'basic',
       trial_started_at: '2024-01-01T00:00:00.000Z',
@@ -65,6 +65,18 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     });
     createdUsers.push(activeTrialUser);
 
+    const paidProUser = await createLiveUser(admin, `cloud-paid-pro-${RUN_ID}@example.com`, {
+      subscription_status: 'pro',
+      trial_started_at: null,
+      trial_expires_at: null,
+      daily_usage_seconds: 0,
+      native_usage_seconds: 0,
+      cloud_usage_seconds: 0,
+      stripe_subscription_id: `sub_live_gate_paid_${RUN_ID}`,
+      subscription_id: null,
+    });
+    createdUsers.push(paidProUser);
+
     const overQuotaUser = await createLiveUser(admin, `cloud-over-quota-${RUN_ID}@example.com`, {
       subscription_status: 'pro',
       trial_started_at: new Date(Date.now() - 60_000).toISOString(),
@@ -72,18 +84,20 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
       daily_usage_seconds: 999_999,
       native_usage_seconds: 0,
       cloud_usage_seconds: 999_999,
-      stripe_subscription_id: null,
+      stripe_subscription_id: `sub_live_gate_over_quota_${RUN_ID}`,
       subscription_id: null,
     });
     createdUsers.push(overQuotaUser);
 
     const basicResult = await requestAssemblyToken(basicUser.email);
     const activeTrialResult = await requestAssemblyToken(activeTrialUser.email);
+    const paidProResult = await requestAssemblyToken(paidProUser.email);
     const overQuotaResult = await requestAssemblyToken(overQuotaUser.email);
 
     const evidence = {
       basic: summarizeTokenResult(basicResult),
       activeTrial: summarizeTokenResult(activeTrialResult),
+      paidPro: summarizeTokenResult(paidProResult),
       overQuota: summarizeTokenResult(overQuotaResult),
     };
     console.log(`LIVE_CLOUD_TOKEN_GATE_EVIDENCE ${JSON.stringify(evidence)}`);
@@ -91,8 +105,11 @@ test.describe.serial('Live Cloud token abuse gates @live', () => {
     expect(basicResult.status, JSON.stringify(evidence)).toBe(403);
     expect(basicResult.body?.error, JSON.stringify(evidence)).toMatch(/Cloud STT is available with Pro|pro trial or subscription required/i);
     expect(basicResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
-    expect(activeTrialResult.status, JSON.stringify(evidence)).toBe(200);
-    expect(activeTrialResult.body?.token, JSON.stringify(evidence)).toBeTruthy();
+    expect(activeTrialResult.status, JSON.stringify(evidence)).toBe(403);
+    expect(activeTrialResult.body?.error, JSON.stringify(evidence)).toMatch(/Cloud STT is available with Pro|Trial access includes Private STT/i);
+    expect(activeTrialResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
+    expect(paidProResult.status, JSON.stringify(evidence)).toBe(200);
+    expect(paidProResult.body?.token, JSON.stringify(evidence)).toBeTruthy();
     expect(overQuotaResult.status, JSON.stringify(evidence)).toBe(429);
     expect(overQuotaResult.body?.token, JSON.stringify(evidence)).toBeFalsy();
   });
