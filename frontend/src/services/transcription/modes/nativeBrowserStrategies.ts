@@ -1,7 +1,18 @@
 import { NATIVE_STT } from '../sttConstants';
 
-type BrowserFamily = 'chrome' | 'edge' | 'safari' | 'generic' | 'unsupported';
-type CompatibilityMode = 'verified' | 'generic' | 'unsupported';
+type BrowserFamily =
+  | 'chrome'
+  | 'edge'
+  | 'chrome-ios'
+  | 'brave'
+  | 'arc'
+  | 'opera'
+  | 'samsung'
+  | 'electron'
+  | 'safari'
+  | 'generic'
+  | 'unsupported';
+type CompatibilityMode = 'verified' | 'chromium-compatible' | 'webkit-compatible' | 'generic' | 'unsupported';
 
 type RecognitionLike = {
   lang?: string;
@@ -79,6 +90,7 @@ const composeWebSpeechConfig = (...layers: WebSpeechConfigLayer[]): WebSpeechCon
 
 const CHROME_WEB_SPEECH_CONFIG = composeWebSpeechConfig(DICTATION_WEB_SPEECH_CONFIG);
 const EDGE_WEB_SPEECH_CONFIG = composeWebSpeechConfig(DICTATION_WEB_SPEECH_CONFIG);
+const CHROMIUM_COMPAT_WEB_SPEECH_CONFIG = composeWebSpeechConfig(DICTATION_WEB_SPEECH_CONFIG);
 const SAFARI_WEB_SPEECH_CONFIG = composeWebSpeechConfig(
   DICTATION_WEB_SPEECH_CONFIG,
   SAFARI_WEB_SPEECH_OVERRIDES,
@@ -124,17 +136,24 @@ const getNativeDiagnosticConfigOverride = (): NativeDiagnosticConfigOverride => 
   };
 };
 
-const isChromiumFamily = (ua: string): boolean =>
-  /Chrome|Chromium|CriOS/i.test(ua) && !/Edg/i.test(ua);
+const isChrome = (ua: string): boolean =>
+  /(?:Chrome|Chromium)\//i.test(ua) &&
+  !/(?:Edg|OPR|Opera|SamsungBrowser|Electron|Brave|Arc)\//i.test(ua);
 
-const isEdge = (ua: string): boolean => /Edg/i.test(ua);
+const isEdge = (ua: string): boolean => /Edg\//i.test(ua);
 
 const isSafari = (ua: string): boolean =>
   /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|FxiOS|Edg|OPR|Opera/i.test(ua);
 
 const getBrowserFamily = (ua: string): BrowserFamily => {
   if (isEdge(ua)) return 'edge';
-  if (isChromiumFamily(ua)) return 'chrome';
+  if (/CriOS\//i.test(ua)) return 'chrome-ios';
+  if (/Brave\//i.test(ua)) return 'brave';
+  if (/Arc\//i.test(ua)) return 'arc';
+  if (/(?:OPR|Opera)\//i.test(ua)) return 'opera';
+  if (/SamsungBrowser\//i.test(ua)) return 'samsung';
+  if (/Electron\//i.test(ua)) return 'electron';
+  if (isChrome(ua)) return 'chrome';
   if (isSafari(ua)) return 'safari';
   return 'generic';
 };
@@ -219,6 +238,24 @@ export function resolveNativeBrowserStrategy(options: {
 
   if (browserFamily === 'edge') {
     return makeStrategy('edge', 'verified', null, EDGE_WEB_SPEECH_CONFIG);
+  }
+
+  if (browserFamily === 'brave' || browserFamily === 'arc' || browserFamily === 'opera' || browserFamily === 'samsung' || browserFamily === 'electron') {
+    return makeStrategy(
+      browserFamily,
+      'chromium-compatible',
+      'Browser STT is using a Chromium-compatible Web Speech implementation. Chrome is recommended; availability and accuracy vary by browser.',
+      CHROMIUM_COMPAT_WEB_SPEECH_CONFIG,
+    );
+  }
+
+  if (browserFamily === 'chrome-ios') {
+    return makeStrategy(
+      'chrome-ios',
+      'webkit-compatible',
+      'Browser STT on Chrome for iOS uses the iOS Web Speech implementation. Chrome desktop is recommended; availability and accuracy vary by browser.',
+      SAFARI_WEB_SPEECH_CONFIG,
+    );
   }
 
   if (browserFamily === 'safari') {

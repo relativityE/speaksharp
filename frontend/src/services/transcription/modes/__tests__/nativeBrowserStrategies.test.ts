@@ -10,6 +10,7 @@ const arcUaWithToken = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit
 const operaUa = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 OPR/115.0.0.0';
 const samsungUa = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/121.0.0.0 Mobile Safari/537.36';
 const electronUa = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) MyApp/1.0 Chrome/120.0.0.0 Electron/28.0.0 Safari/537.36';
+const chromeIosUa = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/148.0.0.0 Mobile/15E148 Safari/604.1';
 
 function result(transcript: string, isFinal: boolean) {
   return Object.assign([{ transcript }], { isFinal });
@@ -60,27 +61,42 @@ describe('native browser strategies', () => {
     expect(genericRecognition.continuous).toBe(true);
   });
 
-  it('applies the common dictation baseline to Chromium-family browsers', () => {
+  it('applies the dictation baseline to Chromium-compatible browsers without claiming verified Chrome', () => {
     const cases = [
-      braveUaWithToken,
-      arcUaWithToken,
-      operaUa,
-      samsungUa,
-      electronUa,
-    ];
+      [braveUaWithToken, 'brave'],
+      [arcUaWithToken, 'arc'],
+      [operaUa, 'opera'],
+      [samsungUa, 'samsung'],
+      [electronUa, 'electron'],
+    ] as const;
 
-    for (const userAgent of cases) {
+    for (const [userAgent, browserFamily] of cases) {
       const strategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent });
       const recognition = { interimResults: false, continuous: false, maxAlternatives: 1 };
 
       strategy.configure(recognition);
 
-      expect(strategy.browserFamily).toBe('chrome');
-      expect(strategy.compatibilityMode).toBe('verified');
+      expect(strategy.browserFamily).toBe(browserFamily);
+      expect(strategy.compatibilityMode).toBe('chromium-compatible');
       expect(recognition.continuous).toBe(true);
       expect(recognition.interimResults).toBe(true);
       expect(recognition.maxAlternatives).toBe(1);
+      expect(strategy.userMessage).toMatch(/Chrome is recommended/i);
     }
+  });
+
+  it('routes Chrome on iOS to an iOS WebKit-compatible strategy', () => {
+    const strategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: chromeIosUa });
+    const recognition = { interimResults: false, continuous: true, maxAlternatives: 4 };
+
+    strategy.configure(recognition);
+
+    expect(strategy.browserFamily).toBe('chrome-ios');
+    expect(strategy.compatibilityMode).toBe('webkit-compatible');
+    expect(recognition.continuous).toBe(false);
+    expect(recognition.interimResults).toBe(true);
+    expect(recognition.maxAlternatives).toBe(1);
+    expect(strategy.userMessage).toMatch(/iOS Web Speech/i);
   });
 
   it('routes Safari to a verified Safari strategy', () => {

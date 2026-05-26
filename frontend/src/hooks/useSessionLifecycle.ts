@@ -478,6 +478,7 @@ export const useSessionLifecycle = () => {
         metrics,
         sttStatus,
         modelLoadingProgress,
+        privateModelStatus,
         activeMode,
         mode: effectiveMode,
         setMode: (m: TranscriptionMode) => {

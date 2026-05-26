@@ -38,6 +38,7 @@ export const SessionPage: React.FC = () => {
         metrics,
         sttStatus,
         modelLoadingProgress,
+        privateModelStatus,
         mode,
         setMode,
         recordingIntent,
@@ -132,8 +133,9 @@ export const SessionPage: React.FC = () => {
     };
     const showPrivateDownloadHeaderAction =
         mode === 'private' &&
-        sttStatus.type === 'download-required' &&
+        privateModelStatus !== 'ready' &&
         visibleModelLoadingProgress === null &&
+        isProUser &&
         !isListening;
     const handlePrivateSetup = () => {
         void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
