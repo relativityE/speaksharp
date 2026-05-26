@@ -27,6 +27,14 @@ const requiredWhisperTinyCacheUrls = [
     'http://localhost/models/whisper-tiny.en/onnx/decoder_model_merged_quantized.onnx',
 ];
 
+const requiredWhisperTinyV4CacheUrls = [
+    'http://localhost/models/onnx-community/whisper-tiny.en/config.json',
+    'http://localhost/models/onnx-community/whisper-tiny.en/tokenizer.json',
+    'http://localhost/models/onnx-community/whisper-tiny.en/preprocessor_config.json',
+    'http://localhost/models/onnx-community/whisper-tiny.en/onnx/encoder_model.onnx',
+    'http://localhost/models/onnx-community/whisper-tiny.en/onnx/decoder_model_merged_q4.onnx',
+];
+
 function stubTransformersCache(urls: string[], hasCache = true): void {
     const cacheStorage = {
         has: vi.fn(async (cacheName: string) => cacheName === 'transformers-cache' && hasCache),
@@ -42,9 +50,10 @@ type FakeIndexedDbOptions = {
     blocked?: boolean;
     openError?: boolean;
     upgradeNeeded?: boolean;
+    transactionError?: boolean;
 };
 
-function stubIndexedDb({ stores = {}, blocked = false, openError = false, upgradeNeeded = false }: FakeIndexedDbOptions = {}): void {
+function stubIndexedDb({ stores = {}, blocked = false, openError = false, upgradeNeeded = false, transactionError = false }: FakeIndexedDbOptions = {}): void {
     const open = vi.fn(() => {
         const request = {
             result: {
@@ -52,6 +61,9 @@ function stubIndexedDb({ stores = {}, blocked = false, openError = false, upgrad
                     contains: (storeName: string) => Object.prototype.hasOwnProperty.call(stores, storeName),
                 },
                 transaction: (storeName: string) => {
+                    if (transactionError) {
+                        throw new Error('indexeddb-transaction-failed');
+                    }
                     const tx = {
                         objectStore: () => ({
                             count: () => {
@@ -142,6 +154,42 @@ describe('ModelManager transformers cache contract', () => {
 
         await expect(ModelManager.isModelDownloaded('transformers-js')).resolves.toBe(true);
     });
+
+    it('fails closed when CacheStorage probing throws', async () => {
+        vi.stubGlobal('caches', {
+            has: vi.fn(async () => {
+                throw new Error('cache-probe-failed');
+            }),
+        } as unknown as CacheStorage);
+
+        await expect(ModelManager.isModelDownloaded('transformers-js')).resolves.toBe(false);
+    });
+
+    it('reports transformers-js-v4 unavailable when the cache does not exist or is empty', async () => {
+        stubTransformersCache([], false);
+        await expect(ModelManager.isModelDownloaded('transformers-js-v4')).resolves.toBe(false);
+
+        stubTransformersCache([]);
+        await expect(ModelManager.isModelDownloaded('transformers-js-v4')).resolves.toBe(false);
+    });
+
+    it('reports transformers-js-v4 unavailable when required split model assets are missing', async () => {
+        stubTransformersCache(requiredWhisperTinyV4CacheUrls.filter((url) => !url.endsWith('decoder_model_merged_q4.onnx')));
+
+        await expect(ModelManager.isModelDownloaded('transformers-js-v4')).resolves.toBe(false);
+    });
+
+    it('reports transformers-js-v4 available only when required split model assets are present', async () => {
+        stubTransformersCache(requiredWhisperTinyV4CacheUrls);
+
+        await expect(ModelManager.isModelDownloaded('transformers-js-v4')).resolves.toBe(true);
+    });
+
+    it('returns expected model size estimates for each Private engine family', () => {
+        expect(ModelManager.getModelSizeMB('transformers-js')).toBe(40);
+        expect(ModelManager.getModelSizeMB('whisper-turbo')).toBe(75);
+        expect(ModelManager.getModelSizeMB('transformers-js-v4')).toBeGreaterThan(0);
+    });
 });
 
 describe('ModelManager Whisper Turbo IndexedDB contract', () => {
@@ -182,6 +230,12 @@ describe('ModelManager Whisper Turbo IndexedDB contract', () => {
         await expect(ModelManager.isModelDownloaded('whisper-turbo')).resolves.toBe(false);
 
         stubIndexedDb({ stores: { models: 1, availableModels: 1 }, upgradeNeeded: true });
+        await expect(ModelManager.isModelDownloaded('whisper-turbo')).resolves.toBe(false);
+    });
+
+    it('fails closed when IndexedDB store probing throws after opening', async () => {
+        stubIndexedDb({ stores: { models: 1, availableModels: 1 }, transactionError: true });
+
         await expect(ModelManager.isModelDownloaded('whisper-turbo')).resolves.toBe(false);
     });
 });
