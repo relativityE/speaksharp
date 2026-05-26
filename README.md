@@ -281,6 +281,8 @@ Use `test:*` for development checks, `ci:*` for CI parity/orchestration, and `rc
 
 RC gates are not part of the main push/PR pipeline. They are release controls and can be run as a full suite or individually.
 
+Glossary: **SAST** is Static Application Security Testing, **DAST** is Dynamic Application Security Testing, and **SCA** is Software Composition Analysis.
+
 | Gate | Command | Purpose |
 |---|---|---|
 | Full RC suite | `pnpm run audit` | Runs all five RC gates. |

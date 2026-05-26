@@ -76,6 +76,12 @@ The everyday CI workflow remains `.github/workflows/ci.yml` and is intentionally
 - Gate 1 includes external workflow and manual evidence that is recorded in the release matrix, not all launched by `pnpm run audit`.
 - Do not add these full RC gates to the push/PR main CI path unless a gate graduates into everyday correctness.
 
+Glossary:
+
+- **SAST** = Static Application Security Testing. Code-level checks that do not require a running browser session, such as lint/typecheck, secret scanning, production hardening checks, entitlement/quota unit tests, and Edge Function tests.
+- **DAST** = Dynamic Application Security Testing. Running-app checks that exercise real browser/app behavior, including local mocked Playwright flows and live deployed flows against Supabase, Stripe, Cloud token gates, persistence, and STT switching.
+- **SCA** = Software Composition Analysis. Dependency and runtime supply-chain review, currently focused on critical dependency advisories via `pnpm audit --audit-level critical` plus runtime warning review.
+
 | RC Gate | Name | Blocks Tester Release? | Maintained Regression Evidence |
 |---|---|---:|---|
 | Gate 1 | Product truth gate | Yes | `pnpm rc:gate:1:product`, `CI - Test Audit`, `Expired Trial Live Smoke`, `Pro STT Artifact Matrix`, deploy/canary workflows, Native Chrome mic proof |

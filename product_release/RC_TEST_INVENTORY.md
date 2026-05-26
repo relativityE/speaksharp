@@ -41,6 +41,12 @@ The current inventory is complete for release-candidate purposes: every RC-count
 
 The repo has five maintained release-candidate gates in `product_release/RC_GATES.md`:
 
+Terminology:
+
+- **SAST** means Static Application Security Testing: code-level release safety checks such as lint/typecheck, secret scanning, production hardening, and targeted unit/Edge Function tests.
+- **DAST** means Dynamic Application Security Testing: browser/runtime release safety checks against the running app, including local mocked Playwright flows and live deployed flows.
+- **SCA** means Software Composition Analysis: dependency and runtime supply-chain checks, including the critical dependency audit.
+
 | Gate | Name | High-Level Objective | Current Command / Evidence |
 |---|---|---|---|
 | Gate 1 | Product truth | Prove the product's business promises are true: tier access, STT mode behavior, transcript capture, save/history/detail, analytics, exports, and tester instructions. | `pnpm rc:gate:1:product`, CI Test Audit, deploy/canary, live matrix, Pro STT matrix, Native Chrome proof. |
