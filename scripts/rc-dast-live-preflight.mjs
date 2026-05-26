@@ -27,12 +27,12 @@ const groups = [
   },
   {
     label: 'Basic test email',
-    alternatives: ['E2E_BASIC_EMAIL'],
+    alternatives: ['BASIC_TEST_EMAIL', 'E2E_BASIC_EMAIL'],
     reason: 'proves Basic-tier live mode restrictions and custom word persistence',
   },
   {
     label: 'Basic test password',
-    alternatives: ['E2E_BASIC_PASSWORD'],
+    alternatives: ['BASIC_TEST_PASSWORD', 'E2E_BASIC_PASSWORD'],
     reason: 'signs in the Basic live test user',
   },
   {

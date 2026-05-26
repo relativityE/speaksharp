@@ -43,11 +43,11 @@ export const isLiveMode = (): boolean => {
  * Get test user credentials (only available in live mode via GitHub secrets)
  */
 export const getTestCredentials = () => {
-    const email = process.env.E2E_PRO_EMAIL;
-    const password = process.env.E2E_PRO_PASSWORD;
+    const email = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
+    const password = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 
     if (!email || !password) {
-        console.warn('⚠️ Test credentials not available. Set E2E_PRO_EMAIL and E2E_PRO_PASSWORD.');
+        console.warn('⚠️ Test credentials not available. Set PRO_TEST_EMAIL/PRO_TEST_PASSWORD or legacy E2E_PRO_EMAIL/E2E_PRO_PASSWORD.');
     }
 
     return { email, password };

@@ -21,7 +21,7 @@ test.describe('Live User Flow', () => {
         console.log(`📧 Test user: ${email}`);
 
         if (!email || !password) {
-            throw new Error('E2E_PRO_EMAIL and E2E_PRO_PASSWORD must be set for live tests');
+            throw new Error('PRO_TEST_EMAIL and PRO_TEST_PASSWORD must be set for live tests. E2E_PRO_EMAIL/E2E_PRO_PASSWORD remain supported as legacy local aliases.');
         }
     });
 

@@ -33,7 +33,7 @@ test.afterEach(async ({ page }) => {
 
 test.describe.serial('Pro STT artifact path matrix @live', () => {
   test.beforeAll(() => {
-    test.skip(!BASE_URL || !E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'BASE_URL and E2E Pro credentials are required.');
+    test.skip(!BASE_URL || !E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'BASE_URL and Pro test credentials are required.');
   });
 
   for (const mode of MODES) {

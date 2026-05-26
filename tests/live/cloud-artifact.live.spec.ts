@@ -29,7 +29,7 @@ test.afterEach(async ({ page }) => {
 });
 
 test('Pro Cloud live STT can transcribe, save, and show analytics history', async ({ page }) => {
-  test.skip(!BASE_URL || !E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'BASE_URL and E2E Pro credentials are required.');
+  test.skip(!BASE_URL || !E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'BASE_URL and Pro test credentials are required.');
 
   const cloudConsoleEvents: string[] = [];
   page.on('console', (message) => {

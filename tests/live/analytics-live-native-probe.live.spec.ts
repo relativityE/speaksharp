@@ -19,7 +19,7 @@ test('native live STT analytics probe without mocked transcript injection', asyn
   const testPassword = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 
   if (!testEmail || !testPassword) {
-    throw new Error('E2E_PRO_EMAIL and E2E_PRO_PASSWORD are required for the native live preflight probe.');
+    throw new Error('PRO_TEST_EMAIL and PRO_TEST_PASSWORD are required for the native live preflight probe. E2E_PRO_EMAIL/E2E_PRO_PASSWORD remain supported as legacy local aliases.');
   }
 
   const evidence: Record<string, unknown> = {

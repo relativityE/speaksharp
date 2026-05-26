@@ -111,7 +111,7 @@ test.describe.serial('Live STT switching contract @live', () => {
   });
 
   test('Pro idle switching, in-recording lockout, and separate Cloud/Private session metadata', async ({ page }) => {
-    test.skip(!E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'E2E Pro credentials are required.');
+    test.skip(!E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'Pro test credentials are required.');
 
     test.setTimeout(420_000);
     await page.addInitScript(() => {

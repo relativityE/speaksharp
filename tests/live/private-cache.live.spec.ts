@@ -31,7 +31,7 @@ test.use({
 
 test.describe.serial('Private first-start and second-start cache proof @live', () => {
   test('Private CPU model setup survives a same-browser second start from cache', async ({ page }) => {
-    test.skip(!BASE_URL || !E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'BASE_URL and E2E Pro credentials are required.');
+    test.skip(!BASE_URL || !E2E_PRO_EMAIL || !E2E_PRO_PASSWORD, 'BASE_URL and Pro test credentials are required.');
     test.setTimeout(300_000);
 
     await page.addInitScript(() => {

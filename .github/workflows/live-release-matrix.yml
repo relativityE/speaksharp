@@ -42,8 +42,8 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          E2E_BASIC_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
-          E2E_BASIC_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
+          BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
+          BASIC_TEST_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/user-filler-words-persistence.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
@@ -75,8 +75,8 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          E2E_PRO_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
-          E2E_PRO_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/analytics-live-native-probe.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
@@ -145,8 +145,8 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          E2E_PRO_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
-          E2E_PRO_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
         # Cloud streaming is provider-limited. Keep one smoke, one worker, no immediate retries.
         # After AssemblyAI 1008/3009 "Too many concurrent sessions", wait 5-10 minutes before rerun.
@@ -188,8 +188,8 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          E2E_PRO_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
-          E2E_PRO_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/stt-switching-contract.live.spec.ts --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=list --workers=1
 
@@ -221,8 +221,8 @@ jobs:
         env:
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
-          E2E_PRO_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
-          E2E_PRO_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
           BASE_URL: https://speaksharp-public.vercel.app/
         run: pnpm exec playwright test tests/live/private-cache.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list --workers=1
 
@@ -311,8 +311,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          E2E_PRO_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
-          E2E_PRO_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/stripe-checkout-readiness.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
 
       - name: Upload Stripe Checkout Artifacts

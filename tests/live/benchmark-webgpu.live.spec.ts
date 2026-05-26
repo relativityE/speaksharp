@@ -24,7 +24,7 @@ test('measure WhisperTurbo (WebGPU)', async ({ page }) => {
     const testPassword = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 
     if (!testEmail || !testPassword) {
-        throw new Error('E2E_PRO_EMAIL and E2E_PRO_PASSWORD must be set for benchmark runs.');
+        throw new Error('PRO_TEST_EMAIL and PRO_TEST_PASSWORD must be set for benchmark runs. E2E_PRO_EMAIL/E2E_PRO_PASSWORD remain supported as legacy local aliases.');
     }
 
     // Force Real WASM Execution instead of Mock Engine

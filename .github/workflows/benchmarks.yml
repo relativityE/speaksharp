@@ -74,8 +74,8 @@ jobs:
 
       - name: Run browser benchmark suite
         env:
-          E2E_PRO_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
-          E2E_PRO_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
         run: pnpm exec playwright test tests/live/benchmark-native.live.spec.ts tests/live/benchmark-cpu.live.spec.ts tests/live/benchmark-webgpu.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
         timeout-minutes: 30  # 5 trials × 38s + WASM init headroom
 
