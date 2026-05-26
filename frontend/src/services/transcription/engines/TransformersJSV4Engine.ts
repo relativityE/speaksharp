@@ -390,7 +390,6 @@ export class TransformersJSV4Engine extends STTEngine {
     }
 
     private async initWorker(isMock?: boolean): Promise<void> {
-        const options = (this.options || {}) as TranscriptionModeOptions;
         this.worker = new Worker(v4WorkerUrl, { type: 'module' });
         this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
             const response = event.data;
