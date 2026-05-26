@@ -11,6 +11,7 @@
 
 import { AUDIO_DEFAULTS } from './audioDefaults';
 import logger from '@/lib/logger';
+import audioWorkerUrl from './audio-processor.worker.ts?worker&url';
 
 /**
  * Convert Float32Array audio samples to Int16Array.
@@ -215,18 +216,7 @@ function generateCorrelationId(): string {
 
 function getWorker(): Worker {
     if (!audioWorker) {
-        // Vite syntax for workers
-        let workerUrl: URL | string;
-        try {
-            workerUrl = new URL('./audio-processor.worker.ts', import.meta.url);
-        } catch (workerUrlError) {
-            logger.warn({
-                workerUrlError,
-                importMetaUrl: import.meta.url,
-            }, '[AudioProcessor] Worker URL construction failed; falling back to relative worker path');
-            workerUrl = './audio-processor.worker.ts';
-        }
-        audioWorker = new Worker(workerUrl, { type: 'module' });
+        audioWorker = new Worker(audioWorkerUrl, { type: 'module' });
     }
     return audioWorker;
 }
