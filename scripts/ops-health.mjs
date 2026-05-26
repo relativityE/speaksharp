@@ -116,12 +116,23 @@ await addCheck('PostHog API access', 'posthog', async () => {
   const token = requireEnv('POSTHOG_PERSONAL_API_KEY');
   const projectId = requireEnv('POSTHOG_PROJECT_ID');
   const apiHost = (process.env.POSTHOG_API_HOST || 'https://us.posthog.com').replace(/\/$/, '');
-  const response = await timedFetch(`${apiHost}/api/projects/${encodeURIComponent(projectId)}/`, {
-    headers: { Authorization: `Bearer ${token}` },
+  const response = await timedFetch(`${apiHost}/api/projects/${encodeURIComponent(projectId)}/query/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      query: {
+        kind: 'HogQLQuery',
+        query: 'SELECT 1',
+      },
+      name: 'SpeakSharp ops health query',
+    }),
   });
   return {
     status: response.ok ? 'pass' : 'fail',
-    detail: `Project read HTTP ${response.status}`,
+    detail: `HogQL query HTTP ${response.status}`,
     latencyMs: response.latencyMs,
     drilldownUrl: `${apiHost}/project/${encodeURIComponent(projectId)}`,
   };
