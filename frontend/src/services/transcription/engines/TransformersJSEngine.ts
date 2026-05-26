@@ -22,6 +22,7 @@ import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
 import { STTEngine } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
+import workerUrl from './transformers-js.worker.ts?worker&url';
 
 // Lazy-load transformers.js to avoid bundle bloat
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
@@ -441,16 +442,6 @@ export class TransformersJSEngine extends STTEngine {
 
     private async initWorker(isMock?: boolean): Promise<void> {
         const options = (this.options || {}) as TranscriptionModeOptions;
-        let workerUrl: URL | string;
-        try {
-            workerUrl = new URL('./transformers-js.worker.ts', import.meta.url);
-        } catch (workerUrlError) {
-            logger.warn({
-                workerUrlError,
-                importMetaUrl: import.meta.url,
-            }, '[TransformersJSEngine] Worker URL construction failed; falling back to relative worker path');
-            workerUrl = './transformers-js.worker.ts';
-        }
         this.worker = new Worker(workerUrl, { type: 'module' });
         this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
             const response = event.data;
