@@ -81,7 +81,11 @@ export default defineConfig(({ mode }) => {
       host: '127.0.0.1',
       port: PORTS.PREVIEW,
       strictPort: true, // Fail fast if port is taken by a zombie
-      headers: {} // COOP/COEP removed to prevent blocking Stripe.js in E2E
+      headers: {
+        // Local release review must never reuse stale bundles while we are
+        // validating visual fixes from vite preview.
+        'Cache-Control': 'no-store, max-age=0',
+      } // COOP/COEP removed to prevent blocking Stripe.js in E2E
     },
     build: {
       target: 'esnext',

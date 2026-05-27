@@ -1,4 +1,5 @@
 import { getWordColor } from '@/utils/highlightUtils';
+import { SESSION_SURFACE_CLASS } from './sessionSurface';
 
 interface FillerWordData {
     count: number;
@@ -25,7 +26,7 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
     className = "",
 }) => {
     return (
-        <div className={`bg-card border border-[hsl(var(--border-strong))] rounded-xl p-4 shadow-[var(--shadow-card-primary)] h-full ${className}`}>
+        <div className={`${SESSION_SURFACE_CLASS} p-4 h-full ${className}`}>
             <div className="flex items-center justify-between mb-2">
                 <h2 className="text-lg font-semibold text-foreground">
                     Filler Words <span data-testid="filler-count-value" className="text-[#4B5563] ml-1">{fillerCount > 0 ? `(${fillerCount})` : ''}</span>
@@ -74,7 +75,7 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
                 )}
             </div>
             {fillerExplanation && (
-                <p className="text-xs text-[#4B5563] leading-snug mt-3 border-t border-border pt-3" data-testid="filler-explanation">
+                <p className="text-xs text-[#4B5563] leading-snug mt-3 border-t border-[hsl(var(--border))] pt-3" data-testid="filler-explanation">
                     {fillerExplanation}
                 </p>
             )}

@@ -47,7 +47,7 @@ export const WeeklyActivityChart: React.FC = () => {
     }
 
     return (
-        <Card className="h-full bg-card border-border p-6 rounded-xl shadow-sm">
+        <Card className="h-full rounded-xl p-6">
             <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-semibold text-foreground">Weekly Activity</h3>
             </div>

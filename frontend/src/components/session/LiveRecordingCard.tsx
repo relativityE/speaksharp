@@ -39,6 +39,7 @@ interface LiveRecordingCardProps {
 }
 
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
+import { SESSION_SURFACE_CLASS, SESSION_INSET_SURFACE_CLASS } from '@/components/session/sessionSurface';
 
 /**
  * The main recording control panel with mode selector, mic indicator,
@@ -103,7 +104,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         : 'On-device. Available with active trial or Pro.';
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
-            <div className={`bg-white border border-[hsl(var(--border-strong))] rounded-xl p-6 sm:p-8 shadow-[var(--shadow-card-primary)] relative z-10 h-full flex flex-col text-center gap-6 ${className}`} data-testid="live-recording-card">
+            <div className={`${SESSION_SURFACE_CLASS} relative z-10 h-full flex flex-col text-center gap-6 p-6 sm:p-8 ${className}`} data-testid="live-recording-card">
 
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex flex-col items-center gap-2 text-center sm:items-start sm:text-left">
@@ -228,7 +229,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             <div className="text-4xl font-mono font-bold text-foreground tracking-tighter tabular-nums leading-none">
                                 {formattedTime}
                             </div>
-                            <div className="mt-2 inline-flex items-center gap-1.5 py-1 px-3 rounded-full bg-[#F8FAFC] border border-[hsl(var(--border-strong))]">
+                            <div className={`mt-2 inline-flex items-center gap-1.5 py-1 px-3 rounded-full ${SESSION_INSET_SURFACE_CLASS}`}>
                                 <div className={`h-1.5 w-1.5 rounded-full ${isListening ? 'bg-primary animate-pulse' : 'bg-[#4B5563]'}`} />
                                 <span className="text-[10px] font-bold text-[#4B5563] uppercase tracking-[0.14em]" data-testid="stt-status-label">
                                     {displayStatusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}

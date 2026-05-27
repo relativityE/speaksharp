@@ -67,14 +67,14 @@ export default function SignUpPage() {
     if (session) return <Navigate to="/" replace />;
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4 pt-20 relative overflow-hidden">
-            <div className="relative z-10 w-full max-w-md space-y-8">
+        <div className="min-h-screen bg-background px-4 pb-16 pt-28">
+            <div className="mx-auto flex w-full max-w-md flex-col items-center space-y-8">
                 <div className="text-center space-y-2">
                     <h1 className="text-4xl font-extrabold tracking-tight text-foreground">SpeakSharp</h1>
                     <p className="text-[#4B5563] text-lg">Master your communication skills.</p>
                 </div>
 
-                <Card className="border-[hsl(var(--border-strong))] bg-white shadow-[var(--shadow-card-primary)]">
+                <Card className="w-full">
                     <CardHeader className="space-y-1 text-center pb-8">
                         <CardTitle className="text-2xl font-bold tracking-tight">Create an account</CardTitle>
                         <CardDescription className="text-base">Enter your email below to create your account</CardDescription>

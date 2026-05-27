@@ -1,6 +1,7 @@
 import React from 'react';
 import { Lock, Cloud } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
+import { SESSION_INSET_SURFACE_CLASS, SESSION_SURFACE_CLASS } from './sessionSurface';
 
 import { parseTranscriptForHighlighting } from '@/utils/highlightUtils';
 
@@ -63,7 +64,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
 
     return (
         <div
-            className={`bg-card border border-[hsl(var(--border-strong))] rounded-xl p-4 shadow-[var(--shadow-card-primary)] flex flex-col ${className}`}
+            className={`${SESSION_SURFACE_CLASS} p-4 flex flex-col ${className}`}
             data-testid={TEST_IDS.TRANSCRIPT_PANEL}
         >
             <div className="mb-2 flex items-center justify-between gap-3">
@@ -80,7 +81,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             </div>
             <div
                 ref={containerRef}
-                className="live-transcript-scroll flex-1 overflow-y-auto p-3 pr-5 rounded-lg border border-[hsl(var(--border-strong))] bg-[#F8FAFC] leading-relaxed transition-all min-h-[160px]"
+                className={`live-transcript-scroll flex-1 overflow-y-auto p-3 pr-5 ${SESSION_INSET_SURFACE_CLASS} leading-relaxed transition-all min-h-[160px]`}
                 data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
                 data-scrollable-transcript="true"
                 aria-live="polite"

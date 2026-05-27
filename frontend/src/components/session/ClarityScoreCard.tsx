@@ -1,4 +1,5 @@
 import React from 'react';
+import { SESSION_INSET_SURFACE_CLASS, SESSION_SURFACE_CLASS } from './sessionSurface';
 
 interface ClarityScoreCardProps {
     clarityScore: number;
@@ -23,9 +24,9 @@ export const ClarityScoreCard: React.FC<ClarityScoreCardProps> = ({
     const barWidth = Math.max(0, Math.min(100, displayScore));
 
     return (
-        <div className={`bg-card border border-[hsl(var(--border-strong))] rounded-xl p-4 shadow-[var(--shadow-card-primary)] ${className}`}>
+        <div className={`${SESSION_SURFACE_CLASS} p-4 ${className}`}>
             <h3 className="text-base font-semibold text-foreground mb-2">Speech Clarity</h3>
-            <div className="bg-[#F8FAFC] border border-[hsl(var(--border-strong))] rounded-lg p-3">
+            <div className={`${SESSION_INSET_SURFACE_CLASS} p-3`}>
                 <div className="flex items-center justify-between mb-1">
                     <span className="text-[#4B5563] text-sm font-medium">Clarity Score</span>
                     <span className="text-primary font-bold" data-testid="clarity-score-value">

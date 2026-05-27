@@ -232,7 +232,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
 
     return (
         <div className="flex flex-col gap-6 h-full" data-testid="session-sidebar">
-            <Card className="w-full flex flex-col flex-grow bg-white border-[hsl(var(--border-strong))] shadow-[var(--shadow-card-primary)]" data-testid="session-sidebar-card">
+            <Card className="w-full flex flex-col flex-grow" data-testid="session-sidebar-card">
                 <CardHeader>
                     <div className="flex justify-between items-center">
                         <CardTitle className="text-base">Session Controls</CardTitle>

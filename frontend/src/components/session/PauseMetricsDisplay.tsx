@@ -22,7 +22,7 @@ export const PauseMetricsDisplay: React.FC<PauseMetricsDisplayProps> = ({ metric
                 : 'Pause timing is measurable; use it with filler count to judge delivery rhythm.';
 
     return (
-        <Card className={`h-auto border-[hsl(var(--border-strong))] rounded-xl flex flex-col justify-center shadow-[var(--shadow-card-primary)] compact-density ${className}`}>
+        <Card className={`flex flex-col justify-center compact-density ${className}`}>
             <CardHeader className="p-4 py-2 pb-0">
                 <CardTitle className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-foreground">
                     <Pause className="h-4 w-4" />

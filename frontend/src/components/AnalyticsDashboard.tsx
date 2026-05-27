@@ -231,8 +231,8 @@ const ANALYSIS_STORAGE_KEY = 'speaksharp_selected_analysis_slides_v6';
 
 // --- Sub-components ---
 
-const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, className, testId }) => (
-    <Card className={`bg-card border-[hsl(var(--border-strong))] p-6 rounded-xl shadow-[var(--shadow-card-primary)] ${className}`} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, description, className = '', testId }) => (
+    <Card className={`rounded-xl p-6 ${className}`} data-testid={testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}>
         <div className="flex items-center justify-between mb-4">
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${label.includes('Filler') ? 'bg-accent/10 text-accent' : 'bg-primary/10 text-primary'}`}>
                 {/* Clone icon to enforce size and styling if needed, but usually props are fine. Wrapper handles color. */}
@@ -290,7 +290,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
 
     return (
         <div
-            className="group flex flex-col md:flex-row items-center justify-between p-4 bg-[#F8FAFC] rounded-xl hover:bg-white transition-colors border border-[hsl(var(--border))] hover:border-[hsl(var(--border-strong))] shadow-card mb-3 last:mb-0"
+            className="group flex flex-col md:flex-row items-center justify-between p-4 bg-[#F1F5F9] rounded-xl hover:bg-white transition-colors border border-[hsl(var(--border))] hover:border-[hsl(var(--border-strong))] shadow-card mb-3 last:mb-0"
             data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}
         >
             <div className="flex items-center gap-4 w-full md:w-auto mb-4 md:mb-0">
@@ -599,6 +599,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             .filter((option): option is AnalysisSlideConfig => Boolean(option));
     }, [selectedAnalysisSlides]);
 
+    const activeAnalysisIndex = current > 0 ? current - 1 : 0;
+
     const toggleAnalysisSlide = (slideId: string) => {
         setSelectedAnalysisSlides(prev => {
             if (prev.includes(slideId)) {
@@ -751,11 +753,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             <CardContent className="space-y-4">
                                 <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-[#4B5563]">
                                     <span className="uppercase tracking-wider">Recorded with</span>
-                                    <span className="rounded-md border border-[hsl(var(--border-strong))] bg-[#F8FAFC] px-2 py-1 text-foreground" data-testid="session-engine-metadata">
+                                    <span className="rounded-md border border-[hsl(var(--border))] bg-[#F1F5F9] px-2 py-1 text-foreground" data-testid="session-engine-metadata">
                                         {formatSessionRecordingMode(targetSession)}
                                     </span>
                                 </div>
-                                <div className="p-4 bg-[#F8FAFC] rounded-lg border border-[hsl(var(--border))] min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
+                                <div className="p-4 bg-[#F1F5F9] rounded-lg border border-[hsl(var(--border))] min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
                                     {targetSession.transcript || "No transcript available for this session."}
                                 </div>
 
@@ -901,64 +903,70 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     <div className="space-y-4">
                         <Carousel className="w-full" opts={{ loop: true }} setApi={setApi}>
                             <CarouselContent>
-                                {displayedAnalysisSlides.map(option => (
+                                {displayedAnalysisSlides.map((option, index) => (
                                     <CarouselItem key={option.id} className="basis-full">
                                         <div className="p-1">
-                                            {/* Render content based on ID */}
-                                            {option.id === 'pace_trend' && (
-                                                <div>
-                                                    <TrendChart
-                                                        title="Speaking Pace Trend"
-                                                        description="Track your words per minute over time"
-                                                        data={trendData}
-                                                        metric="wpm"
-                                                    />
-                                                </div>
-                                            )}
-                                            {option.id === 'clarity_trend' && (
-                                                <div>
-                                                    <TrendChart
-                                                        title="Clarity Trend"
-                                                        description="Monitor your speech clarity percentage"
-                                                        data={trendData}
-                                                        metric="clarity"
-                                                    />
-                                                </div>
-                                            )}
-                                            {option.id === 'weekly_activity' && (
-                                                <WeeklyActivityChart />
-                                            )}
-                                            {option.id === 'goals_progress' && (
-                                                <GoalsSection />
-                                            )}
-                                            {option.id === 'filler_words' && (
-                                                <Card>
-                                                    <CardHeader><CardTitle>Filler Words</CardTitle></CardHeader>
-                                                    <CardContent className="space-y-6">
-                                                        {overallStats.chartData.length > 1 ? (
-                                                            <div className="h-[260px] w-full">
-                                                                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                                                                    <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                                                        <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                                                                        <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                                                                        <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                                                                        <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-                                                                        <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                                                                    </LineChart>
-                                                                </ResponsiveContainer>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="flex items-center justify-center h-[220px] text-center text-[#4B5563]"><p>Complete at least two sessions to see your filler word trend.</p></div>
-                                                        )}
-                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                                            <TopFillerWords />
-                                                            <FillerWordTable trendData={fillerWordTrends} />
+                                            {index === activeAnalysisIndex ? (
+                                                <>
+                                                    {/* Render content based on ID */}
+                                                    {option.id === 'pace_trend' && (
+                                                        <div>
+                                                            <TrendChart
+                                                                title="Speaking Pace Trend"
+                                                                description="Track your words per minute over time"
+                                                                data={trendData}
+                                                                metric="wpm"
+                                                            />
                                                         </div>
-                                                    </CardContent>
-                                                </Card>
-                                            )}
-                                            {option.id === 'stt_comparison' && (
-                                                <STTAccuracyVsBenchmark />
+                                                    )}
+                                                    {option.id === 'clarity_trend' && (
+                                                        <div>
+                                                            <TrendChart
+                                                                title="Clarity Trend"
+                                                                description="Monitor your speech clarity percentage"
+                                                                data={trendData}
+                                                                metric="clarity"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                    {option.id === 'weekly_activity' && (
+                                                        <WeeklyActivityChart />
+                                                    )}
+                                                    {option.id === 'goals_progress' && (
+                                                        <GoalsSection />
+                                                    )}
+                                                    {option.id === 'filler_words' && (
+                                                        <Card>
+                                                            <CardHeader><CardTitle>Filler Words</CardTitle></CardHeader>
+                                                            <CardContent className="space-y-6">
+                                                                {overallStats.chartData.length > 1 ? (
+                                                                    <div className="h-[260px] w-full">
+                                                                        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+                                                                            <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                                                                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                                                                                <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
+                                                                                <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
+                                                                                <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+                                                                                <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                                                                            </LineChart>
+                                                                        </ResponsiveContainer>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="flex items-center justify-center h-[220px] text-center text-[#4B5563]"><p>Complete at least two sessions to see your filler word trend.</p></div>
+                                                                )}
+                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                                    <TopFillerWords />
+                                                                    <FillerWordTable trendData={fillerWordTrends} />
+                                                                </div>
+                                                            </CardContent>
+                                                        </Card>
+                                                    )}
+                                                    {option.id === 'stt_comparison' && (
+                                                        <STTAccuracyVsBenchmark />
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <div className="min-h-[360px]" aria-hidden="true" />
                                             )}
 
                                         </div>
@@ -983,7 +991,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
                         {/* Session History Section - Moved below carousel */}
                         <div id="session-history-section">
-                            <Card className="bg-card border-[hsl(var(--border-strong))] p-6 rounded-lg shadow-[var(--shadow-card-primary)]">
+                            <Card className="rounded-xl p-6">
                                 <div className="flex items-center justify-between mb-6">
                                     <div>
                                         <h2 className="text-xl font-bold text-foreground">Download PDF Reports</h2>
@@ -1015,7 +1023,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                             />
                                         ))
                                     ) : (
-                                        <div className="text-center py-12 text-[#4B5563] bg-[#F8FAFC] rounded-xl border border-dashed border-[hsl(var(--border-strong))]">
+                                        <div className="text-center py-12 text-[#4B5563] bg-[#F1F5F9] rounded-xl border border-dashed border-[hsl(var(--border-strong))]">
                                             <p>No sessions recorded yet.</p>
                                         </div>
                                     )}

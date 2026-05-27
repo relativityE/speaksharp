@@ -165,11 +165,11 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-background p-4 pt-20 relative overflow-hidden">
-      <div className="relative z-10 w-full max-w-md space-y-6">
+    <div className="min-h-screen bg-background px-4 pb-16 pt-28">
+      <div className="mx-auto flex w-full max-w-md flex-col items-center space-y-6">
         <h2 className="text-center text-2xl font-semibold text-foreground">Master your communication skills</h2>
 
-        <Card className="border-[hsl(var(--border-strong))] bg-white shadow-[var(--shadow-card-primary)]">
+        <Card className="w-full">
           <CardHeader className="space-y-1 text-center pb-8">
             <CardTitle className="text-2xl font-bold tracking-tight">
               {view === 'sign_in' && 'Welcome back'}

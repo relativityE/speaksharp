@@ -8,7 +8,7 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 214 28% 78%;
+    --background: 210 14% 92%;
     --foreground: 221 39% 11%;
 
     --card: 0 0% 100%;
@@ -23,8 +23,8 @@ All colors MUST be HSL.
     --secondary: 210 17% 96%;
     --secondary-foreground: 221 39% 11%;
 
-    --muted: 210 17% 95%;
-    --muted-foreground: 217 19% 35%;
+    --muted: 210 17% 94%;
+    --muted-foreground: 215 16% 43%;
 
     --accent: 176 77% 26%;
     --accent-foreground: 0 0% 100%;
@@ -35,9 +35,9 @@ All colors MUST be HSL.
     --success: 160 84% 30%;
     --success-foreground: 0 0% 100%;
 
-    --border: 215 20% 64%;
-    --border-strong: 215 18% 48%;
-    --input: 215 20% 64%;
+    --border: 213 27% 84%;
+    --border-strong: 214 21% 77%;
+    --input: 213 27% 84%;
     --ring: 38 92% 50%;
 
     --radius: 0.75rem;
@@ -60,11 +60,11 @@ All colors MUST be HSL.
     --gradient-primary: linear-gradient(135deg, hsl(38 92% 50%), hsl(32 95% 44%));
     --gradient-secondary: linear-gradient(135deg, hsl(0 0% 100%), hsl(210 17% 96%));
     --gradient-hero: linear-gradient(135deg, hsl(38 92% 50%), hsl(32 95% 44%));
-    --gradient-subtle: linear-gradient(180deg, hsl(214 28% 78%) 0%, hsl(214 28% 78%) 100%);
+    --gradient-subtle: linear-gradient(180deg, hsl(210 14% 92%) 0%, hsl(210 14% 92%) 100%);
 
-    --shadow-elegant: 0 18px 38px -22px rgba(15, 23, 42, 0.42);
-    --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.12), 0 12px 28px rgba(15, 23, 42, 0.17);
-    --shadow-card-primary: 0 1px 2px rgba(15, 23, 42, 0.14), 0 18px 42px rgba(15, 23, 42, 0.23);
+    --shadow-elegant: 0 12px 28px -16px rgba(15, 23, 42, 0.25);
+    --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.08), 0 10px 26px rgba(15, 23, 42, 0.12);
+    --shadow-card-primary: 0 1px 2px rgba(15, 23, 42, 0.10), 0 14px 34px rgba(15, 23, 42, 0.16);
 
     --header-height: 4rem;
     --bottom-nav-height: 5rem;
@@ -126,11 +126,13 @@ All colors MUST be HSL.
 
 /* Utility classes for specific visual effects */
 .glass {
-  @apply bg-card/75 backdrop-blur-2xl border border-border/70 shadow-card;
+  @apply bg-card border shadow-card;
+  border-color: hsl(var(--border));
 }
 
 .glass-strong {
-  @apply bg-card/90 backdrop-blur-2xl border border-border shadow-card;
+  @apply bg-card border shadow-card;
+  border-color: hsl(var(--border-strong));
 }
 
 .text-gradient-brand {

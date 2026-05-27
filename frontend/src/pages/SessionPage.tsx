@@ -171,7 +171,7 @@ export const SessionPage: React.FC = () => {
 
             {/* Status Bar - Spans full width of the main content area */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 mb-0">
-                <StatusNotificationBar status={displayStatus} className="shadow-card" />
+                <StatusNotificationBar status={displayStatus} />
             </div>
 
             {/* Main Content — recording/transcript workspace with filler words as a right rail */}
@@ -217,7 +217,7 @@ export const SessionPage: React.FC = () => {
                                     micLevel={micLevel}
                                     hasSpeechActivity={hasSpeechActivity}
                                     containerRef={transcriptContainerRef}
-                                    className="min-h-[360px] bg-white border border-[hsl(var(--border-strong))] rounded-xl h-full shadow-[var(--shadow-card-primary)]"
+                                    className="min-h-[360px] h-full"
                                 />
                             </LocalErrorBoundary>
                         </div>
@@ -230,7 +230,7 @@ export const SessionPage: React.FC = () => {
                                 fillerCount={metrics.fillerCount}
                                 fillerData={fillerData}
                                 fillerExplanation={metrics.fillerExplanation}
-                                className="min-h-[300px] md:min-h-[340px] bg-white border border-[hsl(var(--border-strong))] rounded-xl shadow-[var(--shadow-card-primary)] lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
+                                className="min-h-[300px] md:min-h-[340px] lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
                                 headerAction={
                                     <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
                                         <PopoverTrigger asChild>
@@ -244,7 +244,7 @@ export const SessionPage: React.FC = () => {
                                                 Custom
                                             </Button>
                                         </PopoverTrigger>
-                                        <PopoverContent className="w-80 bg-white border-border shadow-card mr-6">
+                                        <PopoverContent className="w-80 bg-white border-[hsl(var(--border-strong))] shadow-card mr-6">
                                             <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
                                         </PopoverContent>
                                     </Popover>
@@ -266,7 +266,7 @@ export const SessionPage: React.FC = () => {
                             clarityLabel={metrics.clarityLabel}
                             clarityExplanation={metrics.clarityExplanation}
                             isClarityScorable={metrics.isClarityScorable}
-                            className="bg-white border border-[hsl(var(--border-strong))] rounded-xl h-full"
+                            className="h-full"
                         />
                     </LocalErrorBoundary>
                     <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
@@ -274,13 +274,13 @@ export const SessionPage: React.FC = () => {
                             wpm={metrics.wpm}
                             wpmLabel={metrics.wpmLabel}
                             wpmExplanation={metrics.wpmExplanation}
-                            className="bg-white border border-[hsl(var(--border-strong))] rounded-xl h-full"
+                            className="h-full"
                         />
                     </LocalErrorBoundary>
                     <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
                         <PauseMetricsDisplay
                             metrics={pauseMetrics}
-                            className="bg-white border border-[hsl(var(--border-strong))] rounded-xl h-full"
+                            className="h-full"
                         />
                     </LocalErrorBoundary>
                 </div>
@@ -293,7 +293,7 @@ export const SessionPage: React.FC = () => {
                             fillerCount={metrics.fillerCount}
                             clarityScore={metrics.clarityScore}
                             pauseMetrics={pauseMetrics}
-                            className="bg-white border border-[hsl(var(--border-strong))] rounded-xl compact"
+                            className="compact"
                         />
                     </LocalErrorBoundary>
                 </div>

@@ -69,7 +69,7 @@ export const GoalsSection: React.FC = () => {
     return (
         <Card
             data-testid="goals-section"
-            className="bg-card border-border p-6 rounded-xl shadow-sm"
+            className="rounded-xl p-6"
         >
             <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2">
