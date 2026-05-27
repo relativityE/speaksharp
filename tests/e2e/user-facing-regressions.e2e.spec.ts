@@ -83,7 +83,7 @@ test.describe('User-facing session and analytics regressions', () => {
 
   test('keeps mobile session controls and transcript visible without obstruction', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await programmaticLoginWithRoutes(page, { userType: 'basic' });
+    await programmaticLoginWithRoutes(page, { userType: 'free' });
     await navigateToRoute(page, '/session');
 
     const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
@@ -103,10 +103,10 @@ test.describe('User-facing session and analytics regressions', () => {
 
     await startButton.click();
     await expect(startButton).toHaveAttribute('data-recording', 'true');
-    await simulateTranscription(page, 'basic mobile transcript appears without hidden controls', true);
+    await simulateTranscription(page, 'free mobile transcript appears without hidden controls', true);
     await waitForTranscriptionService(page, 'TRANSCRIPT_PULSE');
 
-    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('basic mobile transcript');
+    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('free mobile transcript');
     await expect(page.getByLabel(/Stop Recording/i)).toBeVisible();
   });
 });

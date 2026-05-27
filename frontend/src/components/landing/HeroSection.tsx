@@ -76,7 +76,7 @@ export const HeroSection = () => {
                 <Button size="lg" className="flex-1 h-14 text-base" asChild>
                   <Link
                     to="/auth/signup"
-                    data-testid="start-basic-session-button"
+                    data-testid="start-free-session-button"
                     className="flex items-center justify-center gap-2"
                     onClick={() => trackConversionCtaClicked({ source: 'hero_primary' })}
                   >
@@ -94,7 +94,7 @@ export const HeroSection = () => {
             <motion.div variants={itemVariants} className="grid grid-cols-1 gap-2 text-sm text-muted-foreground font-medium sm:grid-cols-3">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-amber-700" />
-                  <span>Basic to start</span>
+                  <span>Free to start</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-amber-700" />

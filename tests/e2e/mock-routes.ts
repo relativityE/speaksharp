@@ -88,7 +88,7 @@ import { createMockSession, STTEngine, MockSession } from '../support/factories/
 export { MOCK_SESSION_HISTORY };
 
 // Per-page state storage for parallel test isolation
-// This ensures that 'Pro' and 'Basic' tests running concurrently don't step on each other.
+// This ensures that 'Pro' and 'Free' tests running concurrently don't step on each other.
 interface PageState {
     profile: typeof MOCK_USER_PROFILE;
     userWords: Array<{ id: string; user_id: string; word: string; created_at: string }>;
@@ -495,11 +495,11 @@ export async function setupEdgeFunctionMocks(page: Page): Promise<void> {
     // POST /functions/v1/check-usage-limit
     await registerRoute(page, '**/functions/v1/check-usage-limit', async (route) => {
         const state = getPageState(page);
-        const userType = state.profile.subscription_status || 'basic';
+        const userType = state.profile.subscription_status || 'free';
         const isPro = userType === 'pro';
 
-        // Access control for basic users in E2E
-        // Real logic allows 60 mins/day for basic users.
+        // Access control for Free users in E2E
+        // Real logic allows 60 mins/day for Free users.
         await route.fulfill({
             status: 200,
             contentType: 'application/json',
@@ -613,8 +613,8 @@ export async function setupE2EMocks(
     options: {
         strictMode?: boolean;
         emptySessions?: boolean;
-        /** Hard override status. If not set, uses base statefulProfile (defaults to 'basic'). */
-        userType?: 'basic' | 'pro';
+        /** Hard override status. If not set, uses base statefulProfile. */
+        userType?: 'free' | 'basic' | 'pro';
     } = {}
 ): Promise<void> {
     const { strictMode = false, emptySessions = false, userType } = options;

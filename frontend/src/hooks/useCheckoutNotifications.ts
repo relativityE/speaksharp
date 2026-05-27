@@ -49,7 +49,7 @@ export function useCheckoutNotifications() {
                 });
             } else if (checkoutStatus === 'cancelled') {
                 toast.error("Payment couldn't be processed", {
-                    description: "You're on the Basic plan - click 'Upgrade to Pro' anytime to try again.",
+                    description: "You're on the Free plan - click 'Upgrade to Pro' anytime to try again.",
                     icon: React.createElement(AlertCircle, { className: "h-5 w-5 text-red-700" }),
                     duration: 8000,
                 });

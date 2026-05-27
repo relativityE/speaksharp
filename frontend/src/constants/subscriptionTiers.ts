@@ -6,6 +6,7 @@
  */
 
 export const SUBSCRIPTION_TIERS = {
+    FREE: 'free',
     BASIC: 'basic',
     PRO: 'pro',
 } as const;
@@ -15,7 +16,9 @@ export type SubscriptionTier = typeof SUBSCRIPTION_TIERS[keyof typeof SUBSCRIPTI
 export function normalizeSubscriptionTier(subscriptionStatus: string | undefined | null): SubscriptionTier {
     return subscriptionStatus === SUBSCRIPTION_TIERS.PRO
         ? SUBSCRIPTION_TIERS.PRO
-        : SUBSCRIPTION_TIERS.BASIC;
+        : subscriptionStatus === SUBSCRIPTION_TIERS.BASIC
+            ? SUBSCRIPTION_TIERS.BASIC
+        : SUBSCRIPTION_TIERS.FREE;
 }
 
 /**
@@ -71,23 +74,34 @@ export function getEffectiveSubscriptionStatus(
 }
 
 /**
- * Check if a subscription status indicates the baseline tier
+ * Check if a subscription status indicates the future paid Basic tier
  */
 export function isBasic(subscriptionStatus: string | undefined | null): boolean {
     return subscriptionStatus === SUBSCRIPTION_TIERS.BASIC;
+}
+
+export function isFree(subscriptionStatus: string | undefined | null): boolean {
+    return normalizeSubscriptionTier(subscriptionStatus) === SUBSCRIPTION_TIERS.FREE;
 }
 
 /**
  * Get tier label for display
  */
 export function getTierLabel(subscriptionStatus: string | undefined | null): string {
-    return isPro(subscriptionStatus) ? 'Pro' : 'Basic';
+    if (isPro(subscriptionStatus)) return 'Pro';
+    if (isBasic(subscriptionStatus)) return 'Basic';
+    return 'Free';
 }
 
 /**
  * Tier-based limits
  */
 export const TIER_LIMITS = {
+    [SUBSCRIPTION_TIERS.FREE]: {
+        dailySeconds: 3600,
+        maxCustomWords: 100,
+        maxSessionDuration: Infinity,
+    },
     [SUBSCRIPTION_TIERS.BASIC]: {
         dailySeconds: 3600, // 1 hour per day
         maxCustomWords: 100, // Matched with Pro

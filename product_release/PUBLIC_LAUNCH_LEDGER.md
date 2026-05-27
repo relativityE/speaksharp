@@ -15,22 +15,22 @@ This ledger records broad public-launch gates and historical evidence. It must n
 | ID | Gate | Severity | Why It Blocks Public Launch | Evidence Required | Status | Evidence |
 |---|---|---:|---|---|---:|---|
 | PL-001 | Public signup + first-user onboarding | P0 | A public user must be able to enter without admin-created accounts. | Brand-new user signs up through public UI, reaches Session, logs out/in, and recovers state. | PASS | `/private/tmp/speaksharp-pl001-public-signup-1778802961686/report.json`; public `/signup` alias fixed in commit `994d06a1` |
-| PL-002 | First useful Basic session | P0/P1 | New users need immediate product value. | Public user completes Native Browser session with transcript/save/history/detail/analytics, or receives clear browser/mic guidance. | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/report.json` |
-| PL-003 | Production Stripe checkout | P0 | Public Pro purchase cannot rely on admin provisioning or test mode. | Basic user starts production checkout from public UI and completes real payment. | PASS IN TEST MODE / LIVE KEYS PENDING | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/report.json`; hosted Checkout completed with `cs_test_...`, returned to public app, and showed Pro entitlement. Production launch still requires live Stripe keys and the same rerun with `cs_live_...`. |
+| PL-002 | First useful Free session | P0/P1 | New users need immediate product value. | Public user completes Native Browser session with transcript/save/history/detail/analytics, or receives clear browser/mic guidance. | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/report.json` |
+| PL-003 | Production Stripe checkout | P0 | Public Pro purchase cannot rely on admin provisioning or test mode. | Free user starts Pro checkout from public UI and completes real payment. | PASS IN TEST MODE / LIVE KEYS PENDING | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/report.json`; hosted Checkout completed with `cs_test_...`, returned to public app, and showed Pro entitlement. Production launch still requires live Stripe keys and the same rerun with `cs_live_...`. |
 | PL-004 | Production Stripe webhook entitlement | P0 | Paid users must become Pro without manual intervention. | Production webhook verifies signature, updates entitlement, persists after refresh/logout/login. | PASS IN TEST MODE / LIVE KEYS PENDING | `/private/tmp/speaksharp-pl004-entitlement-recovery-1778805922232/report.json`; Stripe test checkout user stayed Pro through refresh and logout/login; deployed webhook rejected unsigned events; local webhook tests passed signed handler, downgrade, failure, and idempotency cases. Production launch still requires live Stripe keys and a live webhook rerun. |
 | PL-005 | Billing failure/cancel/downgrade lifecycle | P0 | Stale Pro access or wrong downgrade is trust/billing risk. | Canceled, failed, duplicate, and replayed payment states keep entitlement correct. | PASS IN LOCAL/TEST MODE / LIVE EVENT PENDING | Local webhook tests prove cancellation, unpaid, past_due, 3+ payment failures, skipped duplicate events, and RPC failure handling. Live signed cancel/failure events require real Stripe webhook signing secret or Stripe test API access. |
 | PL-006 | Automatic trial lifecycle | P0/P1 | Launch includes trials, so trial entitlement must be safe. | New signup receives one trial window; expired trial downgrades through effective-tier checks. | PASS | `/private/tmp/speaksharp-pl006-trial-1778806498265/report.json`; focused reuse proof `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; expired trial live smoke run `25894288884` passed with artifact `7008001175` |
 | PL-007 | Real-mic Pro Cloud | P1 | Cloud is marketed as a Pro feature. | Real human speech in normal Chrome produces Cloud transcript -> save -> history/detail/analytics. | PASS REAL-MIC | Manual Chrome physical-mic proof completed on 2026-05-15 with Pro account `manual-pro-cloud-20260515@speaksharp.app`: 40s Cloud session saved as `130bbc6c-5d89-465d-91e6-51f5a5951e34`, transcript present, history/detail Cloud metadata present, analytics WPM/clarity plausible. Screenshots: `/private/tmp/speaksharp-after-cloud-real-mic-session.png`, `/private/tmp/speaksharp-after-cloud-real-mic-analytics.png`, `/private/tmp/speaksharp-after-cloud-real-mic-detail.png`. |
 | PL-008 | Pro AI feedback | P1 | AI is a launch promise. | Saved session generates useful AI feedback; provider failures degrade gracefully. | PASS | Pro STT artifact matrix run `25894670273` in `private` mode; `get-ai-suggestions` returned HTTP 200 with concrete coaching suggestions and no UI error. |
 | PL-009 | Pro PDF export | P1 | PDF is a launch promise. | Exported PDF is parsed/inspected for transcript, metrics, branding, and engine metadata. | PASS | Pro STT artifact matrix run `25894670273`; downloaded PDF artifact parsed locally and contained SpeakSharp branding, duration/WPM, STT engine metadata, filler metrics, and transcript. |
-| PL-010 | Mobile baseline | P1 | Public traffic will include mobile users. | Auth, nav, Session controls, transcript, fillers, status/toasts work on mobile viewport/device. | PASS VIEWPORT / PHYSICAL DEVICE PENDING | `/private/tmp/speaksharp-pl010-mobile-final2-1778808295430/report.json`; mobile public signup reached Session, idle status showed `Mic ready`, no inactive private-model progress leaked into Basic Native Browser, idle sticky mobile action bar was hidden, and screenshots verify Recording -> Filler Words -> Live Transcript -> Stats ordering. Physical device/manual touch pass remains recommended before broad launch. |
+| PL-010 | Mobile baseline | P1 | Public traffic will include mobile users. | Auth, nav, Session controls, transcript, fillers, status/toasts work on mobile viewport/device. | PASS VIEWPORT / PHYSICAL DEVICE PENDING | `/private/tmp/speaksharp-pl010-mobile-final2-1778808295430/report.json`; mobile public signup reached Session, idle status showed `Mic ready`, no inactive private-model progress leaked into Free Native Browser, idle sticky mobile action bar was hidden, and screenshots verify Recording -> Filler Words -> Live Transcript -> Stats ordering. Physical device/manual touch pass remains recommended before broad launch. |
 | PL-011 | Observability/support loop | P1 | Public failures must be visible and triageable. | Frontend, Edge, provider, auth, billing, and tester feedback signals are distinguishable. | PASS | Observability API Smoke run `25895177106` passed. Frontend Sentry proof `launch-1778808400098-aec72cb1`, Edge Sentry proof `launch-1778808399999-043f128a`, and PostHog proof `launch-1778808399719-2476b62c` all had provider API readback. Tester fallback template exists at `.github/ISSUE_TEMPLATE/tester-feedback.yml`. |
 
 ## Phase Plan
 
 | Phase | Gates Included | Exit Criteria | Status |
 |---|---|---|---:|
-| Phase 1: Public entry | PL-001, PL-002 | A brand-new public Basic user can sign up, complete first useful session, and return after logout/login. | PASS |
+| Phase 1: Public entry | PL-001, PL-002 | A brand-new public Free user can sign up, complete first useful session, and return after logout/login. | PASS |
 | Phase 2: Paid entitlement | PL-003, PL-004, PL-005 | A real production payment creates durable Pro entitlement; cancel/failure/downgrade paths are safe. | TEST-MODE PARTIAL |
 | Phase 3: Trial lifecycle | PL-006 | Public trial behavior is safe for redeem, reuse, expiry, and downgrade. | PASS |
 | Phase 4: Pro product promises | PL-007, PL-008, PL-009 | Cloud, AI, and PDF each pass with provider/live artifact evidence. | PASS |
@@ -56,8 +56,8 @@ This ledger records broad public-launch gates and historical evidence. It must n
 
 | Step | Result | Evidence |
 |---|---:|---|
-| Create public Basic account | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/02-after-signup.png` |
-| Confirm Basic state and Native Browser mode | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/03-basic-session-initial.png` |
+| Create public Free account | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/02-after-signup.png` |
+| Confirm Free state and Native Browser mode | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/03-basic-session-initial.png` |
 | Start Native Browser recording | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/04-recording-started.png` |
 | Observe live transcript | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/05-transcript-observation.png` |
 | Stop recording | PASS | `/private/tmp/speaksharp-pl002-basic-useful-session-1778803561321/06-after-stop.png` |
@@ -69,7 +69,7 @@ This ledger records broad public-launch gates and historical evidence. It must n
 
 | Step | Result | Evidence |
 |---|---:|---|
-| Create public Basic user | PASS | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/01-after-public-signup.png` |
+| Create public Free user | PASS | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/01-after-public-signup.png` |
 | Hosted checkout reached | PASS | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/02-stripe-checkout.png`; session was `cs_test_a1ksc1qy9SrUbrCzDNfLwV4DBDifoXG1gcpjdYP2IyvzHVAPIZyyieIdIK` |
 | Fill Stripe test card | PASS | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/03-stripe-filled.png` |
 | Submit Stripe checkout | PASS | `/private/tmp/speaksharp-pl003-stripe-test-checkout-1778804816138/03-stripe-filled.png` |
@@ -91,11 +91,11 @@ Configure the deployed production checkout environment with live Stripe credenti
 | Required Secret / Config | Expected |
 |---|---|
 | `STRIPE_SECRET_KEY` | `sk_live_...` in the production Supabase Edge Function environment |
-| `STRIPE_PRO_PRICE_ID` | Live-mode recurring Pro price ID |
+| `STRIPE_PRO_PRICE_ID` | Live-mode recurring Pro price ID; soft-release target is $9.99/month |
 | Frontend Stripe publishable key | `pk_live_...` for the deployed public app if Stripe.js is initialized client-side |
 | `SITE_URL` | `https://speaksharp-public.vercel.app` |
 
-After updating live Stripe configuration, rerun the same PL-003 flow from the public UI and require a `cs_live_...` Checkout session plus real payment completion before broad public launch.
+After updating live Stripe configuration, rerun the same PL-003 flow from the public UI and require a `cs_live_...` Pro Checkout session plus real payment completion before broad public launch. Public Free signup must not create a Stripe Checkout session. Paid Basic remains a future placeholder and direct checkout requests must return `paid_basic_future`.
 
 ## PL-004 Test-Mode Entitlement Summary
 
@@ -124,13 +124,13 @@ The Stripe test-mode checkout proves the entitlement path executes correctly in 
 
 | Scenario | Result | Evidence |
 |---|---:|---|
-| `customer.subscription.deleted` | PASS | Local webhook test maps event to `downgrade_to_basic` and calls atomic RPC. |
-| `customer.subscription.updated` with `canceled` | PASS | Local webhook test maps status to `downgrade_to_basic`. |
-| `customer.subscription.updated` with `unpaid` | PASS | Local webhook test maps status to `downgrade_to_basic`. |
-| `customer.subscription.updated` with `past_due` | PASS | Local webhook test maps status to `downgrade_to_basic`. |
+| `customer.subscription.deleted` | PASS | Local webhook test maps event to the legacy `downgrade_to_basic` RPC action, which now writes the Free baseline. |
+| `customer.subscription.updated` with `canceled` | PASS | Local webhook test maps status to the legacy `downgrade_to_basic` RPC action, which now writes the Free baseline. |
+| `customer.subscription.updated` with `unpaid` | PASS | Local webhook test maps status to the legacy `downgrade_to_basic` RPC action, which now writes the Free baseline. |
+| `customer.subscription.updated` with `past_due` | PASS | Local webhook test maps status to the legacy `downgrade_to_basic` RPC action, which now writes the Free baseline. |
 | `customer.subscription.updated` with `active` | PASS | Local webhook test maps status to `none`. |
 | `invoice.payment_failed` with fewer than 3 attempts | PASS | Local webhook test maps event to `none`. |
-| `invoice.payment_failed` with 3+ attempts | PASS | Local webhook test maps event to `downgrade_to_basic`. |
+| `invoice.payment_failed` with 3+ attempts | PASS | Local webhook test maps event to the legacy `downgrade_to_basic` RPC action, which now writes the Free baseline. |
 | Duplicate/replayed webhook event | PASS | Adversarial test returns `skipped: true` through the atomic webhook RPC. |
 | RPC action failure | PASS | Adversarial test returns failure instead of pretending success, allowing retry. |
 
@@ -150,10 +150,10 @@ The billing lifecycle contract is proven at handler/RPC-call level, but broad pu
 | Scenario | Result | Evidence |
 |---|---:|---|
 | Automatic public trial access | PASS | Automatic trial is now created by auth/profile provisioning with a 60-minute expiry. |
-| Invalid trial access during public signup | PASS | `/private/tmp/speaksharp-pl006-trial-1778806498265/invalid-first-after-submit.png`; user lands on Basic with clear `Trial failed: Invalid or inactive trial access` messaging. |
+| Invalid trial access during public signup | PASS | `/private/tmp/speaksharp-pl006-trial-1778806498265/invalid-first-after-submit.png`; user lands on Free with clear `Trial failed: Invalid or inactive trial access` messaging. |
 | Valid trial access during public signup | PASS | `/private/tmp/speaksharp-pl006-trial-1778806498265/valid-once-after-submit.png`; public signup lands on Session with `PRO` badge and Pro STT mode surface. |
-| Reuse same one-use trial access | PASS | `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; user lands on Basic with clear `Trial failed: Trial access already used` messaging. |
-| Expired trial downgrade | PASS | GitHub workflow `expired-trial-live-smoke.yml` run `25894288884`; evidence line `LIVE_EXPIRED_TRIAL_DENIAL_EVIDENCE {"checkUsageStatus":200,"trialJustExpired":true,"effectiveSubscriptionStatus":"basic","isPro":false,"canStart":true,"storedSubscriptionStatus":"basic","storedTrialExpired":true,"dialogDismissed":true,"sttMode":"native"}`. |
+| Reuse same one-use trial access | PASS | `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; user lands on Free with clear `Trial failed: Trial access already used` messaging. |
+| Expired trial downgrade | PASS | Current expected behavior is `effectiveSubscriptionStatus:"free"`, `storedSubscriptionStatus:"free"`, Pro hidden, and `sttMode:"native"`; rerun the expired-trial smoke after the Free migration is deployed. |
 | Expired trial artifacts | PASS | GitHub artifact `7008001175`, `expired-trial-live-smoke-artifacts`. |
 
 ### PL-006 Notes
@@ -224,7 +224,7 @@ The proof uses the dedicated live Pro artifact workflow with stored E2E Pro cred
 | Scenario | Result | Evidence |
 |---|---:|---|
 | Mobile public signup reaches Session | PASS | `/private/tmp/speaksharp-pl010-mobile-final2-1778808295430/01-auth-signup-mobile.png`; `/private/tmp/speaksharp-pl010-mobile-final2-1778808295430/02-session-top.png` |
-| Basic Native Browser status is clean | PASS | Report shows `statusText: "Mic ready"` and `hasPrivateProgress: false`; inactive private model progress is not shown for Basic Native Browser. |
+| Free Native Browser status is clean | PASS | Report shows `statusText: "Mic ready"` and `hasPrivateProgress: false`; inactive private model progress is not shown for Free Native Browser. |
 | Idle sticky mobile action bar does not obstruct content | PASS | Report shows `mobileBtnVisibleIdle: false`; screenshots show no fixed Start Recording bar covering Filler Words, Transcript, or Stats while scrolling. |
 | Mobile order is usable | PASS | Screenshots verify Recording Control first, Filler Words before Live Transcript, then Live Stats/Speaking Pace/Pause Analysis/Quick Tip. |
 | Physical mobile device/touch pass | PENDING | Current evidence is an isolated Chromium mobile viewport, not a real phone/manual touch session. |
@@ -233,7 +233,7 @@ The proof uses the dedicated live Pro artifact workflow with stored E2E Pro cred
 
 | Commit | Fix |
 |---|---|
-| `7905c25d` | Hid inactive private model progress from Basic/Native Browser mobile action surfaces. |
+| `7905c25d` | Hid inactive private model progress from Free/Native Browser mobile action surfaces. |
 | `cb75b1e2` | Stopped `StatusNotificationBar` from reading raw private model progress and hid the fixed mobile action bar while idle. |
 
 ## PL-011 Observability / Support Summary

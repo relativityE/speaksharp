@@ -25,15 +25,15 @@ export function FreePlanSupport({ tier, placement, isRecording = false, isTrialP
 
   useEffect(() => {
     if (visible) {
-      trackConversionCtaViewed({ source: 'free_plan_support', plan: 'basic' });
+      trackConversionCtaViewed({ source: 'free_plan_support', plan: 'pro' });
     }
   }, [visible]);
 
   if (!visible) return null;
 
   const handleUpgrade = () => {
-    trackConversionCtaClicked({ source: 'free_plan_support', plan: 'basic' });
-    navigate(getUpgradeUrl('free_plan_support', 'basic'));
+    trackConversionCtaClicked({ source: 'free_plan_support', plan: 'pro' });
+    navigate(getUpgradeUrl('free_plan_support', 'pro'));
   };
 
   return (
@@ -48,10 +48,10 @@ export function FreePlanSupport({ tier, placement, isRecording = false, isTrialP
       </div>
       <p className="text-sm font-semibold text-foreground">Privacy-respecting sponsor messages help keep Free practice available.</p>
       <p className="mt-2 text-sm text-muted-foreground">
-        We never use your transcript or speaking data for ads. Paid Basic and Pro are ad-free.
+        We never use your transcript or speaking data for ads. Pro is ad-free.
       </p>
       <Button variant="outline" size="sm" className="mt-4" onClick={handleUpgrade}>
-        Go ad-free with Basic
+        Upgrade to Pro
       </Button>
     </aside>
   );

@@ -18,12 +18,12 @@ export const handlers = [
     if (body.grant_type === 'password') {
       const email = body.email || '';
       let userId: string | null = null;
-      let subscription_status = 'basic';
+      let subscription_status = 'free';
 
       if (email.includes('pro-user@test.com')) {
         userId = 'pro-user';
         subscription_status = 'pro';
-      } else if (email.includes('basic-user@test.com') || email === 'test-user-signin@example.com') {
+      } else if (email.includes('free-user@test.com') || email.includes('basic-user@test.com') || email === 'test-user-signin@example.com') {
         userId = 'mock-user-id-signin'; // Use a consistent ID
       }
 
@@ -90,7 +90,7 @@ export const handlers = [
             aud: 'authenticated',
             role: 'authenticated',
             email: body.email,
-            user_metadata: { subscription_status: 'basic' },
+            user_metadata: { subscription_status: 'free' },
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           },
@@ -100,7 +100,7 @@ export const handlers = [
           aud: 'authenticated',
           role: 'authenticated',
           email: body.email,
-          user_metadata: { subscription_status: 'basic' },
+          user_metadata: { subscription_status: 'free' },
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }
@@ -130,11 +130,11 @@ export const handlers = [
     const acceptHeader = request.headers.get('Accept') || '';
 
     const mockProfiles = {
-      'user-123': { id: 'user-123', subscription_status: 'basic' },
+      'user-123': { id: 'user-123', subscription_status: 'free' },
       'pro-user': { id: 'pro-user', subscription_status: 'pro' },
-      'new-user-id-signup': {id: 'new-user-id-signup', subscription_status: 'basic'},
-      'mock-user-id': { id: 'mock-user-id', email: 'test@example.com', subscription_status: 'basic' },
-      'mock-user-id-signin': { id: 'mock-user-id-signin', subscription_status: 'basic' },
+      'new-user-id-signup': {id: 'new-user-id-signup', subscription_status: 'free'},
+      'mock-user-id': { id: 'mock-user-id', email: 'test@example.com', subscription_status: 'free' },
+      'mock-user-id-signin': { id: 'mock-user-id-signin', subscription_status: 'free' },
     };
 
     const profile = userId ? mockProfiles[userId as keyof typeof mockProfiles] : null;

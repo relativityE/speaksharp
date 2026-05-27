@@ -321,7 +321,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       return { isAvailable: true };
     }
 
-    // 1. Check for basic browser support
+    // 1. Check for minimum browser support
     const SpeechRecognition = (window.SpeechRecognition || window.webkitSpeechRecognition) as SpeechRecognitionStatic;
     const strategy = resolveNativeBrowserStrategy({
       hasSpeechRecognition: Boolean(SpeechRecognition),

@@ -89,7 +89,7 @@ describe('SessionSidebar', () => {
       remaining_seconds: 3600,
       limit_seconds: 3600,
       used_seconds: 0,
-      subscription_status: 'basic',
+      subscription_status: 'free',
       is_pro: false,
       streak_count: 0,
     }));
@@ -105,12 +105,12 @@ describe('SessionSidebar', () => {
     }
   });
 
-  describe('for a Basic user', () => {
+  describe('for a Free user', () => {
     beforeEach(() => {
-      mockAuthContextValue.user = { id: 'basic-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
+      mockAuthContextValue.user = { id: 'free-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
       vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({
-        id: 'basic-user',
-        subscription_status: 'basic',
+        id: 'free-user',
+        subscription_status: 'free',
         usage_seconds: 0,
         usage_reset_date: new Date().toISOString(),
         created_at: new Date().toISOString()
@@ -146,7 +146,7 @@ describe('SessionSidebar', () => {
         allowPrivate: false,
         preferredMode: 'native',
         allowFallback: false,
-        executionIntent: 'prod-basic-native',
+        executionIntent: 'prod-free-native',
       });
     });
   });
@@ -234,11 +234,11 @@ describe('SessionSidebar', () => {
 
   describe('for a Dev user', () => {
     beforeEach(() => {
-      // Dev user might be on a basic tier, but the env var should override
+      // Dev user might be on the Free tier, but the env var should override
       mockAuthContextValue.user = { id: 'dev-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
       vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({
         id: 'dev-user',
-        subscription_status: 'basic',
+        subscription_status: 'free',
         usage_seconds: 0,
         usage_reset_date: new Date().toISOString(),
         created_at: new Date().toISOString()
@@ -246,7 +246,7 @@ describe('SessionSidebar', () => {
       vi.stubEnv('VITE_DEV_USER', 'true');
     });
 
-    it('renders with all modes enabled, even on a basic subscription', async () => {
+    it('renders with all modes enabled, even from a Free profile when dev mode is enabled', async () => {
       const user = userEvent.setup();
       render(
         <MockAuthProvider value={mockAuthContextValue}>

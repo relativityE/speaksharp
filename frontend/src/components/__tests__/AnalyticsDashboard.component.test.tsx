@@ -39,7 +39,7 @@ vi.mock('sonner', () => ({
 const mockProfile: UserProfile = {
     id: 'test-user',
     email: 'test@example.com',
-    subscription_status: 'basic',
+    subscription_status: 'free',
     created_at: '2023-01-01',
     usage_seconds: 0,
     usage_reset_date: '2023-01-01',
@@ -112,7 +112,7 @@ describe('AnalyticsDashboard', () => {
         renderComponent({
             sessionHistory: [],
             isProUser: true,
-            profile: { ...mockProfile, subscription_status: 'basic' },
+            profile: { ...mockProfile, subscription_status: 'free' },
         });
 
         expect(screen.getByTestId('analytics-dashboard-empty-state')).toBeInTheDocument();
@@ -309,13 +309,13 @@ describe('AnalyticsDashboard', () => {
         );
     });
 
-    it('shows PDF export in Basic session detail while keeping script upload Pro-only', () => {
+    it('shows PDF export in Free session detail while keeping script upload Pro-only', () => {
         renderComponent({
-            sessionId: 'basic-session',
-            profile: { ...mockProfile, subscription_status: 'basic' },
+            sessionId: 'free-session',
+            profile: { ...mockProfile, subscription_status: 'free' },
             sessionHistory: [
                 {
-                    id: 'basic-session',
+                    id: 'free-session',
                     user_id: 'test-user',
                     created_at: '2023-01-01T10:00:00Z',
                     duration: 60,

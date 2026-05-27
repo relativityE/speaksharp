@@ -115,7 +115,7 @@ Every RC-counted test must identify the independent source of truth it enforces.
 | Math | Audio utilities, analytics formulas | RMS, WPM, filler count, sample duration |
 | State machine | Browser/STT/session lifecycle | `onend` while listening restarts once after debounce |
 | Message protocol | Workers, engines, Edge Functions | `transcribe` request returns `result` or `error`, never silence |
-| Security/product rule | Tiering, quota, auth, CORS, Stripe | Basic Cloud token returns 403 and provider is not called |
+| Security/product rule | Tiering, quota, auth, CORS, Stripe | Free Cloud token returns 403 and provider is not called |
 | Human journey | UX smoke and live tester paths | Fresh trial user can record, review analytics, save, and reopen history |
 
 Existing tests whose expected values were copied from the current implementation are **suspect**. They can remain in the suite, but they should not be promoted to RC-counted evidence until reviewed against one of the contract sources above.
@@ -127,7 +127,7 @@ These are the named browser/live/canary files that currently count toward RC sta
 | File / Workflow | Gate | Contract Source | Counted Claim |
 |---|---|---|---|
 | `tests/e2e/primary-journey.e2e.spec.ts` | Gate 1 / Gate 5 | Human journey | Core mocked user journey reaches session flow by tier and STT mode. |
-| `tests/e2e/user-features.e2e.spec.ts` | Gate 1 / Gate 5 | Product rule / human journey | Pro/basic feature matrix, export, and visible feature access behave as promised. |
+| `tests/e2e/user-features.e2e.spec.ts` | Gate 1 / Gate 5 | Product rule / human journey | Free/Pro feature matrix, export, and visible feature access behave as promised. |
 | `tests/e2e/error-states.e2e.spec.ts` | Gate 5 | Human journey | Common failures surface actionable UI instead of silent or cryptic breakage. |
 | `tests/e2e/analytics-truth.e2e.spec.ts` | Gate 1 / Gate 3 | Math / persistence contract | Transcript-derived analytics persist through reload/history/export with expected arithmetic. |
 | `tests/e2e/user-facing-regressions.e2e.spec.ts` | Gate 1 / Gate 5 | Human journey | Analytics guidance and release-critical copy remain understandable and actionable. |
@@ -136,7 +136,7 @@ These are the named browser/live/canary files that currently count toward RC sta
 | `tests/e2e/goal-setting.e2e.spec.ts` | Gate 5 | Human journey | Goal-setting UX remains usable; advisory unless current release scope includes goals. |
 | `tests/e2e/analytics-suite.e2e.spec.ts` | Gate 1 | Product truth / math | Analytics page aggregates meaningful session data; secondary to `analytics-truth` when overlapping. |
 | `tests/e2e/infra.probe.e2e.spec.ts` | Gate 1 baseline | Message/probe contract | Built app boots with expected readiness markers; not product proof alone. |
-| `tests/live/cloud-token-gates.live.spec.ts` | Gate 3 | Security/product rule | Deployed Cloud token denials for Basic, expired trial, and over-quota are fail-closed. |
+| `tests/live/cloud-token-gates.live.spec.ts` | Gate 3 | Security/product rule | Deployed Cloud token denials for Free, expired trial, and over-quota are fail-closed. |
 | `tests/live/pro-stt-artifact-matrix.live.spec.ts` | Gate 1 / Gate 3 | Human journey / running app | Real Pro STT path creates transcript, save/history/detail, AI feedback, and PDF artifact. |
 | `tests/live/private-cache.live.spec.ts` | Gate 1 / Gate 3 | State machine / running app | Private model/cache path starts and remains usable across repeated starts. |
 | `tests/live/first-time-tester-private-trial.live.spec.ts` | Gate 1 / Gate 5 | Human journey | Fresh active-trial tester can reach Private STT path and produce release evidence. |
@@ -163,7 +163,7 @@ These unit/component files currently count toward RC because they enforce a prod
 | `backend/supabase/functions/stripe-webhook/index.test.ts` | Gate 2 / Gate 3 | Security/payment rule | Stripe webhook happy path mutates state through the expected contract. |
 | `backend/supabase/functions/stripe-webhook/adversarial.test.ts` | Gate 2 / Gate 3 | Security/payment rule | Duplicate/replayed webhook events are idempotent and safe. |
 | `backend/supabase/functions/get-ai-suggestions/index.test.ts` | Gate 2 | Security/product rule | AI suggestion function validates auth/input and returns structured errors. |
-| `frontend/src/constants/__tests__/subscriptionTiers.test.ts` | Gate 1 / Gate 2 | Product rule | Basic, active trial, expired trial, and Pro tier semantics match product access. |
+| `frontend/src/constants/__tests__/subscriptionTiers.test.ts` | Gate 1 / Gate 2 | Product rule | Free, future Basic, active trial, expired trial, and Pro tier semantics match product access. |
 | `frontend/src/hooks/__tests__/useSessionLifecycle.test.tsx` | Gate 1 / Gate 2 | State machine / product rule | Session lifecycle enforces STT entitlement and mode availability rules. |
 | `frontend/src/config/__tests__/env.test.ts` | Gate 2 | Security/product rule | Test/E2E flags do not leak into production assumptions. |
 | `frontend/src/services/transcription/modes/__tests__/NativeBrowser.test.ts` | Gate 1 / Gate 5 | State machine | Native Web Speech start/stop/restart/error/interim/final behavior follows the browser strategy contract. |
@@ -202,7 +202,7 @@ Objective: prove SpeakSharp behaves according to its product contract.
 | `CI - Test Audit` workflow | Baseline correctness: unit, Edge, build, health, E2E, Lighthouse/report. |
 | `tests/e2e/primary-journey.e2e.spec.ts` | Core tier/STT user journey under deterministic mocks. |
 | `tests/e2e/analytics-truth.e2e.spec.ts` | Transcript -> analytics -> reload/export truth. |
-| `tests/e2e/user-features.e2e.spec.ts` | Pro/basic feature matrix, AI Coach, PDF/export behavior. |
+| `tests/e2e/user-features.e2e.spec.ts` | Free/Pro feature matrix, AI Coach, PDF/export behavior. |
 | `tests/e2e/user-filler-words.e2e.spec.ts` | Custom filler words affect analysis and persist. |
 | `tests/analytics/math-integrity.test.ts` | Analytics formulas stay truthful. |
 | `frontend/src/services/transcription/modes/__tests__/NativeBrowser.test.ts` | Native Web Speech state-machine contract: start/stop, restart debounce, duplicate `onend`, recoverable errors, interim/final emission. |
@@ -250,7 +250,7 @@ Objective: prove the running app and deployed services behave correctly with rea
 |---|---|
 | `pnpm rc:dast:local` | Running local app flow against built app. |
 | `pnpm rc:dast:live` | Deployed live checks. |
-| `tests/live/cloud-token-gates.live.spec.ts` | Live Cloud token denials: Basic/expired/over-quota. |
+| `tests/live/cloud-token-gates.live.spec.ts` | Live Cloud token denials: Free/expired/over-quota. |
 | `tests/live/stripe-checkout-readiness.live.spec.ts` | Live Stripe checkout readiness without production-charge assumptions. |
 | `tests/live/stripe-webhook-readiness.live.spec.ts` | Live webhook readiness. |
 | `tests/live/user-filler-words-persistence.live.spec.ts` | Live persistence of custom words. |
@@ -357,7 +357,7 @@ Retired during RC cleanup because they were unreferenced, broken, obsolete, or s
 | `tests/e2e/primary-journey.e2e.spec.ts` | Main mocked user journey by tier and STT mode. |
 | `tests/e2e/user-facing-regressions.e2e.spec.ts` | Protects human-readable analytics, guidance, and UI expectations. |
 | `tests/e2e/analytics-truth.e2e.spec.ts` | Ensures transcript events produce meaningful analytics and survive reload/export. |
-| `tests/e2e/user-features.e2e.spec.ts` | Protects Pro/basic feature matrix and export behavior. |
+| `tests/e2e/user-features.e2e.spec.ts` | Protects Free/Pro feature matrix and export behavior. |
 | `tests/e2e/error-states.e2e.spec.ts` | Ensures users see recoverable errors instead of silent failures. |
 | `backend/supabase/functions/*/*.test.ts` | High-value access control, quota, token, CORS, webhook, AI suggestion protection. |
 | `tests/live/cloud-token-gates.live.spec.ts` | Proves deployed Cloud token denials and entitlement statuses. |

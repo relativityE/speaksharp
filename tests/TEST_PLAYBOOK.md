@@ -7,7 +7,7 @@ This document provides the definitive, step-by-step instructions for executing t
 
 ## 🛠️ Environment Prerequisites
 
-Most tests (except for basic Unit and E2E Mock) require real backend credentials.
+Most tests (except for ordinary Unit and E2E Mock) require real backend credentials.
 
 - **Cloud Environment Lifecycle**: In GitHub Actions, the `.env.development` file is **dynamically generated** from repository secrets by the deployment YAML scripts. It is ephemeral and is **automatically deleted** immediately after the test job completes (or on failure) to prevent secret leakage.
 - **Local Path**: Uses your local `.env.development`. If placeholders like `mock_anon_key` are used, integration tests will report connectivity failures. **Note**: Locally, you must provide your own credentials in this file if you wish to run against real APIs.

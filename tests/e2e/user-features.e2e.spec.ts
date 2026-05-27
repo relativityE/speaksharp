@@ -6,7 +6,7 @@ import {
 
 /**
  * EXHAUSTIVE PRD SCORECARD (v1.5)
- * Verifies every requirement in the Basic vs Pro feature matrix.
+ * Verifies every requirement in the Free vs Pro feature matrix.
  */
 
 test.describe('Exhaustive User Feature Matrix', () => {
@@ -18,16 +18,16 @@ test.describe('Exhaustive User Feature Matrix', () => {
     }));
   });
 
-  // SCENARIO 1: Basic Tier (Conversion Matrix)
-  test('Basic Tier Matrix: Verify Session Limits, Branded PDF, and Feature Gating', async ({ basicPage: page }) => {
+  // SCENARIO 1: Free Tier (Conversion Matrix)
+  test('Free Tier Matrix: Verify Session Limits, Branded PDF, and Feature Gating', async ({ freePage: page }) => {
     // 1. Verify Session Limit Visibility
     await navigateToRoute(page, '/session');
     await page.waitForURL('**/session');
     const startButton = page.getByTestId('session-start-stop-button');
     await expect(startButton).toBeVisible();
 
-    // Check for Basic-Tier Limit messaging
-    await expect(page.getByText(/1-hour Basic training window/i)).toBeHidden(); // Modal shouldn't show yet
+    // Check for Free-tier limit messaging
+    await expect(page.getByText(/1-hour Free training window/i)).toBeHidden(); // Modal shouldn't show yet
 
     // 2. STT Engine Gating: Should only allow Native
     await expect(page.getByTestId('engine-select-cloud')).not.toBeVisible();

@@ -8,7 +8,7 @@ const DEV_PORT = 5173;
 
 // Defensive Stripe initialization - validate env before crash
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
-if (!STRIPE_SECRET_KEY) {
+if (!STRIPE_SECRET_KEY && import.meta.main) {
   console.error("FATAL: STRIPE_SECRET_KEY environment variable is not set.");
 }
 
@@ -22,6 +22,21 @@ const corsHeaders = {
 }
 
 type CheckoutPlan = "basic" | "pro";
+type EnvGetter = (key: string) => string | undefined;
+type SupabaseFactory = (authHeader: string) => ReturnType<typeof createClient>;
+type StripeLike = {
+  checkout: {
+    sessions: {
+      create: (params: Record<string, unknown>) => Promise<{ id: string; url: string | null }>;
+    };
+  };
+};
+
+type HandlerDeps = {
+  getEnv?: EnvGetter;
+  createSupabase?: SupabaseFactory;
+  stripeClient?: StripeLike | null;
+};
 
 const normalizePlan = (value: unknown): CheckoutPlan | null => {
   if (typeof value !== "string") return "pro";
@@ -36,7 +51,17 @@ const sanitizeMetadataValue = (value: unknown, fallback: string): string => {
   return normalized || fallback;
 };
 
-serve(async (req) => {
+export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Response> {
+  const getEnv: EnvGetter = deps.getEnv ?? ((key) => Deno.env.get(key) ?? undefined);
+  const stripeClient = deps.stripeClient ?? stripe;
+  const createSupabaseClient: SupabaseFactory = deps.createSupabase ?? ((authHeader) =>
+    createClient(
+      getEnv("SUPABASE_URL")!,
+      getEnv("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } }
+    )
+  );
+
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders })
@@ -48,16 +73,16 @@ serve(async (req) => {
 
     // 1. Verify Environment Variables
     const secrets = {
-      hasUrl: !!Deno.env.get("SUPABASE_URL"),
-      hasAnon: !!Deno.env.get("SUPABASE_ANON_KEY"),
-      hasStripeKey: !!Deno.env.get("STRIPE_SECRET_KEY"),
-      hasBasicPriceId: !!Deno.env.get("STRIPE_BASIC_PRICE_ID"),
-      hasProPriceId: !!Deno.env.get("STRIPE_PRO_PRICE_ID"),
-      hasSiteUrl: !!Deno.env.get("SITE_URL"),
+      hasUrl: !!getEnv("SUPABASE_URL"),
+      hasAnon: !!getEnv("SUPABASE_ANON_KEY"),
+      hasStripeKey: !!getEnv("STRIPE_SECRET_KEY"),
+      hasBasicPriceId: !!getEnv("STRIPE_BASIC_PRICE_ID"),
+      hasProPriceId: !!getEnv("STRIPE_PRO_PRICE_ID"),
+      hasSiteUrl: !!getEnv("SITE_URL"),
     };
     console.log('[Stripe Checkout] 🔐 Secrets presence:', JSON.stringify(secrets));
 
-    if (!Deno.env.get("SITE_URL")) {
+    if (!getEnv("SITE_URL")) {
       console.error('[Stripe Checkout] ❌ Missing SITE_URL');
       return createErrorResponse(
         ErrorCodes.CONFIG_MISSING_ENV,
@@ -66,7 +91,7 @@ serve(async (req) => {
         { missing: "SITE_URL" }
       );
     }
-    if (!Deno.env.get("STRIPE_SECRET_KEY")) {
+    if (!getEnv("STRIPE_SECRET_KEY")) {
       console.error('[Stripe Checkout] ❌ Missing STRIPE_SECRET_KEY');
       return createErrorResponse(
         ErrorCodes.CONFIG_MISSING_ENV,
@@ -75,7 +100,7 @@ serve(async (req) => {
         { missing: "STRIPE_SECRET_KEY" }
       );
     }
-    if (!stripe) {
+    if (!stripeClient) {
       console.error('[Stripe Checkout] ❌ Stripe client failed to initialize');
       return createErrorResponse(
         ErrorCodes.CONFIG_MISSING_ENV,
@@ -96,11 +121,7 @@ serve(async (req) => {
       );
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    )
+    const supabase = createSupabaseClient(authHeader)
 
     // 3. User Authentication
     console.log('[Stripe Checkout] 👤 Authenticating user...');
@@ -140,7 +161,15 @@ serve(async (req) => {
         ErrorCodes.VALIDATION_INVALID_FORMAT,
         "Invalid checkout plan",
         corsHeaders,
-        { allowed: ["basic", "pro"] }
+        { allowed: ["pro"] }
+      );
+    }
+    if (plan === "basic") {
+      return createErrorResponse(
+        ErrorCodes.PAID_BASIC_FUTURE,
+        "Paid Basic is not available yet. Start Free or upgrade to Pro.",
+        corsHeaders,
+        { allowed: ["pro"], unavailable: "basic" }
       );
     }
     const conversionSource = sanitizeMetadataValue(requestBody.conversionSource, 'unknown');
@@ -149,15 +178,15 @@ serve(async (req) => {
     const utmCampaign = sanitizeMetadataValue(requestBody.utm?.campaign, 'upgrade');
 
     // 4. Price Config - Use fallback for local dev (prod uses Supabase Secrets)
-    const priceEnvName = plan === "basic" ? "STRIPE_BASIC_PRICE_ID" : "STRIPE_PRO_PRICE_ID";
-    const priceId = Deno.env.get(priceEnvName) ?? "price_mock_default";
+    const priceEnvName = "STRIPE_PRO_PRICE_ID";
+    const priceId = getEnv(priceEnvName) ?? "price_mock_default";
     const isUsingMock = priceId === "price_mock_default";
     if (isUsingMock) {
       console.warn(`[Stripe Checkout] ⚠️ Using mock price ID - set ${priceEnvName} for real checkout`);
     }
 
     // 5. Determine return URL base (Strictly from Secrets)
-    const siteUrl = Deno.env.get("SITE_URL");
+    const siteUrl = getEnv("SITE_URL");
     const isLocalDev = !siteUrl || siteUrl.includes('localhost');
 
     if (!siteUrl && !isLocalDev) {
@@ -171,7 +200,7 @@ serve(async (req) => {
     // 5. Stripe Session Creation
     console.log(`[Stripe Checkout] 💳 Creating Stripe Session for ${plan} with Price ID: ${priceId}`);
     try {
-      const session = await stripe.checkout.sessions.create({
+      const session = await stripeClient.checkout.sessions.create({
         payment_method_types: ["card"],
         line_items: [
           {
@@ -229,4 +258,8 @@ serve(async (req) => {
       corsHeaders
     );
   }
-})
+}
+
+if (import.meta.main) {
+  serve((req) => handler(req));
+}

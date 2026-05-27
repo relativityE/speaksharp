@@ -90,7 +90,7 @@ describe('SpeechRuntimeController State Truth & Guards', () => {
                 allowPrivate: false,
                 preferredMode: 'native',
                 allowFallback: false,
-                executionIntent: 'prod-basic',
+                executionIntent: 'prod-free',
             };
             await controller.startRecording(policy as unknown as Parameters<typeof controller.startRecording>[0]);
         } catch (e) {
@@ -112,7 +112,7 @@ describe('SpeechRuntimeController State Truth & Guards', () => {
                 allowPrivate: false,
                 preferredMode: 'native',
                 allowFallback: false,
-                executionIntent: 'prod-basic',
+                executionIntent: 'prod-free',
             };
             await controller.startRecording(policy as unknown as Parameters<typeof controller.startRecording>[0]);
         } catch (e) {

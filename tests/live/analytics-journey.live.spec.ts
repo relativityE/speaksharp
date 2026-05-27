@@ -8,7 +8,7 @@
  * 
  * 1. `VISUAL_TEST_EMAIL` - (Optional) Email for the test user. Defaults to a timestamped email.
  * 2. `VISUAL_TEST_PASSWORD` - (Optional) Password for that user. Defaults to a timestamped password.
- * 3. `VISUAL_TEST_USER_TYPE` - (Optional) 'pro' (default) or 'basic'. Determines seeded user tier.
+ * 3. `VISUAL_TEST_USER_TYPE` - (Optional) 'pro' (default), 'free', or 'basic' for future paid Basic tests. Determines seeded user tier.
  * 4. `VISUAL_TEST_BASE_URL` - (Optional) Base URL to test against (defaults to localhost:5173)
  * 
  * ## How to Run
@@ -31,7 +31,7 @@ import { TEST_IDS, ROUTES } from '../constants';
 const TIMESTAMP = Date.now();
 const EMAIL = process.env.VISUAL_TEST_EMAIL || `test-user-${TIMESTAMP}@test.com`;
 const PASSWORD = process.env.VISUAL_TEST_PASSWORD || `password-${TIMESTAMP}`;
-const USER_TYPE = (process.env.VISUAL_TEST_USER_TYPE || 'pro') as 'basic' | 'pro';
+const USER_TYPE = (process.env.VISUAL_TEST_USER_TYPE || 'pro') as 'free' | 'basic' | 'pro';
 const BASE_URL = process.env.VISUAL_TEST_BASE_URL || 'http://localhost:5173';
 
 test.use({

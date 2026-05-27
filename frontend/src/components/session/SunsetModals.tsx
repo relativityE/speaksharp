@@ -35,7 +35,7 @@ export const SunsetModals: React.FC<SunsetModalsProps> = ({ open, onOpenChange, 
                         <AlertDialogDescription className="text-center text-lg pt-2">
                             {isPro
                                 ? "You've maximize your 2-hour Pro training window today. Your brain needs time to absorb all that progress!"
-                                : "You've maximized your 1-hour Basic training window today. Great focus!"
+                                : "You've maximized your 1-hour Free training window today. Great focus!"
                             }
                         </AlertDialogDescription>
                     </AlertDialogHeader>
@@ -63,7 +63,7 @@ export const SunsetModals: React.FC<SunsetModalsProps> = ({ open, onOpenChange, 
                     <AlertDialogDescription className="text-center text-lg pt-2">
                         {isPro
                             ? "You've utilized your full 50-hour Pro allowance this month. You are a practice machine!"
-                            : "You've maximized your 25-hour Basic allowance. You're out-practicing almost everyone!"
+                            : "You've maximized your 25-hour Free allowance. You're out-practicing almost everyone!"
                         }
                     </AlertDialogDescription>
                 </AlertDialogHeader>

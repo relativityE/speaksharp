@@ -103,10 +103,10 @@ const Navigation = () => {
   );
 
 
-  const isBasicUser = Boolean(session && !isEffectiveProUser);
+  const isFreeUser = Boolean(session && !isEffectiveProUser);
   const showNavUpgrade = Boolean(
     profile &&
-    isBasicUser &&
+    isFreeUser &&
     location.pathname !== '/session' &&
     location.pathname !== '/pricing' &&
     !location.pathname.startsWith('/analytics')

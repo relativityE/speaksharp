@@ -73,7 +73,7 @@ export const UserFillerWordsManager: React.FC<UserFillerWordsManagerProps> = ({ 
                         type="text"
                         value={newWord}
                         onChange={(e) => setNewWord(e.target.value)}
-                        placeholder="e.g., literally, basic"
+                        placeholder="e.g., literally, honestly"
                         disabled={isAdding || isAtLimit}
                         className="flex-1 h-8 text-sm"
                         data-testid="user-filler-words-input"

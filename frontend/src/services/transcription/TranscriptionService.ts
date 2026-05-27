@@ -13,8 +13,8 @@ import {
   TranscriptionPolicy,
   TranscriptionMode,
   resolveMode,
+  PROD_FREE_POLICY,
 } from './TranscriptionPolicy';
-import { PROD_BASIC_POLICY } from './TranscriptionPolicy';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { calculateTranscriptStats, TranscriptStats } from '@/utils/fillerWordUtils';
 import { TranscriptionFSM, TranscriptionState } from './TranscriptionFSM';
@@ -319,7 +319,7 @@ export default class TranscriptionService {
     syncForensicAnchors('IDLE');
     this.failureManager = new FailureManager() as FailureManager;
     this.lock = lock || new DistributedLock();
-    this.policy = (options.policy || PROD_BASIC_POLICY) as TranscriptionPolicy;
+    this.policy = (options.policy || PROD_FREE_POLICY) as TranscriptionPolicy;
 
     // 1. Initial stable options to avoid undefined closure crashes
     this.options = {
@@ -1406,7 +1406,7 @@ export default class TranscriptionService {
     logger.info('[TranscriptionService] 🧪 Resetting ephemeral state for isolation');
     this.detachMicFramePump();
 
-    this.policy = PROD_BASIC_POLICY;
+    this.policy = PROD_FREE_POLICY;
     this.mode = null;
     this.isModeLocked = false;
     this.lastError = null;

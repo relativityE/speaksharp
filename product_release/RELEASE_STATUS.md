@@ -23,7 +23,7 @@ If this file conflicts with older files in `product_release/archive/`, this file
 | Ops health | Local `pnpm ops:health` generates the simplified v1 software/API board; GitHub secret-backed rerun is pending after push | LOCAL ARTIFACT / PUSH PENDING |
 | Private deployed worker | Gate 3 passed after the Vite `?worker&url` worker fix | PASS |
 | Native Browser STT | Chrome desktop real mic uses `continuous=true`, `interimResults=true`, `maxAlternatives=1`; Native corpus/WER is not a benchmark gate | PASS WITH BROWSER CAVEAT |
-| Cloud STT | Paid-Pro Cloud remains explicit Pro path; Basic/trial denials are expected entitlement behavior | PASS FOR TESTER SCOPE WHEN PAID-PRO PROOF IS USED |
+| Cloud STT | Paid-Pro Cloud remains explicit Pro path; Free/trial denials are expected entitlement behavior | PASS FOR TESTER SCOPE WHEN PAID-PRO PROOF IS USED |
 | Benchmarks | Private v2/v4 benchmark automation is WIP; Native excluded from WER claims | WARN |
 
 ## Current Blockers

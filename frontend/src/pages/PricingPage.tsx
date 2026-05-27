@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CheckCircle, ShieldCheck, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -15,34 +16,36 @@ import logger from '../lib/logger';
 
 interface Tier {
   name: string;
-  plan: 'basic' | 'pro';
+  plan: 'free' | 'pro';
   price: string;
   priceDescription: string;
   features: string[];
   cta: string;
+  action: 'signup' | 'checkout';
   isPopular?: boolean;
 }
 
 const tiers: Tier[] = [
   {
-    name: 'Basic',
-    plan: 'basic',
-    price: '$2.99',
-    priceDescription: 'per month',
+    name: 'Free',
+    plan: 'free',
+    price: '$0',
+    priceDescription: 'no card required',
     features: [
-      `Up to ${SUBSCRIPTION_LIMITS.BASIC_MONTHLY_MINUTES} mins of practice per month`,
-      'Basic analytics',
+      `Up to ${SUBSCRIPTION_LIMITS.FREE_MONTHLY_MINUTES} mins of practice per month`,
+      'Starter analytics',
       'Save last 5 sessions',
       'AI-assisted feedback',
       'Watermarked PDF exports',
-      'Ad-free experience',
+      'Privacy-first sponsor support may appear outside practice',
     ],
-    cta: 'Choose Basic',
+    cta: 'Start Free',
+    action: 'signup',
   },
   {
     name: 'Pro',
     plan: 'pro',
-    price: '$7.99',
+    price: '$9.99',
     priceDescription: 'per month',
     features: [
       'Up to 2 hours/day and 50 hours/month',
@@ -54,12 +57,14 @@ const tiers: Tier[] = [
       'Ad-free experience',
     ],
     cta: 'Upgrade to Pro',
+    action: 'checkout',
     isPopular: true,
   },
 ];
 
 const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
-  const source: ConversionSource = tier.plan === 'basic' ? 'pricing_basic_card' : 'pricing_pro_card';
+  const source: ConversionSource = tier.plan === 'free' ? 'pricing_free_card' : 'pricing_pro_card';
+  const navigate = useNavigate();
 
   useEffect(() => {
     trackConversionCtaViewed({ source, plan: tier.plan });
@@ -68,13 +73,24 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
   const handleUpgrade = async () => {
     try {
       trackConversionCtaClicked({ source, plan: tier.plan });
-      trackCheckoutStarted({ source, plan: tier.plan });
+
+      if (tier.action === 'signup') {
+        const params = new URLSearchParams({
+          utm_source: 'app_cta',
+          utm_medium: source,
+          utm_campaign: 'start_free',
+        });
+        navigate(`/auth/signup?${params.toString()}`);
+        return;
+      }
+
+      trackCheckoutStarted({ source, plan: 'pro' });
 
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase client not available");
 
       const { data, error } = await supabase.functions.invoke('stripe-checkout', {
-        body: buildCheckoutBody(tier.plan, source)
+        body: buildCheckoutBody('pro', source)
       });
 
       if (error) throw error;

@@ -49,7 +49,7 @@ export const AllTheProviders = ({ children, authMock, profileMock, route = '/', 
   const defaultProfile: UserProfile = {
     id: 'test-user-id',
     email: 'test@example.com',
-    subscription_status: 'basic',
+    subscription_status: 'free',
     usage_seconds: 0,
     usage_reset_date: new Date().toISOString(),
     created_at: new Date().toISOString(),

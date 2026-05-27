@@ -85,7 +85,7 @@ Deno.test("stripe-webhook handlers", async (t) => {
     assertEquals(response.status, 400); // Bad request due to missing metadata
   });
 
-  await t.step("handleSubscriptionDeleted - downgrades user to Basic", async () => {
+  await t.step("handleSubscriptionDeleted - downgrades user to Free baseline", async () => {
     const event = {
       id: "evt_1",
       type: "customer.subscription.deleted",

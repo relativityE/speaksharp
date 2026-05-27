@@ -68,7 +68,7 @@ export const validateUserFillerWord = (
     if (existingWords.length >= maxWords) {
         throw new Error(isPro
             ? `Pro limit reached (${maxWords} words).`
-            : `Basic limit reached (${maxWords} words). Upgrade to Pro to add more.`
+            : `Free limit reached (${maxWords} words). Upgrade to Pro to add more.`
         );
     }
 

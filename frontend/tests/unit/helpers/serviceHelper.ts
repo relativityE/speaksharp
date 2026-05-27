@@ -1,7 +1,7 @@
 import { vi } from 'vitest';
 import type { TranscriptionServiceOptions } from '@/services/transcription/TranscriptionService';
 import type { TranscriptionPolicy } from '@/services/transcription/TranscriptionPolicy';
-import { PROD_BASIC_POLICY } from '@/services/transcription/TranscriptionPolicy';
+import { PROD_FREE_POLICY } from '@/services/transcription/TranscriptionPolicy';
 
 /**
  * Industry Pattern: Lazy Service Initialization
@@ -23,7 +23,7 @@ export async function createTestTranscriptionService(
         session: null,
         navigate: vi.fn() as any,
         getAssemblyAIToken: vi.fn().mockResolvedValue('test-token'),
-        policy: PROD_BASIC_POLICY,
+        policy: PROD_FREE_POLICY,
         ...overrides
     };
 

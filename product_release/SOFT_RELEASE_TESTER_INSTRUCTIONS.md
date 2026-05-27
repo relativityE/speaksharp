@@ -28,7 +28,7 @@ What to test:
 Known limitations:
 - Browser transcription uses your browser's built-in speech recognition. Chrome is recommended. Availability and accuracy vary by browser.
 - Cloud STT is a Pro feature and may appear disabled during trial access.
-- Some backend/internal labels may still say "basic" while the user-facing baseline plan says Basic.
+- User-facing baseline signup is Free. Paid Basic is reserved for a future product decision and should not appear in the tester path.
 
 Please report:
 1. Did signup and trial access work?
@@ -50,7 +50,7 @@ Please report:
 - Confirm Vercel production does not set `VITE_TEST_MODE` or other E2E/test flags.
 - Keep tester instructions Private-first. Cloud can be tested separately through paid/admin/dev accounts, but it is not part of automatic trial testing.
 - Paid/admin/dev Cloud tester scope, if included, must explicitly prove Cloud recording, transcript, save/history/detail, analytics, and PDF export. Do not ask automatic-trial testers to validate Cloud.
-- Basic-path tester scope must explicitly prove Browser transcription only, with Private and Cloud unavailable. Use a known Basic account whose trial has expired or a freshly provisioned live Basic account with expired trial fields.
+- Free-path tester scope must explicitly prove Browser transcription only, with Private and Cloud unavailable. Use a known Free account whose trial has expired or a freshly provisioned live Free account with expired trial fields.
 - Ask every tester to check save/history/detail after stopping. A transcript without persisted history is not a successful session.
 - Ask every tester who adds a custom word to say that word during recording and verify the analytics count after save.
 - Ask every tester who exports a PDF to confirm the file contains the session metadata, transcript, transcription mode, and analytics summary.

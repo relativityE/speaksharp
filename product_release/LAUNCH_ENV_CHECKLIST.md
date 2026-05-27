@@ -16,8 +16,9 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 - [ ] **Live Keys**: `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are using `sk_live_...` and `pk_live_...`.
 - [ ] **Webhook Endpoint**: Production URL `https://[PROJECT].supabase.co/functions/v1/stripe-webhook` is registered.
 - [ ] **Webhook Secret**: `STRIPE_WEBHOOK_SECRET` matches the production dashboard.
-- [ ] **Price IDs**: `VITE_STRIPE_PRO_PRICE_ID` matches the production product ID.
-- [ ] **Future Basic Pricing**: Stripe test-mode Product/Price IDs may be used to validate a future paid Basic checkout path without real charges. Do not treat paid Basic pricing as production-ready until app copy, Edge Function semantics, tests, and live Price ID are aligned.
+- [ ] **Free Signup**: Public signup starts the unpaid baseline without Stripe checkout or card collection.
+- [ ] **Pro Price ID**: `STRIPE_PRO_PRICE_ID` matches the recurring Pro production price. Current soft-release target is **$9.99/month**.
+- [ ] **Future Basic Pricing**: Stripe Basic may remain as a future placeholder. Current placeholder target is **$4.99/month**, but paid Basic checkout is intentionally unavailable in production code and must return `paid_basic_future` if requested directly.
 
 ## 2. Backend Infrastructure (Supabase)
 - [ ] **Project URL**: `VITE_SUPABASE_URL` points to the production instance.

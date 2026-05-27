@@ -16,7 +16,7 @@ import type { UserProfile } from '@/types/user';
 vi.mock('@/hooks/useProfile', () => ({
     useProfile: vi.fn(() => ({
         id: 'test-user',
-        subscription_status: 'basic',
+        subscription_status: 'free',
         email: 'test@example.com'
     })),
 }));
@@ -75,7 +75,7 @@ const baseUsageLimit: UsageLimitCheck = {
     monthly_remaining: 90000,
     monthly_limit: 90000,
     remaining_seconds: 30,
-    subscription_status: 'basic',
+    subscription_status: 'free',
     is_pro: false,
     streak_count: 0
 };
@@ -180,7 +180,7 @@ vi.mock('@/constants/subscriptionTiers', () => ({
     isActiveTrialProfile: vi.fn(() => false),
     hasPaidProEntitlement: vi.fn(() => false),
     hasCloudSttEntitlement: vi.fn(() => false),
-    getEffectiveSubscriptionStatus: vi.fn((usageStatus: string | undefined, profile: { subscription_status?: string } | null | undefined) => usageStatus ?? profile?.subscription_status ?? 'basic'),
+    getEffectiveSubscriptionStatus: vi.fn((usageStatus: string | undefined, profile: { subscription_status?: string } | null | undefined) => usageStatus ?? profile?.subscription_status ?? 'free'),
 }));
 
 vi.mock('@/services/transcription/TranscriptionPolicy', () => ({
@@ -212,11 +212,11 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
         (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
 
-        // Ensure default is basic for auto-stop tests
+        // Ensure default is Free for auto-stop tests
         vi.mocked(useProfile).mockReturnValue({
             profile: {
                 id: 'test-user',
-                subscription_status: 'basic',
+                subscription_status: 'free',
                 email: 'test@example.com'
             } as UserProfile,
             isVerified: true
@@ -232,7 +232,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             monthly_limit: 90000,
             remaining_seconds: 30,
             can_start: true,
-            subscription_status: 'basic',
+            subscription_status: 'free',
             is_pro: false,
             streak_count: 0
         };
@@ -275,7 +275,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
             status: 'success',
         } as unknown as UseQueryResult<UsageLimitCheck, Error>);
 
-        // Verify it is indeed a Basic user via isPro mock if necessary,
+        // Verify it is indeed a Free user via isPro mock if necessary,
         // but isPro(profile.subscription_status) handles it.
 
         renderHook(() => useSessionLifecycle(), {
@@ -330,7 +330,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 monthly_limit: 90000,
                 remaining_seconds: 30,
                 can_start: true,
-                subscription_status: 'basic',
+                subscription_status: 'free',
                 is_pro: false,
                 streak_count: 0
             },
@@ -443,7 +443,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 monthly_limit: 180000,
                 remaining_seconds: 0,
                 can_start: false,
-                subscription_status: 'basic',
+                subscription_status: 'free',
                 is_pro: false,
                 streak_count: 0,
                 error: 'Trial access expired'
@@ -616,7 +616,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         vi.mocked(useProfile).mockReturnValue({
             profile: {
                 id: 'test-user',
-                subscription_status: 'basic',
+                subscription_status: 'free',
                 email: 'test@example.com'
             } as UserProfile,
             isVerified: true
@@ -630,7 +630,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
                 monthly_limit: 3600,
                 remaining_seconds: 3600,
                 can_start: true,
-                subscription_status: 'basic',
+                subscription_status: 'free',
                 is_pro: false,
                 streak_count: 0,
                 trial_active: false,

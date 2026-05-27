@@ -10,8 +10,8 @@ const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:4173';
 const AUDIO_FILE = path.resolve(process.env.AUDIO_FILE || 'tests/fixtures/stt-isomorphic/audio/h1_1.wav');
 const OUT = process.env.OUT || '/private/tmp/speaksharp-native-fake-audio-probe.json';
 const EXPECTED = process.env.EXPECTED || 'stale smell old beer lingers';
-const EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL ?? process.env.BASIC_TEST_EMAIL;
-const PASSWORD = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD ?? process.env.BASIC_TEST_PASSWORD;
+const EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL ?? process.env.FREE_TEST_EMAIL ?? process.env.E2E_FREE_EMAIL ?? process.env.BASIC_TEST_EMAIL;
+const PASSWORD = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD ?? process.env.FREE_TEST_PASSWORD ?? process.env.E2E_FREE_PASSWORD ?? process.env.BASIC_TEST_PASSWORD;
 
 function compact(value) {
   return (value || '').replace(/\s+/g, ' ').trim();

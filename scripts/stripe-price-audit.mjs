@@ -2,14 +2,14 @@ const requiredPlans = [
   {
     label: 'Basic',
     envName: 'STRIPE_BASIC_PRICE_ID',
-    expectedAmount: Number.parseInt(process.env.EXPECTED_STRIPE_BASIC_AMOUNT ?? '299', 10),
+    expectedAmount: Number.parseInt(process.env.EXPECTED_STRIPE_BASIC_AMOUNT ?? '499', 10),
     expectedCurrency: process.env.EXPECTED_STRIPE_BASIC_CURRENCY ?? 'usd',
     expectedInterval: process.env.EXPECTED_STRIPE_BASIC_INTERVAL ?? 'month',
   },
   {
     label: 'Pro',
     envName: 'STRIPE_PRO_PRICE_ID',
-    expectedAmount: Number.parseInt(process.env.EXPECTED_STRIPE_PRO_AMOUNT ?? '799', 10),
+    expectedAmount: Number.parseInt(process.env.EXPECTED_STRIPE_PRO_AMOUNT ?? '999', 10),
     expectedCurrency: process.env.EXPECTED_STRIPE_PRO_CURRENCY ?? 'usd',
     expectedInterval: process.env.EXPECTED_STRIPE_PRO_INTERVAL ?? 'month',
   },
@@ -61,7 +61,11 @@ for (const plan of requiredPlans) {
     currency: price.currency,
     unitAmount: price.unit_amount,
     interval: price.recurring?.interval ?? null,
+    nickname: price.nickname ?? null,
+    lookupKey: price.lookup_key ?? null,
     productName: product?.name ?? null,
+    productDescription: product?.description ?? null,
+    productMetadata: product?.metadata ?? null,
     productActive: product?.active ?? null,
   };
 

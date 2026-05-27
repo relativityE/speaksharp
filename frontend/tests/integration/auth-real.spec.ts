@@ -7,9 +7,9 @@ import { randomUUID } from 'crypto';
  * This test attempts to perform actual authentication flows (Sign Up, Sign In)
  * to verify the UI interacts correctly with the backend (or mock, depending on env).
  * 
- * Note: This test assumes the environment variables BASIC_TEST_EMAIL and BASIC_TEST_PASSWORD
+ * Note: This test assumes the environment variables FREE_TEST_EMAIL and FREE_TEST_PASSWORD
  * are set if running against a real backend, or appropriate mocks are in place.
- * E2E_BASIC_EMAIL and E2E_BASIC_PASSWORD remain supported as legacy local aliases.
+ * BASIC_TEST_EMAIL and BASIC_TEST_PASSWORD remain supported as legacy local aliases.
  * 
  * IMPORTANT: This test is intended for RELEASE TESTING against a real backend (Staging/Prod).
  * It validates that the application correctly integrates with the actual Supabase service.
@@ -66,11 +66,11 @@ test.describe('Supabase Integration: Auth Flows', () => {
     // Test 2: Login with existing credentials
     test('should allow an existing user to sign in', async ({ page }) => {
         // These should be loaded from .env.test
-        const email = process.env.BASIC_TEST_EMAIL || process.env.E2E_BASIC_EMAIL || 'test@example.com';
-        const password = process.env.BASIC_TEST_PASSWORD || process.env.E2E_BASIC_PASSWORD || 'password';
+        const email = process.env.FREE_TEST_EMAIL || process.env.E2E_FREE_EMAIL || process.env.BASIC_TEST_EMAIL || process.env.E2E_BASIC_EMAIL || 'test@example.com';
+        const password = process.env.FREE_TEST_PASSWORD || process.env.E2E_FREE_PASSWORD || process.env.BASIC_TEST_PASSWORD || process.env.E2E_BASIC_PASSWORD || 'password';
 
-        if (!process.env.BASIC_TEST_EMAIL && !process.env.E2E_BASIC_EMAIL && !process.env.CI) {
-            console.warn('⚠️ BASIC_TEST_EMAIL not set, defaulting to test@example.com. Test might fail if user does not exist.');
+        if (!process.env.FREE_TEST_EMAIL && !process.env.E2E_FREE_EMAIL && !process.env.BASIC_TEST_EMAIL && !process.env.E2E_BASIC_EMAIL && !process.env.CI) {
+            console.warn('⚠️ FREE_TEST_EMAIL not set, defaulting to test@example.com. Test might fail if user does not exist.');
         }
 
         console.log(`[E2E] Attempting Sign In with: ${email}`);
@@ -86,9 +86,9 @@ test.describe('Supabase Integration: Auth Flows', () => {
         // Verification: Should arrive at dashboard
         await expect(page.getByTestId('app-main')).toBeVisible({ timeout: 15000 });
 
-        // Optional: Verify "Basic Plan" or "Pro Plan" banner exists to confirm data loading
+        // Optional: Verify "Free Plan" or "Pro Plan" banner exists to confirm data loading
         // This confirms Supabase data fetching worked too
-        const banner = page.locator('text=Plan'); // "Basic Plan" or "Pro Plan"
+        const banner = page.locator('text=Plan'); // "Free Plan" or "Pro Plan"
         await expect(banner).toBeVisible({ timeout: 10000 }).catch(() => {
             console.warn('Authentication successful, but Plan banner not found (maybe data fetch failed?)');
         });

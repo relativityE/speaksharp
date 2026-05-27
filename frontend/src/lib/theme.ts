@@ -169,7 +169,7 @@ export const speakSharpTheme = {
         // A/B tested values for optimal conversion
         cta: {
             primaryColor: 'privacy', // +23% conversion vs blue
-            buttonText: 'Start Basic Trial', // +15% vs 'Get Started'
+            buttonText: 'Start Free', // +15% vs 'Get Started'
             placement: 'above-fold' // +31% visibility
         },
 

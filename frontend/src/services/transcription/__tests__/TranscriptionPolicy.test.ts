@@ -3,7 +3,7 @@ import {
     resolveMode,
     isModeAllowed,
     buildPolicyForUser,
-    PROD_BASIC_POLICY,
+    PROD_FREE_POLICY,
     PROD_PRO_POLICY,
     E2E_DETERMINISTIC_NATIVE,
     E2E_DETERMINISTIC_CLOUD,
@@ -121,12 +121,12 @@ describe('TranscriptionPolicy', () => {
     });
 
     describe('buildPolicyForUser', () => {
-        it('should build basic tier policy correctly', () => {
+        it('should build free tier policy correctly', () => {
             const policy = buildPolicyForUser(false);
-            expect(policy.allowNative).toBe(PROD_BASIC_POLICY.allowNative);
-            expect(policy.allowCloud).toBe(PROD_BASIC_POLICY.allowCloud);
-            expect(policy.allowPrivate).toBe(PROD_BASIC_POLICY.allowPrivate);
-            expect(policy.executionIntent).toContain('prod-basic');
+            expect(policy.allowNative).toBe(PROD_FREE_POLICY.allowNative);
+            expect(policy.allowCloud).toBe(PROD_FREE_POLICY.allowCloud);
+            expect(policy.allowPrivate).toBe(PROD_FREE_POLICY.allowPrivate);
+            expect(policy.executionIntent).toContain('prod-free');
         });
 
         it('should build pro tier policy correctly', () => {
@@ -164,10 +164,10 @@ describe('TranscriptionPolicy', () => {
     });
 
     describe('Pre-built Policies', () => {
-        it('PROD_BASIC_POLICY should only allow native', () => {
-            expect(PROD_BASIC_POLICY.allowNative).toBe(true);
-            expect(PROD_BASIC_POLICY.allowCloud).toBe(false);
-            expect(PROD_BASIC_POLICY.allowPrivate).toBe(false);
+        it('PROD_FREE_POLICY should only allow native', () => {
+            expect(PROD_FREE_POLICY.allowNative).toBe(true);
+            expect(PROD_FREE_POLICY.allowCloud).toBe(false);
+            expect(PROD_FREE_POLICY.allowPrivate).toBe(false);
         });
 
         it('PROD_PRO_POLICY should allow all', () => {

@@ -26,14 +26,14 @@ const groups = [
     reason: 'creates live cloud-token users and reads live session metadata',
   },
   {
-    label: 'Basic test email',
-    alternatives: ['BASIC_TEST_EMAIL', 'E2E_BASIC_EMAIL'],
-    reason: 'proves Basic-tier live mode restrictions and custom word persistence',
+    label: 'Free test email',
+    alternatives: ['FREE_TEST_EMAIL', 'E2E_FREE_EMAIL', 'BASIC_TEST_EMAIL', 'E2E_BASIC_EMAIL'],
+    reason: 'proves Free-tier live mode restrictions and custom word persistence',
   },
   {
-    label: 'Basic test password',
-    alternatives: ['BASIC_TEST_PASSWORD', 'E2E_BASIC_PASSWORD'],
-    reason: 'signs in the Basic live test user',
+    label: 'Free test password',
+    alternatives: ['FREE_TEST_PASSWORD', 'E2E_FREE_PASSWORD', 'BASIC_TEST_PASSWORD', 'E2E_BASIC_PASSWORD'],
+    reason: 'signs in the Free live test user',
   },
   {
     label: 'Pro test email',

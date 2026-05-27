@@ -36,7 +36,7 @@ export type {
 // Re-export policy values
 export {
   buildPolicyForUser,
-  PROD_BASIC_POLICY,
+  PROD_FREE_POLICY,
   PROD_PRO_POLICY,
   E2E_DETERMINISTIC_NATIVE,
   E2E_DETERMINISTIC_CLOUD,

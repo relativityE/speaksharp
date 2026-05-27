@@ -13,7 +13,7 @@ import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
 
 test.describe('Signal contract invariants', () => {
   test('RECORDING runtime signal agrees with recording UI and mounted transcript surface', async ({ page }) => {
-    await programmaticLoginWithRoutes(page, { userType: 'basic' });
+    await programmaticLoginWithRoutes(page, { userType: 'free' });
     await navigateToRoute(page, '/session');
 
     const html = page.locator('html');

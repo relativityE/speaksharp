@@ -1,7 +1,7 @@
 export interface UserProfile {
   id: string;
   email?: string;
-  subscription_status: 'basic' | 'pro';
+  subscription_status: 'free' | 'basic' | 'pro';
   usage_seconds: number;
   usage_reset_date: string;
   stripe_customer_id?: string;

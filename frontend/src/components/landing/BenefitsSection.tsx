@@ -83,7 +83,7 @@ export const BenefitsSection = () => {
                         className="px-8 h-12 text-base"
                         asChild
                     >
-                        <Link to="/auth/signup">Get Started with Basic</Link>
+                        <Link to="/auth/signup">Get Started Free</Link>
                     </Button>
                 </motion.div>
             </div>

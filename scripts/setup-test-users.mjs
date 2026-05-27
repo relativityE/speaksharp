@@ -7,7 +7,7 @@
  * 2. Renames old users if needed
  * 3. Updates all passwords to shared SOAK_TEST_PASSWORD
  * 4. Creates missing users to meet targets
- * 5. Syncs subscription tiers (Basic/Pro)
+ * 5. Syncs subscription tiers (Free/Pro; Basic is reserved for future paid plans)
  * 6. Verifies login for all users
  */
 
@@ -46,10 +46,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 // Helper Functions
 // ============================================
 
-function getExpectedAccounts(basicCount, proCount) {
+function getExpectedAccounts(freeCount, proCount) {
     const accounts = [];
-    for (let i = 0; i < basicCount; i++) {
-        accounts.push({ index: i, email: `soak-test${i}@test.com`, tier: 'basic' });
+    for (let i = 0; i < freeCount; i++) {
+        accounts.push({ index: i, email: `soak-test${i}@test.com`, tier: 'free' });
     }
     // Pro: indices 25 to 25 + proCount - 1
     for (let i = 0; i < proCount; i++) {
@@ -61,7 +61,7 @@ function getExpectedAccounts(basicCount, proCount) {
 
 function getNewUserCounts() {
     return {
-        newBasicCount: parseInt(process.env.NUM_BASIC_USERS || process.env.NEW_BASIC_COUNT || '0', 10),
+        newFreeCount: parseInt(process.env.NUM_FREE_USERS || process.env.NEW_FREE_COUNT || process.env.NUM_BASIC_USERS || process.env.NEW_BASIC_COUNT || '0', 10),
         newProCount: parseInt(process.env.NUM_PRO_USERS || process.env.NEW_PRO_COUNT || '0', 10)
     };
 }
@@ -72,17 +72,18 @@ async function getConfigCounts() {
         const content = fs.readFileSync(constantsPath, 'utf8');
 
         // Extract exact numeric constants
-        const basicMatch = content.match(/BASIC_USER_COUNT = (\d+);/);
+        const freeMatch = content.match(/FREE_USER_COUNT = (\d+);/);
+        const legacyBasicMatch = content.match(/BASIC_USER_COUNT = (\d+);/);
         const proMatch = content.match(/PRO_USER_COUNT = (\d+);/);
         const maxMatch = content.match(/MAX_TOTAL_TEST_USERS = (\d+);/);
 
-        const basic = basicMatch ? parseInt(basicMatch[1], 10) : 30;
+        const free = freeMatch ? parseInt(freeMatch[1], 10) : legacyBasicMatch ? parseInt(legacyBasicMatch[1], 10) : 30;
         const pro = proMatch ? parseInt(proMatch[1], 10) : 5;
         const max = maxMatch ? parseInt(maxMatch[1], 10) : 50;
 
-        return { total: basic + pro, basic, pro, max };
+        return { total: free + pro, free, pro, max };
     } catch (e) {
-        return { total: 35, basic: 30, pro: 5, max: 50 };
+        return { total: 35, free: 30, pro: 5, max: 50 };
     }
 }
 
@@ -210,15 +211,15 @@ async function printSoakUsers() {
 
 async function createSingleUser() {
     const email = process.env.CREATE_USER_EMAIL;
-    const tier = process.env.CREATE_USER_TIER || 'basic';
+    const tier = process.env.CREATE_USER_TIER || 'free';
 
     if (!email) {
         console.error('❌ Missing CREATE_USER_EMAIL.');
         process.exit(1);
     }
 
-    if (!['basic', 'pro'].includes(tier)) {
-        console.error(`❌ Invalid CREATE_USER_TIER: ${tier}. Expected "basic" or "pro".`);
+    if (!['free', 'basic', 'pro'].includes(tier)) {
+        console.error(`❌ Invalid CREATE_USER_TIER: ${tier}. Expected "free", "basic", or "pro".`);
         process.exit(1);
     }
 
@@ -235,9 +236,9 @@ async function createSingleUser() {
 }
 
 
-async function syncUserTiers(users, targetBasic, targetPro) {
+async function syncUserTiers(users, targetFree, targetPro) {
     let synced = 0;
-    const targetAccounts = getExpectedAccounts(targetBasic, targetPro);
+    const targetAccounts = getExpectedAccounts(targetFree, targetPro);
 
     for (const target of targetAccounts) {
         const user = users.find(u => u.email === target.email);
@@ -300,37 +301,37 @@ async function main() {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     const MODE = process.env.MODE || 'e2e';
-    const { newBasicCount: inputBasic, newProCount: inputPro } = getNewUserCounts();
+    const { newFreeCount: inputFree, newProCount: inputPro } = getNewUserCounts();
 
     console.log('Step 1: 📋 Initializing configuration...');
     const config = await getConfigCounts();
 
     // Determine final counts
-    let finalBasic = config.basic;
+    let finalFree = config.free;
     let finalPro = config.pro;
-    const isOverride = inputBasic > 0 || inputPro > 0;
+    const isOverride = inputFree > 0 || inputPro > 0;
 
     if (MODE === 'e2e') {
         console.log('  Mode: E2E (Single User Enforcement)');
         finalPro = inputPro > 0 ? 1 : 0;
-        finalBasic = finalPro === 1 ? 0 : 1;
-        console.log(`  Adjusted counts: ${finalBasic} basic, ${finalPro} pro`);
+        finalFree = finalPro === 1 ? 0 : 1;
+        console.log(`  Adjusted counts: ${finalFree} free, ${finalPro} pro`);
     } else if (isOverride) {
         console.log('  Mode: Soak (Manual Override Applied)');
-        finalBasic = inputBasic;
+        finalFree = inputFree;
         finalPro = inputPro;
     } else {
         console.log('  Mode: Soak (Using Defaults)');
     }
 
-    const totalRequested = finalBasic + finalPro;
+    const totalRequested = finalFree + finalPro;
     if (totalRequested > config.max) {
         console.error(`\n❌ SAFETY LIMIT EXCEEDED: Requested ${totalRequested} users, but MAX_TOTAL_TEST_USERS is ${config.max}.`);
         console.error(`   To provision more users, please update MAX_TOTAL_TEST_USERS in tests/constants.ts.`);
         process.exit(1);
     }
 
-    console.log(`  Target: ${finalBasic} basic, ${finalPro} pro (Total: ${totalRequested})`);
+    console.log(`  Target: ${finalFree} free, ${finalPro} pro (Total: ${totalRequested})`);
 
     console.log('\nStep 2: 📊 Registering existing users...');
     let existingUsers = await listExistingSoakUsers();
@@ -341,7 +342,7 @@ async function main() {
     console.log('\nStep 3: 🔐 Password Sync (Skipped - Assumed static to avoid rate limits)');
 
     console.log('\nStep 4: 👤 Provisioning missing slots...');
-    const expectedAccounts = getExpectedAccounts(finalBasic, finalPro);
+    const expectedAccounts = getExpectedAccounts(finalFree, finalPro);
     const existingEmails = new Set(existingUsers.map(u => u.email));
 
     let created = 0;
@@ -374,7 +375,7 @@ async function main() {
 
     console.log('\nStep 5: 🔄 Synchronizing subscription tiers...');
     const updatedUsers = await listExistingSoakUsers(false);
-    await syncUserTiers(updatedUsers, finalBasic, finalPro);
+    await syncUserTiers(updatedUsers, finalFree, finalPro);
 
     console.log('\nStep 6: 🔑 Final Login Verification (Skipped - Deferred to Load Test)');
 

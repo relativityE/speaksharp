@@ -116,7 +116,7 @@ export async function handler(
     } else if (action === 'activate_basic') {
       console.log(`[Stripe] ✅ User ${userId} activated paid Basic successfully`)
     } else if (action === 'downgrade_to_basic') {
-      console.log(`[Stripe] ✅ Subscription ${subscriptionId} downgraded successfully`)
+      console.log(`[Stripe] ✅ Subscription ${subscriptionId} downgraded to Free successfully`)
     }
 
     console.log(`[Stripe Webhook] ✅ Event ${event.id} processed successfully`);

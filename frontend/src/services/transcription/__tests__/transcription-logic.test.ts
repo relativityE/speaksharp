@@ -4,7 +4,7 @@ import { STTNegotiator } from '../STTNegotiator';
 import { EngineSelector } from '../EngineSelector';
 import { TranscriptionModeOptions } from '../modes/types';
 import TranscriptionService, { resetTranscriptionService, getTranscriptionService } from '../TranscriptionService';
-import { PROD_BASIC_POLICY, PROD_PRO_POLICY } from '../TranscriptionPolicy';
+import { PROD_FREE_POLICY, PROD_PRO_POLICY } from '../TranscriptionPolicy';
 import { setupStrictZero } from '../../../../../tests/setupStrictZero';
 import { sttRegistry } from '../STTRegistry';
 import { STTEngine } from '../../../contracts/STTEngine';
@@ -39,7 +39,7 @@ describe('Core Unit Suite (Tier 1)', () => {
 
   describe('STTNegotiator', () => {
     it('should negotiate mock mode when ENV.disableWasm is true', () => {
-      // Use PROD_PRO_POLICY because PROD_BASIC_POLICY correctly disallows 'private'
+      // Use PROD_PRO_POLICY because PROD_FREE_POLICY correctly disallows 'private'
       const strategy = STTNegotiator.negotiate(PROD_PRO_POLICY, 'private');
       expect(strategy).toBeDefined();
     });
@@ -72,7 +72,7 @@ describe('Core Unit Suite (Tier 1)', () => {
 
       sttRegistry.register('whisper-turbo', (opts) => new MockEngine(opts));
 
-      const engine = await EngineSelector.select(mockStrategy, mockOptions as unknown as TranscriptionModeOptions, PROD_BASIC_POLICY);
+      const engine = await EngineSelector.select(mockStrategy, mockOptions as unknown as TranscriptionModeOptions, PROD_FREE_POLICY);
       expect(engine).toBeDefined();
       expect(engine.getEngineType()).toBe('whisper-turbo');
     });
@@ -84,7 +84,7 @@ describe('Core Unit Suite (Tier 1)', () => {
     beforeEach(async () => {
       await resetTranscriptionService();
       
-      // Register native-browser mock for Basic Tier tests
+      // Register native-browser mock for Free tier tests
       class NativeMock extends STTEngine {
         constructor(opts: TranscriptionModeOptions, public override readonly type: EngineType = 'native-browser' as EngineType) {
           super(opts);
@@ -101,7 +101,7 @@ describe('Core Unit Suite (Tier 1)', () => {
       sttRegistry.register('whisper-turbo', (opts) => new NativeMock(opts, 'whisper-turbo' as EngineType)); // Match STTStrategyFactory mapping
       
       service = getTranscriptionService({ 
-        policy: PROD_BASIC_POLICY,
+        policy: PROD_FREE_POLICY,
         mockMic: {
           stream: {} as MediaStream,
           stop: vi.fn(),

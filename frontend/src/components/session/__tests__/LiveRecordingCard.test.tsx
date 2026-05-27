@@ -129,7 +129,7 @@ describe('LiveRecordingCard', () => {
         expect((await screen.findAllByText(/Chrome is recommended/i)).length).toBeGreaterThan(0);
     });
 
-    it('explains why Private is unavailable for basic or expired-trial users', async () => {
+    it('explains why Private is unavailable for Free or expired-trial users', async () => {
         render(<LiveRecordingCard {...defaultProps} isProUser={false} canUseCloudStt={false} />);
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));

@@ -139,11 +139,11 @@ describe('domainServices', () => {
 
         describe('update', () => {
             it('should update profile on success', async () => {
-                const mockData = { id: 'user-1', subscription_status: 'basic' };
+                const mockData = { id: 'user-1', subscription_status: 'free' };
                 const mockClient = createSupabaseMock(mockData, null);
                 vi.spyOn(supabaseModule, 'getSupabaseClient').mockReturnValue(mockClient);
 
-                const result = await profileService.update('user-1', { subscription_status: 'basic' });
+                const result = await profileService.update('user-1', { subscription_status: 'free' });
                 expect(result).toEqual(mockData);
             });
         });

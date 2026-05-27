@@ -32,7 +32,7 @@ export function getSyncSession(): Session | null {
 
     const session = JSON.parse(data) as Session;
 
-    // Basic validation to ensure it looks like a session
+    // Simple shape validation to ensure it looks like a session
     if (session && session.access_token && session.user) {
       return session;
     }

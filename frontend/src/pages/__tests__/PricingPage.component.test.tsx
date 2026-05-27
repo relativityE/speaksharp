@@ -35,30 +35,31 @@ describe('PricingPage', () => {
             expect(screen.getByText(/Start with browser transcription/)).toBeInTheDocument();
         });
 
-        it('should render Basic tier', () => {
+        it('should render Free tier', () => {
             renderPricingPage();
 
-            expect(screen.getByText('Basic')).toBeInTheDocument();
-            expect(screen.getByText('$2.99')).toBeInTheDocument();
-            expect(screen.getAllByText('per month').length).toBeGreaterThanOrEqual(2);
+            expect(screen.getByText('Free')).toBeInTheDocument();
+            expect(screen.getByText('$0')).toBeInTheDocument();
+            expect(screen.getByText('no card required')).toBeInTheDocument();
         });
 
         it('should render Pro tier', () => {
             renderPricingPage();
 
             expect(screen.getByText('Pro')).toBeInTheDocument();
-            expect(screen.getByText('$7.99')).toBeInTheDocument();
-            expect(screen.getAllByText('per month').length).toBeGreaterThanOrEqual(2);
+            expect(screen.getByText('$9.99')).toBeInTheDocument();
+            expect(screen.getByText('per month')).toBeInTheDocument();
         });
 
-        it('should render Basic tier features', () => {
+        it('should render Free tier features', () => {
             renderPricingPage();
 
             expect(screen.getByText(/mins of practice per month/)).toBeInTheDocument();
-            expect(screen.getByText('Basic analytics')).toBeInTheDocument();
+            expect(screen.getByText('Starter analytics')).toBeInTheDocument();
             expect(screen.getByText('Save last 5 sessions')).toBeInTheDocument();
             expect(screen.getByText('AI-assisted feedback')).toBeInTheDocument();
             expect(screen.getByText('Watermarked PDF exports')).toBeInTheDocument();
+            expect(screen.getByText('Privacy-first sponsor support may appear outside practice')).toBeInTheDocument();
         });
 
         it('should render Pro tier features', () => {
@@ -75,17 +76,17 @@ describe('PricingPage', () => {
         it('should render CTA buttons', () => {
             renderPricingPage();
 
-            expect(screen.getByText('Choose Basic')).toBeInTheDocument();
+            expect(screen.getByText('Start Free')).toBeInTheDocument();
             expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
         });
     });
 
     describe('Button States', () => {
-        it('should enable Basic tier button', () => {
+        it('should enable Free tier button', () => {
             renderPricingPage();
 
-            const basicButton = screen.getByText('Choose Basic');
-            expect(basicButton).not.toBeDisabled();
+            const freeButton = screen.getByText('Start Free');
+            expect(freeButton).not.toBeDisabled();
         });
 
         it('should enable Pro tier button', () => {
@@ -132,35 +133,15 @@ describe('PricingPage', () => {
             });
         });
 
-        it('should call stripe-checkout with basic plan when choosing Basic', async () => {
+        it('should not call stripe-checkout when starting Free', async () => {
             const user = userEvent.setup();
-            mockInvoke.mockResolvedValue({
-                data: { checkoutUrl: 'https://checkout.stripe.com/basic-test' },
-                error: null,
-            });
-
-            const originalLocation = window.location;
-            Object.defineProperty(window, 'location', {
-                value: { href: '', origin: 'http://localhost' },
-                writable: true,
-            });
 
             renderPricingPage();
 
-            await user.click(screen.getByText('Choose Basic'));
+            await user.click(screen.getByText('Start Free'));
 
             await waitFor(() => {
-                expect(mockInvoke).toHaveBeenCalledWith('stripe-checkout', expect.objectContaining({
-                    body: expect.objectContaining({
-                        plan: 'basic',
-                        returnUrlOrigin: expect.any(String)
-                    })
-                }));
-            });
-
-            Object.defineProperty(window, 'location', {
-                value: originalLocation,
-                writable: true,
+                expect(mockInvoke).not.toHaveBeenCalled();
             });
         });
 
@@ -209,7 +190,7 @@ describe('PricingPage', () => {
             renderPricingPage();
 
             // Find the grid container
-            const gridContainer = screen.getByText('Basic').closest('.grid');
+            const gridContainer = screen.getByText('Free').closest('.grid');
             expect(gridContainer).toHaveClass('grid-cols-1');
             expect(gridContainer).toHaveClass('md:grid-cols-2');
         });

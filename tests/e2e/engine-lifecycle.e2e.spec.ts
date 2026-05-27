@@ -157,8 +157,8 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     await expect(page.getByTestId('stt-status-label')).toContainText(/Recording active|Private Ready/i);
   });
 
-  // SCENARIO 3: Access Control (Basic users restricted from Private)
-  test('Tier Control: Verify Private engine is gated for Basic users', async ({ basicPage: page }) => {
+  // SCENARIO 3: Access Control (Free users restricted from Private)
+  test('Tier Control: Verify Private engine is gated for Free users', async ({ freePage: page }) => {
     await navigateToRoute(page, '/session');
     const modeButton3 = page.getByTestId('stt-mode-select');
     const bbox3 = await modeButton3.boundingBox();

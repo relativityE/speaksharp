@@ -3,8 +3,13 @@ name: Soak Test
 on:
   workflow_dispatch:
     inputs:
+      new_free_count:
+        description: 'Free Users'
+        required: false
+        default: '0'
+        type: string
       new_basic_count:
-        description: 'Basic Users'
+        description: 'Legacy alias for Free Users'
         required: false
         default: '0'
         type: string
@@ -35,6 +40,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
           MODE: "soak"
+          NEW_FREE_COUNT: ${{ github.event.inputs.new_free_count || github.event.inputs.new_basic_count || '0' }}
           NEW_BASIC_COUNT: ${{ github.event.inputs.new_basic_count || '0' }}
           NEW_PRO_COUNT: ${{ github.event.inputs.new_pro_count || '0' }}
         run: node scripts/setup-test-users.mjs

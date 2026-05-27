@@ -26,9 +26,9 @@ Deno.test('check-usage-limit edge function', async (t) => {
         assertEquals(json.error.message, 'Authentication failed');
     });
 
-    await t.step('should return can_start=true for basic user with usage remaining', async () => {
-        const userId = 'basic-user';
-        const mockCreateSupabaseBasicUser = () => ({
+    await t.step('should return can_start=true for Free user with usage remaining', async () => {
+        const userId = 'free-user';
+        const mockCreateSupabaseFreeUser = () => ({
             rpc: (name: string) => {
                 if (name === 'check_usage_limit') {
                     return Promise.resolve({
@@ -39,7 +39,7 @@ Deno.test('check-usage-limit edge function', async (t) => {
                             monthly_remaining: 80000,
                             monthly_limit: 90000,
                             remaining_seconds: 3000,
-                            subscription_status: 'basic',
+                            subscription_status: 'free',
                             is_pro: false
                         },
                         error: null
@@ -53,7 +53,7 @@ Deno.test('check-usage-limit edge function', async (t) => {
             method: 'GET',
             headers: { 'Authorization': `Bearer ${createFakeJWT(userId)}` }
         });
-        const res = await handler(req, mockCreateSupabaseBasicUser);
+        const res = await handler(req, mockCreateSupabaseFreeUser);
         const json = await res.json();
 
         assertEquals(res.status, 200);
@@ -73,7 +73,7 @@ Deno.test('check-usage-limit edge function', async (t) => {
                             daily_remaining: 0,
                             daily_limit: 3600,
                             remaining_seconds: 0,
-                            subscription_status: 'basic',
+                            subscription_status: 'free',
                             is_pro: false
                         },
                         error: null
@@ -95,7 +95,7 @@ Deno.test('check-usage-limit edge function', async (t) => {
         assertEquals(json.daily_remaining, 0);
     });
 
-    await t.step('should pass through expired trial Basic results from the RPC source of truth', async () => {
+    await t.step('should pass through expired trial Free results from the RPC source of truth', async () => {
         const userId = 'expired-trial-user';
         const mockCreateSupabaseExpiredTrial = () => ({
             rpc: (name: string) => {
@@ -108,7 +108,7 @@ Deno.test('check-usage-limit edge function', async (t) => {
                             monthly_remaining: 90000,
                             monthly_limit: 90000,
                             remaining_seconds: 3600,
-                            subscription_status: 'basic',
+                            subscription_status: 'free',
                             is_pro: false,
                             trial_active: false,
                             trial_started_at: '2026-01-01T00:00:00.000Z',
@@ -130,7 +130,7 @@ Deno.test('check-usage-limit edge function', async (t) => {
         const json = await res.json();
 
         assertEquals(res.status, 200);
-        assertEquals(json.subscription_status, 'basic');
+        assertEquals(json.subscription_status, 'free');
         assertEquals(json.is_pro, false);
         assertEquals(json.trial_active, false);
         assertEquals(json.trial_seconds_remaining, 0);

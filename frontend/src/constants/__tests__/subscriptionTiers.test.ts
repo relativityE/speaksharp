@@ -4,6 +4,7 @@ import {
     TIER_LIMITS,
     isPro,
     isBasic,
+    isFree,
 	    getEffectiveSubscriptionStatus,
 	    hasCloudSttEntitlement,
 	    hasPaidProEntitlement,
@@ -51,10 +52,23 @@ describe('subscriptionTiers', () => {
         });
     });
 
+    describe('isFree', () => {
+        it('returns true for "free" and unknown empty statuses', () => {
+            expect(isFree('free')).toBe(true);
+            expect(isFree(null)).toBe(true);
+            expect(isFree(undefined)).toBe(true);
+        });
+
+        it('returns false for paid Basic and Pro', () => {
+            expect(isFree('basic')).toBe(false);
+            expect(isFree('pro')).toBe(false);
+        });
+    });
+
     describe('effective trial tier', () => {
         it('treats active trial profiles as Pro before usage refresh completes', () => {
             const profile = {
-                subscription_status: 'basic',
+                subscription_status: 'free',
                 trial_expires_at: '2999-01-01T00:00:00.000Z',
             };
 
@@ -62,31 +76,31 @@ describe('subscriptionTiers', () => {
             expect(getEffectiveSubscriptionStatus(null, profile)).toBe('pro');
         });
 
-        it('treats expired trial Basic profiles as Basic before usage refresh completes', () => {
+        it('treats expired trial Free profiles as Free before usage refresh completes', () => {
             const profile = {
-                subscription_status: 'basic',
+                subscription_status: 'free',
                 trial_expires_at: '2024-01-01T00:00:00.000Z',
             };
 
             expect(isActiveTrialProfile(profile)).toBe(false);
-            expect(getEffectiveSubscriptionStatus(null, profile)).toBe('basic');
+            expect(getEffectiveSubscriptionStatus(null, profile)).toBe('free');
         });
 
         it('lets usage-limit effective status override stale profile state', () => {
             const profile = {
-                subscription_status: 'basic',
+                subscription_status: 'free',
                 trial_expires_at: '2999-01-01T00:00:00.000Z',
             };
 
-            expect(getEffectiveSubscriptionStatus('basic', profile)).toBe('basic');
-            expect(getEffectiveSubscriptionStatus('pro', { subscription_status: 'basic' })).toBe('pro');
+            expect(getEffectiveSubscriptionStatus('free', profile)).toBe('free');
+            expect(getEffectiveSubscriptionStatus('pro', { subscription_status: 'free' })).toBe('pro');
         });
     });
 
 	    describe('hasPaidProEntitlement', () => {
         it('does not treat active trial as paid Pro', () => {
             expect(hasPaidProEntitlement({
-                subscription_status: 'basic',
+                subscription_status: 'free',
                 trial_expires_at: '2999-01-01T00:00:00.000Z',
             })).toBe(false);
         });
@@ -106,7 +120,7 @@ describe('subscriptionTiers', () => {
 	    describe('hasCloudSttEntitlement', () => {
 	        it('does not allow active trial profiles to use Cloud STT', () => {
 	            expect(hasCloudSttEntitlement({
-	                subscription_status: 'basic',
+	                subscription_status: 'free',
 	                trial_expires_at: '2999-01-01T00:00:00.000Z',
 	            })).toBe(false);
 	        });
@@ -120,7 +134,7 @@ describe('subscriptionTiers', () => {
 
 	        it('does not allow expired trials or unpaid Pro-shaped profiles to use Cloud STT', () => {
 	            expect(hasCloudSttEntitlement({
-	                subscription_status: 'basic',
+	                subscription_status: 'free',
 	                trial_expires_at: '2024-01-01T00:00:00.000Z',
 	            })).toBe(false);
 
@@ -135,20 +149,26 @@ describe('subscriptionTiers', () => {
             expect(getTierLabel('pro')).toBe('Pro');
         });
 
-        it('returns "Basic" for basic users', () => {
+        it('retains a label for the future paid Basic tier', () => {
             expect(getTierLabel('basic')).toBe('Basic');
         });
 
-        it('returns "Basic" for null/undefined', () => {
-            expect(getTierLabel(null)).toBe('Basic');
-            expect(getTierLabel(undefined)).toBe('Basic');
+        it('returns "Free" for free/null/undefined', () => {
+            expect(getTierLabel('free')).toBe('Free');
+            expect(getTierLabel(null)).toBe('Free');
+            expect(getTierLabel(undefined)).toBe('Free');
         });
     });
 
     describe('getTierLimits', () => {
-        it('returns BASIC limits for null', () => {
+        it('returns FREE limits for null', () => {
             const limits = getTierLimits(null);
-            expect(limits).toBe(TIER_LIMITS[SUBSCRIPTION_TIERS.BASIC]);
+            expect(limits).toBe(TIER_LIMITS[SUBSCRIPTION_TIERS.FREE]);
+        });
+
+        it('returns FREE limits for "free"', () => {
+            const limits = getTierLimits('free');
+            expect(limits).toBe(TIER_LIMITS[SUBSCRIPTION_TIERS.FREE]);
         });
 
         it('returns BASIC limits for "basic"', () => {
@@ -173,17 +193,26 @@ describe('subscriptionTiers', () => {
 
     describe('getters', () => {
         it('getDailyLimit returns correct values', () => {
+            expect(getDailyLimit('free')).toBe(3600);
             expect(getDailyLimit('basic')).toBe(3600);
             expect(getDailyLimit('pro')).toBe(Infinity);
         });
 
-        it('getMaxFillerWords returns 100 for both', () => {
+        it('getMaxFillerWords returns 100 for all active tiers', () => {
+            expect(getMaxFillerWords('free')).toBe(100);
             expect(getMaxFillerWords('basic')).toBe(100);
             expect(getMaxFillerWords('pro')).toBe(100);
         });
     });
 
     describe('TIER_LIMITS', () => {
+        it('FREE tier has correct soft release limits', () => {
+            const freeLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.FREE];
+            expect(freeLimits.maxCustomWords).toBe(100);
+            expect(freeLimits.dailySeconds).toBe(3600);
+            expect(freeLimits.maxSessionDuration).toBe(Infinity);
+        });
+
         it('BASIC tier has correct alpha launch limits', () => {
             const basicLimits = TIER_LIMITS[SUBSCRIPTION_TIERS.BASIC];
             expect(basicLimits.maxCustomWords).toBe(100);

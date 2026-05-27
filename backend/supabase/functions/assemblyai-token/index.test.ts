@@ -57,7 +57,7 @@ function createMockSupabase(options: {
         return Promise.resolve({
           data: options.usageLimit ?? {
             can_start: true,
-            subscription_status: options.subscriptionStatus ?? "basic",
+            subscription_status: options.subscriptionStatus ?? "free",
             is_pro: options.subscriptionStatus === "pro",
           },
           error: options.usageError ?? null,
@@ -134,7 +134,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
   );
 
   await t.step(
-    "denies non-Pro users before generating a paid token",
+    "denies Free users before generating a paid token",
     async () => {
       let assemblyAiCalled = false;
       const fetchImpl: typeof fetch = () => {
@@ -143,10 +143,10 @@ Deno.test("assemblyai-token edge function", async (t) => {
       };
 
       const res = await handler(
-        request("Bearer valid-basic-token"),
+        request("Bearer valid-free-token"),
         createMockSupabase({
-          user: { id: "basic-user" },
-          subscriptionStatus: "basic",
+          user: { id: "free-user" },
+          subscriptionStatus: "free",
         }),
         fetchImpl,
         env,
@@ -183,7 +183,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
         request("Bearer active-trial-token"),
         createMockSupabase({
           user: { id: "active-trial-user" },
-          subscriptionStatus: "basic",
+          subscriptionStatus: "free",
           trialExpiresAt: "2999-01-01T00:00:00.000Z",
           usageLimit: {
             can_start: true,
@@ -218,11 +218,11 @@ Deno.test("assemblyai-token edge function", async (t) => {
         request("Bearer expired-trial-token"),
         createMockSupabase({
           user: { id: "expired-trial-user" },
-          subscriptionStatus: "basic",
+          subscriptionStatus: "free",
           trialExpiresAt: "2024-01-01T00:00:00.000Z",
           usageLimit: {
             can_start: true,
-            subscription_status: "basic",
+            subscription_status: "free",
             is_pro: false,
           },
         }),

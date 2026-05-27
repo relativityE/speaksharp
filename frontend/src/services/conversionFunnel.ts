@@ -1,12 +1,13 @@
 import { analyticsBuffer } from './AnalyticsBuffer';
 
-export type BillingPlan = 'basic' | 'pro';
+export type BillingPlan = 'free' | 'basic' | 'pro';
+export type CheckoutPlan = 'pro';
 
 export type ConversionSource =
   | 'hero_primary'
   | 'hero_feedback'
   | 'landing_cta'
-  | 'pricing_basic_card'
+  | 'pricing_free_card'
   | 'pricing_pro_card'
   | 'nav_upgrade'
   | 'analytics_overview_banner'
@@ -34,7 +35,7 @@ export function getUpgradeUrl(source: ConversionSource, plan?: BillingPlan): str
   return `/pricing?${params.toString()}`;
 }
 
-export function buildCheckoutBody(plan: BillingPlan, source: ConversionSource) {
+export function buildCheckoutBody(plan: CheckoutPlan, source: ConversionSource) {
   return {
     plan,
     returnUrlOrigin: window.location.origin,
@@ -55,7 +56,7 @@ export function trackConversionCtaClicked(context: ConversionContext): void {
   analyticsBuffer.push('conversion_cta_clicked', getConversionProperties(context), 'HIGH');
 }
 
-export function trackCheckoutStarted(context: ConversionContext & { plan: BillingPlan }): void {
+export function trackCheckoutStarted(context: ConversionContext & { plan: CheckoutPlan }): void {
   analyticsBuffer.push('checkout_started', getConversionProperties(context), 'HIGH');
 }
 

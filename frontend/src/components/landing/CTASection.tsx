@@ -31,7 +31,7 @@ export const CTASection = () => {
                                 className="flex items-center gap-2"
                                 onClick={() => trackConversionCtaClicked({ source: 'landing_cta' })}
                             >
-                                Start Basic Session
+                                Start Free Session
                                 <ArrowRight className="size-4" />
                             </Link>
                         </Button>

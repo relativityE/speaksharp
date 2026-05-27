@@ -15,7 +15,7 @@ test.describe('Forensic Gallery: Stabilization Evidence', () => {
 
   test('Lifecycle Subscription Audit: Verify cleanup-sync parity', async ({ page }) => {
     // Provenance: Originally Evidence C1
-    await programmaticLoginWithRoutes(page, { userType: 'basic' });
+    await programmaticLoginWithRoutes(page, { userType: 'free' });
     await navigateToRoute(page, '/session');
 
     // Allow lifecycle settle
@@ -31,7 +31,7 @@ test.describe('Forensic Gallery: Stabilization Evidence', () => {
 
   test('Store State Transit Audit: Verify non-blocking transitions', async ({ page }) => {
     // Provenance: Originally Evidence C2
-    await programmaticLoginWithRoutes(page, { userType: 'basic' });
+    await programmaticLoginWithRoutes(page, { userType: 'free' });
     await navigateToRoute(page, '/session');
 
     const recordButton = page.getByTestId('session-start-stop-button');
@@ -48,7 +48,7 @@ test.describe('Forensic Gallery: Stabilization Evidence', () => {
 
   test('SECURITY: E2E globals must be absent from production bundle', async ({ page }) => {
     // Provenance: Originally Evidence C5
-    await programmaticLoginWithRoutes(page, { userType: 'basic' });
+    await programmaticLoginWithRoutes(page, { userType: 'free' });
 
     // Proves tree-shaking removed E2E globals from production bundle
     const leaked = await page.evaluate(() => ({

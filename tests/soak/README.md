@@ -51,7 +51,7 @@ Here is exactly how the credentials map:
 Even though it's a backend Node script hammering the database, it initializes its Supabase client using `SUPABASE_ANON_KEY`.
 
 *   **Why?** If we used the `SUPABASE_SERVICE_ROLE_KEY` (the true backend admin key), Supabase would entirely bypass our Row Level Security (RLS) policies and rate limits. The test would succeed, but it would be a "fake" success because it wouldn't be subject to the real throttling that regular users face.
-*   By using the `ANON_KEY`, the 30 headless simulated users look exactly like 30 real web browsers to Supabase's Edge network, ensuring we actually test the rate limits protecting your Basic Tier.
+*   By using the `ANON_KEY`, the 30 headless simulated users look exactly like 30 real web browsers to Supabase's Edge network, ensuring we actually test the rate limits protecting the Free tier.
 
 ### 2. The UI Memory Check (Playwright)
 This phase boots up actual Chromium browsers. In `soak-test.yml`, we inject `SOAK_TEST_PASSWORD`.
@@ -67,7 +67,7 @@ This phase boots up actual Chromium browsers. In `soak-test.yml`, we inject `SOA
 There are exactly 36 existing soak test accounts in the remote Supabase database (`soak-test0@test.com` through `soak-test34@test.com`, plus one `soak-test-0@example.com`).
 
 To avoid unnecessary account creation and churn during testing, we explicitly map the users as follows in `tests/constants.ts` and `scripts/setup-test-users.mjs`:
-- **Basic Users (5 total):** `soak-test0` through `soak-test4`
+- **Free Users (5 total):** `soak-test0` through `soak-test4`
 - **Pro Users (10 total):** `soak-test25` through `soak-test34`
 
 If you change the counts in `constants.ts`, ensure you update `scripts/setup-test-users.mjs` to map to sequential, existing indices to avoid hitting Supabase anti-bot rate limits during account creation.

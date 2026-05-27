@@ -30,7 +30,7 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
    */
   test.describe('Cluster 1: Auth / Readiness Signal Race', () => {
     test('C1: subscriber_mount hydration alignment', async ({ page }) => {
-      await programmaticLoginWithRoutes(page, { userType: 'basic' });
+      await programmaticLoginWithRoutes(page, { userType: 'free' });
       await navigateToRoute(page, '/session');
       
       const logs = await getProbe(page);
@@ -47,7 +47,7 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
    */
   test.describe('Cluster 2: Engine State Invisibility', () => {
     test('C2: State transitions must not be blocked', async ({ page }) => {
-      await programmaticLoginWithRoutes(page, { userType: 'basic' });
+      await programmaticLoginWithRoutes(page, { userType: 'free' });
       await navigateToRoute(page, '/session');
 
       const recordButton = page.getByTestId('session-start-stop-button');
@@ -97,7 +97,7 @@ test.describe('Engine Lifecycle Forensic Probes', () => {
    */
   test.describe('Cluster 4: Termination Deadlock', () => {
     test.beforeEach(async ({ page }) => {
-      await programmaticLoginWithRoutes(page, { userType: 'basic' });
+      await programmaticLoginWithRoutes(page, { userType: 'free' });
       await navigateToRoute(page, '/session');
       await page.waitForFunction(() => typeof window.__SS_E2E__ !== 'undefined');
     });

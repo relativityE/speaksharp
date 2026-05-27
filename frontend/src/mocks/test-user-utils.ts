@@ -24,10 +24,10 @@ export function createMockUserProfile(overrides: Partial<UserProfile> = {}): Use
   };
 }
 
-export function createMockSession(overrides: Partial<Session> = {}, userType: 'basic' | 'pro' = 'pro'): Session {
+export function createMockSession(overrides: Partial<Session> = {}, userType: 'free' | 'basic' | 'pro' = 'pro'): Session {
   const now = Math.floor(Date.now() / 1000);
   const user = createMockUser({
-    email: userType === 'pro' ? 'pro@example.com' : 'basic@example.com'
+    email: userType === 'pro' ? 'pro@example.com' : userType === 'basic' ? 'basic@example.com' : 'free@example.com'
   });
 
   // Harden: Generate a tier-specific mock token for deterministic MSW branching

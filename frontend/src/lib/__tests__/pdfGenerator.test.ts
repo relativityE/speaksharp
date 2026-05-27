@@ -259,7 +259,7 @@ describe('generateSessionPdf', () => {
   });
 
   it.each([
-    ['Basic', false],
+    ['Free', false],
     ['Pro', true],
   ])('adds the SpeakSharp watermark to every generated page for %s exports', async (_tier, isPro) => {
     await generateSessionPdf(mockSession, 'TestUser', isPro);

@@ -98,7 +98,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
     const isProminent = status.type === 'download-required' || status.type === 'downloading' || status.type === 'init-failed' || status.type === 'error';
 
     // Secondary status follows the caller-filtered status so inactive private setup
-    // progress does not leak into Basic/Native Browser views.
+    // progress does not leak into Free/Native Browser views.
     const isListening = useSessionStore((s) => s.isListening);
     const activeEngine = useSessionStore((s) => s.activeEngine);
     const modelLoadingProgress = status.progress ?? null;
@@ -197,7 +197,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                     className="sm:ml-4 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-md shadow-card hover:bg-primary/90 transition-all active:scale-95 border border-primary/30"
                     data-action="switch-to-native"
                 >
-                    Switch to Native (Basic)
+                    Switch to Native (Free)
                 </button>
             )}
 

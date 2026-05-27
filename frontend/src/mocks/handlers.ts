@@ -154,7 +154,7 @@ export const handlers: RequestHandler[] = [
     const isPro = authHeader.includes('mock-pro-token');
     
     const profile = createMockUserProfile({ 
-      subscription_status: isPro ? 'pro' : 'basic'
+      subscription_status: isPro ? 'pro' : 'free'
     });
 
     // DEFENSIVE: Verify mock profile was created with required fields
@@ -384,7 +384,7 @@ export const handlers: RequestHandler[] = [
       monthly_remaining: 999 * 60,
       monthly_limit: 999 * 60,
       remaining_seconds: 999 * 60,
-      subscription_status: isPro ? 'pro' : 'basic',
+      subscription_status: isPro ? 'pro' : 'free',
       streak_count: 0,
       allowed: true,
       remaining_minutes: 999,

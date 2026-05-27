@@ -28,8 +28,13 @@ on:
         options:
           - use_existing
           - generate_new_credentials
+      new_free_count:
+        description: 'Free Users'
+        required: false
+        default: '0'
+        type: string
       new_basic_count:
-        description: 'Basic Users'
+        description: 'Legacy alias for Free Users'
         required: false
         default: '0'
         type: string
@@ -49,9 +54,10 @@ on:
       create_tier:
         description: 'Create action only: user tier'
         required: false
-        default: 'basic'
+        default: 'free'
         type: choice
         options:
+          - free
           - basic
           - pro
 
@@ -91,6 +97,7 @@ jobs:
           SOAK_TEST_PASSWORD: ${{ env.SOAK_TEST_PASSWORD || secrets.SOAK_TEST_PASSWORD }}
           ACTION: ${{ github.event.inputs.action }}
           MODE: ${{ github.event.inputs.mode }}
+          NEW_FREE_COUNT: ${{ github.event.inputs.new_free_count || github.event.inputs.new_basic_count }}
           NEW_BASIC_COUNT: ${{ github.event.inputs.new_basic_count }}
           NEW_PRO_COUNT: ${{ github.event.inputs.new_pro_count }}
           CREATE_USER_EMAIL: ${{ github.event.inputs.create_email }}

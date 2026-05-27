@@ -66,16 +66,16 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
     assertEquals(json.error, 'Authentication failed');
   });
 
-  await t.step('should return 403 if user is not a pro member', async () => {
-    const mockCreateSupabaseBasicUser = () => ({
+  await t.step('should return 403 if user is a Free member', async () => {
+    const mockCreateSupabaseFreeUser = () => ({
       auth: {
-        getUser: () => Promise.resolve({ data: { user: { id: 'basic-user' } }, error: null }),
+        getUser: () => Promise.resolve({ data: { user: { id: 'free-user' } }, error: null }),
       },
       from: () => ({
         select: () => {
           const result = {
             eq: () => result,
-            single: () => Promise.resolve({ data: { subscription_status: 'basic' }, error: null }),
+            single: () => Promise.resolve({ data: { subscription_status: 'free' }, error: null }),
           };
           return result;
         },
@@ -87,7 +87,7 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
       headers: { 'Authorization': 'Bearer fake-token', 'Content-Type': 'application/json' },
       body: JSON.stringify({ transcript: "hello world" })
     });
-    const res = await handler(req, mockCreateSupabaseBasicUser);
+    const res = await handler(req, mockCreateSupabaseFreeUser);
     const json = await res.json();
 
     assertEquals(res.status, 403);

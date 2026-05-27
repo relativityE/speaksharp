@@ -2,13 +2,13 @@ import { test, expect, request as playwrightRequest } from '@playwright/test';
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
-const TEST_EMAIL = process.env.CHECKOUT_TEST_EMAIL ?? process.env.BASIC_TEST_EMAIL ?? process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
-const TEST_PASSWORD = process.env.CHECKOUT_TEST_PASSWORD ?? process.env.BASIC_TEST_PASSWORD ?? process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
+const TEST_EMAIL = process.env.CHECKOUT_TEST_EMAIL ?? process.env.FREE_TEST_EMAIL ?? process.env.E2E_FREE_EMAIL ?? process.env.BASIC_TEST_EMAIL ?? process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
+const TEST_PASSWORD = process.env.CHECKOUT_TEST_PASSWORD ?? process.env.FREE_TEST_PASSWORD ?? process.env.E2E_FREE_PASSWORD ?? process.env.BASIC_TEST_PASSWORD ?? process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 
 test('deployed Stripe checkout can create a hosted checkout session', async () => {
   test.skip(
     !SUPABASE_URL || !SUPABASE_ANON_KEY || !TEST_EMAIL || !TEST_PASSWORD,
-    'SUPABASE_URL, SUPABASE_ANON_KEY, and checkout/basic test credentials are required for Stripe checkout readiness.'
+    'SUPABASE_URL, SUPABASE_ANON_KEY, and checkout/free test credentials are required for Stripe checkout readiness.'
   );
 
   const authContext = await playwrightRequest.newContext({ baseURL: SUPABASE_URL });

@@ -203,7 +203,7 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
 
-      // Every export, including Basic exports, must carry a visible page watermark.
+      // Every export, including Free and Pro exports, must carry a visible page watermark.
       doc.setFontSize(44);
       doc.setTextColor(238, 238, 238);
       for (let y = 48; y < doc.internal.pageSize.height; y += 70) {

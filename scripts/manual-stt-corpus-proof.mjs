@@ -16,10 +16,14 @@ const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:4173';
 const AUTH_MODE = process.env.STT_AUTH || 'existing';
 const EMAIL = process.env.PRO_TEST_EMAIL
   ?? process.env.E2E_PRO_EMAIL
+  ?? process.env.FREE_TEST_EMAIL
+  ?? process.env.E2E_FREE_EMAIL
   ?? process.env.BASIC_TEST_EMAIL
   ?? process.env.TEST_USER_EMAIL;
 const PASSWORD = process.env.PRO_TEST_PASSWORD
   ?? process.env.E2E_PRO_PASSWORD
+  ?? process.env.FREE_TEST_PASSWORD
+  ?? process.env.E2E_FREE_PASSWORD
   ?? process.env.BASIC_TEST_PASSWORD
   ?? process.env.TEST_USER_PASSWORD;
 const OUT = process.env.STT_CORPUS_OUT || `/private/tmp/speaksharp-stt-corpus-${Date.now()}.json`;
@@ -145,7 +149,7 @@ async function signIn(page) {
   }
 
   if (!EMAIL || !PASSWORD) {
-    throw new Error('A test login is required for STT corpus proof. Set PRO_TEST_EMAIL/PRO_TEST_PASSWORD, E2E_PRO_EMAIL/E2E_PRO_PASSWORD, or BASIC_TEST_EMAIL/BASIC_TEST_PASSWORD.');
+    throw new Error('A test login is required for STT corpus proof. Set PRO_TEST_EMAIL/PRO_TEST_PASSWORD, E2E_PRO_EMAIL/E2E_PRO_PASSWORD, or FREE_TEST_EMAIL/FREE_TEST_PASSWORD. BASIC_TEST_* remains a legacy alias.');
   }
 
   await page.goto(`${BASE_URL}/auth/signin`, { waitUntil: 'domcontentloaded' });

@@ -72,9 +72,9 @@ test.describe.serial('Live STT switching contract @live', () => {
     await stopRecordingIfNeeded(page);
   });
 
-  test('Basic user is constrained to Native browser transcription', async ({ page }) => {
-    const basicUser = await createLiveUser(admin, `stt-switching-basic-${RUN_ID}@example.com`, {
-      subscription_status: 'basic',
+  test('Free user is constrained to Native browser transcription', async ({ page }) => {
+    const freeUser = await createLiveUser(admin, `stt-switching-free-${RUN_ID}@example.com`, {
+      subscription_status: 'free',
       trial_started_at: '2024-01-01T00:00:00.000Z',
       trial_expires_at: '2024-01-01T01:00:00.000Z',
       daily_usage_seconds: 0,
@@ -83,9 +83,9 @@ test.describe.serial('Live STT switching contract @live', () => {
       stripe_subscription_id: null,
       subscription_id: null,
     });
-    createdUsers.push(basicUser);
+    createdUsers.push(freeUser);
 
-    await signIn(page, basicUser.email, LIVE_TEST_PASSWORD);
+    await signIn(page, freeUser.email, LIVE_TEST_PASSWORD);
     await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
     await expect(page.getByTestId('pro-badge')).not.toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId('nav-upgrade-button')).not.toBeVisible({ timeout: 10_000 });
@@ -100,8 +100,8 @@ test.describe.serial('Live STT switching contract @live', () => {
     await expectProModeDisabled(page, 'cloud');
     await page.keyboard.press('Escape');
 
-    const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'basic-native-only-contract');
-    console.log(`LIVE_STT_SWITCHING_BASIC_NATIVE_EVIDENCE ${JSON.stringify({
+    const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'free-native-only-contract');
+    console.log(`LIVE_STT_SWITCHING_FREE_NATIVE_EVIDENCE ${JSON.stringify({
       selectedMode: snapshot.ui?.modeSelectState,
       proBadgeVisible: false,
       navUpgradeHiddenInSession: true,
@@ -212,7 +212,7 @@ async function expectProModeDisabled(page: Page, mode: 'private' | 'cloud') {
       htmlElement.hasAttribute('data-disabled')
     );
   });
-  expect(disabled, `${mode} should be unavailable for Basic users`).toBe(true);
+  expect(disabled, `${mode} should be unavailable for Free users`).toBe(true);
 }
 
 async function assertIdleModeSwitch(page: Page, mode: SttMode, options: { allowDownloadRequired?: boolean } = {}) {

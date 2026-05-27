@@ -60,7 +60,7 @@ Deno.serve(async (req: Request) => {
         // Defensive: Immediately redact/delete secret from memory objects
         if (body && body.agent_secret) delete body.agent_secret;
 
-        // Basic validation
+        // Simple shape validation
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!email || !emailRegex.test(email)) {
             return new Response(JSON.stringify({ error: "invalid_email", message: "email/username must be a valid email" }), { status: 400 });
@@ -154,11 +154,14 @@ Deno.serve(async (req: Request) => {
         } else if (normalizedStatus === 'basic') {
             tier = 'basic';
             usageLimit = 3600; // 1 hour default
+        } else if (normalizedStatus === 'free') {
+            tier = 'free';
+            usageLimit = 3600; // 1 hour default
         } else {
             console.error(`[Provisioning] Invalid subscription status: '${subscription_status}'`);
             return new Response(JSON.stringify({
                 error: "invalid_subscription_status",
-                message: "subscription_status must be explicitly 'basic' or 'pro'",
+                message: "subscription_status must be explicitly 'free', 'basic', or 'pro'",
                 received: subscription_status
             }), { status: 400 });
         }

@@ -30,7 +30,7 @@ This document tracks identified risks and their impact on the 12-hour launch win
 | **AI Parsing** | ✅ PUBLIC LEDGER PASS | AI feedback provider evidence and graceful fallback expectations are recorded in `PUBLIC_LAUNCH_LEDGER.md`. | **P1**: Avoids 500 error on Analytics if regressed | No |
 | **Pro Session Warning** | 🟡 FIX APPLIED / VALIDATION PENDING | Pro users with finite daily remaining time now receive the 5-minute warning; local hook test passes | **P1**: Prevents paid-user surprise at daily cap | No |
 | **WPM Accuracy** | 🟡 CONTROLLER GUARDED / STORE INVARIANT OPEN | Normal recording starts clear transcript, filler data, chunks, pause metrics, elapsed time, and saved-state through `SpeechRuntimeController.resetAnalysisStateForNewRecording()`. The lower-level store `startSession()` action does not clear chunks by itself, so keep a P2 follow-up to make the reset invariant explicit at the store boundary or cover rapid back-to-back sessions with a regression test. | **P2**: Minor metric glitch if a non-controller path starts recording | Yes |
-| **PDF Export Branding** | ✅ PUBLIC LEDGER PASS | PDF artifact proof is recorded in `PUBLIC_LAUNCH_LEDGER.md`; Basic and Pro exports must retain the large SpeakSharp watermark. | **P1**: Validate export UX before launch | No |
+| **PDF Export Branding** | ✅ PUBLIC LEDGER PASS | PDF artifact proof is recorded in `PUBLIC_LAUNCH_LEDGER.md`; Free and Pro exports must retain the large SpeakSharp watermark. | **P1**: Validate export UX before launch | No |
 | **Constraint Validation Sweep** | 🟡 PLANNED | New non-negative constraints are `NOT VALID`; old bad rows require one-time audit query | **P2**: Existing data hygiene | Yes |
 | **Production Store Warning** | 🟡 FIX APPLIED / VALIDATION PENDING | Store creation warning is gated behind dev mode | **P2**: Console polish/noise | Yes |
 
@@ -57,4 +57,4 @@ This document tracks identified risks and their impact on the 12-hour launch win
 - High-concurrency performance tuning.
 - Visual polish and non-critical UI transitions.
 - Multi-tab synchronization features.
-- Paid Basic pricing work remains deferred. The internal unpaid baseline tier cutover to `basic` is no longer deferred and must be deployed and smoke-tested before tester launch resumes.
+- Paid Basic checkout remains deferred. The internal unpaid baseline tier is `free`. Stripe Basic may exist as a $4.99/month future placeholder; app and Edge Function paths must not start Basic checkout before that product decision is reopened.
