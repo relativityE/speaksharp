@@ -11,11 +11,12 @@ import { CLOUD_STT, CLOUD_STT_DERIVED } from '../sttConstants';
 import logger from '../../../lib/logger';
 import type { MicStream } from '../utils/types';
 
-// Message types for AssemblyAI WebSocket
+// AssemblyAI v3 Universal Streaming messages. The legacy v2-style
+// SessionBegins/PartialTranscript/FinalTranscript schema is intentionally not
+// supported in this engine; keep compatibility in a provider adapter only if a
+// live contract proves it is still needed.
 interface AssemblyAIMessage {
-  message_type?: 'SessionBegins' | 'PartialTranscript' | 'FinalTranscript' | 'SessionTerminated';
-  type?: 'Begin' | 'Turn' | 'Termination' | string;
-  session_id?: string;
+  type?: 'Begin' | 'Turn' | 'Termination' | 'Error' | string;
   id?: string;
   text?: string;
   transcript?: string;
@@ -92,6 +93,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   private sentAudioChunks: number = 0;
   private receivedMessageCounts: Record<string, number> = {};
   private isManualStop: boolean = false;
+  private providerReady: boolean = false;
 
   // Reconnection logic
   private reconnectionAttempts: number = 0;
@@ -209,6 +211,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     this.audioQueue = [];
     this.pendingAudioFrames = [];
     this.pendingAudioSamples = 0;
+    this.providerReady = false;
     
     // Only connect if not mocked
     if (!this.mockEngine) {
@@ -403,6 +406,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
     try {
       this.updateConnectionState('connecting');
+      this.providerReady = false;
       logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] Connecting... (Attempt ${this.reconnectionAttempts + 1}/${this.maxReconnectionAttempts}, ID: ${currentConnectionId})`);
 
       const token = await this.fetchToken();
@@ -452,12 +456,6 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
         }, '[CloudAssemblyAI] WebSocket open');
         this.reconnectionAttempts = 0; // Reset counters on successful connection
         this.updateHeartbeat();
-
-        if (!this.isReconnect && this.onReady) {
-          this.onReady();
-        }
-
-        void this.flushAudioQueue();
       };
 
 
@@ -535,7 +533,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   }
 
   private handleMessage(data: AssemblyAIMessage) {
-    const messageType = data.message_type ?? data.type ?? 'unknown';
+    const messageType = data.type ?? 'unknown';
     const transcriptText = data.text ?? data.transcript ?? data.utterance ?? '';
     this.receivedMessageCounts[messageType] = (this.receivedMessageCounts[messageType] ?? 0) + 1;
     logger.info({
@@ -549,35 +547,13 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     }, '[CloudAssemblyAI] message received');
 
     switch (messageType) {
-      case 'SessionBegins':
       case 'Begin':
-        logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] Session started. ID: ${data.session_id ?? data.id}`);
-        break;
-
-      case 'PartialTranscript':
-        if (transcriptText) {
-          this.updateHeartbeat();
-          if (this.onTranscriptUpdate) {
-            this.onTranscriptUpdate({ 
-                transcript: { partial: transcriptText }
-            });
-          }
+        this.providerReady = true;
+        logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] Session started. ID: ${data.id}`);
+        if (!this.isReconnect && this.onReady) {
+          this.onReady();
         }
-        break;
-
-      case 'FinalTranscript':
-        if (transcriptText) {
-          this.updateHeartbeat();
-          this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${transcriptText}` : transcriptText;
-          if (this.onTranscriptUpdate) {
-            this.onTranscriptUpdate({
-              transcript: {
-                final: transcriptText,
-                speaker: data.speaker
-              }
-            });
-          }
-        }
+        void this.flushAudioQueue();
         break;
 
       case 'Turn':
@@ -599,7 +575,6 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
         }
         break;
 
-      case 'SessionTerminated':
       case 'Termination':
         logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, '[CloudAssemblyAI] Session terminated by server.');
         void this.onStop();
@@ -707,6 +682,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     this.audioQueue = []; // Clear queue
     this.pendingAudioFrames = [];
     this.pendingAudioSamples = 0;
+    this.providerReady = false;
     this.updateConnectionState('disconnected');
   }
 
@@ -736,7 +712,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       }, '[CloudAssemblyAI] processAudio frame received');
     }
 
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+    if (this.socket && this.socket.readyState === WebSocket.OPEN && this.providerReady) {
       this.bufferAudioFrame(audioData);
       this.scheduleAudioFlush();
     } else {

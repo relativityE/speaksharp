@@ -254,7 +254,7 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(availability.sizeMB).toBe(PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB);
     });
 
-    it('contract: reports the actual registry fallback engine when preferred factory is absent', async () => {
+    it('contract: does not fall back to a non-configured registry provider when configured provider is absent', async () => {
         await setupStrictZero();
         const { sttRegistry } = await import('../../STTRegistry');
         sttRegistry.clear();
@@ -264,8 +264,9 @@ describe('PrivateSTT (Routing Logic)', () => {
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         const result = await pstt.init();
 
-        expect(result.isOk).toBe(true);
-        expect(pstt.getEngineType()).toBe('whisper-turbo');
+        expect(result.isOk).toBe(false);
+        expect(pstt.getEngineType()).toBe('transformers-js');
+        expect(mockWTEInit).not.toHaveBeenCalled();
     });
 
     it('waits for slow engine initialization (No-Timeout validation)', async () => {

@@ -9,6 +9,8 @@ import logger from '../../lib/logger';
 import { ENV } from '../../config/TestFlags';
 import { getEngine } from './STTRegistry';
 import { IPrivateSTTEngine } from '../../contracts/IPrivateSTTEngine';
+import { getRegistryKeyForMode } from './providers/sttProviderConfig';
+import type { SttMode } from './providers/types';
 
 /**
  * ARCHITECTURE: STTStrategyFactory
@@ -82,12 +84,7 @@ export class STTStrategyFactory {
   }
 
   private static getEngineKey(mode: TranscriptionMode): string {
-    switch (mode) {
-      case 'native': return 'native-browser';
-      case 'cloud': return 'assemblyai';
-      case 'private': return 'transformers-js';
-      case 'mock': return 'mock';
-      default: return 'unknown';
-    }
+    if (mode === 'mock') return 'mock';
+    return getRegistryKeyForMode(mode as SttMode);
   }
 }

@@ -36,6 +36,7 @@
 import logger from '../../../lib/logger';
 import { createPrivateSTT, EngineType } from '../engines';
 import { IPrivateSTT } from '../../../contracts/IPrivateSTT';
+import type { PrivateSTTInitOptions } from '../../../contracts/IPrivateSTT';
 import { ITranscriptionEngine, TranscriptionModeOptions, Result } from './types';
 import { TranscriptionError } from '../errors';
 
@@ -394,7 +395,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     this.status = 'uninitialized';
     this.currentTranscript = '';
-    this.privateSTT = (privateSTT as IPrivateSTT) || (createPrivateSTT() as IPrivateSTT);
+    this.privateSTT = (privateSTT as IPrivateSTT) || (createPrivateSTT(options as PrivateSTTInitOptions) as IPrivateSTT);
     this.pauseDetector = new PauseDetector();
     this.lastHeartbeat = Date.now();
 

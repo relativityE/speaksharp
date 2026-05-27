@@ -35,18 +35,40 @@ import { ModelManager } from '@/services/transcription/ModelManager';
 import { MicStream } from '@/services/transcription/utils/types';
 import { getEngine } from '@/services/transcription/STTRegistry';
 import { PRIV_STT_V4 } from '../sttConstants';
+import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
+import type { PrivateSttProvider } from '../providers/types';
 // Stale import removed
 
 const PRIVATE_ENGINE_OVERRIDE_KEY = 'speaksharp.private.engine';
+type PrivateEngineType = Extract<EngineType, PrivateSttProvider>;
+type SelectedPrivateEngine = PrivateEngineType | 'mock';
 
-function getPrivateEngineOverride(): EngineType | null {
+const getPrivateProviderIds = (): PrivateEngineType[] =>
+    getProviderIdsForMode('private')
+        .filter((provider): provider is PrivateEngineType =>
+            provider === 'transformers-js' ||
+            provider === 'transformers-js-v4' ||
+            provider === 'whisper-turbo');
+
+const isPrivateEngineProvider = (value: string | null): value is PrivateEngineType =>
+    Boolean(value && getPrivateProviderIds().includes(value as PrivateEngineType));
+
+function getConfiguredPrivateEngine(): PrivateEngineType {
+    const provider = getDefaultProviderForMode('private');
+    if (!isPrivateEngineProvider(provider)) {
+        throw new Error(`[PrivateSTT] Configured private provider is not implemented: ${provider}`);
+    }
+    return provider;
+}
+
+function getPrivateEngineOverride(): PrivateEngineType | null {
     if (typeof window === 'undefined') return null;
 
     const queryValue = new URLSearchParams(window.location.search).get('privateEngine');
     const storedValue = window.localStorage.getItem(PRIVATE_ENGINE_OVERRIDE_KEY);
     const value = queryValue || storedValue;
 
-    if (value === 'transformers-js-v4' || value === 'transformers-js' || value === 'whisper-turbo') {
+    if (isPrivateEngineProvider(value)) {
         return value;
     }
 
@@ -99,9 +121,13 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🚀 Privacy-first engine selection started...');
 
-        const explicitEngine = options.forceEngine || getPrivateEngineOverride();
+        const forceEngine = options.forceEngine === 'mock' || isPrivateEngineProvider(options.forceEngine ?? null)
+            ? options.forceEngine as SelectedPrivateEngine
+            : null;
+        const overrideEngine = forceEngine || getPrivateEngineOverride();
+        const selectedEngine = overrideEngine || getConfiguredPrivateEngine();
 
-        if (this.engine && !explicitEngine) {
+        if (this.engine && !overrideEngine) {
             logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🧪 Initializing injected engine');
             validateEngine(this.engine);
             const initResult = await this.engine.init(timeoutMs, isMock);
@@ -116,69 +142,9 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             return Result.ok(undefined);
         }
 
-        // 1. Manual engine override
-        if (explicitEngine) {
-            const res = await (async (): Promise<Result<EngineType, Error>> => {
-                if (explicitEngine === 'whisper-turbo') return this.initFastEngine();
-                if (explicitEngine === 'transformers-js') return this.initSafeEngine();
-                if (explicitEngine === 'transformers-js-v4') return this.initV4Engine();
-                if (explicitEngine === 'mock') {
-                    const factory = getEngine('mock');
-                    if (factory) {
-                        const engine = factory(this.options as TranscriptionModeOptions);
-                        validateEngine(engine);
-                        const result = await engine.init(timeoutMs, isMock);
-                        if (result.isOk) {
-                            this.engine = engine as unknown as IPrivateSTTEngine;
-                            this._engineType = 'mock';
-                            return Result.ok('mock' as EngineType);
-                        }
-                    }
-                    return { isOk: false, error: new Error('Mock engine requested but not registered in STTRegistry') };
-                }
-                return { isOk: false as const, error: new Error(`Unknown engine type: ${explicitEngine}`) };
-            })();
-            return res.isOk ? Result.ok(undefined) : (res as Result<void, Error>);
-        }
-
-        // 2. Registry-First Resolution (Mock-First / Environment Agnostic)
-        // If the registry provides a factory for our preferred engines, use it.
-        const registryCandidates: EngineType[] = ['transformers-js', 'whisper-turbo', 'mock'];
-        const registryMatch = registryCandidates
-            .map((engineType) => ({ engineType, factory: getEngine(engineType) }))
-            .find((candidate) => Boolean(candidate.factory));
-
-        if (registryMatch?.factory) {
-            logger.info({ sId: this.serviceId, rId: this.runId, engine: registryMatch.engineType }, '[PrivateSTT] 🧪 Injecting MockEngine/Override from Registry');
-            const engine = registryMatch.factory(this.options as TranscriptionModeOptions);
-            validateEngine(engine);
-            const initResult = await (engine as unknown as IPrivateSTTEngine).init(timeoutMs, isMock);
-            
-            // 🛡️ Safe check: Mocks might not return a Result object
-            const isOk = initResult ? (initResult as { isOk?: boolean }).isOk !== false : true;
-            
-            if (!isOk) {
-                // 🚨 DEFENSE: Purge failed registry engine before fallback
-                await (engine as unknown as IPrivateSTTEngine).terminate?.();
-                const error = initResult ? (initResult as { error?: Error }).error : new Error('Registry engine failed to initialize');
-                logger.warn({ engine: registryMatch.engineType, error }, '[PrivateSTT] Registry engine failed to initialize.');
-                return { isOk: false, error: error || new Error('Registry engine failed to initialize') };
-            }
-            this.engine = engine as unknown as IPrivateSTTEngine;
-            this._engineType = registryMatch.engineType;
-            return Result.ok(undefined);
-        }
-
-        // 3. Safe Path (WASM/CPU)
-        logger.info({ sId: this.serviceId, rId: this.runId }, '[PrivateSTT] 🛡️ Initializing TransformersJS (Default Private Path)...');
-        const safeResult = await this.initSafeEngine();
-
-        if (safeResult.isOk === false) {
-            logger.error({ err: safeResult.error }, '[PrivateSTT] ❌ All private engines failed.');
-            return { isOk: false, error: TranscriptionError.engineFailure('private', 'No compatible on-device engine could be initialized.') };
-        }
-
-        return Result.ok(undefined);
+        logger.info({ sId: this.serviceId, rId: this.runId, provider: selectedEngine, source: overrideEngine ? 'override' : 'config' }, '[PrivateSTT] Initializing configured private provider');
+        const res = await this.initSelectedEngine(selectedEngine, timeoutMs, isMock);
+        return res.isOk ? Result.ok(undefined) : (res as Result<void, Error>);
     }
 
     protected async onStart(mic?: MicStream, userWords: string[] = []): Promise<void> {
@@ -245,7 +211,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             return this.engine.checkAvailability();
         }
 
-        const preferredEngine = (getPrivateEngineOverride() || 'transformers-js') as EngineType;
+        const preferredEngine = (getPrivateEngineOverride() || getConfiguredPrivateEngine()) as EngineType;
         const cacheEngine =
             preferredEngine === 'whisper-turbo' ? 'whisper-turbo'
                 : preferredEngine === 'transformers-js-v4' ? 'transformers-js-v4'
@@ -267,6 +233,28 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         return { isAvailable: true };
     }
 
+
+    private async initSelectedEngine(engineType: SelectedPrivateEngine, timeoutMs?: number, isMock?: boolean): Promise<Result<EngineType, Error>> {
+        if (engineType === 'mock') {
+            const factory = getEngine('mock');
+            if (factory) {
+                const engine = factory(this.options as TranscriptionModeOptions);
+                validateEngine(engine);
+                const result = await engine.init(timeoutMs, isMock);
+                if (result.isOk) {
+                    this.engine = engine as unknown as IPrivateSTTEngine;
+                    this._engineType = 'mock';
+                    return Result.ok('mock' as EngineType);
+                }
+                return { isOk: false, error: result.error };
+            }
+            return { isOk: false, error: new Error('Mock engine requested but not registered in STTRegistry') };
+        }
+        if (engineType === 'whisper-turbo') return this.initFastEngine(timeoutMs, isMock);
+        if (engineType === 'transformers-js') return this.initSafeEngine(timeoutMs, isMock);
+        if (engineType === 'transformers-js-v4') return this.initV4Engine(timeoutMs, isMock);
+        return { isOk: false as const, error: new Error(`Unknown private provider: ${engineType}`) };
+    }
 
 
     /**
@@ -413,6 +401,6 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     }
 }
 
-export function createPrivateSTT(): PrivateSTT {
-    return new PrivateSTT();
+export function createPrivateSTT(options: Partial<PrivateSTTInitOptions> = {}): PrivateSTT {
+    return new PrivateSTT(options);
 }

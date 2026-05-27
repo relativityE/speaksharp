@@ -47,6 +47,17 @@ class MockWebSocket {
         if (this.onmessage) this.onmessage({ data: JSON.stringify(data) });
     }
 
+    public simulateBegin(id: string = 'assemblyai-session-id') {
+        this.simulateMessage({
+            type: 'Begin',
+            id,
+            configuration: {
+                model: 'universal-streaming-english',
+                api_version: '2025-05-12',
+            },
+        });
+    }
+
     public simulateError(error: unknown) {
         if (this.onerror) this.onerror(error);
     }
@@ -111,6 +122,8 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         expect(socket.url, `[TRACE-P1] expected mock token in URL — ${trace}`).toContain('token=temp-assemblyai-token');
         
         socket.simulateOpen();
+        expect(onReady).not.toHaveBeenCalled();
+        socket.simulateBegin();
         expect(onReady).toHaveBeenCalled();
     });
 
@@ -174,7 +187,8 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         await mode.init();
         await mode.start();
         const socket1 = LAST_SOCKET();
-        socket1.simulateOpen(); // socket1 legitimately opens (connectionId=1) → onReady called
+        socket1.simulateOpen();
+        socket1.simulateBegin(); // socket1 legitimately becomes provider-ready → onReady called
 
         // Reset call counts before the restart so we can assert cleanly on session 2
         vi.clearAllMocks();
@@ -189,8 +203,10 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         const socket2 = LAST_SOCKET();
         expect(socket2).not.toBe(socket1);
 
-        // socket2 opens (connectionId=2) → active, onReady should fire exactly once
+        // socket2 opens (connectionId=2) but is not ready until AssemblyAI Begin
         socket2.simulateOpen();
+        expect(onReady).not.toHaveBeenCalled();
+        socket2.simulateBegin();
         expect(onReady).toHaveBeenCalledTimes(1);
 
         // socket1 arrives late (zombie, connectionId=1 ≠ 2) → should be rejected
@@ -200,8 +216,13 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         expect(socket1.onmessage).toBeNull();
 
         // Only socket2 messages should be processed
-        socket2.simulateMessage({ message_type: 'FinalTranscript', text: 'Real' });
-        expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { final: 'Real' } });
+        socket2.simulateMessage({ type: 'Turn', transcript: 'Real', end_of_turn: true });
+        expect(onTranscriptUpdate).toHaveBeenCalledWith({
+            transcript: {
+                final: 'Real',
+                speaker: undefined,
+            },
+        });
     });
 
     it('Pillar 3: should handle transcripts with heartbeat synchronization', async () => {
@@ -211,25 +232,26 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         await mode.start();
         const socket = LAST_SOCKET();
         socket.simulateOpen();
+        socket.simulateBegin();
 
-        socket.simulateMessage({ message_type: 'PartialTranscript', text: 'Hello' });
+        socket.simulateMessage({ type: 'Turn', transcript: 'Hello', end_of_turn: false });
         expect(heartbeatSpy).toHaveBeenCalled();
         expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { partial: 'Hello' } });
     });
 
-    it('buffers small audio frames into provider-valid streaming chunks before sending', async () => {
+    it('buffers audio until AssemblyAI provider-ready and then sends provider-valid chunks', async () => {
         await mode.init();
         await mode.start();
         const socket = LAST_SOCKET();
         socket.simulateOpen();
 
-        for (let i = 0; i < 18; i++) {
+        for (let i = 0; i < 19; i++) {
             mode.processAudio(new Float32Array(43));
         }
         await mode.waitForFlush();
         expect(socket.send).not.toHaveBeenCalled();
 
-        mode.processAudio(new Float32Array(43));
+        socket.simulateBegin();
         await mode.waitForFlush();
 
         expect(socket.send).toHaveBeenCalledTimes(1);
@@ -242,6 +264,7 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         await mode.start();
         const socket = LAST_SOCKET();
         socket.simulateOpen();
+        socket.simulateBegin();
 
         mode.processAudio(new Float32Array(43));
         await mode.waitForFlush();
@@ -274,6 +297,7 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         await mode.start();
         const socket = LAST_SOCKET();
         socket.simulateOpen();
+        socket.simulateBegin();
 
         socket.simulateMessage({ type: 'Turn', transcript: 'Hello from v3', end_of_turn: false });
         expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { partial: 'Hello from v3' } });
@@ -292,6 +316,7 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         await mode.start();
         const socket = LAST_SOCKET();
         socket.simulateOpen();
+        socket.simulateBegin();
 
         // Simulate drop
         socket.simulateError('disconnect');
@@ -305,6 +330,7 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         await mode.start();
         const socket = LAST_SOCKET();
         socket.simulateOpen();
+        socket.simulateBegin();
 
         await mode.destroy();
         
@@ -318,6 +344,7 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         await mode.start();
         const socket = LAST_SOCKET();
         socket.simulateOpen();
+        socket.simulateBegin();
 
         // Switch to real timers so closeConnection()'s Promise resolves
         vi.useRealTimers();
