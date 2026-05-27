@@ -95,14 +95,14 @@ export const SpeakingTipsCard: React.FC<SpeakingTipsCardProps> = ({
     const isCompact = className.includes('compact');
 
     return (
-        <div className={`bg-secondary/10 border border-border rounded-xl ${isCompact ? 'p-3' : 'p-6'} shadow-card ${className}`}>
-            <h2 className={`${isCompact ? 'text-base' : 'text-lg'} font-semibold text-muted-foreground ${isCompact ? 'mb-1' : 'mb-2'} flex items-center gap-2`}>
+        <div className={`bg-card border border-[hsl(var(--border-strong))] rounded-xl ${isCompact ? 'p-3' : 'p-6'} shadow-[var(--shadow-card-primary)] ${className}`}>
+            <h2 className={`${isCompact ? 'text-base' : 'text-lg'} font-semibold text-foreground ${isCompact ? 'mb-1' : 'mb-2'} flex items-center gap-2`}>
                 <Lightbulb className={`${isCompact ? 'h-4 w-4' : 'h-5 w-5'}`} />
                 Quick Tip
             </h2>
             <div className="space-y-0.5">
                 <h4 className="font-medium text-foreground text-sm">{tip.title}</h4>
-                <p className="text-muted-foreground text-sm leading-relaxed">
+                <p className="text-[#4B5563] text-sm leading-relaxed">
                     {tip.description}
                 </p>
             </div>

@@ -27,15 +27,15 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
     const config = metricConfig[metric];
 
     return (
-        <Card className="bg-card border-border p-6 rounded-xl shadow-sm" data-testid={`${metric}-trend-chart`}>
+        <Card className="bg-card border-[hsl(var(--border-strong))] p-6 rounded-xl shadow-[var(--shadow-card-primary)]" data-testid={`${metric}-trend-chart`}>
             <div className="mb-6">
                 <h3 className="text-lg font-semibold text-foreground">{title}</h3>
-                {description && <p className="text-sm text-muted-foreground">{description}</p>}
+                {description && <p className="text-sm text-[#4B5563]">{description}</p>}
             </div>
 
             <div className="h-[300px] w-full">
                 {data.length < 2 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground bg-muted/20 rounded-xl border border-dashed border-border">
+                    <div className="flex flex-col items-center justify-center h-full text-center text-[#4B5563] bg-[#F8FAFC] rounded-xl border border-dashed border-[hsl(var(--border-strong))]">
                         <p className="font-medium">Not enough data yet</p>
                         <p className="text-sm">Complete at least 2 sessions to see your {config.label.toLowerCase()} trend.</p>
                     </div>

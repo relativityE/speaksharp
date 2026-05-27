@@ -13,6 +13,13 @@ import { Mic, BarChart } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { calculateWordErrorRate } from '@/lib/wer';
 import { useReadinessStore } from '@/stores/useReadinessStore';
+import {
+    buildCheckoutBody,
+    trackCheckoutStarted,
+    trackConversionCtaClicked,
+    trackConversionCtaViewed,
+    type ConversionSource,
+} from '@/services/conversionFunnel';
 
 
 /**
@@ -40,16 +47,22 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
         ? 'A detailed breakdown of your recent practice session.'
         : 'Track your speaking progress and improvements';
 
+    useEffect(() => {
+        if (!isSessionView && !isPro) {
+            trackConversionCtaViewed({ source: 'analytics_overview_banner', plan: 'pro' });
+        }
+    }, [isSessionView, isPro]);
+
     return (
         <div className="mb-8">
             <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="dashboard-heading">{heading}</h1>
-            <p className="text-muted-foreground mb-4">{description}</p>
+            <p className="text-[#4B5563] mb-4">{description}</p>
 
             {/* Plan Banner - Only show on dashboard view, not session view */}
             {!isSessionView && !isPro && (
                 <button
                     onClick={onUpgrade}
-                    className="w-full flex flex-col gap-3 rounded-lg border border-primary/35 bg-card/90 px-4 py-4 text-left shadow-md transition-all hover:border-primary/60 hover:bg-card sm:flex-row sm:items-center sm:justify-between sm:px-6"
+                    className="w-full flex flex-col gap-3 rounded-lg border border-primary/35 bg-card px-4 py-4 text-left shadow-card transition-all hover:border-primary/60 hover:shadow-card-primary sm:flex-row sm:items-center sm:justify-between sm:px-6"
                     data-testid="analytics-page-upgrade-button"
                 >
                     <div className="flex items-center gap-3">
@@ -57,12 +70,12 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
                             <Mic className="w-5 h-5 text-primary" />
                         </div>
                         <div className="text-left">
-                            <span className="font-bold block text-base">Basic Plan</span>
-                            <span className="text-xs text-muted-foreground sm:inline">Upgrade for private transcription, AI feedback, and deeper history</span>
+                            <span className="font-bold block text-base">Turn practice into progress</span>
+                            <span className="text-xs text-[#4B5563] sm:inline">Upgrade to Pro for private transcription, AI coaching, cleaner PDF reports, and deeper session history.</span>
                         </div>
                     </div>
                     <div className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground sm:w-auto">
-                        Upgrade
+                        Upgrade to Pro
                     </div>
                 </button>
             )}
@@ -90,12 +103,14 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         }
     }, [loading, isProfileLoading, setReady]);
 
-    const handleUpgrade = async () => {
+    const handleUpgrade = async (source: ConversionSource = 'analytics_overview_banner') => {
         try {
+            trackConversionCtaClicked({ source, plan: 'pro' });
+            trackCheckoutStarted({ source, plan: 'pro' });
             const supabase = getSupabaseClient();
             if (!supabase) throw new Error("Supabase client not available");
             const { data, error } = await supabase.functions.invoke('stripe-checkout', {
-                body: { plan: 'pro' },
+                body: buildCheckoutBody('pro', source),
             });
             if (error) throw error;
             if (data?.checkoutUrl) {
@@ -160,7 +175,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         return (
             <div className="text-center py-24">
                 <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Analytics</h2>
-                <p className="text-muted-foreground mb-6">
+                <p className="text-[#4B5563] mb-6">
                     {error?.message || profileError?.message || 'Something went wrong. Please try again.'}
                 </p>
                 <Button onClick={() => window.location.reload()}>
@@ -176,7 +191,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         return (
             <div className="text-center py-24">
                 <h2 className="text-2xl font-semibold mb-4" data-testid="session-not-found-heading">Session Not Found</h2>
-                <p className="text-muted-foreground mb-6">We couldn't find the session you're looking for.</p>
+                <p className="text-[#4B5563] mb-6">We couldn't find the session you're looking for.</p>
                 <Button asChild>
                     <NavLink to="/analytics"><BarChart className="mr-2 h-4 w-4" /> View Dashboard</NavLink>
                 </Button>
@@ -185,7 +200,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     }
     return (
         <div>
-            <PageHeader isPro={isProUser} sessionId={sessionId} onUpgrade={() => { void handleUpgrade(); }} />
+            <PageHeader isPro={isProUser} sessionId={sessionId} onUpgrade={() => { void handleUpgrade('analytics_overview_banner'); }} />
             <AnalyticsDashboard
                 profile={profile || null}
                 isProUser={isProUser}
@@ -194,7 +209,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                 fillerWordTrends={fillerWordTrends}
                 loading={isLoading}
                 error={error || null}
-                onUpgrade={() => { void handleUpgrade(); }}
+                onUpgrade={() => { void handleUpgrade('analytics_empty_state'); }}
                 onUpdateGroundTruth={handleUpdateGroundTruth}
                 sessionId={sessionId}
             />

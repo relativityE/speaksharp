@@ -71,10 +71,10 @@ export default function SignUpPage() {
             <div className="relative z-10 w-full max-w-md space-y-8">
                 <div className="text-center space-y-2">
                     <h1 className="text-4xl font-extrabold tracking-tight text-foreground">SpeakSharp</h1>
-                    <p className="text-muted-foreground text-lg">Master your communication skills.</p>
+                    <p className="text-[#4B5563] text-lg">Master your communication skills.</p>
                 </div>
 
-                <Card className="border-border/70 shadow-xl bg-card/95 backdrop-blur-sm">
+                <Card className="border-[hsl(var(--border-strong))] bg-white shadow-[var(--shadow-card-primary)]">
                     <CardHeader className="space-y-1 text-center pb-8">
                         <CardTitle className="text-2xl font-bold tracking-tight">Create an account</CardTitle>
                         <CardDescription className="text-base">Enter your email below to create your account</CardDescription>
@@ -103,7 +103,7 @@ export default function SignUpPage() {
                                     onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                                 />
                             </div>
-                            <p className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
+                            <p className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-[#4B5563]">
                                 New accounts include a 60-minute Pro trial automatically. Cloud STT is available with Pro. Trial access includes Private STT.
                             </p>
 
@@ -126,7 +126,7 @@ export default function SignUpPage() {
                     </CardContent>
                 </Card>
 
-                <div className="text-center text-sm text-muted-foreground">
+                <div className="text-center text-sm text-[#4B5563]">
                     <p>Already have an account? <Button variant="link" asChild><a href="/auth/signin">Sign in</a></Button></p>
                 </div>
             </div>

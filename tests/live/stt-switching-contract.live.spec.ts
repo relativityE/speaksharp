@@ -88,7 +88,7 @@ test.describe.serial('Live STT switching contract @live', () => {
     await signIn(page, basicUser.email, LIVE_TEST_PASSWORD);
     await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
     await expect(page.getByTestId('pro-badge')).not.toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId('nav-upgrade-button')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('nav-upgrade-button')).not.toBeVisible({ timeout: 10_000 });
 
     const modeSelect = page.getByTestId('stt-mode-select');
     await expect(modeSelect).toBeVisible({ timeout: 20_000 });
@@ -104,7 +104,7 @@ test.describe.serial('Live STT switching contract @live', () => {
     console.log(`LIVE_STT_SWITCHING_BASIC_NATIVE_EVIDENCE ${JSON.stringify({
       selectedMode: snapshot.ui?.modeSelectState,
       proBadgeVisible: false,
-      upgradeVisible: true,
+      navUpgradeHiddenInSession: true,
       recording: snapshot.ui?.startButtonRecording,
       runtimeState: snapshot.root?.runtimeState,
     })}`);

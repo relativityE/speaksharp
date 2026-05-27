@@ -1,8 +1,16 @@
+import { useEffect } from 'react';
 import { CheckCircle, ShieldCheck, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { SUBSCRIPTION_LIMITS } from '@/config';
+import {
+  buildCheckoutBody,
+  trackCheckoutStarted,
+  trackConversionCtaClicked,
+  trackConversionCtaViewed,
+  type ConversionSource,
+} from '@/services/conversionFunnel';
 import logger from '../lib/logger';
 
 interface Tier {
@@ -49,16 +57,22 @@ const tiers: Tier[] = [
 ];
 
 const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
+  const source: ConversionSource = tier.plan === 'basic' ? 'pricing_basic_card' : 'pricing_pro_card';
+
+  useEffect(() => {
+    trackConversionCtaViewed({ source, plan: tier.plan });
+  }, [source, tier.plan]);
+
   const handleUpgrade = async () => {
     try {
+      trackConversionCtaClicked({ source, plan: tier.plan });
+      trackCheckoutStarted({ source, plan: tier.plan });
+
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase client not available");
 
       const { data, error } = await supabase.functions.invoke('stripe-checkout', {
-        body: {
-          plan: tier.plan,
-          returnUrlOrigin: window.location.origin,
-        }
+        body: buildCheckoutBody(tier.plan, source)
       });
 
       if (error) throw error;

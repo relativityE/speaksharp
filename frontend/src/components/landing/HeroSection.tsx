@@ -4,6 +4,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, Sparkles, ArrowRight } from 'lucide-react';
 import { HeroStatsDashboard } from './HeroStatsDashboard';
+import { trackConversionCtaClicked, trackConversionCtaViewed } from '@/services/conversionFunnel';
+import { useEffect } from 'react';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -28,6 +30,11 @@ const itemVariants = {
 };
 
 export const HeroSection = () => {
+  useEffect(() => {
+    trackConversionCtaViewed({ source: 'hero_primary' });
+    trackConversionCtaViewed({ source: 'hero_feedback' });
+  }, []);
+
   return (
     <section aria-label="Hero" className="relative w-full pt-24 md:pt-32 pb-16 md:pb-24 overflow-hidden">
       {/* Background gradient now handled by page wrapper in Index.tsx */}
@@ -67,13 +74,20 @@ export const HeroSection = () => {
             <div className="max-w-md w-full pt-6 space-y-4">
               <motion.div variants={itemVariants} className="flex flex-col gap-3 sm:flex-row sm:gap-4">
                 <Button size="lg" className="flex-1 h-14 text-base" asChild>
-                  <Link to="/auth/signup" data-testid="start-basic-session-button" className="flex items-center justify-center gap-2">
+                  <Link
+                    to="/auth/signup"
+                    data-testid="start-basic-session-button"
+                    className="flex items-center justify-center gap-2"
+                    onClick={() => trackConversionCtaClicked({ source: 'hero_primary' })}
+                  >
                     Start Practice Session
                     <ArrowRight className="size-5" />
                   </Link>
                 </Button>
                 <Button variant="secondary" size="lg" className="flex-1 h-14 text-base" asChild>
-                  <Link to="/analytics">See How Feedback Works</Link>
+                  <Link to="/analytics" onClick={() => trackConversionCtaClicked({ source: 'hero_feedback' })}>
+                    See How Feedback Works
+                  </Link>
                 </Button>
               </motion.div>
 

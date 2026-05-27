@@ -151,7 +151,7 @@ export const SessionPage: React.FC = () => {
             <div className="py-4 px-6 max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-3">
                 <div className="text-center md:col-start-2">
                     <h1 className="text-2xl font-bold text-foreground mb-1">Practice Session</h1>
-                    <p className="text-xs font-medium text-muted-foreground">Record, review, and track your speaking patterns</p>
+                    <p className="text-xs font-medium text-[#4B5563]">Record, review, and track your speaking patterns</p>
                 </div>
 
                 <div className="flex justify-center md:col-start-3 md:justify-end">
@@ -217,7 +217,7 @@ export const SessionPage: React.FC = () => {
                                     micLevel={micLevel}
                                     hasSpeechActivity={hasSpeechActivity}
                                     containerRef={transcriptContainerRef}
-                                    className="min-h-[360px] bg-white border border-border rounded-xl h-full shadow-card"
+                                    className="min-h-[360px] bg-white border border-[hsl(var(--border-strong))] rounded-xl h-full shadow-[var(--shadow-card-primary)]"
                                 />
                             </LocalErrorBoundary>
                         </div>
@@ -230,7 +230,7 @@ export const SessionPage: React.FC = () => {
                                 fillerCount={metrics.fillerCount}
                                 fillerData={fillerData}
                                 fillerExplanation={metrics.fillerExplanation}
-                                className="min-h-[300px] md:min-h-[340px] bg-white border border-border rounded-xl lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
+                                className="min-h-[300px] md:min-h-[340px] bg-white border border-[hsl(var(--border-strong))] rounded-xl shadow-[var(--shadow-card-primary)] lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
                                 headerAction={
                                     <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
                                         <PopoverTrigger asChild>
@@ -266,7 +266,7 @@ export const SessionPage: React.FC = () => {
                             clarityLabel={metrics.clarityLabel}
                             clarityExplanation={metrics.clarityExplanation}
                             isClarityScorable={metrics.isClarityScorable}
-                            className="bg-white border border-border rounded-xl h-full"
+                            className="bg-white border border-[hsl(var(--border-strong))] rounded-xl h-full"
                         />
                     </LocalErrorBoundary>
                     <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
@@ -274,13 +274,13 @@ export const SessionPage: React.FC = () => {
                             wpm={metrics.wpm}
                             wpmLabel={metrics.wpmLabel}
                             wpmExplanation={metrics.wpmExplanation}
-                            className="bg-white border border-border rounded-xl h-full"
+                            className="bg-white border border-[hsl(var(--border-strong))] rounded-xl h-full"
                         />
                     </LocalErrorBoundary>
                     <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
                         <PauseMetricsDisplay
                             metrics={pauseMetrics}
-                            className="bg-white border border-border rounded-xl h-full"
+                            className="bg-white border border-[hsl(var(--border-strong))] rounded-xl h-full"
                         />
                     </LocalErrorBoundary>
                 </div>
@@ -293,7 +293,7 @@ export const SessionPage: React.FC = () => {
                             fillerCount={metrics.fillerCount}
                             clarityScore={metrics.clarityScore}
                             pauseMetrics={pauseMetrics}
-                            className="bg-white border border-border rounded-xl compact"
+                            className="bg-white border border-[hsl(var(--border-strong))] rounded-xl compact"
                         />
                     </LocalErrorBoundary>
                 </div>

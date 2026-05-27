@@ -111,7 +111,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             <Shield className="h-2.5 w-2.5 fill-success/10" />
                             <span>SECURE</span>
                         </div>
-                        <p className="max-w-72 text-xs leading-snug text-muted-foreground">
+                        <p className="max-w-72 text-xs leading-snug text-[#4B5563]">
                             {isPrivateDownloadRequired
                                 ? 'Download the private model to start recording locally.'
                                 : modeDescriptions[mode]}
@@ -138,7 +138,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 <DropdownMenuRadioItem value="native" className="items-start py-2.5" data-testid={TEST_IDS.STT_MODE_NATIVE}>
                                     <span className="flex flex-col gap-0.5">
                                         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Browser</span>
-                                        <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
+                                <span className="text-[11px] font-normal normal-case leading-snug text-[#4B5563]">
                                             Browser transcription uses your browser&apos;s built-in speech recognition. Chrome is recommended. Availability and accuracy vary by browser.
                                         </span>
                                     </span>
@@ -151,7 +151,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 >
                                     <span className="flex flex-col gap-0.5">
                                         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Private {!isProUser ? '(Pro)' : ''}</span>
-                                        <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
+                                        <span className="text-[11px] font-normal normal-case leading-snug text-[#4B5563]">
                                             {privateModeDescription}
                                         </span>
                                     </span>
@@ -164,7 +164,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 >
                                     <span className="flex flex-col gap-0.5">
                                         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud {!canUseCloudStt ? '(Pro feature)' : ''}</span>
-                                        <span className="text-[11px] font-normal normal-case leading-snug text-muted-foreground">
+                                        <span className="text-[11px] font-normal normal-case leading-snug text-[#4B5563]">
                                             Fastest and most accurate. Pro feature. Audio is processed securely by AssemblyAI.
                                         </span>
                                     </span>
@@ -183,7 +183,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 </div>
                                 <div>
                                     <p className="text-sm font-bold text-foreground">Private not ready</p>
-                                    <p className="mt-1 max-w-xs text-xs leading-snug text-muted-foreground">
+                                    <p className="mt-1 max-w-xs text-xs leading-snug text-[#4B5563]">
                                         Download the private model to start recording locally.
                                     </p>
                                 </div>
@@ -228,9 +228,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             <div className="text-4xl font-mono font-bold text-foreground tracking-tighter tabular-nums leading-none">
                                 {formattedTime}
                             </div>
-                            <div className="mt-2 inline-flex items-center gap-1.5 py-1 px-3 rounded-full bg-muted/30 border border-border/60">
-                                <div className={`h-1.5 w-1.5 rounded-full ${isListening ? 'bg-primary animate-pulse' : 'bg-muted-foreground/30'}`} />
-                                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.14em]" data-testid="stt-status-label">
+                            <div className="mt-2 inline-flex items-center gap-1.5 py-1 px-3 rounded-full bg-[#F8FAFC] border border-[hsl(var(--border-strong))]">
+                                <div className={`h-1.5 w-1.5 rounded-full ${isListening ? 'bg-primary animate-pulse' : 'bg-[#4B5563]'}`} />
+                                <span className="text-[10px] font-bold text-[#4B5563] uppercase tracking-[0.14em]" data-testid="stt-status-label">
                                     {displayStatusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}
                                 </span>
                             </div>

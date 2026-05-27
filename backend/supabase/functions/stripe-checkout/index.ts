@@ -30,6 +30,12 @@ const normalizePlan = (value: unknown): CheckoutPlan | null => {
   return null;
 };
 
+const sanitizeMetadataValue = (value: unknown, fallback: string): string => {
+  if (typeof value !== "string") return fallback;
+  const normalized = value.trim().replace(/[^a-zA-Z0-9_.:-]/g, "_").slice(0, 80);
+  return normalized || fallback;
+};
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
@@ -119,7 +125,15 @@ serve(async (req) => {
     }
     console.log(`[Stripe Checkout] ✅ User authenticated: ${user.id} (${user.email || 'no-email'})`);
 
-    const requestBody = await req.json().catch(() => ({})) as { plan?: unknown };
+    const requestBody = await req.json().catch(() => ({})) as {
+      plan?: unknown;
+      conversionSource?: unknown;
+      utm?: {
+        source?: unknown;
+        medium?: unknown;
+        campaign?: unknown;
+      };
+    };
     const plan = normalizePlan(requestBody.plan);
     if (!plan) {
       return createErrorResponse(
@@ -129,6 +143,10 @@ serve(async (req) => {
         { allowed: ["basic", "pro"] }
       );
     }
+    const conversionSource = sanitizeMetadataValue(requestBody.conversionSource, 'unknown');
+    const utmSource = sanitizeMetadataValue(requestBody.utm?.source, 'unknown');
+    const utmMedium = sanitizeMetadataValue(requestBody.utm?.medium, conversionSource);
+    const utmCampaign = sanitizeMetadataValue(requestBody.utm?.campaign, 'upgrade');
 
     // 4. Price Config - Use fallback for local dev (prod uses Supabase Secrets)
     const priceEnvName = plan === "basic" ? "STRIPE_BASIC_PRICE_ID" : "STRIPE_PRO_PRICE_ID";
@@ -162,17 +180,25 @@ serve(async (req) => {
           },
         ],
         mode: "subscription",
-        success_url: `${effectiveSiteUrl}/session?checkout=success`,
-        cancel_url: `${effectiveSiteUrl}/pricing?checkout=cancelled`,
+        success_url: `${effectiveSiteUrl}/session?checkout=success&conversion_source=${encodeURIComponent(conversionSource)}&utm_source=${encodeURIComponent(utmSource)}&utm_medium=${encodeURIComponent(utmMedium)}&utm_campaign=${encodeURIComponent(utmCampaign)}`,
+        cancel_url: `${effectiveSiteUrl}/pricing?checkout=cancelled&conversion_source=${encodeURIComponent(conversionSource)}&utm_source=${encodeURIComponent(utmSource)}&utm_medium=${encodeURIComponent(utmMedium)}&utm_campaign=${encodeURIComponent(utmCampaign)}`,
         customer_email: user.email,
         metadata: {
           userId: user.id,
           plan,
+          conversionSource,
+          utmSource,
+          utmMedium,
+          utmCampaign,
         },
         subscription_data: {
           metadata: {
             userId: user.id,
             plan,
+            conversionSource,
+            utmSource,
+            utmMedium,
+            utmCampaign,
           },
         },
       })

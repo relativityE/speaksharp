@@ -63,7 +63,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
 
     return (
         <div
-            className={`bg-card border border-border rounded-xl p-4 shadow-card flex flex-col ${className}`}
+            className={`bg-card border border-[hsl(var(--border-strong))] rounded-xl p-4 shadow-[var(--shadow-card-primary)] flex flex-col ${className}`}
             data-testid={TEST_IDS.TRANSCRIPT_PANEL}
         >
             <div className="mb-2 flex items-center justify-between gap-3">
@@ -80,7 +80,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             </div>
             <div
                 ref={containerRef}
-                className="live-transcript-scroll flex-1 overflow-y-auto p-3 pr-5 rounded-lg border border-border/60 bg-slate-50 leading-relaxed transition-all min-h-[160px]"
+                className="live-transcript-scroll flex-1 overflow-y-auto p-3 pr-5 rounded-lg border border-[hsl(var(--border-strong))] bg-[#F8FAFC] leading-relaxed transition-all min-h-[160px]"
                 data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
                 data-scrollable-transcript="true"
                 aria-live="polite"
@@ -89,9 +89,9 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             >
                 {/* Segmented History (Chapters) */}
                 {history.map((segment, idx) => (
-                    <div key={`history-${idx}`} className="mb-6 last:mb-4 opacity-80 group">
+                    <div key={`history-${idx}`} className="mb-6 last:mb-4 group">
                         <div className="flex items-center gap-2 mb-2">
-                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-muted border border-border shadow-sm">
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-white border border-[hsl(var(--border-strong))] shadow-card">
                                 {segment.mode === 'private' ? (
                                     <>
                                         <Lock className="h-3 w-3 text-success" />
@@ -106,7 +106,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             </div>
                             <div className="flex-1 h-px bg-gradient-to-r from-border to-transparent" />
                         </div>
-                        <div className="pl-2 border-l-2 border-primary/20 text-foreground/70 text-base leading-relaxed italic">
+                        <div className="pl-2 border-l-2 border-primary/30 text-[#4B5563] text-base leading-relaxed italic">
                             {segment.text}
                         </div>
                     </div>
@@ -124,7 +124,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 {/* Current Active Segment */}
                 {isListening && !hasTranscript && !hasInterimTranscript ? (
                     sttMode === 'private' ? (
-                        <div className="flex min-h-[120px] flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+                        <div className="flex min-h-[120px] flex-col items-center justify-center gap-3 text-center text-[#4B5563]">
                             <div className={`relative flex h-14 w-14 items-center justify-center rounded-full border border-primary/25 bg-primary/5 ${hasSpeechActivity ? 'shadow-[0_0_0_8px_hsl(var(--primary)/0.08)]' : ''}`}>
                                 {hasSpeechActivity && <span className="absolute inset-0 rounded-full border border-primary/30 animate-ping" />}
                                 <WaveformMeter level={micLevel} isProcessing={hasSpeechActivity} />
@@ -134,7 +134,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             </p>
                         </div>
                     ) : (
-                        <p className="text-muted-foreground animate-pulse">Listening...</p>
+                        <p className="text-[#4B5563] animate-pulse">Listening...</p>
                     )
                 ) : hasTranscript || hasInterimTranscript ? (
                     <div className="text-foreground text-lg leading-relaxed">
@@ -160,14 +160,14 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             return <span key={token.id}>{token.transcript}</span>;
                         })}
                         {hasInterimTranscript && (
-                            <span className="text-muted-foreground">
+                            <span className="text-[#4B5563]">
                                 {hasTranscript ? ' ' : ''}
                                 {displayInterimTranscript}
                             </span>
                         )}
                     </div>
                 ) : (
-                    <p className="text-muted-foreground">Words appear here...</p>
+                    <p className="text-[#4B5563]">Words appear here...</p>
                 )}
             </div>
         </div>

@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Mic, BarChart3, Home, LogOut, Zap } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TEST_IDS } from '@/constants/testIds';
 import { useLocation, Link, useNavigate } from "react-router-dom";
 import { useAuthProvider } from "@/contexts/AuthProvider";
@@ -9,6 +9,12 @@ import { useUserProfile } from "@/hooks/useUserProfile";
 import { useUsageLimit } from "@/hooks/useUsageLimit";
 import { getEffectiveSubscriptionStatus, isPro } from "@/constants/subscriptionTiers";
 import logger from "@/lib/logger";
+import {
+  buildCheckoutBody,
+  trackCheckoutStarted,
+  trackConversionCtaClicked,
+  trackConversionCtaViewed,
+} from "@/services/conversionFunnel";
 
 const Navigation = () => {
   const location = useLocation();
@@ -29,13 +35,15 @@ const Navigation = () => {
     if (!session) return;
     setIsUpgrading(true);
     try {
+      trackConversionCtaClicked({ source: 'nav_upgrade', plan: 'pro', tier: effectiveSubscriptionStatus });
+      trackCheckoutStarted({ source: 'nav_upgrade', plan: 'pro', tier: effectiveSubscriptionStatus });
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/stripe-checkout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ plan: 'pro' }),
+        body: JSON.stringify(buildCheckoutBody('pro', 'nav_upgrade')),
       });
       const data = await response.json();
       if (data.checkoutUrl) {
@@ -95,7 +103,20 @@ const Navigation = () => {
   );
 
 
-  const isBasicUser = session && !isEffectiveProUser;
+  const isBasicUser = Boolean(session && !isEffectiveProUser);
+  const showNavUpgrade = Boolean(
+    profile &&
+    isBasicUser &&
+    location.pathname !== '/session' &&
+    location.pathname !== '/pricing' &&
+    !location.pathname.startsWith('/analytics')
+  );
+
+  useEffect(() => {
+    if (showNavUpgrade) {
+      trackConversionCtaViewed({ source: 'nav_upgrade', plan: 'pro', tier: effectiveSubscriptionStatus });
+    }
+  }, [showNavUpgrade, effectiveSubscriptionStatus]);
 
   return (
     <>
@@ -135,7 +156,7 @@ const Navigation = () => {
             <div className="flex items-center space-x-4">
               {session ? (
                 <>
-                  {profile && isBasicUser && (
+                  {showNavUpgrade && (
                     <Button
                       onClick={() => { void handleUpgrade(); }}
                       disabled={isUpgrading}

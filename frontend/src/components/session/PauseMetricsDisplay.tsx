@@ -22,7 +22,7 @@ export const PauseMetricsDisplay: React.FC<PauseMetricsDisplayProps> = ({ metric
                 : 'Pause timing is measurable; use it with filler count to judge delivery rhythm.';
 
     return (
-        <Card className={`h-auto border-border rounded-xl flex flex-col justify-center shadow-card compact-density ${className}`}>
+        <Card className={`h-auto border-[hsl(var(--border-strong))] rounded-xl flex flex-col justify-center shadow-[var(--shadow-card-primary)] compact-density ${className}`}>
             <CardHeader className="p-4 py-2 pb-0">
                 <CardTitle className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-foreground">
                     <Pause className="h-4 w-4" />
@@ -32,26 +32,26 @@ export const PauseMetricsDisplay: React.FC<PauseMetricsDisplayProps> = ({ metric
             <CardContent className="p-4 pt-2 space-y-3">
                 <div className="grid grid-cols-2 gap-x-6">
                     <div className="flex items-baseline gap-2">
-                        <span className="text-sm text-muted-foreground font-medium">Total Pauses</span>
+                        <span className="text-sm text-[#4B5563] font-medium">Total Pauses</span>
                         <span className="text-2xl font-bold font-mono text-foreground">{metrics.totalPauses}</span>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        <span className="text-sm text-muted-foreground font-medium">Per Minute</span>
+                        <span className="text-sm text-[#4B5563] font-medium">Per Minute</span>
                         <span className="text-2xl font-bold font-mono text-foreground">{metrics.pausesPerMinute.toFixed(1)}</span>
                     </div>
                 </div>
 
-                <div className="flex justify-between items-center text-sm border-t border-border/50 pt-3 mt-1">
-                    <div className="flex items-center gap-2 text-muted-foreground">
+                <div className="flex justify-between items-center text-sm border-t border-border pt-3 mt-1">
+                    <div className="flex items-center gap-2 text-[#4B5563]">
                         <Clock className="h-4 w-4" />
                         Average: <span className="text-foreground font-bold">{formatDuration(metrics.averagePauseDuration)}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
+                    <div className="flex items-center gap-2 text-[#4B5563]">
                         <Clock className="h-4 w-4" />
                         Longest: <span className="text-foreground font-bold">{formatDuration(metrics.longestPause)}</span>
                     </div>
                 </div>
-                <p className="text-xs text-muted-foreground leading-snug" data-testid="pause-explanation">
+                <p className="text-xs text-[#4B5563] leading-snug" data-testid="pause-explanation">
                     {explanation}
                 </p>
             </CardContent>

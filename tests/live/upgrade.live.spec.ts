@@ -22,6 +22,9 @@ test.describe('Upgrade Flow Payload Verification', () => {
             // Note: supabase.functions.invoke() sends no body by default; 
             // the backend reads user context from the Authorization header.
             upgradeRequestCaptured = true;
+            const body = route.request().postDataJSON() as { plan?: string; conversionSource?: string };
+            expect(body.plan).toBe('pro');
+            expect(body.conversionSource).toMatch(/analytics_/);
 
             // Mock success to keep UI happy
             await route.fulfill({

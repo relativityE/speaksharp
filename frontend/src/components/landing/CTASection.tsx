@@ -1,8 +1,14 @@
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { ArrowRight } from 'lucide-react';
+import { trackConversionCtaClicked, trackConversionCtaViewed } from '@/services/conversionFunnel';
+import { useEffect } from 'react';
 
 export const CTASection = () => {
+    useEffect(() => {
+        trackConversionCtaViewed({ source: 'landing_cta' });
+    }, []);
+
     return (
         <section aria-label="Call to Action" className="w-full py-16 md:py-24">
             <div className="container px-4 md:px-6 max-w-3xl mx-auto">
@@ -20,7 +26,11 @@ export const CTASection = () => {
                             className="px-8 h-12 text-base"
                             asChild
                         >
-                            <Link to="/auth/signup" className="flex items-center gap-2">
+                            <Link
+                                to="/auth/signup"
+                                className="flex items-center gap-2"
+                                onClick={() => trackConversionCtaClicked({ source: 'landing_cta' })}
+                            >
                                 Start Basic Session
                                 <ArrowRight className="size-4" />
                             </Link>

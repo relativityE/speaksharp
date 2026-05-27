@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from '@/lib/toast';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 import React from 'react';
+import { analyticsBuffer } from '@/services/AnalyticsBuffer';
 
 /**
  * Hook to handle Stripe checkout redirect notifications.
@@ -17,6 +18,10 @@ export function useCheckoutNotifications() {
     useEffect(() => {
         const params = new URLSearchParams(location.search);
         const checkoutStatus = params.get('checkout');
+        const conversionSource = params.get('conversion_source') ?? 'unknown';
+        const utmSource = params.get('utm_source') ?? 'unknown';
+        const utmMedium = params.get('utm_medium') ?? 'unknown';
+        const utmCampaign = params.get('utm_campaign') ?? 'unknown';
 
         // Create a unique key for this specific toast event to prevent duplicates in StrictMode
         const currentToastId = checkoutStatus ? `${checkoutStatus}-${location.search}` : null;
@@ -25,6 +30,16 @@ export function useCheckoutNotifications() {
             lastToastId.current = currentToastId;
 
             logger.info({ checkoutStatus }, '[useCheckoutNotifications] 🔔 Triggering checkout toast');
+            analyticsBuffer.push(
+                checkoutStatus === 'success' ? 'checkout_returned_success' : 'checkout_returned_cancelled',
+                {
+                    conversion_source: conversionSource,
+                    utm_source: utmSource,
+                    utm_medium: utmMedium,
+                    utm_campaign: utmCampaign,
+                },
+                checkoutStatus === 'success' ? 'HIGH' : 'LOW'
+            );
 
             if (checkoutStatus === 'success') {
                 toast.success('Welcome to Pro!', {
@@ -43,6 +58,10 @@ export function useCheckoutNotifications() {
             // Clear the checkout parameter from the URL to prevent double toasts on mount/refresh
             const newParams = new URLSearchParams(location.search);
             newParams.delete('checkout');
+            newParams.delete('conversion_source');
+            newParams.delete('utm_source');
+            newParams.delete('utm_medium');
+            newParams.delete('utm_campaign');
             const search = newParams.toString();
 
             setTimeout(() => {

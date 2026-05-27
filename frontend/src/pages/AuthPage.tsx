@@ -169,7 +169,7 @@ export default function AuthPage() {
       <div className="relative z-10 w-full max-w-md space-y-6">
         <h2 className="text-center text-2xl font-semibold text-foreground">Master your communication skills</h2>
 
-        <Card className="border-border bg-white shadow-card">
+        <Card className="border-[hsl(var(--border-strong))] bg-white shadow-[var(--shadow-card-primary)]">
           <CardHeader className="space-y-1 text-center pb-8">
             <CardTitle className="text-2xl font-bold tracking-tight">
               {view === 'sign_in' && 'Welcome back'}
@@ -205,7 +205,7 @@ export default function AuthPage() {
                           variant="link"
                           type="button"
                           onClick={() => handleViewChange('forgot_password')}
-                          className="px-0 font-normal text-xs text-muted-foreground hover:text-primary h-auto"
+                          className="px-0 font-normal text-xs text-[#4B5563] hover:text-primary h-auto"
                           data-testid="forgot-password-button"
                         >
                           Forgot password?
@@ -227,7 +227,7 @@ export default function AuthPage() {
                 {view === 'sign_up' && (
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
                     <p className="text-sm font-semibold text-foreground">60-minute Pro trial included</p>
-                    <p className="text-xs leading-relaxed text-muted-foreground">
+                    <p className="text-xs leading-relaxed text-[#4B5563]">
                       New accounts can try Private transcription, analytics, and feedback immediately. Cloud STT is available with Pro. Trial access includes Private STT.
                     </p>
                     {inlineError && (
@@ -277,14 +277,14 @@ export default function AuthPage() {
                 <span className="w-full border-t" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">Or</span>
+                <span className="bg-card px-2 text-[#4B5563]">Or</span>
               </div>
             </div>
 
             <div className="text-center space-y-4">
               {view === 'sign_in' ? (
                 <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Don't have an account?</p>
+                  <p className="text-sm text-[#4B5563]">Don't have an account?</p>
                   <Button
                     variant="outline"
                     type="button"
@@ -297,7 +297,7 @@ export default function AuthPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Already have an account?</p>
+                  <p className="text-sm text-[#4B5563]">Already have an account?</p>
                   <Button
                     variant="ghost"
                     type="button"
@@ -313,7 +313,7 @@ export default function AuthPage() {
           </CardContent>
         </Card>
 
-        <p className="text-center text-sm text-muted-foreground px-8">
+        <p className="text-center text-sm text-[#4B5563] px-8">
           By clicking continue, you agree to our <a href="#" className="underline underline-offset-4 hover:text-primary">Terms of Service</a> and <a href="#" className="underline underline-offset-4 hover:text-primary">Privacy Policy</a>.
         </p>
       </div>

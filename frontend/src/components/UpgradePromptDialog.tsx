@@ -10,6 +10,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useNavigate } from 'react-router-dom';
+import { getUpgradeUrl, trackConversionCtaClicked, trackConversionCtaViewed } from '@/services/conversionFunnel';
+import { useEffect } from 'react';
 
 interface UpgradePromptDialogProps {
   open: boolean;
@@ -19,9 +21,16 @@ interface UpgradePromptDialogProps {
 export const UpgradePromptDialog: React.FC<UpgradePromptDialogProps> = ({ open, onOpenChange }) => {
   const navigate = useNavigate();
 
+  useEffect(() => {
+    if (open) {
+      trackConversionCtaViewed({ source: 'post_session_prompt', plan: 'pro' });
+    }
+  }, [open]);
+
   const handleUpgrade = () => {
+    trackConversionCtaClicked({ source: 'post_session_prompt', plan: 'pro' });
     onOpenChange(false);
-    navigate('/pricing');
+    navigate(getUpgradeUrl('post_session_prompt', 'pro'));
   };
 
   return (

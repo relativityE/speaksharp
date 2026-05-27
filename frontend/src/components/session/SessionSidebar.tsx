@@ -7,7 +7,7 @@ import { useUsageLimit } from '@/hooks/useUsageLimit';
 import type { TranscriptionPolicy, TranscriptionMode } from '../../services/transcription/TranscriptionPolicy';
 import { buildPolicyForUser } from '@/services/transcription/TranscriptionPolicy';
 import logger from '../../lib/logger';
-import { Mic, Square, Loader2, Zap, Cloud, Computer, Lock, Info } from 'lucide-react';
+import { Mic, Square, Loader2, Cloud, Computer, Lock, Info } from 'lucide-react';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -232,7 +232,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
 
     return (
         <div className="flex flex-col gap-6 h-full" data-testid="session-sidebar">
-            <Card className="w-full flex flex-col flex-grow bg-sidebar-background/95 backdrop-blur-xl border-border/50 shadow-2xl" data-testid="session-sidebar-card">
+            <Card className="w-full flex flex-col flex-grow bg-white border-[hsl(var(--border-strong))] shadow-[var(--shadow-card-primary)]" data-testid="session-sidebar-card">
                 <CardHeader>
                     <div className="flex justify-between items-center">
                         <CardTitle className="text-base">Session Controls</CardTitle>
@@ -266,7 +266,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                                         <DropdownMenuRadioItem value="private" aria-label="Private" disabled={!canAccessAdvancedModes} className="items-start py-2.5">
                                             <span className="flex flex-col gap-0.5">
                                                 <span>Private</span>
-                                                <span className="text-xs font-normal text-muted-foreground">
+                                                <span className="text-xs font-normal text-[#4B5563]">
                                                     On-device. First words may take ~5s.
                                                 </span>
                                             </span>
@@ -274,7 +274,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                                         <DropdownMenuRadioItem value="cloud" aria-label="Cloud" disabled={!canUseCloudStt} className="items-start py-2.5">
                                             <span className="flex flex-col gap-0.5">
                                                 <span>Cloud (Pro feature)</span>
-                                                <span className="text-xs font-normal text-muted-foreground">
+                                                <span className="text-xs font-normal text-[#4B5563]">
                                                     Fastest option. Audio is processed securely in the cloud.
                                                 </span>
                                             </span>
@@ -282,7 +282,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                                         <DropdownMenuRadioItem value="native" aria-label="Native" className="items-start py-2.5">
                                             <span className="flex flex-col gap-0.5">
                                                 <span>Native</span>
-                                                <span className="text-xs font-normal text-muted-foreground">
+                                                <span className="text-xs font-normal text-[#4B5563]">
                                                     Browser speech service. Works best in Chrome or Edge.
                                                 </span>
                                             </span>
@@ -315,17 +315,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                         </div>
                     </div>
 
-                    {profile && !isProUser && (
-                        <div className="mt-auto pt-4 border-t">
-                            <div className="flex items-center gap-2 text-primary mb-2"><Zap className="w-4 h-4" /><h4 className="font-semibold text-sm">Upgrade to Pro</h4></div>
-                            <p className="text-xs text-muted-foreground mb-2">
-                                Get unlimited practice, advanced analytics, and priority support.
-                            </p>
-                            <Button size="sm" className="w-full font-bold group" variant="outline" data-testid="session-sidebar-upgrade-button">
-                                Upgrade
-                            </Button>
-                        </div>
-                    )}
                 </CardContent>
             </Card>
 

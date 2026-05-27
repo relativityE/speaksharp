@@ -8,7 +8,7 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 214 29% 91%;
+    --background: 214 28% 78%;
     --foreground: 221 39% 11%;
 
     --card: 0 0% 100%;
@@ -24,7 +24,7 @@ All colors MUST be HSL.
     --secondary-foreground: 221 39% 11%;
 
     --muted: 210 17% 95%;
-    --muted-foreground: 215 16% 42%;
+    --muted-foreground: 217 19% 35%;
 
     --accent: 176 77% 26%;
     --accent-foreground: 0 0% 100%;
@@ -35,9 +35,9 @@ All colors MUST be HSL.
     --success: 160 84% 30%;
     --success-foreground: 0 0% 100%;
 
-    --border: 215 24% 79%;
-    --border-strong: 215 22% 72%;
-    --input: 215 24% 79%;
+    --border: 215 20% 64%;
+    --border-strong: 215 18% 48%;
+    --input: 215 20% 64%;
     --ring: 38 92% 50%;
 
     --radius: 0.75rem;
@@ -60,11 +60,11 @@ All colors MUST be HSL.
     --gradient-primary: linear-gradient(135deg, hsl(38 92% 50%), hsl(32 95% 44%));
     --gradient-secondary: linear-gradient(135deg, hsl(0 0% 100%), hsl(210 17% 96%));
     --gradient-hero: linear-gradient(135deg, hsl(38 92% 50%), hsl(32 95% 44%));
-    --gradient-subtle: linear-gradient(180deg, hsl(214 29% 91%) 0%, hsl(214 29% 91%) 100%);
+    --gradient-subtle: linear-gradient(180deg, hsl(214 28% 78%) 0%, hsl(214 28% 78%) 100%);
 
-    --shadow-elegant: 0 16px 36px -24px rgba(15, 23, 42, 0.35);
-    --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.08);
-    --shadow-card-primary: 0 1px 2px rgba(15, 23, 42, 0.07), 0 12px 32px rgba(15, 23, 42, 0.10);
+    --shadow-elegant: 0 18px 38px -22px rgba(15, 23, 42, 0.42);
+    --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.12), 0 12px 28px rgba(15, 23, 42, 0.17);
+    --shadow-card-primary: 0 1px 2px rgba(15, 23, 42, 0.14), 0 18px 42px rgba(15, 23, 42, 0.23);
 
     --header-height: 4rem;
     --bottom-nav-height: 5rem;
