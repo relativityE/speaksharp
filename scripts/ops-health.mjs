@@ -35,25 +35,22 @@ await row('Vercel API', 'Can we read the latest production deployment?', async (
   };
 });
 
-await row('Supabase API', 'Can clients reach Auth, REST, and Edge Functions?', async () => {
+await row('Supabase API', 'Can clients reach Auth and SpeakSharp Edge Functions?', async () => {
   const supabaseUrl = env('SUPABASE_URL', ['VITE_SUPABASE_URL']).replace(/\/$/, '');
   const anonKey = env('SUPABASE_ANON_KEY', ['VITE_SUPABASE_ANON_KEY']);
   const auth = await http(`${supabaseUrl}/auth/v1/settings`, {
     headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
   });
-  const rest = await http(`${supabaseUrl}/rest/v1/`, {
-    headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` },
+  const usageLimitEdge = await edgePreflight('check-usage-limit');
+  const tokenEdge = await edgeExpectedStatus('assemblyai-token', {
+    method: 'POST',
+    expectedStatus: 401,
+    detailPrefix: 'assemblyai-token',
   });
-  const edge = await edgePreflight('check-usage-limit');
   return combined([
     { ok: auth.ok, detail: `auth=${auth.status}` },
-    // The root PostgREST endpoint may return 401/403 when the deployment is
-    // reachable but the anonymous role is not allowed to read the schema root.
-    // That is a review signal, not proof that Supabase is unavailable.
-    rest.status === 401 || rest.status === 403
-      ? { ok: null, skipped: true, detail: `rest=${rest.status}:reachable-auth-denied` }
-      : { ok: rest.ok, detail: `rest=${rest.status}` },
-    edge,
+    usageLimitEdge,
+    tokenEdge,
   ], 'https://supabase.com/dashboard');
 });
 
@@ -232,6 +229,24 @@ async function edgePreflight(functionName) {
   return {
     ok: response.ok,
     detail: `${functionName}=${response.status}`,
+  };
+}
+
+async function edgeExpectedStatus(functionName, { method, expectedStatus, detailPrefix }) {
+  const supabaseUrl = env('SUPABASE_URL', ['VITE_SUPABASE_URL']).replace(/\/$/, '');
+  const anonKey = env('SUPABASE_ANON_KEY', ['VITE_SUPABASE_ANON_KEY']);
+  const response = await http(`${supabaseUrl}/functions/v1/${functionName}`, {
+    method,
+    headers: {
+      apikey: anonKey,
+      Origin: baseUrl,
+      'Content-Type': 'application/json',
+    },
+    body: method === 'GET' || method === 'HEAD' ? undefined : JSON.stringify({}),
+  });
+  return {
+    ok: response.status === expectedStatus,
+    detail: `${detailPrefix}=${response.status}${response.status === expectedStatus ? ':expected' : ''}`,
   };
 }
 

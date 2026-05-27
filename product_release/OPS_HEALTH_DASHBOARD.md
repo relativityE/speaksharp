@@ -18,7 +18,7 @@ It is intentionally not a replacement for vendor dashboards. It is an early sign
 |---|---|---|
 | SpeakSharp app | Production URL returns HTTP success | Vercel/app URL |
 | Vercel API | Latest production deployment if Vercel credentials are configured | Vercel dashboard |
-| Supabase API | Auth, REST, and one Edge Function entrypoint | Supabase dashboard |
+| Supabase API | Auth plus SpeakSharp-owned Edge Function entrypoints | Supabase dashboard |
 | AssemblyAI API | Cloud STT provider credential reachability | AssemblyAI dashboard |
 | Gemini API | AI suggestions provider credential reachability | Google AI Studio |
 | Stripe API | Billing credential and price reachability | Stripe dashboard |
