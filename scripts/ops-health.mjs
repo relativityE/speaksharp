@@ -18,8 +18,8 @@ await row('App', 'Can users reach SpeakSharp?', async () => {
 });
 
 await row('Vercel API', 'Can we read the latest production deployment?', async () => {
-  const token = env('VERCEL_TOKEN');
-  const projectId = env('VERCEL_PROJECT_ID', ['VERCEL_PROJECT']);
+  const token = env('VERCEL_ACCESS_TOKEN');
+  const projectId = env('VERCEL_PROJECT_ID');
   const teamId = optionalEnv('VERCEL_TEAM_ID', ['VERCEL_ORG_ID']);
   const params = new URLSearchParams({ projectId, target: 'production', limit: '1' });
   if (teamId) params.set('teamId', teamId);

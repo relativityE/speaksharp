@@ -66,7 +66,7 @@ Some rows may show `🚧 NOT READY` until the corresponding secret is added to G
 
 | Check | Required env/secret |
 |---|---|
-| Vercel API | `VERCEL_TOKEN`, `VERCEL_PROJECT_ID`, optional `VERCEL_TEAM_ID` |
+| Vercel API | `VERCEL_ACCESS_TOKEN`, `VERCEL_PROJECT_ID`; `VERCEL_TEAM_ID` only if Vercel requires team scoping for this token |
 | Supabase API | `SUPABASE_URL`, `SUPABASE_ANON_KEY` |
 | AssemblyAI API | `ASSEMBLYAI_API_KEY` |
 | Gemini API | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
