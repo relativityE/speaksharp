@@ -33,8 +33,9 @@ await row('Vercel API', 'Can we read the latest production deployment?', async (
   const body = json(await response.text());
   const deployment = body?.deployments?.[0];
   const ready = response.ok && deployment?.state === 'READY';
+  const inProgress = response.ok && ['BUILDING', 'QUEUED', 'INITIALIZING'].includes(deployment?.state);
   return {
-    status: ready ? (teamScopeRejected ? 'warn' : 'pass') : 'fail',
+    status: ready ? (teamScopeRejected ? 'warn' : 'pass') : inProgress ? 'warn' : 'fail',
     detail: deployment?.state
       ? `latest=${deployment.state}; url=${deployment.url ?? 'unknown'}${teamScopeRejected ? '; teamScope=403; used=unscoped' : ''}`
       : `http=${response.status}${teamScopeRejected ? '; teamScope=403; unscoped-retry-failed' : ''}`,
@@ -112,7 +113,7 @@ await row('PostHog API', 'Can we query PostHog analytics?', async () => {
 });
 
 await row('GitHub API', 'Can we query repository metadata and release workflows?', async () => {
-  const token = normalizeBearerToken(env('GH_PAT'));
+  const token = normalizeBearerToken(env('GITHUB_TOKEN', ['GH_PAT']));
   const body = await githubJson(`/repos/${repo}`, token);
   const checks = await Promise.all([
     { ok: body?.full_name === repo, detail: `repo=${body?.full_name ?? 'unknown'}; private=${body?.private === true}` },

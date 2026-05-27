@@ -6,7 +6,7 @@ const livePayload = {
   generatedAt: '2026-05-27T14:30:00.000Z',
   baseUrl: 'https://speaksharp-public.vercel.app',
   repo: 'relativityE/speaksharp',
-  runContext: 'Vercel serverless',
+  runContext: 'GitHub Actions',
   durationMs: 123,
   summary: { pass: 1, warn: 1, fail: 0, skip: 0 },
   verdict: 'NO HARD FAILURES',
@@ -49,24 +49,34 @@ const fallbackPayload = {
       status: 'skip',
       label: 'NOT READY',
       icon: '🚧',
-      evidence: 'Live check runs from the hosted Vercel API.',
+      evidence: 'GitHub Ops Health has not published a fresh result yet.',
     },
   ],
 };
 
+const jsonResponse = (body: unknown) => ({
+  ok: true,
+  headers: new Headers({ 'content-type': 'application/json' }),
+  text: async () => JSON.stringify(body),
+});
+
+const htmlResponse = (status = 200) => ({
+  ok: status >= 200 && status < 300,
+  status,
+  headers: new Headers({ 'content-type': 'text/html' }),
+  text: async () => '<!doctype html><html></html>',
+});
+
 describe('OpsStatusPage', () => {
   beforeEach(() => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => livePayload,
-    } as Response);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(livePayload) as Response);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('renders live software API status from the Vercel endpoint', async () => {
+  it('renders software API status from the GitHub-published summary', async () => {
     render(<OpsStatusPage />, { route: '/admin/ops-status', path: '/admin/ops-status' });
 
     expect(await screen.findByText('Software API Status')).toBeInTheDocument();
@@ -75,23 +85,20 @@ describe('OpsStatusPage', () => {
     expect(screen.getByText('Production app HTTP 200')).toBeInTheDocument();
     expect(screen.getByText('GitHub API')).toBeInTheDocument();
     expect(screen.getByText('rc=in_progress')).toBeInTheDocument();
-    expect(globalThis.fetch).toHaveBeenCalledWith('/api/ops-health', { cache: 'no-store' });
+    expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining('ops-health.summary.json'), { cache: 'no-store' });
   });
 
   it('falls back to static summary JSON when the live endpoint is unavailable', async () => {
     vi.mocked(globalThis.fetch)
-      .mockResolvedValueOnce({ ok: false, status: 404 } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => fallbackPayload,
-      } as Response);
+      .mockResolvedValueOnce(htmlResponse() as Response)
+      .mockResolvedValueOnce(jsonResponse(fallbackPayload) as Response);
 
     render(<OpsStatusPage />, { route: '/admin/ops-status', path: '/admin/ops-status' });
 
     await waitFor(() => {
       expect(screen.getByTestId('ops-status-verdict')).toHaveTextContent('STATIC FALLBACK ONLY');
     });
-    expect(screen.getByText('Live check runs from the hosted Vercel API.')).toBeInTheDocument();
-    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, '/ops-health/ops-health.summary.json', { cache: 'no-store' });
+    expect(screen.getByText('GitHub Ops Health has not published a fresh result yet.')).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, expect.stringContaining('ops-health.summary.json'), { cache: 'no-store' });
   });
 });

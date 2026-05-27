@@ -45,11 +45,15 @@ const ORDER: Record<OpsStatus, number> = {
   pass: 3,
 };
 
+const SUPABASE_PUBLIC_SUMMARY_URL = import.meta.env.VITE_SUPABASE_URL
+  ? `${String(import.meta.env.VITE_SUPABASE_URL).replace(/\/$/, '')}/storage/v1/object/public/ops-health/ops-health.summary.json`
+  : null;
+
 const FALLBACK_ENDPOINTS = [
-  '/api/ops-health',
+  SUPABASE_PUBLIC_SUMMARY_URL,
   '/ops-health/ops-health.summary.json',
   '/ops-health.summary.json',
-];
+].filter(Boolean) as string[];
 
 export const OpsStatusPage: React.FC = () => {
   const [payload, setPayload] = React.useState<OpsPayload | null>(null);
@@ -67,9 +71,9 @@ export const OpsStatusPage: React.FC = () => {
         if (!result.ok) {
           throw new Error(`${endpoint} returned ${result.status}`);
         }
-        const body = (await result.json()) as OpsPayload;
+        const body = await readOpsPayload(result, endpoint);
         setPayload(body);
-        setSource(endpoint);
+        setSource(sourceLabel(endpoint));
         setLoading(false);
         return;
       } catch (err) {
@@ -99,7 +103,7 @@ export const OpsStatusPage: React.FC = () => {
               Software API Status
             </h1>
             <p className="mt-3 max-w-3xl text-base text-muted-foreground">
-              A simple release-readiness view over the ops-health JSON. It shows whether the main software APIs are reachable, returning useful data, or need review.
+              A simple release-readiness view over the GitHub ops-health result. GitHub does the detailed checks; this page shows the quick go/no-go signal.
             </p>
           </div>
           <Button onClick={() => { void loadStatus(); }} disabled={loading} className="w-full md:w-auto">
@@ -197,6 +201,27 @@ function formatTimestamp(value: string) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date);
+}
+
+async function readOpsPayload(response: Response, endpoint: string): Promise<OpsPayload> {
+  const contentType = response.headers.get('content-type') ?? '';
+  const text = await response.text();
+
+  if (!contentType.includes('application/json') && text.trimStart().startsWith('<')) {
+    throw new Error(`${endpoint} returned HTML instead of ops JSON`);
+  }
+
+  try {
+    return JSON.parse(text) as OpsPayload;
+  } catch (error) {
+    throw new Error(`${endpoint} returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function sourceLabel(endpoint: string) {
+  if (endpoint.includes('/storage/v1/object/public/ops-health/')) return 'GitHub Ops Health JSON';
+  if (endpoint.includes('/ops-health/')) return 'Bundled fallback JSON';
+  return endpoint;
 }
 
 export default OpsStatusPage;
