@@ -1,0 +1,124 @@
+{
+  "generatedAt": "2026-05-27T00:00:00.000Z",
+  "baseUrl": "https://speaksharp-public.vercel.app",
+  "repo": "relativityE/speaksharp",
+  "runContext": "static fallback; live data comes from /api/ops-health on Vercel",
+  "durationMs": 0,
+  "summary": {
+    "pass": 0,
+    "warn": 0,
+    "fail": 0,
+    "skip": 9
+  },
+  "verdict": "STATIC FALLBACK ONLY",
+  "checks": [
+    {
+      "name": "App",
+      "status": "skip",
+      "label": "NOT READY",
+      "icon": "🚧",
+      "question": "Can users reach SpeakSharp?",
+      "evidence": "Live check runs from the hosted Vercel API.",
+      "nextAction": "Open the hosted Vercel page to see live status.",
+      "latencyMs": 0,
+      "checkedAt": "2026-05-27T00:00:00.000Z",
+      "drilldownUrl": "https://speaksharp-public.vercel.app"
+    },
+    {
+      "name": "Vercel API",
+      "status": "skip",
+      "label": "NOT READY",
+      "icon": "🚧",
+      "question": "Can we read the latest production deployment?",
+      "evidence": "Live check requires Vercel environment credentials.",
+      "nextAction": "Review the hosted live check.",
+      "latencyMs": 0,
+      "checkedAt": "2026-05-27T00:00:00.000Z",
+      "drilldownUrl": "https://vercel.com/dashboard"
+    },
+    {
+      "name": "Supabase API",
+      "status": "skip",
+      "label": "NOT READY",
+      "icon": "🚧",
+      "question": "Can clients reach Auth and SpeakSharp Edge Functions?",
+      "evidence": "Live check requires Supabase environment credentials.",
+      "nextAction": "Review the hosted live check.",
+      "latencyMs": 0,
+      "checkedAt": "2026-05-27T00:00:00.000Z",
+      "drilldownUrl": "https://supabase.com/dashboard"
+    },
+    {
+      "name": "AssemblyAI API",
+      "status": "skip",
+      "label": "NOT READY",
+      "icon": "🚧",
+      "question": "Can Cloud STT provider credentials reach AssemblyAI?",
+      "evidence": "Live check requires AssemblyAI environment credentials.",
+      "nextAction": "Review the hosted live check.",
+      "latencyMs": 0,
+      "checkedAt": "2026-05-27T00:00:00.000Z",
+      "drilldownUrl": "https://www.assemblyai.com/dashboard/"
+    },
+    {
+      "name": "Gemini API",
+      "status": "skip",
+      "label": "NOT READY",
+      "icon": "🚧",
+      "question": "Can AI suggestions provider credentials reach Gemini?",
+      "evidence": "Live check requires Gemini environment credentials.",
+      "nextAction": "Review the hosted live check.",
+      "latencyMs": 0,
+      "checkedAt": "2026-05-27T00:00:00.000Z",
+      "drilldownUrl": "https://aistudio.google.com/"
+    },
+    {
+      "name": "Stripe API",
+      "status": "skip",
+      "label": "NOT READY",
+      "icon": "🚧",
+      "question": "Can billing credentials reach Stripe and read product prices?",
+      "evidence": "Live check requires Stripe environment credentials.",
+      "nextAction": "Review the hosted live check.",
+      "latencyMs": 0,
+      "checkedAt": "2026-05-27T00:00:00.000Z",
+      "drilldownUrl": "https://dashboard.stripe.com/"
+    },
+    {
+      "name": "Sentry API",
+      "status": "skip",
+      "label": "NOT READY",
+      "icon": "🚧",
+      "question": "Can we query Sentry project health?",
+      "evidence": "Live check requires Sentry environment credentials.",
+      "nextAction": "Review the hosted live check.",
+      "latencyMs": 0,
+      "checkedAt": "2026-05-27T00:00:00.000Z",
+      "drilldownUrl": "https://sentry.io/"
+    },
+    {
+      "name": "PostHog API",
+      "status": "skip",
+      "label": "NOT READY",
+      "icon": "🚧",
+      "question": "Can we query PostHog analytics?",
+      "evidence": "Live check requires PostHog environment credentials.",
+      "nextAction": "Review the hosted live check.",
+      "latencyMs": 0,
+      "checkedAt": "2026-05-27T00:00:00.000Z",
+      "drilldownUrl": "https://us.posthog.com/"
+    },
+    {
+      "name": "GitHub API",
+      "status": "skip",
+      "label": "NOT READY",
+      "icon": "🚧",
+      "question": "Can we query repository metadata and release workflows?",
+      "evidence": "Live check requires GitHub environment credentials.",
+      "nextAction": "Review the hosted live check.",
+      "latencyMs": 0,
+      "checkedAt": "2026-05-27T00:00:00.000Z",
+      "drilldownUrl": "https://github.com/relativityE/speaksharp/actions"
+    }
+  ]
+}

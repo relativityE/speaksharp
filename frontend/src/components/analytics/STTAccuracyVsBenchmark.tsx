@@ -2,7 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAnalytics } from '@/hooks/useAnalytics';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ResponsiveContainer, Legend, Tooltip, BarChart, Bar, CartesianGrid, XAxis, YAxis, ReferenceLine } from 'recharts';
+import { Legend, Tooltip, BarChart, Bar, CartesianGrid, XAxis, YAxis, ReferenceLine } from 'recharts';
 
 import { useParams } from 'react-router-dom';
 
@@ -10,6 +10,7 @@ import { useParams } from 'react-router-dom';
 import benchmarkDataRaw from '../../../../tests/STT_BENCHMARKS.json';
 import { getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
+import { useChartContainerReady } from './useChartContainerReady';
 
 interface BenchmarkEntry {
     expectedAccuracy?: number | null;
@@ -29,6 +30,21 @@ interface BenchmarkVariant {
     provider?: string;
     history?: BenchmarkHistoryEntry[];
 }
+
+const ReadyChartFrame: React.FC<{
+    height: number;
+    children: (size: { width: number; height: number }) => React.ReactNode;
+}> = ({ height, children }) => {
+    const chartContainer = useChartContainerReady();
+
+    return (
+        <div ref={chartContainer.ref} style={{ height }} className="w-full">
+            {chartContainer.isReady ? children(chartContainer.size) : (
+                <div className="h-full w-full rounded-xl bg-muted/60" aria-hidden="true" />
+            )}
+        </div>
+    );
+};
 
 const STT_BENCHMARKS = benchmarkDataRaw.engines as Record<string, BenchmarkEntry>;
 
@@ -171,18 +187,20 @@ export const STTAccuracyVsBenchmark: React.FC = () => {
                     <CardTitle>Session Accuracy vs {engine} Benchmark</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <ResponsiveContainer width="100%" height={180} minWidth={1} minHeight={1}>
-                        <BarChart data={data} layout="vertical" margin={{ top: 20, right: 30, left: 60, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" horizontal={false} strokeOpacity={0.2} />
-                            <XAxis type="number" domain={[0, 100]} hide />
-                            <YAxis dataKey="name" type="category" stroke="hsl(var(--muted-foreground))" fontSize="12px" axisLine={false} tickLine={false} />
-                            <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-                            <Legend />
-                            <Bar dataKey="Session" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} barSize={24} />
-                            <Bar dataKey="Benchmark" fill="hsl(var(--secondary))" radius={[0, 4, 4, 0]} barSize={24} />
-                            <ReferenceLine x={ceiling} stroke="hsl(var(--destructive))" strokeDasharray="3 3" label={{ position: 'top', value: `Theoretical Max (${ceiling}%)`, fill: 'hsl(var(--destructive))', fontSize: 12 }} />
-                        </BarChart>
-                    </ResponsiveContainer>
+                    <ReadyChartFrame height={180}>
+                        {(size) => (
+                            <BarChart width={size.width} height={size.height} data={data} layout="vertical" margin={{ top: 20, right: 30, left: 60, bottom: 5 }}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={false} strokeOpacity={0.2} />
+                                <XAxis type="number" domain={[0, 100]} hide />
+                                <YAxis dataKey="name" type="category" stroke="hsl(var(--muted-foreground))" fontSize="12px" axisLine={false} tickLine={false} />
+                                <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+                                <Legend />
+                                <Bar dataKey="Session" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} barSize={24} />
+                                <Bar dataKey="Benchmark" fill="hsl(var(--secondary))" radius={[0, 4, 4, 0]} barSize={24} />
+                                <ReferenceLine x={ceiling} stroke="hsl(var(--destructive))" strokeDasharray="3 3" label={{ position: 'top', value: `Theoretical Max (${ceiling}%)`, fill: 'hsl(var(--destructive))', fontSize: 12 }} />
+                            </BarChart>
+                        )}
+                    </ReadyChartFrame>
                     <p className="text-xs text-muted-foreground mt-2 text-center">
                         This session used the <strong>{engine}</strong> engine. Its theoretical maximum memory-ceiling is {ceiling}%.
                     </p>
@@ -204,29 +222,33 @@ export const STTAccuracyVsBenchmark: React.FC = () => {
             <CardHeader><CardTitle>{enrichedData.length > 0 ? 'STT Accuracy vs Benchmark' : 'STT Engine Session Quality'}</CardTitle></CardHeader>
             <CardContent>
                 {enrichedData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={250} minWidth={1} minHeight={1}>
-                        <BarChart data={enrichedData} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
-                            <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} vertical={false} />
-                            <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.75rem" tickLine={false} axisLine={false} />
-                            <YAxis domain={[0, 100]} stroke="hsl(var(--muted-foreground))" fontSize="0.75rem" tickLine={false} axisLine={false} unit="%" />
-                            <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-                            <Legend wrapperStyle={{ fontSize: '12px' }} />
-                            <Bar dataKey="accuracy" name="Session Accuracy" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} barSize={24} />
-                            <Bar dataKey="ceiling" name="Theoretical Max" fill="hsl(var(--secondary))" radius={[4, 4, 0, 0]} barSize={24} />
-                        </BarChart>
-                    </ResponsiveContainer>
-                ) : engineQualityData.length > 0 ? (
-                    <div>
-                        <ResponsiveContainer width="100%" height={250} minWidth={1} minHeight={1}>
-                            <BarChart data={engineQualityData} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
+                    <ReadyChartFrame height={250}>
+                        {(size) => (
+                            <BarChart width={size.width} height={size.height} data={enrichedData} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
                                 <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} vertical={false} />
-                                <XAxis dataKey="engine" stroke="hsl(var(--muted-foreground))" fontSize="0.75rem" tickLine={false} axisLine={false} />
+                                <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.75rem" tickLine={false} axisLine={false} />
                                 <YAxis domain={[0, 100]} stroke="hsl(var(--muted-foreground))" fontSize="0.75rem" tickLine={false} axisLine={false} unit="%" />
                                 <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
                                 <Legend wrapperStyle={{ fontSize: '12px' }} />
-                                <Bar dataKey="clarity" name="Avg Clarity" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} barSize={28} />
+                                <Bar dataKey="accuracy" name="Session Accuracy" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} barSize={24} />
+                                <Bar dataKey="ceiling" name="Theoretical Max" fill="hsl(var(--secondary))" radius={[4, 4, 0, 0]} barSize={24} />
                             </BarChart>
-                        </ResponsiveContainer>
+                        )}
+                    </ReadyChartFrame>
+                ) : engineQualityData.length > 0 ? (
+                    <div>
+                        <ReadyChartFrame height={250}>
+                            {(size) => (
+                                <BarChart width={size.width} height={size.height} data={engineQualityData} margin={{ top: 20, right: 20, left: -20, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} vertical={false} />
+                                    <XAxis dataKey="engine" stroke="hsl(var(--muted-foreground))" fontSize="0.75rem" tickLine={false} axisLine={false} />
+                                    <YAxis domain={[0, 100]} stroke="hsl(var(--muted-foreground))" fontSize="0.75rem" tickLine={false} axisLine={false} unit="%" />
+                                    <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+                                    <Legend wrapperStyle={{ fontSize: '12px' }} />
+                                    <Bar dataKey="clarity" name="Avg Clarity" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} barSize={28} />
+                                </BarChart>
+                            )}
+                        </ReadyChartFrame>
                         <div className="mt-3 grid gap-2 sm:grid-cols-3">
                             {engineQualityData.slice(0, 3).map((entry) => (
                                 <div key={entry.engine} className="rounded-md border border-border bg-muted/30 px-3 py-2">

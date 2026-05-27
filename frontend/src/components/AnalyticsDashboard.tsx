@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { NavLink } from 'react-router-dom';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { toast } from '@/lib/toast';
 import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye } from 'lucide-react';
 import logger from '../lib/logger';
@@ -21,6 +21,7 @@ import { WeeklyActivityChart } from './analytics/WeeklyActivityChart';
 import { GoalsSection } from './analytics/GoalsSection';
 import { SessionComparisonDialog } from './analytics/SessionComparisonDialog';
 import { TrendChart } from './analytics/TrendChart';
+import { useChartContainerReady } from './analytics/useChartContainerReady';
 import { formatSessionRecordingMode } from '@/utils/engineLabels';
 import { ANALYTICS_THRESHOLDS, getSessionAnalysisMetrics } from '@/utils/sessionAnalysis';
 
@@ -74,6 +75,30 @@ interface SessionHistoryItemProps {
     onToggleSelect: (sessionId: string) => void;
     profileName: string;
 }
+
+interface FillerWordsTrendChartProps {
+    data: OverallStats['chartData'];
+}
+
+const FillerWordsTrendChart: React.FC<FillerWordsTrendChartProps> = ({ data }) => {
+    const chartContainer = useChartContainerReady();
+
+    return (
+        <div ref={chartContainer.ref} className="h-[260px] w-full">
+            {chartContainer.isReady ? (
+                <LineChart width={chartContainer.size.width} height={chartContainer.size.height} data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
+                        <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
+                        <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
+                        <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
+                        <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                </LineChart>
+            ) : (
+                <div className="h-full w-full rounded-xl bg-muted/60" aria-hidden="true" />
+            )}
+        </div>
+    );
+};
 
 // --- Stat Card Configuration ---
 // Exhaustive list of all available stat cards for user customization
@@ -934,17 +959,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                                             <CardHeader><CardTitle>Filler Words</CardTitle></CardHeader>
                                                             <CardContent className="space-y-6">
                                                                 {overallStats.chartData.length > 1 ? (
-                                                                    <div className="h-[260px] w-full">
-                                                                        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                                                                            <LineChart data={overallStats.chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                                                                                <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
-                                                                                <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                                                                                <YAxis stroke="hsl(var(--muted-foreground))" fontSize="0.875rem" tickLine={false} axisLine={false} />
-                                                                                <Tooltip cursor={{ fill: 'hsla(var(--secondary))' }} contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', color: 'hsl(var(--foreground))' }} />
-                                                                                <Line type="monotone" dataKey="FW/min" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                                                                            </LineChart>
-                                                                        </ResponsiveContainer>
-                                                                    </div>
+                                                                    <FillerWordsTrendChart data={overallStats.chartData} />
                                                                 ) : (
                                                                     <div className="flex items-center justify-center h-[220px] text-center text-muted-foreground"><p>Complete at least two sessions to see your filler word trend.</p></div>
                                                                 )}

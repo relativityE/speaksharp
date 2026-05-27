@@ -96,7 +96,25 @@ export async function setupE2EManifest(
   // Decouples telemetry from UI readiness to prevent network-induced flakiness
   await page.route('**/telemetry/**', route => route.fulfill({ status: 200, body: '{}' }));
 
+  // Some transpiled Playwright init callbacks reference esbuild's __name helper
+  // before the callback body executes. Seed it as a global no-op first so
+  // browser-side init scripts never fail before the E2E manifest is installed.
+  await page.addInitScript(`
+    var __name = globalThis.__name || ((target, name) => target);
+    globalThis.__name = __name;
+  `);
+
   await page.addInitScript(({ m, s, ut }: { m: unknown; s: Record<string, string>; ut: string }) => {
+    // Playwright serializes this callback into the browser. Some TS/esbuild
+    // transforms preserve function names by emitting __name(...) calls inside
+    // the serialized body, but the helper itself is otherwise outside that
+    // body. Keep a local no-op helper so browser init never trips ReferenceError.
+    const __name = <T,>(target: T, name: string): T => {
+      void name;
+      return target;
+    };
+    void __name;
+
     // 0. AUTHORITATIVE TIER SIGNAL
     const win = window as unknown as E2EWindow;
     win.__MOCK_PROFILE__ = { 

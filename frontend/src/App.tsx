@@ -43,6 +43,7 @@ const AnalyticsPage = React.lazy(() => import('./pages/AnalyticsPage'));
 const SignInPage = React.lazy(() => import('./pages/SignInPage'));
 const AuthPage = React.lazy(() => import('./pages/AuthPage'));
 const DesignSystemPage = React.lazy(() => import('./pages/DesignSystemPage'));
+const OpsStatusPage = React.lazy(() => import('./pages/OpsStatusPage').then(module => ({ default: module.OpsStatusPage })));
 const PricingPage = React.lazy(() => import('./pages/PricingPage').then(module => ({ default: module.PricingPage })));
 const TranscriptionProvider = React.lazy(() => import('./providers/TranscriptionProvider').then(module => ({ default: module.TranscriptionProvider })));
 
@@ -200,6 +201,7 @@ const App: React.FC = () => {
                   <Route path="/" element={<PageTransition><Index /></PageTransition>} />
                   <Route path="/pricing" element={<PageTransition><PricingPage /></PageTransition>} />
                   <Route path="/design" element={<PageTransition><DesignSystemPage /></PageTransition>} />
+                  <Route path="/admin/ops-status" element={<PageTransition><OpsStatusPage /></PageTransition>} />
                   <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
                   <Route path="/signup" element={<Navigate to="/auth/signup" replace />} />
                   <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />

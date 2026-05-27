@@ -6,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 const repo = process.env.GITHUB_REPOSITORY || 'relativityE/speaksharp';
 const baseUrl = (process.env.BASE_URL || 'https://speaksharp-public.vercel.app').replace(/\/$/, '');
 const outputDir = process.env.OPS_HEALTH_OUTPUT_DIR || 'ops-health';
+const publicOutputDir = process.env.OPS_HEALTH_PUBLIC_DIR || null;
 const benchmarksPath = process.env.STT_BENCHMARKS_PATH || 'tests/STT_BENCHMARKS.json';
 const generatedAt = new Date().toISOString();
 const runContext = process.env.GITHUB_ACTIONS === 'true' ? 'GitHub Actions' : 'local shell';
@@ -124,11 +125,19 @@ await row('GitHub API', 'Can we query repository metadata and release workflows?
 
 const summary = summarize(rows);
 const payload = { generatedAt, baseUrl, repo, runContext, summary, checks: rows };
+const publicPayload = renderPublicSummary(payload);
 const markdown = renderMarkdown(payload);
 
 await fs.mkdir(outputDir, { recursive: true });
 await fs.writeFile(path.join(outputDir, 'ops-health.json'), JSON.stringify(payload, null, 2));
+await fs.writeFile(path.join(outputDir, 'ops-health.summary.json'), JSON.stringify(publicPayload, null, 2));
 await fs.writeFile(path.join(outputDir, 'ops-health.md'), markdown);
+
+if (publicOutputDir) {
+  await fs.mkdir(publicOutputDir, { recursive: true });
+  await fs.writeFile(path.join(publicOutputDir, 'ops-health.summary.json'), JSON.stringify(publicPayload, null, 2));
+}
+
 console.log(markdown);
 
 if (summary.fail > 0) process.exitCode = 1;
@@ -397,19 +406,46 @@ function renderMarkdown({ generatedAt, baseUrl, repo, runContext, summary, check
   return `${lines.join('\n')}\n`;
 }
 
+function renderPublicSummary({ generatedAt, baseUrl, repo, runContext, summary, checks }) {
+  return {
+    generatedAt,
+    baseUrl,
+    repo,
+    runContext,
+    summary,
+    verdict: summary.fail > 0 ? 'ACTION REQUIRED' : 'NO HARD FAILURES',
+    checks: checks.map((check) => ({
+      name: check.name,
+      status: check.status,
+      label: verdictLabel(check),
+      icon: statusIcon(check),
+      question: check.question,
+      evidence: check.detail,
+      nextAction: nextAction(check, runContext),
+      latencyMs: check.latencyMs,
+      checkedAt: check.checkedAt,
+      drilldownUrl: check.drilldownUrl,
+    })),
+  };
+}
+
 function verdictLabel(check) {
   if (check.status === 'pass') return 'OK';
-  if (check.status === 'fail') return 'FAIL';
+  if (check.status === 'fail') return 'DOWN';
   if (check.status === 'skip') return 'NOT READY';
   return 'REVIEW';
 }
 
 function statusBadge(check) {
   const label = verdictLabel(check);
-  if (check.status === 'pass') return `🟢 ${label}`;
-  if (check.status === 'fail') return `🔴 ${label}`;
-  if (check.status === 'skip') return `🚧 ${label}`;
-  return `⚠️ ${label}`;
+  return `${statusIcon(check)} ${label}`;
+}
+
+function statusIcon(check) {
+  if (check.status === 'pass') return '🟢';
+  if (check.status === 'fail') return '🔴';
+  if (check.status === 'skip') return '🚧';
+  return '🟡';
 }
 
 function nextAction(check, runContext) {

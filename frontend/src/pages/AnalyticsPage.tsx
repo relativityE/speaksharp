@@ -83,7 +83,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
                 </div>
             )}
             {!isSessionView && isPro && (
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/12 text-primary font-medium border border-primary/30">
+                <div className="inline-flex items-center gap-2 rounded-full border border-primary bg-primary px-4 py-1.5 text-sm font-bold text-primary-foreground shadow-[var(--shadow-cta)]">
                     <span>✨ Pro Plan Active</span>
                 </div>
             )}
