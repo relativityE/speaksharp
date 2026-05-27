@@ -1,6 +1,12 @@
 import { vi, describe, it, expect, beforeEach, afterEach, Mock } from 'vitest';
 import CloudAssemblyAI from '../CloudAssemblyAI';
 import { Session } from '@supabase/supabase-js';
+import type {
+    CloudAuthContext,
+    CloudConnectionContext,
+    CloudProviderEvent,
+    CloudSttProvider,
+} from '../../providers/cloud/types';
 // Removed unused TranscriptionModeOptions, Transcript imports
 
 vi.mock('../../utils/AudioProcessor', () => ({
@@ -309,6 +315,111 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
                 speaker: undefined,
             },
         });
+    });
+
+    it('should handle AssemblyAI v3 partial Turn text from words when top-level text is empty', async () => {
+        await mode.init();
+        await mode.start();
+        const socket = LAST_SOCKET();
+        socket.simulateOpen();
+        socket.simulateBegin();
+
+        socket.simulateMessage({
+            type: 'Turn',
+            transcript: '',
+            utterance: '',
+            end_of_turn: false,
+            words: [
+                { text: 'Cloud', word_is_final: false },
+                { text: 'partial', word_is_final: false },
+            ],
+        });
+
+        expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { partial: 'Cloud partial' } });
+    });
+
+    it('honors the generic Cloud provider contract with fake provider events', async () => {
+        const receivedCustomTerms: string[][] = [];
+        const fakeProvider: CloudSttProvider = {
+            id: 'fake-cloud',
+            displayName: 'Fake Cloud Provider',
+            modelName: 'fake-model',
+            getCapabilities: () => ({
+                interimResults: true,
+                finalResults: true,
+                confidenceScores: false,
+                wordTimestamps: false,
+                speakerLabels: false,
+                customTerms: true,
+                punctuation: true,
+            }),
+            getToken: async (_context: CloudAuthContext) => ({ token: 'fake-token' }),
+            buildWebSocketUrl: (context: CloudConnectionContext) => {
+                receivedCustomTerms.push(context.customTerms);
+                return `wss://fake-cloud.example/ws?token=${context.token.token}`;
+            },
+            buildOpenMessage: () => null,
+            getAudioPolicy: () => ({
+                sampleRateHz: 16000,
+                encoding: 'pcm_s16le',
+                minPacketSamples: 800,
+                maxPacketSamples: 16000,
+                maxQueuedAudioFrames: 4000,
+                canStreamBeforeProviderReady: false,
+            }),
+            encodeAudio: (audio: Float32Array) => new Int16Array(audio.length).buffer,
+            parseMessage: (raw: string | ArrayBuffer): CloudProviderEvent[] => {
+                if (typeof raw !== 'string') return [];
+                return JSON.parse(raw) as CloudProviderEvent[];
+            },
+            buildTerminateMessage: () => 'FAKE_TERMINATE',
+            classifyClose: () => ({
+                recoverable: true,
+                reason: 'fake-close',
+                shouldPreserveTranscript: true,
+            }),
+        };
+
+        mode = new CloudAssemblyAI({
+            runId: 'fake-provider-run',
+            onTranscriptUpdate,
+            onModelLoadProgress: vi.fn(),
+            onReady,
+            onError,
+            session: { access_token: 'fake-access-token' } as Session
+        }, undefined, fakeProvider);
+
+        await mode.init();
+        await mode.start(undefined, ['ProviderSwapTerm']);
+        const socket = LAST_SOCKET();
+        socket.simulateOpen();
+
+        mode.processAudio(new Float32Array(800));
+        await mode.waitForFlush();
+        expect(socket.send).not.toHaveBeenCalled();
+
+        socket.onmessage?.({ data: JSON.stringify([{ type: 'provider-ready', sessionId: 'fake-session' }]) });
+        await mode.waitForFlush();
+        expect(onReady).toHaveBeenCalledTimes(1);
+        expect(socket.send).toHaveBeenCalledTimes(1);
+        expect(receivedCustomTerms[0]).toEqual(['ProviderSwapTerm']);
+
+        socket.onmessage?.({ data: JSON.stringify([
+            { type: 'partial', text: 'Normalized partial' },
+            { type: 'final', text: 'Normalized final.' },
+        ]) });
+
+        expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { partial: 'Normalized partial' } });
+        expect(onTranscriptUpdate).toHaveBeenCalledWith({
+            transcript: {
+                final: 'Normalized final.',
+                speaker: undefined,
+            },
+        });
+
+        vi.useRealTimers();
+        await mode.stop();
+        expect(socket.send).toHaveBeenLastCalledWith('FAKE_TERMINATE');
     });
 
     it('Pillar 4: should handle connection loss with exponential backoff', async () => {

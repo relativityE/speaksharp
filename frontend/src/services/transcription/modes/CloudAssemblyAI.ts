@@ -3,62 +3,22 @@ import type { EngineType, IPrivateSTTEngine } from '../../../contracts/IPrivateS
 import { Result, type ITranscriptionEngine, type TranscriptionModeOptions, type Transcript } from './types';
 import { getSupabaseClient } from '../../../lib/supabaseClient';
 import type { Session } from '@supabase/supabase-js';
-import { floatToInt16 } from '../utils/AudioProcessor';
 import { ENV } from '../../../config/TestFlags';
-import { FILLER_WORD_KEYS } from '../../../config';
 import { TranscriptionError } from '../errors';
-import { CLOUD_STT, CLOUD_STT_DERIVED } from '../sttConstants';
+import { CLOUD_STT } from '../sttConstants';
 import logger from '../../../lib/logger';
 import type { MicStream } from '../utils/types';
-
-// AssemblyAI v3 Universal Streaming messages. The legacy v2-style
-// SessionBegins/PartialTranscript/FinalTranscript schema is intentionally not
-// supported in this engine; keep compatibility in a provider adapter only if a
-// live contract proves it is still needed.
-interface AssemblyAIMessage {
-  type?: 'Begin' | 'Turn' | 'Termination' | 'Error' | string;
-  id?: string;
-  text?: string;
-  transcript?: string;
-  utterance?: string;
-  end_of_turn?: boolean;
-  words?: Array<{
-    text: string;
-    start: number;
-    end: number;
-    confidence: number;
-    speaker?: string;
-  }>;
-  speaker?: string;
-  confidence?: number;
-  error?: string;
-}
+import {
+  AssemblyAICloudProvider,
+} from '../providers/cloud/AssemblyAICloudProvider';
+import type {
+  CloudProviderEvent,
+  CloudProviderMetadata,
+  CloudSttProvider,
+} from '../providers/cloud/types';
 
 // Internal connection state tracking
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
-
-// AssemblyAI requires each binary audio WebSocket payload to contain 50-1000ms
-// of PCM audio. At 16kHz that is 800-16000 samples; we send 50ms chunks.
-// Do not send raw browser callback frames directly: they can be ~2-3ms and
-// trigger provider "Input Duration Violation" errors before transcription starts.
-const MIN_STREAMING_CHUNK_SAMPLES = CLOUD_STT_DERIVED.MIN_PACKET_SAMPLES;
-const MAX_QUEUED_AUDIO_FRAMES = CLOUD_STT.MAX_QUEUED_AUDIO_FRAMES;
-const CLOUD_DEFAULT_KEYTERMS = [
-  ...Object.values(FILLER_WORD_KEYS),
-  'umm',
-  'ummm',
-  'uhm',
-  'uhh',
-  'uhhh',
-  'er',
-  'err',
-  'ahm',
-  'ahhh',
-  "y'know",
-  'ya know',
-  'kinda',
-  'sorta',
-];
 
 /**
  * ARCHITECTURE:
@@ -71,6 +31,7 @@ const CLOUD_DEFAULT_KEYTERMS = [
 export default class CloudAssemblyAI extends STTEngine implements ITranscriptionEngine {
   public readonly type: EngineType = 'cloud';
 
+  private readonly provider: CloudSttProvider;
   private mockEngine?: IPrivateSTTEngine;
   private onTranscriptUpdate?: (update: { transcript: Transcript }) => void;
   private onModelLoadProgress?: (progress: number | null) => void;
@@ -94,6 +55,12 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   private receivedMessageCounts: Record<string, number> = {};
   private isManualStop: boolean = false;
   private providerReady: boolean = false;
+  private readyEmitted: boolean = false;
+  private providerSessionId: string | null = null;
+  private connectionStartedAt: string | null = null;
+  private connectionClosedAt: string | null = null;
+  private terminationReason: string | null = null;
+  private metadata: CloudProviderMetadata;
 
   // Reconnection logic
   private reconnectionAttempts: number = 0;
@@ -103,8 +70,10 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   private isReconnect: boolean = false;
   private session: Session | null = null;
 
-  constructor(options?: TranscriptionModeOptions, mockEngine?: IPrivateSTTEngine) {
+  constructor(options?: TranscriptionModeOptions, mockEngine?: IPrivateSTTEngine, provider: CloudSttProvider = new AssemblyAICloudProvider()) {
     super(options);
+    this.provider = provider;
+    this.metadata = this.buildProviderMetadata();
     this.mockEngine = mockEngine;
     this.syncCallbacks();
   }
@@ -129,20 +98,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     return this.options as TranscriptionModeOptions;
   }
 
-  private getCloudKeyterms(): string[] {
-    const userWords = this.modeOptions?.userWords ?? [];
-    const seen = new Set<string>();
-
-    return [...CLOUD_DEFAULT_KEYTERMS, ...userWords]
-      .map((word) => word.trim())
-      .filter((word) => {
-        if (!word) return false;
-        const normalized = word.toLowerCase();
-        if (seen.has(normalized)) return false;
-        seen.add(normalized);
-        return true;
-      })
-      .map((word) => word.toLowerCase());
+  public getMetadata(): CloudProviderMetadata {
+    return this.metadata;
   }
 
   /**
@@ -212,6 +169,12 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     this.pendingAudioFrames = [];
     this.pendingAudioSamples = 0;
     this.providerReady = false;
+    this.readyEmitted = false;
+    this.providerSessionId = null;
+    this.connectionStartedAt = null;
+    this.connectionClosedAt = null;
+    this.terminationReason = null;
+    this.metadata = this.buildProviderMetadata();
     
     // Only connect if not mocked
     if (!this.mockEngine) {
@@ -305,84 +268,15 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     return Result.ok('');
   }
 
-  private async fetchToken(): Promise<string> {
-    // INDUSTRY STANDARD: Environment-based auth bypass
-    // Pattern: Used by Stripe, Auth0, Twilio SDKs
-
-    if (this.isE2EEnvironment()) {
-      logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, '[CloudAssemblyAI] 🧪 Test/E2E mode - bypassing auth');
-      return this.getMockToken();
-    }
-
-    try {
-      const callbackToken = await this.modeOptions?.getAssemblyAIToken?.();
-      if (callbackToken) {
-        logger.info({
-          sId: this.serviceId,
-          rId: this.instanceId,
-          eId: this.instanceId,
-          source: 'modeOptions.getAssemblyAIToken',
-        }, '[CloudAssemblyAI] token fetched');
-        return callbackToken;
-      }
-
-      // Use the session passed in the config if available, otherwise fetch from client
-      const supabase = getSupabaseClient();
-      const session = this.session ?? (await supabase.auth.getSession()).data.session;
-      const accessToken = session?.access_token;
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assemblyai-token`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        let body = '';
-        try {
-          body = await response.text();
-        } catch (bodyError) {
-          logger.warn({
-            sId: this.serviceId,
-            rId: this.instanceId,
-            eId: this.instanceId,
-            status: response.status,
-            err: bodyError,
-          }, '[CloudAssemblyAI] Token endpoint returned non-2xx, but response body could not be read');
-        }
-        throw new Error(`Auth failed: ${response.status} ${body.slice(0, 300)}`);
-      }
-
-      const data = await response.json();
-      logger.info({
-        sId: this.serviceId,
-        rId: this.instanceId,
-        eId: this.instanceId,
-        status: response.status,
-        hasToken: typeof data.token === 'string' && data.token.length > 0,
-      }, '[CloudAssemblyAI] token fetched');
-      return data.token;
-
-    } catch (error) {
-      logger.error({
-        sId: this.serviceId,
-        rId: this.instanceId,
-        eId: this.instanceId,
-        err: error,
-        message: error instanceof Error ? error.message : String(error),
-      }, '[CloudAssemblyAI] ❌ Auth token fetch failed');
-      logger.error(`[CloudAssemblyAI] Auth token fetch failed: ${error instanceof Error ? error.message : String(error)}`);
-
-      // Fallback to mock in development
-      if (this.isDevelopmentEnvironment()) {
-        logger.warn({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, '[CloudAssemblyAI] Falling back to mock token');
-        return this.getMockToken();
-      }
-
-      throw error;
-    }
+  private async fetchToken() {
+    return this.provider.getToken({
+      modeOptions: this.modeOptions,
+      session: this.session,
+      isE2E: this.isE2EEnvironment(),
+      isDevelopment: this.isDevelopmentEnvironment(),
+      getMockToken: () => this.getMockToken(),
+      logContext: { sId: this.serviceId, rId: this.instanceId, eId: this.instanceId },
+    });
   }
 
   /** @internal */
@@ -398,6 +292,25 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     // Generate deterministic mock token for E2E
     const timestamp = Date.now();
     return `mock_token_${timestamp}_e2e`;
+  }
+
+  private buildProviderMetadata(): CloudProviderMetadata {
+    const connectionDurationSeconds = this.connectionStartedAt && this.connectionClosedAt
+      ? Math.max(0, Math.round((Date.parse(this.connectionClosedAt) - Date.parse(this.connectionStartedAt)) / 1_000))
+      : undefined;
+
+    return {
+      engineVersion: this.provider.id,
+      modelName: this.provider.modelName,
+      deviceType: 'cloud',
+      provider: this.provider.id,
+      providerModel: this.provider.modelName,
+      providerSessionId: this.providerSessionId,
+      connectionStartedAt: this.connectionStartedAt ?? undefined,
+      connectionClosedAt: this.connectionClosedAt ?? undefined,
+      connectionDurationSeconds,
+      terminationReason: this.terminationReason ?? undefined,
+    };
   }
 
   private async connect(): Promise<void> {
@@ -417,23 +330,15 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
         return;
       }
 
-      const vocabulary = this.getCloudKeyterms();
-      const connectionParams = new URLSearchParams({
-        sample_rate: String(CLOUD_STT.SAMPLE_RATE_HZ),
-        encoding: CLOUD_STT.ENCODING,
-        speech_model: CLOUD_STT.SPEECH_MODEL,
-        format_turns: 'true',
+      const wsUrl = this.provider.buildWebSocketUrl({
         token,
+        customTerms: this.modeOptions?.userWords ?? [],
       });
-
-      if (vocabulary.length > 0) {
-        connectionParams.set('keyterms_prompt', JSON.stringify(vocabulary));
-      }
-
-      const wsUrl = `wss://streaming.assemblyai.com/v3/ws?${connectionParams.toString()}`;
 
       const ws = new WebSocket(wsUrl);
       this.socket = ws;
+      this.connectionStartedAt = new Date().toISOString();
+      this.metadata = this.buildProviderMetadata();
 
       ws.onopen = () => {
         // Guard: zombie socket check
@@ -456,6 +361,14 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
         }, '[CloudAssemblyAI] WebSocket open');
         this.reconnectionAttempts = 0; // Reset counters on successful connection
         this.updateHeartbeat();
+
+        const openMessage = this.provider.buildOpenMessage?.({
+          token,
+          customTerms: this.modeOptions?.userWords ?? [],
+        });
+        if (openMessage) {
+          ws.send(openMessage);
+        }
       };
 
 
@@ -464,10 +377,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
         this.updateHeartbeat();
 
         try {
-          if (typeof event.data === 'string') {
-            const data = JSON.parse(event.data) as AssemblyAIMessage;
-            this.handleMessage(data);
-          }
+          const events = this.provider.parseMessage(event.data);
+          this.handleProviderEvents(events);
         } catch (err) {
           logger.error({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId, err, data: event.data }, '[CloudAssemblyAI] Failed to parse message');
         }
@@ -475,6 +386,11 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
       ws.onclose = (event) => {
         if (currentConnectionId !== this.connectionId) return;
+
+        const closeClassification = this.provider.classifyClose?.(event);
+        this.connectionClosedAt = new Date().toISOString();
+        this.terminationReason = closeClassification?.reason ?? event.reason ?? null;
+        this.metadata = this.buildProviderMetadata();
 
         logger.warn({
           sId: this.serviceId,
@@ -490,6 +406,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
           sentAudioChunks: this.sentAudioChunks,
           receivedMessageCounts: this.receivedMessageCounts,
           currentTranscriptLength: this.currentTranscript.length,
+          providerClose: closeClassification,
         }, '[CLOUD_WS_CLOSE]');
         
         if (this.socket === ws) {
@@ -532,58 +449,79 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     }
   }
 
-  private handleMessage(data: AssemblyAIMessage) {
-    const messageType = data.type ?? 'unknown';
-    const transcriptText = data.text ?? data.transcript ?? data.utterance ?? '';
-    this.receivedMessageCounts[messageType] = (this.receivedMessageCounts[messageType] ?? 0) + 1;
-    logger.info({
-      sId: this.serviceId,
-      rId: this.instanceId,
-      eId: this.instanceId,
-      messageType,
-      textLength: transcriptText.length,
-      counts: this.receivedMessageCounts,
-      error: data.error,
-    }, '[CloudAssemblyAI] message received');
+  private handleProviderEvents(events: CloudProviderEvent[]) {
+    for (const event of events) {
+      this.receivedMessageCounts[event.type] = (this.receivedMessageCounts[event.type] ?? 0) + 1;
+      logger.info({
+        sId: this.serviceId,
+        rId: this.instanceId,
+        eId: this.instanceId,
+        provider: this.provider.id,
+        eventType: event.type,
+        textLength: 'text' in event ? event.text.length : 0,
+        counts: this.receivedMessageCounts,
+        error: event.type === 'error' ? event.message : undefined,
+      }, '[CloudAssemblyAI] provider event received');
 
-    switch (messageType) {
-      case 'Begin':
-        this.providerReady = true;
-        logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] Session started. ID: ${data.id}`);
-        if (!this.isReconnect && this.onReady) {
-          this.onReady();
-        }
-        void this.flushAudioQueue();
-        break;
-
-      case 'Turn':
-        if (transcriptText) {
-          this.updateHeartbeat();
-          if (data.end_of_turn) {
-            this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${transcriptText}` : transcriptText;
-            this.onTranscriptUpdate?.({
-              transcript: {
-                final: transcriptText,
-                speaker: data.speaker,
-              },
-            });
-          } else {
-            this.onTranscriptUpdate?.({
-              transcript: { partial: transcriptText },
-            });
+      switch (event.type) {
+        case 'provider-ready':
+          this.providerReady = true;
+          this.providerSessionId = event.sessionId ?? null;
+          this.metadata = this.buildProviderMetadata();
+          logger.info({
+            sId: this.serviceId,
+            rId: this.instanceId,
+            eId: this.instanceId,
+            provider: this.provider.id,
+            providerSessionId: this.providerSessionId,
+          }, '[CloudAssemblyAI] Provider session ready');
+          if (!this.readyEmitted && this.onReady) {
+            this.readyEmitted = true;
+            this.onReady();
           }
-        }
-        break;
+          void this.flushAudioQueue();
+          break;
 
-      case 'Termination':
-        logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, '[CloudAssemblyAI] Session terminated by server.');
-        void this.onStop();
-        break;
+        case 'partial':
+          this.updateHeartbeat();
+          this.onTranscriptUpdate?.({
+            transcript: { partial: event.text },
+          });
+          break;
 
-    }
+        case 'final':
+          this.updateHeartbeat();
+          this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${event.text}` : event.text;
+          this.onTranscriptUpdate?.({
+            transcript: {
+              final: event.text,
+              speaker: event.speaker,
+            },
+          });
+          break;
 
-    if (data.error) {
-      logger.error({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId, error: data.error }, '[CloudAssemblyAI] API Error received');
+        case 'terminated':
+          this.terminationReason = 'provider-terminated';
+          this.metadata = this.buildProviderMetadata();
+          logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, '[CloudAssemblyAI] Session terminated by provider.');
+          void this.onStop();
+          break;
+
+        case 'error':
+          logger.error({
+            sId: this.serviceId,
+            rId: this.instanceId,
+            eId: this.instanceId,
+            provider: this.provider.id,
+            error: event.message,
+            code: event.code,
+            recoverable: event.recoverable,
+          }, '[CloudAssemblyAI] Provider error received');
+          if (!event.recoverable && this.onError) {
+            this.onError(TranscriptionError.engineFailure(this.provider.id, event.message, false));
+          }
+          break;
+      }
     }
   }
 
@@ -634,7 +572,10 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       if (this.socket.readyState === WebSocket.OPEN) {
         try {
           await this.flushAudioQueue({ forceTail: true });
-          this.socket.send(JSON.stringify({ type: 'Terminate' }));
+          const terminateMessage = this.provider.buildTerminateMessage();
+          if (terminateMessage) {
+            this.socket.send(terminateMessage);
+          }
         } catch (err) {
           logger.warn({
             sId: this.serviceId,
@@ -712,12 +653,17 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       }, '[CloudAssemblyAI] processAudio frame received');
     }
 
-    if (this.socket && this.socket.readyState === WebSocket.OPEN && this.providerReady) {
+    const audioPolicy = this.provider.getAudioPolicy();
+    const canSendAudio = this.socket
+      && this.socket.readyState === WebSocket.OPEN
+      && (this.providerReady || audioPolicy.canStreamBeforeProviderReady);
+
+    if (canSendAudio) {
       this.bufferAudioFrame(audioData);
       this.scheduleAudioFlush();
     } else {
       // Buffer audio if connecting
-      if (this.audioQueue.length < MAX_QUEUED_AUDIO_FRAMES) {
+      if (this.audioQueue.length < audioPolicy.maxQueuedAudioFrames) {
         this.audioQueue.push(audioData);
         this.queuedAudioFrames++;
       } else {
@@ -764,7 +710,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       if (
         this.isListening &&
         this.socket?.readyState === WebSocket.OPEN &&
-        (this.audioQueue.length > 0 || this.pendingAudioSamples >= MIN_STREAMING_CHUNK_SAMPLES)
+        (this.audioQueue.length > 0 || this.pendingAudioSamples >= this.provider.getAudioPolicy().minPacketSamples)
       ) {
         this.scheduleAudioFlush();
       }
@@ -776,10 +722,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       // Cloud streams tiny 50ms chunks; synchronous conversion avoids worker
       // startup/contention failures that can otherwise leave live Cloud stuck
       // receiving mic frames without sending provider audio.
-      const result = floatToInt16(audioData);
-
       if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-        this.socket.send(result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength));
+        this.socket.send(this.provider.encodeAudio(audioData));
         this.sentAudioChunks++;
         if (this.sentAudioChunks === 1 || this.sentAudioChunks % 25 === 0) {
           logger.info({
@@ -826,11 +770,15 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       }
     }
 
+    const audioPolicy = this.provider.getAudioPolicy();
+    const canSendAudio = this.providerReady || audioPolicy.canStreamBeforeProviderReady;
+    if (!canSendAudio) return;
+
     while (
-      this.pendingAudioSamples >= MIN_STREAMING_CHUNK_SAMPLES &&
+      this.pendingAudioSamples >= audioPolicy.minPacketSamples &&
       this.socket?.readyState === WebSocket.OPEN
     ) {
-      await this.sendAudioChunk(this.takeBufferedAudioChunk(MIN_STREAMING_CHUNK_SAMPLES));
+      await this.sendAudioChunk(this.takeBufferedAudioChunk(audioPolicy.minPacketSamples));
     }
 
     if (
@@ -839,7 +787,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       this.socket?.readyState === WebSocket.OPEN
     ) {
       const tail = this.takeBufferedAudioChunk(this.pendingAudioSamples);
-      const paddedTail = new Float32Array(MIN_STREAMING_CHUNK_SAMPLES);
+      const paddedTail = new Float32Array(audioPolicy.minPacketSamples);
       paddedTail.set(tail);
       await this.sendAudioChunk(paddedTail);
     }

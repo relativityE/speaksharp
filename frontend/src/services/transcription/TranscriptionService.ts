@@ -1759,6 +1759,9 @@ export default class TranscriptionService {
 
   public getStartTime(): number | null { return this.startTime; }
   public getIdempotencyKey(): string | null { return this.idempotencyKey; }
-  public getMetadata() { return this.metadata; }
+  public getMetadata() {
+    const strategyMetadata = (this.strategy as unknown as { getMetadata?: () => { engineVersion: string; modelName: string; deviceType: string } | null })?.getMetadata?.();
+    return strategyMetadata || this.metadata;
+  }
   public setSessionId(id: string | null) { this.sessionId = id; }
 }

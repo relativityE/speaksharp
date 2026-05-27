@@ -47,7 +47,12 @@ await row('Supabase API', 'Can clients reach Auth, REST, and Edge Functions?', a
   const edge = await edgePreflight('check-usage-limit');
   return combined([
     { ok: auth.ok, detail: `auth=${auth.status}` },
-    { ok: rest.ok, detail: `rest=${rest.status}` },
+    // The root PostgREST endpoint may return 401/403 when the deployment is
+    // reachable but the anonymous role is not allowed to read the schema root.
+    // That is a review signal, not proof that Supabase is unavailable.
+    rest.status === 401 || rest.status === 403
+      ? { ok: null, skipped: true, detail: `rest=${rest.status}:reachable-auth-denied` }
+      : { ok: rest.ok, detail: `rest=${rest.status}` },
     edge,
   ], 'https://supabase.com/dashboard');
 });
