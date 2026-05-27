@@ -112,7 +112,7 @@ await row('PostHog API', 'Can we query PostHog analytics?', async () => {
 });
 
 await row('GitHub API', 'Can we query repository metadata and release workflows?', async () => {
-  const token = env('GITHUB_TOKEN', ['GH_TOKEN', 'GH_PAT']);
+  const token = env('GH_PAT');
   const body = await githubJson(`/repos/${repo}`, token);
   const checks = await Promise.all([
     { ok: body?.full_name === repo, detail: `repo=${body?.full_name ?? 'unknown'}; private=${body?.private === true}` },

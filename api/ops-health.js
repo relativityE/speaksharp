@@ -103,7 +103,7 @@ export default async function handler(request, response) {
   });
 
   await row(checks, 'GitHub API', 'Can we query repository metadata and release workflows?', async () => {
-    const token = requiredEnv(env, 'GITHUB_TOKEN', ['GH_TOKEN', 'GH_PAT']);
+    const token = requiredEnv(env, 'GH_PAT');
     const repoMeta = await githubJson(`/repos/${repo}`, token);
     const rc = await latestWorkflow(token, repo, 'rc-gates.yml', 'rc');
     const ci = await latestWorkflow(token, repo, 'ci.yml', 'ci');
