@@ -103,7 +103,7 @@ export default async function handler(request, response) {
   });
 
   await row(checks, 'GitHub API', 'Can we query repository metadata and release workflows?', async () => {
-    const token = requiredEnv(env, 'GH_PAT');
+    const token = normalizeBearerToken(requiredEnv(env, 'GH_PAT'));
     const repoMeta = await githubJson(`/repos/${repo}`, token);
     const rc = await latestWorkflow(token, repo, 'rc-gates.yml', 'rc');
     const ci = await latestWorkflow(token, repo, 'ci.yml', 'ci');
@@ -331,6 +331,10 @@ function requiredEnv(env, name, aliases = []) {
     if (env[key]) return env[key];
   }
   throw new Error(`missing_env:${[name, ...aliases].join('|')}`);
+}
+
+function normalizeBearerToken(value) {
+  return value.trim().replace(/^Bearer\s+/i, '');
 }
 
 function optionalEnv(env, name, aliases = []) {

@@ -112,7 +112,7 @@ await row('PostHog API', 'Can we query PostHog analytics?', async () => {
 });
 
 await row('GitHub API', 'Can we query repository metadata and release workflows?', async () => {
-  const token = env('GH_PAT');
+  const token = normalizeBearerToken(env('GH_PAT'));
   const body = await githubJson(`/repos/${repo}`, token);
   const checks = await Promise.all([
     { ok: body?.full_name === repo, detail: `repo=${body?.full_name ?? 'unknown'}; private=${body?.private === true}` },
@@ -322,6 +322,10 @@ function env(name, aliases = []) {
     if (process.env[key]) return process.env[key];
   }
   throw new Error(`missing_env:${[name, ...aliases].join('|')}`);
+}
+
+function normalizeBearerToken(value) {
+  return value.trim().replace(/^Bearer\s+/i, '');
 }
 
 function optionalEnv(name, aliases = []) {
