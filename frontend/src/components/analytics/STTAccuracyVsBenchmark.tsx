@@ -258,7 +258,7 @@ export const STTAccuracyVsBenchmark: React.FC = () => {
                             ))}
                         </div>
                         <p className="text-xs text-muted-foreground mt-3 text-center">
-                            Based on saved session metrics. Upload a reference script to compare true WER accuracy against verified STT benchmarks.
+                            Based on saved session metrics. Formal WER benchmarks are tracked separately from private session transcripts.
                         </p>
                     </div>
                 ) : (

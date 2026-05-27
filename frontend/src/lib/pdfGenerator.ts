@@ -64,6 +64,43 @@ const getPdfFillerTableData = (session: Session): Array<[string, number]> => {
   return getFillerTableData(derivedCounts) as Array<[string, number]>;
 };
 
+const sanitizeFilenamePart = (value: string): string => {
+  const sanitized = value
+    .trim()
+    .replace(/@/g, '_')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  return sanitized || 'user';
+};
+
+const getSessionDateKey = (session: Pick<Session, 'created_at'>): string => {
+  try {
+    return format(parseISO(session.created_at), 'yyyyMMdd');
+  } catch {
+    return format(new Date(), 'yyyyMMdd');
+  }
+};
+
+export const getSessionPdfFilename = (
+  session: Session,
+  username: string = 'User',
+  sessionsForDay: Session[] = []
+): string => {
+  const identifier = username && username !== 'User' ? username : session.user_id;
+  const dateStr = getSessionDateKey(session);
+  const sameDaySessions = [...sessionsForDay, session]
+    .filter((candidate, index, arr) => arr.findIndex(item => item.id === candidate.id) === index)
+    .filter(candidate => getSessionDateKey(candidate) === dateStr)
+    .sort((a, b) => {
+      const timeDelta = Date.parse(a.created_at) - Date.parse(b.created_at);
+      return timeDelta !== 0 ? timeDelta : a.id.localeCompare(b.id);
+    });
+  const sessionNumber = Math.max(0, sameDaySessions.findIndex(candidate => candidate.id === session.id));
+
+  return `${sanitizeFilenamePart(identifier)}_session_${sessionNumber}_${dateStr}.pdf`;
+};
+
 const writePaginatedText = (
   doc: jsPDF,
   text: string,
@@ -89,9 +126,12 @@ const writePaginatedText = (
   return y;
 };
 
-export const generateSessionPdf = async (session: Session, username: string = 'User', _isPro: boolean = false) => {
-  const identifier = username && username !== 'User' ? username : session.user_id;
-
+export const generateSessionPdf = async (
+  session: Session,
+  username: string = 'User',
+  _isPro: boolean = false,
+  sessionsForDay: Session[] = []
+) => {
   try {
     toast.info("Generating PDF...", { id: 'pdf-gen' });
     const doc = new jsPDF();
@@ -225,10 +265,7 @@ export const generateSessionPdf = async (session: Session, username: string = 'U
       doc.setTextColor(0, 0, 0);
     }
 
-    // Use a friendly filename: session_YYYYMMDD_username.pdf
-    const dateStr = format(parseISO(session.created_at), 'yyyyMMdd');
-    const sanitizedIdentifier = identifier.replace(/[^a-zA-Z0-9]/g, '_');
-    const filename = `session_${dateStr}_${sanitizedIdentifier}.pdf`;
+    const filename = getSessionPdfFilename(session, username, sessionsForDay);
 
     toast.info(`Saving as: ${filename}`, { id: 'pdf-gen-name' });
 

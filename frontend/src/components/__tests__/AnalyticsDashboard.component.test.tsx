@@ -28,13 +28,6 @@ vi.mock('recharts', () => ({
     Tooltip: () => null,
 }));
 
-// Mock Sonner toast
-vi.mock('sonner', () => ({
-    toast: {
-        error: vi.fn(),
-    },
-}));
-
 // Define strict Mock Data matching Interfaces
 const mockProfile: UserProfile = {
     id: 'test-user',
@@ -309,7 +302,7 @@ describe('AnalyticsDashboard', () => {
         );
     });
 
-    it('shows PDF export in Free session detail while keeping script upload Pro-only', () => {
+    it('shows PDF export in saved session detail without script upload controls', () => {
         renderComponent({
             sessionId: 'free-session',
             profile: { ...mockProfile, subscription_status: 'free' },
@@ -330,6 +323,8 @@ describe('AnalyticsDashboard', () => {
 
         expect(screen.getByRole('button', { name: /export pdf/i })).toBeInTheDocument();
         expect(screen.queryByTestId('upload-ground-truth-btn')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /upload script|update script/i })).not.toBeInTheDocument();
+        expect(screen.queryByText(/reference script/i)).not.toBeInTheDocument();
     });
 
     it('shows visible STT engine badges on session history cards', () => {

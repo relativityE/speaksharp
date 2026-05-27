@@ -10,8 +10,6 @@ import { getEffectiveSubscriptionStatus, isPro } from '@/constants/subscriptionT
 import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { Button } from '@/components/ui/button';
 import { Mic, BarChart } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
-import { calculateWordErrorRate } from '@/lib/wer';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import {
     buildCheckoutBody,
@@ -127,45 +125,6 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         }
     };
 
-    const queryClient = useQueryClient();
-
-    const handleUpdateGroundTruth = async (sessionId: string, groundTruth: string) => {
-        try {
-            const session = sessionHistory?.find(s => s.id === sessionId);
-            if (!session) throw new Error("Session not found");
-
-            const transcript = session.transcript || "";
-            const wer = calculateWordErrorRate(groundTruth, transcript);
-            // Expert fix: Convert WER (error ratio) to accuracy percentage
-            const accuracy = Math.max(0, Math.round((1 - wer) * 100)) / 100;
-
-            const supabase = getSupabaseClient();
-            if (!supabase) throw new Error("Supabase client not available");
-
-            const { error: updateError } = await supabase
-                .from('sessions')
-                .update({
-                    ground_truth: groundTruth,
-                    accuracy: accuracy
-                })
-                .eq('id', sessionId);
-
-            if (updateError) throw updateError;
-
-            // Invalidate cache to trigger re-calculation
-            // We use the specific userId to avoid over-invalidation,
-            // though prefix matching would also work.
-            await queryClient.invalidateQueries({
-                queryKey: ["sessionHistory", profile?.id]
-            });
-
-        } catch (err: unknown) {
-            logger.error({ err }, 'Error updating ground truth:');
-            toast.error('Failed to update metrics. Please try again.');
-            throw err;
-        }
-    };
-
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = isPro(effectiveSubscriptionStatus);
 
@@ -213,7 +172,6 @@ const AuthenticatedAnalyticsView: React.FC = () => {
                 loading={isLoading}
                 error={error || null}
                 onUpgrade={() => { void handleUpgrade('analytics_empty_state'); }}
-                onUpdateGroundTruth={handleUpdateGroundTruth}
                 sessionId={sessionId}
             />
         </div>

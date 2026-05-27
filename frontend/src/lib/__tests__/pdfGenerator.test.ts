@@ -1,4 +1,4 @@
-import { generateSessionPdf } from '../pdfGenerator';
+import { generateSessionPdf, getSessionPdfFilename } from '../pdfGenerator';
 import autoTable from 'jspdf-autotable';
 import { saveAs } from 'file-saver';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -110,7 +110,32 @@ describe('generateSessionPdf', () => {
     expect(savedPdf.text).toContain('(Duration: 5 minutes) Tj');
     expect(savedPdf.text).toContain('(Transcript) Tj');
     expect(savedPdf.text).toContain('(This is a test transcript.) Tj');
-    expect(savedPdf.filename).toBe('session_20250923_TestUser.pdf');
+    expect(savedPdf.filename).toBe('TestUser_session_0_20250923.pdf');
+  });
+
+  it('names same-day sessions by user, session number, and date', () => {
+    const firstSession = {
+      ...mockSession,
+      id: 'session-a',
+      created_at: '2025-09-23T09:00:00Z',
+    };
+    const secondSession = {
+      ...mockSession,
+      id: 'session-b',
+      created_at: '2025-09-23T10:00:00Z',
+    };
+    const nextDaySession = {
+      ...mockSession,
+      id: 'session-c',
+      created_at: '2025-09-24T10:00:00Z',
+    };
+
+    expect(getSessionPdfFilename(firstSession, 'speaker@example.com', [firstSession, secondSession, nextDaySession]))
+      .toBe('speaker_example_com_session_0_20250923.pdf');
+    expect(getSessionPdfFilename(secondSession, 'speaker@example.com', [firstSession, secondSession, nextDaySession]))
+      .toBe('speaker_example_com_session_1_20250923.pdf');
+    expect(getSessionPdfFilename(nextDaySession, 'speaker@example.com', [firstSession, secondSession, nextDaySession]))
+      .toBe('speaker_example_com_session_0_20250924.pdf');
   });
 
   it('formats short session durations in seconds instead of rounding to 0 minutes', async () => {
