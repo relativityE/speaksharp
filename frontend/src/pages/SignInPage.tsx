@@ -88,7 +88,7 @@ export default function SignInPage() {
             <div className="mx-auto flex w-full max-w-md flex-col items-center space-y-8">
                 <div className="text-center space-y-2">
                     <h1 className="text-4xl font-extrabold tracking-tight text-foreground">SpeakSharp</h1>
-                    <p className="text-[#4B5563] text-lg">Master your communication skills.</p>
+                    <p className="text-muted-foreground text-lg">Master your communication skills.</p>
                 </div>
                 <Card className="w-full">
                     <CardHeader className="space-y-1 text-center pb-8">
@@ -142,7 +142,7 @@ export default function SignInPage() {
                                 <span className="w-full border-t border-border" />
                             </div>
                             <div className="relative flex justify-center text-xs uppercase">
-                                <span className="bg-card px-2 text-[#4B5563]">Or continue with</span>
+                                <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
                             </div>
                         </div>
 
@@ -160,7 +160,7 @@ export default function SignInPage() {
                         </Button>
                     </CardContent>
                 </Card>
-                <div className="text-center text-sm text-[#4B5563]">
+                <div className="text-center text-sm text-muted-foreground">
                     <p>Don't have an account? <Button variant="link" asChild><a href="/auth/signup">Create an account</a></Button></p>
                 </div>
             </div>

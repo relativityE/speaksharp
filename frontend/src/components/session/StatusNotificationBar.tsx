@@ -15,7 +15,7 @@ const statusConfig: Record<SttStatusType, { icon: React.ElementType; bgClass: st
         icon: Info,
         bgClass: 'bg-card border-[hsl(var(--border-strong))] shadow-card',
         textClass: 'text-foreground',
-        iconClass: 'text-[#4B5563]',
+        iconClass: 'text-muted-foreground',
     },
     initializing: {
         icon: Loader2,
@@ -184,7 +184,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                         {displayMessage}
                     </span>
                     {displayDetail && (
-                        <span className={`${isProminent ? 'text-xs' : 'text-[11px]'} font-normal leading-snug text-[#4B5563]`}>
+                        <span className={`${isProminent ? 'text-xs' : 'text-[11px]'} font-normal leading-snug text-muted-foreground`}>
                             {displayDetail}
                         </span>
                     )}
@@ -194,7 +194,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
             {status.isFrozen && (
                 <button
                     onClick={() => { void speechRuntimeController.switchToNative(); }}
-                    className="sm:ml-4 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-md shadow-card hover:bg-[#D97706] transition-all active:scale-95 border border-primary/30"
+                    className="sm:ml-4 px-4 py-2 bg-primary text-primary-foreground text-xs font-semibold rounded-md shadow-card hover:bg-primary/90 transition-all active:scale-95 border border-primary/30"
                     data-action="switch-to-native"
                 >
                     Switch to Native (Basic)
@@ -213,7 +213,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                         <span className="text-[11px] font-semibold text-foreground">
                             Private Model
                         </span>
-                        <span className="text-[10px] font-normal text-[#4B5563]">
+                        <span className="text-[10px] font-normal text-muted-foreground">
                             {modelLoadingProgress === 100 ? 'Complete' : 'Downloading...'}
                         </span>
                     </div>

@@ -56,14 +56,12 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
     return (
         <div className="mb-8">
             <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="dashboard-heading">{heading}</h1>
-            <p className="text-[#4B5563] mb-4">{description}</p>
+            <p className="text-muted-foreground mb-4">{description}</p>
 
             {/* Plan Banner - Only show on dashboard view, not session view */}
             {!isSessionView && !isPro && (
-                <button
-                    onClick={onUpgrade}
-                    className="w-full flex flex-col gap-3 rounded-lg border border-primary/35 bg-card px-4 py-4 text-left shadow-card transition-all hover:border-primary/60 hover:shadow-card-primary sm:flex-row sm:items-center sm:justify-between sm:px-6"
-                    data-testid="analytics-page-upgrade-button"
+                <div
+                    className="w-full flex flex-col gap-3 rounded-lg border border-l-4 border-border border-l-primary bg-card px-4 py-4 text-left shadow-card sm:flex-row sm:items-center sm:justify-between sm:px-6"
                 >
                     <div className="flex items-center gap-3">
                         <div className="rounded-lg bg-primary/15 p-2">
@@ -71,13 +69,18 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
                         </div>
                         <div className="text-left">
                             <span className="font-bold block text-base">Turn practice into progress</span>
-                            <span className="text-xs text-[#4B5563] sm:inline">Upgrade to Pro for private transcription, AI coaching, cleaner PDF reports, and deeper session history.</span>
+                            <span className="text-xs text-muted-foreground sm:inline">Upgrade to Pro for private local transcription, AI coaching, cleaner PDF reports, and deeper session history.</span>
                         </div>
                     </div>
-                    <div className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground sm:w-auto">
+                    <button
+                        type="button"
+                        onClick={onUpgrade}
+                        className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:w-auto"
+                        data-testid="analytics-page-upgrade-button"
+                    >
                         Upgrade to Pro
-                    </div>
-                </button>
+                    </button>
+                </div>
             )}
             {!isSessionView && isPro && (
                 <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/12 text-primary font-medium border border-primary/30">
@@ -175,7 +178,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         return (
             <div className="text-center py-24">
                 <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Analytics</h2>
-                <p className="text-[#4B5563] mb-6">
+                <p className="text-muted-foreground mb-6">
                     {error?.message || profileError?.message || 'Something went wrong. Please try again.'}
                 </p>
                 <Button onClick={() => window.location.reload()}>
@@ -191,7 +194,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         return (
             <div className="text-center py-24">
                 <h2 className="text-2xl font-semibold mb-4" data-testid="session-not-found-heading">Session Not Found</h2>
-                <p className="text-[#4B5563] mb-6">We couldn't find the session you're looking for.</p>
+                <p className="text-muted-foreground mb-6">We couldn't find the session you're looking for.</p>
                 <Button asChild>
                     <NavLink to="/analytics"><BarChart className="mr-2 h-4 w-4" /> View Dashboard</NavLink>
                 </Button>

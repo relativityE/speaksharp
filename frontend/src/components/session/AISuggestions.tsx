@@ -99,8 +99,8 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
       <CardContent>
         {isLoading && (
           <div className="flex justify-center items-center py-4">
-            <Loader2 className="h-8 w-8 animate-spin text-[#4B5563]" />
-            <p className="ml-2 text-[#4B5563]">Analyzing your speech...</p>
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <p className="ml-2 text-muted-foreground">Analyzing your speech...</p>
           </div>
         )}
 
@@ -115,7 +115,7 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
         )}
 
         {!suggestions && !isLoading && !error && (
-          <div className="text-center text-[#4B5563] py-4">
+          <div className="text-center text-muted-foreground py-4">
             <p>Click the button to get AI-powered feedback on your speech.</p>
             <p className="mt-2 text-xs">
               Your transcript is securely processed by our AI feedback provider only when you request suggestions.
@@ -130,9 +130,9 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ transcript, sessionId, in
             </blockquote>
             <div className="space-y-3">
               {suggestions.suggestions.map((item, index) => (
-                <div key={index} className="p-3 bg-[#F8FAFC] rounded-lg border border-[hsl(var(--border))]">
+                <div key={index} className="p-3 bg-muted/60 rounded-lg border border-[hsl(var(--border))]">
                   <h4 className="font-semibold">{item.title}</h4>
-                  <p className="text-sm text-[#4B5563]">{item.description}</p>
+                  <p className="text-sm text-muted-foreground">{item.description}</p>
                 </div>
               ))}
             </div>

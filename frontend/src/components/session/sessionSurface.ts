@@ -1,5 +1,5 @@
 export const SESSION_SURFACE_CLASS =
-    'bg-white border border-[hsl(var(--border-strong))] rounded-xl shadow-card';
+    'bg-card border border-[hsl(var(--border-strong))] rounded-xl shadow-[var(--shadow-card)]';
 
 export const SESSION_INSET_SURFACE_CLASS =
-    'bg-[#F1F5F9] border border-[hsl(var(--border))] rounded-lg';
+    'bg-muted border border-[hsl(var(--border))] rounded-lg';

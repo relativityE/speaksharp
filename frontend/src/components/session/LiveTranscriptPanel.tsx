@@ -107,7 +107,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             </div>
                             <div className="flex-1 h-px bg-gradient-to-r from-border to-transparent" />
                         </div>
-                        <div className="pl-2 border-l-2 border-primary/30 text-[#4B5563] text-base leading-relaxed italic">
+                        <div className="pl-2 border-l-2 border-primary/30 text-muted-foreground text-base leading-relaxed italic">
                             {segment.text}
                         </div>
                     </div>
@@ -125,7 +125,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 {/* Current Active Segment */}
                 {isListening && !hasTranscript && !hasInterimTranscript ? (
                     sttMode === 'private' ? (
-                        <div className="flex min-h-[120px] flex-col items-center justify-center gap-3 text-center text-[#4B5563]">
+                        <div className="flex min-h-[120px] flex-col items-center justify-center gap-3 text-center text-muted-foreground">
                             <div className={`relative flex h-14 w-14 items-center justify-center rounded-full border border-primary/25 bg-primary/5 ${hasSpeechActivity ? 'shadow-[0_0_0_8px_hsl(var(--primary)/0.08)]' : ''}`}>
                                 {hasSpeechActivity && <span className="absolute inset-0 rounded-full border border-primary/30 animate-ping" />}
                                 <WaveformMeter level={micLevel} isProcessing={hasSpeechActivity} />
@@ -135,7 +135,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             </p>
                         </div>
                     ) : (
-                        <p className="text-[#4B5563] animate-pulse">Listening...</p>
+                        <p className="text-muted-foreground animate-pulse">Listening...</p>
                     )
                 ) : hasTranscript || hasInterimTranscript ? (
                     <div className="text-foreground text-lg leading-relaxed">
@@ -161,14 +161,14 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             return <span key={token.id}>{token.transcript}</span>;
                         })}
                         {hasInterimTranscript && (
-                            <span className="text-[#4B5563]">
+                            <span className="text-muted-foreground">
                                 {hasTranscript ? ' ' : ''}
                                 {displayInterimTranscript}
                             </span>
                         )}
                     </div>
                 ) : (
-                    <p className="text-[#4B5563]">Words appear here...</p>
+                    <p className="text-muted-foreground">Words appear here...</p>
                 )}
             </div>
         </div>

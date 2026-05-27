@@ -91,7 +91,7 @@ export const speakSharpTheme = {
 
     // Shadow System - Depth & elevation
     shadows: {
-        card: '0 4px 6px -1px hsl(221 83% 53% / 0.1), 0 2px 4px -1px hsl(221 83% 53% / 0.06)',
+        card: '0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.08)',
         feature: '0 10px 25px -3px hsl(221 83% 53% / 0.15), 0 4px 6px -2px hsl(221 83% 53% / 0.05)',
         hero: '0 25px 50px -12px hsl(221 83% 53% / 0.25)',
         navigation: '0 4px 6px -1px hsl(221 83% 53% / 0.1)',

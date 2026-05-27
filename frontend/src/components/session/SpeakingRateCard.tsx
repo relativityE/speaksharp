@@ -29,12 +29,12 @@ export const SpeakingRateCard: React.FC<SpeakingRateCardProps> = ({
                 >
                     {wpm}
                 </div>
-                <p className="text-xs text-[#4B5563] mb-3 uppercase tracking-wider">Words Per Minute</p>
-                <Badge variant="secondary" className="bg-white text-[#4B5563] hover:bg-white border border-[hsl(var(--border-strong))]">
+                <p className="text-xs text-muted-foreground mb-3 uppercase tracking-wider">Words Per Minute</p>
+                <Badge variant="secondary" className="bg-white text-muted-foreground hover:bg-white border border-[hsl(var(--border-strong))]">
                     {wpmLabel || 'Not Measured'}
                 </Badge>
                 {wpmExplanation && (
-                    <p className="text-xs text-[#4B5563] leading-snug mt-3" data-testid="wpm-explanation">
+                    <p className="text-xs text-muted-foreground leading-snug mt-3" data-testid="wpm-explanation">
                         {wpmExplanation}
                     </p>
                 )}

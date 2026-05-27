@@ -93,14 +93,14 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
     {
         id: 'total_sessions',
         label: 'Total Sessions',
-        icon: <Layers size={24} className="text-[#4B5563]" />,
+        icon: <Layers size={24} className="text-muted-foreground" />,
         getValue: (stats) => stats.totalSessions,
         description: 'Number of practice sessions completed'
     },
     {
         id: 'speaking_pace',
         label: 'Speaking Pace',
-        icon: <Gauge size={24} className="text-[#4B5563]" />,
+        icon: <Gauge size={24} className="text-muted-foreground" />,
         getValue: (stats) => stats.averageWPM,
         unit: 'WPM',
         description: 'Average words per minute'
@@ -108,14 +108,14 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
     {
         id: 'filler_words_per_min',
         label: 'Avg. Filler Words / Min',
-        icon: <TrendingUp size={24} className="text-[#4B5563]" />,
+        icon: <TrendingUp size={24} className="text-muted-foreground" />,
         getValue: (stats) => stats.avgFillerWordsPerMin,
         description: 'Filler word frequency per minute'
     },
     {
         id: 'total_practice_time',
         label: 'Total Practice Time',
-        icon: <Clock size={24} className="text-[#4B5563]" />,
+        icon: <Clock size={24} className="text-muted-foreground" />,
         getValue: (stats) => stats.totalPracticeTime,
         unit: 'mins',
         description: 'Total time spent practicing'
@@ -123,7 +123,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
     {
         id: 'clarity_score',
         label: 'Clarity Score',
-        icon: <Target size={24} className="text-[#4B5563]" />,
+        icon: <Target size={24} className="text-muted-foreground" />,
         getValue: (stats) => stats.avgAccuracy,
         unit: '%',
         description: 'Average speech clarity percentage'
@@ -132,7 +132,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
     {
         id: 'avg_session_length',
         label: 'Avg. Session Length',
-        icon: <Activity size={24} className="text-[#4B5563]" />,
+        icon: <Activity size={24} className="text-muted-foreground" />,
         getValue: (stats) => stats.averageSessionLength,
         unit: 'mins',
         description: 'Average duration per session'
@@ -165,14 +165,14 @@ const getEngineBadge = (session: PracticeSession): { label: string; className: s
     if (engine.includes('native') || engine.includes('browser')) {
         return {
             label: 'Native Browser',
-            className: 'border-[hsl(var(--border-strong))] bg-[#F8FAFC] text-[#374151]',
+            className: 'border-[hsl(var(--border-strong))] bg-muted/60 text-foreground',
             icon: Monitor,
         };
     }
 
     return {
         label: 'Engine unknown',
-        className: 'border-[hsl(var(--border-strong))] bg-[#F8FAFC] text-[#374151]',
+        className: 'border-[hsl(var(--border-strong))] bg-muted/60 text-foreground',
         icon: Mic,
     };
 };
@@ -204,11 +204,6 @@ const ANALYSIS_SLIDE_OPTIONS: AnalysisSlideConfig[] = [
         description: 'Your practice frequency this week'
     },
     {
-        id: 'goals_progress',
-        label: 'Current Goals',
-        description: 'Track progress toward weekly targets'
-    },
-    {
         id: 'filler_words',
         label: 'Filler Words',
         description: 'Trend and breakdown of filler word usage'
@@ -226,7 +221,7 @@ const LEGACY_ANALYSIS_SLIDE_IDS: Record<string, string> = {
     filler_analysis: 'filler_words',
 };
 
-const DEFAULT_ANALYSIS_SLIDES = ['pace_trend', 'clarity_trend', 'filler_words', 'goals_progress'];
+const DEFAULT_ANALYSIS_SLIDES = ['pace_trend', 'clarity_trend', 'weekly_activity', 'filler_words'];
 const ANALYSIS_STORAGE_KEY = 'speaksharp_selected_analysis_slides_v6';
 
 // --- Sub-components ---
@@ -251,11 +246,11 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
                 <span className="text-3xl font-bold text-foreground tracking-tight">
                     {value}
                 </span>
-                {unit && <span className="text-sm font-medium text-[#4B5563] ml-1">{unit}</span>}
+                {unit && <span className="text-sm font-medium text-muted-foreground ml-1">{unit}</span>}
             </div>
-            <p className="text-sm text-[#4B5563] mt-1 font-medium">{label}</p>
+            <p className="text-sm text-muted-foreground mt-1 font-medium">{label}</p>
             {description && (
-                <p className="mt-3 text-xs leading-snug text-[#4B5563]" data-testid={`${testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}-explanation`}>
+                <p className="mt-3 text-xs leading-snug text-muted-foreground" data-testid={`${testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}-explanation`}>
                     {description}
                 </p>
             )}
@@ -290,7 +285,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
 
     return (
         <div
-            className="group flex flex-col md:flex-row items-center justify-between p-4 bg-[#F1F5F9] rounded-xl hover:bg-white transition-colors border border-[hsl(var(--border))] hover:border-[hsl(var(--border-strong))] shadow-card mb-3 last:mb-0"
+            className="group flex flex-col md:flex-row items-center justify-between p-4 bg-muted rounded-xl hover:bg-white transition-colors border border-[hsl(var(--border))] hover:border-[hsl(var(--border-strong))] shadow-card mb-3 last:mb-0"
             data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}
         >
             <div className="flex items-center gap-4 w-full md:w-auto mb-4 md:mb-0">
@@ -322,10 +317,10 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                                 {engineBadge.label}
                             </span>
                         </div>
-                        <div className="flex items-center gap-2 text-sm text-[#4B5563]">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Clock className="w-3 h-3" />
                             <span>{durationStr} duration</span>
-                            <span className="text-[#64748B]">•</span>
+                            <span className="text-muted-foreground">•</span>
                             <span>{formatDateTime(session.created_at)}</span>
                         </div>
                     </div>
@@ -335,23 +330,23 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
             <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end px-4 md:px-0">
                 <div className="text-center">
                     <p className="font-bold text-foreground text-lg">{wpm}</p>
-                    <p className="text-xs text-[#4B5563] font-medium uppercase tracking-wider">WPM</p>
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">WPM</p>
                 </div>
                 <div className="text-center">
                     <p className={`font-bold text-lg ${totalFillers <= 3 ? "text-success" : "text-primary"}`}>
                         {totalFillers}
                     </p>
-                    <p className="text-xs text-[#4B5563] font-medium uppercase tracking-wider">Fillers</p>
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Fillers</p>
                 </div>
                 <div className="text-center">
                     <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? clarity.toFixed(0) : '0'}%</p>
-                    <p className="text-xs text-[#4B5563] font-medium uppercase tracking-wider">Clarity</p>
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Clarity</p>
                 </div>
 
                 <div className="pl-4 border-l border-border hidden md:block" data-testid={`download-pdf-container-${session.id}`}>
                     <NavLink
                         to={`/analytics/${session.id}`}
-                        className="mb-2 inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[hsl(var(--border-strong))] bg-white px-3 text-sm font-semibold text-foreground shadow-card transition-colors hover:bg-[#F8FAFC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="mb-2 inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[hsl(var(--border-strong))] bg-white px-3 text-sm font-semibold text-foreground shadow-card transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         aria-label="Open saved session details"
                         data-testid={`open-session-detail-${session.id}`}
                     >
@@ -379,7 +374,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                 <div className="flex w-full flex-col gap-2">
                     <NavLink
                         to={`/analytics/${session.id}`}
-                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[hsl(var(--border-strong))] bg-white px-3 text-sm font-semibold text-foreground shadow-card transition-colors hover:bg-[#F8FAFC] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[hsl(var(--border-strong))] bg-white px-3 text-sm font-semibold text-foreground shadow-card transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         aria-label="Open saved session details"
                         data-testid={`open-session-detail-mobile-${session.id}`}
                     >
@@ -389,7 +384,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, isPro:
                     <Button
                         variant="secondary"
                         size="sm"
-                        className="w-full gap-2 text-[#4B5563]"
+                        className="w-full gap-2 text-muted-foreground"
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -751,23 +746,23 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 </div>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-[#4B5563]">
+                                <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-muted-foreground">
                                     <span className="uppercase tracking-wider">Recorded with</span>
-                                    <span className="rounded-md border border-[hsl(var(--border))] bg-[#F1F5F9] px-2 py-1 text-foreground" data-testid="session-engine-metadata">
+                                    <span className="rounded-md border border-[hsl(var(--border))] bg-muted px-2 py-1 text-foreground" data-testid="session-engine-metadata">
                                         {formatSessionRecordingMode(targetSession)}
                                     </span>
                                 </div>
-                                <div className="p-4 bg-[#F1F5F9] rounded-lg border border-[hsl(var(--border))] min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
+                                <div className="p-4 bg-muted rounded-lg border border-[hsl(var(--border))] min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
                                     {targetSession.transcript || "No transcript available for this session."}
                                 </div>
 
                                 {targetSession.ground_truth && (
                                     <div className="space-y-2">
-                                        <div className="flex items-center gap-2 text-xs font-semibold text-[#4B5563] uppercase tracking-wider">
+                                        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                             <Target className="h-3 w-3" />
                                             Reference Script (Ground Truth)
                                         </div>
-                                        <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg max-h-[150px] overflow-y-auto whitespace-pre-wrap text-sm italic text-[#4B5563]">
+                                        <div className="p-4 bg-primary/5 border border-primary/20 rounded-lg max-h-[150px] overflow-y-auto whitespace-pre-wrap text-sm italic text-muted-foreground">
                                             {targetSession.ground_truth}
                                         </div>
                                     </div>
@@ -867,11 +862,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         ))}
                     </div>
 
+                    <GoalsSection />
+
                     {/* Analysis Section Header with Settings */}
                     <div className="flex items-center justify-between pt-4">
                         <div className="space-y-1">
                             <h2 className="text-xl font-semibold text-foreground">Speech Pattern Analysis</h2>
-                            <p className="text-sm text-[#4B5563]">Deep dive into your speaking performance</p>
+                            <p className="text-sm text-muted-foreground">Deep dive into your speaking performance</p>
                         </div>
                         <DropdownMenu open={isAnalysisMenuOpen} onOpenChange={setIsAnalysisMenuOpen}>
                             <DropdownMenuTrigger asChild onMouseEnter={openAnalysisMenu} onMouseLeave={closeAnalysisMenu}>
@@ -932,9 +929,6 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                                     {option.id === 'weekly_activity' && (
                                                         <WeeklyActivityChart />
                                                     )}
-                                                    {option.id === 'goals_progress' && (
-                                                        <GoalsSection />
-                                                    )}
                                                     {option.id === 'filler_words' && (
                                                         <Card>
                                                             <CardHeader><CardTitle>Filler Words</CardTitle></CardHeader>
@@ -952,7 +946,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                                                         </ResponsiveContainer>
                                                                     </div>
                                                                 ) : (
-                                                                    <div className="flex items-center justify-center h-[220px] text-center text-[#4B5563]"><p>Complete at least two sessions to see your filler word trend.</p></div>
+                                                                    <div className="flex items-center justify-center h-[220px] text-center text-muted-foreground"><p>Complete at least two sessions to see your filler word trend.</p></div>
                                                                 )}
                                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                                                     <TopFillerWords />
@@ -995,7 +989,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 <div className="flex items-center justify-between mb-6">
                                     <div>
                                         <h2 className="text-xl font-bold text-foreground">Download PDF Reports</h2>
-                                        <p className="text-sm text-[#4B5563] mt-1">Generate local PDF downloads from your saved session data.</p>
+                                        <p className="text-sm text-muted-foreground mt-1">Generate local PDF downloads from your saved session data.</p>
                                         <div className="mt-3 flex items-center gap-2 text-[10px] md:text-xs font-semibold uppercase tracking-wider bg-secondary/10 text-secondary border border-secondary/20 px-3 py-1.5 rounded-full inline-flex">
                                             <Activity className="h-3 w-3" />
                                             <span>Rolling History: Last 50 Sessions Kept</span>
@@ -1023,7 +1017,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                             />
                                         ))
                                     ) : (
-                                        <div className="text-center py-12 text-[#4B5563] bg-[#F1F5F9] rounded-xl border border-dashed border-[hsl(var(--border-strong))]">
+                                        <div className="text-center py-12 text-muted-foreground bg-muted rounded-xl border border-dashed border-[hsl(var(--border-strong))]">
                                             <p>No sessions recorded yet.</p>
                                         </div>
                                     )}

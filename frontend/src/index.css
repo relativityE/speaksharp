@@ -8,23 +8,23 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 210 14% 92%;
-    --foreground: 221 39% 11%;
+    --background: 214 15% 90%;
+    --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 221 39% 11%;
+    --card-foreground: 222 47% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 221 39% 11%;
+    --popover-foreground: 222 47% 11%;
 
     --primary: 38 92% 50%;
     --primary-foreground: 221 39% 11%;
 
     --secondary: 210 17% 96%;
-    --secondary-foreground: 221 39% 11%;
+    --secondary-foreground: 222 47% 11%;
 
-    --muted: 210 17% 94%;
-    --muted-foreground: 215 16% 43%;
+    --muted: 214 20% 95%;
+    --muted-foreground: 220 9% 30%;
 
     --accent: 176 77% 26%;
     --accent-foreground: 0 0% 100%;
@@ -35,9 +35,9 @@ All colors MUST be HSL.
     --success: 160 84% 30%;
     --success-foreground: 0 0% 100%;
 
-    --border: 213 27% 84%;
-    --border-strong: 214 21% 77%;
-    --input: 213 27% 84%;
+    --border: 215 20% 78%;
+    --border-strong: 215 16% 65%;
+    --input: 215 20% 78%;
     --ring: 38 92% 50%;
 
     --radius: 0.75rem;
@@ -60,11 +60,12 @@ All colors MUST be HSL.
     --gradient-primary: linear-gradient(135deg, hsl(38 92% 50%), hsl(32 95% 44%));
     --gradient-secondary: linear-gradient(135deg, hsl(0 0% 100%), hsl(210 17% 96%));
     --gradient-hero: linear-gradient(135deg, hsl(38 92% 50%), hsl(32 95% 44%));
-    --gradient-subtle: linear-gradient(180deg, hsl(210 14% 92%) 0%, hsl(210 14% 92%) 100%);
+    --gradient-subtle: linear-gradient(180deg, hsl(214 15% 90%) 0%, hsl(214 15% 90%) 100%);
 
     --shadow-elegant: 0 12px 28px -16px rgba(15, 23, 42, 0.25);
-    --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.08), 0 10px 26px rgba(15, 23, 42, 0.12);
-    --shadow-card-primary: 0 1px 2px rgba(15, 23, 42, 0.10), 0 14px 34px rgba(15, 23, 42, 0.16);
+    --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.08);
+    --shadow-card-primary: 0 2px 4px rgba(15, 23, 42, 0.08), 0 16px 40px rgba(15, 23, 42, 0.12);
+    --shadow-cta: 0 4px 12px rgba(245, 158, 11, 0.25), 0 8px 18px rgba(245, 158, 11, 0.20);
 
     --header-height: 4rem;
     --bottom-nav-height: 5rem;
@@ -191,6 +192,13 @@ All colors MUST be HSL.
     @apply bg-background text-foreground;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  input:-webkit-autofill,
+  input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px hsl(var(--card)) inset !important;
+    -webkit-text-fill-color: hsl(var(--foreground)) !important;
+    caret-color: hsl(var(--foreground));
   }
 
   /*

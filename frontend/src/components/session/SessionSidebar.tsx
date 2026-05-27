@@ -266,7 +266,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                                         <DropdownMenuRadioItem value="private" aria-label="Private" disabled={!canAccessAdvancedModes} className="items-start py-2.5">
                                             <span className="flex flex-col gap-0.5">
                                                 <span>Private</span>
-                                                <span className="text-xs font-normal text-[#4B5563]">
+                                                <span className="text-xs font-normal text-muted-foreground">
                                                     On-device. First words may take ~5s.
                                                 </span>
                                             </span>
@@ -274,7 +274,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                                         <DropdownMenuRadioItem value="cloud" aria-label="Cloud" disabled={!canUseCloudStt} className="items-start py-2.5">
                                             <span className="flex flex-col gap-0.5">
                                                 <span>Cloud (Pro feature)</span>
-                                                <span className="text-xs font-normal text-[#4B5563]">
+                                                <span className="text-xs font-normal text-muted-foreground">
                                                     Fastest option. Audio is processed securely in the cloud.
                                                 </span>
                                             </span>
@@ -282,7 +282,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
                                         <DropdownMenuRadioItem value="native" aria-label="Native" className="items-start py-2.5">
                                             <span className="flex flex-col gap-0.5">
                                                 <span>Native</span>
-                                                <span className="text-xs font-normal text-[#4B5563]">
+                                                <span className="text-xs font-normal text-muted-foreground">
                                                     Browser speech service. Works best in Chrome or Edge.
                                                 </span>
                                             </span>
