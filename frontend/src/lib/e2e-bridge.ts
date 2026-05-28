@@ -60,6 +60,22 @@ interface E2EWindow extends Window {
     __E2E_ADVANCE_PROGRESS__?: (progress: number) => void;
 }
 
+export function shouldSkipMSW({
+    isPlaywright,
+    skipMSWEnv,
+    useLiveDBEnv,
+}: {
+    isPlaywright: boolean;
+    skipMSWEnv?: string | boolean;
+    useLiveDBEnv?: string | boolean;
+}): boolean {
+    return Boolean(isPlaywright)
+        || skipMSWEnv === true
+        || skipMSWEnv === 'true'
+        || useLiveDBEnv === true
+        || useLiveDBEnv === 'true';
+}
+
 /** Type for speech recognition result with isFinal flag */
 interface MockSpeechResult extends Array<{ transcript: string; confidence: number }> {
     isFinal?: boolean;
@@ -74,18 +90,26 @@ export const initializeE2EEnvironment = async (): Promise<void> => {
     try {
         logger.info('[E2E Bridge] Initializing E2E environment');
 
-        // 🛑 Skip MSW if we're in a Playwright test (standardizing on PW routes)
-        // This allows manual browser preview to use MSW mocks while tests stay isolated
+        // Skip MSW when Playwright route mocks or live backend flags own the network layer.
+        // This prevents the generated service worker passthrough path from handling
+        // navigation/API requests in live/manual preview runs.
         const e2eWin = window as unknown as E2EWindow;
-        const isPlaywright = e2eWin.__E2E_CONTEXT__;
+        const isPlaywright = Boolean(e2eWin.__E2E_CONTEXT__);
+        const skipMSW = shouldSkipMSW({
+            isPlaywright,
+            skipMSWEnv: import.meta.env.VITE_SKIP_MSW,
+            useLiveDBEnv: import.meta.env.VITE_USE_LIVE_DB,
+        });
 
-        if (!isPlaywright) {
+        if (!skipMSW) {
             logger.info('[E2E Bridge] Starting MSW worker for manual preview...');
             const { worker } = await import('../mocks/browser');
             await worker.start({
                 onUnhandledRequest: 'bypass',
             });
             logger.info('[E2E Bridge] MSW worker started successfully');
+        } else {
+            logger.info({ isPlaywright }, '[E2E Bridge] MSW worker skipped');
         }
 
         const e2eConfig = getE2EConfig();

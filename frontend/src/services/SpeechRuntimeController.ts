@@ -785,8 +785,12 @@ export class SpeechRuntimeController {
     }
 
     private handleTranscriptUpdate(data: TranscriptUpdate) {
+        // Keep the visible transcript store current even if the React subscriber
+        // temporarily detaches/remounts during long idle or recognition restart
+        // windows. Callback delivery can wait; user-visible text should not.
+        this.pushTranscriptToStore(data);
+
         if (this.isSubscriberReady) {
-            this.pushTranscriptToStore(data);
             this.subscriberCallbacks.onTranscriptUpdate?.(data);
             this.emitTranscriptPulse(data);
         } else {
@@ -916,7 +920,6 @@ export class SpeechRuntimeController {
         while (this.emissionQueue.length > 0) {
             const data = this.emissionQueue.shift();
             if (data) {
-                this.pushTranscriptToStore(data);
                 this.subscriberCallbacks.onTranscriptUpdate?.(data);
                 this.emitTranscriptPulse(data);
             }

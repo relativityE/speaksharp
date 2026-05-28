@@ -128,7 +128,7 @@ const App: React.FC = () => {
             const originalTransition = s.fsm.transition.bind(s.fsm);
             s.fsm.transition = (params: TranscriptionEvent) => {
               if (params.type === 'ENGINE_INIT_SUCCESS' && state === 'ENGINE_INITIALIZING') {
-                console.warn(`[TRACE] ⏸️ Pausing mid-transition as requested: ${state}`);
+                console.info(`[TRACE] Pausing mid-transition as requested: ${state}`);
                 return true; // Halt transition (Deterministic pause)
               }
               return originalTransition(params);

@@ -26,7 +26,7 @@ interface ProfileGuardProps {
  * 3. E2E Stability: Provides a clear signal ('app-loaded') for tests to wait for.
  */
 export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
-    const { session, loading: authLoading } = useAuthProvider();
+    const { session, loading: authLoading, signOut } = useAuthProvider();
     const { data: profile, isLoading: profileLoading, error: profileError, refetch } = useUserProfile();
     const setReady = useReadinessStore((state) => state.setReady);
     const loggedProfileErrorRef = React.useRef(false);
@@ -128,15 +128,21 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
                 </div>
                 <h2 className="text-2xl font-bold text-foreground mb-2">Profile Sync Failed</h2>
                 <p className="text-center text-muted-foreground max-w-md mb-8">
-                    We couldn't load your profile settings. This is usually a temporary connection issue.
+                    We couldn't load your profile settings. This is usually a temporary connection issue. If it persists, sign out and sign back in to refresh your account session.
                 </p>
-                <div className="flex gap-4">
+                <div className="flex flex-wrap justify-center gap-4">
                     <Button variant="outline" onClick={() => window.location.reload()}>
                         <RefreshCw className="mr-2 h-4 w-4" />
                         Refresh App
                     </Button>
                     <Button onClick={() => { void refetch(); }}>
                         Retry Sync
+                    </Button>
+                    <Button
+                        variant="destructive"
+                        onClick={() => { void signOut(); }}
+                    >
+                        Sign Out
                     </Button>
                 </div>
             </div>

@@ -80,6 +80,8 @@ logger.info('[React Query] ✅ QueryClient initialized');
 const sentryDSN = import.meta.env.VITE_SENTRY_DSN;
 const isTestMode = ENV.isTest || import.meta.env.VITE_TEST_MODE === 'true';
 const skipSentry = isTestMode || !sentryDSN || sentryDSN.includes('example.invalid');
+const enableSentryTracing = import.meta.env.VITE_ENABLE_SENTRY_TRACING === 'true';
+const enableSentryReplay = import.meta.env.VITE_ENABLE_SENTRY_REPLAY === 'true';
 
 logger.info({ isTestMode, sentryDSN, skipSentry }, '[main.tsx] Sentry Initialization Check');
 
@@ -89,12 +91,12 @@ if (!skipSentry) {
       dsn: import.meta.env.VITE_SENTRY_DSN,
       integrations: [
         Sentry.browserTracingIntegration(),
-        Sentry.replayIntegration(),
+        ...(enableSentryReplay ? [Sentry.replayIntegration()] : []),
       ],
       environment: import.meta.env.MODE,
-      tracesSampleRate: 1.0,
-      replaysSessionSampleRate: 0.1,
-      replaysOnErrorSampleRate: 1.0,
+      tracesSampleRate: enableSentryTracing ? 0.1 : 0,
+      replaysSessionSampleRate: enableSentryReplay ? 0.1 : 0,
+      replaysOnErrorSampleRate: enableSentryReplay ? 1.0 : 0,
       sendDefaultPii: true,
     });
     logger.info('[Sentry] Initialized successfully (early init)');
@@ -130,6 +132,9 @@ const renderApp = async (initialSession: Session | null = null) => {
               posthog.init(import.meta.env.VITE_POSTHOG_KEY, {
                 api_host: import.meta.env.VITE_POSTHOG_HOST,
                 capture_exceptions: true,
+                autocapture: false,
+                capture_pageview: false,
+                disable_session_recording: true,
                 debug: import.meta.env.MODE === 'development',
               });
               logger.info('[PostHog] Initialized successfully');

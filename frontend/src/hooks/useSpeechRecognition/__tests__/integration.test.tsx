@@ -12,6 +12,7 @@ import type { TranscriptionServiceOptions } from '@/services/transcription/Trans
 import { TranscriptionModeOptions } from '@/services/transcription/modes/types';
 import { MockTranscriptionService } from '../../../../tests/mocks/MockTranscriptionService';
 import { speechRuntimeController, type RuntimeState } from '@/services/SpeechRuntimeController';
+import { useSessionStore } from '@/stores/useSessionStore';
 import { STTStrategyFactory as _STTStrategyFactory } from '@/services/transcription/STTStrategyFactory';
 import type { Session as _SupabaseSession } from '@supabase/supabase-js';
 import type { ITranscriptionEngine as _ITranscriptionEngine } from '@/services/transcription/modes/types';
@@ -326,7 +327,8 @@ describe('useSpeechRecognition Integration', () => {
             latest!.simulateTranscript('Early message', true);
         });
 
-        expect(result.current.chunks.length).toBe(0);
+        expect(useSessionStore.getState().chunks).toHaveLength(1);
+        expect(useSessionStore.getState().chunks[0].transcript).toBe('Early message');
 
         await act(async () => {
             const mockedHandshake = speechRuntimeController.confirmSubscriberHandshake as unknown as { mockRestore?: () => void };

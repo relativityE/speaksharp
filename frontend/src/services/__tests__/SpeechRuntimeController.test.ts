@@ -274,4 +274,28 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
 
         expect(useSessionStore.getState().transcript.transcript).toBe('You know, the box was thrown beside the parked truck.');
     });
+
+    it('projects transcript updates to the visible store even when subscriber callbacks are not ready', () => {
+        const callback = vi.fn();
+        (controller as unknown as { isSubscriberReady: boolean }).isSubscriberReady = false;
+        (controller as unknown as { subscriberCallbacks: { onTranscriptUpdate?: typeof callback } }).subscriberCallbacks = {
+            onTranscriptUpdate: callback,
+        };
+
+        (controller as unknown as { handleTranscriptUpdate: (data: { transcript: { partial: string } }) => void }).handleTranscriptUpdate({
+            transcript: { partial: 'the birch canoe slid' },
+        });
+
+        expect(useSessionStore.getState().transcript.partial).toBe('the birch canoe slid');
+        expect(callback).not.toHaveBeenCalled();
+
+        (controller as unknown as { isSubscriberReady: boolean }).isSubscriberReady = true;
+        (controller as unknown as { flushQueues: () => void }).flushQueues();
+
+        expect(useSessionStore.getState().transcript.partial).toBe('the birch canoe slid');
+        expect(useSessionStore.getState().chunks).toHaveLength(0);
+        expect(callback).toHaveBeenCalledWith({
+            transcript: { partial: 'the birch canoe slid' },
+        });
+    });
 });
