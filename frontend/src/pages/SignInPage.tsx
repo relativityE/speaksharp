@@ -102,6 +102,7 @@ export default function SignInPage() {
                                 <Input
                                     id="email"
                                     type="email"
+                                    autoComplete="email"
                                     placeholder="name@example.com"
                                     required
                                     value={email}

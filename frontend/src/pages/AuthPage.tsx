@@ -191,6 +191,7 @@ export default function AuthPage() {
                     data-testid="email-input"
                     id="email"
                     type="email"
+                    autoComplete="email"
                     placeholder="name@example.com"
                     value={email}
                     onChange={(e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}

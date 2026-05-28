@@ -88,6 +88,7 @@ export default function SignUpPage() {
                                 <Input
                                     id="email"
                                     type="email"
+                                    autoComplete="email"
                                     placeholder="name@example.com"
                                     required
                                     value={email}
