@@ -31,7 +31,7 @@ export const WeeklyActivityChart: React.FC = () => {
             <Card className="h-full">
                 <CardHeader><CardTitle>Weekly Activity</CardTitle></CardHeader>
                 <CardContent>
-                    <Skeleton className="h-[250px] w-full" />
+                    <Skeleton className="h-[220px] w-full" />
                 </CardContent>
             </Card>
         );
@@ -53,7 +53,7 @@ export const WeeklyActivityChart: React.FC = () => {
             <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-semibold text-foreground">Weekly Activity</h3>
             </div>
-            <div ref={chartContainer.ref} className="h-[250px] w-full">
+            <div ref={chartContainer.ref} className="h-[220px] w-full">
                 {chartContainer.isReady ? (
                     <BarChart width={chartContainer.size.width} height={chartContainer.size.height} data={chartData}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.1} />

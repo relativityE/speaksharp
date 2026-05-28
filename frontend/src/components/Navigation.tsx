@@ -79,7 +79,7 @@ const Navigation = () => {
   ];
 
   const MobileNav = () => (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-background/95 border-t border-border shadow-card z-40 p-2 backdrop-blur-xl">
+    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-background/95 border-t border-border surface-shadow z-40 p-2 backdrop-blur-xl">
       <div className="flex justify-around items-center">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
@@ -161,7 +161,7 @@ const Navigation = () => {
                       onClick={() => { void handleUpgrade(); }}
                       disabled={isUpgrading}
                       size="sm"
-                      className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold shadow-[var(--shadow-cta)]"
+                      className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold cta-shadow"
                       data-testid="nav-upgrade-button"
                     >
                       {isUpgrading ? (
@@ -197,7 +197,7 @@ const Navigation = () => {
                   <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground transition-colors">
                     <Link to="/auth">Sign In</Link>
                   </Button>
-                  <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-5 h-9 rounded-xl shadow-[var(--shadow-cta)]" asChild>
+                  <Button size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-5 h-9 rounded-xl cta-shadow" asChild>
                     <Link to="/auth/signup">Get Started</Link>
                   </Button>
                 </>

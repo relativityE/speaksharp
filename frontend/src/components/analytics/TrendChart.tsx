@@ -32,14 +32,14 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, metric, title, des
         <Card className="rounded-xl p-6" data-testid={`${metric}-trend-chart`}>
             <div className="mb-6">
                 <h3 className="text-lg font-semibold text-foreground">{title}</h3>
-                {description && <p className="text-sm text-muted-foreground">{description}</p>}
+                {description && <p className="text-sm font-medium text-foreground/70">{description}</p>}
             </div>
 
-            <div ref={chartContainer.ref} className="h-[300px] w-full">
+            <div ref={chartContainer.ref} className="h-[240px] w-full">
                 {data.length < 2 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground bg-muted rounded-xl border border-dashed border-[hsl(var(--border-strong))]">
-                        <p className="font-medium">Not enough data yet</p>
-                        <p className="text-sm">Complete at least 2 sessions to see your {config.label.toLowerCase()} trend.</p>
+                    <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-[hsl(var(--border-strong))] bg-muted/70 px-6 text-center text-foreground/75">
+                        <p className="font-bold text-foreground">Not enough data yet</p>
+                        <p className="text-sm font-medium">Complete at least 2 sessions to see your {config.label.toLowerCase()} trend.</p>
                     </div>
                 ) : chartContainer.isReady ? (
                     <AreaChart width={chartContainer.size.width} height={chartContainer.size.height} data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>

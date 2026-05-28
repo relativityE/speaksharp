@@ -57,11 +57,11 @@ export const UserFillerWordsManager: React.FC<UserFillerWordsManagerProps> = ({ 
             <div className="mb-4">
                 <h4 className="font-semibold flex items-center gap-2">
                     User Words
-                    <span className={`text-xs font-normal ${isAtLimit ? 'text-destructive' : 'text-muted-foreground'}`}>
+                    <span className={`text-xs font-semibold ${isAtLimit ? 'text-destructive' : 'text-foreground/70'}`}>
                         ({vocabulary.length}/{maxWords})
                     </span>
                 </h4>
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className="mt-1 text-xs font-medium text-foreground/70">
                     Add words you want tracked.
                 </p>
             </div>
@@ -126,7 +126,7 @@ export const UserFillerWordsManager: React.FC<UserFillerWordsManagerProps> = ({ 
                         ))}
                     </div>
                 ) : (
-                    <p className="text-xs text-muted-foreground text-center py-2">
+                    <p className="py-2 text-center text-xs font-medium text-foreground/70">
                         No user words yet.
                     </p>
                 )}

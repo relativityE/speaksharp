@@ -37,7 +37,7 @@ export function useGoals() {
                     return data;
                 }
             } catch (err) {
-                logger.error({ err }, '[useGoals] Fetch failed');
+                logger.info({ err }, '[useGoals] Fetch failed; falling back to local defaults');
             }
 
             const stored = safeLocalStorageGet(GOALS_STORAGE_KEY);

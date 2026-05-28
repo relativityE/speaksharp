@@ -28,7 +28,7 @@ export const ClarityScoreCard: React.FC<ClarityScoreCardProps> = ({
             <h3 className="text-base font-semibold text-foreground mb-2">Speech Clarity</h3>
             <div className={`${SESSION_INSET_SURFACE_CLASS} p-3`}>
                 <div className="flex items-center justify-between mb-1">
-                    <span className="text-muted-foreground text-sm font-medium">Clarity Score</span>
+                    <span className="text-sm font-semibold text-foreground/75">Clarity Score</span>
                     <span className="text-primary font-bold" data-testid="clarity-score-value">
                         {isClarityScorable ? `${displayScore}%` : '--'}
                     </span>
@@ -39,11 +39,11 @@ export const ClarityScoreCard: React.FC<ClarityScoreCardProps> = ({
                         style={{ width: `${barWidth}%` }}
                     />
                 </div>
-                <p className="text-xs text-muted-foreground text-right mb-1">
+                <p className="mb-1 text-right text-xs font-semibold text-foreground/70">
                     {clarityLabel || 'Not measured yet'}
                 </p>
                 {clarityExplanation && (
-                    <p className="text-xs text-muted-foreground leading-snug text-right" data-testid="clarity-score-explanation">
+                    <p className="text-right text-xs font-medium leading-snug text-foreground/70" data-testid="clarity-score-explanation">
                         {clarityExplanation}
                     </p>
                 )}

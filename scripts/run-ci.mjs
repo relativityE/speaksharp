@@ -38,6 +38,7 @@ global.__CI_TIMINGS__ = [];
 function buildAuditModel(ciTelemetry) {
     const stages = ciTelemetry.stages || [];
     const hasFatalFailure = stages.some(s => s.status === 'FAILED' || s.status === 'ABORTED');
+    const invalidEvidence = readInvalidRcEvidence();
 
     const pw = ciTelemetry.tests.playwright;
     const vi = ciTelemetry.tests.vitest;
@@ -58,13 +59,15 @@ function buildAuditModel(ciTelemetry) {
     const e2eFailed = (pw?.failed || 0) > 0;
 
     const testsRan = process.argv.includes('--skip-test') || (unitRan && e2eRan);
-    const testsPassed = !unitFailed && !e2eFailed;
+    const e2eFlaky = (pw?.flaky || 0) > 0;
+    const testsPassed = !unitFailed && !e2eFailed && !e2eFlaky;
 
     const pipelineSuccess = !hasFatalFailure && testsRan && testsPassed;
-    const status = pipelineSuccess ? 'PASSED' : 'FAILED';
+    const status = invalidEvidence ? 'INVALID' : pipelineSuccess ? 'PASSED' : 'FAILED';
 
     return {
         status,
+        invalidEvidence,
         runtime: ciTelemetry.totalDuration || 0,
         unit: {
             passed: vi?.passed || 0,
@@ -85,6 +88,28 @@ function buildAuditModel(ciTelemetry) {
         lighthouse: ciTelemetry.lighthouse,
         sqm: ciTelemetry.sqm
     };
+}
+
+function readInvalidRcEvidence() {
+    const invalidArtifactPath = path.join(rootDir, 'test-results', 'sandbox-eperm-preview-bind.json');
+    if (!fs.existsSync(invalidArtifactPath)) return null;
+
+    try {
+        const parsed = JSON.parse(fs.readFileSync(invalidArtifactPath, 'utf8'));
+        if (parsed?.sandboxEperm === true || parsed?.countsAsRcEvidence === false) {
+            return parsed;
+        }
+    } catch (error) {
+        return {
+            status: 'invalid',
+            reason: 'invalid_evidence_artifact_unreadable',
+            sandboxEperm: true,
+            countsAsRcEvidence: false,
+            message: error instanceof Error ? error.message : String(error),
+        };
+    }
+
+    return null;
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -745,6 +770,9 @@ async function main() {
         printFinalSummary(auditModel);
         generateMarkdownReport(rootDir, auditModel);
         generateGitHubSummary(auditModel);
+        if (auditModel.status !== 'PASSED') {
+            process.exitCode = 1;
+        }
 
     } catch (error) {
         console.error(`\n${ANSI.RED}${ANSI.BOLD}❌ CI Pipeline Failed: ${error.message}${ANSI.RESET}`);
@@ -793,7 +821,7 @@ async function main() {
         // Write machine-readable telemetry
         const telemetryData = {
             ...ciTelemetry,
-            status: stagesList.some(s => s.status === 'FAILED') ? 'failed' : 'success',
+            status: buildAuditModel(ciTelemetry).status.toLowerCase(),
             totalDuration: ((Date.now() - startTime) / 1000).toFixed(2),
             rcEvidence: {
                 ...rcEvidence,
@@ -912,13 +940,19 @@ function printFinalSummary(auditModel) {
     const sqm = auditModel.sqm;
     const runtime = auditModel.runtime;
     const success = auditModel.status === 'PASSED';
+    const invalid = auditModel.status === 'INVALID';
 
     console.log('\n' + renderBox("SpeakSharp CI Audit", 44));
     console.log('────────────────────────\n');
 
     // Build
     console.log(`${ANSI.BOLD}Status${ANSI.RESET}`);
-    console.log(`  Value:  ${success ? ANSI.GREEN + 'PASSED' : ANSI.RED + 'FAILED'}${ANSI.RESET}\n`);
+    console.log(`  Value:  ${success ? ANSI.GREEN + 'PASSED' : invalid ? ANSI.YELLOW + 'INVALID / NOT EVIDENCE' : ANSI.RED + 'FAILED'}${ANSI.RESET}\n`);
+    if (auditModel.invalidEvidence) {
+        console.log(`${ANSI.BOLD}Invalid Evidence${ANSI.RESET}`);
+        console.log(`  Reason:  ${ANSI.YELLOW}${auditModel.invalidEvidence.reason || 'unknown'}${ANSI.RESET}`);
+        console.log(`  Message: ${auditModel.invalidEvidence.message || 'Artifact cannot be used to close RC gates.'}\n`);
+    }
 
     // Unit Tests
     console.log(`${ANSI.BOLD}Unit Tests${ANSI.RESET}`);
@@ -1000,6 +1034,9 @@ function generateMarkdownReport(rootDir, auditModel) {
     const lh = auditModel.lighthouse;
     const sqm = auditModel.sqm;
     const success = auditModel.status === 'PASSED';
+    const invalidEvidence = auditModel.invalidEvidence
+        ? `\n## ⚠️ Invalid RC Evidence\n- **Reason**: ${auditModel.invalidEvidence.reason || 'unknown'}\n- **Counts as RC Evidence**: ${auditModel.invalidEvidence.countsAsRcEvidence === false ? 'false' : 'unknown'}\n- **Message**: ${auditModel.invalidEvidence.message || 'Artifact cannot be used to close RC gates.'}\n`
+        : '';
     const unitFailures = formatFailureList(v.failures, '_No unit-test failures recorded._');
     const e2eFailures = formatFailureList(p.failures, '_No E2E failures recorded._');
     const e2eFlaky = formatFailureList(p.flakyTests, '_No flaky E2E tests recorded._');
@@ -1008,9 +1045,10 @@ function generateMarkdownReport(rootDir, auditModel) {
 > Generated at: ${new Date().toISOString()}
 
 ## 📊 Summary
-**Status**: ${success ? '✅ PASSED' : '❌ FAILED'}
+**Status**: ${success ? '✅ PASSED' : auditModel.status === 'INVALID' ? '⚠️ INVALID / NOT EVIDENCE' : '❌ FAILED'}
 **SQM Score**: ${sqm?.score || 0} / 100
 **Pipeline Runtime**: ${auditModel.runtime}s
+${invalidEvidence}
 
 ## 🧪 Test Results
 ### Unit Tests

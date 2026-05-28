@@ -29,14 +29,14 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
         <div className={`${SESSION_SURFACE_CLASS} p-4 h-full ${className}`}>
             <div className="flex items-center justify-between mb-2">
                 <h2 className="text-lg font-semibold text-foreground">
-                    Filler Words <span data-testid="filler-count-value" className="text-muted-foreground ml-1">{fillerCount > 0 ? `(${fillerCount})` : ''}</span>
+                    Filler Words <span data-testid="filler-count-value" className="text-foreground/70 ml-1">{fillerCount > 0 ? `(${fillerCount})` : ''}</span>
                 </h2>
                 {headerAction}
             </div>
 
             {fillerCount === 0 && Object.keys(fillerData).length > 1 && (
-                <p className="mb-3 text-xs font-medium text-muted-foreground">
-                    No filler words detected yet.
+                <p className="mb-3 rounded-lg border border-dashed border-[hsl(var(--border-strong))] bg-muted/70 px-3 py-2 text-xs font-semibold text-foreground/80">
+                    No filler words detected yet. Tracked words are listed below.
                 </p>
             )}
 
@@ -48,9 +48,9 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
                         const isZero = data.count === 0;
                         const wordColor = getWordColor(word.toLowerCase());
                         return (
-                            <div key={word} className="flex items-center justify-between" data-testid="filler-badge">
+                            <div key={word} className={`flex items-center justify-between rounded-md px-2 py-1 ${isZero ? 'bg-transparent' : 'bg-white border border-[hsl(var(--border))]'}`} data-testid="filler-badge">
                                 <span
-                                    className={`text-sm px-2 py-0.5 rounded border ${isZero ? 'font-semibold text-muted-foreground' : 'font-bold'}`}
+                                    className={`text-sm px-2 py-0.5 rounded border ${isZero ? 'font-semibold text-foreground/70' : 'font-bold'}`}
                                     style={{
                                         color: isZero ? undefined : wordColor,
                                         borderColor: isZero ? 'transparent' : `${wordColor}40`,
@@ -61,7 +61,7 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
                                 </span>
                                 <span
                                     data-testid="filler-badge-count"
-                                    className={`font-bold ${!isZero ? "" : "text-muted-foreground"}`}
+                                    className={`font-bold ${!isZero ? "" : "text-foreground/70"}`}
                                     style={{ color: !isZero ? wordColor : undefined }}
                                 >
                                     {data.count}
@@ -71,11 +71,11 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
                     })
                 }
                 {Object.keys(fillerData).length <= 1 && ( // Account for 'total' key
-                    <p className="text-sm text-muted-foreground italic text-center py-2">No words defined</p>
+                    <p className="py-2 text-center text-sm font-medium italic text-foreground/70">No words defined</p>
                 )}
             </div>
             {fillerExplanation && (
-                <p className="text-xs text-muted-foreground leading-snug mt-3 border-t border-[hsl(var(--border))] pt-3" data-testid="filler-explanation">
+                <p className="mt-3 border-t border-[hsl(var(--border))] pt-3 text-xs font-medium leading-snug text-foreground/75" data-testid="filler-explanation">
                     {fillerExplanation}
                 </p>
             )}

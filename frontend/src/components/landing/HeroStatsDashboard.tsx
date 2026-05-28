@@ -101,7 +101,7 @@ export const HeroStatsDashboard = ({ className = "" }: HeroStatsDashboardProps) 
         <div className={`relative ${className}`}>
             {/* Main Dashboard Card */}
             <motion.div
-                className="bg-white rounded-lg border border-border shadow-card p-6 md:p-8"
+                className="bg-white rounded-lg border border-border surface-shadow p-6 md:p-8"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.5, ease: "easeOut" }}

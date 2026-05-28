@@ -290,18 +290,31 @@ export async function waitForApp(page: Page) {
 }
 
 
-export async function waitForAppReadySignal(page: Page, timeout: number = 45000) {
-  debugLog('Awaiting deterministic BOOT BARRIER...');
+export async function waitForAppVisibleReady(page: Page, timeout: number = 45000) {
+  debugLog('Awaiting deterministic VISIBLE APP BARRIER...');
 
-  // 🛡️ AUTHORITATIVE CONTRACT: data-app-ready is set on <html> by forensicAnchors.ts
-  // 🛡️ ACCESSIBILITY: We use state: 'attached' because <html> fails visibility checks
+  // data-app-ready means React boot/render path reached.
   await page.locator('html[data-app-ready="true"]').waitFor({
     state: 'attached',
     timeout
   });
+
+  // data-app-visible-ready means the route shell has committed visible content.
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({
+    state: 'attached',
+    timeout
+  });
+
+  await page.waitForFunction(() => {
+    const shell = document.querySelector('[data-testid="app-main"], main, #root');
+    const visibleText = document.body?.innerText?.trim() ?? '';
+    return Boolean(shell) && visibleText.length > 0;
+  }, { timeout });
 }
 
-/** @deprecated Use waitForAppReadySignal. */
+/** @deprecated Use waitForAppVisibleReady. */
+export const waitForAppReadySignal = waitForAppVisibleReady;
+/** @deprecated Use waitForAppVisibleReady. */
 export const waitForAppReady = waitForAppReadySignal;
 
 /**

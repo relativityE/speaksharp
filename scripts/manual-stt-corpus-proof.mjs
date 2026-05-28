@@ -540,7 +540,7 @@ async function runFixture(page, mode, fixture) {
     }
   }
   await page.goto(sessionUrl.toString(), { waitUntil: 'domcontentloaded' });
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 60_000 });
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
   await selectMode(page, mode);
 
   await page.evaluate(() => {
@@ -630,9 +630,9 @@ async function runFixture(page, mode, fixture) {
   };
 
   await page.goto(`${BASE_URL}/analytics`, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 30_000 }).catch(() => undefined);
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 30_000 }).catch(() => undefined);
   await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => undefined);
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 30_000 }).catch(() => undefined);
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 30_000 }).catch(() => undefined);
   result.historyVisible = await page.getByTestId(/^session-history-item-/).first().isVisible({ timeout: 15_000 }).catch(() => false);
   result.detailVisible = await page.getByTestId(/^open-session-detail-/).first().isVisible({ timeout: 5_000 }).catch(() => false);
   result.analyticsBodySample = compact(await page.locator('body').textContent().catch(() => '')).slice(0, 1000);

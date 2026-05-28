@@ -21,6 +21,7 @@ interface EmptyStateProps {
     };
     icon?: React.ReactNode;
     className?: string;
+    compact?: boolean;
     testId?: string;
 }
 
@@ -31,14 +32,15 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
     secondaryAction,
     icon,
     className,
+    compact = false,
     testId,
 }) => {
     return (
-        <div className={cn("flex flex-col items-center justify-center text-center p-8 md:p-12 border-2 border-dashed rounded-xl bg-white", className)} data-testid={testId}>
-            <div className="flex items-center justify-center w-20 h-20 rounded-full bg-primary/10 mb-6 animate-pulse-ring">
+        <div className={cn("flex flex-col items-center justify-center rounded-xl border border-dashed border-[hsl(var(--border-strong))] bg-white text-center surface-shadow", compact ? "p-6 md:p-6" : "p-8 md:p-12", className)} data-testid={testId}>
+            <div className={cn("flex items-center justify-center rounded-full bg-primary/10 animate-pulse-ring", compact ? "mb-4 h-12 w-12" : "mb-6 h-20 w-20")}>
                 {icon || (
                     <svg
-                        className="w-10 h-10 text-primary"
+                        className={cn("text-primary", compact ? "h-6 w-6" : "h-10 w-10")}
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -53,8 +55,8 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
                     </svg>
                 )}
             </div>
-            <h3 className="text-xl font-semibold text-foreground mb-2">{title}</h3>
-            <p className="text-muted-foreground max-w-sm mb-8">{description}</p>
+            <h3 className={cn("font-semibold text-foreground", compact ? "mb-2 text-lg" : "mb-2 text-xl")}>{title}</h3>
+            <p className={cn("font-medium text-foreground/70", compact ? "mb-5 max-w-md text-sm" : "mb-8 max-w-sm")}>{description}</p>
             {action && (
                 action.href ? (
                     <Button asChild size="lg" className="font-medium">
@@ -68,7 +70,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
             )}
             {/* Subtle secondary action - text link or clickable text */}
             {secondaryAction && (
-                <p className="mt-4 text-xs text-muted-foreground">
+                <p className="mt-4 text-xs font-medium text-foreground/70">
                     {secondaryAction.prefix && <span>{secondaryAction.prefix} </span>}
                     {secondaryAction.href ? (
                         <Link

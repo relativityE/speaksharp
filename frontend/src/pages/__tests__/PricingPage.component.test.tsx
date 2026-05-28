@@ -32,7 +32,7 @@ describe('PricingPage', () => {
             renderPricingPage();
 
             expect(screen.getByText('Choose your SpeakSharp plan')).toBeInTheDocument();
-            expect(screen.getByText(/Start with browser transcription/)).toBeInTheDocument();
+            expect(screen.getByText(/Start free with browser transcription/)).toBeInTheDocument();
         });
 
         it('should render Free tier', () => {
@@ -59,7 +59,7 @@ describe('PricingPage', () => {
             expect(screen.getByText('Save last 5 sessions')).toBeInTheDocument();
             expect(screen.getByText('AI-assisted feedback')).toBeInTheDocument();
             expect(screen.getByText('Watermarked PDF exports')).toBeInTheDocument();
-            expect(screen.getByText('Privacy-first sponsor support may appear outside practice')).toBeInTheDocument();
+            expect(screen.getByText('Free may include privacy-respecting sponsor messages outside practice')).toBeInTheDocument();
         });
 
         it('should render Pro tier features', () => {
@@ -69,7 +69,7 @@ describe('PricingPage', () => {
             expect(screen.getByText('Practice analytics and trends')).toBeInTheDocument();
             expect(screen.getByText('Save all sessions')).toBeInTheDocument();
             expect(screen.getByText('Private transcription')).toBeInTheDocument();
-            expect(screen.getByText('Cloud transcription')).toBeInTheDocument();
+            expect(screen.getByText('Cloud transcription for serious workflows')).toBeInTheDocument();
             expect(screen.getByText('More AI feedback and PDF export capacity')).toBeInTheDocument();
         });
 

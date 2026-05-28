@@ -54,12 +54,12 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
     return (
         <div className="mb-8">
             <h1 className="text-3xl font-bold text-foreground mb-2" data-testid="dashboard-heading">{heading}</h1>
-            <p className="text-muted-foreground mb-4">{description}</p>
+            <p className="mb-4 text-sm font-medium text-foreground/70 sm:text-base">{description}</p>
 
             {/* Plan Banner - Only show on dashboard view, not session view */}
             {!isSessionView && !isPro && (
                 <div
-                    className="w-full flex flex-col gap-3 rounded-lg border border-l-4 border-border border-l-primary bg-card px-4 py-4 text-left shadow-card sm:flex-row sm:items-center sm:justify-between sm:px-6"
+                    className="w-full flex flex-col gap-3 rounded-lg border border-l-4 border-border border-l-primary bg-card px-4 py-4 text-left surface-shadow sm:flex-row sm:items-center sm:justify-between sm:px-6"
                 >
                     <div className="flex items-center gap-3">
                         <div className="rounded-lg bg-primary/15 p-2">
@@ -67,7 +67,9 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
                         </div>
                         <div className="text-left">
                             <span className="font-bold block text-base">Turn practice into progress</span>
-                            <span className="text-xs text-muted-foreground sm:inline">Upgrade to Pro for private local transcription, AI coaching, cleaner PDF reports, and deeper session history.</span>
+                            <span className="text-sm font-medium text-foreground/70 sm:inline">
+                                Pro adds private local transcription, AI coaching, cleaner PDF reports, and deeper session history.
+                            </span>
                         </div>
                     </div>
                     <button
@@ -81,8 +83,8 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
                 </div>
             )}
             {!isSessionView && isPro && (
-                <div className="inline-flex items-center gap-2 rounded-full border border-primary bg-primary px-4 py-1.5 text-sm font-bold text-primary-foreground shadow-[var(--shadow-cta)]">
-                    <span>✨ Pro Plan Active</span>
+                <div className="inline-flex items-center gap-2 rounded-full border border-primary bg-primary px-4 py-1.5 text-sm font-bold text-primary-foreground cta-shadow">
+                    <span>Pro active</span>
                 </div>
             )}
         </div>
@@ -137,7 +139,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         return (
             <div className="text-center py-24">
                 <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Analytics</h2>
-                <p className="text-muted-foreground mb-6">
+                <p className="mb-6 font-medium text-foreground/70">
                     {error?.message || profileError?.message || 'Something went wrong. Please try again.'}
                 </p>
                 <Button onClick={() => window.location.reload()}>
@@ -153,7 +155,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         return (
             <div className="text-center py-24">
                 <h2 className="text-2xl font-semibold mb-4" data-testid="session-not-found-heading">Session Not Found</h2>
-                <p className="text-muted-foreground mb-6">We couldn't find the session you're looking for.</p>
+                <p className="mb-6 font-medium text-foreground/70">We couldn't find the session you're looking for.</p>
                 <Button asChild>
                     <NavLink to="/analytics"><BarChart className="mr-2 h-4 w-4" /> View Dashboard</NavLink>
                 </Button>

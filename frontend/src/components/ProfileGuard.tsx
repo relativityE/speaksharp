@@ -8,6 +8,8 @@ import { ProfileProvider } from '../contexts/ProfileContext';
 import { useReadinessStore } from '@/stores/useReadinessStore';
 import { UserProfile } from '../types/user';
 import { syncProfileReady } from '@/lib/forensicAnchors';
+import logger from '@/lib/logger';
+import * as Sentry from '@sentry/react';
 
 interface ProfileGuardProps {
     children: React.ReactNode;
@@ -27,10 +29,12 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
     const { session, loading: authLoading } = useAuthProvider();
     const { data: profile, isLoading: profileLoading, error: profileError, refetch } = useUserProfile();
     const setReady = useReadinessStore((state) => state.setReady);
+    const loggedProfileErrorRef = React.useRef(false);
 
     // Signal Profile Readiness for E2E stability
     React.useEffect(() => {
         if (profile) {
+            loggedProfileErrorRef.current = false;
             setReady('profile');
             syncProfileReady(true);
             // Dispatch Architectural Event for E2E listeners (Gold Standard)
@@ -43,6 +47,24 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
             syncProfileReady(false);
         }
     }, [profileLoading, profile, setReady]);
+
+    React.useEffect(() => {
+        if (!profileError || loggedProfileErrorRef.current) {
+            return;
+        }
+
+        loggedProfileErrorRef.current = true;
+        Sentry.captureException(profileError, {
+            tags: {
+                surface: 'profile_guard',
+                failure: 'profile_fetch_exhausted',
+            },
+            extra: {
+                userId: session?.user?.id,
+            },
+        });
+        logger.error({ error: profileError, userId: session?.user?.id }, '[ProfileGuard] Profile fetch failed after retries');
+    }, [profileError, session?.user?.id]);
 
     // 🧪 Ensure ProfileContext integrity for E2E System Probes
     // Provides a synthetic guest profile to satisfy the "Guaranteed Context" 

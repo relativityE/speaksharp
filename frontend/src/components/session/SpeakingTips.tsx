@@ -56,7 +56,7 @@ export const SpeakingTips: React.FC = () => {
             </CardHeader>
             <CardContent>
                 <h4 className="font-semibold text-foreground mb-1">{tip.title}</h4>
-                <p className="text-sm text-muted-foreground">{tip.description}</p>
+                <p className="text-sm font-medium leading-relaxed text-foreground/70">{tip.description}</p>
             </CardContent>
         </Card>
     );

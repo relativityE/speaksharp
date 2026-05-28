@@ -4,6 +4,7 @@ import { profileService } from "../services/domainServices";
 import { UserProfile } from "../types/user";
 import logger from "../lib/logger";
 import { ENV } from "../config/TestFlags";
+import * as Sentry from "@sentry/react";
 
 declare global {
   interface Window {
@@ -19,8 +20,8 @@ declare global {
  * This hook uses React Query's retry mechanism with exponential backoff.
  * 
  * OBSERVABILITY:
- * - Retry attempts are logged via Pino (captured by Sentry)
- * - Failures after max retries trigger error logging
+ * - Retry attempts are logged as info and attached to Sentry as breadcrumbs
+ * - Failures after max retries trigger one explicit Sentry error in ProfileGuard
  * - Production monitoring should alert on high retry rates
  * 
  * CONFIGURATION: Retry behavior is injectable for testing.
@@ -111,8 +112,20 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
         return profile;
       } catch (error) {
         const duration = Date.now() - startTime;
-        // This error will cause React Query to retry - log for observability
-        logger.error({ error, userId: session.user.id, durationMs: duration }, '[useUserProfile] Profile fetch failed (will retry)');
+        // React Query owns retry/final failure state. Keep retry attempts out of
+        // Sentry's console error/warn capture so transient aborts do not page us.
+        Sentry.addBreadcrumb({
+          category: 'profile.fetch',
+          level: 'info',
+          message: 'Profile fetch attempt failed; React Query will retry',
+          data: {
+            userId: session.user.id,
+            durationMs: duration,
+            errorName: error instanceof Error ? error.name : typeof error,
+            errorMessage: error instanceof Error ? error.message : String(error),
+          },
+        });
+        logger.info({ error, userId: session.user.id, durationMs: duration }, '[useUserProfile] Profile fetch attempt failed; React Query will retry');
         throw error; // Re-throw to trigger React Query retry
       }
     },

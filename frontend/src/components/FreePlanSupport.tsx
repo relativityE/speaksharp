@@ -38,7 +38,7 @@ export function FreePlanSupport({ tier, placement, isRecording = false, isTrialP
 
   return (
     <aside
-      className="rounded-lg border border-border bg-card p-4 shadow-card"
+      className="rounded-lg border border-border bg-card p-4 surface-shadow"
       data-testid={`free-plan-support-${placement}`}
       aria-label="Free plan support"
     >
@@ -46,9 +46,9 @@ export function FreePlanSupport({ tier, placement, isRecording = false, isTrialP
         <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" />
         Free plan support
       </div>
-      <p className="text-sm font-semibold text-foreground">Privacy-respecting sponsor messages help keep Free practice available.</p>
+      <p className="text-sm font-semibold text-foreground">Free may include privacy-respecting sponsor messages outside practice.</p>
       <p className="mt-2 text-sm text-muted-foreground">
-        We never use your transcript or speaking data for ads. Pro is ad-free.
+        Your transcript and speaking data are never used for ads. Pro is ad-free.
       </p>
       <Button variant="outline" size="sm" className="mt-4" onClick={handleUpgrade}>
         Upgrade to Pro

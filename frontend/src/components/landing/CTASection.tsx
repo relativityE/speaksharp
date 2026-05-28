@@ -10,14 +10,14 @@ export const CTASection = () => {
     }, []);
 
     return (
-        <section aria-label="Call to Action" className="w-full py-16 md:py-24">
+        <section aria-label="Call to Action" className="w-full py-10 md:py-12">
             <div className="container px-4 md:px-6 max-w-3xl mx-auto">
-                <div className="bg-white border border-border rounded-lg p-10 md:p-14 text-center space-y-5 shadow-card">
+                <div className="bg-white border border-border rounded-lg p-8 md:p-10 text-center space-y-4 surface-shadow">
                     <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-foreground leading-tight">
                         Ready to Speak with{' '}
                         <span className="text-amber-700">Confidence?</span>
                     </h2>
-                    <p className="text-base text-muted-foreground max-w-xl mx-auto">
+                    <p className="mx-auto max-w-xl text-base font-medium text-foreground/70">
                         Start your journey to clearer communication today. No credit card required.
                     </p>
                     <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">

@@ -48,7 +48,7 @@ test('Pro Cloud live STT can transcribe, save, and show analytics history', asyn
   await recordCloudSessionUntilTranscript(page, cloudConsoleEvents);
 
   await page.goto('/analytics');
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 45_000 });
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
   await expect(page.getByTestId(/^session-history-item-/).first()).toBeVisible({ timeout: 45_000 });
 });
 

@@ -12,6 +12,7 @@ import { useReadinessStore } from '@/stores/useReadinessStore';
 import { useCriticalQueries } from './hooks/useCriticalQueries';
 import { SSE2EWindow } from './config/TestFlags';
 import type { TranscriptionState, TranscriptionEvent } from './services/transcription/TranscriptionFSM';
+import { setAppVisibleReady } from '@/lib/forensicAnchors';
 
 /**
  * ARCHITECTURE:
@@ -153,6 +154,14 @@ const App: React.FC = () => {
   // 1. Reset route readiness on navigation
   useEffect(() => {
     useReadinessStore.getState().resetRouterReady();
+    setAppVisibleReady(false);
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const visibleText = document.body?.innerText?.trim() ?? '';
+        setAppVisibleReady(visibleText.length > 0);
+      });
+    });
+    return () => cancelAnimationFrame(frame);
   }, [location.pathname]);
 
   // ✅ STRUCTURAL FIX: Hard Termination Boundary (Step 4)

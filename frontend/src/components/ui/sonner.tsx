@@ -17,7 +17,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         duration: 3500,
         classNames: {
           toast:
-            "group toast group-[.toaster]:bg-white group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-card group-[.toaster]:rounded-xl group-[.toaster]:px-4 group-[.toaster]:py-3 group-[.toaster]:text-sm group-[.toaster]:font-medium",
+            "group toast surface-shadow group-[.toaster]:bg-white group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:rounded-xl group-[.toaster]:px-4 group-[.toaster]:py-3 group-[.toaster]:text-sm group-[.toaster]:font-medium",
           description: "group-[.toast]:!text-slate-600 group-[.toast]:!opacity-100 group-[.toast]:text-[13px] group-[.toast]:font-normal group-[.toast]:leading-snug group-[.toast]:line-clamp-2",
           title: "group-[.toast]:text-sm group-[.toast]:font-semibold group-[.toast]:text-foreground group-[.toast]:leading-tight",
           actionButton:

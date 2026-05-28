@@ -23,7 +23,7 @@ describe('UpgradePromptDialog', () => {
     it('renders the dialog when open is true', () => {
         render(<UpgradePromptDialog open={true} onOpenChange={() => { }} />);
         expect(screen.getByText('Unlock Your Full Potential')).toBeInTheDocument();
-        expect(screen.getByText('View Plans')).toBeInTheDocument();
+        expect(screen.getByText('Upgrade to Pro')).toBeInTheDocument();
         expect(screen.getByText('Maybe Later')).toBeInTheDocument();
     });
 
@@ -34,7 +34,7 @@ describe('UpgradePromptDialog', () => {
         expect(onOpenChange).toHaveBeenCalledWith(false);
     });
 
-    it('opens pricing instead of surprise-starting Stripe checkout on "View Plans" click', () => {
+    it('opens pricing instead of surprise-starting Stripe checkout on "Upgrade to Pro" click', () => {
         const onOpenChange = vi.fn();
         render(<UpgradePromptDialog open={true} onOpenChange={onOpenChange} />);
         fireEvent.click(screen.getByTestId('upgrade-prompt-dialog-upgrade-button'));

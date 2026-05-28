@@ -151,7 +151,7 @@ export const SessionPage: React.FC = () => {
             <div className="py-4 px-6 max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-3">
                 <div className="text-center md:col-start-2">
                     <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
-                    <p className="text-xs font-medium text-muted-foreground">Record, review, and track your speaking patterns</p>
+                    <p className="text-xs font-semibold text-foreground/70">Record, review, and track your speaking patterns</p>
                 </div>
 
                 <div className="flex justify-center md:col-start-3 md:justify-end">
@@ -159,7 +159,7 @@ export const SessionPage: React.FC = () => {
                         <Button
                             type="button"
                             onClick={handlePrivateSetup}
-                            className="h-10 w-full max-w-xs gap-2 bg-primary text-xs font-bold text-primary-foreground shadow-[var(--shadow-cta)] hover:bg-primary/90 md:w-auto"
+                            className="h-10 w-full max-w-xs gap-2 bg-primary text-xs font-bold text-primary-foreground cta-shadow hover:bg-primary/90 md:w-auto"
                             data-testid="download-model-button"
                         >
                             <Download className="h-4 w-4" />
@@ -244,7 +244,7 @@ export const SessionPage: React.FC = () => {
                                                 Custom
                                             </Button>
                                         </PopoverTrigger>
-                                        <PopoverContent className="w-80 bg-white border-[hsl(var(--border-strong))] shadow-card mr-6">
+                                        <PopoverContent className="w-80 bg-white border-[hsl(var(--border-strong))] surface-shadow mr-6">
                                             <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
                                         </PopoverContent>
                                     </Popover>

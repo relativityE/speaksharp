@@ -71,13 +71,15 @@ export default function SignUpPage() {
             <div className="mx-auto flex w-full max-w-md flex-col items-center space-y-8">
                 <div className="text-center space-y-2">
                     <h1 className="text-4xl font-extrabold tracking-tight text-foreground">SpeakSharp</h1>
-                    <p className="text-muted-foreground text-lg">Master your communication skills.</p>
+                    <p className="text-lg font-medium text-muted-foreground">Master your communication skills.</p>
                 </div>
 
                 <Card className="w-full">
                     <CardHeader className="space-y-1 text-center pb-8">
                         <CardTitle className="text-2xl font-bold tracking-tight">Create an account</CardTitle>
-                        <CardDescription className="text-base">Enter your email below to create your account</CardDescription>
+                        <CardDescription className="text-base font-medium">
+                            Start free, then upgrade to Pro when you want deeper coaching.
+                        </CardDescription>
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4" data-testid="auth-form">
@@ -103,8 +105,8 @@ export default function SignUpPage() {
                                     onChange={(e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                                 />
                             </div>
-                            <p className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
-                                New accounts include a 60-minute Pro trial automatically. Cloud STT is available with Pro. Trial access includes Private STT.
+                            <p className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-medium text-foreground">
+                                Start with a 60-minute Pro trial. Try Private transcription, analytics, and feedback. Cloud transcription is available on Pro.
                             </p>
 
                             {error && (

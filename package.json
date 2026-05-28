@@ -57,6 +57,7 @@
     "ops:health": "node scripts/ops-health.mjs",
     "rc:sast:secrets": "node scripts/rc-secret-scan.mjs",
     "rc:dast:local": "cross-env BASE_URL= pnpm build:test && cross-env BASE_URL= pnpm exec playwright test tests/e2e/primary-journey.e2e.spec.ts tests/e2e/user-features.e2e.spec.ts tests/e2e/error-states.e2e.spec.ts tests/e2e/analytics-truth.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=test-results/playwright-dast-local",
+    "verify:test-users": "node scripts/verify-test-users.mjs",
     "rc:dast:live": "node scripts/rc-dast-live-preflight.mjs && cross-env VITE_USE_LIVE_DB=true pnpm exec playwright test tests/live/cloud-token-gates.live.spec.ts tests/live/stripe-checkout-readiness.live.spec.ts tests/live/stripe-webhook-readiness.live.spec.ts tests/live/user-filler-words-persistence.live.spec.ts tests/live/stt-switching-contract.live.spec.ts --config=playwright.deployed-live.config.ts --project=deployed-live-chromium --reporter=line",
     "rc:ux:smoke": "cross-env BASE_URL= pnpm build:test && cross-env BASE_URL= pnpm exec playwright test tests/e2e/primary-journey.e2e.spec.ts tests/e2e/user-features.e2e.spec.ts tests/e2e/error-states.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=test-results/playwright-ux-smoke",
     "rc:gate:1:product": "node scripts/rc-gate-product.mjs",

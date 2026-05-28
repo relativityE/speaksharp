@@ -32,26 +32,26 @@ export const PauseMetricsDisplay: React.FC<PauseMetricsDisplayProps> = ({ metric
             <CardContent className="p-4 pt-2 space-y-3">
                 <div className="grid grid-cols-2 gap-x-6">
                     <div className="flex items-baseline gap-2">
-                        <span className="text-sm text-muted-foreground font-medium">Total Pauses</span>
+                        <span className="text-sm font-semibold text-foreground/75">Total Pauses</span>
                         <span className="text-2xl font-bold font-mono text-foreground">{metrics.totalPauses}</span>
                     </div>
                     <div className="flex items-baseline gap-2">
-                        <span className="text-sm text-muted-foreground font-medium">Per Minute</span>
+                        <span className="text-sm font-semibold text-foreground/75">Per Minute</span>
                         <span className="text-2xl font-bold font-mono text-foreground">{metrics.pausesPerMinute.toFixed(1)}</span>
                     </div>
                 </div>
 
                 <div className="flex justify-between items-center text-sm border-t border-border pt-3 mt-1">
-                    <div className="flex items-center gap-2 text-muted-foreground">
+                    <div className="flex items-center gap-2 font-medium text-foreground/70">
                         <Clock className="h-4 w-4" />
                         Average: <span className="text-foreground font-bold">{formatDuration(metrics.averagePauseDuration)}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
+                    <div className="flex items-center gap-2 font-medium text-foreground/70">
                         <Clock className="h-4 w-4" />
                         Longest: <span className="text-foreground font-bold">{formatDuration(metrics.longestPause)}</span>
                     </div>
                 </div>
-                <p className="text-xs text-muted-foreground leading-snug" data-testid="pause-explanation">
+                <p className="text-xs font-medium leading-snug text-foreground/70" data-testid="pause-explanation">
                     {explanation}
                 </p>
             </CardContent>

@@ -24,12 +24,12 @@ const itemVariants = {
 
 const FeatureCard: React.FC<FeatureCardProps> = ({ icon, title, description, iconBgColor, iconTextColor }) => (
   <motion.div variants={itemVariants} className="h-full group cursor-pointer">
-    <div className="p-8 h-full rounded-lg bg-white border border-border transition-all duration-400 hover:-translate-y-1 hover:shadow-card hover:border-primary/30">
+    <div className="p-8 h-full rounded-lg bg-white border border-border surface-shadow transition-all duration-400 hover:-translate-y-1 hover:border-primary/30">
       <div className={`w-16 h-16 rounded-lg flex items-center justify-center ${iconBgColor} ${iconTextColor} mb-6 group-hover:scale-105 group-hover:bg-primary/30 transition-all duration-400`}>
         {icon}
       </div>
       <h3 className="text-xl font-bold text-foreground transition-colors duration-400">{title}</h3>
-      <p className="text-sm text-muted-foreground mt-3 leading-relaxed">{description}</p>
+      <p className="mt-3 text-sm font-medium leading-relaxed text-foreground/70">{description}</p>
     </div>
   </motion.div>
 );
@@ -60,10 +60,10 @@ const features = [
 
 export const FeaturesSection = () => {
   return (
-    <section aria-label="Key Features" className="w-full py-24 md:py-32 relative overflow-hidden">
+    <section aria-label="Key Features" className="w-full py-12 md:py-14 relative overflow-hidden">
       <div className="container px-4 md:px-6 relative z-10">
         <motion.div
-          className="flex flex-col items-center justify-center space-y-4 text-center mb-16"
+          className="flex flex-col items-center justify-center space-y-3 text-center mb-8"
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
@@ -73,17 +73,17 @@ export const FeaturesSection = () => {
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700">
               Key Features
             </span>
-            <h2 className="text-3xl sm:text-5xl font-bold text-foreground leading-tight tracking-tight mt-4">
+            <h2 className="text-3xl sm:text-5xl font-bold text-foreground leading-tight tracking-tight mt-3">
               Everything you need to <span className="text-amber-700">practice</span>
             </h2>
-            <p className="text-lg text-muted-foreground leading-relaxed max-w-[800px] mt-4">
+            <p className="mt-3 max-w-[760px] text-lg font-medium leading-relaxed text-foreground/70">
               SpeakSharp provides a suite of tools designed for focused speech practice, review, and coaching feedback.
             </p>
           </div>
         </motion.div>
 
         <motion.div
-          className="mx-auto grid max-w-6xl items-start gap-8 sm:grid-cols-2 lg:grid-cols-3 mt-12"
+          className="mx-auto grid max-w-6xl items-start gap-5 sm:grid-cols-2 lg:grid-cols-3 mt-6"
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true }}

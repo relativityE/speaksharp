@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2 } from 'lucide-react';
@@ -12,72 +11,35 @@ const benefits = [
     "Live practice feedback",
 ];
 
-const itemVariants = {
-    hidden: { opacity: 0, y: 10 },
-    visible: {
-        opacity: 1,
-        y: 0,
-        transition: {
-            duration: 0.4,
-            ease: [0.22, 1, 0.36, 1] as [number, number, number, number]
-        }
-    }
-};
-
 export const BenefitsSection = () => {
     return (
-        <section aria-label="Platform Benefits" className="w-full py-24 md:py-32">
+        <section aria-label="Platform Benefits" className="w-full py-12 md:py-14">
             <div className="container px-4 md:px-6 max-w-5xl mx-auto text-center">
-                {/* Heading */}
-                <motion.div
-                    className="space-y-4 mb-12"
-                    initial={{ opacity: 0, y: 20 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.6 }}
-                >
+                <div className="space-y-3 mb-6">
                     <h2 className="text-3xl sm:text-5xl font-bold text-foreground leading-tight tracking-tight">
-                        Transform Your{' '}
+                        Turn practice into{' '}
                         <span className="text-amber-700">
-                            Communication
+                            confident communication
                         </span>
                     </h2>
-                    <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+                    <p className="mx-auto max-w-2xl text-lg font-medium text-foreground/70">
                         Practice with structured feedback that helps you notice patterns and build stronger speaking habits.
                     </p>
-                </motion.div>
+                </div>
 
-                {/* Benefits 3x2 Grid */}
-                <motion.div
-                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-10"
-                    initial="hidden"
-                    whileInView="visible"
-                    viewport={{ once: true }}
-                    variants={{
-                        visible: {
-                            transition: { staggerChildren: 0.08 }
-                        }
-                    }}
-                >
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-7">
                     {benefits.map((benefit, i) => (
-                        <motion.div
+                        <div
                             key={i}
-                            variants={itemVariants}
-                            className="flex items-center gap-3 px-6 py-4 rounded-xl bg-white border border-border text-left shadow-sm"
+                            className="flex items-center gap-3 px-6 py-4 rounded-xl bg-white border border-border text-left surface-shadow"
                         >
                             <CheckCircle2 className="size-5 text-success flex-shrink-0" />
                             <span className="text-sm font-medium text-foreground/80">{benefit}</span>
-                        </motion.div>
+                        </div>
                     ))}
-                </motion.div>
+                </div>
 
-                {/* CTA */}
-                <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ delay: 0.4, duration: 0.4 }}
-                >
+                <div>
                     <Button
                         size="lg"
                         className="px-8 h-12 text-base"
@@ -85,7 +47,7 @@ export const BenefitsSection = () => {
                     >
                         <Link to="/auth/signup">Get Started Free</Link>
                     </Button>
-                </motion.div>
+                </div>
             </div>
         </section>
     );

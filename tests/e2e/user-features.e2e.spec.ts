@@ -101,7 +101,7 @@ test.describe('Exhaustive User Feature Matrix', () => {
 
     // 7. Identity: Pro Badge visibility on dashboard view
     await navigateToRoute(page, '/analytics');
-    await expect(page.getByText(/Pro Plan Active/i)).toBeVisible();
+    await expect(page.getByText(/Pro active/i)).toBeVisible();
     await expect(page.getByTestId('nav-upgrade-button')).not.toBeVisible();
   });
 

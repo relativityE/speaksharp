@@ -37,7 +37,7 @@ const tiers: Tier[] = [
       'Save last 5 sessions',
       'AI-assisted feedback',
       'Watermarked PDF exports',
-      'Privacy-first sponsor support may appear outside practice',
+      'Free may include privacy-respecting sponsor messages outside practice',
     ],
     cta: 'Start Free',
     action: 'signup',
@@ -52,7 +52,7 @@ const tiers: Tier[] = [
       'Practice analytics and trends',
       'Save all sessions',
       'Private transcription',
-      'Cloud transcription',
+      'Cloud transcription for serious workflows',
       'More AI feedback and PDF export capacity',
       'Ad-free experience',
     ],
@@ -106,7 +106,7 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
   };
 
   return (
-    <Card className={`relative flex h-full flex-col border-border bg-card shadow-card ${tier.isPopular ? 'border-primary' : ''}`}>
+    <Card className={`relative flex h-full flex-col border-border bg-card surface-shadow ${tier.isPopular ? 'border-primary' : ''}`}>
       {tier.isPopular && (
         <div className="absolute right-5 top-5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900 border border-amber-200 shadow-none">
           <Zap className="h-3 w-3" />
@@ -147,7 +147,7 @@ export const PricingPage: React.FC = () => {
       <div className="mx-auto max-w-4xl text-center mb-10">
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Choose your SpeakSharp plan</h1>
         <p className="text-base text-muted-foreground mt-3 sm:text-lg">
-          Start with browser transcription, AI feedback, and PDF reports, then upgrade when you need private models, cloud transcription, and deeper history.
+          Start free with browser transcription and core feedback, then upgrade to Pro when you need private models, cloud transcription, AI coaching, and deeper history.
         </p>
       </div>
       <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2">
@@ -156,7 +156,7 @@ export const PricingPage: React.FC = () => {
         ))}
       </div>
       <div className="mx-auto mt-8 flex max-w-4xl flex-wrap items-center justify-center gap-3 text-sm text-muted-foreground">
-        {['Privacy-first practice', 'Private STT available', 'Cloud STT is a Pro feature'].map((label) => (
+        {['Privacy-first practice', 'Transcript data is never used for ads', 'Cloud STT is a Pro feature'].map((label) => (
           <span key={label} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5">
             <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" />
             {label}

@@ -36,10 +36,10 @@ export const HeroSection = () => {
   }, []);
 
   return (
-    <section aria-label="Hero" className="relative w-full pt-24 md:pt-32 pb-16 md:pb-24 overflow-hidden">
+    <section aria-label="Hero" className="relative w-full pt-[5.5rem] md:pt-24 pb-8 md:pb-10 overflow-hidden">
       {/* Background gradient now handled by page wrapper in Index.tsx */}
       <div className="container relative z-10 px-4 md:px-6 max-w-7xl mx-auto">
-        <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-start">
+        <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-start">
           {/* Left Column: Text Content */}
           <motion.div
             className="flex flex-col space-y-6"
@@ -65,13 +65,13 @@ export const HeroSection = () => {
 
             <motion.p
               variants={itemVariants}
-              className="text-lg text-muted-foreground leading-relaxed max-w-xl font-medium"
+            className="text-lg font-medium leading-relaxed text-foreground/70 max-w-xl"
             >
               Practice with live feedback, filler word detection, and coaching insights that help you track patterns and speak with more confidence.
             </motion.p>
 
             {/* Buttons + Trust badges share the same max-width so edges align */}
-            <div className="max-w-md w-full pt-6 space-y-4">
+            <div className="max-w-md w-full pt-4 space-y-4">
               <motion.div variants={itemVariants} className="flex flex-col gap-3 sm:flex-row sm:gap-4">
                 <Button size="lg" className="flex-1 h-14 text-base" asChild>
                   <Link
@@ -91,7 +91,7 @@ export const HeroSection = () => {
                 </Button>
               </motion.div>
 
-            <motion.div variants={itemVariants} className="grid grid-cols-1 gap-2 text-sm text-muted-foreground font-medium sm:grid-cols-3">
+            <motion.div variants={itemVariants} className="grid grid-cols-1 gap-2 text-sm font-semibold text-foreground/70 sm:grid-cols-3">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="size-4 text-amber-700" />
                   <span>Free to start</span>

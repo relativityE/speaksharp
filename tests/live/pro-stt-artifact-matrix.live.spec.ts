@@ -176,7 +176,7 @@ async function waitForSaveableRecordingDuration(page: Page, recordingStartedAt: 
 
 async function openLatestAnalyticsDetail(page: Page) {
   await page.goto('/analytics');
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 45_000 });
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
 
   const savedSession = page.getByTestId(/^session-history-item-/).first();
   await expect(savedSession, 'latest saved session should be visible in history').toBeVisible({ timeout: 45_000 });

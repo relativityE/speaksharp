@@ -103,7 +103,7 @@ export const SpeakingTipsCard: React.FC<SpeakingTipsCardProps> = ({
             </h2>
             <div className="space-y-0.5">
                 <h4 className="font-medium text-foreground text-sm">{tip.title}</h4>
-                <p className="text-muted-foreground text-sm leading-relaxed">
+                <p className="text-sm font-medium leading-relaxed text-foreground/70">
                     {tip.description}
                 </p>
             </div>

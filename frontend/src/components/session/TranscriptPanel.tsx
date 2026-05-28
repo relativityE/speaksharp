@@ -36,10 +36,10 @@ interface TranscriptPanelProps {
 
 const EmptyStatePanel: React.FC = () => (
     <div className="absolute inset-0 flex items-center justify-center">
-        <div className="text-center text-muted-foreground">
+        <div className="text-center text-foreground/75">
             <MicOff className="w-12 h-12 mx-auto mb-4" />
-            <p className="text-lg font-semibold">Session Complete</p>
-            <p>No speech was detected during the session.</p>
+            <p className="text-lg font-bold text-foreground">Session Complete</p>
+            <p className="font-medium">No speech was detected during the session.</p>
         </div>
     </div>
 );
@@ -84,7 +84,7 @@ const HighlightedTranscript: React.FC<HighlightedTranscriptProps> = ({ chunks, i
                     {index < chunks.length - 1 && ' '}
                 </React.Fragment>
             ))}
-            {interimTranscript && <span data-testid="transcript-display" className="text-muted-foreground">{interimTranscript ? ` ${interimTranscript}` : ''}</span>}
+            {interimTranscript && <span data-testid="transcript-display" className="font-medium text-foreground/70">{interimTranscript ? ` ${interimTranscript}` : ''}</span>}
         </p>
     );
 };
@@ -131,7 +131,7 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         if (showWaitingMessage) {
             return (
                 <div className="absolute inset-0 flex items-center justify-center">
-                    <p className="text-lg text-muted-foreground animate-pulse">Listening...</p>
+                    <p className="text-lg font-semibold text-foreground/75 animate-pulse">Listening...</p>
                 </div>
             );
         }
@@ -149,7 +149,7 @@ export const TranscriptPanel: React.FC<TranscriptPanelProps> = ({
         }>
             <div className="mb-4">
                 <h2 className="text-2xl font-bold text-foreground">Live Transcript</h2>
-                <p className="text-base text-muted-foreground">
+                <p className="text-base font-medium text-foreground/70">
                     Your spoken words appear here. Filler words are highlighted.
                 </p>
             </div>

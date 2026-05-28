@@ -42,7 +42,13 @@ test('SPA startup diagnostic', async ({ page }) => {
   logger.info({ readyAttr }, 'Ready attribute count:');
   expect(readyAttr, 'App readiness attribute should be present').toBeGreaterThan(0);
 
-  // detect React render
+  const visibleReadyAttr = await page.locator('html[data-app-visible-ready="true"]').count();
+  logger.info({ visibleReadyAttr }, 'Visible readiness attribute count:');
+  expect(visibleReadyAttr, 'Visible readiness attribute should be true before user-visible assertions').toBeGreaterThan(0);
+
+  // detect React render. data-app-ready is set once React mount is initiated,
+  // so wait for a visible brand node before sampling body text.
+  await expect(page.getByText('SpeakSharp').first()).toBeVisible({ timeout: 15000 });
   const bodyText = await page.textContent('body');
   logger.info({ snippet: bodyText?.slice(0, 120) }, 'Body snippet:');
   expect(bodyText ?? '', 'Page should render user-visible SpeakSharp content').toContain('SpeakSharp');

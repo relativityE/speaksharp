@@ -94,6 +94,13 @@ jobs:
           SECRET_VALUE: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           EXPECTED_SHA256: ${{ github.event.inputs.stripe_webhook_secret_sha256 }}
         run: node scripts/verify-secret-digest.mjs
+      - name: Verify live test-user profile rows
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+        run: pnpm verify:test-users
       - name: Run DAST Live Gate
         env:
           BASE_URL: ${{ github.event.inputs.base_url }}

@@ -26,6 +26,7 @@ declare global {
 // 🛡️ INITIAL BOOT BARRIER: Set to false before any rendering logic starts.
 if (typeof document !== 'undefined') {
   document.documentElement.setAttribute('data-app-ready', 'false');
+  document.documentElement.setAttribute('data-app-visible-ready', 'false');
   window.__APP_BOOTED__ = false;
 }
 
@@ -89,11 +90,6 @@ if (!skipSentry) {
       integrations: [
         Sentry.browserTracingIntegration(),
         Sentry.replayIntegration(),
-        // Capture console.error and console.warn calls
-        // Since Pino uses pino-pretty which outputs to console, this captures logger.error/warn
-        Sentry.consoleLoggingIntegration({
-          levels: ['error', 'warn'],
-        }),
       ],
       environment: import.meta.env.MODE,
       tracesSampleRate: 1.0,
@@ -178,7 +174,9 @@ const renderApp = async (initialSession: Session | null = null) => {
         </StrictMode>
       );
 
-      // 🛡️ FINAL BOOT SIGNAL: React mount initiated. Unconditional.
+      // 🛡️ FINAL BOOT SIGNAL: React boot/render path reached. Unconditional.
+      // This does not prove visible route content is committed; tests that need
+      // user-visible readiness must wait for data-app-visible-ready.
       if (typeof document !== 'undefined') {
         document.documentElement.setAttribute('data-app-ready', 'true');
         window.__APP_BOOTED__ = true;
@@ -190,9 +188,10 @@ const renderApp = async (initialSession: Session | null = null) => {
         </StrictMode>
       );
 
-      // 🛡️ FINAL BOOT SIGNAL: Config path mount initiated. Unconditional.
+      // 🛡️ FINAL BOOT SIGNAL: Config path render reached. Unconditional.
       if (typeof document !== 'undefined') {
         document.documentElement.setAttribute('data-app-ready', 'true');
+        document.documentElement.setAttribute('data-app-visible-ready', 'true');
         window.__APP_BOOTED__ = true;
       }
     }

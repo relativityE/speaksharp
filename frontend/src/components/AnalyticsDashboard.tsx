@@ -83,7 +83,7 @@ const FillerWordsTrendChart: React.FC<FillerWordsTrendChartProps> = ({ data }) =
     const chartContainer = useChartContainerReady();
 
     return (
-        <div ref={chartContainer.ref} className="h-[260px] w-full">
+        <div ref={chartContainer.ref} className="h-[210px] w-full">
             {chartContainer.isReady ? (
                 <LineChart width={chartContainer.size.width} height={chartContainer.size.height} data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
@@ -117,14 +117,14 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
     {
         id: 'total_sessions',
         label: 'Total Sessions',
-        icon: <Layers size={24} className="text-muted-foreground" />,
+        icon: <Layers size={24} className="text-foreground/70" />,
         getValue: (stats) => stats.totalSessions,
         description: 'Number of practice sessions completed'
     },
     {
         id: 'speaking_pace',
         label: 'Speaking Pace',
-        icon: <Gauge size={24} className="text-muted-foreground" />,
+        icon: <Gauge size={24} className="text-foreground/70" />,
         getValue: (stats) => stats.averageWPM,
         unit: 'WPM',
         description: 'Average words per minute'
@@ -132,14 +132,14 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
     {
         id: 'filler_words_per_min',
         label: 'Avg. Filler Words / Min',
-        icon: <TrendingUp size={24} className="text-muted-foreground" />,
+        icon: <TrendingUp size={24} className="text-foreground/70" />,
         getValue: (stats) => stats.avgFillerWordsPerMin,
         description: 'Filler word frequency per minute'
     },
     {
         id: 'total_practice_time',
         label: 'Total Practice Time',
-        icon: <Clock size={24} className="text-muted-foreground" />,
+        icon: <Clock size={24} className="text-foreground/70" />,
         getValue: (stats) => stats.totalPracticeTime,
         unit: 'mins',
         description: 'Total time spent practicing'
@@ -147,7 +147,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
     {
         id: 'clarity_score',
         label: 'Clarity Score',
-        icon: <Target size={24} className="text-muted-foreground" />,
+        icon: <Target size={24} className="text-foreground/70" />,
         getValue: (stats) => stats.avgAccuracy,
         unit: '%',
         description: 'Average speech clarity percentage'
@@ -156,7 +156,7 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
     {
         id: 'avg_session_length',
         label: 'Avg. Session Length',
-        icon: <Activity size={24} className="text-muted-foreground" />,
+        icon: <Activity size={24} className="text-foreground/70" />,
         getValue: (stats) => stats.averageSessionLength,
         unit: 'mins',
         description: 'Average duration per session'
@@ -270,11 +270,11 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
                 <span className="text-3xl font-bold text-foreground tracking-tight">
                     {value}
                 </span>
-                {unit && <span className="text-sm font-medium text-muted-foreground ml-1">{unit}</span>}
+                {unit && <span className="ml-1 text-sm font-semibold text-foreground/70">{unit}</span>}
             </div>
-            <p className="text-sm text-muted-foreground mt-1 font-medium">{label}</p>
+            <p className="mt-1 text-sm font-semibold text-foreground/75">{label}</p>
             {description && (
-                <p className="mt-3 text-xs leading-snug text-muted-foreground" data-testid={`${testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}-explanation`}>
+                <p className="mt-3 text-xs font-medium leading-snug text-foreground/70" data-testid={`${testId || `stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}-explanation`}>
                     {description}
                 </p>
             )}
@@ -309,7 +309,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
 
     return (
         <div
-            className="group flex flex-col md:flex-row items-center justify-between p-4 bg-muted rounded-xl hover:bg-white transition-colors border border-[hsl(var(--border))] hover:border-[hsl(var(--border-strong))] shadow-card mb-3 last:mb-0"
+            className="group flex flex-col md:flex-row items-center justify-between p-4 bg-muted rounded-xl hover:bg-white transition-colors border border-[hsl(var(--border))] hover:border-[hsl(var(--border-strong))] surface-shadow mb-3 last:mb-0"
             data-testid={`${TEST_IDS.SESSION_HISTORY_ITEM}-${session.id}`}
         >
             <div className="flex items-center gap-4 w-full md:w-auto mb-4 md:mb-0">
@@ -341,10 +341,10 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                                 {engineBadge.label}
                             </span>
                         </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-2 text-sm font-medium text-foreground/70">
                             <Clock className="w-3 h-3" />
                             <span>{durationStr} duration</span>
-                            <span className="text-muted-foreground">•</span>
+                            <span className="text-foreground/50">•</span>
                             <span>{formatDateTime(session.created_at)}</span>
                         </div>
                     </div>
@@ -354,23 +354,23 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
             <div className="flex items-center gap-8 w-full md:w-auto justify-between md:justify-end px-4 md:px-0">
                 <div className="text-center">
                     <p className="font-bold text-foreground text-lg">{wpm}</p>
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">WPM</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">WPM</p>
                 </div>
                 <div className="text-center">
                     <p className={`font-bold text-lg ${totalFillers <= 3 ? "text-success" : "text-primary"}`}>
                         {totalFillers}
                     </p>
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Fillers</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Fillers</p>
                 </div>
                 <div className="text-center">
                     <p className="font-bold text-primary text-lg">{typeof clarity === 'number' ? clarity.toFixed(0) : '0'}%</p>
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Clarity</p>
+                    <p className="text-xs font-bold uppercase tracking-wider text-foreground/70">Clarity</p>
                 </div>
 
                 <div className="pl-4 border-l border-border hidden md:block" data-testid={`download-pdf-container-${session.id}`}>
                     <NavLink
                         to={`/analytics/${session.id}`}
-                        className="mb-2 inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[hsl(var(--border-strong))] bg-white px-3 text-sm font-semibold text-foreground shadow-card transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="mb-2 inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[hsl(var(--border-strong))] bg-white px-3 text-sm font-semibold text-foreground surface-shadow transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         aria-label="Open saved session details"
                         data-testid={`open-session-detail-${session.id}`}
                     >
@@ -380,7 +380,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                     <Button
                         variant="secondary"
                         size="sm"
-                        className="gap-2 hover:bg-primary hover:text-primary-foreground transition-colors shadow-card"
+                        className="gap-2 hover:bg-primary hover:text-primary-foreground transition-colors surface-shadow"
                             onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
@@ -398,7 +398,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                 <div className="flex w-full flex-col gap-2">
                     <NavLink
                         to={`/analytics/${session.id}`}
-                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[hsl(var(--border-strong))] bg-white px-3 text-sm font-semibold text-foreground shadow-card transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[hsl(var(--border-strong))] bg-white px-3 text-sm font-semibold text-foreground surface-shadow transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         aria-label="Open saved session details"
                         data-testid={`open-session-detail-mobile-${session.id}`}
                     >
@@ -408,7 +408,7 @@ const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessio
                     <Button
                         variant="secondary"
                         size="sm"
-                        className="w-full gap-2 text-muted-foreground"
+                        className="w-full gap-2"
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -670,16 +670,16 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     );
 
     return (
-        <div className="space-y-8" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
+        <div className="space-y-6" data-testid={TEST_IDS.ANALYTICS_DASHBOARD}>
             {loading ? (
                 <AnalyticsDashboardSkeleton />
             ) : error ? (
                 <ErrorDisplay error={error} />
             ) : targetSession && targetSessionMetrics ? (
                 /* Session Detail View */
-                <div className="space-y-8">
+                <div className="space-y-6">
                     {/* Session Metrics Summary */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <StatCard
                             icon={<Gauge />}
                             label="Speaking Pace"
@@ -705,7 +705,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         />
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Transcript Panel */}
                         <Card className="lg:col-span-2">
                             <CardHeader className="flex flex-row items-center justify-between">
@@ -726,7 +726,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 </div>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-muted-foreground">
+                                <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-foreground/70">
                                     <span className="uppercase tracking-wider">Recorded with</span>
                                     <span className="rounded-md border border-[hsl(var(--border))] bg-muted px-2 py-1 text-foreground" data-testid="session-engine-metadata">
                                         {formatSessionRecordingMode(targetSession)}
@@ -756,7 +756,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         </div>
                     </div>
 
-                    <div className="flex justify-center pt-4">
+                    <div className="flex justify-center pt-2">
                         <Button asChild variant="ghost" className="gap-2">
                             <NavLink to="/analytics">
                                 <BarChart className="h-4 w-4" />
@@ -767,13 +767,15 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 </div>
             ) : !sessionHistory || sessionHistory.length === 0 ? (
                 <EmptyState
-                    title="Your Dashboard Awaits!"
-                    description="Record your next session to unlock your progress trends and full analytics!"
+                    title="Your trends start after one saved session"
+                    description="Save a practice session to see pace, filler words, clarity, PDF reports, and progress history here."
                     action={{
-                        label: "Get Started",
+                        label: "Start Practice Session",
                         href: "/session"
                     }}
                     icon={<BarChart className="w-10 h-10 text-primary" />}
+                    compact
+                    className="mx-auto max-w-3xl border border-border surface-shadow"
                     testId={TEST_IDS.ANALYTICS_EMPTY_STATE}
                     // Subtle upgrade option for Free users - triggers Stripe checkout directly
                     secondaryAction={!isProUser ? {
@@ -817,7 +819,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     </div>
 
                     {/* Dynamic Stat Cards */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         {displayedStatCards.map(option => (
                             <StatCard
                                 key={option.id}
@@ -833,10 +835,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     <GoalsSection />
 
                     {/* Analysis Section Header with Settings */}
-                    <div className="flex items-center justify-between pt-4">
+                    <div className="flex items-center justify-between pt-2">
                         <div className="space-y-1">
                             <h2 className="text-xl font-semibold text-foreground">Speech Pattern Analysis</h2>
-                            <p className="text-sm text-muted-foreground">Deep dive into your speaking performance</p>
+                            <p className="text-sm font-medium text-foreground/70">Your trends become more useful after each saved session.</p>
                         </div>
                         <DropdownMenu open={isAnalysisMenuOpen} onOpenChange={setIsAnalysisMenuOpen}>
                             <DropdownMenuTrigger asChild onMouseEnter={openAnalysisMenu} onMouseLeave={closeAnalysisMenu}>
@@ -865,12 +867,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                     </div>
 
                     {/* Analysis Carousel */}
-                    <div className="space-y-4">
+                    <div className="space-y-2">
                         <Carousel className="w-full" opts={{ loop: true }} setApi={setApi}>
                             <CarouselContent>
                                 {displayedAnalysisSlides.map((option, index) => (
                                     <CarouselItem key={option.id} className="basis-full">
-                                        <div className="p-1">
+                                        <div>
                                             {index === activeAnalysisIndex ? (
                                                 <>
                                                     {/* Render content based on ID */}
@@ -904,7 +906,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                                                 {overallStats.chartData.length > 1 ? (
                                                                     <FillerWordsTrendChart data={overallStats.chartData} />
                                                                 ) : (
-                                                                    <div className="flex items-center justify-center h-[220px] text-center text-muted-foreground"><p>Complete at least two sessions to see your filler word trend.</p></div>
+                                                                    <div className="flex h-[150px] items-center justify-center rounded-lg border border-dashed border-[hsl(var(--border-strong))] bg-muted/70 px-6 text-center text-sm font-semibold text-foreground/75"><p>Complete at least two sessions to see your filler word trend.</p></div>
                                                                 )}
                                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                                                     <TopFillerWords />
@@ -918,7 +920,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                                     )}
                                                 </>
                                             ) : (
-                                                <div className="min-h-[360px]" aria-hidden="true" />
+                                                <div className="min-h-[240px]" aria-hidden="true" />
                                             )}
 
                                         </div>
@@ -930,7 +932,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             <CarouselNext />
                         </Carousel>
                         {/* Carousel Indicators */}
-                        <div className="flex justify-center gap-2 py-2">
+                        <div className="flex justify-center gap-2 py-1">
                             {Array.from({ length: count }).map((_, index) => (
                                 <button
                                     key={index}
@@ -943,11 +945,11 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
                         {/* Session History Section - Moved below carousel */}
                         <div id="session-history-section">
-                            <Card className="rounded-xl p-6">
-                                <div className="flex items-center justify-between mb-6">
+                            <Card className="rounded-xl p-5">
+                                <div className="flex items-center justify-between mb-4">
                                     <div>
                                         <h2 className="text-xl font-bold text-foreground">Download PDF Reports</h2>
-                                        <p className="text-sm text-muted-foreground mt-1">Generate local PDF downloads from your saved session data.</p>
+                                        <p className="mt-1 text-sm font-medium text-foreground/70">Generate local PDF downloads from your saved session data.</p>
                                         <div className="mt-3 flex items-center gap-2 text-[10px] md:text-xs font-semibold uppercase tracking-wider bg-secondary/10 text-secondary border border-secondary/20 px-3 py-1.5 rounded-full inline-flex">
                                             <Activity className="h-3 w-3" />
                                             <span>Rolling History: Last 50 Sessions Kept</span>
@@ -962,7 +964,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         </Button>
                                     )}
                                 </div>
-                                <div className="space-y-4" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
+                                <div className="space-y-3" data-testid={TEST_IDS.SESSION_HISTORY_LIST}>
                                     {sessionHistory && sessionHistory.length > 0 ? (
                                         sessionHistory.map((session) => (
                                             <SessionHistoryItem
@@ -976,7 +978,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                             />
                                         ))
                                     ) : (
-                                        <div className="text-center py-12 text-muted-foreground bg-muted rounded-xl border border-dashed border-[hsl(var(--border-strong))]">
+                                        <div className="rounded-xl border border-dashed border-[hsl(var(--border-strong))] bg-muted py-12 text-center font-semibold text-foreground/75">
                                             <p>No sessions recorded yet.</p>
                                         </div>
                                     )}

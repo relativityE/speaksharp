@@ -73,7 +73,7 @@ test.describe('Analytics Suite & Data Matrix', () => {
 
     // Verify Empty State UI
     await expect(page.getByTestId('analytics-dashboard-empty-state')).toBeVisible();
-    await expect(page.getByText(/Your Dashboard Awaits!/i)).toBeVisible();
+    await expect(page.getByText(/Your trends start after one saved session/i)).toBeVisible();
   });
 
 });

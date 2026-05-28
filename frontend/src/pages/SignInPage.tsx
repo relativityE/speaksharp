@@ -88,7 +88,7 @@ export default function SignInPage() {
             <div className="mx-auto flex w-full max-w-md flex-col items-center space-y-8">
                 <div className="text-center space-y-2">
                     <h1 className="text-4xl font-extrabold tracking-tight text-foreground">SpeakSharp</h1>
-                    <p className="text-muted-foreground text-lg">Master your communication skills.</p>
+                    <p className="text-lg font-medium text-muted-foreground">Master your communication skills.</p>
                 </div>
                 <Card className="w-full">
                     <CardHeader className="space-y-1 text-center pb-8">
@@ -142,11 +142,11 @@ export default function SignInPage() {
                                 <span className="w-full border-t border-border" />
                             </div>
                             <div className="relative flex justify-center text-xs uppercase">
-                                <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
+                                <span className="bg-card px-2 text-muted-foreground">Or sign in with email</span>
                             </div>
                         </div>
 
-                        {/* Magic Link Button */}
+                        {/* Email sign-in link section */}
                         <Button
                             type="button"
                             variant="outline"
@@ -156,8 +156,13 @@ export default function SignInPage() {
                             data-testid="magic-link-button"
                         >
                             <Mail className="mr-2 h-4 w-4" />
-                            {isSendingMagicLink ? 'Sending...' : 'Email Magic Link'}
+                            {isSendingMagicLink ? 'Sending...' : 'Send sign-in link'}
                         </Button>
+                        {!email && (
+                            <p className="text-center text-xs font-medium text-muted-foreground">
+                                Enter your email to send a sign-in link.
+                            </p>
+                        )}
                     </CardContent>
                 </Card>
                 <div className="text-center text-sm text-muted-foreground">

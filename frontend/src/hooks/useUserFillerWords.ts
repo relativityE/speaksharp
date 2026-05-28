@@ -97,7 +97,7 @@ export const useUserFillerWords = () => {
                 .eq('user_id', session.user.id);
 
             if (error) {
-                logger.error({ err: error }, '[useUserFillerWords] Error fetching');
+                logger.info({ err: error }, '[useUserFillerWords] Fetch attempt failed; React Query will retry');
                 throw error;
             }
             return sanitizeUserFillerWords(data);

@@ -117,7 +117,7 @@ test.describe('Primary User Journey Matrix', () => {
       if (scenario.userType === 'free') {
         await expect(page.getByTestId('analytics-page-upgrade-button')).toBeVisible();
       } else {
-        await expect(page.getByText(/Pro Plan Active/i)).toBeVisible();
+        await expect(page.getByText(/Pro active/i)).toBeVisible();
       }
 
       // 10. Persistence Check (History count increment)

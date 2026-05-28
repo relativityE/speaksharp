@@ -45,7 +45,7 @@ The audit failed only because the workflow on current `main` still expected the 
 | `subscriptionTiers.ts` previously normalized unknown/null to `basic`. | Unknown statuses could be treated as paid Basic later. | Normalize unknown/null to `free`; keep `basic` explicit only. |
 | Pricing conversion source used the old Basic-card name. | Analytics would attribute Free signup as Basic intent. | Renamed to `pricing_free_card`. |
 | `stripe-webhook` downgrade log said downgraded to Basic. | Operational logs would describe canceled paid users as Basic instead of Free. | Log downgraded to Free; SQL downgrade should write `free`. |
-| Product docs mention "Basic to Pro" conversion rate. | Funnel target is now Free to Pro. | Update active docs to "Free to Pro." |
+| Product docs previously mentioned "Basic to Pro" conversion rate. | Funnel target is now Free to Pro. | Active PRD now targets Free to Pro conversion. |
 
 ## Medium-Risk / Intentional Basic References
 
@@ -58,16 +58,16 @@ These should remain or be renamed carefully:
 | Tests named "Basic feature matrix" | Should become "Free/baseline feature matrix" unless explicitly testing future paid Basic. |
 | `tier_configs.basic` | May remain for future paid Basic. `tier_configs.free` must also exist and match current baseline limits. |
 
-## Docs Needing Cleanup
+## Active Docs Cleanup Status
 
-| File | Current issue |
+| File | Status |
 |---|---|
-| `product_release/BACKLOG.md` | Says the unpaid baseline was cut over to Basic; now obsolete. |
-| `product_release/RC_GATES.md` | Updated current gates from Basic baseline language to Free baseline language. |
-| `product_release/PUBLIC_LAUNCH_LEDGER.md` | Updated public entry and Pro checkout language from public Basic user to public Free user. |
-| `product_release/PRD.operational.md` | Conversion rate says Basic to Pro; should be Free to Pro. |
-| `product_release/SOFT_RELEASE_TESTER_INSTRUCTIONS.md` | Says user-facing baseline plan says Basic; should say Free. |
-| `product_release/RC_TEST_INVENTORY.md` | Basic/Pro matrix language should split Free baseline from future paid Basic. |
+| `product_release/BACKLOG.md` | Current entry records Free baseline restoration and future paid Basic compatibility. |
+| `product_release/RC_GATES.md` | Current gates use Free baseline language. |
+| `product_release/PUBLIC_LAUNCH_LEDGER.md` | Public entry and Pro checkout language use Free user/path. Historical artifact folder names may still contain old `basic` slugs. |
+| `product_release/PRD.operational.md` | Conversion target is Free to Pro. |
+| `product_release/SOFT_RELEASE_TESTER_INSTRUCTIONS.md` | Tester path says user-facing baseline signup is Free and paid Basic is future-only. |
+| `product_release/RC_TEST_INVENTORY.md` | Inventory splits Free baseline from future paid Basic semantics. |
 
 ## Acceptance Criteria
 

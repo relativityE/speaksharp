@@ -39,7 +39,7 @@ export const SunsetModals: React.FC<SunsetModalsProps> = ({ open, onOpenChange, 
                             }
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <div className="py-6 text-center text-muted-foreground">
+                    <div className="py-6 text-center font-medium text-foreground/70">
                         {!isPro && (
                             <p className="font-semibold text-primary">Want double the daily bandwidth? Upgrade to Pro for 2 full hours of practice.</p>
                         )}
@@ -67,7 +67,7 @@ export const SunsetModals: React.FC<SunsetModalsProps> = ({ open, onOpenChange, 
                         }
                     </AlertDialogDescription>
                 </AlertDialogHeader>
-                <div className="py-6 text-center text-muted-foreground">
+                <div className="py-6 text-center font-medium text-foreground/70">
                     {!isPro && (
                         <p className="font-semibold text-primary">Upgrade to Pro to lock in 50 hours/month and advanced speech analytics.</p>
                     )}

@@ -178,6 +178,7 @@ export default function AuthPage() {
             </CardTitle>
             <CardDescription className="text-base">
               {view === 'sign_in' && 'Enter your credentials to access your account'}
+              {view === 'sign_up' && 'Start free, then upgrade to Pro when you want deeper coaching.'}
               {view === 'forgot_password' && "Enter your email address and we'll send you a reset link"}
             </CardDescription>
           </CardHeader>
@@ -226,9 +227,9 @@ export default function AuthPage() {
 
                 {view === 'sign_up' && (
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                    <p className="text-sm font-semibold text-foreground">60-minute Pro trial included</p>
-                    <p className="text-xs leading-relaxed text-muted-foreground">
-                      New accounts can try Private transcription, analytics, and feedback immediately. Cloud STT is available with Pro. Trial access includes Private STT.
+                    <p className="text-sm font-semibold text-foreground">Start with a 60-minute Pro trial</p>
+                    <p className="text-xs font-medium leading-relaxed text-foreground/70">
+                      Try Private transcription, analytics, and feedback. Cloud transcription is available on Pro.
                     </p>
                     {inlineError && (
                       <p
@@ -266,7 +267,7 @@ export default function AuthPage() {
                       {view === 'sign_in' ? 'Signing in...' : view === 'sign_up' ? 'Creating account...' : 'Sending link...'}
                     </span>
                   ) : (
-                    view === 'sign_in' ? 'Sign In' : view === 'sign_up' ? 'Submit' : 'Send Reset Link'
+                    view === 'sign_in' ? 'Sign In' : view === 'sign_up' ? 'Create Account' : 'Send Reset Link'
                   )}
                 </Button>
               </div>

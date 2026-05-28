@@ -8,10 +8,10 @@ interface ErrorStatePanelProps {
 
 export const InitialStatePanel: React.FC = () => (
     <div className="absolute inset-0 flex items-center justify-center">
-        <div className="text-center text-muted-foreground">
+        <div className="text-center text-foreground/75">
             <Info className="mx-auto h-12 w-12" />
-            <h3 className="mt-4 text-lg font-semibold">Ready to Go</h3>
-            <p className="mt-1 text-sm">Click the "Start Session" button to begin recording and transcription.</p>
+            <h3 className="mt-4 text-lg font-bold text-foreground">Ready to Go</h3>
+            <p className="mt-1 text-sm font-medium">Start recording and your words will appear here.</p>
         </div>
     </div>
 );

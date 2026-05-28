@@ -116,11 +116,23 @@ const ERROR_STATES = new Set<RuntimeState>([
 
 /**
  * Set the global app-ready signal.
- * This is the ONLY authoritative writer for data-app-ready.
+ * data-app-ready means React boot/render path reached.
+ * It does NOT mean visible route content is committed.
+ * Tests that need user-visible readiness must wait for
+ * data-app-visible-ready through waitForAppVisibleReady().
  */
 export function setAppReady(ready: boolean): void {
   if (typeof document === 'undefined') return;
   document.documentElement.setAttribute('data-app-ready', ready ? 'true' : 'false');
+}
+
+/**
+ * Set the visible route-shell readiness signal.
+ * This is the user-visible companion to data-app-ready.
+ */
+export function setAppVisibleReady(ready: boolean): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.setAttribute('data-app-visible-ready', ready ? 'true' : 'false');
 }
 
 /**

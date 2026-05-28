@@ -51,7 +51,7 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
     await signInAsPro(page);
     await clearPrivateModelStorage(page);
     await page.reload();
-    await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 45_000 });
+    await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
 
     await selectBenchmarkMode(page, 'private');
     await preparePrivateModelIfPrompted(page);
@@ -63,7 +63,7 @@ test.describe.serial('Private first-start and second-start cache proof @live', (
     await startAndStopPrivateRecording(page);
 
     await page.reload();
-    await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 45_000 });
+    await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
     await selectBenchmarkMode(page, 'private');
     await waitForPrivateReady(page);
 

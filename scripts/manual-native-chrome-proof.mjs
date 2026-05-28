@@ -185,7 +185,7 @@ try {
   }
 
   await page.goto(`${BASE_URL}/session${SESSION_QUERY}`, { waitUntil: 'domcontentloaded' });
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 60_000 });
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
   evidence.profileTextBeforeNative = compact(await page.locator('[data-testid="pro-badge"], [data-testid="nav-upgrade-button"]').first().textContent().catch(() => ''));
   await selectMode(page, 'native');
   evidence.modeSelected = (await page.getByTestId('stt-mode-select').getAttribute('data-state')) === 'native';
@@ -231,7 +231,7 @@ try {
   });
 
   await page.goto(`${BASE_URL}/analytics`, { waitUntil: 'domcontentloaded' });
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 60_000 });
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
   await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => undefined);
   const historyItem = page.getByTestId(/^session-history-item-/).first();
   evidence.historyVisible = await historyItem.isVisible({ timeout: 20_000 }).catch(() => false);

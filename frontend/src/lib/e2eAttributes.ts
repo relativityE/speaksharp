@@ -6,7 +6,8 @@
  */
 export const FORENSIC_ANCHORS = [
   'data-runtime-state',   // FSM state: IDLE | DOWNLOADING | READY | FAILED
-  'data-app-ready',       // Boot complete signal
+  'data-app-ready',       // React boot/render-path signal
+  'data-app-visible-ready', // Visible route-shell committed signal
   'data-recording',       // Active recording state
 ] as const;
 

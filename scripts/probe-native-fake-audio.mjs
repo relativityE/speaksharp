@@ -47,7 +47,7 @@ async function maybeSignUp(page) {
   }
 
   await page.goto(`${BASE_URL}/auth/signup`, { waitUntil: 'domcontentloaded' });
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 60_000 }).catch(() => undefined);
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 }).catch(() => undefined);
 
   const emailInput = page.getByTestId('email-input');
   if (!(await emailInput.isVisible({ timeout: 5_000 }).catch(() => false))) {
@@ -107,7 +107,7 @@ try {
 
   await maybeSignUp(page);
   await page.goto(`${BASE_URL}/session`, { waitUntil: 'domcontentloaded' });
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 60_000 });
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
   await selectMode(page, 'native');
 
   await page.evaluate(() => {

@@ -151,7 +151,7 @@ export const OpsStatusPage: React.FC = () => {
 };
 
 const SummaryTile: React.FC<{ label: string; icon: string; value: number }> = ({ label, icon, value }) => (
-  <div className="rounded-xl border border-border bg-white px-4 py-3 shadow-[var(--shadow-card)]">
+  <div className="rounded-xl border border-border bg-white px-4 py-3 surface-shadow">
     <div className="text-sm font-semibold text-muted-foreground">{label}</div>
     <div className="mt-1 flex items-center gap-2 text-2xl font-extrabold text-foreground">
       <span aria-hidden="true">{icon}</span>

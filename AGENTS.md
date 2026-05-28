@@ -43,6 +43,8 @@ Use package scripts instead of inventing runners.
 
 `ci:local` is daily CI confidence. `rc:gates` is release-candidate confidence. If a release-critical change lands after a green run, rerun the relevant gate or document the evidence gap in `RELEASE_STATUS.md`.
 
+If a local browser proof emits `sandbox_eperm_preview_bind`, that artifact is invalid release evidence. Re-run the proof from a normal terminal or GitHub Actions; sandbox EPERM artifacts cannot close RC gates.
+
 ## STT Release Boundaries
 
 - Private v2, Private v4, and Cloud are the benchmarkable STT paths in our control.
@@ -57,6 +59,7 @@ Use package scripts instead of inventing runners.
 - Flags are inputs/test knobs. They may change behavior.
 - Selectors identify UI elements. They are not readiness proof.
 - Prefer the centralized E2E signal contract when adding or consuming readiness/diagnostic signals.
+- `data-app-ready` means React boot/render path reached. User-visible browser tests must wait for `data-app-visible-ready` through the shared visible-readiness helper.
 - Route helpers should wait for route-specific controls, not only global readiness, when a test needs a specific page to be interactive.
 
 ## Environment And Safety

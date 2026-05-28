@@ -51,7 +51,7 @@ test('native live STT analytics probe without mocked transcript injection', asyn
   await loginPromise;
 
   await page.goto('/session');
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 45_000 });
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
 
   await selectBenchmarkMode(page, 'native');
   evidence.preflight = await collectBenchmarkPreconditionSnapshot(page, 'native-live-before-start');
@@ -87,9 +87,9 @@ test('native live STT analytics probe without mocked transcript injection', asyn
   evidence.saved = await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false);
 
   await page.goto('/analytics');
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 45_000 });
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
   await page.reload();
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 45_000 });
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
   evidence.historyReload = await page.getByTestId(/^session-history-item-/).first().isVisible({ timeout: 15_000 }).catch(() => false);
 
   if (!evidence.transcriptAppeared) {

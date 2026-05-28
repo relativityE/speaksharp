@@ -8,7 +8,7 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 214 15% 90%;
+    --background: 215 27% 91%;
     --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
@@ -24,7 +24,7 @@ All colors MUST be HSL.
     --secondary-foreground: 222 47% 11%;
 
     --muted: 214 20% 95%;
-    --muted-foreground: 220 9% 30%;
+    --muted-foreground: 217 19% 27%;
 
     --accent: 176 77% 26%;
     --accent-foreground: 0 0% 100%;
@@ -35,7 +35,7 @@ All colors MUST be HSL.
     --success: 160 84% 30%;
     --success-foreground: 0 0% 100%;
 
-    --border: 215 20% 78%;
+    --border: 214 21% 77%;
     --border-strong: 215 16% 65%;
     --input: 215 20% 78%;
     --ring: 36 92% 40%;
@@ -60,7 +60,7 @@ All colors MUST be HSL.
     --gradient-primary: linear-gradient(135deg, hsl(36 92% 40%), hsl(32 95% 34%));
     --gradient-secondary: linear-gradient(135deg, hsl(0 0% 100%), hsl(210 17% 96%));
     --gradient-hero: linear-gradient(135deg, hsl(36 92% 40%), hsl(32 95% 34%));
-    --gradient-subtle: linear-gradient(180deg, hsl(214 15% 90%) 0%, hsl(214 15% 90%) 100%);
+    --gradient-subtle: linear-gradient(180deg, hsl(215 27% 91%) 0%, hsl(215 27% 91%) 100%);
 
     --shadow-elegant: 0 12px 28px -16px rgba(15, 23, 42, 0.25);
     --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.08);
@@ -127,13 +127,27 @@ All colors MUST be HSL.
 
 /* Utility classes for specific visual effects */
 .glass {
-  @apply bg-card border shadow-card;
+  @apply bg-card border;
   border-color: hsl(var(--border));
+  box-shadow: var(--shadow-card);
 }
 
 .glass-strong {
-  @apply bg-card border shadow-card;
+  @apply bg-card border;
   border-color: hsl(var(--border-strong));
+  box-shadow: var(--shadow-card);
+}
+
+.surface-shadow {
+  box-shadow: var(--shadow-card);
+}
+
+.surface-shadow-primary {
+  box-shadow: var(--shadow-card-primary);
+}
+
+.cta-shadow {
+  box-shadow: var(--shadow-cta);
 }
 
 .text-gradient-brand {

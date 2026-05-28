@@ -281,6 +281,8 @@ Use `test:*` for development checks, `ci:*` for CI parity/orchestration, and `rc
 
 RC gates are not part of the main push/PR pipeline. They are release controls and can be run as a full suite or individually.
 
+Local sandbox `listen EPERM` artifacts are classified as invalid evidence, not product failures and not passes. Re-run those gates from a normal terminal or GitHub Actions for CI-equivalent release evidence.
+
 Glossary: **SAST** is Static Application Security Testing, **DAST** is Dynamic Application Security Testing, and **SCA** is Software Composition Analysis.
 
 | Gate | Command | Purpose |

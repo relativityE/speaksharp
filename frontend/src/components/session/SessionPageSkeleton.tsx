@@ -47,7 +47,7 @@ export function SessionPageSkeleton() {
                             <Skeleton className="h-8 w-48 mx-auto" />
                             <div className="space-y-2 pt-4">
                                 <p className="text-sm font-medium text-primary/80 uppercase tracking-widest">Preparing your session</p>
-                                <p className="text-lg text-muted-foreground italic transition-opacity duration-500 min-h-[3rem]">
+                                <p className="min-h-[3rem] text-lg font-medium italic text-foreground/70 transition-opacity duration-500">
                                     "{tip}"
                                 </p>
                             </div>
@@ -63,7 +63,7 @@ export function SessionPageSkeleton() {
                     <Skeleton className="h-48 rounded-lg" />
 
                     {/* Speaking Rate */}
-                    <Card className="p-8 border-2 border-white/5 shadow-card">
+                    <Card className="p-8 border-2 border-white/5 surface-shadow">
                         <Skeleton className="h-6 w-32 mb-6" />
                         <div className="flex flex-col items-center gap-2">
                             <Skeleton className="h-16 w-24" />
@@ -73,7 +73,7 @@ export function SessionPageSkeleton() {
                     </Card>
 
                     {/* Filler Words */}
-                    <Card className="p-8 border-2 border-white/5 shadow-card">
+                    <Card className="p-8 border-2 border-white/5 surface-shadow">
                         <Skeleton className="h-6 w-32 mb-6" />
                         <div className="flex flex-col items-center gap-2">
                             <Skeleton className="h-16 w-12" />
@@ -87,7 +87,7 @@ export function SessionPageSkeleton() {
                     </Card>
 
                     {/* Speaking Tips */}
-                    <Card className="p-8 border-2 border-white/5 shadow-card">
+                    <Card className="p-8 border-2 border-white/5 surface-shadow">
                         <Skeleton className="h-6 w-32 mb-6" />
                         <div className="space-y-4">
                             <Skeleton className="h-16 w-full" />
@@ -97,7 +97,7 @@ export function SessionPageSkeleton() {
                     </Card>
 
                     {/* Transcript Skeleton */}
-                    <Card className="p-8 border-2 border-white/5 shadow-card md:col-span-2">
+                    <Card className="p-8 border-2 border-white/5 surface-shadow md:col-span-2">
                         <Skeleton className="h-6 w-40 mb-6" />
                         <Skeleton className="h-[250px] w-full" />
                     </Card>

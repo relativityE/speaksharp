@@ -42,7 +42,7 @@ test.describe('Genesis Trace Audit', () => {
     await goToApp(page, '/session');
 
     // WAIT FOR READINESS & MOBILIZE ENGINE
-    await page.waitForSelector('html[data-app-ready="true"]', { state: 'attached', timeout: 15000 });
+    await page.waitForSelector('html[data-app-visible-ready="true"]', { state: 'attached', timeout: 15000 });
     
     // 🎙️ ACTIVATE ENGINE
     await page.getByTestId('session-start-stop-button').click();
@@ -57,7 +57,7 @@ test.describe('Genesis Trace Audit', () => {
     await goToApp(page, '/session');
     
     // Wait for the new component to mount and ready up
-    await page.waitForSelector('html[data-app-ready="true"]', { state: 'attached', timeout: 15000 });
+    await page.waitForSelector('html[data-app-visible-ready="true"]', { state: 'attached', timeout: 15000 });
 
     // GENERATE REPORT
     const probe = await getProbe(page);

@@ -5,6 +5,7 @@ import {
   READINESS_REQUIRED_GLOBAL,
   type ReadinessSignal,
 } from '@/e2e/signalContract';
+import { setAppVisibleReady } from '@/lib/forensicAnchors';
 
 interface AppReadyState {
   [key: string]: boolean | string | number | undefined | Record<string, number>;
@@ -86,6 +87,9 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
         if (key === 'profile') {
           document.documentElement.setAttribute('data-profile-ready', 'true');
         }
+        if (key === 'router') {
+          setAppVisibleReady(true);
+        }
       }
 
       return {
@@ -136,6 +140,9 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
       // to ensure the next "true" is picked up.
       return { signals: newSignals };
     });
+    if (typeof window !== 'undefined') {
+      setAppVisibleReady(false);
+    }
     logger.info('[useReadinessStore] Router readiness reset (navigation initiated)');
   },
 
@@ -159,6 +166,7 @@ export const useReadinessStore = create<ReadinessStore>((set, get) => ({
         }
       };
       document.documentElement.removeAttribute('data-profile-ready');
+      setAppVisibleReady(false);
     }
   }
 }));

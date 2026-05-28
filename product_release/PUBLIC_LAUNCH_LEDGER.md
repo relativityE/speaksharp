@@ -10,6 +10,8 @@
 
 This ledger records broad public-launch gates and historical evidence. It must not be mixed with the controlled desktop tester burn-down, and it must not be used for current workflow status.
 
+Historical artifact paths in this ledger may contain old `basic` filename slugs from earlier evidence captures. Treat those as artifact names only; the current public baseline is Free and paid Basic is a future placeholder.
+
 ## Gate Ledger
 
 | ID | Gate | Severity | Why It Blocks Public Launch | Evidence Required | Status | Evidence |

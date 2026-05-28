@@ -244,9 +244,9 @@ async function startAndStopPrivateRecording(page: Page): Promise<RecordingEviden
 
 async function confirmHistoryOpens(page: Page): Promise<HistoryEvidence> {
   await page.goto('/analytics');
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 45_000 });
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
   await page.reload();
-  await page.locator('html[data-app-ready="true"]').waitFor({ timeout: 45_000 });
+  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
 
   const historyItem = page.getByTestId(/^session-history-item-/).first();
   await expect(historyItem).toBeVisible({ timeout: 20_000 });
