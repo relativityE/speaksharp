@@ -161,11 +161,9 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: health-check-report
-          path: |
-            test-results/playwright-infra
-            blob-report
+          path: test-results/playwright-infra
           retention-days: 30
-          if-no-files-found: warn
+          if-no-files-found: error
 
   e2e:
     name: e2e-shard-${{ matrix.shard }}

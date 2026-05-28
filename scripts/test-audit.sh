@@ -86,7 +86,9 @@ case $STAGE in
         ;;
     health-check)
         echo "🚀 Running CI health-check stage..."
-        pnpm exec playwright test --project=infra-probe --workers=1 --reporter=line --output=test-results/playwright-infra
+        mkdir -p test-results/playwright-infra
+        PLAYWRIGHT_JSON_OUTPUT_NAME=test-results/playwright-infra/results.json \
+            pnpm exec playwright test --project=infra-probe --workers=1 --reporter=line,json --output=test-results/playwright-infra
         ;;
     test)
         echo "🚀 Running CI E2E shard stage..."
