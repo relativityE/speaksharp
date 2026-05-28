@@ -27,6 +27,32 @@ Deno.test("stripe-webhook handlers", async (t) => {
     body: JSON.stringify(event)
   });
 
+  await t.step("handles OPTIONS preflight without Stripe signature verification", async () => {
+    let constructed = false;
+    const stripe = {
+      webhooks: {
+        constructEvent: () => {
+          constructed = true;
+          throw new Error("should not construct Stripe events for preflight");
+        }
+      }
+    };
+
+    const response = await handler(
+      new Request("http://localhost", {
+        method: "OPTIONS",
+        headers: { Origin: "https://speaksharp-public.vercel.app" }
+      }),
+      stripe,
+      createMockSupabase({ data: { success: true }, error: null }),
+      "secret"
+    );
+
+    assertEquals(response.status, 200);
+    assertEquals(constructed, false);
+    assertEquals(response.headers.get("Access-Control-Allow-Methods"), "GET, POST, OPTIONS");
+  });
+
   await t.step("handleCheckoutCompleted - upgrades user to Pro", async () => {
     const event = {
       id: "evt_1",

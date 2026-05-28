@@ -45,7 +45,7 @@ This document tracks identified risks and their impact on the 12-hour launch win
 5. **Canary Maintenance**: Keep GitHub canary and soak green after deploys; record changing run IDs only in `RELEASE_STATUS.md`.
 6. **Benchmark Workflow Boundary**: Keep user-facing benchmark claims limited to engines with current benchmark evidence. Native Browser STT is not a corpus/WER release benchmark.
 7. **Usage Edge CORS**: Verify `check-usage-limit` returns request-aware CORS headers for allowed production origins after Edge deploys.
-8. **Soft Release Tester Setup**: Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; ask testers to create a fresh account; the one-hour trial is automatic.
+8. **Soft Release Tester Setup**: Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md`; ask testers to create a fresh account; the 24-hour trial is automatic.
 9. **Production Env Flag Check**: Confirm Vercel production does not set `VITE_TEST_MODE` or E2E/test flags before sending tester invites.
 10. **Private STT CPU-First Validation**: Ask testers to start with Private STT, then verify live transcript, analytics, save/history/detail, and cached second start where possible.
 11. **Private STT WebGPU Validation**: Separately validate the explicit WebGPU/WhisperTurbo accelerated path on supported hardware. This is release evidence for acceleration, not the launch-critical first-use path.

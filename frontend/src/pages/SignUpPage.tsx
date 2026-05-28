@@ -107,7 +107,7 @@ export default function SignUpPage() {
                                 />
                             </div>
                             <p className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-medium text-foreground">
-                                Start free with instant Browser transcription. Your 60-minute Pro trial lets you try Vault Mode private transcription and deeper feedback. Cloud transcription is available as a Pro feature.
+                                Start free with instant Browser transcription. Your 24-hour Pro trial lets you try Vault Mode private transcription and deeper feedback. Cloud transcription is available as a Pro feature.
                             </p>
 
                             {error && (

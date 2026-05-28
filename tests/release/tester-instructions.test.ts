@@ -19,6 +19,13 @@ describe('soft release tester instructions', () => {
         expect(instructions).not.toMatch(/optionally try cloud/i);
     });
 
+    it('matches the current database-backed 24-hour trial duration', () => {
+        const instructions = readReleaseDoc('SOFT_RELEASE_TESTER_INSTRUCTIONS.md');
+
+        expect(instructions).toMatch(/24 hours of trial access/i);
+        expect(instructions).not.toMatch(/1 hour of trial access|60-minute Pro trial/i);
+    });
+
     it('sets Private first-text expectations before testers record', () => {
         const instructions = readReleaseDoc('SOFT_RELEASE_TESTER_INSTRUCTIONS.md');
 

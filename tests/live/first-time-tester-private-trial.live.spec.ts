@@ -81,7 +81,7 @@ test.describe('First-time tester automatic trial Private STT path @live', () => 
 
     await test.step('Create a fresh tester account with automatic trial copy visible', async () => {
       console.log('FIRST_TIME_TESTER_STEP signup_start');
-      await expect(page.getByText('60-minute Pro trial included')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText('24-hour Pro trial included')).toBeVisible({ timeout: 10_000 });
       await page.getByTestId('email-input').fill(email);
       await page.getByTestId('password-input').fill(password);
       await page.getByTestId('sign-up-submit').click();

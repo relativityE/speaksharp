@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "npm:stripe@16"
 import { createClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
+import { corsHeaders } from "../_shared/cors.ts"
 
 type SupabaseClient = any;
 type StripeClient = any;
@@ -21,6 +22,12 @@ export async function handler(
   supabase: SupabaseClient,
   webhookSecret: string
 ) {
+  const responseHeaders = corsHeaders(req)
+
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { status: 200, headers: responseHeaders })
+  }
+
   const signature = req.headers.get("Stripe-Signature")
   const body = await req.text()
 
@@ -46,7 +53,7 @@ export async function handler(
           return createErrorResponse(
             ErrorCodes.VALIDATION_MISSING_METADATA,
             "Missing userId metadata",
-            {}
+            responseHeaders
           )
         }
         action = actionForPlan(plan);
@@ -98,17 +105,17 @@ export async function handler(
 
     if (error) {
       console.error(`[Stripe Webhook] RPC execution failed for ${event.id}:`, error)
-      return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Processing failed", {})
+      return createErrorResponse(ErrorCodes.DATABASE_ERROR, "Processing failed", responseHeaders)
     }
 
     if (data?.skipped) {
       console.log(`[Stripe Webhook] ⏭️ Event ${event.id} already processed, skipping`)
-      return createSuccessResponse({ received: true, skipped: true }, {})
+      return createSuccessResponse({ received: true, skipped: true }, responseHeaders)
     }
 
     if (data?.success === false) {
        console.error(`[Stripe Webhook] RPC action failed for ${event.id}:`, data.error)
-       return createErrorResponse(ErrorCodes.DATABASE_ERROR, data.error || "Action failed", {})
+       return createErrorResponse(ErrorCodes.DATABASE_ERROR, data.error || "Action failed", responseHeaders)
     }
 
     if (action === 'upgrade_to_pro') {
@@ -120,7 +127,7 @@ export async function handler(
     }
 
     console.log(`[Stripe Webhook] ✅ Event ${event.id} processed successfully`);
-    return createSuccessResponse({ received: true }, {})
+    return createSuccessResponse({ received: true }, responseHeaders)
 
   } catch (err) {
     const error = err as Error
@@ -128,7 +135,7 @@ export async function handler(
     return createErrorResponse(
       ErrorCodes.STRIPE_WEBHOOK_INVALID,
       error.message || "Webhook processing failed",
-      {}
+      responseHeaders
     )
   }
 }

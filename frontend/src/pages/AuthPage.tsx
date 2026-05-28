@@ -92,7 +92,7 @@ export default function AuthPage() {
           return;
         }
 
-        // Credentials succeeded. The backend provisions the 60-minute Pro trial.
+        // Credentials succeeded. The backend provisions the 24-hour Pro trial.
         setInlineError(null);
 
         // Post-signup sign-in to get the session (Supabase quirk)
@@ -228,7 +228,7 @@ export default function AuthPage() {
 
                 {view === 'sign_up' && (
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                    <p className="text-sm font-semibold text-foreground">Start free, with a 60-minute Pro trial</p>
+                    <p className="text-sm font-semibold text-foreground">Start free, with a 24-hour Pro trial</p>
                     <p className="text-xs font-medium leading-relaxed text-foreground/70">
                       Free practice uses instant Browser transcription. Your trial lets you try Vault Mode private transcription and deeper feedback. Cloud transcription is available as a Pro feature.
                     </p>
