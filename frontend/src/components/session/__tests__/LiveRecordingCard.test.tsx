@@ -160,7 +160,7 @@ describe('LiveRecordingCard', () => {
         expect(onModeChange).toHaveBeenCalledWith('native');
     });
 
-    it('lets a paid Pro user switch to Cloud while Private setup is downloading', async () => {
+    it('lets a subscribed Pro user switch to Cloud while Private setup is downloading', async () => {
         const onModeChange = vi.fn();
         render(
             <LiveRecordingCard

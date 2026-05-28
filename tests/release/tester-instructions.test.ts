@@ -15,7 +15,7 @@ describe('soft release tester instructions', () => {
     it('keeps Cloud STT out of the trial-account tester task list', () => {
         const instructions = readReleaseDoc('SOFT_RELEASE_TESTER_INSTRUCTIONS.md');
 
-        expect(instructions).toMatch(/Cloud STT is available as a Pro feature\. Trial access includes Private STT/i);
+        expect(instructions).toMatch(/Cloud STT is a Pro feature \(unavailable for trial\)\. Trial access includes Private STT/i);
         expect(instructions).not.toMatch(/optionally try cloud/i);
     });
 

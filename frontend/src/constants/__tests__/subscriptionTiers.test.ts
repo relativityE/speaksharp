@@ -98,7 +98,7 @@ describe('subscriptionTiers', () => {
     });
 
 	    describe('hasPaidProEntitlement', () => {
-        it('does not treat active trial as paid Pro', () => {
+        it('does not treat active trial as subscribed Pro', () => {
             expect(hasPaidProEntitlement({
                 subscription_status: 'free',
                 trial_expires_at: '2999-01-01T00:00:00.000Z',
@@ -125,14 +125,14 @@ describe('subscriptionTiers', () => {
 	            })).toBe(false);
 	        });
 
-	        it('allows paid Pro profiles to use Cloud STT', () => {
+	        it('allows subscribed Pro profiles to use Cloud STT', () => {
 	            expect(hasCloudSttEntitlement({
 	                subscription_status: 'pro',
 	                stripe_subscription_id: 'sub_123',
 	            })).toBe(true);
 	        });
 
-	        it('does not allow expired trials or unpaid Pro-shaped profiles to use Cloud STT', () => {
+	        it('does not allow expired trials or unsubscribed Pro-shaped profiles to use Cloud STT', () => {
 	            expect(hasCloudSttEntitlement({
 	                subscription_status: 'free',
 	                trial_expires_at: '2024-01-01T00:00:00.000Z',

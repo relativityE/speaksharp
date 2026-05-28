@@ -198,7 +198,7 @@ describe('SessionPage - STT Mode Selection UI', () => {
         expect(setModeSpy).toHaveBeenCalledWith('native');
     });
 
-    it('keeps Cloud available during Private setup only for paid Pro users', async () => {
+    it('keeps Cloud available during Private setup only for subscribed Pro users', async () => {
         const user = userEvent.setup({ pointerEventsCheck: 0 });
         const setModeSpy = vi.fn();
 

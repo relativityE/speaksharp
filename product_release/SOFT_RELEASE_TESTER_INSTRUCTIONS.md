@@ -14,7 +14,7 @@ Link: https://speaksharp-public.vercel.app
 Setup:
 1. Create a new account with your own email and password.
 
-Your new account includes 1 hour of trial access automatically. The timer starts when the account is created. Cloud STT is available as a Pro feature. Trial access includes Private STT, so this test focuses on Private STT.
+Your new account includes 1 hour of trial access automatically. The timer starts when the account is created. Cloud STT is a Pro feature (unavailable for trial). Trial access includes Private STT, so this test focuses on Private STT.
 
 What to test:
 1. Start with Private STT for your first session. Click "Download Private Model" if prompted. This is a one-time private model setup in your browser. It runs on your device, so first words can take about 5 seconds to appear.
@@ -27,7 +27,7 @@ What to test:
 
 Known limitations:
 - Browser transcription uses your browser's built-in speech recognition. Chrome is recommended. Availability and accuracy vary by browser.
-- Cloud STT is a Pro feature and may appear disabled during trial access.
+- Cloud STT is a Pro feature.
 - User-facing baseline signup is Free. Paid Basic is reserved for a future product decision and should not appear in the tester path.
 
 Please report:

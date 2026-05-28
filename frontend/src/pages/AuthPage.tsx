@@ -230,7 +230,7 @@ export default function AuthPage() {
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
                     <p className="text-sm font-semibold text-foreground">Start free, with a 60-minute Pro trial</p>
                     <p className="text-xs font-medium leading-relaxed text-foreground/70">
-                      Free practice uses instant Browser transcription. Your trial lets you try Vault Mode private transcription and deeper feedback. Cloud transcription is available as a Pro feature.
+                      Free practice uses instant Browser transcription. Your trial lets you try Vault Mode private transcription and deeper feedback. Cloud STT is a Pro feature (unavailable for trial).
                     </p>
                     {inlineError && (
                       <p

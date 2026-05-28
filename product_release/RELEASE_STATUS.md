@@ -43,7 +43,7 @@ If this file conflicts with older files in `product_release/archive/`, this file
 |---|---|---|
 | Private v2 | Controlled, benchmarkable local STT path | In our control; suitable for benchmark automation once current artifacts are refreshed. |
 | Private v4 | Controlled, benchmarkable worker-backed local STT path | In our control; WIP benchmark evidence must replace mini-corpus seed data. |
-| Cloud | Controlled, provider-backed STT path | Benchmarkable against fixtures; paid-Pro entitlement required. |
+| Cloud | Controlled, provider-backed STT path | Benchmarkable against fixtures; Pro feature entitlement required, unavailable for trial. |
 | Native Browser | Browser-dependent convenience STT | Chrome desktop recommended. Do not use Native fixture/WER as release benchmark evidence unless the exact audio route is proven. |
 
 ## Tester Scope
@@ -77,7 +77,7 @@ Quality and service-level data are evidence, not PRD content:
 |---|---|
 | G6 Fresh Trial Private STT Transcript/Save/History Path | `/private/tmp/speaksharp-private-human-[timestamp].json`; must include `SESSION_LIFECYCLE_WARMUP`, model setup/download state, chunk RMS/duration rows, first partial timestamp/text, console events, save result, and history/detail proof. |
 | Native Browser Chrome human-mic proof | `/private/tmp/speaksharp-native-[timestamp].json`; must include event order from `onspeechstart -> first onresult`, selected transcript on stop, save/history/detail proof, analytics proof, and no unintended 4-word sequence appearing more than once. |
-| Cloud Pro proof | `cloud-artifact-[timestamp].log`; must show AssemblyAI token HTTP 200, transcript/save/history/detail proof, and paid-Pro entitlement context. |
+| Cloud Pro proof | `cloud-artifact-[timestamp].log`; must show AssemblyAI token HTTP 200, transcript/save/history/detail proof, and Pro entitlement context. |
 | Custom word analytics proof | Browser/session artifact showing words such as `like = 1` or `basically = 1` after adding the custom word through the UI, then saving and opening detail/analytics. |
 | PDF export proof | Saved-session PDF artifact whose transcript, duration, WPM, filler/custom word counts, and session metadata match the saved detail view within ±15%. |
 | Session Status UX | Screenshot/video or browser trace showing one clear status/progress surface, Private setup/download/ready states, and no duplicate or internal FSM/debug status obstructing the user flow. |

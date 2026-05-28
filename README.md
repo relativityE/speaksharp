@@ -158,7 +158,7 @@ To get started with SpeakSharp, you'll need to have Node.js (version 22.12.0 or 
     SUPABASE_SERVICE_ROLE_KEY=your-role-key   # For admin DB operations
     ```
 
-    > **Trial Access:** New accounts receive an automatic one-hour Pro trial through the database entitlement layer. No tester code or admin secret is required. Cloud STT is available as a Pro feature to avoid provider costs during trial testing.
+    > **Trial Access:** New accounts receive an automatic one-hour Pro trial through the database entitlement layer. No tester code or admin secret is required. Cloud STT is a Pro feature (unavailable for trial) to avoid provider costs during trial testing.
 
 5.  **Run the development server:**
     ```bash
