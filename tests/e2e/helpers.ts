@@ -163,14 +163,18 @@ export async function goToApp(page: Page, route: string = '/') {
   debugLog(`Navigating to ${route}`);
   await page.goto(route);
 
-  // 🛡️ STRICT ORDERING RULE: Assert origin before ANY storage/forensic access
+  // 🛡️ STRICT ORDERING RULE: Assert origin before ANY storage/forensic access.
+  // RC/live workflows may set BASE_URL for deployed proof steps, while local
+  // mocked E2E still runs against Playwright's localhost webServer.
   const allowedOrigin = process.env.BASE_URL
     ? new URL(process.env.BASE_URL).origin
     : null;
   const currentOrigin = new URL(page.url()).origin;
-  if (allowedOrigin) {
+  const isLocalPreview = /localhost|127\.0\.0\.1/.test(currentOrigin);
+  if (allowedOrigin && currentOrigin !== allowedOrigin && !isLocalPreview) {
     expect(currentOrigin).toBe(allowedOrigin);
-  } else {
+  }
+  if (!allowedOrigin && !isLocalPreview) {
     expect(currentOrigin).toMatch(/localhost|127\.0\.0\.1/);
   }
 

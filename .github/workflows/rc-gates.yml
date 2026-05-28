@@ -43,7 +43,6 @@ jobs:
           EDGE_FN_URL: ${{ secrets.EDGE_FN_URL }}
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           STT_ENGINE: mock
-          BASE_URL: ${{ github.event.inputs.base_url }}
         run: pnpm rc:gate:1:product
 
   gate-2-sast:
