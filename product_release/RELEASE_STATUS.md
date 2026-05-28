@@ -1,6 +1,6 @@
 # Release Status
 
-**Last updated:** 2026-05-26
+**Last updated:** 2026-05-28
 **Scope:** Single source of truth for current release posture.
 
 If this file conflicts with older files in `product_release/archive/`, this file wins. Stable contracts and procedures live in the operational docs and RC gate docs; current ship status lives here only.
@@ -9,18 +9,20 @@ If this file conflicts with older files in `product_release/archive/`, this file
 
 | Release Track | Status | Why |
 |---|---|---|
-| Controlled soft release | HOLD | Local fixes now pass `pnpm ci:unit` and the formerly failing E2E shard shape, but the fixes are not yet pushed and GitHub has not rerun on the release branch. |
+| Controlled soft release | HOLD / VALIDATION IN PROGRESS | The release evidence model has been refactored into pushed checkpoints. GitHub must finish the latest `CI - Test Audit`, production smoke, Supabase deploy, and any explicitly requested RC gate reruns before tester invites. |
 | Broad public launch | NO-GO | Live billing/mobile/public-launch gates are broader than the controlled tester scope and remain separately gated. |
 
 ## Latest Evidence
 
 | Area | Latest Evidence | Status |
 |---|---|---:|
-| RC gates | `Release Candidate Gates` run `26468665191` on `main` | PASS |
-| CI/Test Audit | GitHub run `26471011112` is red on old `main`; local rerun after fixes: `pnpm ci:unit` passed with 119 files / 873 tests / 1 todo | LOCAL PASS / PUSH PENDING |
-| E2E shard 2 | GitHub `e2e-shard-2` failed startup diagnostic on old `main`; local rerun after helper fix: `full-suite --shard=2/4` passed 13/13 | LOCAL PASS / PUSH PENDING |
-| Production canary | `Production Canary Smoke Test` run `26471011114` on `main` | PASS |
-| Ops health | Local `pnpm ops:health` generates the simplified v1 software/API board; GitHub secret-backed rerun is pending after push | LOCAL ARTIFACT / PUSH PENDING |
+| RC gates | Manual RC workflow must be rerun after the latest pushed checkpoint if it is being used for tester-launch signoff | RERUN REQUIRED FOR FINAL SIGNOFF |
+| CI/Test Audit | Push-triggered GitHub run on latest `main` is the source of truth | IN PROGRESS / CHECK GITHUB |
+| Production smoke | Push-triggered `Production Canary Smoke Test` remains the production quick-check workflow | IN PROGRESS / CHECK GITHUB |
+| Supabase deploy | Push-triggered deploy workflow remains the backend/Edge deploy proof when backend paths change | IN PROGRESS / CHECK GITHUB |
+| Ops health | Hosted ops status is a high-level display fed by the authoritative GitHub/Supabase JSON evidence path | CHECK CURRENT DASHBOARD |
+| Software quality | `SOFTWARE_QUALITY.operational.md`; generated artifacts `product_release/evidence/software-quality.latest.*` uploaded by CI | ADVISORY / EVIDENCE |
+| Service levels | `SERVICE_LEVELS.operational.md`; backend stress and browser endurance artifacts from `stress-endurance.yml` | ADVISORY UNLESS PROMOTED |
 | Private deployed worker | Gate 3 passed after the Vite `?worker&url` worker fix | PASS |
 | Native Browser STT | Chrome desktop real mic uses `continuous=true`, `interimResults=true`, `maxAlternatives=1`; Native corpus/WER is not a benchmark gate | PASS WITH BROWSER CAVEAT |
 | Cloud STT | Paid-Pro Cloud remains explicit Pro path; Free/trial denials are expected entitlement behavior | PASS FOR TESTER SCOPE WHEN PAID-PRO PROOF IS USED |
@@ -30,10 +32,10 @@ If this file conflicts with older files in `product_release/archive/`, this file
 
 | Priority | Blocker | Required Closure |
 |---|---|---|
-| P0 | Latest GitHub `CI - Test Audit` is still red on old `main` | Push local fixes and rerun CI; GitHub must replace the old red run with a green run before tester invites. |
-| P1 | Benchmark WIP is dirty and not yet durable | Commit or discard the benchmark workflow/manifest/spec changes only after validating the benchmark path. |
-| P1 | Markdown consolidation in progress | Current docs now use `RELEASE_STATUS.md` for changing posture and archive superseded packets; final push/rerun still pending. |
-| P2 | Ops health needs authoritative GitHub run | Local shell lacks GitHub Actions secrets, so local rows show `NOT READY`; push changes and dispatch `ops-health.yml` for the secret-backed result. |
+| P0 | Latest pushed `main` must have green required GitHub workflows | Wait for the newest `CI - Test Audit`, production smoke, and Supabase deploy runs to finish green. |
+| P0 | RC gates are manual and not tag-triggered | Dispatch and pass the RC gate workflow when this is the chosen signoff artifact. |
+| P1 | Stress/endurance evidence is newly structured | Use `stress-endurance.yml` artifacts for backend p50/p95/counts and browser endurance memory evidence; advisory unless stability is release risk. |
+| P2 | Ops health display is intentionally high-level | If hosted ops status is red/yellow, inspect the richer GitHub/Supabase JSON evidence rather than reconciling a second query source. |
 
 ## STT Release Positioning
 
@@ -58,6 +60,16 @@ Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` for human tester copy. The tester path
 ## Evidence Freshness Contract
 
 Each release gate is green only when the definition of green is backed by a named artifact that a reviewer can inspect without relying on operator memory. The active artifact is always the latest complete passing run. If a newer run fails any required criterion, the parent gate returns to red until a later complete run passes every criterion. Every artifact update must record `Last updated by: [initials] [date] [artifact path]`.
+
+## Quality And Service-Level Evidence
+
+Quality and service-level data are evidence, not PRD content:
+
+- Product promises and user-visible guarantees live in `PRD.operational.md`.
+- Quality interpretation lives in `SOFTWARE_QUALITY.operational.md`.
+- SLO/SLC/SLA definitions and target interpretation live in `SERVICE_LEVELS.operational.md`.
+- Generated software-quality artifacts are produced under `product_release/evidence/` during CI and uploaded as artifacts.
+- Backend stress and browser endurance artifacts are produced by `stress-endurance.yml` and are advisory unless explicitly promoted by this file or `RC_GATES.md`.
 
 ## Named STT Gate Artifacts
 

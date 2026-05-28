@@ -142,7 +142,7 @@ The soak suite uses a tiered script structure in `package.json` to ensure a clea
     *   **Action**: `dotenv -e .env.development -- tsx tests/soak/verify-users.ts`.
     *   **Why**: Verifies that the records created during the soak session (e.g., transcripts) are present and accurate in Supabase, acting as a data integrity gate.
 4.  **`test:endurance:browser`**: Unified coordinator.
-    *   **Action**: The main coordinator (`soak-test.spec.ts`) that orchestrates both the API stress and the UI memory check in sequence.
+    *   **Action**: The main coordinator (`soak-test.spec.ts`) that orchestrates both the API stress and browser endurance checks in sequence.
 
 ##### A. Local Verification (RAM Intensive)
 1. **Sync Duration**: Ensure `tests/constants.ts` has the desired `SOAK_MEMORY_DURATION_MS`.
