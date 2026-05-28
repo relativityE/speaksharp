@@ -42,11 +42,11 @@ Examples:
 
 ### Ship Signal Rule
 
-RC gate status is the ship/no-ship signal. SQM, coverage, Lighthouse, benchmarks, and soak results are advisory unless explicitly named as a blocking gate item. A high SQM score cannot override a red or stale RC gate item.
+RC gate status is the ship/no-ship signal. Quality score, coverage, Lighthouse, benchmarks, backend stress, and browser endurance results are advisory unless explicitly named as a blocking gate item. A high quality score cannot override a red or stale RC gate item.
 
 ### Raw Artifact Source Rule
 
-When generated summaries disagree with raw CI/browser artifacts, the raw artifact wins. Coverage JSON, Playwright reports, Vitest output, Lighthouse JSON, workflow logs, and browser trace files are the source of truth until the aggregator is fixed and rerun on the same commit.
+When generated summaries disagree with raw CI/browser artifacts, the raw artifact wins. Coverage JSON, Playwright reports, Vitest output, Lighthouse JSON, workflow logs, stress/endurance JSON, and browser trace files are the source of truth until the aggregator is fixed and rerun on the same commit.
 
 ### Pro Test Account Rule
 

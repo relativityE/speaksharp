@@ -18,6 +18,8 @@ This directory contains both current release controls and historical evidence pa
 | [PRECEDENCE.md](./PRECEDENCE.md) | Defines truth hierarchy and conflict resolution. | Canonical. |
 | [RC_GATES.md](./RC_GATES.md) | Defines release gates, evidence freshness, SAST/DAST/SCA terms, and STT corpus policy. | Canonical procedure; current run state belongs in `RELEASE_STATUS.md`. |
 | [RC_TEST_INVENTORY.md](./RC_TEST_INVENTORY.md) | Maps counted tests/workflows to RC gates. | Canonical inventory. |
+| [SOFTWARE_QUALITY.operational.md](./SOFTWARE_QUALITY.operational.md) | Defines quality evidence sources, generated artifact rules, and interpretation of coverage/Lighthouse/bundle/flaky metrics. | Canonical quality-evidence interpretation. |
+| [SERVICE_LEVELS.operational.md](./SERVICE_LEVELS.operational.md) | Defines SLO/SLC/SLA terms, soft-release service targets, stress/endurance evidence, and industry comparison. | Canonical service-level interpretation. |
 | [SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./SOFT_RELEASE_TESTER_INSTRUCTIONS.md) | Copy/paste human tester protocol. | Canonical tester-facing copy. |
 | [OPS_HEALTH_DASHBOARD.md](./OPS_HEALTH_DASHBOARD.md) | Simple vendor/tool health dashboard scope. | Canonical ops monitoring scope. |
 | [LAUNCH_ENV_CHECKLIST.md](./LAUNCH_ENV_CHECKLIST.md) | Runtime secrets/config checklist. | Canonical for env/config only; snapshot is older and should not be used for ship status. |
@@ -44,6 +46,8 @@ The sections below are kept for navigation, but the canonical/historical split a
 ### 📜 Requirements & Invariants
 - **[PRECEDENCE.md](./PRECEDENCE.md)**: The authoritative hierarchy of truth. Defines the precedence order for all release decisions.
 - **[PRD.operational.md](./PRD.operational.md)**: The contract-oriented release gate. Defines user-visible guarantees and failure behaviors.
+- **[SOFTWARE_QUALITY.operational.md](./SOFTWARE_QUALITY.operational.md)**: The software quality evidence guide. Defines how coverage, Lighthouse, bundle metrics, flaky counts, and generated quality artifacts should be interpreted.
+- **[SERVICE_LEVELS.operational.md](./SERVICE_LEVELS.operational.md)**: The service-level guide. Defines SLO/SLC/SLA terminology, soft-release service targets, stress/endurance evidence, and current measurement gaps.
 - **[ARCHITECTURE.operational.md](./ARCHITECTURE.operational.md)**: The structural invariants and authoritative sources of truth. Defines the non-negotiable technical rules.
 - **[ROADMAP.operational.md](./ROADMAP.operational.md)**: The release risk tracker and launch triaging tool. Tracks launch-critical risks vs. deferred features.
 - **[BACKLOG.md](./BACKLOG.md)**: Deferred known issues, tech debt, and workflow cleanup that should not interrupt active P0/P1 stabilization unless promoted.
