@@ -154,31 +154,6 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             userContexts.map((ctx) => ctx.newPage())
         );
 
-        await Promise.all(userPages.map((page) => page.addInitScript(() => {
-            const e2eWindow = window as Window & {
-                __E2E_CONTEXT__?: boolean;
-                __SS_E2E__?: {
-                    isActive: boolean;
-                    engineType: 'mock' | 'real';
-                    registry: Record<string, unknown>;
-                    debug: boolean;
-                    flags: Record<string, boolean>;
-                };
-            };
-
-            e2eWindow.__E2E_CONTEXT__ = true;
-            e2eWindow.__SS_E2E__ = {
-                isActive: true,
-                engineType: 'mock',
-                registry: {},
-                debug: false,
-                flags: {
-                    bypassMutex: true,
-                    fastTimers: false,
-                },
-            };
-        })));
-
         userPages.forEach((page, userIndex) => {
             page.on('console', (message) => {
                 if (message.type() === 'error' || message.type() === 'warning') {
@@ -226,10 +201,6 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             if (SOAK_CONFIG.USE_NATIVE_MODE) {
                 const modeSelect = page.getByTestId(TEST_IDS.STT_MODE_SELECT);
                 await expect(modeSelect).toBeVisible({ timeout: 15000 });
-                await page.waitForFunction(() => {
-                    const e2eWindow = window as Window & { __e2eBridgeReady__?: boolean; dispatchMockTranscript?: unknown };
-                    return e2eWindow.__e2eBridgeReady__ === true && typeof e2eWindow.dispatchMockTranscript === 'function';
-                }, { timeout: 15000 });
                 await modeSelect.click();
                 await page.getByTestId(TEST_IDS.STT_MODE_NATIVE).click();
                 await expect(modeSelect).toHaveAttribute('data-state', 'native', { timeout: 10000 });
@@ -242,17 +213,12 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             await page.waitForSelector(`[data-testid="${TEST_IDS.SESSION_STATUS_INDICATOR}"]`, { timeout: 10000 });
             await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 10000 });
 
-            // 4. Endurance wait and mock speech injection.
+            // 4. Endurance wait. Native transcript output is browser-owned,
+            // so this path validates sustained recording stability rather
+            // than mocked transcript accuracy.
             const checkInterval = 10000;
             const iterations = Math.floor(SOAK_CONFIG.SESSION_DURATION_MS / checkInterval);
             for (let j = 0; j < iterations; j++) {
-                await page.evaluate((iteration: number) => {
-                    const dispatchMockTranscript = (window as Window & { dispatchMockTranscript?: (text: string, isFinal: boolean) => void }).dispatchMockTranscript;
-                    if (typeof dispatchMockTranscript === 'function') {
-                        const phrases = ['Testing...', 'Endurance test...', 'Simulating...'];
-                        dispatchMockTranscript(phrases[iteration % phrases.length], true);
-                    }
-                }, j);
                 await page.waitForTimeout(checkInterval);
             }
 

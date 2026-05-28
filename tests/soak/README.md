@@ -25,7 +25,7 @@ We split the testing into two distinct layers:
 - **Tool**: Playwright (`test:endurance:browser`).
 - **Concurrency**: 2 isolated browser contexts by default.
 - **Purpose**: Verifies that the Frontend React app can run an extended Browser/Native STT session without leaking state or memory.
-- **Verifies**: Client-side hydration, authenticated routing, Native-mode selection, recording controls, mock transcript flow, analytics navigation, and browser stability.
+- **Verifies**: Client-side hydration, authenticated routing, Native-mode selection, recording controls, sustained Native recording state, analytics navigation, and browser stability.
 
 ---
 

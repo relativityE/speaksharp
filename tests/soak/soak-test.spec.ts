@@ -61,7 +61,7 @@ test.describe('Stress/Endurance Coordinator: Backend + Browser Evidence', () => 
     // =========================================================================
     // PRONG 2: Browser Endurance
     // =========================================================================
-    test('Browser Endurance: Native-mode shell with mocked transcript stability', async ({ browser }) => {
+    test('Browser Endurance: Native recording stability', async ({ browser }) => {
         logger.info(`\n=================================================`);
         logger.info(`[START] Phase 2 - Frontend UI Memory Check`);
         logger.info(`=================================================\n`);
