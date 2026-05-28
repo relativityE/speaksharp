@@ -112,6 +112,8 @@ jobs:
           VITE_SKIP_MSW: 'true'
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY || secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
+          FREE_TEST_PASSWORD: ${{ secrets.FREE_TEST_PASSWORD || secrets.BASIC_TEST_PASSWORD }}
           BASIC_TEST_EMAIL: ${{ secrets.BASIC_TEST_EMAIL }}
           BASIC_TEST_PASSWORD: ${{ secrets.BASIC_TEST_PASSWORD }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
