@@ -45,12 +45,19 @@ jobs:
           NEW_PRO_COUNT: ${{ github.event.inputs.new_pro_count || '0' }}
         run: node scripts/setup-test-users.mjs
       
-      - name: Run backend stress and browser endurance checks
+      - name: Run backend stress check
+        env:
+          SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
+          API_LOAD_CONCURRENCY: "15"
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: pnpm test:stress:backend
+
+      - name: Run browser endurance check
         env:
           VITE_TEST_MODE: "true"
           VITE_USE_LIVE_DB: "true"
           SOAK_TEST_PASSWORD: ${{ secrets.SOAK_TEST_PASSWORD }}
-          API_LOAD_CONCURRENCY: "15"
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |

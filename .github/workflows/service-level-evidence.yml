@@ -1,0 +1,36 @@
+name: Service-Level Evidence
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  service-level-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate service-level evidence
+        run: pnpm metrics:service-levels
+
+      - name: Publish service-level summary
+        run: cat product_release/evidence/service-levels-summary.latest.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload service-level evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: service-level-evidence
+          path: product_release/evidence/
+          retention-days: 14

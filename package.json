@@ -84,6 +84,7 @@
     "reset:git": "node scripts/pnpm-only.mjs && ./scripts/git-pull-fix.sh",
     "model:download": "node scripts/pnpm-only.mjs && ./scripts/download-whisper-model.sh",
     "metrics:update": "node scripts/pnpm-only.mjs && node scripts/write-software-quality-evidence.mjs",
+    "metrics:service-levels": "node scripts/pnpm-only.mjs && node scripts/write-service-level-evidence.mjs",
     "benchmark:whisper": "node scripts/pnpm-only.mjs && tsx scripts/benchmark-whisper-ceiling.mts",
     "benchmark:browser": "node scripts/pnpm-only.mjs && playwright test tests/live/benchmark-native.live.spec.ts tests/live/benchmark-cpu.live.spec.ts tests/live/benchmark-webgpu.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list",
     "benchmark:cloud": "node scripts/pnpm-only.mjs && tsx scripts/benchmark-assemblyai-ceiling.mts",
