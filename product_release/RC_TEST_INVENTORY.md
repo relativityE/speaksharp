@@ -301,7 +301,7 @@ Not folded by default: visual polish tests unless the issue makes onboarding/cor
 | `pro-stt-artifact-matrix.yml` | Gate 1/Gate 3 Pro STT artifact path | Counted release-time evidence. |
 | `observability-api-smoke.yml` | Public launch observability/support evidence | Advisory for controlled tester release; counted for public launch readiness. |
 | `benchmarks.yml` | STT/model/provider performance ceiling | Advisory; counted only when changing engine/model/performance SLA. |
-| `soak-test.yml` | Durability/stability | Advisory unless stability is the current release risk. |
+| `stress-endurance.yml` | Durability/stability | Advisory unless stability is the current release risk. |
 | `setup-test-users.yml` | Test data utility | Utility, not a gate. |
 
 ## Tests Added Or Tightened In The Latest Release Push
@@ -330,7 +330,7 @@ Recent release-hardening commits added or tightened the following tests/evidence
 | `pro-stt-artifact-matrix.yml` | Manual | Pro STT artifact path. | Yes, release-time or STT changes. |
 | `observability-api-smoke.yml` | Manual | Sentry/PostHog API readback. | Yes, release-time/advisory depending launch scope. |
 | `benchmarks.yml` | Schedule/manual | STT ceiling benchmarks. | Advisory, required only for engine/model changes. |
-| `soak-test.yml` | Schedule/manual | Durability/memory/API stress. | Advisory unless investigating stability. |
+| `stress-endurance.yml` | Schedule/manual | Backend stress/browser endurance. | Advisory unless investigating stability. |
 | `setup-test-users.yml` | Manual | Test user provisioning. | Utility, not a correctness gate. |
 
 ## Script Inventory

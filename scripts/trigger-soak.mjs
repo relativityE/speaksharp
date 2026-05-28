@@ -1,7 +1,7 @@
 /**
- * Soak Test Technical Bridge: Workflow Dispatch Utility
+ * Stress/Endurance Technical Bridge: Workflow Dispatch Utility
  * 
- * Purpose: Architect-level bridge to trigger GitHub Actions Soak Test workflows
+ * Purpose: Architect-level bridge to trigger GitHub Actions stress/endurance workflows
  * from the local environment.
  * 
  * DESIGN RATIONALE:
@@ -19,7 +19,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 // --- Configuration ---
-const WORKFLOW_NAME = "Soak Test";
+const WORKFLOW_NAME = "Stress and Endurance";
+const WORKFLOW_FILE = "stress-endurance.yml";
 const REPO_ROOT = process.cwd();
 
 /**
@@ -42,7 +43,7 @@ function log(msg, color = COLORS.reset) {
  * Main execution
  */
 async function main() {
-    log("🚀 Triggering Soak Test Infrastructure Bridge...", COLORS.bright);
+    log("🚀 Triggering Stress/Endurance Infrastructure Bridge...", COLORS.bright);
 
     // 1. Parse Arguments
     const args = process.argv.slice(2);
@@ -83,7 +84,7 @@ async function main() {
         await new Promise(resolve => setTimeout(resolve, 3000));
 
         // Get the latest run ID for this workflow
-        runId = execSync(`gh run list --workflow=soak-test.yml --limit 1 --json databaseId --jq '.[0].databaseId'`, { encoding: 'utf8' }).trim();
+        runId = execSync(`gh run list --workflow=${WORKFLOW_FILE} --limit 1 --json databaseId --jq '.[0].databaseId'`, { encoding: 'utf8' }).trim();
 
         if (!runId) {
             throw new Error("Could not retrieve run ID");
@@ -130,9 +131,9 @@ async function main() {
         process.stdout.write('\n');
 
         if (conclusion === 'success') {
-            log("\n✅ Soak test PASSED", COLORS.green);
+            log("\n✅ Stress/endurance checks PASSED", COLORS.green);
         } else {
-            log(`\n❌ Soak test FAILED (Conclusion: ${conclusion})`, COLORS.red);
+            log(`\n❌ Stress/endurance checks FAILED (Conclusion: ${conclusion})`, COLORS.red);
             process.exit(1);
         }
     } else {

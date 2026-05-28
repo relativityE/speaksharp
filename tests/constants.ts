@@ -145,6 +145,22 @@ export const BASIC_USER_COUNT = FREE_USER_COUNT;
 export const PRO_USER_COUNT = 10;
 export const MAX_TOTAL_TEST_USERS = 50;
 
+export const SOAK_API_TEST_USERS = [
+  ...Array.from({ length: FREE_USER_COUNT }, (_, i) => ({
+    email: `soak-test${i}@test.com`,
+    password: process.env.SOAK_TEST_PASSWORD || 'password123',
+    expectedTier: 'free' as const,
+  })),
+  ...Array.from({ length: PRO_USER_COUNT }, (_, i) => {
+    const index = 25 + i;
+    return {
+      email: `soak-test${index}@test.com`,
+      password: process.env.SOAK_TEST_PASSWORD || 'password123',
+      expectedTier: 'pro' as const,
+    };
+  }),
+];
+
 // ... (Timeouts and Soak Config remain unchanged)
 
 // ============================================
@@ -165,7 +181,7 @@ export const TIMEOUTS = {
 
 /**
  * SOAK_MEMORY_DURATION_MS: The module-level "Source of Truth".
- * Update this single value to change the duration for all memory-related soak tests.
+ * Update this single value to change the duration for browser endurance checks.
  */
 const SOAK_MEMORY_DURATION_MS = Number(process.env.SOAK_MEMORY_DURATION_MS) || 600000; // Default: 10 mins
 
@@ -181,7 +197,9 @@ export const SOAK_CONFIG = {
   PLAYWRIGHT_TIMEOUT_MS: Math.max(SOAK_MEMORY_DURATION_MS * 2.5, 300 * 1000),
   P95_THRESHOLD_MS: 10000,
   MAX_MEMORY_MB: 200,
-  USE_NATIVE_MODE: false,
+  // Soak UI memory proof must use Browser/Native STT. Private requires a
+  // model cache and is covered by dedicated Private proofs, not the memory soak.
+  USE_NATIVE_MODE: true,
   TRACK_MEMORY: true,
   RESULTS_DIR: 'test-results/soak',
 } as const;
