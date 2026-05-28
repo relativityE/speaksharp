@@ -85,7 +85,7 @@ Most tests (except for ordinary Unit and E2E Mock) require real backend credenti
 3.  **Audits**: Runs `lint`, `typecheck`, and `vitest`.
 4.  **E2E (Mocked)**: Runs all 4 Playwright shards.
 5.  **Lighthouse**: Runs Lighthouse CI audits.
-6.  **SQM**: Generates and prints metrics to console.
+6.  **Quality Metrics**: Generates and prints software quality metrics to console/artifacts.
 
 ### 1b. Cloud Dispatch (`ci:dispatch:deploy` / `ci:dispatch:stress-endurance`)
 **Commands**: `pnpm ci:dispatch:deploy`, `pnpm ci:dispatch:stress-endurance`

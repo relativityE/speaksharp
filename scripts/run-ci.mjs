@@ -159,9 +159,10 @@ function getFlagValue(flagName, defaultValue = false) {
 }
 
 const shouldWriteOperationalPrdMetrics = getFlagValue('--write-prd-metrics', false);
+const shouldWriteQualityMetrics = getFlagValue('--write-quality-metrics', shouldWriteOperationalPrdMetrics);
 
-if (shouldWriteOperationalPrdMetrics && process.env.GITHUB_ACTIONS !== 'true') {
-    console.error('--write-prd-metrics=true is reserved for the GitHub Actions cloud pipeline. Use --write-prd-metrics=false for local runs.');
+if (shouldWriteQualityMetrics && process.env.GITHUB_ACTIONS !== 'true') {
+    console.error('--write-quality-metrics=true is reserved for the GitHub Actions cloud pipeline. Use --write-quality-metrics=false for local runs.');
     process.exit(1);
 }
 
@@ -280,7 +281,7 @@ function generateGitHubSummary(auditModel) {
     const output = `
 ## SpeakSharp CI Summary 🧪🏆
 - **Status**: ${auditModel.status === 'PASSED' ? '✅ PASSED' : '❌ FAILED'}
-- **SQM Score**: ${auditModel.sqm?.score || 0} / 100
+- **Quality Score**: ${auditModel.sqm?.score || 0} / 100
 - **Unit Tests**: ${auditModel.unit.passed} / ${auditModel.unit.total}
 - **E2E Tests**: ${auditModel.e2e.passed} / ${auditModel.e2e.total}
 - **Runtime**: ${auditModel.runtime}s
@@ -748,7 +749,7 @@ async function main() {
         }
 
         // Stage 5: Metrics
-        await runStage(5, "Metrics & SQM", async (stage) => {
+        await runStage(5, "Metrics & Quality", async (stage) => {
             if (fs.existsSync(path.join(rootDir, 'scripts/run-metrics.sh'))) {
                 const s1 = Date.now();
                 await runCommand('./scripts/run-metrics.sh', [], { label: 'METRIC', env: { TOTAL_RUNTIME_SECONDS: Math.floor((Date.now() - startTime) / 1000) } });
@@ -769,6 +770,9 @@ async function main() {
         const auditModel = buildAuditModel(ciTelemetry);
         printFinalSummary(auditModel);
         generateMarkdownReport(rootDir, auditModel);
+        if (shouldWriteQualityMetrics) {
+            await runCommand('node', ['scripts/write-software-quality-evidence.mjs'], { label: 'QUALITY-METRICS' });
+        }
         generateGitHubSummary(auditModel);
         if (auditModel.status !== 'PASSED') {
             process.exitCode = 1;
@@ -811,8 +815,8 @@ async function main() {
         const auditModel = buildAuditModel(ciTelemetry);
         printFinalSummary(auditModel);
         generateMarkdownReport(rootDir, auditModel);
-        if (shouldWriteOperationalPrdMetrics) {
-            await runCommand('node', ['scripts/update-prd-metrics.mjs'], { label: 'PRD-METRICS' });
+        if (shouldWriteQualityMetrics) {
+            await runCommand('node', ['scripts/write-software-quality-evidence.mjs'], { label: 'QUALITY-METRICS' });
         }
         generateGitHubSummary(auditModel);
 
@@ -1000,9 +1004,9 @@ function printFinalSummary(auditModel) {
         console.log(`  SEO:             ${lh.seo}\n`);
     }
 
-    // SQM Score
+    // Quality Score
     if (sqm && sqm.score !== undefined) {
-        console.log(`${ANSI.BOLD}SQM Score${ANSI.RESET}`);
+        console.log(`${ANSI.BOLD}Quality Score${ANSI.RESET}`);
         console.log(`  Score:    ${ANSI.CYAN}${sqm.score} / 100${ANSI.RESET}\n`);
     }
 
@@ -1046,7 +1050,7 @@ function generateMarkdownReport(rootDir, auditModel) {
 
 ## 📊 Summary
 **Status**: ${success ? '✅ PASSED' : auditModel.status === 'INVALID' ? '⚠️ INVALID / NOT EVIDENCE' : '❌ FAILED'}
-**SQM Score**: ${sqm?.score || 0} / 100
+**Quality Score**: ${sqm?.score || 0} / 100
 **Pipeline Runtime**: ${auditModel.runtime}s
 ${invalidEvidence}
 
@@ -1107,8 +1111,8 @@ async function runReport(startTime) {
         ciTelemetry.tests.vitest = parseVitestResults(rootDir);
         ciTelemetry.lighthouse = parseLighthouse(rootDir);
 
-        // Stage 5: Metrics & SQM (Always run in CI)
-        await runStage(5, "Metrics & SQM", async () => {
+        // Stage 5: Metrics & Quality (Always run in CI)
+        await runStage(5, "Metrics & Quality", async () => {
             if (fs.existsSync(path.join(rootDir, 'scripts/run-metrics.sh'))) {
                 await runCommand('./scripts/run-metrics.sh', [], {
                     label: 'METRIC',
@@ -1121,8 +1125,8 @@ async function runReport(startTime) {
         const auditModel = buildAuditModel(ciTelemetry);
         printFinalSummary(auditModel);
         generateMarkdownReport(rootDir, auditModel);
-        if (shouldWriteOperationalPrdMetrics) {
-            await runCommand('node', ['scripts/update-prd-metrics.mjs'], { label: 'PRD-METRICS' });
+        if (shouldWriteQualityMetrics) {
+            await runCommand('node', ['scripts/write-software-quality-evidence.mjs'], { label: 'QUALITY-METRICS' });
         }
         generateGitHubSummary(auditModel);
 

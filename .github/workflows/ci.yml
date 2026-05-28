@@ -337,7 +337,8 @@ jobs:
             artifacts/ci-metrics.json
             artifacts/ci-wall-clock.json
             artifacts/ci-job-timing.json
-            product_release/PRD.operational.md
+            product_release/evidence/software-quality.latest.json
+            product_release/evidence/software-quality-summary.latest.md
           retention-days: 30
           if-no-files-found: warn
 

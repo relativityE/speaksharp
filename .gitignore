@@ -34,6 +34,8 @@ results.json
 summary.json
 ci-results.json
 ci-audit.md
+product_release/evidence/*.latest.json
+product_release/evidence/*.latest.md
 ci_run.log
 lighthouse-baseline.json
 lighthouse-final.json
