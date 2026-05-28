@@ -20,4 +20,13 @@ describe('free tier database contract', () => {
         expect(migration).toMatch(/WHERE tier_name = COALESCE\(v_effective_tier, 'free'\)/);
         expect(migration).not.toMatch(/SET\s+subscription_status\s*=\s*'basic'/i);
     });
+
+    it('keeps the soft-release Pro trial window at 60 minutes', () => {
+        const migration = readMigration('20260528184500_restore_one_hour_trial_window.sql');
+
+        expect(migration).toMatch(/product policy is a 60-minute Pro trial/i);
+        expect(migration).toMatch(/not Cloud STT/i);
+        expect(migration).toMatch(/interval '60 minutes'/);
+        expect(migration).not.toMatch(/interval '24 hours'/);
+    });
 });

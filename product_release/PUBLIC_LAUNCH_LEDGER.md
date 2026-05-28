@@ -151,7 +151,7 @@ The billing lifecycle contract is proven at handler/RPC-call level, but broad pu
 
 | Scenario | Result | Evidence |
 |---|---:|---|
-| Automatic public trial access | PASS | Automatic trial is now created by auth/profile provisioning with a 24-hour expiry. |
+| Automatic public trial access | PASS | Automatic trial is now created by auth/profile provisioning with a 60-minute expiry. |
 | Invalid trial access during public signup | PASS | `/private/tmp/speaksharp-pl006-trial-1778806498265/invalid-first-after-submit.png`; user lands on Free with clear `Trial failed: Invalid or inactive trial access` messaging. |
 | Valid trial access during public signup | PASS | `/private/tmp/speaksharp-pl006-trial-1778806498265/valid-once-after-submit.png`; public signup lands on Session with `PRO` badge and Pro STT mode surface. |
 | Reuse same one-use trial access | PASS | `/private/tmp/speaksharp-pl006-reuse-timing-1778806590781/report.json`; user lands on Free with clear `Trial failed: Trial access already used` messaging. |

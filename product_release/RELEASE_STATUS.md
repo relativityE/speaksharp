@@ -50,7 +50,7 @@ If this file conflicts with older files in `product_release/archive/`, this file
 
 Use `SOFT_RELEASE_TESTER_INSTRUCTIONS.md` for human tester copy. The tester path is:
 
-1. Fresh account with automatic 24-hour trial.
+1. Fresh account with automatic one-hour trial.
 2. Private model download/setup if prompted.
 3. Private recording, transcript, stop/save, history/detail, analytics.
 4. Custom word added through UI and spoken during recording.
