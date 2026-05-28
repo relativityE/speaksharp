@@ -157,7 +157,7 @@ export const PricingPage: React.FC = () => {
         ))}
       </div>
       <div className="mx-auto mt-8 flex max-w-4xl flex-wrap items-center justify-center gap-3 text-sm text-muted-foreground">
-        {['Vault Mode keeps audio local', 'Transcript data is never used for ads', 'Cloud STT is paid Pro only'].map((label) => (
+        {['Vault Mode keeps audio local', 'Transcript data is never used for ads', 'Cloud available as a Pro feature'].map((label) => (
           <span key={label} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5">
             <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" />
             {label}

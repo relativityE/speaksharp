@@ -7,35 +7,71 @@ import path from 'path';
  */
 export default class VitestCIReporter {
     onFinished(files) {
+        const taskFile = (task) =>
+            task.file?.filepath || task.file?.name || task.filepath || task.name || '';
+
+        const taskErrorMessage = (task) => {
+            const errors = [
+                ...(task.result?.errors || []),
+                ...(task.result?.error ? [task.result.error] : []),
+            ];
+
+            return errors
+                .map(error => error?.message || error?.stack || String(error))
+                .filter(Boolean)
+                .join('\n')
+                .slice(0, 1000);
+        };
+
+        const recordFailure = (task, stats, titlePath, type = 'test') => {
+            stats.failed++;
+            if (type !== 'test') stats.failedSuites++;
+            stats.failures.push({
+                title: titlePath.join(' > '),
+                file: taskFile(task),
+                type,
+                error: taskErrorMessage(task),
+            });
+        };
+
         const countTests = (tasks, stats, ancestors = []) => {
             tasks.forEach(task => {
                 const titlePath = [...ancestors, task.name].filter(Boolean);
                 if (task.type === 'test') {
                     if (task.result?.state === 'pass') stats.passed++;
-                    else if (task.result?.state === 'fail') {
-                        stats.failed++;
-                        const errors = task.result?.errors || [];
-                        stats.failures.push({
-                            title: titlePath.join(' > '),
-                            file: task.file?.filepath || task.file?.name || '',
-                            error: errors
-                                .map(error => error?.message || String(error))
-                                .filter(Boolean)
-                                .join('\n')
-                                .slice(0, 1000),
-                        });
-                    }
+                    else if (task.result?.state === 'fail') recordFailure(task, stats, titlePath);
                     stats.total++;
                     stats.totalDuration += (task.result?.duration || 0);
-                } else if (task.tasks) {
-                    countTests(task.tasks, stats, titlePath);
+                } else {
+                    const failuresBeforeChildren = stats.failed;
+                    countTests(task.tasks || [], stats, titlePath);
+                    const hasChildFailure = stats.failed > failuresBeforeChildren;
+
+                    if (task.result?.state === 'fail' && !hasChildFailure) {
+                        recordFailure(task, stats, titlePath, task.type || 'suite');
+                        stats.total++;
+                        stats.totalDuration += (task.result?.duration || 0);
+                    }
                 }
             });
         };
 
-        const stats = { passed: 0, failed: 0, total: 0, totalDuration: 0, failures: [] };
+        const stats = { passed: 0, failed: 0, failedSuites: 0, total: 0, totalDuration: 0, failures: [] };
         files.forEach((f) => {
-            if (f.tasks) countTests(f.tasks, stats, [f.name || f.filepath].filter(Boolean));
+            if (f.tasks) {
+                const failuresBeforeChildren = stats.failed;
+                countTests(f.tasks, stats, [f.name || f.filepath].filter(Boolean));
+
+                if (f.result?.state === 'fail' && stats.failed === failuresBeforeChildren) {
+                    recordFailure(f, stats, [f.name || f.filepath].filter(Boolean), f.type || 'suite');
+                    stats.total++;
+                    stats.totalDuration += (f.result?.duration || 0);
+                }
+            } else if (f.result?.state === 'fail') {
+                recordFailure(f, stats, [f.name || f.filepath].filter(Boolean), f.type || 'suite');
+                stats.total++;
+                stats.totalDuration += (f.result?.duration || 0);
+            }
         });
 
         // Ensure correct IPC discriminator handling
@@ -55,6 +91,7 @@ export default class VitestCIReporter {
         const bridge = {
             numPassedTests: stats.passed,
             numFailedTests: stats.failed,
+            numFailedSuites: stats.failedSuites,
             numTotalTests: stats.total,
             totalDuration: stats.totalDuration,
             numPendingTests: 0,
