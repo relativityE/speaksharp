@@ -78,7 +78,7 @@ export default function SignUpPage() {
                     <CardHeader className="space-y-1 text-center pb-8">
                         <CardTitle className="text-2xl font-bold tracking-tight">Create an account</CardTitle>
                         <CardDescription className="text-base font-medium">
-                            Start free, then upgrade to Pro when you want deeper coaching.
+                            Start free with Browser transcription. Upgrade when you want deeper coaching.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -106,7 +106,7 @@ export default function SignUpPage() {
                                 />
                             </div>
                             <p className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-medium text-foreground">
-                                Start with a 60-minute Pro trial. Try Private transcription, analytics, and feedback. Cloud transcription is available on Pro.
+                                Start free with instant Browser transcription. Your 60-minute Pro trial lets you try Vault Mode private transcription and deeper feedback. Cloud transcription is available on paid Pro.
                             </p>
 
                             {error && (

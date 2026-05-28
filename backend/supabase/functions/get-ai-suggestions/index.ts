@@ -161,8 +161,15 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     ` : '';
 
     const prompt = `
-      You are an expert public speaking coach. Analyze the following speech transcript and metrics to provide constructive, data-driven feedback.
-      The user wants to improve their communication skills. Focus on clarity, pacing, filler words, and overall impact.
+      You are an expert public speaking coach. Analyze the following speech transcript and metrics as if the user wants practical coaching they can use in the next practice session.
+      Go beyond delivery metrics. Evaluate the speech content's logical structure, vocabulary variety, sentence variety, transitions, specificity, and audience impact in addition to pacing, clarity, pauses, and filler words.
+
+      Coaching rules:
+      - Be specific and evidence-based. Reference short phrases or patterns from the transcript when useful.
+      - Do not invent facts, audience context, or performance details not present in the transcript or metrics.
+      - Prefer concrete rewrites, next-step drills, or "try saying..." examples over generic encouragement.
+      - If the transcript is too short for a category, say what additional evidence would make that category measurable.
+      - Keep every description concise enough to display in the app.
 
       Transcript:
       "${transcript}"
@@ -172,10 +179,10 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       {
         "summary": "A one-sentence overall summary of the feedback.",
         "suggestions": [
-          { "title": "Clarity", "description": "Specific feedback on clarity based on score and transcript." },
-          { "title": "Pacing", "description": "Specific feedback on pacing based on WPM and pauses." },
-          { "title": "Filler Words", "description": "Specific feedback on filler word usage." },
-          { "title": "Engagement", "description": "Specific feedback on audience engagement and tone." }
+          { "title": "Structure & Flow", "description": "Assess opening, logical order, transitions, and conclusion. Include one concrete improvement." },
+          { "title": "Vocabulary & Variety", "description": "Assess repeated wording, sentence variety, specificity, and word choice. Suggest one stronger phrasing option if useful." },
+          { "title": "Audience Impact", "description": "Assess whether the message is clear, memorable, and persuasive for a listener. Suggest one way to make it land better." },
+          { "title": "Delivery & Clutter", "description": "Use metrics for pacing, pauses, filler words, and clarity. Give one next-practice drill." }
         ]
       }
     `;

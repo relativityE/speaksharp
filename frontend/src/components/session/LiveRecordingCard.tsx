@@ -94,14 +94,19 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         }
     };
     const modeDescriptions: Record<RecordingMode, string> = {
-        native: "Browser transcription uses your browser's built-in speech recognition. Chrome is recommended. Availability and accuracy vary by browser.",
-        private: 'On-device. One-time local model setup required. Nothing leaves your browser after setup.',
-        cloud: 'Fastest and most accurate. Pro feature. Audio is processed securely by AssemblyAI.',
+        native: "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.",
+        private: 'Vault Mode. Pro/trial local transcription with one-time setup; audio stays in your browser.',
+        cloud: 'Pro Cloud. Highest-accuracy path for serious workflows; audio is processed securely by AssemblyAI.',
         mock: 'Test transcription mode.',
     };
     const privateModeDescription = isProUser
-        ? 'On-device. One-time local model setup required. Nothing leaves your browser after setup.'
-        : 'On-device. Available with active trial or Pro.';
+        ? 'Vault Mode keeps transcription local after one-time model setup. Audio stays in your browser.'
+        : 'Vault Mode is available with active trial or Pro. It needs a one-time local model setup.';
+    const trustBadge = mode === 'private'
+        ? 'VAULT MODE'
+        : mode === 'cloud'
+            ? 'PRO CLOUD'
+            : 'FREE BROWSER';
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
             <div className={`${SESSION_SURFACE_CLASS} relative z-10 h-full flex flex-col text-center gap-6 p-6 surface-shadow-primary sm:p-8 ${className}`} data-testid="live-recording-card">
@@ -110,7 +115,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                     <div className="flex flex-col items-center gap-2 text-center sm:items-start sm:text-left">
                         <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-success/12 border border-success/30 text-[10px] font-semibold text-success" data-state="secure">
                             <Shield className="h-2.5 w-2.5 fill-success/10" />
-                            <span>SECURE</span>
+                            <span>{trustBadge}</span>
                         </div>
                         <p className="max-w-72 text-xs font-medium leading-snug text-foreground/70">
                             {isPrivateDownloadRequired
@@ -140,7 +145,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <span className="flex flex-col gap-0.5">
                                         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Browser</span>
                                 <span className="text-[11px] font-medium normal-case leading-snug text-foreground/70">
-                                            Browser transcription uses your browser&apos;s built-in speech recognition. Chrome is recommended. Availability and accuracy vary by browser.
+                                            Free and instant. Uses your browser&apos;s built-in speech recognition, so accuracy varies by browser and environment.
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>
@@ -166,7 +171,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <span className="flex flex-col gap-0.5">
                                         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud {!canUseCloudStt ? '(Pro feature)' : ''}</span>
                                         <span className="text-[11px] font-medium normal-case leading-snug text-foreground/70">
-                                            Fastest and most accurate. Pro feature. Audio is processed securely by AssemblyAI.
+                                            Pro Cloud. Highest-accuracy path for serious workflows; audio is processed securely by AssemblyAI.
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>

@@ -178,7 +178,7 @@ export default function AuthPage() {
             </CardTitle>
             <CardDescription className="text-base">
               {view === 'sign_in' && 'Enter your credentials to access your account'}
-              {view === 'sign_up' && 'Start free, then upgrade to Pro when you want deeper coaching.'}
+              {view === 'sign_up' && 'Start free with Browser transcription. Upgrade when you want deeper coaching.'}
               {view === 'forgot_password' && "Enter your email address and we'll send you a reset link"}
             </CardDescription>
           </CardHeader>
@@ -227,9 +227,9 @@ export default function AuthPage() {
 
                 {view === 'sign_up' && (
                   <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                    <p className="text-sm font-semibold text-foreground">Start with a 60-minute Pro trial</p>
+                    <p className="text-sm font-semibold text-foreground">Start free, with a 60-minute Pro trial</p>
                     <p className="text-xs font-medium leading-relaxed text-foreground/70">
-                      Try Private transcription, analytics, and feedback. Cloud transcription is available on Pro.
+                      Free practice uses instant Browser transcription. Your trial lets you try Vault Mode private transcription and deeper feedback. Cloud transcription is available on paid Pro.
                     </p>
                     {inlineError && (
                       <p

@@ -33,6 +33,7 @@ const tiers: Tier[] = [
     priceDescription: 'no card required',
     features: [
       `Up to ${SUBSCRIPTION_LIMITS.FREE_MONTHLY_MINUTES} mins of practice per month`,
+      'Instant Browser transcription; accuracy varies by browser and environment',
       'Starter analytics',
       'Save last 5 sessions',
       'AI-assisted feedback',
@@ -51,9 +52,9 @@ const tiers: Tier[] = [
       'Up to 2 hours/day and 50 hours/month',
       'Practice analytics and trends',
       'Save all sessions',
-      'Private transcription',
-      'Cloud transcription for serious workflows',
-      'More AI feedback and PDF export capacity',
+      'Vault Mode private transcription after one-time local model setup',
+      'Cloud transcription for serious high-accuracy workflows',
+      'More semantic AI coaching and PDF export capacity',
       'Ad-free experience',
     ],
     cta: 'Upgrade to Pro',
@@ -147,7 +148,7 @@ export const PricingPage: React.FC = () => {
       <div className="mx-auto max-w-4xl text-center mb-10">
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Choose your SpeakSharp plan</h1>
         <p className="text-base text-muted-foreground mt-3 sm:text-lg">
-          Start free with browser transcription and core feedback, then upgrade to Pro when you need private models, cloud transcription, AI coaching, and deeper history.
+          Start free with instant Browser transcription and core feedback. Upgrade to Pro when you need Vault Mode privacy, Cloud accuracy, semantic AI coaching, and deeper history.
         </p>
       </div>
       <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2">
@@ -156,7 +157,7 @@ export const PricingPage: React.FC = () => {
         ))}
       </div>
       <div className="mx-auto mt-8 flex max-w-4xl flex-wrap items-center justify-center gap-3 text-sm text-muted-foreground">
-        {['Privacy-first practice', 'Transcript data is never used for ads', 'Cloud STT is a Pro feature'].map((label) => (
+        {['Vault Mode keeps audio local', 'Transcript data is never used for ads', 'Cloud STT is paid Pro only'].map((label) => (
           <span key={label} className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5">
             <ShieldCheck className="h-4 w-4 text-success" aria-hidden="true" />
             {label}
