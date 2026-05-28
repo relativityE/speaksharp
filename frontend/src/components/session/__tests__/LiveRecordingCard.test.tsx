@@ -93,13 +93,14 @@ describe('LiveRecordingCard', () => {
     it('sets Private latency and privacy expectations before recording', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="private" isProUser={true} canUseCloudStt={false} />);
 
-        expect(screen.getByText(/One-time local model setup required/i)).toBeDefined();
-        expect(screen.getByText(/nothing leaves your browser after setup/i)).toBeDefined();
+        expect(screen.getAllByText(/Vault Mode/i).length).toBeGreaterThan(0);
+        expect(screen.getByText(/one-time setup/i)).toBeDefined();
+        expect(screen.getByText(/audio stays in your browser/i)).toBeDefined();
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
-        expect((await screen.findAllByText(/One-time local model setup required/i)).length).toBeGreaterThan(0);
-        expect(screen.getAllByText(/Nothing leaves your browser after setup/i).length).toBeGreaterThan(0);
+        expect((await screen.findAllByText(/Vault Mode keeps transcription local/i)).length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/Audio stays in your browser/i).length).toBeGreaterThan(0);
     });
 
     it('does not place Private setup inside the recording card when the model is missing', () => {
@@ -121,12 +122,12 @@ describe('LiveRecordingCard', () => {
     it('positions Browser STT as Chrome-recommended and browser-dependent', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" isProUser={true} canUseCloudStt={false} />);
 
-        expect(screen.getByText(/Chrome is recommended/i)).toBeDefined();
-        expect(screen.getByText(/Availability and accuracy vary by browser/i)).toBeDefined();
+        expect(screen.getByText(/Free and instant/i)).toBeDefined();
+        expect(screen.getByText(/accuracy varies by browser and environment/i)).toBeDefined();
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
-        expect((await screen.findAllByText(/Chrome is recommended/i)).length).toBeGreaterThan(0);
+        expect((await screen.findAllByText(/Free and instant/i)).length).toBeGreaterThan(0);
     });
 
     it('explains why Private is unavailable for Free or expired-trial users', async () => {
