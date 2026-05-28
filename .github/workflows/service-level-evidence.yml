@@ -30,8 +30,44 @@ jobs:
           NEW_PRO_COUNT: "0"
         run: node scripts/setup-test-users.mjs
 
-      - name: Generate software quality evidence
-        run: pnpm metrics:update
+      - name: Fetch software quality evidence from CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p product_release/evidence
+
+          CI_RUN_ID=""
+          for attempt in {1..20}; do
+            CI_RUN_ID=$(gh run list \
+              --workflow ci.yml \
+              --commit "$GITHUB_SHA" \
+              --status success \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // empty')
+
+            if [ -n "$CI_RUN_ID" ]; then
+              break
+            fi
+
+            echo "CI software-quality evidence is not ready for ${GITHUB_SHA} yet; waiting..."
+            sleep 30
+          done
+
+          if [ -z "$CI_RUN_ID" ]; then
+            echo "No successful CI metrics artifact found for ${GITHUB_SHA}; service-level evidence will mark quality checks as missing."
+            exit 0
+          fi
+
+          echo "Downloading CI metrics artifact from run ${CI_RUN_ID}."
+          if ! gh run download "$CI_RUN_ID" --name ci-metrics --dir /tmp/speaksharp-ci-metrics; then
+            echo "Unable to download ci-metrics from CI run ${CI_RUN_ID}; service-level evidence will mark quality checks as missing."
+            exit 0
+          fi
+
+          cp /tmp/speaksharp-ci-metrics/product_release/evidence/software-quality.latest.json product_release/evidence/ 2>/dev/null || true
+          cp /tmp/speaksharp-ci-metrics/product_release/evidence/software-quality-summary.latest.md product_release/evidence/ 2>/dev/null || true
+          ls -la product_release/evidence
 
       - name: Collect ops health snapshot
         env:
