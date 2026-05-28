@@ -31,8 +31,8 @@ function getCloudTokenFailureMessage(err: unknown): string {
     const message = errorLike?.message ?? String(err);
     const status = errorLike?.context?.status ?? errorLike?.status;
 
-    if (status === 403 || /Cloud STT is available with Pro|Trial access includes Private STT/i.test(message)) {
-        return 'Cloud STT is available with Pro. Trial access includes Private STT.';
+    if (status === 403 || /Cloud STT is available (with Pro|as a Pro feature)|Trial access includes Private STT/i.test(message)) {
+        return 'Cloud STT is available as a Pro feature. Trial access includes Private STT.';
     }
 
     if (status === 401 || /Invalid or expired token|Missing Authorization/i.test(message)) {
