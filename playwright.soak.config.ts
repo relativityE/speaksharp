@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import { loadEnv, getChromeWithMic, getChromeBasic, baseConfig, urls } from './playwright.base.config';
+import { loadEnv, getChromeWithMemoryProfiling, baseConfig, urls } from './playwright.base.config';
 import { SOAK_CONFIG } from './tests/constants';
 
 /**
@@ -44,7 +44,7 @@ export default defineConfig({
     projects: [
         {
             name: 'chromium',
-            use: getChromeBasic(),
+            use: getChromeWithMemoryProfiling(),
         },
     ],
 });
