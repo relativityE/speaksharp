@@ -219,6 +219,8 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   private cycleErrorCount = 0;
   private resultStallRestartTimer: ReturnType<typeof setTimeout> | null = null;
   private resultStallRestartCount = 0;
+  private noResultSpeechRestartTimer: ReturnType<typeof setTimeout> | null = null;
+  private noResultSpeechRestartCount = 0;
   private preserveInterimOnNextStart = false;
   private terminatePromise: Promise<void> | null = null;
 
@@ -422,6 +424,9 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
         this.cycleResultCount += 1;
         if (finalTranscript) this.cycleFinalResultCount += 1;
         if (interimTranscript) this.cycleInterimResultCount += 1;
+        if (finalTranscript || interimTranscript) {
+          this.cancelNoResultSpeechRestart('result');
+        }
         pushNativeTrace('onresult_raw', {
           sId: this.serviceId,
           rId: this.runId,
@@ -597,6 +602,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       pushNativeTrace('onspeechstart', { sId: this.serviceId, rId: this.runId, eId: this.instanceId, cycleId: this.recognitionCycleId });
       logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, cycleId: this.recognitionCycleId }, '[NativeBrowser] onspeechstart');
       this.signalAcousticReady('onspeechstart');
+      this.scheduleNoResultSpeechRestart('speechstart');
     };
 
     this.recognition.onspeechend = () => {
@@ -612,6 +618,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
     this.recognition.onend = () => {
       this.logRecognitionCycleSummary('onend');
+      this.cancelNoResultSpeechRestart('onend');
       pushNativeTrace('onend', {
         sId: this.serviceId,
         rId: this.runId,
@@ -742,8 +749,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       this.interimTranscriptBuffer = '';
       this.lastMeaningfulInterim = '';
       this.resultStallRestartCount = 0;
+      this.noResultSpeechRestartCount = 0;
       this.preserveInterimOnNextStart = false;
       this.cancelResultStallRestart('mock-start');
+      this.cancelNoResultSpeechRestart('mock-start');
       this.acousticReadySignaled = false;
       return;
     }
@@ -760,8 +769,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       this.interimTranscriptBuffer = '';
       this.lastMeaningfulInterim = '';
       this.resultStallRestartCount = 0;
+      this.noResultSpeechRestartCount = 0;
       this.preserveInterimOnNextStart = false;
       this.cancelResultStallRestart('start');
+      this.cancelNoResultSpeechRestart('start');
       this.acousticReadySignaled = false;
       try {
         this.startParallelCapture(_mic);
@@ -883,6 +894,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     });
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] Finalizing transcription shutdown');
     this.cancelResultStallRestart('stop');
+    this.cancelNoResultSpeechRestart('stop');
     this.flushParallelCapture();
     
     if (this.mockEngine) {
@@ -1154,6 +1166,73 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       rId: this.runId,
       eId: this.instanceId,
       reason,
+    });
+  }
+
+  private cancelNoResultSpeechRestart(reason: string): void {
+    if (!this.noResultSpeechRestartTimer) return;
+    clearTimeout(this.noResultSpeechRestartTimer);
+    this.noResultSpeechRestartTimer = null;
+    pushNativeTrace('no_result_speech_restart_cancelled', {
+      sId: this.serviceId,
+      rId: this.runId,
+      eId: this.instanceId,
+      reason,
+    });
+  }
+
+  private scheduleNoResultSpeechRestart(reason: string): void {
+    if (!this.recognition || !this.isListening) return;
+    if (this.cycleResultCount > 0 || this.currentTranscript.trim()) return;
+    if (this.noResultSpeechRestartCount >= NATIVE_STT.NO_RESULT_SPEECH_RESTART_MAX_ATTEMPTS) {
+      pushNativeTrace('no_result_speech_restart_limit_reached', {
+        sId: this.serviceId,
+        rId: this.runId,
+        eId: this.instanceId,
+        reason,
+        noResultSpeechRestartCount: this.noResultSpeechRestartCount,
+      });
+      return;
+    }
+
+    this.cancelNoResultSpeechRestart(`reschedule:${reason}`);
+    const scheduledCycleId = this.recognitionCycleId;
+    this.noResultSpeechRestartTimer = setTimeout(() => {
+      this.noResultSpeechRestartTimer = null;
+      if (!this.recognition || !this.isListening || scheduledCycleId !== this.recognitionCycleId) return;
+      if (this.cycleResultCount > 0 || this.currentTranscript.trim()) return;
+
+      this.noResultSpeechRestartCount += 1;
+      pushNativeTrace('no_result_speech_restart_stop_requested', {
+        sId: this.serviceId,
+        rId: this.runId,
+        eId: this.instanceId,
+        reason,
+        cycleId: this.recognitionCycleId,
+        attempt: this.noResultSpeechRestartCount,
+      });
+      logger.info({
+        ...this.getRecognitionCycleSummary('no-result-speech-restart'),
+        attempt: this.noResultSpeechRestartCount,
+      }, '[NativeBrowser] speech detected but no transcript result yet; restarting recognition to prompt browser flush');
+      try {
+        this.recognition.stop();
+      } catch (err) {
+        pushNativeTrace('no_result_speech_restart_stop_throw', {
+          sId: this.serviceId,
+          rId: this.runId,
+          eId: this.instanceId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }, NATIVE_STT.NO_RESULT_SPEECH_RESTART_MS);
+    pushNativeTrace('no_result_speech_restart_scheduled', {
+      sId: this.serviceId,
+      rId: this.runId,
+      eId: this.instanceId,
+      reason,
+      cycleId: this.recognitionCycleId,
+      delayMs: NATIVE_STT.NO_RESULT_SPEECH_RESTART_MS,
     });
   }
 

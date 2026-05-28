@@ -612,6 +612,36 @@ describe('NativeBrowser Transcription Mode', () => {
       vi.useRealTimers();
     });
 
+    it('REGRESSION: restarts when speech is detected but Chrome withholds transcript results', async () => {
+      vi.useFakeTimers();
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      mockRecognition.onspeechstart?.();
+
+      await vi.advanceTimersByTimeAsync(3499);
+      expect(mockRecognition.stop).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
+
+      mockRecognition.onend?.({} as Event);
+      await vi.advanceTimersByTimeAsync(310);
+      expect(mockRecognition.start).toHaveBeenCalledTimes(2);
+
+      mockRecognition.onstart?.({} as Event);
+      const recoveredWindow = Object.assign([{ transcript: 'native browser recovered after silence', confidence: 0.8, isFinal: false }], { isFinal: false });
+      mockRecognition.onresult?.({ results: [recoveredWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
+        transcript: { partial: 'native browser recovered after silence' },
+      });
+
+      vi.useRealTimers();
+    });
+
     it('REGRESSION: should handle rapid onend events without redundant starts', async () => {
       vi.useFakeTimers();
       await nativeBrowser.init();
