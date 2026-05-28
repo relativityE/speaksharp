@@ -12,6 +12,7 @@ on:
           - setup
           - query
           - create
+          - sync_reviewers
       mode:
         description: 'Target Mode'
         required: false
@@ -103,6 +104,8 @@ jobs:
           CREATE_USER_EMAIL: ${{ github.event.inputs.create_email }}
           CREATE_USER_PASSWORD: ${{ github.event.inputs.create_password }}
           CREATE_USER_TIER: ${{ github.event.inputs.create_tier }}
+          FREE_TEST_EMAIL: ${{ secrets.FREE_TEST_EMAIL || secrets.BASIC_TEST_EMAIL }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
         run: |
           if [ "$ACTION" = "setup" ] && [ -z "$SOAK_TEST_PASSWORD" ]; then
             echo "❌ Error: SOAK_TEST_PASSWORD is not set."
@@ -112,8 +115,12 @@ jobs:
             echo "  2. Manually create SOAK_TEST_PASSWORD secret in GitHub Settings"
             exit 1
           fi
-          
-          node scripts/setup-test-users.mjs
+
+          if [ "$ACTION" = "sync_reviewers" ]; then
+            pnpm sync:reviewer-test-users
+          else
+            node scripts/setup-test-users.mjs
+          fi
 
       - name: Summary
         env:
