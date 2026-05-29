@@ -25,6 +25,7 @@ import {
     resolveSessionCoachingAssignment,
     trackSessionCoachingExperimentViewed,
 } from '@/services/sessionCoachingExperiment';
+import { formatRemainingTime, useUsageLimit } from '@/hooks/useUsageLimit';
 
 /**
  * ARCHITECTURE:
@@ -40,6 +41,7 @@ export const SessionPage: React.FC = () => {
     const [coachingAssignment, setCoachingAssignment] = useState(() => resolveSessionCoachingAssignment());
     const trackedExperimentExposureRef = useRef<string | null>(null);
     const showLiveCoachingScore = coachingAssignment.variant === 'treatment';
+    const { data: usageLimit } = useUsageLimit();
 
     useEffect(() => {
         const syncAssignment = () => {
@@ -150,12 +152,20 @@ export const SessionPage: React.FC = () => {
     };
 
     const baseStatus = getBaseStatus();
+    const trialSecondsRemaining = usageLimit?.trial_active
+        ? Math.max(0, usageLimit.trial_seconds_remaining ?? 0)
+        : 0;
+    const trialStatusDetail = trialSecondsRemaining > 0
+        ? `Trial access: ${formatRemainingTime(trialSecondsRemaining)} left for Private/Vault Mode.`
+        : undefined;
+    const shouldShowTrialDetail = ['idle', 'ready', 'recording', 'info'].includes(baseStatus.type);
 
     const visibleModelLoadingProgress =
         isProUser && mode === 'private' ? modelLoadingProgress : null;
     // 2. Compose Final Status (Attach active Private model progress only)
     const displayStatus: SttStatus = {
         ...baseStatus,
+        detail: baseStatus.detail ?? (shouldShowTrialDetail ? trialStatusDetail : undefined),
         progress: visibleModelLoadingProgress ?? undefined
     };
     const showPrivateDownloadHeaderAction =
