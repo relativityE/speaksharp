@@ -12,6 +12,12 @@ This document defines the user-visible guarantees, failure behaviors, and operat
 
 ---
 
+## 0. Product Feature Inventory
+
+The working product feature list lives in `PRODUCT_FEATURES.operational.md`. This PRD remains the user-visible product contract: guarantees, failure behavior, and operational constraints.
+
+---
+
 ## 1. User-Visible Guarantees (The Contract)
 
 ### Core Persistence & Reliability

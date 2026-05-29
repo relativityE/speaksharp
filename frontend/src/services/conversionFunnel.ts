@@ -1,4 +1,5 @@
 import { analyticsBuffer } from './AnalyticsBuffer';
+import { getSessionCoachingExperimentProperties } from './sessionCoachingExperiment';
 
 export type BillingPlan = 'free' | 'basic' | 'pro';
 export type CheckoutPlan = 'pro';
@@ -67,6 +68,7 @@ function getConversionProperties(context: ConversionContext): Record<string, unk
     route: context.route ?? getCurrentRoute(),
     tier: context.tier ?? null,
     trial_state: context.trialState ?? 'unknown',
+    ...getSessionCoachingExperimentProperties(),
   };
 }
 

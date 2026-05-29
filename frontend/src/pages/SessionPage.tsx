@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Download, Settings } from 'lucide-react';
+import posthog from 'posthog-js';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
@@ -11,6 +12,7 @@ import { ClarityScoreCard } from '@/components/session/ClarityScoreCard';
 import { SpeakingRateCard } from '@/components/session/SpeakingRateCard';
 import { FillerWordsCard } from '@/components/session/FillerWordsCard';
 import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
+import { LiveCoachingScoreCard } from '@/components/session/LiveCoachingScoreCard';
 import { SpeakingTipsCard } from '@/components/session/SpeakingTipsCard';
 import { LiveRecordingCard } from '@/components/session/LiveRecordingCard';
 import { MobileActionBar } from '@/components/session/MobileActionBar';
@@ -19,6 +21,10 @@ import { SttStatus } from '@/types/transcription';
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { SunsetModals } from '@/components/session/SunsetModals';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
+import {
+    resolveSessionCoachingAssignment,
+    trackSessionCoachingExperimentViewed,
+} from '@/services/sessionCoachingExperiment';
 
 /**
  * ARCHITECTURE:
@@ -31,6 +37,27 @@ export const SessionPage: React.FC = () => {
     const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
     const previousTranscriptScrollHeightRef = useRef(0);
+    const [coachingAssignment, setCoachingAssignment] = useState(() => resolveSessionCoachingAssignment());
+    const trackedExperimentExposureRef = useRef<string | null>(null);
+    const showLiveCoachingScore = coachingAssignment.variant === 'treatment';
+
+    useEffect(() => {
+        const syncAssignment = () => {
+            setCoachingAssignment(resolveSessionCoachingAssignment());
+        };
+
+        syncAssignment();
+        return typeof posthog.onFeatureFlags === 'function'
+            ? posthog.onFeatureFlags(syncAssignment)
+            : undefined;
+    }, []);
+
+    useEffect(() => {
+        const exposureKey = `${coachingAssignment.flag}:${coachingAssignment.variant}:${coachingAssignment.source}`;
+        if (trackedExperimentExposureRef.current === exposureKey) return;
+        trackedExperimentExposureRef.current = exposureKey;
+        trackSessionCoachingExperimentViewed(coachingAssignment);
+    }, [coachingAssignment]);
 
     const {
         isListening,
@@ -204,6 +231,25 @@ export const SessionPage: React.FC = () => {
                                 />
                             </LocalErrorBoundary>
                         </div>
+
+                        {showLiveCoachingScore && (
+                            <div className="order-2 lg:order-none">
+                                <LocalErrorBoundary isolationKey="live-coaching-score" componentName="LiveCoachingScoreCard">
+                                    <LiveCoachingScoreCard
+                                        transcript={transcriptContent}
+                                        wordCount={metrics.wordCount}
+                                        wpm={metrics.wpm}
+                                        clarityScore={metrics.clarityScore}
+                                        fillerCount={metrics.fillerCount}
+                                        elapsedSeconds={elapsedTime}
+                                        pauseMetrics={pauseMetrics}
+                                        engine={mode || 'native'}
+                                        isListening={isListening}
+                                        experimentAssignment={coachingAssignment}
+                                    />
+                                </LocalErrorBoundary>
+                            </div>
+                        )}
 
                         {/* === WORKSPACE LEFT: Live Transcript === */}
                         <div className="order-3 lg:order-none">

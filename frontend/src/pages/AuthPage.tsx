@@ -32,6 +32,8 @@ const mapError = (message: string) => {
 export default function AuthPage() {
   const { session, loading, setSession } = useAuthProvider();
   const location = useLocation();
+  const fromLocation = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
+  const postAuthPath = `${fromLocation?.pathname || '/session'}${fromLocation?.search || ''}`;
 
   // Determine initial view from URL path
   const getInitialView = (): AuthView => {
@@ -153,7 +155,7 @@ export default function AuthPage() {
   }
 
   if (session && !isSubmitting) {
-    return <Navigate to="/session" replace />;
+    return <Navigate to={postAuthPath} replace />;
   }
 
 

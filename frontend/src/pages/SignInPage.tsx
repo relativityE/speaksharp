@@ -1,7 +1,7 @@
 import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +13,9 @@ import logger from '../lib/logger';
 export default function SignInPage() {
     const { session, loading, setSession } = useAuthProvider();
     const navigate = useNavigate();
+    const location = useLocation();
+    const fromLocation = (location.state as { from?: { pathname?: string; search?: string } } | null)?.from;
+    const postAuthPath = `${fromLocation?.pathname || '/session'}${fromLocation?.search || ''}`;
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -33,7 +36,7 @@ export default function SignInPage() {
             if (data.session) {
                 setSession(data.session);
                 // Redirect to session page after successful login
-                navigate('/session');
+                navigate(postAuthPath);
             }
         } catch (err: unknown) {
             logger.error({ err }, '[SignInPage] handleSubmit failed');
@@ -81,7 +84,7 @@ export default function SignInPage() {
             </div>
         );
     }
-    if (session) return <Navigate to="/" replace />;
+    if (session) return <Navigate to={postAuthPath} replace />;
 
     return (
         <div className="min-h-screen bg-background px-4 pb-16 pt-28">

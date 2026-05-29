@@ -19,6 +19,8 @@ import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import { buildPolicyForUser, type TranscriptionMode } from '@/services/transcription/TranscriptionPolicy';
 import type { FillerCounts } from '@/utils/fillerWordUtils';
 import { ENV } from '@/config/TestFlags';
+import { analyticsBuffer } from '@/services/AnalyticsBuffer';
+import { getSessionCoachingExperimentProperties } from '@/services/sessionCoachingExperiment';
 
 const getStartFailureMessage = (error: unknown, mode: TranscriptionMode): string => {
     const err = error as { name?: string; message?: string } | null;
@@ -168,6 +170,17 @@ export const useSessionLifecycle = () => {
                 }
 
                 const streakResult = updateStreak(); // UI layer still needs streak for display
+                analyticsBuffer.push('session_saved', {
+                    mode: effectiveMode,
+                    duration_seconds: elapsedTime,
+                    word_count: metrics.wordCount,
+                    wpm: metrics.wpm,
+                    filler_count: metrics.fillerCount,
+                    clarity_score: Math.round(metrics.clarityScore),
+                    is_new_streak_day: streakResult.isNewDay,
+                    streak_count: streakResult.currentStreak,
+                    ...getSessionCoachingExperimentProperties(),
+                }, 'HIGH');
 
                 if (options?.stopReason) {
                     setSTTStatus({ type: 'info', message: options.stopReason });
@@ -241,7 +254,12 @@ export const useSessionLifecycle = () => {
                 const latestMode = requestedMode === 'cloud' && !canUseCloudStt ? defaultMode : requestedMode;
                 const selectedPolicy = buildPolicyForUser(canUsePrivateStt, latestMode, { allowCloud: canUseCloudStt });
                 await speechRuntimeController.startRecording(selectedPolicy, userFillerWords);
-                posthog.capture('session_started', { mode: latestMode });
+                posthog.capture('session_started', {
+                    mode: latestMode,
+                    requested_mode: requestedMode,
+                    user_tier: effectiveSubscriptionStatus,
+                    ...getSessionCoachingExperimentProperties(),
+                });
             } catch (error) {
                 const err = error as Error;
                 const requestedMode = useSessionStore.getState().sttMode ?? defaultMode;
@@ -268,6 +286,7 @@ export const useSessionLifecycle = () => {
                     user_tier: effectiveSubscriptionStatus,
                     error_name: err?.name || 'Error',
                     error_message: err?.message || 'Unknown',
+                    ...getSessionCoachingExperimentProperties(),
                 });
                 try {
                     await speechRuntimeController.reset('start_failed');
@@ -340,6 +359,7 @@ export const useSessionLifecycle = () => {
                     posthog.capture('session_limit_warning', {
                         remaining_seconds: remaining,
                         tier: isProUser ? 'pro' : 'free',
+                        ...getSessionCoachingExperimentProperties(),
                     });
                 }
             } else if (remaining <= 0) {
