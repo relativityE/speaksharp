@@ -32,6 +32,7 @@ export const createMockSupabase = () => {
     let currentSession: unknown = null;
     const savedSessions: Array<Record<string, unknown>> = readSavedSessions();
     let currentGoals: Record<string, unknown> = { ...MOCK_GOALS };
+    let currentFillerWords: Array<Record<string, unknown>> = [];
 
     const persistSavedSessions = () => {
         if (typeof window === 'undefined') return;
@@ -194,29 +195,38 @@ export const createMockSupabase = () => {
         },
         from: (table: string) => ({
             select: () => table === 'sessions' ? createSessionsQuery() : ({
-                eq: (column: string, value: unknown) => ({
-                    single: () => {
-                        if (table === 'user_profiles' && column === 'id' && value === MOCK_USER.id) {
-                            return Promise.resolve({ data: getMockProfile(), error: null });
-                        }
-                        if (table === 'user_goals' && column === 'user_id' && value === MOCK_USER.id) {
-                            return Promise.resolve({ data: currentGoals, error: null });
-                        }
-                        return Promise.resolve({ data: null, error: { message: 'Not found' } });
-                    },
-                    order: () => {
-                        if (table === 'sessions' && column === 'user_id' && value === MOCK_USER.id) {
-                            // Check for E2E empty state flag
-                            const isEmpty = typeof window !== 'undefined' && '__E2E_EMPTY_SESSIONS__' in window && Boolean(window['__E2E_EMPTY_SESSIONS__' as keyof typeof window]);
-                            logger.debug({ isEmpty }, '[MockSupabase] Checking __E2E_EMPTY_SESSIONS__');
-                            if (isEmpty) {
-                                return Promise.resolve({ data: savedSessions, error: null });
+                eq: (column: string, value: unknown) => {
+                    if (table === 'user_filler_words' && column === 'user_id') {
+                        return Promise.resolve({
+                            data: currentFillerWords.filter(word => word.user_id === value),
+                            error: null,
+                        });
+                    }
+
+                    return {
+                        single: () => {
+                            if (table === 'user_profiles' && column === 'id' && value === MOCK_USER.id) {
+                                return Promise.resolve({ data: getMockProfile(), error: null });
                             }
-                            return Promise.resolve({ data: getSessions(), error: null });
-                        }
-                        return Promise.resolve({ data: [], error: null });
-                    },
-                }),
+                            if (table === 'user_goals' && column === 'user_id' && value === MOCK_USER.id) {
+                                return Promise.resolve({ data: currentGoals, error: null });
+                            }
+                            return Promise.resolve({ data: null, error: { message: 'Not found' } });
+                        },
+                        order: () => {
+                            if (table === 'sessions' && column === 'user_id' && value === MOCK_USER.id) {
+                                // Check for E2E empty state flag
+                                const isEmpty = typeof window !== 'undefined' && '__E2E_EMPTY_SESSIONS__' in window && Boolean(window['__E2E_EMPTY_SESSIONS__' as keyof typeof window]);
+                                logger.debug({ isEmpty }, '[MockSupabase] Checking __E2E_EMPTY_SESSIONS__');
+                                if (isEmpty) {
+                                    return Promise.resolve({ data: savedSessions, error: null });
+                                }
+                                return Promise.resolve({ data: getSessions(), error: null });
+                            }
+                            return Promise.resolve({ data: [], error: null });
+                        },
+                    };
+                },
             }),
             upsert: (data: Record<string, unknown>) => {
                 if (table === 'user_goals') {
@@ -232,7 +242,34 @@ export const createMockSupabase = () => {
                     }),
                 };
             },
-            insert: (data: unknown) => Promise.resolve({ data, error: null }),
+            insert: (data: unknown) => {
+                const rows = Array.isArray(data) ? data : [data];
+                const insertedRows = rows.map((row, index) => ({
+                    id: `mock-${table}-${Date.now()}-${index}`,
+                    created_at: new Date().toISOString(),
+                    ...(row as Record<string, unknown>),
+                }));
+
+                if (table === 'user_filler_words') {
+                    currentFillerWords = [...currentFillerWords, ...insertedRows];
+                }
+
+                return {
+                    select: () => ({
+                        single: () => Promise.resolve({ data: insertedRows[0] ?? null, error: null }),
+                    }),
+                    then: (resolve: (value: { data: unknown; error: null }) => unknown) =>
+                        Promise.resolve({ data, error: null }).then(resolve),
+                };
+            },
+            delete: () => ({
+                eq: (column: string, value: unknown) => {
+                    if (table === 'user_filler_words' && column === 'id') {
+                        currentFillerWords = currentFillerWords.filter(word => word.id !== value);
+                    }
+                    return Promise.resolve({ data: null, error: null });
+                },
+            }),
             update: (data: unknown) => ({
                 eq: (column: string, value: unknown) => {
                     if (table === 'sessions' && column === 'id') {

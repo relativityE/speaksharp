@@ -8,6 +8,26 @@ const EVIDENCE_DIR = path.resolve(process.cwd(), 'product_release/evidence');
 const JSON_EVIDENCE_FILE = path.join(EVIDENCE_DIR, 'software-quality.latest.json');
 const MD_EVIDENCE_FILE = path.join(EVIDENCE_DIR, 'software-quality-summary.latest.md');
 
+const QUALITY_TARGETS = {
+  tests: {
+    failing: 0,
+    skippedMax: 0,
+  },
+  coverage: {
+    releaseFloor: 60,
+    industryTarget: 80,
+  },
+  lighthouse: {
+    performance: 90,
+    accessibility: 90,
+    bestPractices: 90,
+    seo: 90,
+  },
+  performance: {
+    codeBloatIndexPctMax: 20,
+  },
+};
+
 console.log('[QualityMetrics] Starting software quality evidence generation.');
 
 function matchNumber(content, regex) {
@@ -130,6 +150,7 @@ function buildEvidence() {
         total: e2eTotal,
       },
     },
+    targets: QUALITY_TARGETS,
     coverage,
     lighthouse,
     performance: {
@@ -153,6 +174,7 @@ function renderMarkdown(evidence) {
   const unitPassingPct = unitTotal > 0 ? ((evidence.tests.unit.passed / unitTotal) * 100).toFixed(1) : '0.0';
   const e2ePassingPct = e2eTotal > 0 ? ((evidence.tests.e2e.passed / e2eTotal) * 100).toFixed(1) : '0.0';
   const lighthouse = evidence.lighthouse;
+  const targets = evidence.targets;
 
   return `# Software Quality Evidence
 
@@ -164,34 +186,37 @@ GitHub run: ${evidence.run.githubRunId ?? 'local/unavailable'}
 
 ## Test Suite State
 
-| Metric | Value |
-|---|---|
-| Total tests | ${evidence.tests.total} (${unitTotal} unit + ${e2eTotal} E2E) |
-| Passing tests | ${evidence.tests.passing} (${evidence.tests.unit.passed} unit + ${evidence.tests.e2e.passed} E2E) |
-| Failing tests | ${evidence.tests.failing} |
-| Disabled/skipped tests | ${evidence.tests.skipped} |
-| Passing unit tests | ${evidence.tests.unit.passed}/${unitTotal} (${unitPassingPct}%) |
-| Passing E2E tests | ${evidence.tests.e2e.passed}/${e2eTotal} (${e2ePassingPct}%) |
-| Total runtime | ${runtime} |
+| Metric | Target | Latest measured |
+|---|---:|---:|
+| Total tests | Track trend | ${evidence.tests.total} (${unitTotal} unit + ${e2eTotal} E2E) |
+| Passing tests | 100% of non-skipped tests | ${evidence.tests.passing} (${evidence.tests.unit.passed} unit + ${evidence.tests.e2e.passed} E2E) |
+| Failing tests | ${targets.tests.failing} | ${evidence.tests.failing} |
+| Disabled/skipped tests | ${targets.tests.skippedMax} release-path skips | ${evidence.tests.skipped} |
+| Passing unit tests | 100% | ${evidence.tests.unit.passed}/${unitTotal} (${unitPassingPct}%) |
+| Passing E2E tests | 100% | ${evidence.tests.e2e.passed}/${e2eTotal} (${e2ePassingPct}%) |
+| Total runtime | Track trend | ${runtime} |
 
 ## Coverage Summary
 
-| Metric | Value |
-|---|---|
-| Statements | ${formatPct(evidence.coverage.statements)} |
-| Branches | ${formatPct(evidence.coverage.branches)} |
-| Functions | ${formatPct(evidence.coverage.functions)} |
-| Lines | ${formatPct(evidence.coverage.lines)} |
+| Metric | Release floor | Industry target | Latest measured |
+|---|---:|---:|---:|
+| Statements | ${targets.coverage.releaseFloor}% | ${targets.coverage.industryTarget}% | ${formatPct(evidence.coverage.statements)} |
+| Branches | ${targets.coverage.releaseFloor}% | ${targets.coverage.industryTarget}% | ${formatPct(evidence.coverage.branches)} |
+| Functions | ${targets.coverage.releaseFloor}% | ${targets.coverage.industryTarget}% | ${formatPct(evidence.coverage.functions)} |
+| Lines | ${targets.coverage.releaseFloor}% | ${targets.coverage.industryTarget}% | ${formatPct(evidence.coverage.lines)} |
 
 ## Code Bloat And Performance
 
-| Metric | Value |
-|---|---|
-| Total source size | ${evidence.performance.totalSourceSize ?? 'N/A'} |
-| Total project size | ${evidence.performance.totalProjectSize ?? 'N/A'} |
-| Initial chunk size | ${evidence.performance.initialChunkSize ?? 'N/A'} |
-| Code bloat index | ${evidence.performance.codeBloatIndexPct ?? 'N/A'}% |
-| Lighthouse scores | P: ${lighthouse?.performance ?? 'N/A'}, A: ${lighthouse?.accessibility ?? 'N/A'}, BP: ${lighthouse?.best_practices ?? 'N/A'}, SEO: ${lighthouse?.seo ?? 'N/A'} |
+| Metric | Target | Latest measured |
+|---|---:|---:|
+| Total source size | Track trend | ${evidence.performance.totalSourceSize ?? 'N/A'} |
+| Total project size | Track trend | ${evidence.performance.totalProjectSize ?? 'N/A'} |
+| Initial chunk size | Track trend | ${evidence.performance.initialChunkSize ?? 'N/A'} |
+| Code bloat index | < ${targets.performance.codeBloatIndexPctMax}% | ${evidence.performance.codeBloatIndexPct ?? 'N/A'}% |
+| Lighthouse performance | >= ${targets.lighthouse.performance} | ${lighthouse?.performance ?? 'N/A'} |
+| Lighthouse accessibility | >= ${targets.lighthouse.accessibility} | ${lighthouse?.accessibility ?? 'N/A'} |
+| Lighthouse best practices | >= ${targets.lighthouse.bestPractices} | ${lighthouse?.best_practices ?? 'N/A'} |
+| Lighthouse SEO | >= ${targets.lighthouse.seo} | ${lighthouse?.seo ?? 'N/A'} |
 `;
 }
 

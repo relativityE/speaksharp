@@ -57,14 +57,22 @@ These files are generated artifacts, not source-of-truth product requirements. T
 
 ## 4. Current Quality Targets
 
-| Area | Soft-Release Target | Interpretation |
-|---|---|---|
-| Unit tests | No unexpected failures in `CI - Test Audit` | Required. |
-| Browser E2E | No unexpected failures or hidden flaky startup diagnostics | Required. Flakes are named concerns, not silent green. |
-| Coverage | Improve critical-path coverage before global percentage vanity | Advisory. Prioritize STT, session lifecycle, quota/billing, PDF, analytics truth. |
-| Lighthouse | Keep current strong scores unless feature changes explain drift | Advisory. Good hygiene, not product correctness. |
-| Bundle/code bloat | Track initial chunk and bloat index trend | Advisory unless load time becomes a tester issue. |
-| Flaky tests | Zero known unresolved release-path flakes | Required when the flaky test covers startup, auth, session, save, analytics, or PDF. |
+| Area | Release Floor | Industry Target | Interpretation |
+|---|---:|---:|---|
+| Unit tests | 0 unexpected failures | 100% pass for non-skipped tests | Required. Any failure in `CI - Test Audit` returns the gate to red. |
+| Browser E2E | 0 unexpected failures | 100% pass for non-skipped tests | Required. Flakes are named concerns, not silent green. |
+| Skipped / disabled release-path tests | 0 | 0 | Any skipped startup, auth, session, save, analytics, STT, billing, quota, or PDF test needs explicit review. |
+| Statements coverage | 60% enforced CI floor | 80% | The floor prevents backsliding while we raise coverage toward industry standard. |
+| Branch coverage | 60% enforced CI floor | 80% | Prioritize STT, session lifecycle, quota/billing, PDF, analytics truth, and failure handling before vanity coverage. |
+| Function coverage | 60% enforced CI floor | 80% | Same interpretation as coverage above. |
+| Line coverage | 60% enforced CI floor | 80% | Same interpretation as coverage above. |
+| Lighthouse performance | 90 | 90+ | Advisory unless UX or load-time regressions affect tester launch. |
+| Lighthouse accessibility | 90 | 90+ | Required when a flow is being claimed accessible; otherwise advisory quality evidence. |
+| Lighthouse best practices | 90 | 90+ | Advisory unless it indicates a security/runtime issue. |
+| Lighthouse SEO | 90 | 90+ | Advisory for controlled soft release. |
+| Code bloat index | < 20% | < 20% | Advisory unless load time becomes a tester issue. |
+| Initial chunk size | Track trend | Keep stable or explain increase | No universal byte target; any material jump needs reviewer explanation. |
+| Total source/project size | Track trend | Keep stable or explain increase | No universal byte target; use it to catch generated artifacts and stale output bloat. |
 
 ---
 
