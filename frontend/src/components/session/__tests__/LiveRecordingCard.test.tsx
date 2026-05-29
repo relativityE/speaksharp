@@ -86,8 +86,10 @@ describe('LiveRecordingCard', () => {
         expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).not.toHaveAttribute('data-disabled');
         const cloudOption = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
         expect(cloudOption).toHaveAttribute('data-disabled');
-        expect(screen.getByText(/Cloud \(Pro feature\)/i)).toBeDefined();
-        expect(cloudOption.textContent).toMatch(/Fastest and most reliable|Pro feature/i);
+        expect(screen.getByText(/^Cloud$/i)).toBeDefined();
+        expect(screen.getByText(/Browser and Private are available now/i)).toBeDefined();
+        expect(cloudOption.textContent).toMatch(/Pro feature/i);
+        expect(cloudOption.textContent).toMatch(/highest-accuracy transcription/i);
     });
 
     it('sets Private latency and privacy expectations before recording', async () => {
@@ -137,8 +139,11 @@ describe('LiveRecordingCard', () => {
 
         const privateOption = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
         expect(privateOption).toHaveAttribute('data-disabled');
-        expect(privateOption.textContent).toMatch(/Private \(Pro\)/i);
-        expect(privateOption.textContent).toMatch(/Available with active trial or Pro/i);
+        expect(privateOption.textContent).toMatch(/^Private/i);
+        expect(privateOption.textContent).toMatch(/active trial or Pro/i);
+        expect(screen.getByText(/Browser is available now/i)).toBeDefined();
+        expect(screen.getByText(/Private unlocks during an active trial or with Pro/i)).toBeDefined();
+        expect(screen.getByText(/Cloud STT is a Pro feature\.$/i)).toBeDefined();
     });
 
     it('lets a trial user switch to Browser while Private setup is downloading', async () => {

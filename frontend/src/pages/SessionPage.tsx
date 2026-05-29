@@ -235,25 +235,6 @@ export const SessionPage: React.FC = () => {
                             </LocalErrorBoundary>
                         </div>
 
-                        {showLiveCoachingScore && (
-                            <div className="order-2 lg:order-none">
-                                <LocalErrorBoundary isolationKey="live-coaching-score" componentName="LiveCoachingScoreCard">
-                                    <LiveCoachingScoreCard
-                                        transcript={transcriptContent}
-                                        wordCount={metrics.wordCount}
-                                        wpm={metrics.wpm}
-                                        clarityScore={metrics.clarityScore}
-                                        fillerCount={metrics.fillerCount}
-                                        elapsedSeconds={elapsedTime}
-                                        pauseMetrics={pauseMetrics}
-                                        engine={mode || 'native'}
-                                        isListening={isListening}
-                                        experimentAssignment={coachingAssignment}
-                                    />
-                                </LocalErrorBoundary>
-                            </div>
-                        )}
-
                         {/* === WORKSPACE LEFT: Live Transcript === */}
                         <div className="order-3 lg:order-none">
                             <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
@@ -272,34 +253,52 @@ export const SessionPage: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* === WORKSPACE RIGHT: Filler Words Rail === */}
+                    {/* === WORKSPACE RIGHT: Live feedback rail === */}
                     <aside className="order-2 self-start lg:sticky lg:top-24 lg:order-none">
-                        <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
-                            <FillerWordsCard
-                                fillerCount={metrics.fillerCount}
-                                fillerData={fillerData}
-                                fillerExplanation={metrics.fillerExplanation}
-                                className="min-h-[300px] md:min-h-[340px] lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
-                                headerAction={
-                                    <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                                        <PopoverTrigger asChild>
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="text-primary underline-offset-4 hover:bg-primary/10 hover:text-primary"
-                                                data-testid="add-custom-word-button"
-                                            >
-                                                <Settings className="h-4 w-4" />
-                                                Custom
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-80 bg-white border-[hsl(var(--border-strong))] surface-shadow mr-6">
-                                            <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
-                                        </PopoverContent>
-                                    </Popover>
-                                }
-                            />
-                        </LocalErrorBoundary>
+                        <div className="space-y-6">
+                            {showLiveCoachingScore && (
+                                <LocalErrorBoundary isolationKey="live-coaching-score" componentName="LiveCoachingScoreCard">
+                                    <LiveCoachingScoreCard
+                                        transcript={transcriptContent}
+                                        wordCount={metrics.wordCount}
+                                        wpm={metrics.wpm}
+                                        clarityScore={metrics.clarityScore}
+                                        fillerCount={metrics.fillerCount}
+                                        elapsedSeconds={elapsedTime}
+                                        pauseMetrics={pauseMetrics}
+                                        engine={mode || 'native'}
+                                        isListening={isListening}
+                                        experimentAssignment={coachingAssignment}
+                                    />
+                                </LocalErrorBoundary>
+                            )}
+                            <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
+                                <FillerWordsCard
+                                    fillerCount={metrics.fillerCount}
+                                    fillerData={fillerData}
+                                    fillerExplanation={metrics.fillerExplanation}
+                                    className="min-h-[300px] md:min-h-[340px] lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
+                                    headerAction={
+                                        <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-primary underline-offset-4 hover:bg-primary/10 hover:text-primary"
+                                                    data-testid="add-custom-word-button"
+                                                >
+                                                    <Settings className="h-4 w-4" />
+                                                    Custom
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-80 bg-white border-[hsl(var(--border-strong))] surface-shadow mr-6">
+                                                <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
+                                            </PopoverContent>
+                                        </Popover>
+                                    }
+                                />
+                            </LocalErrorBoundary>
+                        </div>
                     </aside>
                 </div>
 

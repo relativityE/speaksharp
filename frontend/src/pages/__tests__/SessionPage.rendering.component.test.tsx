@@ -1,4 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const sessionCoachingMock = vi.hoisted(() => ({
+    resolveSessionCoachingAssignment: vi.fn(() => ({
+        variant: 'control',
+        source: 'fallback',
+        flag: 'session_live_coaching_score',
+    })),
+    trackSessionCoachingExperimentViewed: vi.fn(),
+    trackSessionCoachingCardViewed: vi.fn(),
+    trackSessionCoachingNumericScoreShown: vi.fn(),
+}));
+
 vi.mock('@/components/LocalErrorBoundary', () => ({
     LocalErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -7,6 +18,8 @@ vi.mock('@sentry/react', () => ({
     withScope: vi.fn((cb) => cb({ setTag: vi.fn(), setContext: vi.fn() })),
     captureException: vi.fn(),
 }));
+
+vi.mock('@/services/sessionCoachingExperiment', () => sessionCoachingMock);
 
 import { render, screen, cleanup } from '../../../tests/support/test-utils';
 import { SessionPage } from '../SessionPage';
@@ -128,6 +141,13 @@ describe('SessionPage Rendering', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useRealTimers();
+        window.sessionStorage.clear();
+        window.history.pushState({}, '', '/session');
+        sessionCoachingMock.resolveSessionCoachingAssignment.mockReturnValue({
+            variant: 'control',
+            source: 'fallback',
+            flag: 'session_live_coaching_score',
+        });
         mockUseSessionLifecycle.mockReturnValue(defaultLifecycle as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
     });
 
@@ -171,6 +191,34 @@ describe('SessionPage Rendering', () => {
         // The settings button is passed as headerAction to FillerWordsCard
         expect(screen.getByTestId('add-custom-word-button')).toBeInTheDocument();
         expect(screen.getByText('Custom')).toBeInTheDocument();
+    });
+
+    it('renders live coaching in the feedback rail when treatment is forced', () => {
+        window.history.pushState({}, '', '/session?coaching=on');
+        sessionCoachingMock.resolveSessionCoachingAssignment.mockReturnValue({
+            variant: 'treatment',
+            source: 'url',
+            flag: 'session_live_coaching_score',
+        });
+        mockUseSessionLifecycle.mockReturnValue({
+            ...defaultLifecycle,
+            isListening: true,
+            elapsedTime: 45,
+            metrics: {
+                ...defaultLifecycle.metrics,
+                wordCount: 85,
+                wpm: 132,
+                clarityScore: 84,
+                fillerCount: 2,
+            },
+            transcriptContent: 'Today I want to explain the update clearly and lead with the main point before giving examples.',
+        } as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
+
+        render(<SessionPage />);
+
+        expect(screen.getByTestId('live-coaching-score-card')).toBeInTheDocument();
+        expect(screen.getByTestId('filler-words-card')).toBeInTheDocument();
+        expect(screen.getByText('SpeakSharp Score')).toBeInTheDocument();
     });
 
 });

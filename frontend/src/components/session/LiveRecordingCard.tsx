@@ -97,13 +97,18 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     };
     const modeDescriptions: Record<RecordingMode, string> = {
         native: "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.",
-        private: 'Vault Mode. Pro/trial local transcription with one-time setup; audio stays in your browser.',
-        cloud: 'Pro Cloud. Highest-accuracy path for serious workflows; audio is processed securely by AssemblyAI.',
+        private: 'Vault Mode. Local transcription with one-time setup; audio stays in your browser.',
+        cloud: 'Highest-accuracy transcription for serious Pro workflows.',
         mock: 'Test transcription mode.',
     };
     const privateModeDescription = isProUser
         ? 'Vault Mode keeps transcription local after one-time model setup. Audio stays in your browser.'
-        : 'Vault Mode is available with active trial or Pro. It needs a one-time local model setup.';
+        : 'Vault Mode unlocks with an active trial or Pro. It needs a one-time local model setup.';
+    const accessStatusMessage = canUseCloudStt
+        ? 'Browser, Private, and Cloud are available for this account.'
+        : isProUser
+            ? 'Browser and Private are available now. Cloud STT is a Pro feature for highest-accuracy transcription.'
+            : 'Browser is available now. Private unlocks during an active trial or with Pro; Cloud STT is a Pro feature.';
     const trustBadge = mode === 'private'
         ? 'VAULT MODE'
         : mode === 'cloud'
@@ -124,6 +129,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 ? 'Download the private model to start recording locally.'
                                 : modeDescriptions[mode]}
                         </p>
+                        <div className="max-w-80 rounded-md border border-border bg-muted/45 px-3 py-2 text-left text-[11px] font-medium leading-snug text-foreground/70">
+                            {accessStatusMessage}
+                        </div>
                     </div>
 
                     <DropdownMenu>
@@ -158,7 +166,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     disabled={!isProUser}
                                 >
                                     <span className="flex flex-col gap-0.5">
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Private {!isProUser ? '(Pro)' : ''}</span>
+                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Private</span>
                                         <span className="text-[11px] font-medium normal-case leading-snug text-foreground/70">
                                             {privateModeDescription}
                                         </span>
@@ -171,9 +179,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     disabled={!canUseCloudStt}
                                 >
                                     <span className="flex flex-col gap-0.5">
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud {!canUseCloudStt ? '(Pro feature)' : ''}</span>
+                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud</span>
                                         <span className="text-[11px] font-medium normal-case leading-snug text-foreground/70">
-                                            Pro Cloud. Highest-accuracy path for serious workflows; audio is processed securely by AssemblyAI.
+                                            Cloud STT is a Pro feature for highest-accuracy transcription.
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>
