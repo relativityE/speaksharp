@@ -29,11 +29,11 @@ This document groups SpeakSharp service-level definitions, soft-release targets,
 | Claim | Target | Classification | Current Evidence | Gap / Next Evidence |
 |---|---:|---|---|---|
 | Primary recording path availability | 99.5% internal target | SLO, aspirational | Canary, RC gates, live STT paths | Not uptime monitoring; use controlled-test evidence only. |
-| Auth p95 latency | < 2s at tested concurrency | SLO | Backend stress script now measures p50/p95 auth latency | Needs fresh GitHub artifact from `stress-endurance.yml`. |
-| Usage-limit Edge Function p95 | < 2s at tested concurrency | SLO | `check-usage-limit` correctness tests and backend stress path | Needs fresh GitHub stress artifact. |
-| Session-save RPC p95 | < 2s at tested concurrency | SLO | Current RPC used by backend stress path | Needs fresh GitHub stress artifact with p50/p95 and counts. |
-| Stress failure rate | 0% for the tested concurrency | SLO | Stress script checks auth, usage Edge, and session RPC success counts | State exact concurrency tested; do not generalize beyond it. |
-| Browser endurance | No state leak or obvious memory runaway in test duration | SLO | Browser endurance path uses Native mode and emits memory growth evidence | Needs fresh GitHub artifact with duration/memory growth. |
+| Auth p95 latency | < 2s release floor; < 1s industry target at tested concurrency | SLO | Backend stress script now measures p50/p95 auth latency | Needs fresh GitHub artifact from `service-level-evidence.yml` or `stress-endurance.yml`. |
+| Usage-limit Edge Function p95 | < 2s release floor; < 1s industry target at tested concurrency | SLO | `check-usage-limit` correctness tests and backend stress path | Needs fresh GitHub stress artifact. |
+| Session-save RPC p95 | < 2s release floor; < 1s industry target at tested concurrency | SLO | Current RPC used by backend stress path | Needs fresh GitHub stress artifact with p50/p95 and counts. |
+| Stress failure rate | 0% release floor and industry target for tested concurrency | SLO | Stress script checks auth, usage Edge, and session RPC success counts | State exact concurrency tested; do not generalize beyond it. |
+| Browser endurance | <= 50 MB max JS heap growth when memory API is available, plus no functional endurance failure | SLO | Browser endurance path uses Native mode and emits memory growth evidence when the browser exposes it | Needs fresh GitHub artifact with duration/memory growth or an explicit memory-unavailable note. |
 | PDF export durability | 99.9% aspirational from valid state | SLC candidate | PDF unit/e2e/live artifact evidence in release ledgers | Too aggressive for external claim until repeated export evidence exists. |
 | Session restoration | 95% aspirational | SLC candidate | PRD intent exists | Current evidence is weak; needs targeted restoration proof before public claim. |
 | Private STT WER | < 10% on controlled fixtures | Quality target, not generic SLA | STT benchmark/proof artifacts when run | Browser/user environment variability means do not promise globally. |

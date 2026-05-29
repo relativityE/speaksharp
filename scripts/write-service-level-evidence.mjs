@@ -17,7 +17,7 @@ const targets = [
   {
     id: 'auth_p95',
     claim: 'Auth p95 latency',
-    target: '< 2000 ms at tested concurrency',
+    target: '< 2000 ms release floor; < 1000 ms industry target at tested concurrency',
     yardstick: 'industry-standard',
     source: 'backendStress',
     evaluate: (data) => phaseMetric(data?.backendStress, 'auth', 'p95Ms', 2000),
@@ -25,7 +25,7 @@ const targets = [
   {
     id: 'usage_edge_p95',
     claim: 'Usage-limit Edge Function p95',
-    target: '< 2000 ms at tested concurrency',
+    target: '< 2000 ms release floor; < 1000 ms industry target at tested concurrency',
     yardstick: 'industry-standard',
     source: 'backendStress',
     evaluate: (data) => phaseMetric(data?.backendStress, 'usage-edge', 'p95Ms', 2000),
@@ -33,7 +33,7 @@ const targets = [
   {
     id: 'session_rpc_p95',
     claim: 'Session-save RPC p95',
-    target: '< 2000 ms at tested concurrency',
+    target: '< 2000 ms release floor; < 1000 ms industry target at tested concurrency',
     yardstick: 'industry-standard',
     source: 'backendStress',
     evaluate: (data) => phaseMetric(data?.backendStress, 'session-rpc', 'p95Ms', 2000),
@@ -41,8 +41,8 @@ const targets = [
   {
     id: 'stress_failure_rate',
     claim: 'Backend stress failure rate',
-    target: '0% at tested concurrency',
-    yardstick: 'owner-agreed-soft-release',
+    target: '0% release floor and industry target at tested concurrency',
+    yardstick: 'industry-standard',
     source: 'backendStress',
     evaluate: (data) => {
       const stress = data?.backendStress;
@@ -60,8 +60,8 @@ const targets = [
   {
     id: 'browser_endurance_memory',
     claim: 'Browser endurance memory growth',
-    target: 'No obvious runaway during configured duration',
-    yardstick: 'best-effort-baseline',
+    target: '<= 50 MB max JS heap growth when available; no functional endurance failure',
+    yardstick: 'industry-informed-soft-release',
     source: 'browserEndurance',
     evaluate: (data) => {
       const endurance = data?.browserEndurance;
@@ -80,8 +80,8 @@ const targets = [
   {
     id: 'unit_e2e_correctness',
     claim: 'Unit and browser flow correctness',
-    target: '0 failing tests in current CI evidence',
-    yardstick: 'owner-agreed-release-gate',
+    target: '0 failing tests release floor and industry target in current CI evidence',
+    yardstick: 'industry-standard',
     source: 'quality',
     evaluate: (data) => {
       const quality = data?.quality;
@@ -105,8 +105,8 @@ const targets = [
   {
     id: 'ops_stack_snapshot',
     claim: 'API stack health snapshot',
-    target: 'Ready or review-only without blocking red services',
-    yardstick: 'owner-agreed-soft-release',
+    target: 'Ready; review-only allowed only when no blocking red services are present',
+    yardstick: 'industry-informed-soft-release',
     source: 'opsHealthSummary',
     evaluate: (data) => {
       const ops = data?.opsHealthSummary;

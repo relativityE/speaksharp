@@ -12,6 +12,7 @@ const QUALITY_TARGETS = {
   tests: {
     failing: 0,
     skippedMax: 0,
+    totalRuntimeMaxMinutes: 15,
   },
   coverage: {
     releaseFloor: 60,
@@ -25,6 +26,9 @@ const QUALITY_TARGETS = {
   },
   performance: {
     codeBloatIndexPctMax: 20,
+    totalSourceSizeMax: '60M',
+    totalProjectSizeMax: '4G',
+    initialChunkSizeMax: '500K',
   },
 };
 
@@ -194,7 +198,7 @@ GitHub run: ${evidence.run.githubRunId ?? 'local/unavailable'}
 | Disabled/skipped tests | ${targets.tests.skippedMax} release-path skips | ${evidence.tests.skipped} |
 | Passing unit tests | 100% | ${evidence.tests.unit.passed}/${unitTotal} (${unitPassingPct}%) |
 | Passing E2E tests | 100% | ${evidence.tests.e2e.passed}/${e2eTotal} (${e2ePassingPct}%) |
-| Total runtime | Track trend | ${runtime} |
+| Total runtime | <= ${targets.tests.totalRuntimeMaxMinutes}m | ${runtime} |
 
 ## Coverage Summary
 
@@ -209,9 +213,9 @@ GitHub run: ${evidence.run.githubRunId ?? 'local/unavailable'}
 
 | Metric | Target | Latest measured |
 |---|---:|---:|
-| Total source size | Track trend | ${evidence.performance.totalSourceSize ?? 'N/A'} |
-| Total project size | Track trend | ${evidence.performance.totalProjectSize ?? 'N/A'} |
-| Initial chunk size | Track trend | ${evidence.performance.initialChunkSize ?? 'N/A'} |
+| Total source size | <= ${targets.performance.totalSourceSizeMax} | ${evidence.performance.totalSourceSize ?? 'N/A'} |
+| Total project size | <= ${targets.performance.totalProjectSizeMax} | ${evidence.performance.totalProjectSize ?? 'N/A'} |
+| Initial chunk size | <= ${targets.performance.initialChunkSizeMax} | ${evidence.performance.initialChunkSize ?? 'N/A'} |
 | Code bloat index | < ${targets.performance.codeBloatIndexPctMax}% | ${evidence.performance.codeBloatIndexPct ?? 'N/A'}% |
 | Lighthouse performance | >= ${targets.lighthouse.performance} | ${lighthouse?.performance ?? 'N/A'} |
 | Lighthouse accessibility | >= ${targets.lighthouse.accessibility} | ${lighthouse?.accessibility ?? 'N/A'} |

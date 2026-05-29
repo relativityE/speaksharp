@@ -71,8 +71,10 @@ These files are generated artifacts, not source-of-truth product requirements. T
 | Lighthouse best practices | 90 | 90+ | Advisory unless it indicates a security/runtime issue. |
 | Lighthouse SEO | 90 | 90+ | Advisory for controlled soft release. |
 | Code bloat index | < 20% | < 20% | Advisory unless load time becomes a tester issue. |
-| Initial chunk size | Track trend | Keep stable or explain increase | No universal byte target; any material jump needs reviewer explanation. |
-| Total source/project size | Track trend | Keep stable or explain increase | No universal byte target; use it to catch generated artifacts and stale output bloat. |
+| Total CI runtime | <= 15 minutes | <= 15 minutes | Keeps release evidence fast enough for practical iteration; any material increase needs explanation. |
+| Initial chunk size | <= 500 KB | <= 500 KB | Industry-informed web-app budget for the main boot path; any material jump needs reviewer explanation. |
+| Total source size | <= 60 MB | <= 60 MB | Internal bloat guard for maintained source and assets, excluding dependency caches. |
+| Total project size | <= 4 GB | <= 4 GB | Workspace hygiene guard that catches stale outputs, generated artifacts, and accidental dependency/cache bloat. |
 
 ---
 
