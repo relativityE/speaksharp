@@ -37,6 +37,8 @@ export default defineConfig({
         reuseExistingServer: false,
         timeout: 120 * 1000,
         env: {
+            VITE_AUTH_MODE: 'real',
+            VITE_USE_MOCK_AUTH: 'false',
             VITE_TEST_MODE: 'true',
             VITE_USE_LIVE_DB: 'true',
         },
