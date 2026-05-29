@@ -62,7 +62,7 @@ export const useSessionLifecycle = () => {
 
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = isPro(effectiveSubscriptionStatus);
-    const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
+    const isDevUser = import.meta.env.MODE !== 'production' && import.meta.env.VITE_DEV_USER === 'true';
     const canUsePrivateStt = isProUser || isActiveTrialProfile(profile) || isDevUser;
     const canUseCloudStt = (isProUser && hasCloudSttEntitlement(profile)) || isDevUser;
     const shouldForceNativeMode = !canUsePrivateStt;
@@ -298,7 +298,27 @@ export const useSessionLifecycle = () => {
                 isProcessingRef.current = false;
             }
         }
-    }, [isListening, elapsedTime, updateStreak, queryClient, isProUser, canUsePrivateStt, canUseCloudStt, usageLimit, defaultMode, isLockHeldByOther, setSTTStatus, userFillerWords, runtimeState, effectiveSubscriptionStatus]);
+    }, [
+        isListening,
+        elapsedTime,
+        updateStreak,
+        queryClient,
+        isProUser,
+        canUsePrivateStt,
+        canUseCloudStt,
+        usageLimit,
+        defaultMode,
+        effectiveMode,
+        isLockHeldByOther,
+        setSTTStatus,
+        userFillerWords,
+        runtimeState,
+        effectiveSubscriptionStatus,
+        metrics.clarityScore,
+        metrics.fillerCount,
+        metrics.wordCount,
+        metrics.wpm,
+    ]);
 
     // ✅ Keep the stable ref up to date with the latest callback
     handleStartStopRef.current = handleStartStop;

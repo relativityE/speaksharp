@@ -12,6 +12,7 @@ import {
   trackConversionCtaViewed,
   type ConversionSource,
 } from '@/services/conversionFunnel';
+import { toast } from '@/lib/toast';
 import logger from '../lib/logger';
 
 interface Tier {
@@ -102,7 +103,7 @@ const PricingCard: React.FC<{ tier: Tier }> = ({ tier }) => {
       }
     } catch (err: unknown) {
       logger.error({ err, tier: tier.name }, 'Error creating Stripe checkout session:');
-      // Could add toast notification here for user feedback
+      toast.error('Unable to start checkout. Please try again or contact support if it continues.');
     }
   };
 

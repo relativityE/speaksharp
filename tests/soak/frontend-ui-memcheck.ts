@@ -42,6 +42,85 @@ type BrowserEnduranceEvidence = {
     error?: string;
 };
 
+async function installSoakSttBridge(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        type SttOptions = {
+            onReady?: () => void;
+            onTranscriptUpdate?: (update: {
+                transcript: { partial?: string; final?: string };
+                isFinal: boolean;
+                isPartial: boolean;
+                timestamp: number;
+            }) => void;
+        };
+
+        type SoakWindow = Window & {
+            __SS_E2E__?: {
+                isActive: boolean;
+                engineType?: 'mock';
+                registry?: Record<string, (options?: SttOptions) => unknown>;
+                _activeCallbacks?: SttOptions;
+            };
+            __SS_E2E_ENGINE_CACHE__?: Record<string, unknown>;
+            TEST_MODE?: boolean;
+        };
+
+        const win = window as SoakWindow;
+        win.TEST_MODE = true;
+        win.__SS_E2E_ENGINE_CACHE__ = win.__SS_E2E_ENGINE_CACHE__ || {};
+
+        const minimalStubFactory = (mode: string) => (options?: SttOptions) => {
+            const cache = win.__SS_E2E_ENGINE_CACHE__ || {};
+            win.__SS_E2E_ENGINE_CACHE__ = cache;
+            const cacheKey = `soak-${mode}`;
+            if (cache[cacheKey]) return cache[cacheKey];
+
+            const instance = {
+                instanceId: `soak-${mode}-${Math.random().toString(36).slice(2)}`,
+                checkAvailability: async () => ({ isAvailable: true }),
+                init: async () => {
+                    win.__SS_E2E__ = win.__SS_E2E__ || { isActive: true };
+                    options?.onReady?.();
+                    return { isOk: true };
+                },
+                start: async () => {},
+                stop: async () => {},
+                pause: async () => {},
+                resume: async () => {},
+                destroy: async () => {},
+                terminate: async () => {},
+                getEngineType: () => mode,
+                getLastHeartbeatTimestamp: () => Date.now(),
+                getTranscript: async () => '',
+                emitTranscript: (text: string, isFinal: boolean = true) => {
+                    const update = {
+                        transcript: isFinal ? { final: text } : { partial: text },
+                        isFinal,
+                        isPartial: !isFinal,
+                        timestamp: Date.now(),
+                    };
+                    options?.onTranscriptUpdate?.(update);
+                    win.__SS_E2E__?._activeCallbacks?.onTranscriptUpdate?.(update);
+                },
+            };
+            cache[cacheKey] = instance;
+            return instance;
+        };
+
+        win.__SS_E2E__ = {
+            ...(win.__SS_E2E__ || {}),
+            isActive: true,
+            engineType: 'mock',
+            registry: {
+                ...(win.__SS_E2E__?.registry || {}),
+                'native-browser': minimalStubFactory('native-browser'),
+                assemblyai: minimalStubFactory('assemblyai'),
+                mock: minimalStubFactory('mock'),
+            },
+        };
+    });
+}
+
 async function readMemorySnapshot(page: Page): Promise<BrowserMemorySnapshot> {
     return page.evaluate(() => {
         const memory = (performance as Performance & {
@@ -192,6 +271,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
 
             // 1. Navigate to Session
             await page.goto(ROUTES.SESSION);
+            await installSoakSttBridge(page);
             await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 30000 });
 
             // 2. Force Browser/Native STT before recording. This endurance

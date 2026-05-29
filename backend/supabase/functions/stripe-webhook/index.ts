@@ -118,6 +118,10 @@ export async function handler(
        return createErrorResponse(ErrorCodes.DATABASE_ERROR, data.error || "Action failed", responseHeaders)
     }
 
+    if (data?.warning) {
+      console.warn(`[Stripe Webhook] ⚠️ Event ${event.id} processed with warning:`, data.warning)
+    }
+
     if (action === 'upgrade_to_pro') {
       console.log(`[Stripe] ✅ User ${userId} upgraded to Pro successfully`)
     } else if (action === 'activate_basic') {

@@ -80,7 +80,7 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
             intent: 'Syncing policy and setting E2E gate'
         }, '[TranscriptionProvider] Syncing policy');
 
-        const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
+        const isDevUser = import.meta.env.MODE !== 'production' && import.meta.env.VITE_DEV_USER === 'true';
         const isPro = tier === 'pro' || isDevUser;
         const canUseCloud = (isPro && hasCloudSttEntitlement(policyProfile)) || isDevUser;
         const requestedMode = isPro ? currentSelectedMode : null;

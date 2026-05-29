@@ -1,11 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
 
@@ -77,8 +72,10 @@ function parseSuggestions(rawText: string): AISuggestions | null {
 
 // Define the handler with dependency injection for testability
 export async function handler(req: Request, createSupabase: SupabaseClientFactory) {
+  const responseHeaders = buildCorsHeaders(req);
+
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: responseHeaders });
   }
 
   try {
@@ -97,13 +94,13 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       // PGRST116 = "No rows returned" which means no authenticated user (RLS blocked)
       if (profileError.code === 'PGRST116') {
         return new Response(JSON.stringify({ error: 'Authentication failed' }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
           status: 401,
         });
       }
       console.error('Profile fetch error:', profileError);
       return new Response(JSON.stringify({ error: 'Failed to fetch user profile' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 500,
       });
     }
@@ -111,7 +108,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     const isPro = profile?.subscription_status === 'pro';
     if (!isPro) {
       return new Response(JSON.stringify({ error: 'User is not on a Pro plan' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 403,
       });
     }
@@ -128,7 +125,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
       if (!sessionError && session?.ai_suggestions) {
         return new Response(JSON.stringify({ suggestions: session.ai_suggestions }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
           status: 200,
         });
       }
@@ -136,7 +133,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
     if (!transcript) {
       return new Response(JSON.stringify({ error: 'Transcript is required' }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 400,
       });
     }
@@ -145,7 +142,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     if (!apiKey) {
       console.error('GEMINI_API_KEY is not set.');
       return new Response(JSON.stringify({ suggestions: FALLBACK_SUGGESTIONS, degraded: true }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 200,
       });
     }
@@ -215,7 +212,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     if (!suggestions) {
       console.error('Gemini response did not contain valid suggestions JSON.');
       return new Response(JSON.stringify({ suggestions: FALLBACK_SUGGESTIONS, degraded: true }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 200,
       });
     }
@@ -233,7 +230,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     }
 
     return new Response(JSON.stringify({ suggestions }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...responseHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });
 
@@ -241,7 +238,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     console.error('Error getting AI suggestions:', error);
     const errorMessage = (error instanceof Error) ? error.message : 'An unexpected error occurred';
     return new Response(JSON.stringify({ error: `Failed to get AI suggestions. ${errorMessage}` }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...responseHeaders, 'Content-Type': 'application/json' },
       status: 500,
     });
   }

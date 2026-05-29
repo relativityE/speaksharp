@@ -55,6 +55,17 @@ const DesignSystemPage = React.lazy(() => import('./pages/DesignSystemPage'));
 const OpsStatusPage = React.lazy(() => import('./pages/OpsStatusPage').then(module => ({ default: module.OpsStatusPage })));
 const PricingPage = React.lazy(() => import('./pages/PricingPage').then(module => ({ default: module.PricingPage })));
 const TranscriptionProvider = React.lazy(() => import('./providers/TranscriptionProvider').then(module => ({ default: module.TranscriptionProvider })));
+const NotFoundPage = React.lazy(() => import('./pages/NotFoundPage').then(module => ({ default: module.NotFoundPage })));
+const TermsPage = React.lazy(() => import('./pages/LegalPage').then(module => ({ default: module.TermsPage })));
+const PrivacyPage = React.lazy(() => import('./pages/LegalPage').then(module => ({ default: module.PrivacyPage })));
+
+const internalRoutesEnabled =
+  !import.meta.env.PROD ||
+  import.meta.env.VITE_ENABLE_INTERNAL_ROUTES === 'true';
+
+const InternalRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  return internalRoutesEnabled ? <>{children}</> : <NotFoundPage />;
+};
 
 const PageLoader = () => (
   <div className="min-h-[calc(100vh-var(--header-height))] w-full bg-background px-4 pb-16 pt-28">
@@ -197,6 +208,12 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background font-sans antialiased relative">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[120] focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-foreground focus:shadow-lg focus:ring-2 focus:ring-primary"
+      >
+        Skip to content
+      </a>
       {showTestModeBadge && (
         <div className="fixed left-3 top-3 z-[100] rounded-md border border-amber-600 bg-amber-100 px-3 py-1.5 text-xs font-extrabold uppercase tracking-wide text-amber-950 shadow">
           Test Mode · Mock Auth
@@ -213,7 +230,9 @@ const App: React.FC = () => {
         <RouteReadinessManager />
         <Navigation />
         <main
+          id="main-content"
           data-testid="app-main"
+          tabIndex={-1}
           className="relative z-10"
         >
           <ErrorBoundary>
@@ -222,8 +241,10 @@ const App: React.FC = () => {
                 <Routes location={location} key={location.pathname}>
                   <Route path="/" element={<PageTransition><Index /></PageTransition>} />
                   <Route path="/pricing" element={<PageTransition><PricingPage /></PageTransition>} />
-                  <Route path="/design" element={<PageTransition><DesignSystemPage /></PageTransition>} />
-                  <Route path="/admin/ops-status" element={<PageTransition><OpsStatusPage /></PageTransition>} />
+                  <Route path="/terms" element={<PageTransition><TermsPage /></PageTransition>} />
+                  <Route path="/privacy" element={<PageTransition><PrivacyPage /></PageTransition>} />
+                  <Route path="/design" element={<InternalRoute><PageTransition><DesignSystemPage /></PageTransition></InternalRoute>} />
+                  <Route path="/admin/ops-status" element={<InternalRoute><PageTransition><OpsStatusPage /></PageTransition></InternalRoute>} />
                   <Route path="/auth" element={<Navigate to="/auth/signin" replace />} />
                   <Route path="/signup" element={<Navigate to="/auth/signup" replace />} />
                   <Route path="/auth/signin" element={<PageTransition><SignInPage /></PageTransition>} />
@@ -249,6 +270,7 @@ const App: React.FC = () => {
                       </TranscriptionProvider>
                     </ProtectedRoute>
                   } />
+                  <Route path="*" element={<PageTransition><NotFoundPage /></PageTransition>} />
                 </Routes>
               </AnimatePresence>
             </Suspense>

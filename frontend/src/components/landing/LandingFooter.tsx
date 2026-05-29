@@ -9,13 +9,13 @@ export const LandingFooter = () => {
       </p>
       <nav className="sm:ml-auto flex gap-4 sm:gap-6">
         <Link
-          to="#"
+          to="/terms"
           className="text-xs hover:underline underline-offset-4"
         >
           Terms of Service
         </Link>
         <Link
-          to="#"
+          to="/privacy"
           className="text-xs hover:underline underline-offset-4"
         >
           Privacy

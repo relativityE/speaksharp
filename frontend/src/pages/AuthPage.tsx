@@ -1,7 +1,7 @@
 import React, { useState, FormEvent, ChangeEvent } from 'react';
 import { getSupabaseClient } from '@/lib/supabaseClient';
 import { useAuthProvider } from '@/contexts/AuthProvider';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -318,7 +318,7 @@ export default function AuthPage() {
         </Card>
 
         <p className="text-center text-sm text-muted-foreground px-8">
-          By clicking continue, you agree to our <a href="#" className="underline underline-offset-4 hover:text-primary">Terms of Service</a> and <a href="#" className="underline underline-offset-4 hover:text-primary">Privacy Policy</a>.
+          By clicking continue, you agree to our <Link to="/terms" className="underline underline-offset-4 hover:text-primary">Terms of Service</Link> and <Link to="/privacy" className="underline underline-offset-4 hover:text-primary">Privacy Policy</Link>.
         </p>
       </div>
     </div>

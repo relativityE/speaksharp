@@ -98,7 +98,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const { data: usageLimit } = useUsageLimit();
     const [isEndingSession, setIsEndingSession] = useState(false);
 
-    const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
+    const isDevUser = import.meta.env.MODE !== 'production' && import.meta.env.VITE_DEV_USER === 'true';
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = checkIsPro(effectiveSubscriptionStatus);
     const canUsePrivateStt = isProUser || isActiveTrialProfile(profile) || isDevUser;

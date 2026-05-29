@@ -549,6 +549,9 @@ export default class TranscriptionService {
         },
         onError: (err) => {
           if (this.activeStrategyId !== tempId) return;
+          if (mode === 'private') {
+            this.failureManager.recordPrivateFailure();
+          }
           this.strategyCallbacks.onError?.(err);
         }
       };
@@ -645,6 +648,7 @@ export default class TranscriptionService {
       }
 
       if (mode === 'private') {
+        this.failureManager.recordPrivateFailure();
         logger.warn({
           errorName: err?.constructor?.name,
           errorMessage: err?.message,
@@ -1038,7 +1042,10 @@ export default class TranscriptionService {
         // Streaming providers can expose useful live text as partial turns until
         // the final turn arrives. Stop/save must preserve that visible transcript
         // instead of treating a missing provider final as an empty session.
-        transcript = strategyTranscript || this.currentTranscript || this.partialTranscript;
+        const visibleTranscript = (this.currentTranscript || this.partialTranscript).trim();
+        transcript = visibleTranscript.length > strategyTranscript.length
+          ? visibleTranscript
+          : strategyTranscript || visibleTranscript;
         logger.info({
           sId: this.serviceId,
           rId: this.runId,

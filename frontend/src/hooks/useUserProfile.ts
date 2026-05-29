@@ -36,7 +36,7 @@ export interface UseUserProfileOptions {
 
 export const useUserProfile = (options: UseUserProfileOptions = {}) => {
   const { session } = useAuthProvider();
-  const isDevBypass = window.location.search.includes('devBypass=true');
+  const isDevBypass = import.meta.env.DEV && window.location.search.includes('devBypass=true');
 
   // Production defaults: 3 retries with exponential backoff
   const retryConfig = options.retry ?? 3;

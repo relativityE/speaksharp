@@ -1451,7 +1451,7 @@ export class SpeechRuntimeController {
                 let guardedStopStatus: SttStatus | null = null;
                 logger.info({ wasRecording, state: this.state, sessionId: this.sessionId }, '[DEBUG-STOP] state-check');
                 if (wasRecording) {
-                    const sessionId = this.sessionId;
+                    let sessionId = this.sessionId;
                     const startTime = service.getStartTime();
                     result = await service.stopTranscription();
                     logger.info({
@@ -1472,10 +1472,10 @@ export class SpeechRuntimeController {
                         logger.warn({
                             mode: service.getMode?.() ?? stopEntryMode,
                             sessionId,
-                            resultSuccess: result?.success ?? null,
-                            resultTranscriptLength: result?.transcript?.length ?? 0,
-                            storeTranscriptLength: this.getStoreTranscriptLength(),
-                        }, '[DEBUG-STOP] Stop token was cancelled after stop result; continuing finalization for captured session');
+                        resultSuccess: result?.success ?? null,
+                        resultTranscriptLength: result?.transcript?.length ?? 0,
+                        storeTranscriptLength: this.getStoreTranscriptLength(),
+                    }, '[DEBUG-STOP] Stop token was cancelled after stop result; continuing finalization for captured session');
                     }
                     if (token.version !== this.lifecycleVersion) {
                         logger.warn({
@@ -1487,6 +1487,50 @@ export class SpeechRuntimeController {
                             resultTranscriptLength: result?.transcript?.length ?? 0,
                             storeTranscriptLength: this.getStoreTranscriptLength(),
                         }, '[DEBUG-STOP] Lifecycle version changed after stop result; continuing session finalization for captured session');
+                    }
+
+                    if (result && !sessionId) {
+                        const supabase = getSupabaseClient();
+                        const { data: { session } } = await supabase.auth.getSession();
+                        const userId = session?.user?.id || this.capturedUserId;
+
+                        if (userId) {
+                            const mode = service.getMode() || stopEntryMode || 'unknown';
+                            const duration = startTime ? (Date.now() - startTime) / 1000 : 0;
+                            const metadata = service.getMetadata?.() || (
+                                mode === 'private'
+                                    ? { engineVersion: 'transformers-js', modelName: 'whisper-tiny.en', deviceType: 'browser' }
+                                    : mode === 'cloud'
+                                        ? { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' }
+                                        : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
+                            );
+                            const fallbackSessionData = {
+                                user_id: userId,
+                                title: `Session ${new Date().toLocaleString()}`,
+                                duration: Math.round(duration),
+                                transcript: result.transcript?.trim() || ' ',
+                                total_words: 0,
+                                engine: mode,
+                            };
+                            const saveResult = await saveSession(
+                                fallbackSessionData,
+                                { id: userId } as UserProfile,
+                                mode,
+                                undefined,
+                                metadata
+                            );
+
+                            if (saveResult?.session?.id) {
+                                sessionId = saveResult.session.id;
+                                this.sessionId = sessionId;
+                                service.setSessionId?.(sessionId);
+                                logger.warn({ sessionId, mode }, '[DEBUG-STOP] Recovered missing sessionId with late session create');
+                            }
+
+                            if (saveResult?.usageExceeded) {
+                                throw new Error(`Usage limit exceeded${saveResult.usageError ? `: ${saveResult.usageError}` : ''}`);
+                            }
+                        }
                     }
 
                     logger.info({

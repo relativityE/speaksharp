@@ -82,4 +82,29 @@ Deno.test("stripe-checkout edge function", async (t) => {
     assertEquals(json.checkoutUrl, "https://checkout.stripe.com/test");
     assertEquals(receivedPrice, "price_1TbnH175Lp2WYe28RTatJout");
   });
+
+  await t.step("rejects Pro checkout when the Pro price is not configured", async () => {
+    let stripeCalled = false;
+    const res = await handler(request("pro"), {
+      getEnv: (key) => key === "STRIPE_PRO_PRICE_ID" ? undefined : env(key),
+      createSupabase,
+      stripeClient: {
+        checkout: {
+          sessions: {
+            create: async () => {
+              stripeCalled = true;
+              return { id: "cs_unexpected", url: "https://checkout.stripe.com/unexpected" };
+            },
+          },
+        },
+      },
+    });
+    const json = await res.json();
+
+    assertEquals(res.status, 500);
+    assertEquals(json.error.code, "CONFIG_MISSING_ENV");
+    assertEquals(json.error.message, "Configuration Error: STRIPE_PRO_PRICE_ID is missing");
+    assertEquals(json.error.details.missing, "STRIPE_PRO_PRICE_ID");
+    assertEquals(stripeCalled, false);
+  });
 });

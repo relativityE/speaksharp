@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from "npm:stripe@16"
 import { createClient } from "npm:@supabase/supabase-js@2"
 import { ErrorCodes, createErrorResponse, createSuccessResponse } from "../_shared/errors.ts"
+import { corsHeaders as buildCorsHeaders } from "../_shared/cors.ts"
 
 // Port configuration for local development fallback (inlined to avoid bundler issues)
 const DEV_PORT = 5173;
@@ -15,11 +16,6 @@ if (!STRIPE_SECRET_KEY && import.meta.main) {
 const stripe = STRIPE_SECRET_KEY
   ? new Stripe(STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient() })
   : null;
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-}
 
 type CheckoutPlan = "basic" | "pro";
 type EnvGetter = (key: string) => string | undefined;
@@ -52,6 +48,7 @@ const sanitizeMetadataValue = (value: unknown, fallback: string): string => {
 };
 
 export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Response> {
+  const responseHeaders = buildCorsHeaders(req);
   const getEnv: EnvGetter = deps.getEnv ?? ((key) => Deno.env.get(key) ?? undefined);
   const stripeClient = deps.stripeClient ?? stripe;
   const createSupabaseClient: SupabaseFactory = deps.createSupabase ?? ((authHeader) =>
@@ -64,7 +61,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
 
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders })
+    return new Response("ok", { headers: responseHeaders })
   }
 
   try {
@@ -87,7 +84,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       return createErrorResponse(
         ErrorCodes.CONFIG_MISSING_ENV,
         "Configuration Error: SITE_URL is missing",
-        corsHeaders,
+        responseHeaders,
         { missing: "SITE_URL" }
       );
     }
@@ -96,7 +93,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       return createErrorResponse(
         ErrorCodes.CONFIG_MISSING_ENV,
         "Configuration Error: STRIPE_SECRET_KEY is missing",
-        corsHeaders,
+        responseHeaders,
         { missing: "STRIPE_SECRET_KEY" }
       );
     }
@@ -105,7 +102,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       return createErrorResponse(
         ErrorCodes.CONFIG_MISSING_ENV,
         "Configuration Error: Stripe client is unavailable",
-        corsHeaders,
+        responseHeaders,
         { missing: "STRIPE_SECRET_KEY" }
       );
     }
@@ -117,7 +114,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       return createErrorResponse(
         ErrorCodes.AUTH_MISSING_HEADER,
         "Missing authorization header",
-        corsHeaders
+        responseHeaders
       );
     }
 
@@ -133,7 +130,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       return createErrorResponse(
         ErrorCodes.AUTH_INVALID_TOKEN,
         `User auth failed: ${userError.message}`,
-        corsHeaders
+        responseHeaders
       );
     }
     if (!user) {
@@ -141,7 +138,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       return createErrorResponse(
         ErrorCodes.AUTH_USER_NOT_FOUND,
         "User not authenticated (no user found)",
-        corsHeaders
+        responseHeaders
       );
     }
     console.log(`[Stripe Checkout] ✅ User authenticated: ${user.id} (${user.email || 'no-email'})`);
@@ -160,7 +157,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       return createErrorResponse(
         ErrorCodes.VALIDATION_INVALID_FORMAT,
         "Invalid checkout plan",
-        corsHeaders,
+        responseHeaders,
         { allowed: ["pro"] }
       );
     }
@@ -168,7 +165,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       return createErrorResponse(
         ErrorCodes.PAID_BASIC_FUTURE,
         "Paid Basic is not available yet. Start Free or upgrade to Pro.",
-        corsHeaders,
+        responseHeaders,
         { allowed: ["pro"], unavailable: "basic" }
       );
     }
@@ -177,12 +174,17 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
     const utmMedium = sanitizeMetadataValue(requestBody.utm?.medium, conversionSource);
     const utmCampaign = sanitizeMetadataValue(requestBody.utm?.campaign, 'upgrade');
 
-    // 4. Price Config - Use fallback for local dev (prod uses Supabase Secrets)
+    // 4. Price Config - fail fast instead of attempting a mock Stripe price.
     const priceEnvName = "STRIPE_PRO_PRICE_ID";
-    const priceId = getEnv(priceEnvName) ?? "price_mock_default";
-    const isUsingMock = priceId === "price_mock_default";
-    if (isUsingMock) {
-      console.warn(`[Stripe Checkout] ⚠️ Using mock price ID - set ${priceEnvName} for real checkout`);
+    const priceId = getEnv(priceEnvName)?.trim();
+    if (!priceId) {
+      console.error(`[Stripe Checkout] ❌ Missing ${priceEnvName}`);
+      return createErrorResponse(
+        ErrorCodes.CONFIG_MISSING_ENV,
+        `Configuration Error: ${priceEnvName} is missing`,
+        responseHeaders,
+        { missing: priceEnvName }
+      );
     }
 
     // 5. Determine return URL base (Strictly from Secrets)
@@ -233,7 +235,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       })
       console.log(`[Stripe Checkout] ✅ Session created: ${session.id}`)
 
-      return createSuccessResponse({ checkoutUrl: session.url }, corsHeaders);
+      return createSuccessResponse({ checkoutUrl: session.url }, responseHeaders);
     } catch (stripeError) {
       console.error('[Stripe Checkout] ❌ Stripe API Error:', stripeError);
       const err = stripeError as { type?: string; code?: string; param?: string; message?: string };
@@ -244,7 +246,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
       return createErrorResponse(
         ErrorCodes.STRIPE_API_ERROR,
         err.message || "Stripe API error",
-        corsHeaders,
+        responseHeaders,
         { type: err.type, code: err.code, param: err.param }
       );
     }
@@ -255,7 +257,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
     return createErrorResponse(
       ErrorCodes.INTERNAL_ERROR,
       error.message || "An unexpected error occurred",
-      corsHeaders
+      responseHeaders
     );
   }
 }

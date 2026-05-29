@@ -13,7 +13,7 @@ import { TEST_IDS } from '../constants';
 const transcript = [
   'um speaksharp helps teams practice concise updates',
   'actually this customboost phrase should be tracked',
-  'we can compare clarity pace and filler trends today',
+  'basically we can compare clarity pace and filler trends today',
 ].join(' ');
 
 for (const mode of ['native', 'cloud'] as const) {
