@@ -284,11 +284,13 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
 
 const normalizeAnalysisSlideIds = (ids: string[]): string[] => {
     const validIds = new Set(ANALYSIS_SLIDE_OPTIONS.map(option => option.id));
+    const seenIds = new Set<string>();
     const normalized: string[] = [];
 
     ids.forEach((id) => {
         const nextId = LEGACY_ANALYSIS_SLIDE_IDS[id] ?? id;
-        if (!validIds.has(nextId) || normalized.includes(nextId)) return;
+        if (!validIds.has(nextId) || seenIds.has(nextId)) return;
+        seenIds.add(nextId);
         normalized.push(nextId);
     });
 
@@ -630,7 +632,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
     const selectedSessionData = useMemo(() => {
         if (selectedSessions.length !== 2 || !sessionHistory) return null;
-        const sessions = selectedSessions.map(id => sessionHistory.find(s => s.id === id)).filter(Boolean);
+        const sessionsById = new Map(sessionHistory.map(session => [session.id, session]));
+        const sessions = selectedSessions.map(id => sessionsById.get(id)).filter(Boolean);
         if (sessions.length !== 2) return null;
         return sessions.map(s => {
             const metrics = getSessionAnalysisMetrics(s!);
@@ -662,7 +665,8 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
     const targetSession = useMemo(() => {
         if (!sessionId || !sessionHistory) return null;
-        return sessionHistory.find(s => s.id === sessionId);
+        const sessionsById = new Map(sessionHistory.map(session => [session.id, session]));
+        return sessionsById.get(sessionId) ?? null;
     }, [sessionId, sessionHistory]);
     const targetSessionMetrics = useMemo(
         () => targetSession ? getSessionAnalysisMetrics(targetSession) : null,
