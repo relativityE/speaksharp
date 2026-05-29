@@ -244,22 +244,33 @@ const App: React.FC = () => {
   // ✅ STRUCTURAL FIX: Hard Termination Boundary (Step 4)
   // Ensure the engine is definitively destroyed ONLY on route exit.
   const prevPathRef = React.useRef(location.pathname);
+  const routeExitVersionRef = React.useRef(0);
   useEffect(() => {
     const prevPath = prevPathRef.current;
     const currentPath = location.pathname;
     
     // Logic: If leaving /session -> Hard Termination
     if (prevPath === '/session' && currentPath !== '/session') {
+      const routeExitVersion = ++routeExitVersionRef.current;
       console.warn(`[DIAGNOSTIC] 🏁 Route Exit Detected: ${prevPath} -> ${currentPath}`);
       void import('@/services/transcription/SessionManager').then(({ sessionManager }) => {
         const activeService = sessionManager.getActiveService();
         console.warn(`[DIAGNOSTIC] 🧨 Triggering Hard Termination for Session: ${activeService?.serviceId || 'NONE'}`);
-        void sessionManager.destroySession();
+        const stopBeforeDestroy = isListening
+          ? speechRuntimeController.stopRecording().catch((error) => {
+            console.error('[App] Failed to stop recording before route-exit teardown:', error);
+          })
+          : Promise.resolve();
+
+        void stopBeforeDestroy.finally(() => {
+          if (routeExitVersion !== routeExitVersionRef.current) return;
+          void sessionManager.destroySession();
+        });
       });
     }
     
     prevPathRef.current = currentPath;
-  }, [location.pathname]);
+  }, [isListening, location.pathname]);
 
   // Handle Checkout Notifications (extracted hook)
   useCheckoutNotifications();
