@@ -120,6 +120,8 @@ export async function setupE2EManifest(
     const win = window as unknown as E2EWindow;
     win.__MOCK_PROFILE__ = { 
       subscription_status: ut === 'pro' ? 'pro' : ut === 'basic' ? 'basic' : 'free',
+      stripe_subscription_id: ut === 'pro' ? 'sub_e2e_pro_cloud' : null,
+      subscription_id: ut === 'pro' ? 'sub_e2e_pro_cloud' : null,
       ...(mp || {})
     };
 

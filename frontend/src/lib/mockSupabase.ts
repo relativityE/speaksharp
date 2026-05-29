@@ -1,4 +1,4 @@
-import { MOCK_USER, MOCK_USER_PROFILE, MOCK_SESSIONS } from '../../../tests/e2e/fixtures/mockData';
+import { MOCK_GOALS, MOCK_USER, MOCK_USER_PROFILE, MOCK_SESSION_HISTORY } from '@shared/test-fixtures';
 import logger from './logger';
 
 const MOCK_SESSIONS_STORAGE_KEY = '__SS_MOCK_SESSIONS__';
@@ -31,6 +31,7 @@ export const createMockSupabase = () => {
     const listeners = new Set<(event: string, session: unknown) => void>();
     let currentSession: unknown = null;
     const savedSessions: Array<Record<string, unknown>> = readSavedSessions();
+    let currentGoals: Record<string, unknown> = { ...MOCK_GOALS };
 
     const persistSavedSessions = () => {
         if (typeof window === 'undefined') return;
@@ -60,7 +61,11 @@ export const createMockSupabase = () => {
 
     const getSessions = () => {
         const isEmpty = typeof window !== 'undefined' && '__E2E_EMPTY_SESSIONS__' in window && Boolean(window['__E2E_EMPTY_SESSIONS__' as keyof typeof window]);
-        const baseline = isEmpty ? [] : MOCK_SESSIONS;
+        const storedSessions = readSavedSessions();
+        if (storedSessions.length || savedSessions.length) {
+            savedSessions.splice(0, savedSessions.length, ...storedSessions);
+        }
+        const baseline = isEmpty ? [] : MOCK_SESSION_HISTORY;
         return [...savedSessions, ...baseline] as Array<Record<string, unknown>>;
     };
 
@@ -194,6 +199,9 @@ export const createMockSupabase = () => {
                         if (table === 'user_profiles' && column === 'id' && value === MOCK_USER.id) {
                             return Promise.resolve({ data: getMockProfile(), error: null });
                         }
+                        if (table === 'user_goals' && column === 'user_id' && value === MOCK_USER.id) {
+                            return Promise.resolve({ data: currentGoals, error: null });
+                        }
                         return Promise.resolve({ data: null, error: { message: 'Not found' } });
                     },
                     order: () => {
@@ -210,6 +218,20 @@ export const createMockSupabase = () => {
                     },
                 }),
             }),
+            upsert: (data: Record<string, unknown>) => {
+                if (table === 'user_goals') {
+                    currentGoals = {
+                        ...currentGoals,
+                        ...data,
+                    };
+                }
+
+                return {
+                    select: () => ({
+                        single: () => Promise.resolve({ data: currentGoals, error: null }),
+                    }),
+                };
+            },
             insert: (data: unknown) => Promise.resolve({ data, error: null }),
             update: (data: unknown) => ({
                 eq: (column: string, value: unknown) => {

@@ -623,7 +623,11 @@ export async function setupE2EMocks(
     // Inject profile override if userType is explicitly set
     if (userType) {
         await page.addInitScript((status: string) => {
-            (window as Window & { __E2E_MOCK_PROFILE__?: { subscription_status: string } }).__E2E_MOCK_PROFILE__ = { subscription_status: status };
+            (window as Window & { __E2E_MOCK_PROFILE__?: Record<string, unknown> }).__E2E_MOCK_PROFILE__ = {
+                subscription_status: status,
+                stripe_subscription_id: status === 'pro' ? 'sub_e2e_pro_cloud' : null,
+                subscription_id: status === 'pro' ? 'sub_e2e_pro_cloud' : null,
+            };
         }, userType);
     }
 
@@ -632,6 +636,13 @@ export async function setupE2EMocks(
     state.profile = { ...MOCK_USER_PROFILE };
     if (userType) {
         state.profile.subscription_status = userType;
+        if (userType === 'pro') {
+            state.profile = {
+                ...state.profile,
+                stripe_subscription_id: 'sub_e2e_pro_cloud',
+                subscription_id: 'sub_e2e_pro_cloud',
+            } as typeof MOCK_USER_PROFILE;
+        }
     }
     if (profile) {
         state.profile = { ...state.profile, ...profile } as typeof MOCK_USER_PROFILE;

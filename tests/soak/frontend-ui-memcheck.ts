@@ -42,8 +42,7 @@ type BrowserEnduranceEvidence = {
     error?: string;
 };
 
-async function installSoakSttBridge(page: Page): Promise<void> {
-    await page.evaluate(() => {
+const installSoakSttBridgeScript = () => {
         type SttOptions = {
             onReady?: () => void;
             onTranscriptUpdate?: (update: {
@@ -118,7 +117,14 @@ async function installSoakSttBridge(page: Page): Promise<void> {
                 mock: minimalStubFactory('mock'),
             },
         };
-    });
+};
+
+async function installSoakSttBridge(page: Page): Promise<void> {
+    await page.evaluate(installSoakSttBridgeScript);
+}
+
+async function installSoakSttBridgeAtBoot(page: Page): Promise<void> {
+    await page.addInitScript(installSoakSttBridgeScript);
 }
 
 async function readMemorySnapshot(page: Page): Promise<BrowserMemorySnapshot> {
@@ -232,6 +238,8 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
         userPages = await Promise.all(
             userContexts.map((ctx) => ctx.newPage())
         );
+
+        await Promise.all(userPages.map((page) => installSoakSttBridgeAtBoot(page)));
 
         userPages.forEach((page, userIndex) => {
             page.on('console', (message) => {
