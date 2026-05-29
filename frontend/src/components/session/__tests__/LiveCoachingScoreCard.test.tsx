@@ -43,8 +43,8 @@ describe('LiveCoachingScoreCard', () => {
             />
         );
 
-        expect(screen.getByText('SpeakSharp Score')).toBeInTheDocument();
-        expect(screen.getByText(/visible tools roll up into one directional coaching score/i)).toBeInTheDocument();
+        expect(screen.getByText('SpeakSharp Score*')).toBeInTheDocument();
+        expect(screen.getByText(/visible tools roll up into one coaching score/i)).toBeInTheDocument();
         expect(screen.getByText(/Improve the ingredients/i)).toBeInTheDocument();
         expect(screen.getByText('Why this score moved')).toBeInTheDocument();
         expect(screen.getByTestId('live-score-evidence')).toHaveTextContent('Structure from transcript');
@@ -52,6 +52,7 @@ describe('LiveCoachingScoreCard', () => {
         expect(screen.getByTestId('live-score-evidence')).toHaveTextContent('Clarity signal');
         expect(screen.getByText(/not a black box/i)).toBeInTheDocument();
         expect(screen.getByText(/transparent rollup of the live signals/i)).toBeInTheDocument();
+        expect(screen.getByText(/SpeakSharp Score is a directional practice signal/i)).toBeInTheDocument();
         expect(screen.getByText(/progress over time matters more than one exact number/i)).toBeInTheDocument();
     });
 });
