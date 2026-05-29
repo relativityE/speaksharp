@@ -3,9 +3,9 @@
 **Version:** v0.6.19-rc0
 **Status:** Draft A/B model for Session page evaluation
 
-# SpeakSharp Session Score Model
+# SpeakSharp Score Model
 
-This document defines the research-informed scoring model behind the SpeakSharp Session Score. The score is proprietary, but it is not arbitrary: it maps SpeakSharp measurements to established public-speaking evaluation categories.
+This document defines the research-informed scoring model behind the SpeakSharp Score. The score is proprietary, but it is not arbitrary: it maps SpeakSharp measurements to established public-speaking evaluation categories.
 
 The product rule is simple:
 
@@ -46,7 +46,7 @@ The current implementation source of truth is:
 
 - `frontend/src/utils/speakingScore.ts`
 
-Session and Analytics must call this same scoring module when presenting the SpeakSharp Session Score. Analytics may summarize or trend the score, but it must not implement a separate formula with the same name.
+Session and Analytics must call this same scoring module when presenting the SpeakSharp Score. Analytics may summarize or trend the score, but it must not implement a separate formula with the same name.
 
 Allowed consumers:
 
@@ -94,7 +94,7 @@ Current output:
 
 | Output | Purpose |
 |---|---|
-| `score` | 0.0-10.0 SpeakSharp Session Score |
+| `score` | 0.0-10.0 SpeakSharp Score |
 | `label` | User-friendly score band |
 | `headline` | One-line interpretation |
 | `actions` | Maximum 2-3 short next actions |
@@ -158,7 +158,7 @@ Reference links:
 
 ## Score Weights
 
-The SpeakSharp Session Score uses four 0-10 sub-scores:
+The SpeakSharp Score uses four 0-10 sub-scores:
 
 | Category | Weight | Why It Matters |
 |---|---:|---|
@@ -189,7 +189,7 @@ Message & Structure plus Audience Impact equal 50%, preserving the idea that con
 Overall score:
 
 ```text
-SpeakSharp Session Score =
+SpeakSharp Score =
   0.35 * MessageStructure
 + 0.30 * DeliveryControl
 + 0.20 * LanguageClarity
@@ -390,7 +390,7 @@ Transcript policy:
 The prompt should include:
 
 ```text
-SpeakSharp Session Score formula:
+SpeakSharp Score formula:
 - Message & Structure: 35%
 - Delivery Control: 30%
 - Language & Clarity: 20%

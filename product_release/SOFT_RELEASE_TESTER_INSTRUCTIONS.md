@@ -51,8 +51,8 @@ Please report:
 - Do not generate or send tester codes. Access is automatic for new accounts.
 - Confirm trial fields appear on new profiles: `trial_started_at` and `trial_expires_at`.
 - Confirm Vercel production does not set `VITE_TEST_MODE` or other E2E/test flags.
-- Keep tester instructions Private-first. Cloud can be tested separately through paid/admin/dev accounts, but it is not part of automatic trial testing.
-- Paid/admin/dev Cloud tester scope, if included, must explicitly prove Cloud recording, transcript, save/history/detail, analytics, and PDF export. Do not ask automatic-trial testers to validate Cloud.
+- Keep tester instructions Private-first. Cloud can be tested separately through Pro/admin/dev accounts, but it is not part of automatic trial testing.
+- Pro/admin/dev Cloud tester scope, if included, must explicitly prove Cloud recording, transcript, save/history/detail, analytics, and PDF export. Do not ask automatic-trial testers to validate Cloud.
 - Free-path tester scope must explicitly prove Browser transcription only, with Private and Cloud unavailable. Use a known Free account whose trial has expired or a freshly provisioned live Free account with expired trial fields.
 - Ask every tester to check save/history/detail after stopping. A transcript without persisted history is not a successful session.
 - Ask every tester who adds a custom word to say that word during recording and verify the analytics count after save.

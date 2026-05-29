@@ -25,7 +25,7 @@ If this file conflicts with older files in `product_release/archive/`, this file
 | Service levels | `SERVICE_LEVELS.operational.md`; backend stress and browser endurance artifacts from `stress-endurance.yml` | ADVISORY UNLESS PROMOTED |
 | Private deployed worker | Gate 3 passed after the Vite `?worker&url` worker fix | PASS |
 | Native Browser STT | Chrome desktop real mic uses `continuous=true`, `interimResults=true`, `maxAlternatives=1`; Native corpus/WER is not a benchmark gate | PASS WITH BROWSER CAVEAT |
-| Cloud STT | Paid-Pro Cloud remains explicit Pro path; Free/trial denials are expected entitlement behavior | PASS FOR TESTER SCOPE WHEN PAID-PRO PROOF IS USED |
+| Cloud STT | Cloud remains an explicit Pro feature; Free/trial denials are expected entitlement behavior | PASS FOR TESTER SCOPE WHEN PRO-FEATURE PROOF IS USED |
 | Benchmarks | Private v2/v4 benchmark automation is WIP; Native excluded from WER claims | WARN |
 
 ## Current Blockers
