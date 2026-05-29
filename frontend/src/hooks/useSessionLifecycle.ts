@@ -69,7 +69,7 @@ export const useSessionLifecycle = () => {
         : isActiveTrialProfile(profile);
     const canUsePrivateStt = isProUser || hasActiveTrialEntitlement || isDevUser;
     const canUseCloudStt = (isProUser && hasCloudSttEntitlement(profile)) || isDevUser;
-    const shouldForceNativeMode = !canUsePrivateStt;
+    const shouldForceNativeMode = (ENV.isE2E && typeof window !== 'undefined' && window.__SS_E2E__?.forceNativeMode === true) || !canUsePrivateStt;
     const profileReadyForStt = isVerified && !!profile?.id && typeof profile?.subscription_status === 'string';
 
     const sttStatus = useSessionStore(state => state.sttStatus);

@@ -14,6 +14,7 @@ interface SS_E2E_Manifest {
   } | null;
   engineType?: 'mock' | 'real' | 'system';
   emitTranscript?: (text: string, isFinal?: boolean) => void;
+  forceNativeMode?: boolean;
   registry?: Record<string, unknown>;
   flags?: {
     bypassMutex?: boolean;

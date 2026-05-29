@@ -211,6 +211,7 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         (useSessionStore as unknown as Mock).mockImplementation(mockStore);
         (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
         (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+        delete window.__SS_E2E__;
 
         // Ensure default is Free for auto-stop tests
         vi.mocked(useProfile).mockReturnValue({
@@ -803,6 +804,60 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
 
         await waitFor(() => {
             expect(mockStore.getState().sttMode).toBe('private');
+        });
+    });
+
+    it('should honor the E2E native-mode bridge even for Pro-capable users', async () => {
+        window.__SS_E2E__ = {
+            isActive: true,
+            forceNativeMode: true,
+        };
+
+        const mockStore = createTestSessionStore({
+            sttMode: 'native',
+            isListening: false,
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useProfile).mockReturnValue({
+            profile: {
+                id: 'test-user',
+                subscription_status: 'pro',
+                email: 'test@example.com'
+            } as UserProfile,
+            isVerified: true
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                daily_remaining: 7200,
+                daily_limit: 7200,
+                monthly_remaining: 180000,
+                monthly_limit: 180000,
+                remaining_seconds: -1,
+                can_start: true,
+                subscription_status: 'pro',
+                is_pro: true,
+                streak_count: 0,
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await waitFor(() => {
+            expect(mockStore.getState().sttMode).toBe('native');
         });
     });
 });

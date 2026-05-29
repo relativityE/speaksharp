@@ -58,6 +58,7 @@ const installSoakSttBridgeScript = () => {
             __SS_E2E__?: {
                 isActive: boolean;
                 engineType?: 'mock';
+                forceNativeMode?: boolean;
                 registry?: Record<string, (options?: SttOptions) => unknown>;
                 _activeCallbacks?: SttOptions;
             };
@@ -111,6 +112,7 @@ const installSoakSttBridgeScript = () => {
             ...(win.__SS_E2E__ || {}),
             isActive: true,
             engineType: 'mock',
+            forceNativeMode: true,
             registry: {
                 ...(win.__SS_E2E__?.registry || {}),
                 'native-browser': minimalStubFactory('native-browser'),

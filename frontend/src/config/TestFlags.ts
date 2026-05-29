@@ -21,6 +21,7 @@ export interface SSE2EManifest {
   } | null;
   engineType?: 'mock' | 'real' | 'system';
   emitTranscript?: (text: string, isFinal?: boolean) => void;
+  forceNativeMode?: boolean;
   debug?: boolean;
   flags?: {
     bypassMutex?: boolean;
