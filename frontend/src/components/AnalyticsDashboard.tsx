@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { NavLink } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { TrendingUp, Clock, Layers, Download, Target, Gauge, BarChart, Settings, Activity, Mic, Cloud, Lock, Monitor, Eye } from 'lucide-react';
@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Checkbox } from '@/components/ui/checkbox';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, type CarouselApi } from '@/components/ui/carousel';
 import { ErrorDisplay } from './ErrorDisplay';
 import AISuggestions from './session/AISuggestions';
@@ -163,10 +163,6 @@ const STAT_CARD_OPTIONS: StatCardConfig[] = [
     },
 ];
 
-// Default cards to show (first 4)
-const DEFAULT_SELECTED_CARDS = ['total_sessions', 'speaking_pace', 'filler_words_per_min', 'total_practice_time'];
-const STORAGE_KEY = 'speaksharp_selected_stat_cards';
-
 const getEngineBadge = (session: PracticeSession): { label: string; className: string; icon: React.ElementType } => {
     const engine = (session.engine || '').toLowerCase();
 
@@ -240,13 +236,79 @@ const ANALYSIS_SLIDE_OPTIONS: AnalysisSlideConfig[] = [
 
 ];
 
-const LEGACY_ANALYSIS_SLIDE_IDS: Record<string, string> = {
-    filler_trend: 'filler_words',
-    filler_analysis: 'filler_words',
+type AnalyticsToolGroupId = 'delivery_control' | 'message_clarity' | 'habit_progress' | 'session_proof' | 'transcript_quality';
+type AnalyticsFocusId = AnalyticsToolGroupId | 'custom';
+
+type AnalyticsToolGroup = {
+    id: AnalyticsToolGroupId;
+    label: string;
+    purpose: string;
+    outcome: string;
+    statCardIds: string[];
+    analysisSlideIds: string[];
 };
 
-const DEFAULT_ANALYSIS_SLIDES = ['pace_trend', 'clarity_trend', 'weekly_activity', 'filler_words'];
-const ANALYSIS_STORAGE_KEY = 'speaksharp_selected_analysis_slides_v6';
+const ANALYTICS_TOOL_GROUPS: AnalyticsToolGroup[] = [
+    {
+        id: 'delivery_control',
+        label: 'Delivery Control',
+        purpose: 'Shows whether your pace, pauses, and filler habits make you easy to follow.',
+        outcome: 'Use it when you want the next session to sound steadier and more controlled.',
+        statCardIds: ['speaking_pace', 'filler_words_per_min', 'clarity_score', 'total_practice_time'],
+        analysisSlideIds: ['pace_trend', 'filler_words', 'clarity_trend', 'weekly_activity'],
+    },
+    {
+        id: 'message_clarity',
+        label: 'Message Clarity',
+        purpose: 'Connects transcript quality, clarity, and coaching notes to whether your point lands.',
+        outcome: 'Use it when you want to tighten the opening, takeaway, or supporting example.',
+        statCardIds: ['clarity_score', 'speaking_pace', 'avg_session_length', 'total_sessions'],
+        analysisSlideIds: ['clarity_trend', 'pace_trend', 'filler_words', 'weekly_activity'],
+    },
+    {
+        id: 'habit_progress',
+        label: 'Habit Progress',
+        purpose: 'Turns practice volume and repeated patterns into a habit loop.',
+        outcome: 'Use it when you want proof that a speaking habit is improving over time.',
+        statCardIds: ['total_sessions', 'total_practice_time', 'avg_session_length', 'filler_words_per_min'],
+        analysisSlideIds: ['weekly_activity', 'filler_words', 'pace_trend', 'clarity_trend'],
+    },
+    {
+        id: 'session_proof',
+        label: 'Session Proof',
+        purpose: 'Prioritizes before/after comparison and reports you can revisit or share.',
+        outcome: 'Use it when you want evidence of what changed between practice attempts.',
+        statCardIds: ['total_sessions', 'speaking_pace', 'clarity_score', 'filler_words_per_min'],
+        analysisSlideIds: ['pace_trend', 'clarity_trend', 'filler_words', 'weekly_activity'],
+    },
+    {
+        id: 'transcript_quality',
+        label: 'Transcript Quality',
+        purpose: 'Separates speaking performance from transcription reliability.',
+        outcome: 'Use it when you need to know whether a low score came from delivery or capture quality.',
+        statCardIds: ['clarity_score', 'speaking_pace', 'avg_session_length', 'total_sessions'],
+        analysisSlideIds: ['stt_comparison', 'clarity_trend', 'pace_trend', 'filler_words'],
+    },
+];
+
+const DEFAULT_ANALYTICS_TOOL_GROUP: AnalyticsToolGroupId = 'delivery_control';
+const TOOL_GROUP_STORAGE_KEY = 'speaksharp_analytics_tool_group_v1';
+const CUSTOM_STAT_STORAGE_KEY = 'speaksharp_custom_stat_cards_v1';
+const CUSTOM_ANALYSIS_STORAGE_KEY = 'speaksharp_custom_analysis_slides_v1';
+const DEFAULT_CUSTOM_STAT_CARDS = ['speaking_pace', 'filler_words_per_min', 'clarity_score', 'total_practice_time'];
+const DEFAULT_CUSTOM_ANALYSIS_SLIDES = ['pace_trend', 'clarity_trend', 'weekly_activity', 'filler_words'];
+
+const normalizeStatCardIds = (ids: string[]): string[] => {
+    const validIds = new Set(STAT_CARD_OPTIONS.map(option => option.id));
+    const normalized = ids.filter(id => validIds.has(id));
+    return normalized.length > 0 ? normalized.slice(0, 4) : DEFAULT_CUSTOM_STAT_CARDS;
+};
+
+const normalizeAnalysisSlideIds = (ids: string[]): string[] => {
+    const validIds = new Set(ANALYSIS_SLIDE_OPTIONS.map(option => option.id));
+    const normalized = ids.filter(id => validIds.has(id));
+    return normalized.length > 0 ? normalized.slice(0, 4) : DEFAULT_CUSTOM_ANALYSIS_SLIDES;
+};
 
 // --- Sub-components ---
 
@@ -281,21 +343,6 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, unit, descripti
         </div>
     </Card>
 );
-
-const normalizeAnalysisSlideIds = (ids: string[]): string[] => {
-    const validIds = new Set(ANALYSIS_SLIDE_OPTIONS.map(option => option.id));
-    const seenIds = new Set<string>();
-    const normalized: string[] = [];
-
-    ids.forEach((id) => {
-        const nextId = LEGACY_ANALYSIS_SLIDE_IDS[id] ?? id;
-        if (!validIds.has(nextId) || seenIds.has(nextId)) return;
-        seenIds.add(nextId);
-        normalized.push(nextId);
-    });
-
-    return normalized;
-};
 
 const SessionHistoryItem: React.FC<SessionHistoryItemProps> = ({ session, sessionHistory, isPro: _isPro, isSelected, onToggleSelect, profileName }) => {
     const metrics = getSessionAnalysisMetrics(session);
@@ -457,64 +504,78 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
     const [showComparison, setShowComparison] = useState(false);
 
-    // Analysis slide selection state with localStorage persistence
-    const [selectedAnalysisSlides, setSelectedAnalysisSlides] = useState<string[]>(() => {
+    const [selectedFocusId, setSelectedFocusId] = useState<AnalyticsFocusId>(() => {
         try {
-            const saved = localStorage.getItem(ANALYSIS_STORAGE_KEY);
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                // Validate that saved slides still exist in options
-                const validSlides = normalizeAnalysisSlideIds(parsed);
-                if (validSlides.length >= 1) {
-                    return validSlides;
-                }
+            const saved = localStorage.getItem(TOOL_GROUP_STORAGE_KEY);
+            if (saved && ANALYTICS_TOOL_GROUPS.some(group => group.id === saved)) {
+                return saved as AnalyticsToolGroupId;
             }
+            if (saved === 'custom') return 'custom';
         } catch (e) {
-            logger.warn('Failed to load saved analysis slide preferences');
+            logger.warn('Failed to load saved analytics focus preference');
         }
-        return DEFAULT_ANALYSIS_SLIDES;
+        return DEFAULT_ANALYTICS_TOOL_GROUP;
     });
 
     const isProUser = effectiveIsProUser ?? checkIsPro(profile?.subscription_status);
-
-    // Stat card selection state with localStorage persistence
-    const [selectedStatCards, setSelectedStatCards] = useState<string[]>(() => {
+    const [customStatCards, setCustomStatCards] = useState<string[]>(() => {
         try {
-            const saved = localStorage.getItem(STORAGE_KEY);
-            if (saved) {
-                const parsed = JSON.parse(saved);
-                // Validate that saved cards still exist in options
-                const validCards = parsed.filter((id: string) => STAT_CARD_OPTIONS.some(opt => opt.id === id));
-                if (validCards.length >= 1 && validCards.length <= 4) {
-                    return validCards;
-                }
-            }
+            const saved = localStorage.getItem(CUSTOM_STAT_STORAGE_KEY);
+            if (saved) return normalizeStatCardIds(JSON.parse(saved));
         } catch (e) {
-            logger.warn('Failed to load saved stat card preferences');
+            logger.warn('Failed to load custom stat card preferences');
         }
-        return DEFAULT_SELECTED_CARDS;
+        return DEFAULT_CUSTOM_STAT_CARDS;
     });
+    const [customAnalysisSlides, setCustomAnalysisSlides] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem(CUSTOM_ANALYSIS_STORAGE_KEY);
+            if (saved) return normalizeAnalysisSlideIds(JSON.parse(saved));
+        } catch (e) {
+            logger.warn('Failed to load custom analysis preferences');
+        }
+        return DEFAULT_CUSTOM_ANALYSIS_SLIDES;
+    });
+    const selectedToolGroup = useMemo(
+        () => ANALYTICS_TOOL_GROUPS.find(group => group.id === selectedFocusId) ?? ANALYTICS_TOOL_GROUPS[0],
+        [selectedFocusId]
+    );
+    const isCustomFocus = selectedFocusId === 'custom';
 
-    // Save to localStorage when selection changes
     useEffect(() => {
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedStatCards));
+            localStorage.setItem(TOOL_GROUP_STORAGE_KEY, selectedFocusId);
         } catch (e) {
-            logger.warn('Failed to save stat card preferences');
+            logger.warn('Failed to save analytics focus preference');
         }
-    }, [selectedStatCards]);
+    }, [selectedFocusId]);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(CUSTOM_STAT_STORAGE_KEY, JSON.stringify(customStatCards));
+        } catch (e) {
+            logger.warn('Failed to save custom stat card preferences');
+        }
+    }, [customStatCards]);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(CUSTOM_ANALYSIS_STORAGE_KEY, JSON.stringify(customAnalysisSlides));
+        } catch (e) {
+            logger.warn('Failed to save custom analysis preferences');
+        }
+    }, [customAnalysisSlides]);
 
     // Optimization: Memoize filtered stat cards for O(1) lookup in render path
     const displayedStatCards = useMemo(() => {
-        const selectedSet = new Set(selectedStatCards);
+        const selectedSet = new Set(isCustomFocus ? customStatCards : selectedToolGroup.statCardIds);
         return STAT_CARD_OPTIONS.filter(option => selectedSet.has(option.id));
-    }, [selectedStatCards]);
+    }, [customStatCards, isCustomFocus, selectedToolGroup]);
 
     // Carousel API state
     const [api, setApi] = useState<CarouselApi>();
     const [current, setCurrent] = useState(0);
     const [count, setCount] = useState(0);
-    const pendingAnalysisSlideIndexRef = useRef<number | null>(null);
 
     useEffect(() => {
         if (!api) {
@@ -529,93 +590,53 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         });
     }, [api]);
 
-    // Update count when selected items change
+    // Update count when the analytics focus changes
     useEffect(() => {
         if (api) {
             api.reInit();
             setCount(api.scrollSnapList().length);
-            const pendingIndex = pendingAnalysisSlideIndexRef.current;
-            if (pendingIndex !== null) {
-                pendingAnalysisSlideIndexRef.current = null;
-                const targetIndex = Math.min(pendingIndex, Math.max(api.scrollSnapList().length - 1, 0));
-                window.requestAnimationFrame(() => {
-                    api.scrollTo(targetIndex);
-                    setCurrent(targetIndex + 1);
-                });
-                return;
-            }
-            setCurrent(api.selectedScrollSnap() + 1);
+            window.requestAnimationFrame(() => {
+                api.scrollTo(0);
+                setCurrent(1);
+            });
         }
-    }, [selectedAnalysisSlides, api]);
-
-    // Customize Analysis Menu Hover State
-    const [isAnalysisMenuOpen, setIsAnalysisMenuOpen] = useState(false);
-    const analysisMenuTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-    const openAnalysisMenu = () => {
-        if (analysisMenuTimeoutRef.current) {
-            clearTimeout(analysisMenuTimeoutRef.current);
-        }
-        setIsAnalysisMenuOpen(true);
-    };
-
-    const closeAnalysisMenu = () => {
-        analysisMenuTimeoutRef.current = setTimeout(() => {
-            setIsAnalysisMenuOpen(false);
-        }, 200);
-    };
-
-    const toggleStatCard = (cardId: string) => {
-        setSelectedStatCards(prev => {
-            if (prev.includes(cardId)) {
-                // Don't allow deselecting if only 1 card remains
-                if (prev.length <= 1) return prev;
-                return prev.filter(id => id !== cardId);
-            } else {
-                // Don't allow selecting more than 4
-                if (prev.length >= 4) return prev;
-                return [...prev, cardId];
-            }
-        });
-    };
-
-
-
-    // Save to localStorage when selection changes
-    useEffect(() => {
-        try {
-            localStorage.setItem(ANALYSIS_STORAGE_KEY, JSON.stringify(selectedAnalysisSlides));
-        } catch (e) {
-            logger.warn('Failed to save analysis slide preferences');
-        }
-    }, [selectedAnalysisSlides]);
+    }, [selectedFocusId, api]);
 
     // Optimization: Memoize filtered analysis slides for O(1) lookup in render path
     const displayedAnalysisSlides = useMemo(() => {
         const optionsById = new Map(ANALYSIS_SLIDE_OPTIONS.map(option => [option.id, option]));
-        return selectedAnalysisSlides
+        return (isCustomFocus ? customAnalysisSlides : selectedToolGroup.analysisSlideIds)
             .map(id => optionsById.get(id))
             .filter((option): option is AnalysisSlideConfig => Boolean(option));
-    }, [selectedAnalysisSlides]);
+    }, [customAnalysisSlides, isCustomFocus, selectedToolGroup]);
 
     const activeAnalysisIndex = current > 0 ? current - 1 : 0;
+    const focusLabel = isCustomFocus ? 'Custom Toolkit' : selectedToolGroup.label;
+    const focusPurpose = isCustomFocus
+        ? 'Inspect the specific signals you care about without using a predefined coaching bundle.'
+        : selectedToolGroup.purpose;
+    const focusOutcome = isCustomFocus
+        ? 'Use it when you already know which metric or chart you want to investigate; each selected tool keeps its own interpretation.'
+        : selectedToolGroup.outcome;
 
-    const toggleAnalysisSlide = (slideId: string) => {
-        setSelectedAnalysisSlides(prev => {
+    const toggleCustomStatCard = (cardId: string) => {
+        setCustomStatCards(prev => {
+            if (prev.includes(cardId)) {
+                if (prev.length <= 1) return prev;
+                return prev.filter(id => id !== cardId);
+            }
+            if (prev.length >= 4) return prev;
+            return [...prev, cardId];
+        });
+    };
+
+    const toggleCustomAnalysisSlide = (slideId: string) => {
+        setCustomAnalysisSlides(prev => {
             if (prev.includes(slideId)) {
                 if (prev.length <= 1) return prev;
-                const removedIndex = prev.indexOf(slideId);
-                pendingAnalysisSlideIndexRef.current = Math.min(removedIndex, prev.length - 2);
                 return prev.filter(id => id !== slideId);
             }
-
-            if (prev.length >= 4) {
-                const replaceIndex = Math.min(Math.max(current - 1, 0), prev.length - 1);
-                pendingAnalysisSlideIndexRef.current = replaceIndex;
-                return prev.map((id, index) => index === replaceIndex ? slideId : id);
-            }
-
-            pendingAnalysisSlideIndexRef.current = prev.length;
+            if (prev.length >= 4) return prev;
             return [...prev, slideId];
         });
     };
@@ -792,34 +813,90 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             ) : (
                 <>
 
-                    {/* Stats Section Header with Settings */}
-                    <div className="flex items-center justify-between">
-                        <h2 className="text-lg font-semibold text-foreground">Overview</h2>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-primary">
-                                    <Settings className="h-4 w-4" />
-                                    <span className="hidden sm:inline">Customize Stats</span>
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-56">
-                                <DropdownMenuLabel>Display Stats ({selectedStatCards.length}/4)</DropdownMenuLabel>
-                                <DropdownMenuSeparator />
-                                {STAT_CARD_OPTIONS.map(option => (
-                                    <DropdownMenuCheckboxItem
-                                        key={option.id}
-                                        checked={selectedStatCards.includes(option.id)}
-                                        onCheckedChange={() => toggleStatCard(option.id)}
-                                        disabled={
-                                            (!selectedStatCards.includes(option.id) && selectedStatCards.length >= 4) ||
-                                            (selectedStatCards.includes(option.id) && selectedStatCards.length <= 1)
-                                        }
-                                    >
-                                        {option.label}
-                                    </DropdownMenuCheckboxItem>
-                                ))}
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                    <Card className="rounded-xl border border-border bg-card surface-shadow">
+                        <CardHeader className="space-y-4">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                <div className="space-y-1">
+                                    <p className="text-xs font-bold uppercase tracking-wider text-primary">Analytics Focus</p>
+                                    <CardTitle className="text-2xl font-extrabold text-foreground">{focusLabel}</CardTitle>
+                                    <p className="max-w-3xl text-sm font-semibold leading-snug text-foreground/75">
+                                        {focusPurpose}
+                                    </p>
+                                </div>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="outline" size="sm" className="gap-2 self-start">
+                                            <Settings className="h-4 w-4" />
+                                            Change Focus
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-72">
+                                        <DropdownMenuLabel>Choose one analytics story</DropdownMenuLabel>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuRadioGroup
+                                            value={selectedFocusId}
+                                            onValueChange={(value) => setSelectedFocusId(value as AnalyticsFocusId)}
+                                        >
+                                            {ANALYTICS_TOOL_GROUPS.map(group => (
+                                                <DropdownMenuRadioItem key={group.id} value={group.id} className="items-start">
+                                                    <span className="flex flex-col gap-0.5">
+                                                        <span className="font-semibold">{group.label}</span>
+                                                        <span className="text-xs leading-snug text-muted-foreground">{group.outcome}</span>
+                                                    </span>
+                                                </DropdownMenuRadioItem>
+                                            ))}
+                                            <DropdownMenuSeparator />
+                                            <DropdownMenuRadioItem value="custom" className="items-start">
+                                                <span className="flex flex-col gap-0.5">
+                                                    <span className="font-semibold">Custom Toolkit</span>
+                                                    <span className="text-xs leading-snug text-muted-foreground">Pick specific tools when you want to inspect one signal directly.</span>
+                                                </span>
+                                            </DropdownMenuRadioItem>
+                                        </DropdownMenuRadioGroup>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
+                            <div className="rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm font-semibold leading-snug text-foreground/75">
+                                {focusOutcome}
+                            </div>
+                        </CardHeader>
+                    </Card>
+
+                    {/* Stats Section Header */}
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div className="space-y-1">
+                            <h2 className="text-lg font-semibold text-foreground">Evidence for {focusLabel}</h2>
+                            <p className="text-sm font-medium text-foreground/70">
+                                {isCustomFocus ? 'Selected tools are interpreted independently.' : 'These cards are selected together because they support the current focus.'}
+                            </p>
+                        </div>
+                        {isCustomFocus && (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-primary">
+                                        <Settings className="h-4 w-4" />
+                                        Choose Stat Cards
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-64">
+                                    <DropdownMenuLabel>Display Stats ({customStatCards.length}/4)</DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    {STAT_CARD_OPTIONS.map(option => (
+                                        <DropdownMenuCheckboxItem
+                                            key={option.id}
+                                            checked={customStatCards.includes(option.id)}
+                                            onCheckedChange={() => toggleCustomStatCard(option.id)}
+                                            disabled={
+                                                (!customStatCards.includes(option.id) && customStatCards.length >= 4) ||
+                                                (customStatCards.includes(option.id) && customStatCards.length <= 1)
+                                            }
+                                        >
+                                            {option.label}
+                                        </DropdownMenuCheckboxItem>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )}
                     </div>
 
                     {/* Dynamic Stat Cards */}
@@ -838,36 +915,41 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
                     <GoalsSection />
 
-                    {/* Analysis Section Header with Settings */}
+                    {/* Analysis Section Header */}
                     <div className="flex items-center justify-between pt-2">
                         <div className="space-y-1">
-                            <h2 className="text-xl font-semibold text-foreground">Speech Pattern Analysis</h2>
-                            <p className="text-sm font-medium text-foreground/70">Your trends become more useful after each saved session.</p>
+                            <h2 className="text-xl font-semibold text-foreground">{focusLabel} Tools</h2>
+                            <p className="text-sm font-medium text-foreground/70">
+                                {isCustomFocus ? 'Each selected chart keeps its own standalone interpretation.' : 'Each chart answers part of the same coaching question.'}
+                            </p>
                         </div>
-                        <DropdownMenu open={isAnalysisMenuOpen} onOpenChange={setIsAnalysisMenuOpen}>
-                            <DropdownMenuTrigger asChild onMouseEnter={openAnalysisMenu} onMouseLeave={closeAnalysisMenu}>
-                                <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-primary">
-                                    <Settings className="h-4 w-4" />
-                                    <span className="hidden sm:inline">Customize Analysis</span>
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-56" onMouseEnter={openAnalysisMenu} onMouseLeave={closeAnalysisMenu}>
-                                <DropdownMenuLabel>Display Analysis ({selectedAnalysisSlides.length}/4)</DropdownMenuLabel>
-                                <DropdownMenuSeparator />
-                                {ANALYSIS_SLIDE_OPTIONS.map(option => (
-                                    <DropdownMenuCheckboxItem
-                                        key={option.id}
-                                        checked={selectedAnalysisSlides.includes(option.id)}
-                                        onCheckedChange={() => toggleAnalysisSlide(option.id)}
-                                        disabled={
-                                            selectedAnalysisSlides.includes(option.id) && selectedAnalysisSlides.length <= 1
-                                        }
-                                    >
-                                        {option.label}
-                                    </DropdownMenuCheckboxItem>
-                                ))}
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                        {isCustomFocus && (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="sm" className="gap-2 hover:bg-primary/10 hover:text-primary">
+                                        <Settings className="h-4 w-4" />
+                                        Choose Analysis Tools
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-64">
+                                    <DropdownMenuLabel>Display Analysis ({customAnalysisSlides.length}/4)</DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    {ANALYSIS_SLIDE_OPTIONS.map(option => (
+                                        <DropdownMenuCheckboxItem
+                                            key={option.id}
+                                            checked={customAnalysisSlides.includes(option.id)}
+                                            onCheckedChange={() => toggleCustomAnalysisSlide(option.id)}
+                                            disabled={
+                                                (!customAnalysisSlides.includes(option.id) && customAnalysisSlides.length >= 4) ||
+                                                (customAnalysisSlides.includes(option.id) && customAnalysisSlides.length <= 1)
+                                            }
+                                        >
+                                            {option.label}
+                                        </DropdownMenuCheckboxItem>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )}
                     </div>
 
                     {/* Analysis Carousel */}

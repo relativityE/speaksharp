@@ -30,7 +30,7 @@ Use these groups when reviewing the full feature list. They keep launch-critical
 | **Transcription Modes** | Browser, Private/Vault, Cloud, mode selector |
 | **Real-Time Coaching** | Live transcript, WPM, fillers, pauses, clarity, SpeakSharp Score, live coaching card |
 | **Post-Session Coaching** | Semantic AI suggestions, analytics/history, PDF reports |
-| **Habit & Progress** | Goals, streaks, future drills, score movement |
+| **Habit & Progress** | SpeakSharp Score movement, goals, streaks, live-coaching targets, future guided drills |
 | **Conversion & Trust** | Free-to-Pro, privacy positioning, sponsor support, watermark/referral loop |
 | **Access & Reliability** | Usage limits, quotas, browser support, accessibility, design system |
 | **Future Expansion** | Live meeting companion, full referral proof loop |
@@ -50,8 +50,9 @@ This table keeps product claims honest before product release. A feature can app
 | **Semantic & Content Analysis** | Implemented in the AI suggestions prompt path, but not yet proven through scored examples. | `backend/supabase/functions/get-ai-suggestions/index.ts` | Implemented / proving. | Collect example outputs and reviewer scoring to prove usefulness beyond pace/fillers. |
 | **Analytics & History** | Implemented in Analytics/session history surfaces. | `frontend/src/pages/AnalyticsPage.tsx`, `frontend/src/hooks/useAnalytics.ts`, `frontend/src/hooks/usePracticeHistory.ts` | Current. | Future score trend must reuse saved score payload, not recompute with drift. |
 | **Branded PDF Reports** | Implemented through PDF export. | `frontend/src/lib/pdfGenerator.ts`, Analytics PDF actions | Current branded report artifact. | Future score/report claims must use the same saved score payload as Session/Analytics. |
-| **Goals / Streaks** | Implemented as goal/streak foundation. | `frontend/src/hooks/useGoals.ts`, `frontend/src/hooks/useStreak.ts`, `frontend/src/hooks/useSessionLifecycle.ts` | Current foundation, not a complete guided habit product. | Do not market as guided gamification until drills and return loops exist. |
-| **Gamified Habit Pathways** | Not implemented as a guided journey. | No guided drill route/component exists yet; backlog item tracks it. | Planned post-soft release. | Design and build 2-5 minute drills, progress targets, streak reinforcement, and next-practice prompts. |
+| **Goals / Streaks** | Implemented as goal/streak foundation. | `frontend/src/hooks/useGoals.ts`, `frontend/src/hooks/useStreak.ts`, `frontend/src/hooks/useSessionLifecycle.ts` | Current habit foundation. | Tie goals/streaks more directly to score movement and next-practice targets. |
+| **Score-Based Gamification** | Implemented as a Session A/B candidate through SpeakSharp Score, confidence state, next target, and live coaching actions. | `frontend/src/utils/speakingScore.ts`, `frontend/src/components/session/LiveCoachingScoreCard.tsx`, `frontend/src/pages/SessionPage.tsx` | Current gamification foundation / A/B candidate. | Prove that the score feels motivating and trustworthy; persist score payload before broad cross-page claims. |
+| **Guided Habit Pathways** | Not implemented as a packaged guided-drill journey. | No guided drill route/component exists yet; backlog item tracks it. | Planned post-soft release. | Design and build 2-5 minute drills, progression loops, streak reinforcement, and recurring next-practice prompts. |
 | **Live Meeting Companion** | Not implemented. | No `/companion` route/component exists yet; backlog item tracks it. | Planned post-soft release. | Design and build a compact overlay-friendly mode after Session coaching is calibrated. |
 | **Referral Proof Loop** | Partially supported by branded PDF/report artifacts, but not a full product loop. | `frontend/src/lib/pdfGenerator.ts`; no shareable progress-summary flow exists yet. | Planned post-soft release. | Add shareable "what improved" summaries and validate whether artifacts make others curious enough to join. |
 
@@ -69,7 +70,8 @@ This table keeps product claims honest before product release. A feature can app
 | **Branded PDF Reports** | Current | Exported reports include SpeakSharp branding/watermarking for Free and Pro users. Reports should support review, recall, and word-of-mouth discovery without exposing unsupported claims. |
 | **Free-To-Pro Conversion** | Current funnel | Free baseline experience should be useful and honest while nudging toward Pro only in relevant, non-intrusive surfaces. |
 | **Privacy-First Free Plan Support** | Infrastructure / limited | Free may include privacy-respecting sponsor/support messaging outside private practice surfaces. Transcript and speaking data must never be used for ads. |
-| **Gamified Habit Pathways** | Planned post-soft release | Guided 2-5 minute speaking drills that help users practice one behavior at a time, return regularly, and chase progress through score movement, streaks, targets, and recurring coaching themes rather than an open-ended sandbox alone. Not part of the current soft-release product claim. |
+| **Score-Based Gamification** | A/B candidate | SpeakSharp Score, confidence states, next target, and live coaching actions give the current Session experience a motivating progress loop. This is the first version of gamification, not a validated public-speaking grade. |
+| **Guided Habit Pathways** | Planned post-soft release | Packaged 2-5 minute speaking drills that help users practice one behavior at a time, return regularly, and chase progress through score movement, streaks, targets, and recurring coaching themes rather than an open-ended sandbox alone. Not part of the current soft-release product claim. |
 | **Live Meeting Companion** | Planned post-soft release | Compact real-time coaching mode intended for live calls or overlays, such as Zoom/Teams/Meet workflows. Not part of the current soft-release product claim. |
 
 ## Accepted Feature Candidates & Timing
@@ -80,7 +82,8 @@ These are accepted product directions used to vet the current offering and futur
 | :--- | :--- | :--- | :--- |
 | **Real-Time Live Coaching Feedback** | Soft-release A/B candidate | A/B only, not a broad product claim yet | Session page is the right first surface. Must remain compact, confidence-gated, and non-judgmental. |
 | **Semantic & Content Analysis** | Current / near-term proving | Implemented, quality still being proven | Highest retention-leverage coaching feature. Needs example outputs, reviewer scoring, and prompt/output tests before strong marketing language. |
-| **Gamified Habit Pathways** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Guided 2-5 minute drills, score movement, streaks, and next-practice targets. Useful for free-user return loop and eventual Pro conversion. |
+| **Score-Based Gamification** | Soft-release A/B candidate | A/B only, not a broad product claim yet | Uses SpeakSharp Score, confidence state, next target, and short actions as the current gamified coaching loop. |
+| **Guided Habit Pathways** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Packaged guided drills, progression loops, streak reinforcement, and recurring next-practice targets. Builds on the score/live-coach foundation. |
 | **Live Meeting Companion** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Strong Pro differentiator, but higher effort. Should wait until Session coaching and score model are calibrated. |
 | **Referral Proof Loop** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Shared PDFs, progress summaries, and “what improved” moments should make friends curious and give users a story to tell. |
 
@@ -106,8 +109,9 @@ These are accepted product directions used to vet the current offering and futur
 | Post-Session Coaching | **Session History** | Current | Users can review past sessions and saved transcripts/metrics. | Persistence is required for returning-user comparison and PDF regeneration. |
 | Post-Session Coaching | **Analytics Dashboard** | Current | Shows progress trends, session list, engine metadata, and report actions. | Future score trend must consume the same saved score payload as Session/PDF. |
 | Post-Session Coaching | **PDF Export** | Current | Generates branded PDF reports from current transcript/report state and persisted session data. | All PDFs retain SpeakSharp branding/watermarking. |
-| Habit & Progress | **Goals / Streaks** | Current foundation | Tracks practice goals and streak-like progress signals. | Existing gamification foundation; not yet guided drill pathways. |
-| Habit & Progress | **Gamified Habit Pathways** | Planned post-soft release | Guided 2-5 minute drills such as concise update, filler-to-pause replacement, opening/closing clarity, and main-point-first practice. | Planned post-soft release once score/coaching loop is calibrated; not implemented as a complete guided journey today. |
+| Habit & Progress | **Goals / Streaks** | Current foundation | Tracks practice goals and streak-like progress signals. | Existing habit foundation; should increasingly connect to score movement and next-practice targets. |
+| Habit & Progress | **Score-Based Gamification** | A/B candidate | Uses SpeakSharp Score, confidence state, next target, and live coaching actions to create a motivating practice loop. | Current version of gamification; validate trust, motivation, and retention before broad claims. |
+| Habit & Progress | **Guided Habit Pathways** | Planned post-soft release | Packaged 2-5 minute drills such as concise update, filler-to-pause replacement, opening/closing clarity, and main-point-first practice. | Planned post-soft release once score/coaching loop is calibrated; not implemented as a complete guided journey today. |
 | Access & Reliability | **Usage Limits / Quotas** | Current | Enforces daily/monthly practice limits by tier. | Must fail closed if quota service is unavailable. |
 | Conversion & Trust | **Upgrade / Conversion Funnel** | Current | Free-to-Pro upgrade path through pricing, analytics, and relevant feature gates. | Basic paid checkout remains deferred/future-only. |
 | Conversion & Trust | **Privacy-First Free Plan Support** | Infrastructure / limited | House/sponsor support messaging for Free users outside private practice surfaces. | No third-party ad vendors before privacy/vendor review. No transcript/session data for ads. |
@@ -148,7 +152,7 @@ Avoid:
 - Claiming the SpeakSharp Score is a validated public-speaking assessment.
 - Claiming Cloud STT is included in trial.
 - Claiming ads/sponsor support use transcript or speaking data.
-- Presenting planned Live Meeting Companion or Guided Habit Pathways as shipped.
+- Presenting planned Live Meeting Companion or packaged Guided Habit Pathways as shipped.
 
 ## Related Operational Docs
 

@@ -117,11 +117,32 @@ describe('AnalyticsDashboard', () => {
         renderComponent({ sessionHistory: mockSessionHistory });
 
         expect(screen.getByTestId('analytics-dashboard')).toBeInTheDocument();
-        expect(screen.getByTestId('stat-card-total_sessions')).toBeInTheDocument();
+        expect(screen.getByText('Analytics Focus')).toBeInTheDocument();
+        expect(screen.getByText('Delivery Control')).toBeInTheDocument();
+        expect(screen.getByText(/These cards are selected together/i)).toBeInTheDocument();
+        expect(screen.getByTestId('stat-card-speaking_pace')).toBeInTheDocument();
 
         // Verify session list is rendered
         const sessionItems = screen.getAllByTestId(/session-history-item-/);
         expect(sessionItems.length).toBeGreaterThan(0);
+    });
+
+    it('supports a custom toolkit when users want specific tools outside predefined groups', () => {
+        localStorage.setItem('speaksharp_analytics_tool_group_v1', 'custom');
+        localStorage.setItem('speaksharp_custom_stat_cards_v1', JSON.stringify(['total_sessions', 'clarity_score']));
+        localStorage.setItem('speaksharp_custom_analysis_slides_v1', JSON.stringify(['stt_comparison']));
+
+        renderComponent({ sessionHistory: mockSessionHistory });
+
+        expect(screen.getByText('Custom Toolkit')).toBeInTheDocument();
+        expect(screen.getByText(/inspect the specific signals/i)).toBeInTheDocument();
+        expect(screen.getByText(/Selected tools are interpreted independently/i)).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /choose stat cards/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /choose analysis tools/i })).toBeInTheDocument();
+        expect(screen.getByTestId('stat-card-total_sessions')).toBeInTheDocument();
+        expect(screen.getByTestId('stat-card-clarity_score')).toBeInTheDocument();
+        expect(screen.queryByTestId('stat-card-speaking_pace')).not.toBeInTheDocument();
+        expect(screen.getByTestId('accuracy-comparison')).toBeInTheDocument();
     });
 
     it('uses persisted WPM and clarity values for session comparison instead of recalculating legacy fields', () => {

@@ -54,6 +54,7 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
         : result.confidence === 'directional'
             ? 'Early signal'
             : 'Warming up';
+    const formatBreakdown = (value: number) => `${Math.round(value * 10)}%`;
     const trackedCardKeyRef = React.useRef<string | null>(null);
     const trackedNumericKeyRef = React.useRef<string | null>(null);
 
@@ -92,7 +93,7 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                     </div>
                     <h2 className="text-xl font-extrabold text-foreground">SpeakSharp Score</h2>
                     <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75">
-                        A coaching score based on structure, delivery, clarity, and audience impact.<sup className="ml-0.5 text-[10px]">1</sup>
+                        The visible tools roll up into one directional game score: structure, pace/fillers/pauses, clarity, and audience impact.<sup className="ml-0.5 text-[10px]">1</sup>
                     </p>
                     <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75">
                         {result.headline}
@@ -142,30 +143,33 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                     <div className="rounded-lg border border-border bg-white p-3">
                         <div className="mb-2 flex items-center justify-between">
                             <span className="text-xs font-bold uppercase tracking-wider text-foreground/70">
-                                Formula mix
+                                Why this score moved
                             </span>
                             <span className="text-xs font-bold text-foreground/70">
                                 {isListening ? confidenceLabel : 'Ready'}
                             </span>
                         </div>
-                        <div className="space-y-1 text-xs font-semibold text-foreground/75">
+                        <div className="space-y-2 text-xs font-semibold text-foreground/75" data-testid="live-score-evidence">
                             <div className="flex justify-between gap-2">
-                                <span>Message & structure</span>
-                                <span>35%</span>
+                                <span>Structure from transcript</span>
+                                <span>{formatBreakdown(result.breakdown.messageStructure)}</span>
                             </div>
                             <div className="flex justify-between gap-2">
-                                <span>Delivery control</span>
-                                <span>30%</span>
+                                <span>Pace, fillers, pauses</span>
+                                <span>{formatBreakdown(result.breakdown.deliveryControl)}</span>
                             </div>
                             <div className="flex justify-between gap-2">
-                                <span>Language clarity</span>
-                                <span>20%</span>
+                                <span>Clarity signal</span>
+                                <span>{formatBreakdown(result.breakdown.languageClarity)}</span>
                             </div>
                             <div className="flex justify-between gap-2">
                                 <span>Audience impact</span>
-                                <span>15%</span>
+                                <span>{formatBreakdown(result.breakdown.audienceImpact)}</span>
                             </div>
                         </div>
+                        <p className="mt-3 text-[11px] font-semibold leading-snug text-foreground/60">
+                            The score is not a black box; it is a gamified rollup of the live signals shown here.
+                        </p>
                     </div>
                 </div>
                 <p className="mt-3 text-[11px] font-semibold leading-snug text-foreground/60">
