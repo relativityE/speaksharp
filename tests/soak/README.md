@@ -64,11 +64,12 @@ This phase boots up actual Chromium browsers. In `stress-endurance.yml`, we inje
 
 ### Database Provisioning & Accounts
 
-There are exactly 36 existing stress/endurance test accounts in the remote Supabase database (`soak-test0@test.com` through `soak-test34@test.com`, plus one `soak-test-0@example.com`).
+The stress/endurance registry uses a bounded set of remote Supabase accounts. API stress users and browser endurance users are intentionally separated so one evidence phase cannot consume another phase's active-session quota.
 
 To avoid unnecessary account creation and churn during testing, we explicitly map the users as follows in `tests/constants.ts` and `scripts/setup-test-users.mjs`:
 - **Free Users (5 total):** `soak-test0` through `soak-test4`
 - **Pro Users (10 total):** `soak-test25` through `soak-test34`
+- **Browser Endurance Users (2 total):** `soak-test45` and `soak-test46`
 
 If you change the counts in `constants.ts`, ensure you update `scripts/setup-test-users.mjs` to map to sequential, existing indices to avoid hitting Supabase anti-bot rate limits during account creation.
 

@@ -41,10 +41,12 @@ export const CANARY_USER = {
   password: process.env.CANARY_PASSWORD || '',
 };
 
-// The two specific credentials we use for the frontend isolated sandboxes
+// The two specific credentials we use for frontend isolated sandboxes.
+// Keep these out of SOAK_API_TEST_USERS so backend stress sessions cannot
+// consume their active-session quota before browser endurance starts.
 export const SOAK_TEST_USERS = [
-  { email: 'soak-test0@test.com', password: process.env.SOAK_TEST_PASSWORD || 'password123' },
-  { email: 'soak-test1@test.com', password: process.env.SOAK_TEST_PASSWORD || 'password123' }
+  { email: 'soak-test45@test.com', password: process.env.SOAK_TEST_PASSWORD || 'password123' },
+  { email: 'soak-test46@test.com', password: process.env.SOAK_TEST_PASSWORD || 'password123' }
 ];
 
 // ============================================

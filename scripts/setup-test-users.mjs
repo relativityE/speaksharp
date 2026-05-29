@@ -42,11 +42,16 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false }
 });
 
+const DEDICATED_BROWSER_ENDURANCE_ACCOUNTS = [
+    { index: 45, email: 'soak-test45@test.com', tier: 'free' },
+    { index: 46, email: 'soak-test46@test.com', tier: 'free' },
+];
+
 // ============================================
 // Helper Functions
 // ============================================
 
-function getExpectedAccounts(freeCount, proCount) {
+function getExpectedAccounts(freeCount, proCount, includeBrowserEnduranceAccounts = process.env.MODE === 'soak') {
     const accounts = [];
     for (let i = 0; i < freeCount; i++) {
         accounts.push({ index: i, email: `soak-test${i}@test.com`, tier: 'free' });
@@ -55,6 +60,13 @@ function getExpectedAccounts(freeCount, proCount) {
     for (let i = 0; i < proCount; i++) {
         const idx = 25 + i;
         accounts.push({ index: idx, email: `soak-test${idx}@test.com`, tier: 'pro' });
+    }
+    if (includeBrowserEnduranceAccounts) {
+        for (const account of DEDICATED_BROWSER_ENDURANCE_ACCOUNTS) {
+            if (!accounts.some(existing => existing.email === account.email)) {
+                accounts.push(account);
+            }
+        }
     }
     return accounts;
 }
@@ -81,9 +93,9 @@ async function getConfigCounts() {
         const pro = proMatch ? parseInt(proMatch[1], 10) : 5;
         const max = maxMatch ? parseInt(maxMatch[1], 10) : 50;
 
-        return { total: free + pro, free, pro, max };
+        return { total: getExpectedAccounts(free, pro).length, free, pro, max };
     } catch (e) {
-        return { total: 35, free: 30, pro: 5, max: 50 };
+        return { total: getExpectedAccounts(30, 5).length, free: 30, pro: 5, max: 50 };
     }
 }
 
@@ -324,7 +336,8 @@ async function main() {
         console.log('  Mode: Soak (Using Defaults)');
     }
 
-    const totalRequested = finalFree + finalPro;
+    const expectedAccounts = getExpectedAccounts(finalFree, finalPro);
+    const totalRequested = expectedAccounts.length;
     if (totalRequested > config.max) {
         console.error(`\n❌ SAFETY LIMIT EXCEEDED: Requested ${totalRequested} users, but MAX_TOTAL_TEST_USERS is ${config.max}.`);
         console.error(`   To provision more users, please update MAX_TOTAL_TEST_USERS in tests/constants.ts.`);
@@ -342,7 +355,6 @@ async function main() {
     console.log('\nStep 3: 🔐 Password Sync (Skipped - Assumed static to avoid rate limits)');
 
     console.log('\nStep 4: 👤 Provisioning missing slots...');
-    const expectedAccounts = getExpectedAccounts(finalFree, finalPro);
     const existingEmails = new Set(existingUsers.map(u => u.email));
 
     let created = 0;
