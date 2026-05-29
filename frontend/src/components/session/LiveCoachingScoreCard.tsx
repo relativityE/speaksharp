@@ -93,7 +93,10 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                     </div>
                     <h2 className="text-xl font-extrabold text-foreground">SpeakSharp Score</h2>
                     <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75">
-                        The visible tools roll up into one directional game score: structure, pace/fillers/pauses, clarity, and audience impact.<sup className="ml-0.5 text-[10px]">1</sup>
+                        The visible tools roll up into one directional coaching score*: structure, pace/fillers/pauses, clarity, and audience impact.
+                    </p>
+                    <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75">
+                        Improve the ingredients, then come back and try to lift the score.
                     </p>
                     <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75">
                         {result.headline}
@@ -168,12 +171,12 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                             </div>
                         </div>
                         <p className="mt-3 text-[11px] font-semibold leading-snug text-foreground/60">
-                            The score is not a black box; it is a gamified rollup of the live signals shown here.
+                            The score is not a black box; it is a transparent rollup of the live signals shown here.
                         </p>
                     </div>
                 </div>
                 <p className="mt-3 text-[11px] font-semibold leading-snug text-foreground/60">
-                    <sup>1</sup> Directional practice signal; progress over time matters more than one exact number.
+                    *Directional practice signal; progress over time matters more than one exact number.
                 </p>
             </div>
         </section>
