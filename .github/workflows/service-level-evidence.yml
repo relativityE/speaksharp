@@ -7,6 +7,10 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: service-level-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   service-level-evidence:
     runs-on: ubuntu-latest

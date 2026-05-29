@@ -44,6 +44,10 @@ Examples:
 
 RC gate status is the ship/no-ship signal. Quality score, coverage, Lighthouse, benchmarks, backend stress, and browser endurance results are advisory unless explicitly named as a blocking gate item. A high quality score cannot override a red or stale RC gate item.
 
+### Same-SHA Release Candidate Rule
+
+Any commit considered a release candidate must pass full CI, production canary, and Service-Level Evidence on the same commit SHA before it can be called release-ready. CI optimizations may reduce wasted runs while iterating, but they do not lower the final release bar. A Vercel canary must test the deployed production URL because users receive Vercel's deployed artifact, not CI's internal build artifact.
+
 ### Raw Artifact Source Rule
 
 When generated summaries disagree with raw CI/browser artifacts, the raw artifact wins. Coverage JSON, Playwright reports, Vitest output, Lighthouse JSON, workflow logs, stress/endurance JSON, and browser trace files are the source of truth until the aggregator is fixed and rerun on the same commit.

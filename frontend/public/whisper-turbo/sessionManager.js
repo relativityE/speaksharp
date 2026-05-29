@@ -66,4 +66,3 @@ export class SessionManager {
         });
     }
 }
-//# sourceMappingURL=sessionManager.js.map

@@ -74,4 +74,3 @@ MicRecorder.supportedMimes = [
     "audio/ogg", // Firefox
 ];
 export default MicRecorder;
-//# sourceMappingURL=audio.js.map

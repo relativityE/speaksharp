@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect } from 'react';
-import { Navigate, Routes, Route, useBlocker, useLocation } from 'react-router-dom';
+import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import { useCheckoutNotifications } from '@/hooks/useCheckoutNotifications';
 import Navigation from './components/Navigation';
@@ -93,11 +93,6 @@ const App: React.FC = () => {
   const toastOffset = isMobileViewport
     ? "5.25rem"
     : (isSessionRoute ? "1.5rem" : "4.75rem");
-  const routeExitBlocker = useBlocker(({ currentLocation, nextLocation }) =>
-    isListening &&
-    currentLocation.pathname === '/session' &&
-    nextLocation.pathname !== '/session'
-  );
 
   useEffect(() => {
     const query = window.matchMedia('(max-width: 767px)');
@@ -120,27 +115,47 @@ const App: React.FC = () => {
   }, [isListening]);
 
   useEffect(() => {
-    if (routeExitBlocker.state !== 'blocked') return;
+    if (!isListening || !isSessionRoute) return;
 
-    const shouldLeave = window.confirm(
-      'A recording is still active. Stop and save this session before leaving?'
-    );
+    const handleDocumentClick = (event: MouseEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
 
-    if (!shouldLeave) {
-      routeExitBlocker.reset();
-      return;
-    }
+      const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>('a[href]');
+      if (!anchor || anchor.target || anchor.hasAttribute('download')) return;
 
-    void speechRuntimeController.stopRecording()
-      .then(() => {
-        routeExitBlocker.proceed();
-      })
-      .catch((error) => {
-        console.error('[App] Failed to stop recording before route exit:', error);
-        window.alert('We could not stop and save the recording yet. Please stop the session before leaving.');
-        routeExitBlocker.reset();
-      });
-  }, [routeExitBlocker]);
+      const nextUrl = new URL(anchor.href, window.location.href);
+      if (nextUrl.origin !== window.location.origin || nextUrl.pathname === '/session') return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const shouldLeave = window.confirm(
+        'A recording is still active. Stop and save this session before leaving?'
+      );
+      if (!shouldLeave) return;
+
+      void speechRuntimeController.stopRecording()
+        .then(() => {
+          window.location.assign(nextUrl.href);
+        })
+        .catch((error) => {
+          console.error('[App] Failed to stop recording before route exit:', error);
+          window.alert('We could not stop and save the recording yet. Please stop the session before leaving.');
+        });
+    };
+
+    document.addEventListener('click', handleDocumentClick, true);
+    return () => document.removeEventListener('click', handleDocumentClick, true);
+  }, [isListening, isSessionRoute]);
 
   // --- E2E AUTHORITATIVE SIGNALING ---
 

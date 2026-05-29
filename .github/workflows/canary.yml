@@ -7,6 +7,10 @@ on:
   schedule:
     - cron: '0 5 * * *' # Every day at 5 AM UTC
 
+concurrency:
+  group: canary-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   canary-check:
     runs-on: ubuntu-latest

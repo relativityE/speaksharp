@@ -40,4 +40,3 @@ export class Model {
         });
     }
 }
-//# sourceMappingURL=models.js.map

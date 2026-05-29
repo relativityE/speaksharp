@@ -16,6 +16,8 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '..'), '');
   const isTestMode = mode === 'test';
   const buildStamp = Date.now();
+  const stripSourceMapComment = (contents) =>
+    contents.toString().replace(/\n?\/\/# sourceMappingURL=.*$/gm, '');
   console.log(`[Vite] Mode: ${mode}`);
 
   const assetFileName = (assetInfo) => {
@@ -39,11 +41,13 @@ export default defineConfig(({ mode }) => {
         targets: [
           {
             src: '../node_modules/whisper-turbo/dist/session.worker.js',
-            dest: 'whisper-turbo'
+            dest: 'whisper-turbo',
+            transform: stripSourceMapComment,
           },
           {
-            src: '../node_modules/whisper-turbo/dist/db/*',
-            dest: 'whisper-turbo/db'
+            src: '../node_modules/whisper-turbo/dist/db/*.js',
+            dest: 'whisper-turbo/db',
+            transform: stripSourceMapComment,
           },
           {
             src: '../node_modules/whisper-webgpu/whisper-wasm_bg.wasm',
@@ -90,7 +94,7 @@ export default defineConfig(({ mode }) => {
     build: {
       target: 'esnext',
       emptyOutDir: true,
-      sourcemap: true,
+      sourcemap: isTestMode,
       minify: process.env.NODE_ENV === 'test' ? false : 'esbuild',
       outDir: 'dist',
       rollupOptions: {
