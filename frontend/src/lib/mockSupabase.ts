@@ -61,7 +61,7 @@ export const createMockSupabase = () => {
     const getSessions = () => {
         const isEmpty = typeof window !== 'undefined' && '__E2E_EMPTY_SESSIONS__' in window && Boolean(window['__E2E_EMPTY_SESSIONS__' as keyof typeof window]);
         const baseline = isEmpty ? [] : MOCK_SESSIONS;
-        return [...savedSessions, ...baseline];
+        return [...savedSessions, ...baseline] as Array<Record<string, unknown>>;
     };
 
     const createSessionsQuery = () => {
