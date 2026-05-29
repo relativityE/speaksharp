@@ -210,6 +210,7 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
     Deno.env.set('GEMINI_API_KEY', 'mock-key');
     fetchCount = 0;
     let savedData: any = null;
+    const updateFilters: Array<[string, string]> = [];
 
     const mockCreateSupabaseWithSave = () => ({
       auth: {
@@ -230,8 +231,12 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
         update: (data: any) => {
           const result = {
             eq: (_col: string, _val: string) => {
+              updateFilters.push([_col, _val]);
               savedData = data;
-              return Promise.resolve({ error: null });
+              return result;
+            },
+            then: (resolve: (value: { error: null }) => void) => {
+              resolve({ error: null });
             }
           };
           return result;
@@ -252,6 +257,42 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
       assertEquals(fetchCount, 1);
       assertExists(savedData.ai_suggestions);
       assertEquals(savedData.ai_suggestions.summary, "This is a mock summary.");
+      assertEquals(updateFilters, [['id', 'test-session'], ['user_id', 'pro-user']]);
+    } finally {
+      Deno.env.delete('GEMINI_API_KEY');
+    }
+  });
+
+  await t.step('should cap transcript length before sending to Gemini', async () => {
+    Deno.env.set('GEMINI_API_KEY', 'mock-key');
+    fetchCount = 0;
+    lastGeminiRequestBody = null;
+
+    const mockCreateSupabaseProUser = () => ({
+      from: () => ({
+        select: () => {
+          const result = {
+            eq: () => result,
+            single: () => Promise.resolve({ data: { subscription_status: 'pro' }, error: null }),
+          };
+          return result;
+        },
+      }),
+    }) as any;
+
+    try {
+      const req = new Request('http://localhost/get-ai-suggestions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer fake-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: "a".repeat(9000) })
+      });
+      const res = await handler(req, mockCreateSupabaseProUser);
+
+      assertEquals(res.status, 200);
+      const prompt = (lastGeminiRequestBody as any)?.contents?.[0]?.parts?.[0]?.text;
+      assertExists(prompt);
+      assertEquals(String(prompt).includes('[Transcript truncated for coaching request length.]'), true);
+      assertEquals(String(prompt).includes("a".repeat(8500)), false);
     } finally {
       Deno.env.delete('GEMINI_API_KEY');
     }

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useAnalytics } from '../hooks/useAnalytics';
@@ -36,7 +36,7 @@ import {
 
 // --- Sub-components ---
 
-const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () => void }> = ({ isPro, sessionId, onUpgrade }) => {
+const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading: boolean; onUpgrade: () => void }> = ({ isPro, sessionId, upgradeLoading, onUpgrade }) => {
 
     // Different heading and description based on whether viewing a specific session
     const isSessionView = !!sessionId;
@@ -75,10 +75,11 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; onUpgrade: () =
                     <button
                         type="button"
                         onClick={onUpgrade}
+                        disabled={upgradeLoading}
                         className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:w-auto"
                         data-testid="analytics-page-upgrade-button"
                     >
-                        Upgrade to Pro
+                        {upgradeLoading ? 'Starting checkout...' : 'Upgrade to Pro'}
                     </button>
                 </div>
             )}
@@ -96,6 +97,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
     const { data: usageLimit } = useUsageLimit();
+    const [upgradeLoading, setUpgradeLoading] = useState(false);
 
     const { setReady } = useReadinessStore();
 
@@ -107,6 +109,9 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     }, [loading, isProfileLoading, setReady]);
 
     const handleUpgrade = async (source: ConversionSource = 'analytics_overview_banner') => {
+        if (upgradeLoading) return;
+        setUpgradeLoading(true);
+
         try {
             trackConversionCtaClicked({ source, plan: 'pro' });
             trackCheckoutStarted({ source, plan: 'pro' });
@@ -124,6 +129,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         } catch (err: unknown) {
             logger.error({ err }, 'Error creating Stripe checkout session:');
             toast.error('Unable to start upgrade process. Please try again or contact support.');
+            setUpgradeLoading(false);
         }
     };
 
@@ -164,7 +170,7 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     }
     return (
         <div>
-            <PageHeader isPro={isProUser} sessionId={sessionId} onUpgrade={() => { void handleUpgrade('analytics_overview_banner'); }} />
+            <PageHeader isPro={isProUser} sessionId={sessionId} upgradeLoading={upgradeLoading} onUpgrade={() => { void handleUpgrade('analytics_overview_banner'); }} />
             <AnalyticsDashboard
                 profile={profile || null}
                 isProUser={isProUser}

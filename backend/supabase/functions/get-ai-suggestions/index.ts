@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
+const MAX_TRANSCRIPT_CHARS = 8000;
 
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
 
@@ -115,12 +116,43 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
     const { transcript, metrics, sessionId } = await req.json();
 
+    if (!transcript) {
+      return new Response(JSON.stringify({ error: 'Transcript is required' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 400,
+      });
+    }
+
+    if (typeof transcript !== 'string') {
+      return new Response(JSON.stringify({ error: 'Transcript must be text' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 400,
+      });
+    }
+
+    const transcriptForPrompt = transcript.length > MAX_TRANSCRIPT_CHARS
+      ? `${transcript.slice(0, MAX_TRANSCRIPT_CHARS)}\n\n[Transcript truncated for coaching request length.]`
+      : transcript;
+
+    let userId: string | null = null;
+    if (sessionId) {
+      const { data: userData, error: userError } = await supabaseClient.auth.getUser();
+      userId = userData?.user?.id ?? null;
+      if (userError || !userId) {
+        return new Response(JSON.stringify({ error: 'Authentication failed' }), {
+          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+          status: 401,
+        });
+      }
+    }
+
     // 1. OPTIMIZATION: Check for existing suggestions if sessionId is provided
     if (sessionId) {
       const { data: session, error: sessionError } = await supabaseClient
         .from('sessions')
         .select('ai_suggestions')
         .eq('id', sessionId)
+        .eq('user_id', userId)
         .single();
 
       if (!sessionError && session?.ai_suggestions) {
@@ -129,13 +161,6 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
           status: 200,
         });
       }
-    }
-
-    if (!transcript) {
-      return new Response(JSON.stringify({ error: 'Transcript is required' }), {
-        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-        status: 400,
-      });
     }
 
     const apiKey = Deno.env.get('GEMINI_API_KEY');
@@ -169,7 +194,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       - Keep every description concise enough to display in the app.
 
       Transcript:
-      "${transcript}"
+      "${transcriptForPrompt}"
       ${metricsText}
 
       Your response MUST be a JSON object with the following structure:
@@ -222,7 +247,8 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       const { error: updateError } = await supabaseClient
         .from('sessions')
         .update({ ai_suggestions: suggestions })
-        .eq('id', sessionId);
+        .eq('id', sessionId)
+        .eq('user_id', userId);
 
       if (updateError) {
         console.error('Failed to save AI suggestions to cache:', updateError);
