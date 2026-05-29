@@ -25,10 +25,14 @@ test.describe('Analytics Suite & Data Matrix', () => {
     await expect(mainHeading).toBeVisible();
     await expect(mainHeading).toHaveText('Your Analytics');
 
-    // Verify key metrics are displayed
-    await expect(page.getByTestId('stat-card-total_sessions')).toBeVisible();
+    // Verify the default analytics story explains why these signals are grouped.
+    await expect(page.getByText('Analytics Focus')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Delivery Control', exact: true })).toBeVisible();
+    await expect(page.getByText('Evidence for Delivery Control')).toBeVisible();
+    await expect(page.getByText(/These cards are selected together because they support the current focus/i)).toBeVisible();
     await expect(page.getByTestId('stat-card-speaking_pace')).toBeVisible();
     await expect(page.getByTestId('stat-card-filler_words_per_min')).toBeVisible();
+    await expect(page.getByTestId('stat-card-clarity_score')).toBeVisible();
   });
 
   // SCENARIO 2: Detail Flow (Click-through Analysis)

@@ -69,7 +69,10 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
     // 🧪 Ensure ProfileContext integrity for E2E System Probes
     // Provides a synthetic guest profile to satisfy the "Guaranteed Context" 
     // invariant for protected routes like /session when no real session exists.
-    const isE2EMockMode = ENV.isE2E && import.meta.env.MODE !== 'production';
+    const isE2EMockMode = import.meta.env.MODE !== 'production' && (
+        ENV.isE2E ||
+        (typeof window !== 'undefined' && !!window.__SS_E2E__?.isActive)
+    );
 
     React.useEffect(() => {
         if (!isE2EMockMode || authLoading || session) {

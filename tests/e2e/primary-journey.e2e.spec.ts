@@ -121,6 +121,8 @@ test.describe('Primary User Journey Matrix', () => {
       }
 
       // 10. Persistence Check (History count increment)
+      await page.getByRole('button', { name: /change focus/i }).click();
+      await page.getByText('Habit Progress').click();
       const totalSessions = page.getByTestId(TEST_IDS.STAT_CARD_TOTAL_SESSIONS);
       await expect(totalSessions).toContainText('6');
     });
