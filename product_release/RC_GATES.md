@@ -139,7 +139,7 @@ Required maintained tests:
 |---|---|---|
 | Broken access control: Free user Cloud token | `backend/supabase/functions/assemblyai-token/index.test.ts` | Non-Pro request returns 403 and AssemblyAI provider is not called |
 | Broken access control: expired trial Cloud token | `backend/supabase/functions/assemblyai-token/index.test.ts`, `tests/live/cloud-token-gates.live.spec.ts` | Expired trial-only Pro returns 403 before provider token mint |
-| Insecure design: quota fail-open | `backend/supabase/functions/assemblyai-token/index.test.ts`, `backend/supabase/functions/check-usage-limit/index.test.ts` | Usage verification failure denies start/token and does not mint paid provider token |
+| Insecure design: quota fail-open | `backend/supabase/functions/assemblyai-token/index.test.ts`, `backend/supabase/functions/check-usage-limit/index.test.ts` | Usage verification failure denies start/token and does not mint Cloud STT provider token |
 | Auth/session failure | `backend/supabase/functions/check-usage-limit/index.test.ts`, `backend/supabase/functions/assemblyai-token/index.test.ts` | Missing/invalid auth returns structured denial |
 | Test/E2E mode leakage | `frontend/src/config/__tests__/env.test.ts`, CI production build validation | Test-only branches are gated by test mode and not production assumptions |
 | Test-aware production branch activation | `scripts/rc-production-hardening.mjs` through `pnpm rc:gate:2:sast` | `ENV.isE2E` is compile-time disabled in production builds and sensitive test branches remain guarded |

@@ -134,7 +134,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
   );
 
   await t.step(
-    "denies Free users before generating a paid token",
+    "denies Free users before generating a Cloud STT token",
     async () => {
       let assemblyAiCalled = false;
       const fetchImpl: typeof fetch = () => {
@@ -163,7 +163,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
   );
 
   await t.step(
-    "denies active trial users before generating a paid token",
+    "denies active trial users before generating a Cloud STT token",
     async () => {
       let assemblyAiCalled = false;
       const fetchImpl: typeof fetch = () => {
@@ -206,7 +206,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
   );
 
   await t.step(
-    "denies expired trial users before generating a paid token",
+    "denies expired trial users before generating a Cloud STT token",
     async () => {
       let assemblyAiCalled = false;
       const fetchImpl: typeof fetch = () => {
@@ -241,7 +241,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
   );
 
   await t.step(
-    "allows paid Stripe Pro users even when the trial timestamp is expired",
+    "allows Stripe-backed Pro users even when the trial timestamp is expired",
     async () => {
       let assemblyAiCalled = false;
       const fetchImpl: typeof fetch = () => {
@@ -249,7 +249,7 @@ Deno.test("assemblyai-token edge function", async (t) => {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              token: "paid-stripe-token",
+              token: "pro-feature-token",
               expires_in_seconds: 600,
             }),
             { status: 200 },
@@ -258,9 +258,9 @@ Deno.test("assemblyai-token edge function", async (t) => {
       };
 
       const res = await handler(
-        request("Bearer paid-stripe-token"),
+        request("Bearer pro-feature-token"),
         createMockSupabase({
-          user: { id: "paid-stripe-user" },
+          user: { id: "pro-feature-user" },
           subscriptionStatus: "pro",
           trialExpiresAt: "2024-01-01T00:00:00.000Z",
           stripeSubscriptionId: "sub_paid_123",
@@ -276,13 +276,13 @@ Deno.test("assemblyai-token edge function", async (t) => {
       const json = await res.json();
 
       assertEquals(res.status, 200);
-      assertEquals(json.token, "paid-stripe-token");
+      assertEquals(json.token, "pro-feature-token");
       assertEquals(assemblyAiCalled, true);
     },
   );
 
   await t.step(
-    "denies over-quota users before generating a paid token",
+    "denies over-quota users before generating a Cloud STT token",
     async () => {
       let assemblyAiCalled = false;
       const fetchImpl: typeof fetch = () => {

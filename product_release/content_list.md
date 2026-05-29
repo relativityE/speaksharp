@@ -20,6 +20,7 @@ This directory contains both current release controls and historical evidence pa
 | [RC_GATES.md](./RC_GATES.md) | Defines release gates, evidence freshness, SAST/DAST/SCA terms, and STT corpus policy. | Canonical procedure; current run state belongs in `RELEASE_STATUS.md`. |
 | [RC_TEST_INVENTORY.md](./RC_TEST_INVENTORY.md) | Maps counted tests/workflows to RC gates. | Canonical inventory. |
 | [SOFTWARE_QUALITY.operational.md](./SOFTWARE_QUALITY.operational.md) | Defines quality evidence sources, generated artifact rules, and interpretation of coverage/Lighthouse/bundle/flaky metrics. | Canonical quality-evidence interpretation. |
+| [QUALITY_METRICS.md](./QUALITY_METRICS.md) | Release-facing alias and quick digest for quality metrics targets and latest generated evidence file names. | Canonical alias; defer detailed interpretation to `SOFTWARE_QUALITY.operational.md`. |
 | [SERVICE_LEVELS.operational.md](./SERVICE_LEVELS.operational.md) | Defines SLO/SLC/SLA terms, soft-release service targets, stress/endurance evidence, and industry comparison. | Canonical service-level interpretation. |
 | [SPEAKSHARP_SESSION_SCORE.operational.md](./SPEAKSHARP_SESSION_SCORE.operational.md) | Defines the research-backed proprietary 0.0-10.0 Session Score, references, weights, formula, and shared implementation source of truth. | Canonical score-model interpretation. |
 | [SOFT_RELEASE_TESTER_INSTRUCTIONS.md](./SOFT_RELEASE_TESTER_INSTRUCTIONS.md) | Copy/paste human tester protocol. | Canonical tester-facing copy. |
@@ -50,6 +51,7 @@ The sections below are kept for navigation, but the canonical/historical split a
 - **[PRD.operational.md](./PRD.operational.md)**: The contract-oriented release gate. Defines user-visible guarantees and failure behaviors.
 - **[PRODUCT_FEATURES.operational.md](./PRODUCT_FEATURES.operational.md)**: The product feature inventory. Use it to vet current offering, product gaps, future feature candidates, and product-claim boundaries.
 - **[SOFTWARE_QUALITY.operational.md](./SOFTWARE_QUALITY.operational.md)**: The software quality evidence guide. Defines how coverage, Lighthouse, bundle metrics, flaky counts, and generated quality artifacts should be interpreted.
+- **[QUALITY_METRICS.md](./QUALITY_METRICS.md)**: Short quality metrics alias/digest for target numbers and generated evidence file names.
 - **[SERVICE_LEVELS.operational.md](./SERVICE_LEVELS.operational.md)**: The service-level guide. Defines SLO/SLC/SLA terminology, soft-release service targets, stress/endurance evidence, and current measurement gaps.
 - **[SPEAKSHARP_SESSION_SCORE.operational.md](./SPEAKSHARP_SESSION_SCORE.operational.md)**: The proprietary coaching score guide. Defines score references, formula, labels, confidence levels, and the shared source of truth for Session, Analytics, and PDF surfaces.
 - **[ARCHITECTURE.operational.md](./ARCHITECTURE.operational.md)**: The structural invariants and authoritative sources of truth. Defines the non-negotiable technical rules.

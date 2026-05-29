@@ -227,6 +227,9 @@ export const SessionPage: React.FC = () => {
                                     isButtonDisabled={isButtonDisabled}
                                     onModeChange={setMode}
                                     onStartStop={() => { void handleStartStop(); }}
+                                    onDownloadModel={() => {
+                                        void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
+                                    }}
                                     className="min-h-[300px] md:min-h-[340px]"
                                 />
                             </LocalErrorBoundary>

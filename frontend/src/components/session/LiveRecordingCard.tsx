@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, Lock, Mic, Square, ChevronDown, Shield } from 'lucide-react';
+import { AlertCircle, Download, Lock, Mic, Square, ChevronDown, Shield } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
@@ -36,6 +36,7 @@ interface LiveRecordingCardProps {
     // Callbacks
     onModeChange: (mode: RecordingMode) => void;
     onStartStop: () => void;
+    onDownloadModel?: () => void;
 }
 
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
@@ -64,6 +65,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     className = "",
     onModeChange,
     onStartStop,
+    onDownloadModel,
 }) => {
     // Deriving visibility and recording state from the master FSM + Intent
     // isIndicatorVisible: Shows the waveform when the engine is active OR initializing
@@ -192,6 +194,19 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <p className="mt-1 max-w-xs text-xs font-medium leading-snug text-foreground/70">
                                         Download the private model to start recording locally.
                                     </p>
+                                    {onDownloadModel && (
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={onDownloadModel}
+                                            className="mt-3 h-8 gap-1.5 rounded-md px-3 text-[10px] font-bold uppercase tracking-[0.14em]"
+                                            data-testid="download-model-button-inline"
+                                        >
+                                            <Download className="h-3 w-3" />
+                                            Download Model
+                                        </Button>
+                                    )}
                                 </div>
                             </div>
                         )}

@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect } from 'react';
-import { Navigate, Routes, Route, useLocation } from 'react-router-dom';
+import { Navigate, Routes, Route, useBlocker, useLocation } from 'react-router-dom';
 import { Toaster } from '@/components/ui/sonner';
 import { useCheckoutNotifications } from '@/hooks/useCheckoutNotifications';
 import Navigation from './components/Navigation';
@@ -13,6 +13,8 @@ import { useCriticalQueries } from './hooks/useCriticalQueries';
 import { SSE2EWindow } from './config/TestFlags';
 import type { TranscriptionState, TranscriptionEvent } from './services/transcription/TranscriptionFSM';
 import { setAppVisibleReady } from '@/lib/forensicAnchors';
+import { useSessionStore } from '@/stores/useSessionStore';
+import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 
 const isMockAuthMode =
   import.meta.env.VITE_AUTH_MODE === 'mock' ||
@@ -83,6 +85,7 @@ const PageLoader = () => (
 
 const App: React.FC = () => {
   const location = useLocation();
+  const isListening = useSessionStore(state => state.isListening);
   const [isMobileViewport, setIsMobileViewport] = React.useState(() =>
     typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
   );
@@ -90,6 +93,11 @@ const App: React.FC = () => {
   const toastOffset = isMobileViewport
     ? "5.25rem"
     : (isSessionRoute ? "1.5rem" : "4.75rem");
+  const routeExitBlocker = useBlocker(({ currentLocation, nextLocation }) =>
+    isListening &&
+    currentLocation.pathname === '/session' &&
+    nextLocation.pathname !== '/session'
+  );
 
   useEffect(() => {
     const query = window.matchMedia('(max-width: 767px)');
@@ -98,6 +106,41 @@ const App: React.FC = () => {
     query.addEventListener('change', updateViewport);
     return () => query.removeEventListener('change', updateViewport);
   }, []);
+
+  useEffect(() => {
+    if (!isListening) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isListening]);
+
+  useEffect(() => {
+    if (routeExitBlocker.state !== 'blocked') return;
+
+    const shouldLeave = window.confirm(
+      'A recording is still active. Stop and save this session before leaving?'
+    );
+
+    if (!shouldLeave) {
+      routeExitBlocker.reset();
+      return;
+    }
+
+    void speechRuntimeController.stopRecording()
+      .then(() => {
+        routeExitBlocker.proceed();
+      })
+      .catch((error) => {
+        console.error('[App] Failed to stop recording before route exit:', error);
+        window.alert('We could not stop and save the recording yet. Please stop the session before leaving.');
+        routeExitBlocker.reset();
+      });
+  }, [routeExitBlocker]);
 
   // --- E2E AUTHORITATIVE SIGNALING ---
 

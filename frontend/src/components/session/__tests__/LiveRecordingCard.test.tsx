@@ -78,7 +78,7 @@ describe('LiveRecordingCard', () => {
         expect(screen.queryByLabelText('Start Recording')).toBeNull();
     });
 
-    it('keeps Cloud disabled for trial-style Pro access without paid Cloud entitlement', async () => {
+    it('keeps Cloud disabled for trial-style Pro access without Cloud Pro feature entitlement', async () => {
         render(<LiveRecordingCard {...defaultProps} isProUser={true} canUseCloudStt={false} />);
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
