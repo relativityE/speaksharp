@@ -218,7 +218,7 @@ describe('SessionPage Rendering', () => {
 
         expect(screen.getByTestId('live-coaching-score-card')).toBeInTheDocument();
         expect(screen.getByTestId('filler-words-card')).toBeInTheDocument();
-        expect(screen.getByText('SpeakSharp Score')).toBeInTheDocument();
+        expect(screen.getByText('SpeakSharp Score*')).toBeInTheDocument();
     });
 
 });
