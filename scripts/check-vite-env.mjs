@@ -21,7 +21,7 @@ const fail = (message) => {
 if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   const mode = process.argv[2] || 'development';
   const port = Number(process.argv[3] || (mode === 'test' ? PORTS.TEST : PORTS.PROD));
-  const env = loadEnv(mode, rootDir, '');
+  const env = { ...loadEnv(mode, rootDir, ''), ...process.env };
   const result = validateViteEnv({ mode, port, env });
 
   if (result.unsafeOverride) {

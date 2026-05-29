@@ -29,7 +29,7 @@ export function validateViteEnv({ mode = 'development', port, env }) {
     return { ok: false, unsafeOverride, message: `Mode "${mode}" is configured for mock auth. Manual signup testing must use real auth.` };
   }
 
-  if (mode === 'test' && usesRealSupabase && !explicitlyMocked && !unsafeOverride) {
+  if (mode === 'test' && usesRealSupabase && !explicitlyMocked && env.VITE_USE_LIVE_DB !== 'true' && !unsafeOverride) {
     return { ok: false, unsafeOverride, message: `Mode "${mode}" is pointing at a real Supabase URL without explicit mock auth.` };
   }
 

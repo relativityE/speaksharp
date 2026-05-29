@@ -43,4 +43,15 @@ describe('local Vite environment guard', () => {
     expect(result.ok).toBe(false);
     expect(result.message).toContain('real Supabase URL without explicit mock auth');
   });
+
+  it('allows test mode with live DB only when explicitly requested', () => {
+    expect(validateViteEnv({
+      mode: 'test',
+      port: 5173,
+      env: {
+        ...realEnv,
+        VITE_USE_LIVE_DB: 'true',
+      },
+    }).ok).toBe(true);
+  });
 });

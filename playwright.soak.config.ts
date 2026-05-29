@@ -8,8 +8,8 @@ import { SOAK_CONFIG } from './tests/constants';
  * Purpose: Run long-running concurrent user simulation tests
  * Usage: pnpm exec playwright test --config=playwright.soak.config.ts
  * 
- * NOTE: Uses dev server (matching PORTS.DEV) with real Supabase credentials.
- * Assumes dev server is already running: pnpm dev
+ * NOTE: Uses the mocked E2E server mode with live Supabase credentials injected
+ * by the workflow when VITE_USE_LIVE_DB=true.
  */
 
 // Load development environment for real Supabase (dynamically managed in Cloud)
@@ -32,7 +32,7 @@ export default defineConfig({
         navigationTimeout: 30_000,
     },
     webServer: process.env.CI ? {
-        command: 'pnpm dev',
+        command: 'pnpm dev:test',
         url: urls.dev,
         reuseExistingServer: false,
         timeout: 120 * 1000,

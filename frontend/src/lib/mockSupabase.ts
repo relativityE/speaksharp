@@ -5,6 +5,21 @@ export const createMockSupabase = () => {
     const listeners = new Set<(event: string, session: unknown) => void>();
     let currentSession: unknown = null;
 
+    const createSessionsQuery = () => {
+        const isEmpty = typeof window !== 'undefined' && '__E2E_EMPTY_SESSIONS__' in window && Boolean(window['__E2E_EMPTY_SESSIONS__' as keyof typeof window]);
+        const sessions = isEmpty ? [] : MOCK_SESSIONS;
+        const query = {
+            eq: () => query,
+            or: () => query,
+            order: () => query,
+            range: () => Promise.resolve({ data: sessions, error: null }),
+            single: () => Promise.resolve({ data: sessions[0] || null, error: sessions[0] ? null : { code: 'PGRST116', message: 'Not found' } }),
+            then: (resolve: (value: { data: readonly unknown[]; count: number; error: null }) => unknown) =>
+                Promise.resolve({ data: sessions, count: sessions.length, error: null }).then(resolve),
+        };
+        return query;
+    };
+
     return {
         auth: {
             getSession: () => {
@@ -52,7 +67,7 @@ export const createMockSupabase = () => {
             },
         },
         from: (table: string) => ({
-            select: () => ({
+            select: () => table === 'sessions' ? createSessionsQuery() : ({
                 eq: (column: string, value: unknown) => ({
                     single: () => {
                         if (table === 'user_profiles' && column === 'id' && value === MOCK_USER.id) {
