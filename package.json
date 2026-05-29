@@ -12,7 +12,10 @@
   "scripts": {
     "setup": "pnpm install --frozen-lockfile",
     "preflight": "node scripts/pnpm-only.mjs && ./scripts/preflight.sh",
-    "dev": "cd frontend && pnpm vite --port 5173 --mode test --logLevel error",
+    "dev": "pnpm dev:real",
+    "dev:real": "node scripts/check-vite-env.mjs development 5174 && node scripts/start-vite.mjs development",
+    "dev:test": "node scripts/check-vite-env.mjs test 5173 && node scripts/start-vite.mjs test",
+    "dev:e2e": "pnpm dev:test",
     "prebuild": "pnpm validate-env",
     "validate-env": "node scripts/validate-env.mjs",
     "build": "node scripts/pnpm-only.mjs && cd frontend && pnpm vite build --mode production",

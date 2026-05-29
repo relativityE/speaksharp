@@ -11,9 +11,11 @@ import { PostHogProvider } from 'posthog-js/react';
 import type { Session } from '@supabase/supabase-js';
 import * as Sentry from "@sentry/react";
 import ConfigurationNeededPage from "./pages/ConfigurationNeededPage";
+import InvalidEnvironmentPage from "./pages/InvalidEnvironmentPage";
 import App from './App';
 import { ENV } from './config/TestFlags';
 import { useReadinessStore } from './stores/useReadinessStore';
+import { getDevEnvironmentStatus } from './lib/devEnvironmentGuard';
 
 declare global {
   interface Window {
@@ -123,6 +125,23 @@ const renderApp = async (initialSession: Session | null = null) => {
 
     if (areEnvVarsPresent()) {
       logger.info({ appExists: !!App }, '[E2E DIAGNOSTIC] ./App imported successfully');
+
+      const devEnvironmentStatus = getDevEnvironmentStatus();
+      if (!devEnvironmentStatus.valid) {
+        logger.error({ devEnvironmentStatus }, '[main.tsx] Invalid local environment blocked');
+        root.render(
+          <StrictMode>
+            <InvalidEnvironmentPage status={devEnvironmentStatus} />
+          </StrictMode>
+        );
+
+        if (typeof document !== 'undefined') {
+          document.documentElement.setAttribute('data-app-ready', 'true');
+          document.documentElement.setAttribute('data-app-visible-ready', 'true');
+          window.__APP_BOOTED__ = true;
+        }
+        return;
+      }
 
       // 🛑 Skip ALL analytics in test mode (Sentry already initialized above)
       if (!isTestMode) {

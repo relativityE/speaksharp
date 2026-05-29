@@ -248,12 +248,24 @@ Use `test:*` for development checks, `ci:*` for CI parity/orchestration, and `rc
 |---|---|---|
 | Install exact dependencies | `pnpm setup` | Runs `pnpm install --frozen-lockfile`. |
 | Verify local environment | `pnpm preflight` | Checks Node, pnpm, and dependency health. |
-| Start local app | `pnpm dev` | Runs Vite in test mode on port `5173`. |
+| Start local app | `pnpm dev` | Runs Vite with real local development env on port `5174`; use this for manual signup/auth checks. |
+| Start mocked test app | `pnpm dev:test` | Runs Vite in mocked test mode on port `5173`; use this only for E2E/test diagnostics. |
 | Install Chromium for tests | `pnpm pw:install` | Installs the browser needed by Playwright. |
 | Install all Playwright browsers | `pnpm pw:install:all` | Optional broader browser install. |
 | Production build | `pnpm build` | Validates production bundle and required env. |
 | Test build | `pnpm build:test` | Builds the app for mocked E2E. |
 | Preview build | `pnpm preview` / `pnpm preview:test` | Serves an existing build locally. |
+
+### Local Development Modes
+
+| Command | Port | Auth | Use for |
+|---|---:|---|---|
+| `pnpm dev` | `5174` | Real Supabase | Manual testing, signup/auth checks, tester rehearsal. |
+| `pnpm dev:test` | `5173` | Mock auth | Playwright, E2E diagnostics, mocked infrastructure checks. |
+
+Never use `pnpm dev:test` for manual signup testing. Never share `127.0.0.1:5173` URLs with human testers.
+
+The app enforces this in two layers: a pre-spawn environment check blocks invalid mode/auth/port combinations before Vite starts, and a runtime guard renders a full-page local environment error if the launcher is bypassed. Test mode also displays a visible `TEST MODE · MOCK AUTH` badge.
 
 ### Development Validation
 

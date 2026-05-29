@@ -91,6 +91,17 @@ describe('supabaseClient.ts', () => {
         expect(() => module.getSupabaseClient()).toThrow('Missing Supabase environment variables');
     });
 
+    it('should fail loudly if real Supabase URL is paired with mock anon key', async () => {
+        vi.stubEnv('VITE_USE_MOCK_AUTH', 'false');
+        vi.stubEnv('VITE_SUPABASE_URL', 'https://real-project.supabase.co');
+        vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'mock_anon_key');
+
+        const module = await reImportModule();
+
+        expect(() => module.getSupabaseClient()).toThrow('real Supabase URL is paired with a mock/test anon key');
+        expect(createClient).not.toHaveBeenCalled();
+    });
+
     it('should return cached client on subsequent calls', async () => {
         vi.stubEnv('VITE_USE_MOCK_AUTH', 'false');
         vi.stubEnv('VITE_SUPABASE_URL', 'https://real-project.supabase.co');

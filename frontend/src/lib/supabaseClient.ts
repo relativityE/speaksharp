@@ -39,6 +39,12 @@ export function getSupabaseClient(): SupabaseClient {
     throw new Error('Missing Supabase environment variables (VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY)');
   }
 
+  if (url.includes('.supabase.co') && anonKey.startsWith('mock_')) {
+    throw new Error(
+      'Invalid Supabase configuration: real Supabase URL is paired with a mock/test anon key. Use pnpm dev for manual auth testing or pnpm dev:test only for mocked E2E diagnostics.'
+    );
+  }
+
   cachedClient = createClient(url as string, anonKey as string, {
     auth: {
       autoRefreshToken: true,

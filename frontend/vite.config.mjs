@@ -62,7 +62,7 @@ export default defineConfig(({ mode }) => {
       format: 'es'
     },
     server: {
-      port: PORTS.DEV,
+      port: isTestMode ? PORTS.TEST : PORTS.PROD,
       host: true,
       // Note: COOP/COEP headers removed - they block Stripe.js and other third-party resources
       // The whisper-turbo web worker needs a different approach (copy worker to public/)

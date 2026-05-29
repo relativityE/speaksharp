@@ -53,6 +53,7 @@ declare global {
     VITE_USE_REAL_DATABASE?: string;
     VITE_SUPABASE_URL?: string;
     VITE_SUPABASE_ANON_KEY?: string;
+    VITE_AUTH_MODE?: 'real' | 'mock';
     __TEST_REGISTRY__?: {
         register: (mode: string, factory: unknown) => void;
         clear: () => void;

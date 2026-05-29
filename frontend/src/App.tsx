@@ -14,6 +14,14 @@ import { SSE2EWindow } from './config/TestFlags';
 import type { TranscriptionState, TranscriptionEvent } from './services/transcription/TranscriptionFSM';
 import { setAppVisibleReady } from '@/lib/forensicAnchors';
 
+const isMockAuthMode =
+  import.meta.env.VITE_AUTH_MODE === 'mock' ||
+  import.meta.env.VITE_USE_MOCK_AUTH === 'true';
+
+const showTestModeBadge =
+  !import.meta.env.PROD &&
+  (import.meta.env.MODE === 'test' || import.meta.env.VITE_TEST_MODE === 'true' || isMockAuthMode);
+
 /**
  * ARCHITECTURE:
  * RouteReadinessManager handles the final signal for E2E determinism.
@@ -189,6 +197,11 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-background font-sans antialiased relative">
+      {showTestModeBadge && (
+        <div className="fixed left-3 top-3 z-[100] rounded-md border border-amber-600 bg-amber-100 px-3 py-1.5 text-xs font-extrabold uppercase tracking-wide text-amber-950 shadow">
+          Test Mode · Mock Auth
+        </div>
+      )}
       <Toaster
         position={isMobileViewport ? "top-center" : (isSessionRoute ? "bottom-right" : "top-right")}
         expand={false}
