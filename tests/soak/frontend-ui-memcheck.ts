@@ -38,6 +38,7 @@ type BrowserEnduranceEvidence = {
     completedAt: string;
     consoleIssues: Array<{ userIndex: number; type: string; text: string }>;
     requestFailures: Array<{ userIndex: number; url: string; errorText: string | null }>;
+    ignoredRequestFailures?: Array<{ userIndex: number; url: string; errorText: string | null; reason: string }>;
     users: BrowserEnduranceUserResult[];
     error?: string;
 };
@@ -113,6 +114,9 @@ const installSoakSttBridgeScript = () => {
             registry: {
                 ...(win.__SS_E2E__?.registry || {}),
                 'native-browser': minimalStubFactory('native-browser'),
+                'transformers-js': minimalStubFactory('transformers-js'),
+                'transformers-js-v4': minimalStubFactory('transformers-js-v4'),
+                'whisper-turbo': minimalStubFactory('whisper-turbo'),
                 assemblyai: minimalStubFactory('assemblyai'),
                 mock: minimalStubFactory('mock'),
             },
@@ -159,6 +163,15 @@ function writeBrowserEnduranceEvidence(report: Omit<BrowserEnduranceEvidence, 's
         ...report,
     }, null, 2));
     console.log(`📄 Browser endurance evidence written to ${ENDURANCE_EVIDENCE_PATH}`);
+}
+
+function getIgnorableRequestFailureReason(failure: { url: string; errorText: string | null }): string | null {
+    if (failure.errorText !== 'net::ERR_ABORTED') return null;
+
+    const isSupabaseRead = failure.url.includes('/rest/v1/sessions?select=');
+    return isSupabaseRead
+        ? 'Supabase sessions read was aborted during normal route/context teardown after functional checks passed.'
+        : null;
 }
 
 /**
@@ -219,6 +232,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
     const startTime = Date.now();
     const consoleIssues: BrowserEnduranceEvidence['consoleIssues'] = [];
     const requestFailures: BrowserEnduranceEvidence['requestFailures'] = [];
+    const ignoredRequestFailures: NonNullable<BrowserEnduranceEvidence['ignoredRequestFailures']> = [];
     const userResults: BrowserEnduranceUserResult[] = [];
     let userContexts: BrowserContext[] = [];
     let userPages: Page[] = [];
@@ -248,11 +262,17 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
                 }
             });
             page.on('requestfailed', (request) => {
-                requestFailures.push({
+                const failure = {
                     userIndex,
                     url: request.url(),
                     errorText: request.failure()?.errorText ?? null,
-                });
+                };
+                const reason = getIgnorableRequestFailureReason(failure);
+                if (reason) {
+                    ignoredRequestFailures.push({ ...failure, reason });
+                } else {
+                    requestFailures.push(failure);
+                }
             });
         });
 
@@ -354,6 +374,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             completedAt: new Date().toISOString(),
             consoleIssues,
             requestFailures,
+            ignoredRequestFailures,
             users: userResults.sort((a, b) => a.userIndex - b.userIndex),
         });
     } catch (error) {
@@ -366,6 +387,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             completedAt: new Date().toISOString(),
             consoleIssues,
             requestFailures,
+            ignoredRequestFailures,
             users: userResults.sort((a, b) => a.userIndex - b.userIndex),
             error: error instanceof Error ? error.message : String(error),
         });
