@@ -185,10 +185,7 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   useEffect(() => {
     // Fast-path: In E2E mock mode with no real session, signal auth readiness immediately.
     // The Core Probe validates infrastructure only — it does not require a real Supabase session.
-    // NOTE: Must read window.__SS_E2E__?.isActive directly — ENV.isE2E is a frozen IIFE snapshot
-    // evaluated at module load time, before Playwright's addInitScript injects __SS_E2E__.
-    const isE2ELive = typeof window !== 'undefined' && !!window.__SS_E2E__?.isActive;
-    if (isE2ELive && !sessionState) {
+    if (ENV.isE2E && !sessionState) {
       useReadinessStore.getState().setReady('auth');
       logger.info('[AuthProvider] ✅ Auth Ready Signal (E2E Mock Mode — no session required)');
       return;
