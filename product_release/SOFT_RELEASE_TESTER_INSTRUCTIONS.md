@@ -1,6 +1,6 @@
 # Soft Release Tester Instructions
 
-**Last updated:** 2026-05-26
+**Last updated:** 2026-05-29
 **Release type:** Controlled soft release, not broad public launch
 **Tester count:** Start with 5 testers, then expand only after the first round is clean.
 
@@ -45,6 +45,9 @@ Please report:
 
 ## Operator Checklist
 
+- Share only the production Vercel URL with human testers: `https://speaksharp-public.vercel.app`.
+- Never share `127.0.0.1:5173` with human testers. That port is mocked E2E/test mode only.
+- If a local rehearsal is required, use `pnpm dev` and `127.0.0.1:5174`; do not use `pnpm dev:test`.
 - Do not generate or send tester codes. Access is automatic for new accounts.
 - Confirm trial fields appear on new profiles: `trial_started_at` and `trial_expires_at`.
 - Confirm Vercel production does not set `VITE_TEST_MODE` or other E2E/test flags.
