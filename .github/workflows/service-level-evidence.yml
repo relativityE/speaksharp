@@ -70,6 +70,7 @@ jobs:
           ls -la product_release/evidence
 
       - name: Collect ops health snapshot
+        continue-on-error: true
         env:
           BASE_URL: https://speaksharp-public.vercel.app
           GITHUB_TOKEN: ${{ github.token }}

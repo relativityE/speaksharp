@@ -658,6 +658,105 @@ describe('useSessionLifecycle - Auto-Stop Logic', () => {
         });
     });
 
+    it('should trust server trial expiration over a future client profile timestamp', async () => {
+        const mockStore = createTestSessionStore({
+            sttMode: 'private',
+            isListening: false,
+            sttStatus: { type: 'error', message: 'Private allowed by stale client clock' },
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useProfile).mockReturnValue({
+            profile: {
+                id: 'test-user',
+                subscription_status: 'free',
+                email: 'test@example.com',
+                trial_expires_at: '2999-01-01T00:00:00.000Z',
+            } as UserProfile,
+            isVerified: true
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                ...baseUsageLimit,
+                can_start: false,
+                subscription_status: 'free',
+                is_pro: false,
+                trial_active: false,
+                trial_seconds_remaining: 0,
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await waitFor(() => {
+            expect(mockStore.getState().sttMode).toBe('native');
+            expect(mockStore.getState().sttStatus).toEqual({
+                type: 'ready',
+                message: 'Ready to record'
+            });
+        });
+    });
+
+    it('should allow active server trial users to use private even when profile timestamp appears expired locally', async () => {
+        const mockStore = createTestSessionStore({
+            sttMode: 'native',
+            isListening: false,
+        });
+        (useSessionStore as unknown as Mock).mockImplementation(mockStore);
+        (useSessionStore as unknown as { getState: typeof mockStore.getState }).getState = mockStore.getState;
+        (useSessionStore as unknown as { setState: typeof mockStore.setState }).setState = mockStore.setState;
+
+        vi.mocked(useProfile).mockReturnValue({
+            profile: {
+                id: 'test-user',
+                subscription_status: 'free',
+                email: 'test@example.com',
+                trial_expires_at: '2024-01-01T00:00:00.000Z',
+            } as UserProfile,
+            isVerified: true
+        });
+
+        vi.mocked(useUsageLimit).mockReturnValue({
+            data: {
+                ...baseUsageLimit,
+                can_start: true,
+                subscription_status: 'free',
+                is_pro: false,
+                trial_active: true,
+                trial_seconds_remaining: 1800,
+            },
+            isLoading: false,
+            isError: false,
+            error: null,
+            status: 'success',
+        } as unknown as UseQueryResult<UsageLimitCheck, Error>);
+
+        renderHook(() => useSessionLifecycle(), {
+            wrapper: ({ children }) => (
+                <TranscriptionProvider>
+                    {children}
+                </TranscriptionProvider>
+            )
+        });
+
+        await waitFor(() => {
+            expect(mockStore.getState().sttMode).toBe('private');
+        });
+    });
+
     it('should promote an implicit native default to private when profile resolves as Pro', async () => {
         const mockStore = createTestSessionStore({
             sttMode: 'native',

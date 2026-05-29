@@ -63,7 +63,11 @@ export const useSessionLifecycle = () => {
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = isPro(effectiveSubscriptionStatus);
     const isDevUser = import.meta.env.MODE !== 'production' && import.meta.env.VITE_DEV_USER === 'true';
-    const canUsePrivateStt = isProUser || isActiveTrialProfile(profile) || isDevUser;
+    const hasServerTrialState = typeof usageLimit?.trial_active === 'boolean';
+    const hasActiveTrialEntitlement = hasServerTrialState
+        ? usageLimit.trial_active === true
+        : isActiveTrialProfile(profile);
+    const canUsePrivateStt = isProUser || hasActiveTrialEntitlement || isDevUser;
     const canUseCloudStt = (isProUser && hasCloudSttEntitlement(profile)) || isDevUser;
     const shouldForceNativeMode = !canUsePrivateStt;
     const profileReadyForStt = isVerified && !!profile?.id && typeof profile?.subscription_status === 'string';
