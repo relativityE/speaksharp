@@ -69,7 +69,7 @@ export interface E2EWindow {
   MockPrivateWhisper?: unknown;
   __activeSpeechRecognition?: unknown;
   __e2eBridgeReady__?: boolean;
-  __MOCK_PROFILE__?: { subscription_status: string };
+  __MOCK_PROFILE__?: Record<string, unknown> & { subscription_status: string };
   __TRANSCRIPTION_SERVICE__?: ControllerBridge;
   localStorage: Storage;
   location: Location;
@@ -88,9 +88,10 @@ export async function setupE2EManifest(
     debug?: boolean;
     storage?: Record<string, string>;
     userType?: 'free' | 'basic' | 'pro';
+    mockProfile?: Record<string, unknown>;
   }
 ) {
-  const { storage = {}, userType = 'free', ...manifest } = config;
+  const { storage = {}, userType = 'free', mockProfile, ...manifest } = config;
   
   // 🛡️ Fix 5: Analytics Mock (Mandated Stabilization)
   // Decouples telemetry from UI readiness to prevent network-induced flakiness
@@ -104,7 +105,7 @@ export async function setupE2EManifest(
     globalThis.__name = __name;
   `);
 
-  await page.addInitScript(({ m, s, ut }: { m: unknown; s: Record<string, string>; ut: string }) => {
+  await page.addInitScript(({ m, s, ut, mp }: { m: unknown; s: Record<string, string>; ut: string; mp?: Record<string, unknown> }) => {
     // Playwright serializes this callback into the browser. Some TS/esbuild
     // transforms preserve function names by emitting __name(...) calls inside
     // the serialized body, but the helper itself is otherwise outside that
@@ -118,7 +119,8 @@ export async function setupE2EManifest(
     // 0. AUTHORITATIVE TIER SIGNAL
     const win = window as unknown as E2EWindow;
     win.__MOCK_PROFILE__ = { 
-      subscription_status: ut === 'pro' ? 'pro' : ut === 'basic' ? 'basic' : 'free'
+      subscription_status: ut === 'pro' ? 'pro' : ut === 'basic' ? 'basic' : 'free',
+      ...(mp || {})
     };
 
     const localBrowserStorage = s;
@@ -255,5 +257,5 @@ export async function setupE2EManifest(
       }
     };
     stampDuration();
-  }, { m: manifest, s: storage, ut: userType });
+  }, { m: manifest, s: storage, ut: userType, mp: mockProfile });
 }

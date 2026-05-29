@@ -383,6 +383,7 @@ export async function programmaticLoginWithRoutes(
     userType?: 'free' | 'basic' | 'pro';
     emptySessions?: boolean;
     debug?: boolean;
+    mockProfile?: Record<string, unknown>;
   } = {}
 ) {
   const {
@@ -390,7 +391,8 @@ export async function programmaticLoginWithRoutes(
     supabaseUrl: optUrl,
     userType = 'free',
     emptySessions = false,
-    debug = false
+    debug = false,
+    mockProfile
   } = options;
   let projectRef = optRef || 'yxlapjuovrsvjswkwnrk';
   const supabaseUrl = optUrl || process.env.VITE_SUPABASE_URL;
@@ -409,7 +411,7 @@ export async function programmaticLoginWithRoutes(
   const session = createMockSession({}, userType);
 
   const { setupE2EMocks } = await import('./mock-routes');
-  await setupE2EMocks(page, { userType, emptySessions });
+  await setupE2EMocks(page, { userType, emptySessions, profile: mockProfile });
 
   setupBrowserLogging(page);
   setupNetworkTracking(page);
@@ -420,6 +422,7 @@ export async function programmaticLoginWithRoutes(
     engineType: 'mock',
     debug: !!debug,
     userType,
+    mockProfile,
     storage: {
       [localStorageKey]: JSON.stringify(session)
     }

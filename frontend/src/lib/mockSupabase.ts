@@ -1,6 +1,17 @@
 import { MOCK_USER, MOCK_USER_PROFILE, MOCK_SESSIONS } from '../../../tests/e2e/fixtures/mockData';
 import logger from './logger';
 
+const getMockProfile = () => {
+    const profileOverride = typeof window !== 'undefined'
+        ? (window as Window & { __MOCK_PROFILE__?: Partial<typeof MOCK_USER_PROFILE> }).__MOCK_PROFILE__
+        : undefined;
+
+    return {
+        ...MOCK_USER_PROFILE,
+        ...(profileOverride || {}),
+    };
+};
+
 export const createMockSupabase = () => {
     const listeners = new Set<(event: string, session: unknown) => void>();
     let currentSession: unknown = null;
@@ -29,7 +40,7 @@ export const createMockSupabase = () => {
                     logger.debug({ 
                         userId: s?.user?.id,
                         isActive: !!session,
-                        role: MOCK_USER_PROFILE.subscription_status,
+                        role: getMockProfile().subscription_status,
                         timestamp: Date.now() 
                     }, '[AUTH STATE]');
                 };
@@ -71,7 +82,7 @@ export const createMockSupabase = () => {
                 eq: (column: string, value: unknown) => ({
                     single: () => {
                         if (table === 'user_profiles' && column === 'id' && value === MOCK_USER.id) {
-                            return Promise.resolve({ data: MOCK_USER_PROFILE, error: null });
+                            return Promise.resolve({ data: getMockProfile(), error: null });
                         }
                         return Promise.resolve({ data: null, error: { message: 'Not found' } });
                     },

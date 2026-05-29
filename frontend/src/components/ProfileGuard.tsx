@@ -71,6 +71,19 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
     // invariant for protected routes like /session when no real session exists.
     const isE2EMockMode = ENV.isE2E && import.meta.env.MODE !== 'production';
 
+    React.useEffect(() => {
+        if (!isE2EMockMode || authLoading || session) {
+            return;
+        }
+
+        loggedProfileErrorRef.current = false;
+        setReady('profile');
+        syncProfileReady(true);
+        window.dispatchEvent(new CustomEvent('app-hydration-complete', {
+            detail: { profileId: '__E2E_GUEST_USER__' }
+        }));
+    }, [authLoading, isE2EMockMode, session, setReady]);
+
     // 1. Auth is still initializing (Supabase getSession)
     if (authLoading) {
         return (

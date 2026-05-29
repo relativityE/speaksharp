@@ -30,6 +30,7 @@ export function getDevEnvironmentStatus(): DevEnvironmentStatus {
   const usesMockKey = !anonKey || anonKey.startsWith('mock_') || anonKey.includes('fake');
   const usesRealSupabase = /\.supabase\.co\/?$/.test(url);
   const isTestMode = viteMode === 'test' || import.meta.env.VITE_TEST_MODE === 'true';
+  const usesLiveDbEvidenceMode = isTestMode && import.meta.env.VITE_USE_LIVE_DB === 'true';
   const expectedPort = isTestMode ? DEV_PORTS.TEST : DEV_PORTS.PROD;
   const unsafeOverride = import.meta.env.ALLOW_UNSAFE_MIXED_SUPABASE_CONFIG === 'true';
 
@@ -57,7 +58,7 @@ export function getDevEnvironmentStatus(): DevEnvironmentStatus {
     };
   }
 
-  if (isTestMode && usesRealSupabase && authMode !== 'mock') {
+  if (isTestMode && usesRealSupabase && authMode !== 'mock' && !usesLiveDbEvidenceMode) {
     return {
       valid: false,
       authMode,

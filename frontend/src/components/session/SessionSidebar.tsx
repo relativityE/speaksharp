@@ -103,8 +103,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const isProUser = checkIsPro(effectiveSubscriptionStatus);
     const canUsePrivateStt = isProUser || isActiveTrialProfile(profile) || isDevUser;
     const canAccessAdvancedModes = canUsePrivateStt;
-    const isE2EProHarness = import.meta.env.MODE !== 'production' && import.meta.env.VITE_TEST_MODE === 'true' && isProUser;
-    const canUseCloudStt = (isProUser && (hasCloudSttEntitlement(profile) || isE2EProHarness)) || isDevUser;
+    const canUseCloudStt = (isProUser && hasCloudSttEntitlement(profile)) || isDevUser;
 
     type Mode = 'cloud' | 'private' | 'native';
     const getDefaultMode = (): Mode => {

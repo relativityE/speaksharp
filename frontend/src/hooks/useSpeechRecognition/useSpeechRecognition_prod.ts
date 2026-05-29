@@ -106,8 +106,7 @@ export const useSpeechRecognition_prod = (props: UseSpeechRecognitionProps = {})
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
     const isEffectiveProUser = isPro(effectiveSubscriptionStatus) || isDevUser;
-    const isE2EProHarness = import.meta.env.MODE !== 'production' && import.meta.env.VITE_TEST_MODE === 'true' && isEffectiveProUser;
-    const canUseCloudStt = (isEffectiveProUser && (hasCloudSttEntitlement(profile) || isE2EProHarness)) || isDevUser;
+    const canUseCloudStt = (isEffectiveProUser && hasCloudSttEntitlement(profile)) || isDevUser;
     const effectivePolicyMode = isEffectiveProUser
         ? sttMode === 'cloud' && !canUseCloudStt ? 'private' : sttMode
         : 'native';

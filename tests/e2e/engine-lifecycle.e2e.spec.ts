@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { navigateToRoute, attachLiveTranscript, waitForModelReady } from './helpers';
+import { navigateToRoute, attachLiveTranscript, waitForModelReady, programmaticLoginWithRoutes } from './helpers';
 import { registerMockInE2E, enableTestRegistry } from '../helpers/testRegistry.helpers';
 
 
@@ -157,19 +157,65 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     await expect(page.getByTestId('stt-status-label')).toContainText(/Recording active|Private Ready/i);
   });
 
-  // SCENARIO 3: Access Control (Free users restricted from Private)
-  test('Tier Control: Verify Private engine is gated for Free users', async ({ freePage: page }) => {
-    await navigateToRoute(page, '/session');
-    const modeButton3 = page.getByTestId('stt-mode-select');
-    const bbox3 = await modeButton3.boundingBox();
-    if (bbox3) {
-      await page.mouse.click(bbox3.x + bbox3.width / 2, bbox3.y + bbox3.height / 2);
+  async function openModeMenu(page: import('@playwright/test').Page) {
+    const modeButton = page.getByTestId('stt-mode-select');
+    const bbox = await modeButton.boundingBox();
+    if (bbox) {
+      await page.mouse.click(bbox.x + bbox.width / 2, bbox.y + bbox.height / 2);
     } else {
-      await modeButton3.click({ force: true });
+      await modeButton.click({ force: true });
     }
-    const privateOption = page.getByRole('menuitemradio', { name: /Private/i });
-    await expect(privateOption).toBeVisible();
-    await expect(privateOption).toHaveAttribute('aria-disabled', 'true');
+  }
+
+  async function expectModeDisabled(page: import('@playwright/test').Page, label: RegExp) {
+    const option = page.getByRole('menuitemradio', { name: label });
+    await expect(option).toBeVisible();
+    await expect(option).toHaveAttribute('data-disabled', '');
+  }
+
+  async function expectModeEnabled(page: import('@playwright/test').Page, label: RegExp) {
+    const option = page.getByRole('menuitemradio', { name: label });
+    await expect(option).toBeVisible();
+    await expect(option).not.toHaveAttribute('data-disabled', '');
+  }
+
+  // SCENARIO 3: Access Control (trial unlocks Private only; Cloud remains Pro-only)
+  test('Tier Control: active trial can use Private but not Cloud', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, {
+      userType: 'free',
+      mockProfile: {
+        subscription_status: 'free',
+        trial_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        stripe_subscription_id: null,
+        subscription_id: null,
+        preferred_mode: 'native',
+      },
+    });
+
+    await navigateToRoute(page, '/session');
+    await openModeMenu(page);
+
+    await expectModeEnabled(page, /Private/i);
+    await expectModeDisabled(page, /Cloud/i);
+  });
+
+  test('Tier Control: expired Free cannot use Private or Cloud', async ({ page }) => {
+    await programmaticLoginWithRoutes(page, {
+      userType: 'free',
+      mockProfile: {
+        subscription_status: 'free',
+        trial_expires_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+        stripe_subscription_id: null,
+        subscription_id: null,
+        preferred_mode: 'native',
+      },
+    });
+
+    await navigateToRoute(page, '/session');
+    await openModeMenu(page);
+
+    await expectModeDisabled(page, /Private/i);
+    await expectModeDisabled(page, /Cloud/i);
   });
 
 });

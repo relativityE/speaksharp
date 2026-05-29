@@ -82,8 +82,7 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
 
         const isDevUser = import.meta.env.VITE_DEV_USER === 'true';
         const isPro = tier === 'pro' || isDevUser;
-        const isE2EProHarness = import.meta.env.MODE !== 'production' && import.meta.env.VITE_TEST_MODE === 'true' && isPro;
-        const canUseCloud = (isPro && (hasCloudSttEntitlement(policyProfile) || isE2EProHarness)) || isDevUser;
+        const canUseCloud = (isPro && hasCloudSttEntitlement(policyProfile)) || isDevUser;
         const requestedMode = isPro ? currentSelectedMode : null;
         const safeMode = requestedMode === 'cloud' && !canUseCloud ? 'private' : requestedMode;
         const newPolicy = buildPolicyForUser(isPro, safeMode, { allowCloud: canUseCloud });
