@@ -70,10 +70,18 @@ const sentenceCaseStart = (text: string): string => {
     return `${text.slice(0, firstLetterIndex)}${text.charAt(firstLetterIndex).toUpperCase()}${text.slice(firstLetterIndex + 1)}`;
 };
 
+const normalizeStandaloneFirstPerson = (text: string): string =>
+    text.replace(/\bi\b/g, 'I');
+
+const addConservativeCommas = (text: string): string =>
+    text
+        .replace(/^(Today|First|Next|Finally|However|Meanwhile|Overall|Eventually)\s+/i, '$1, ')
+        .replace(/^(For example|For instance|In short|Most importantly|By the way)\s+/i, '$1, ');
+
 const ensureTerminalPunctuation = (text: string): string => {
     const trimmed = text.trim();
     if (!trimmed) return trimmed;
-    const sentenceCased = sentenceCaseStart(trimmed);
+    const sentenceCased = addConservativeCommas(normalizeStandaloneFirstPerson(sentenceCaseStart(trimmed)));
     if (TERMINAL_PUNCTUATION_RE.test(sentenceCased)) return sentenceCased;
     if (/[,:;]$/.test(sentenceCased)) return `${sentenceCased.slice(0, -1)}.`;
     return `${sentenceCased}.`;

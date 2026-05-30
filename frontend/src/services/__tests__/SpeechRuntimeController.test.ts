@@ -290,12 +290,12 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         push({ transcript: { final: 'today i want to give a clear update on speaksharp' } });
 
         expect(useSessionStore.getState().transcript).toEqual({
-            transcript: 'Today i want to give a clear update on speaksharp.',
+            transcript: 'Today, I want to give a clear update on speaksharp.',
             partial: '',
         });
         expect(useSessionStore.getState().chunks).toEqual([
             expect.objectContaining({
-                transcript: 'Today i want to give a clear update on speaksharp.',
+                transcript: 'Today, I want to give a clear update on speaksharp.',
                 isFinal: true,
             }),
         ]);
@@ -310,8 +310,36 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         push({ transcript: { final: 'next the coaching should turn numbers into actions' } });
 
         expect(useSessionStore.getState().transcript.transcript).toBe(
-            'Today i want to give a clear update. Next the coaching should turn numbers into actions.'
+            'Today, I want to give a clear update. Next, the coaching should turn numbers into actions.'
         );
+    });
+
+    it('adds conservative commas and first-person capitalization without rewriting words', () => {
+        const push = (controller as unknown as {
+            pushTranscriptToStore: (data: { transcript: { final: string } }) => void
+        }).pushTranscriptToStore.bind(controller);
+
+        push({ transcript: { final: 'for example i should pause before the takeaway' } });
+
+        expect(useSessionStore.getState().transcript.transcript).toBe(
+            'For example, I should pause before the takeaway.'
+        );
+    });
+
+    it('keeps filler words visible while formatting a competitor-grade spoken sample', () => {
+        const push = (controller as unknown as {
+            pushTranscriptToStore: (data: { transcript: { final: string } }) => void
+        }).pushTranscriptToStore.bind(controller);
+
+        push({ transcript: { final: 'today i want to give a clear update um the main point is simple' } });
+        push({ transcript: { final: 'for example like if i pause before the takeaway the message lands' } });
+        push({ transcript: { final: 'finally i want the transcript to feel polished' } });
+
+        expect(useSessionStore.getState().transcript.transcript).toBe(
+            'Today, I want to give a clear update um the main point is simple. For example, like if I pause before the takeaway the message lands. Finally, I want the transcript to feel polished.'
+        );
+        expect(useSessionStore.getState().transcript.transcript).toContain('um');
+        expect(useSessionStore.getState().transcript.transcript).toContain('like');
     });
 
     it('clears stale partial text when a duplicate final arrives', () => {

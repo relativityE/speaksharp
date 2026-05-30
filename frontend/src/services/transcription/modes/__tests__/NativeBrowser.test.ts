@@ -322,6 +322,23 @@ describe('NativeBrowser Transcription Mode', () => {
         transcript: { final: 'hello world' },
       });
     });
+
+    it('preserves native browser punctuation when Chrome provides it', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const resultItem = { transcript: 'hello, world.', confidence: 0.9, isFinal: true };
+      const resultList = Object.assign([resultItem], { isFinal: true });
+      const event = { results: [resultList], resultIndex: 0 };
+
+      mockRecognition.onresult?.(event as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate).toHaveBeenCalledWith({
+        transcript: { final: 'hello, world.' },
+      });
+    });
  
     it('should handle interim transcript results correctly', async () => {
       await nativeBrowser.init();
