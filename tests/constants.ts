@@ -188,7 +188,7 @@ export const TIMEOUTS = {
 const SOAK_MEMORY_DURATION_MS = Number(process.env.SOAK_MEMORY_DURATION_MS) || 600000; // Default: 10 mins
 
 export const SOAK_CONFIG = {
-  CONCURRENT_USERS: 2,
+  CONCURRENT_USERS: Number(process.env.SOAK_CONCURRENT_USERS) || 2,
   /**
    * SESSION_DURATION_MS: The configuration key used by the test runner.
    * It consumes the value from SOAK_MEMORY_DURATION_MS.

@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
-**Last Reviewed:** 2026-05-28
+**Last Reviewed:** 2026-05-29
 **Version:** v0.7.0-rc lineage
-**Last Updated:** 2026-05-28
+**Last Updated:** 2026-05-29
 
 # SpeakSharp Service Levels
 
@@ -91,5 +91,29 @@ Stress/endurance artifacts should include:
 - throughput
 - browser memory growth where available
 - run ID, timestamp, commit SHA, and actor
+- release-evidence verdict: `pass`, `fail`, or `invalid`
+- `countsAsReleaseEvidence`
+- `criticalFailures[]`
+- `ignoredRequestFailures[]`
+- `invalidEvidenceReasons[]`
 
 If those fields are missing, the run can still be useful for debugging but should not be used to make service-level claims.
+
+### Request Failure Classification
+
+SLO/SLC is release reliability evidence, not a brittle long-form E2E duplicate. It should fail on product/system risk and record harmless teardown noise explicitly.
+
+| Classification | Release Meaning |
+|---|---|
+| `pass` | Functional journey, memory, backend stress, and required artifacts passed. Known read-only teardown aborts may be recorded under `ignoredRequestFailures[]`. |
+| `fail` | Product/system target failed: auth, recording start, token issuance, quota, save/write path, unexpected 4xx/5xx, memory target, backend target, or artifact parseability. |
+| `invalid` | Environment/tooling prevented trustworthy measurement, such as EPERM bind, missing secrets, sandbox launch failure, or non-product evidence generation failure. It cannot close an RC gate. |
+
+Known read-only request aborts may be ignored only when all of the following are true:
+
+- `errorText` is `net::ERR_ABORTED`
+- method is `GET` or `HEAD`
+- endpoint is explicitly allowlisted as a read/poll endpoint
+- phase is `navigation`/`teardown`, or the functional journey has already passed
+- no dependent assertion failed
+- the request is not auth, token, checkout, STT-critical, session save, or another write path

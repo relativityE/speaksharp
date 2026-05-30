@@ -21,8 +21,34 @@ type BrowserEnduranceUserResult = {
     error?: string;
 };
 
+type EndurancePhase = 'setup' | 'active' | 'navigation' | 'teardown' | 'complete';
+
+type RequestFailureEvent = {
+    userIndex: number;
+    url: string;
+    method: string;
+    errorText: string | null;
+    phase: EndurancePhase;
+    functionalJourneyPassed: boolean;
+};
+
+type CriticalRequestFailure = RequestFailureEvent & {
+    classification: 'critical';
+    reason: string;
+};
+
+type IgnoredRequestFailure = RequestFailureEvent & {
+    classification: 'ignored_teardown_read';
+    reason: string;
+    category: string;
+};
+
+type RequestFailureClassification =
+    | { kind: 'critical'; reason: string }
+    | { kind: 'ignored_teardown_read'; reason: string; category: string };
+
 type BrowserEnduranceEvidence = {
-    schemaVersion: 1;
+    schemaVersion: 2;
     kind: 'browser-endurance';
     run: {
         githubRunId: string | null;
@@ -30,18 +56,40 @@ type BrowserEnduranceEvidence = {
         commitSha: string | null;
         actor: string | null;
     };
-    status: 'pass' | 'fail';
+    status: 'pass' | 'fail' | 'invalid';
+    countsAsReleaseEvidence: boolean;
+    functionalJourneyPassed: boolean;
+    invalidEvidenceReasons: string[];
     concurrency: number;
     mode: 'native' | 'configured-default';
     durationMs: number;
     startedAt: string;
     completedAt: string;
     consoleIssues: Array<{ userIndex: number; type: string; text: string }>;
-    requestFailures: Array<{ userIndex: number; url: string; errorText: string | null }>;
-    ignoredRequestFailures?: Array<{ userIndex: number; url: string; errorText: string | null; reason: string }>;
+    requestFailures: CriticalRequestFailure[];
+    criticalFailures: CriticalRequestFailure[];
+    ignoredRequestFailures: IgnoredRequestFailure[];
     users: BrowserEnduranceUserResult[];
     error?: string;
 };
+
+const READ_ABORT_ENDPOINTS = [
+    {
+        category: 'session_history_read',
+        method: 'GET',
+        pattern: /\/rest\/v1\/sessions\?select=/,
+    },
+    {
+        category: 'usage_poll',
+        method: 'GET',
+        pattern: /\/functions\/v1\/check-usage-limit/,
+    },
+    {
+        category: 'filler_words_read',
+        method: 'GET',
+        pattern: /\/rest\/v1\/user_filler_words\?select=/,
+    },
+] as const;
 
 const installSoakSttBridgeScript = () => {
         type SttOptions = {
@@ -154,7 +202,7 @@ async function readMemorySnapshot(page: Page): Promise<BrowserMemorySnapshot> {
 function writeBrowserEnduranceEvidence(report: Omit<BrowserEnduranceEvidence, 'schemaVersion' | 'kind' | 'run'>) {
     fs.mkdirSync(ENDURANCE_RESULTS_DIR, { recursive: true });
     fs.writeFileSync(ENDURANCE_EVIDENCE_PATH, JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         kind: 'browser-endurance',
         run: {
             githubRunId: process.env.GITHUB_RUN_ID ?? null,
@@ -167,25 +215,55 @@ function writeBrowserEnduranceEvidence(report: Omit<BrowserEnduranceEvidence, 's
     console.log(`📄 Browser endurance evidence written to ${ENDURANCE_EVIDENCE_PATH}`);
 }
 
-function getIgnorableRequestFailureReason(failure: { url: string; errorText: string | null }): string | null {
-    if (failure.errorText !== 'net::ERR_ABORTED') return null;
-
-    const isSupabaseRead = failure.url.includes('/rest/v1/sessions?select=');
-    if (isSupabaseRead) {
-        return 'Supabase sessions read was aborted during normal route/context teardown after functional checks passed.';
+function classifyRequestFailure(failure: RequestFailureEvent): RequestFailureClassification {
+    if (failure.errorText !== 'net::ERR_ABORTED') {
+        return {
+            kind: 'critical',
+            reason: `Unexpected request failure: ${failure.errorText ?? 'unknown error'}`,
+        };
     }
 
-    const isUsageLimitRead = failure.url.includes('/functions/v1/check-usage-limit');
-    if (isUsageLimitRead) {
-        return 'Usage-limit poll was aborted during normal route/context teardown after functional checks passed.';
+    if (!['GET', 'HEAD'].includes(failure.method)) {
+        return {
+            kind: 'critical',
+            reason: 'Aborted non-read request',
+        };
     }
 
-    const isUserFillerWordsRead = failure.url.includes('/rest/v1/user_filler_words?select=');
-    if (isUserFillerWordsRead) {
-        return 'User filler words read was aborted during normal route/context teardown after functional checks passed.';
+    const safePhase = failure.phase === 'navigation' || failure.phase === 'teardown' || failure.functionalJourneyPassed;
+    if (!safePhase) {
+        return {
+            kind: 'critical',
+            reason: 'Read aborted before the functional journey passed',
+        };
     }
 
-    return null;
+    const match = READ_ABORT_ENDPOINTS.find((endpoint) =>
+        endpoint.method === failure.method && endpoint.pattern.test(failure.url)
+    );
+    if (!match) {
+        return {
+            kind: 'critical',
+            reason: 'Aborted read endpoint is not in the teardown allowlist',
+        };
+    }
+
+    return {
+        kind: 'ignored_teardown_read',
+        reason: 'Known read-only polling endpoint aborted during teardown/navigation after functional proof.',
+        category: match.category,
+    };
+}
+
+function classifyInvalidEvidence(error: unknown): string[] {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/\bEPERM\b|EACCES|EADDRINUSE|listen|bind/i.test(message)) {
+        return [`Environment/tooling prevented trustworthy browser evidence: ${message}`];
+    }
+    if (/Missing|not configured|required env|secret/i.test(message)) {
+        return [`Missing environment/configuration prevented trustworthy evidence: ${message}`];
+    }
+    return [];
 }
 
 /**
@@ -245,9 +323,11 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
     const startedAt = new Date().toISOString();
     const startTime = Date.now();
     const consoleIssues: BrowserEnduranceEvidence['consoleIssues'] = [];
-    const requestFailures: BrowserEnduranceEvidence['requestFailures'] = [];
-    const ignoredRequestFailures: NonNullable<BrowserEnduranceEvidence['ignoredRequestFailures']> = [];
+    const criticalFailures: BrowserEnduranceEvidence['criticalFailures'] = [];
+    const ignoredRequestFailures: BrowserEnduranceEvidence['ignoredRequestFailures'] = [];
     const userResults: BrowserEnduranceUserResult[] = [];
+    const userPhases: EndurancePhase[] = Array.from({ length: SOAK_CONFIG.CONCURRENT_USERS }, () => 'setup');
+    const functionalJourneyPassedByUser: boolean[] = Array.from({ length: SOAK_CONFIG.CONCURRENT_USERS }, () => false);
     let userContexts: BrowserContext[] = [];
     let userPages: Page[] = [];
 
@@ -279,13 +359,25 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
                 const failure = {
                     userIndex,
                     url: request.url(),
+                    method: request.method(),
                     errorText: request.failure()?.errorText ?? null,
+                    phase: userPhases[userIndex] ?? 'setup',
+                    functionalJourneyPassed: functionalJourneyPassedByUser[userIndex] ?? false,
                 };
-                const reason = getIgnorableRequestFailureReason(failure);
-                if (reason) {
-                    ignoredRequestFailures.push({ ...failure, reason });
+                const classification = classifyRequestFailure(failure);
+                if (classification.kind === 'ignored_teardown_read') {
+                    ignoredRequestFailures.push({
+                        ...failure,
+                        classification: classification.kind,
+                        reason: classification.reason,
+                        category: classification.category,
+                    });
                 } else {
-                    requestFailures.push(failure);
+                    criticalFailures.push({
+                        ...failure,
+                        classification: classification.kind,
+                        reason: classification.reason,
+                    });
                 }
             });
         });
@@ -312,6 +404,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             const memoryStart = await readMemorySnapshot(page);
 
             // 1. Navigate to Session
+            userPhases[userIndex] = 'navigation';
             await page.goto(ROUTES.SESSION);
             await installSoakSttBridge(page);
             await expect(page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON)).toBeVisible({ timeout: 30000 });
@@ -334,6 +427,7 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             await startButton.click();
             await page.waitForSelector(`[data-testid="${TEST_IDS.SESSION_STATUS_INDICATOR}"]`, { timeout: 10000 });
             await expect(startButton).toHaveAttribute('data-recording', 'true', { timeout: 10000 });
+            userPhases[userIndex] = 'active';
 
             // 4. Endurance wait. Native transcript output is browser-owned,
             // so this path validates sustained recording stability rather
@@ -353,8 +447,11 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
             }
 
             // 6. Navigate to Analytics to verify state
+            userPhases[userIndex] = 'navigation';
             await page.goto(ROUTES.ANALYTICS);
             await page.locator(`[data-testid="${TEST_IDS.STAT_CARD_TOTAL_SESSIONS}"]`).or(page.locator(`[data-testid="${TEST_IDS.ANALYTICS_EMPTY_STATE}"]`)).first().waitFor({ timeout: 10000 });
+            functionalJourneyPassedByUser[userIndex] = true;
+            userPhases[userIndex] = 'complete';
             const memoryEnd = await readMemorySnapshot(page);
             const memoryGrowthBytes = memoryStart.usedJSHeapSize !== null && memoryEnd.usedJSHeapSize !== null
                 ? memoryEnd.usedJSHeapSize - memoryStart.usedJSHeapSize
@@ -375,38 +472,51 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
         await Promise.all(userJourneys);
 
         const consoleErrors = consoleIssues.filter((issue) => issue.type === 'error');
-        if (consoleErrors.length > 0 || requestFailures.length > 0) {
-            throw new Error(`[Browser Endurance] Browser emitted ${consoleErrors.length} console errors and ${requestFailures.length} failed requests.`);
+        if (consoleErrors.length > 0 || criticalFailures.length > 0) {
+            throw new Error(`[Browser Endurance] Browser emitted ${consoleErrors.length} console errors and ${criticalFailures.length} critical failed requests.`);
         }
 
         writeBrowserEnduranceEvidence({
             status: 'pass',
+            countsAsReleaseEvidence: true,
+            functionalJourneyPassed: functionalJourneyPassedByUser.every(Boolean),
+            invalidEvidenceReasons: [],
             concurrency: SOAK_CONFIG.CONCURRENT_USERS,
             mode: SOAK_CONFIG.USE_NATIVE_MODE ? 'native' : 'configured-default',
             durationMs: Date.now() - startTime,
             startedAt,
             completedAt: new Date().toISOString(),
             consoleIssues,
-            requestFailures,
+            requestFailures: criticalFailures,
+            criticalFailures,
             ignoredRequestFailures,
             users: userResults.sort((a, b) => a.userIndex - b.userIndex),
         });
     } catch (error) {
+        const invalidEvidenceReasons = classifyInvalidEvidence(error);
+        const status = invalidEvidenceReasons.length > 0 ? 'invalid' : 'fail';
         writeBrowserEnduranceEvidence({
-            status: 'fail',
+            status,
+            countsAsReleaseEvidence: false,
+            functionalJourneyPassed: functionalJourneyPassedByUser.every(Boolean),
+            invalidEvidenceReasons,
             concurrency: SOAK_CONFIG.CONCURRENT_USERS,
             mode: SOAK_CONFIG.USE_NATIVE_MODE ? 'native' : 'configured-default',
             durationMs: Date.now() - startTime,
             startedAt,
             completedAt: new Date().toISOString(),
             consoleIssues,
-            requestFailures,
+            requestFailures: criticalFailures,
+            criticalFailures,
             ignoredRequestFailures,
             users: userResults.sort((a, b) => a.userIndex - b.userIndex),
             error: error instanceof Error ? error.message : String(error),
         });
         throw error;
     } finally {
+        userPhases.forEach((phase, index) => {
+            userPhases[index] = phase === 'complete' ? 'complete' : 'teardown';
+        });
         // Cleanup
         await Promise.all(userPages.map((page) => page.close().catch(() => undefined)));
         await Promise.all(userContexts.map((ctx) => ctx.close().catch(() => undefined)));

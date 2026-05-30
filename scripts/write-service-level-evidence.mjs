@@ -66,6 +66,13 @@ const targets = [
     evaluate: (data) => {
       const endurance = data?.browserEndurance;
       if (!endurance) return missing('browser endurance evidence missing');
+      if (endurance.status === 'invalid') {
+        return {
+          status: 'invalid',
+          measured: 'invalid/non-evidence',
+          details: (endurance.invalidEvidenceReasons || []).join('; ') || endurance.error || 'browser endurance evidence was invalid',
+        };
+      }
       const growthValues = (endurance.users || [])
         .map((user) => user.memoryGrowthBytes)
         .filter((value) => typeof value === 'number');
@@ -74,6 +81,56 @@ const targets = [
         status: endurance.status === 'pass' ? 'pass' : 'fail',
         measured: maxGrowth === null ? 'memory API unavailable' : `${maxGrowth} bytes max growth`,
         details: `durationMs=${endurance.durationMs}; concurrency=${endurance.concurrency}; mode=${endurance.mode}`,
+      };
+    },
+  },
+  {
+    id: 'browser_endurance_critical_failures',
+    claim: 'Browser endurance critical failures',
+    target: '0 critical request/console/product failures; writes and unknown failures always block',
+    yardstick: 'industry-standard',
+    source: 'browserEndurance',
+    evaluate: (data) => {
+      const endurance = data?.browserEndurance;
+      if (!endurance) return missing('browser endurance evidence missing');
+      if (endurance.status === 'invalid') {
+        return {
+          status: 'invalid',
+          measured: 'invalid/non-evidence',
+          details: (endurance.invalidEvidenceReasons || []).join('; ') || endurance.error || 'browser endurance evidence was invalid',
+        };
+      }
+      const criticalFailures = endurance.criticalFailures || endurance.requestFailures || [];
+      const consoleErrors = (endurance.consoleIssues || []).filter((issue) => issue.type === 'error');
+      return {
+        status: criticalFailures.length === 0 && consoleErrors.length === 0 && endurance.status === 'pass' ? 'pass' : 'fail',
+        measured: `${criticalFailures.length} critical request failures; ${consoleErrors.length} console errors`,
+        details: `functionalJourneyPassed=${endurance.functionalJourneyPassed ?? endurance.status === 'pass'}; countsAsReleaseEvidence=${endurance.countsAsReleaseEvidence ?? endurance.status === 'pass'}`,
+      };
+    },
+  },
+  {
+    id: 'browser_endurance_ignored_teardown_reads',
+    claim: 'Browser endurance ignored teardown reads',
+    target: 'Allowed only for classified GET/HEAD read-only polling aborts during navigation/teardown or after functional pass',
+    yardstick: 'industry-informed-soft-release',
+    source: 'browserEndurance',
+    evaluate: (data) => {
+      const endurance = data?.browserEndurance;
+      if (!endurance) return missing('browser endurance evidence missing');
+      if (endurance.status === 'invalid') {
+        return {
+          status: 'invalid',
+          measured: 'invalid/non-evidence',
+          details: (endurance.invalidEvidenceReasons || []).join('; ') || endurance.error || 'browser endurance evidence was invalid',
+        };
+      }
+      const ignored = endurance.ignoredRequestFailures || [];
+      const categories = [...new Set(ignored.map((failure) => failure.category || 'unknown'))].join(', ') || 'none';
+      return {
+        status: 'pass',
+        measured: `${ignored.length} classified teardown read aborts`,
+        details: `categories=${categories}`,
       };
     },
   },
@@ -119,6 +176,24 @@ const targets = [
       };
     },
   },
+  {
+    id: 'artifact_completeness',
+    claim: 'Artifact completeness',
+    target: '100% required release evidence artifacts present and parseable',
+    yardstick: 'industry-standard',
+    source: 'all',
+    evaluate: (data) => {
+      const required = ['quality', 'backendStress', 'browserEndurance'];
+      const missingInputs = required.filter((key) => !data?.[key]);
+      const invalidInputs = [];
+      if (data?.browserEndurance?.status === 'invalid') invalidInputs.push('browserEndurance');
+      return {
+        status: missingInputs.length === 0 && invalidInputs.length === 0 ? 'pass' : invalidInputs.length > 0 ? 'invalid' : 'fail',
+        measured: `${required.length - missingInputs.length}/${required.length} required artifacts present`,
+        details: `missing=${missingInputs.join(', ') || 'none'}; invalid=${invalidInputs.join(', ') || 'none'}`,
+      };
+    },
+  },
 ];
 
 function readJson(filePath) {
@@ -161,10 +236,18 @@ function buildEvidence() {
     source: target.source,
     ...target.evaluate(data),
   }));
+  const invalidEvidenceReasons = checks
+    .filter((check) => check.status === 'invalid')
+    .map((check) => `${check.claim}: ${check.details ?? check.measured ?? 'invalid evidence'}`);
+  const hasBlockingFailure = checks.some((check) => check.status === 'fail' || check.status === 'missing');
+  const hasInvalidEvidence = invalidEvidenceReasons.length > 0;
 
   return {
     schemaVersion: 1,
     kind: 'service-levels',
+    status: hasInvalidEvidence ? 'invalid' : hasBlockingFailure ? 'fail' : 'pass',
+    countsAsReleaseEvidence: !hasInvalidEvidence && !hasBlockingFailure,
+    invalidEvidenceReasons,
     generatedAt: new Date().toISOString(),
     run: {
       githubRunId: process.env.GITHUB_RUN_ID ?? null,
@@ -181,6 +264,7 @@ function buildEvidence() {
     summary: {
       pass: checks.filter((check) => check.status === 'pass').length,
       fail: checks.filter((check) => check.status === 'fail').length,
+      invalid: checks.filter((check) => check.status === 'invalid').length,
       review: checks.filter((check) => check.status === 'review').length,
       missing: checks.filter((check) => check.status === 'missing').length,
     },
@@ -202,10 +286,14 @@ GitHub run: ${evidence.run.githubRunId ?? 'local/unavailable'}
 
 ## Summary
 
+Verdict: ${evidence.status.toUpperCase()}
+Counts as release evidence: ${evidence.countsAsReleaseEvidence ? 'yes' : 'no'}
+
 | Status | Count |
 |---|---:|
 | Pass | ${evidence.summary.pass} |
 | Fail | ${evidence.summary.fail} |
+| Invalid | ${evidence.summary.invalid} |
 | Review | ${evidence.summary.review} |
 | Missing | ${evidence.summary.missing} |
 
