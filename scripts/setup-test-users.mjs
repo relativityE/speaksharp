@@ -288,6 +288,31 @@ async function syncUserTiers(users, targetFree, targetPro) {
     else console.log('  ✅ All profiles are already in sync with target tiers');
 }
 
+async function syncUserPasswords(users, expectedAccounts) {
+    if (!SOAK_TEST_PASSWORD) {
+        console.log('  ⚠️ SOAK_TEST_PASSWORD is not set; password sync skipped');
+        return;
+    }
+
+    let synced = 0;
+    const usersByEmail = new Map(users.map(user => [user.email, user]));
+    for (const target of expectedAccounts) {
+        const user = usersByEmail.get(target.email);
+        if (!user?.id) continue;
+
+        const { error } = await supabase.auth.admin.updateUserById(user.id, {
+            password: SOAK_TEST_PASSWORD,
+        });
+        if (error) {
+            console.error(`  ❌ Password sync failed for ${target.email}: ${error.message}`);
+            continue;
+        }
+        synced++;
+    }
+
+    console.log(`  ✅ Passwords synchronized for ${synced}/${expectedAccounts.length} expected users`);
+}
+
 // ============================================
 // Main
 // ============================================
@@ -352,7 +377,8 @@ async function main() {
     existingUsers = await listExistingSoakUsers(false);
     console.log(`  Found ${existingUsers.length} soak users in database`);
 
-    console.log('\nStep 3: 🔐 Password Sync (Skipped - Assumed static to avoid rate limits)');
+    console.log('\nStep 3: 🔐 Synchronizing expected user passwords...');
+    await syncUserPasswords(existingUsers, expectedAccounts);
 
     console.log('\nStep 4: 👤 Provisioning missing slots...');
     const existingEmails = new Set(existingUsers.map(u => u.email));
