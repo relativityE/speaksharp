@@ -1,11 +1,10 @@
-import posthog from 'posthog-js';
 import { analyticsBuffer } from './AnalyticsBuffer';
 import type { SpeakingScoreResult } from '@/utils/speakingScore';
 
 export const SESSION_COACHING_EXPERIMENT_FLAG = 'session_live_coaching_score' as const;
 
-export type SessionCoachingVariant = 'control' | 'treatment';
-export type SessionCoachingAssignmentSource = 'url' | 'posthog' | 'fallback';
+export type SessionCoachingVariant = 'treatment';
+export type SessionCoachingAssignmentSource = 'url' | 'fallback';
 
 export interface SessionCoachingAssignment {
   variant: SessionCoachingVariant;
@@ -16,9 +15,8 @@ export interface SessionCoachingAssignment {
 const STORAGE_KEY = 'speaksharp:session-live-coaching-assignment';
 
 const normalizeVariant = (value: unknown): SessionCoachingVariant | null => {
-  if (value === true || value === 'true' || value === 'on' || value === 'treatment') return 'treatment';
-  if (value === false || value === 'false' || value === 'off' || value === 'control') return 'control';
-  return null;
+    if (value === true || value === 'true' || value === 'on' || value === 'treatment') return 'treatment';
+    return null;
 };
 
 const getSearch = () => (typeof window === 'undefined' ? '' : window.location.search);
@@ -47,7 +45,7 @@ export function storeSessionCoachingAssignment(assignment: SessionCoachingAssign
 
 export function getFallbackSessionCoachingAssignment(): SessionCoachingAssignment {
   return {
-    variant: 'control',
+    variant: 'treatment',
     source: 'fallback',
     flag: SESSION_COACHING_EXPERIMENT_FLAG,
   };
@@ -64,24 +62,6 @@ export function resolveSessionCoachingAssignment(search = getSearch()): SessionC
     storeSessionCoachingAssignment(assignment);
     return assignment;
   }
-
-  const posthogVariant = normalizeVariant(
-    typeof posthog.getFeatureFlag === 'function'
-      ? posthog.getFeatureFlag(SESSION_COACHING_EXPERIMENT_FLAG)
-      : null
-  );
-  if (posthogVariant) {
-    const assignment = {
-      variant: posthogVariant,
-      source: 'posthog',
-      flag: SESSION_COACHING_EXPERIMENT_FLAG,
-    } satisfies SessionCoachingAssignment;
-    storeSessionCoachingAssignment(assignment);
-    return assignment;
-  }
-
-  const stored = readStoredSessionCoachingAssignment();
-  if (stored) return stored;
 
   const fallback = getFallbackSessionCoachingAssignment();
   storeSessionCoachingAssignment(fallback);

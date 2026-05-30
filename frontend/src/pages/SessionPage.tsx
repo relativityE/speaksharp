@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Settings } from 'lucide-react';
-import posthog from 'posthog-js';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -34,21 +33,9 @@ export const SessionPage: React.FC = () => {
     const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
     const previousTranscriptScrollHeightRef = useRef(0);
-    const [coachingAssignment, setCoachingAssignment] = useState(() => resolveSessionCoachingAssignment());
+    const [coachingAssignment] = useState(() => resolveSessionCoachingAssignment());
     const trackedExperimentExposureRef = useRef<string | null>(null);
-    const showLiveCoachingScore = coachingAssignment.variant === 'treatment';
     const { data: usageLimit } = useUsageLimit();
-
-    useEffect(() => {
-        const syncAssignment = () => {
-            setCoachingAssignment(resolveSessionCoachingAssignment());
-        };
-
-        syncAssignment();
-        return typeof posthog.onFeatureFlags === 'function'
-            ? posthog.onFeatureFlags(syncAssignment)
-            : undefined;
-    }, []);
 
     useEffect(() => {
         const exposureKey = `${coachingAssignment.flag}:${coachingAssignment.variant}:${coachingAssignment.source}`;
@@ -226,23 +213,21 @@ export const SessionPage: React.FC = () => {
                             </LocalErrorBoundary>
                         </div>
 
-                        {showLiveCoachingScore && (
-                            <LocalErrorBoundary isolationKey="live-coaching-score" componentName="LiveCoachingScoreCard">
-                                <LiveCoachingScoreCard
-                                    transcript={transcriptContent}
-                                    wordCount={metrics.wordCount}
-                                    wpm={metrics.wpm}
-                                    clarityScore={metrics.clarityScore}
-                                    fillerCount={metrics.fillerCount}
-                                    elapsedSeconds={elapsedTime}
-                                    pauseMetrics={pauseMetrics}
-                                    engine={mode || 'native'}
-                                    isListening={isListening}
-                                    experimentAssignment={coachingAssignment}
-                                    className="h-full min-h-0 self-stretch"
-                                />
-                            </LocalErrorBoundary>
-                        )}
+                        <LocalErrorBoundary isolationKey="live-coaching-score" componentName="LiveCoachingScoreCard">
+                            <LiveCoachingScoreCard
+                                transcript={transcriptContent}
+                                wordCount={metrics.wordCount}
+                                wpm={metrics.wpm}
+                                clarityScore={metrics.clarityScore}
+                                fillerCount={metrics.fillerCount}
+                                elapsedSeconds={elapsedTime}
+                                pauseMetrics={pauseMetrics}
+                                engine={mode || 'native'}
+                                isListening={isListening}
+                                experimentAssignment={coachingAssignment}
+                                className="h-full min-h-0 self-stretch"
+                            />
+                        </LocalErrorBoundary>
                     </div>
 
                     <div className="mt-6">

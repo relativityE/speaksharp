@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const sessionCoachingMock = vi.hoisted(() => ({
     resolveSessionCoachingAssignment: vi.fn(() => ({
-        variant: 'control',
+        variant: 'treatment',
         source: 'fallback',
         flag: 'session_live_coaching_score',
     })),
@@ -118,7 +118,7 @@ describe('SessionPage Rendering', () => {
         window.sessionStorage.clear();
         window.history.pushState({}, '', '/session');
         sessionCoachingMock.resolveSessionCoachingAssignment.mockReturnValue({
-            variant: 'control',
+            variant: 'treatment',
             source: 'fallback',
             flag: 'session_live_coaching_score',
         });
@@ -164,11 +164,10 @@ describe('SessionPage Rendering', () => {
         expect(screen.getByText('Custom')).toBeInTheDocument();
     });
 
-    it('renders live coaching in the feedback rail when treatment is forced', () => {
-        window.history.pushState({}, '', '/session?coaching=on');
+    it('renders live coaching in the feedback rail by default', () => {
         sessionCoachingMock.resolveSessionCoachingAssignment.mockReturnValue({
             variant: 'treatment',
-            source: 'url',
+            source: 'fallback',
             flag: 'session_live_coaching_score',
         });
         mockUseSessionLifecycle.mockReturnValue({
@@ -250,11 +249,10 @@ describe('Metrics Display', () => {
         expect(screen.getByText('01:05')).toBeInTheDocument();
     });
 
-    it('should feed WPM into live coaching when treatment is enabled', () => {
-        window.history.pushState({}, '', '/session?coaching=on');
+    it('should feed WPM into live coaching', () => {
         sessionCoachingMock.resolveSessionCoachingAssignment.mockReturnValue({
             variant: 'treatment',
-            source: 'url',
+            source: 'fallback',
             flag: 'session_live_coaching_score',
         });
         mockUseSessionLifecycle.mockReturnValue({

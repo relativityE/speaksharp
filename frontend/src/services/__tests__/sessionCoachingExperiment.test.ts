@@ -1,15 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const posthogMock = vi.hoisted(() => ({
-  getFeatureFlag: vi.fn(),
-}));
-
 const analyticsMock = vi.hoisted(() => ({
   push: vi.fn(),
-}));
-
-vi.mock('posthog-js', () => ({
-  default: posthogMock,
 }));
 
 vi.mock('../AnalyticsBuffer', () => ({
@@ -27,24 +19,19 @@ describe('sessionCoachingExperiment', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.sessionStorage.clear();
-    posthogMock.getFeatureFlag.mockReturnValue(null);
   });
 
-  it('lets URL overrides force treatment and control for manual QA', () => {
+  it('lets URL overrides force the live coaching page for manual QA', () => {
     expect(getSessionCoachingUrlOverride('?coaching=on')).toBe('treatment');
-    expect(getSessionCoachingUrlOverride('?coaching=off')).toBe('control');
+    expect(getSessionCoachingUrlOverride('?coaching=off')).toBeNull();
   });
 
-  it('prefers PostHog assignment when no URL override is present', () => {
-    posthogMock.getFeatureFlag.mockReturnValue('treatment');
-
+  it('defaults to treatment when no URL override is present', () => {
     expect(resolveSessionCoachingAssignment('').variant).toBe('treatment');
-    expect(resolveSessionCoachingAssignment('').source).toBe('posthog');
+    expect(resolveSessionCoachingAssignment('').source).toBe('fallback');
   });
 
-  it('uses URL override ahead of PostHog assignment', () => {
-    posthogMock.getFeatureFlag.mockReturnValue('control');
-
+  it('uses URL override ahead of the product default', () => {
     expect(resolveSessionCoachingAssignment('?coaching=on')).toEqual({
       variant: 'treatment',
       source: 'url',
@@ -61,13 +48,12 @@ describe('sessionCoachingExperiment', () => {
   });
 
   it('includes stored assignment in downstream analytics properties', () => {
-    posthogMock.getFeatureFlag.mockReturnValue('control');
-    resolveSessionCoachingAssignment('');
+    resolveSessionCoachingAssignment('?coaching=on');
 
     expect(getSessionCoachingExperimentProperties()).toEqual({
       session_coaching_experiment: 'session_live_coaching_score',
-      session_coaching_variant: 'control',
-      session_coaching_assignment_source: 'posthog',
+      session_coaching_variant: 'treatment',
+      session_coaching_assignment_source: 'url',
     });
   });
 });
