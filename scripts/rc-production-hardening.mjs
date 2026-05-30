@@ -9,13 +9,8 @@ const checks = [
   },
   {
     file: 'frontend/src/components/ProfileGuard.tsx',
-    description: 'synthetic guest profile path is additionally production-guarded',
-    pattern: /const isE2EMockMode = ENV\.isE2E && import\.meta\.env\.MODE !== 'production';/,
-  },
-  {
-    file: 'frontend/src/hooks/useUserProfile.ts',
-    description: 'test Pro rescue remains dev/E2E-only and cannot run in production after ENV guard',
-    pattern: /if \(\(import\.meta\.env\.DEV \|\| ENV\.isE2E\) && isProEmail\)/,
+    description: 'synthetic guest profile path is routed through production-guarded ENV.isE2E',
+    pattern: /const isE2EMockMode = ENV\.isE2E;/,
   },
   {
     file: 'frontend/src/components/ProtectedRoute.tsx',
@@ -24,11 +19,36 @@ const checks = [
   },
 ];
 
+const forbiddenChecks = [
+  {
+    file: 'frontend/src/contexts/AuthProvider.tsx',
+    description: 'manual auth provider must not inject devBypass profile sessions',
+    pattern: /devBypass|dev-bypass|dev@speaksharp\.app/,
+  },
+  {
+    file: 'frontend/src/hooks/useUserProfile.ts',
+    description: 'profile hook must not synthesize Pro/test profiles',
+    pattern: /isProEmail|pro-user|testuser|test@example\.com|sub_e2e_paid_pro|devBypass/,
+  },
+  {
+    file: 'frontend/src/hooks/useSessionLifecycle.ts',
+    description: 'session lifecycle must not grant entitlements from VITE_DEV_USER',
+    pattern: /VITE_DEV_USER|isDevUser/,
+  },
+];
+
 const findings = [];
 
 for (const check of checks) {
   const source = readFileSync(check.file, 'utf8');
   if (!check.pattern.test(source)) {
+    findings.push(`${check.file}: ${check.description}`);
+  }
+}
+
+for (const check of forbiddenChecks) {
+  const source = readFileSync(check.file, 'utf8');
+  if (check.pattern.test(source)) {
     findings.push(`${check.file}: ${check.description}`);
   }
 }
