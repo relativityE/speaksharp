@@ -406,9 +406,17 @@ export async function programmaticLoginWithRoutes(
     }
   }
 
-  const localStorageKey = `sb-${projectRef}-auth-token`;
   // Tier-Aware Mock: Create session with deterministic token for MSW branching
   const session = createMockSession({}, userType);
+
+  const authStorage = {
+    [`sb-${projectRef}-auth-token`]: JSON.stringify(session),
+    // The production-like E2E build can be compiled with a real Supabase URL
+    // while Playwright loads .env.test in the runner process. Seed both known
+    // project refs so AuthProvider and route mocks agree without app bypasses.
+    'sb-yxlapjuovrsvjswkwnrk-auth-token': JSON.stringify(session),
+    'sb-mock-auth-token': JSON.stringify(session)
+  };
 
   const { setupE2EMocks } = await import('./mock-routes');
   await setupE2EMocks(page, { userType, emptySessions, profile: mockProfile });
@@ -423,9 +431,7 @@ export async function programmaticLoginWithRoutes(
     debug: !!debug,
     userType,
     mockProfile,
-    storage: {
-      [localStorageKey]: JSON.stringify(session)
-    }
+    storage: authStorage
   });
 
   await page.goto('/');
@@ -493,12 +499,17 @@ export async function simulateTranscription(page: Page, text: string, isFinal: b
   await page.evaluate(({ transcription, final }) => {
     // Define bridge interface locally for type-safe access
     const win = window as unknown as E2EWindow;
-    // Modern pattern: window.__SS_E2E__.emitTranscript
-    if (win.__SS_E2E__?.emitTranscript) {
+    // Prefer the harness-owned bridge. App.tsx may add a diagnostic bridge
+    // method too, but the harness bridge knows how to fall back across all
+    // mocked product modes.
+    if (win.__SS_E2E_BRIDGE__?.emitTranscript) {
+      win.__SS_E2E_BRIDGE__.emitTranscript(transcription, final);
+    } else if (win.__SS_E2E__?.emitTranscript) {
       win.__SS_E2E__.emitTranscript(transcription, final);
     } else if (typeof win.dispatchMockTranscript === 'function') {
       win.dispatchMockTranscript(transcription, final);
     }
+
   }, { transcription: text, final: isFinal });
 }
 
@@ -530,17 +541,7 @@ export async function mockLiveTranscript(
     const payload = speaker ? `${speaker}: ${text}` : text;
 
     await simulateTranscription(page, payload, false);
-    // Pacing by signal acknowledgment instead of arbitrary delay
-    await page.waitForFunction(() => {
-      const win = window as unknown as Record<string, unknown>;
-      const probe = win.__E2E_PROBE__ as Array<{ event: string }> | undefined;
-      return probe?.some(e => e.event === 'TRANSCRIPT_PULSE');
-    }, { timeout: 5000 });
-    // Clear probe for next chunk synchronization
-    await page.evaluate(() => {
-      const win = (window as unknown as Record<string, unknown>);
-      win.__E2E_PROBE__ = [];
-    });
+    await page.waitForTimeout(50);
   }
 
   const lastLine = lines[lines.length - 1];

@@ -5,11 +5,10 @@ import {
   selectTranscriptionEngine,
   simulateTranscription,
   waitForFeature,
-  waitForTranscriptionService,
 } from './helpers';
 import { TEST_IDS } from '../constants';
 
-const userFacingTranscript = 'um this is a tester-facing transcript with like clear numbers and enough words to explain the score';
+const userFacingTranscript = 'um this is a tester-facing transcript with like clear numbers and enough words to explain the score because the user should understand what changed, why it changed, and what to practice next. The point is to connect the visible tools to one useful coaching signal.';
 
 test.describe('User-facing session and analytics regressions', () => {
   test('keeps final transcript visible when later interim text is blank', async ({ page }) => {
@@ -23,7 +22,6 @@ test.describe('User-facing session and analytics regressions', () => {
     await expect(startButton).toHaveAttribute('data-recording', 'true');
 
     await simulateTranscription(page, userFacingTranscript, true);
-    await waitForTranscriptionService(page, 'TRANSCRIPT_PULSE');
     await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('tester-facing transcript');
 
     await simulateTranscription(page, '', false);
@@ -33,19 +31,21 @@ test.describe('User-facing session and analytics regressions', () => {
 
   test('shows explanations for live metrics after speech is captured', async ({ page }) => {
     await programmaticLoginWithRoutes(page, { userType: 'pro' });
-    await navigateToRoute(page, '/session');
+    await navigateToRoute(page, '/session?coaching=treatment');
     await selectTranscriptionEngine(page, 'native');
 
     const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
     await startButton.click();
     await simulateTranscription(page, userFacingTranscript, true);
-    await waitForTranscriptionService(page, 'TRANSCRIPT_PULSE');
+    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('tester-facing transcript');
 
-    await expect(page.getByTestId(TEST_IDS.WPM_VALUE)).not.toHaveText('0');
-    await expect(page.getByText(/target range|too little speech|below the target|above the target/i)).toBeVisible();
+    await expect(page.getByTestId('live-coaching-score-card')).toBeVisible();
+    await expect(page.getByTestId('live-session-score')).not.toHaveText('--');
+    await expect(page.getByTestId('live-score-evidence')).toContainText(/pace, fillers, pauses/i);
+    await expect(page.getByTestId('live-coaching-actions')).toContainText(/\w+/);
     await expect(page.getByText(/filler words detected|captured words/i)).toBeVisible();
-    await expect(page.getByText(/pulling attention away|replace the next one|no filler words|rough signal/i)).toBeVisible();
+    await expect(page.getByTestId('live-coaching-actions')).toContainText(/beat of silence|pause|main point|example|takeaway/i);
   });
 
   test('preserves metric parity from session to analytics detail after save and reload', async ({ page }) => {
@@ -57,7 +57,7 @@ test.describe('User-facing session and analytics regressions', () => {
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
     await startButton.click();
     await simulateTranscription(page, userFacingTranscript, true);
-    await waitForTranscriptionService(page, 'TRANSCRIPT_PULSE');
+    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('tester-facing transcript');
 
     await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('2');
     await page.waitForTimeout(5_200);
@@ -104,9 +104,8 @@ test.describe('User-facing session and analytics regressions', () => {
     await startButton.click();
     await expect(startButton).toHaveAttribute('data-recording', 'true');
     await simulateTranscription(page, 'free mobile transcript appears without hidden controls', true);
-    await waitForTranscriptionService(page, 'TRANSCRIPT_PULSE');
 
-    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('free mobile transcript');
+    await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText(/free mobile transcript/i);
     await expect(page.getByLabel(/Stop Recording/i)).toBeVisible();
   });
 });

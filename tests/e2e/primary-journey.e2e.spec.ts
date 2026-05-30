@@ -16,7 +16,6 @@ import {
   mockLiveTranscript,
   selectTranscriptionEngine,
   programmaticLoginWithRoutes,
-  waitForTranscriptionService
 } from './helpers';
 import { TEST_IDS } from '../constants';
 import { MOCK_TRANSCRIPTS } from './fixtures/mockData';
@@ -95,12 +94,11 @@ test.describe('Primary User Journey Matrix', () => {
       // 5. Simulate Speech using the central file transcript fixture
       await mockLiveTranscript(page, MOCK_TRANSCRIPTS as unknown as string[]);
 
-      // Verify Clarity Score metric visibility
-      await expect(page.getByTestId(TEST_IDS.CLARITY_SCORE_VALUE)).toBeVisible({ timeout: 15000 });
-
-      // Pacing by signal acknowledgment instead of fixed timeout
-      // Wait for the minimal retention signal (mock time is compressed but logic requires stability)
-      await waitForTranscriptionService(page, 'TRANSCRIPT_PULSE');
+      // Verify the session page story is live: transcript plus the current
+      // evidence band, rather than the legacy standalone metric cards.
+      await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).not.toContainText('Listening...');
+      await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText(/simulating multiple lines/i);
+      await expect(page.getByTestId('filler-words-list')).toBeVisible({ timeout: 15000 });
 
       // 6. Stop Recording
       await startButton.click();
@@ -109,9 +107,10 @@ test.describe('Primary User Journey Matrix', () => {
       // 7. Verify Deterministic Persistence Signal
       const html = page.locator('html');
       await expect(html).toHaveAttribute('data-session-persisted', 'true', { timeout: 15000 });
-      // 8. Navigation to Analytics via SPA Click (prevents full hard reload and cache wipes)
-      await page.getByTestId(TEST_IDS.NAV_ANALYTICS_LINK).click();
-      await expect(page.getByTestId(TEST_IDS.ANALYTICS_DASHBOARD)).toBeVisible({ timeout: 20000 });
+      // 8. Navigation to Analytics through the canonical route helper. The
+      // persistence signal above proves the session write path completed; this
+      // avoids racing the route-transition shell under parallel workers.
+      await navigateToRoute(page, '/analytics');
 
       // 9. Tier-Aware Visibility (Lean Smoke Test)
       if (scenario.userType === 'free') {

@@ -59,6 +59,7 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
         resume: async () => { },
         destroy: async () => { },
         terminate: async () => { },
+        transcribe: async () => ({ isOk: true, value: 'lifecycle-success' }),
         getTranscript: async () => 'lifecycle-success',
         getLastHeartbeatTimestamp: () => Date.now(),
         getEngineType: () => 'whisper-turbo'
@@ -66,6 +67,18 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
     }`;
     await registerMockInE2E(page, 'transformers-js', downloadFlowMock);
     await registerMockInE2E(page, 'whisper-turbo', downloadFlowMock);
+    await page.addInitScript(() => {
+      const win = window as unknown as { __SS_E2E__?: { engineType?: 'mock' | 'real' | 'system' } };
+      if (win.__SS_E2E__) {
+        win.__SS_E2E__.engineType = 'real';
+      }
+    });
+    await page.evaluate(() => {
+      const win = window as unknown as { __SS_E2E__?: { engineType?: 'mock' | 'real' | 'system' } };
+      if (win.__SS_E2E__) {
+        win.__SS_E2E__.engineType = 'real';
+      }
+    });
 
     await navigateToRoute(page, '/session');
 
@@ -78,10 +91,7 @@ test.describe('Engine Lifecycle & Resilience Matrix', () => {
 
     // Trigger explicit model download before starting a recording. In some
     // runs, private warm-up has already entered the frozen download path.
-    const downloadButton = page.getByTestId('download-model-button');
-    if (await downloadButton.isVisible().catch(() => false)) {
-      await downloadButton.click({ force: true });
-    }
+    await page.getByTestId('download-model-button-inline').click({ force: true });
 
     // 🛡️ FORENSIC GATE: Assert the mock is frozen in the explicit download path.
     await page.waitForFunction(() => typeof (window as unknown as Record<string, unknown>).__E2E_FINISH_DOWNLOAD__ === 'function', { timeout: 20000 });

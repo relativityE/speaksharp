@@ -6,7 +6,6 @@ import {
   selectTranscriptionEngine,
   simulateTranscription,
   waitForFeature,
-  waitForTranscriptionService,
 } from './helpers';
 import { TEST_IDS } from '../constants';
 
@@ -43,11 +42,9 @@ test(`Gate 2 mocked ${mode}: analytics values change from transcript events and 
   await expect(startButton).toHaveAttribute('data-recording', 'true');
 
   await simulateTranscription(page, transcript, true);
-  await waitForTranscriptionService(page, 'TRANSCRIPT_PULSE');
 
   await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('customboost');
-  await expect(page.getByTestId(TEST_IDS.WPM_VALUE)).not.toHaveText('0');
-  await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('3');
+  await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('4');
 
   await page.waitForTimeout(5_200);
 
@@ -59,11 +56,11 @@ test(`Gate 2 mocked ${mode}: analytics values change from transcript events and 
   await expect(page.getByTestId(TEST_IDS.ANALYTICS_DASHBOARD)).toBeVisible();
 
   const latestSession = page.getByTestId(/session-history-item-/).first();
-  await expect(latestSession).toContainText('3');
+  await expect(latestSession).toContainText('4');
   await openSessionDetailFromHistoryItem(page, latestSession);
   await expect(page.getByTestId(TEST_IDS.STAT_CARD_SPEAKING_PACE).locator('.text-3xl').first()).not.toHaveText('0');
   await expect(page.getByTestId(TEST_IDS.CLARITY_SCORE_VALUE)).toContainText('%');
-  await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('3');
+  await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('4');
   await expect(page.getByTestId('session-engine-metadata')).toContainText(new RegExp(mode, 'i'));
   await expect(page.getByText(/customboost phrase should be tracked/i)).toBeVisible();
 

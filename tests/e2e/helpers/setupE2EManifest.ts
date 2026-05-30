@@ -41,6 +41,12 @@ interface ControllerBridge {
     };
     isTerminated: boolean;
   };
+  handleTranscriptUpdate?: (update: {
+    transcript: { partial?: string; final?: string };
+    isFinal: boolean;
+    isPartial: boolean;
+    timestamp: number;
+  }) => void;
 }
 
 /**
@@ -177,6 +183,7 @@ export async function setupE2EManifest(
         getEngineType: () => mode,
         getLastHeartbeatTimestamp: () => Date.now(),
         getTranscript: async () => '[E2E_MOCK]',
+        transcribe: async () => ({ isOk: true, value: '[E2E_MOCK]', data: '[E2E_MOCK]' }),
         emitTranscript: (text: string, isFinal: boolean = true) => {
           if (opts?.onTranscriptUpdate) {
             opts.onTranscriptUpdate({
@@ -220,17 +227,23 @@ export async function setupE2EManifest(
     win.__SS_E2E_BRIDGE__ = {
       emitTranscript: (text: string, isFinal: boolean = true) => {
         const controller = win.__TRANSCRIPTION_SERVICE__;
-        const svc = controller?.service;
-        if (svc && !svc.isTerminated) {
-          svc.strategy?.emitTranscript?.(text, isFinal);
-          return;
-        }
-        win.__SS_E2E__?._activeCallbacks?.onTranscriptUpdate?.({
+        const update = {
           transcript: isFinal ? { final: text } : { partial: text },
           isFinal,
           isPartial: !isFinal,
           timestamp: Date.now()
-        });
+        };
+        if (typeof controller?.handleTranscriptUpdate === 'function') {
+          controller.handleTranscriptUpdate(update);
+          return;
+        }
+        const svc = controller?.service;
+        const strategyEmit = svc?.strategy?.emitTranscript;
+        if (svc && !svc.isTerminated && typeof strategyEmit === 'function') {
+          strategyEmit.call(svc.strategy, text, isFinal);
+          return;
+        }
+        win.__SS_E2E__?._activeCallbacks?.onTranscriptUpdate?.(update);
       }
     };
 
