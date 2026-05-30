@@ -33,6 +33,7 @@ test(`Gate 2 mocked ${mode}: analytics values change from transcript events and 
   });
 
   await navigateToRoute(page, '/session');
+  await expect(page.getByTestId('filler-words-list')).toContainText('customboost');
   await selectTranscriptionEngine(page, mode);
   await expect(page.getByTestId(TEST_IDS.STT_MODE_SELECT)).toHaveAttribute('data-state', mode);
 

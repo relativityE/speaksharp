@@ -15,7 +15,7 @@ vi.mock('@/services/sessionCoachingExperiment', async (importOriginal) => {
 describe('LiveCoachingScoreCard', () => {
     const assignment = {
         variant: 'treatment' as const,
-        source: 'url' as const,
+        source: 'default' as const,
         flag: SESSION_COACHING_EXPERIMENT_FLAG,
     };
 

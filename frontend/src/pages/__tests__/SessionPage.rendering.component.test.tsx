@@ -1,11 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const sessionCoachingMock = vi.hoisted(() => ({
-    resolveSessionCoachingAssignment: vi.fn(() => ({
+    getSessionCoachingAssignment: vi.fn(() => ({
         variant: 'treatment',
-        source: 'fallback',
+        source: 'default',
         flag: 'session_live_coaching_score',
     })),
-    trackSessionCoachingExperimentViewed: vi.fn(),
     trackSessionCoachingCardViewed: vi.fn(),
     trackSessionCoachingNumericScoreShown: vi.fn(),
 }));
@@ -117,9 +116,9 @@ describe('SessionPage Rendering', () => {
         vi.useRealTimers();
         window.sessionStorage.clear();
         window.history.pushState({}, '', '/session');
-        sessionCoachingMock.resolveSessionCoachingAssignment.mockReturnValue({
+        sessionCoachingMock.getSessionCoachingAssignment.mockReturnValue({
             variant: 'treatment',
-            source: 'fallback',
+            source: 'default',
             flag: 'session_live_coaching_score',
         });
         mockUseSessionLifecycle.mockReturnValue(defaultLifecycle as unknown as ReturnType<typeof SessionLifecycleHook.useSessionLifecycle>);
@@ -165,9 +164,9 @@ describe('SessionPage Rendering', () => {
     });
 
     it('renders live coaching in the feedback rail by default', () => {
-        sessionCoachingMock.resolveSessionCoachingAssignment.mockReturnValue({
+        sessionCoachingMock.getSessionCoachingAssignment.mockReturnValue({
             variant: 'treatment',
-            source: 'fallback',
+            source: 'default',
             flag: 'session_live_coaching_score',
         });
         mockUseSessionLifecycle.mockReturnValue({
@@ -250,9 +249,9 @@ describe('Metrics Display', () => {
     });
 
     it('should feed WPM into live coaching', () => {
-        sessionCoachingMock.resolveSessionCoachingAssignment.mockReturnValue({
+        sessionCoachingMock.getSessionCoachingAssignment.mockReturnValue({
             variant: 'treatment',
-            source: 'fallback',
+            source: 'default',
             flag: 'session_live_coaching_score',
         });
         mockUseSessionLifecycle.mockReturnValue({

@@ -17,8 +17,7 @@ import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
 import { SunsetModals } from '@/components/session/SunsetModals';
 import { useTranscriptionContext } from '@/providers/useTranscriptionContext';
 import {
-    resolveSessionCoachingAssignment,
-    trackSessionCoachingExperimentViewed,
+    getSessionCoachingAssignment,
 } from '@/services/sessionCoachingExperiment';
 import { formatRemainingTime, useUsageLimit } from '@/hooks/useUsageLimit';
 
@@ -33,16 +32,8 @@ export const SessionPage: React.FC = () => {
     const { runtimeState } = useTranscriptionContext();
     const transcriptContainerRef = useRef<HTMLDivElement>(null);
     const previousTranscriptScrollHeightRef = useRef(0);
-    const [coachingAssignment] = useState(() => resolveSessionCoachingAssignment());
-    const trackedExperimentExposureRef = useRef<string | null>(null);
+    const [coachingAssignment] = useState(() => getSessionCoachingAssignment());
     const { data: usageLimit } = useUsageLimit();
-
-    useEffect(() => {
-        const exposureKey = `${coachingAssignment.flag}:${coachingAssignment.variant}:${coachingAssignment.source}`;
-        if (trackedExperimentExposureRef.current === exposureKey) return;
-        trackedExperimentExposureRef.current = exposureKey;
-        trackSessionCoachingExperimentViewed(coachingAssignment);
-    }, [coachingAssignment]);
 
     const {
         isListening,

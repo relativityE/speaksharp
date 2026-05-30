@@ -33,3 +33,40 @@ Use these targets unless a release owner explicitly overrides them in `RC_GATES.
 | Browser endurance heap growth | <= 50 MB | <= 50 MB |
 
 Raw workflow artifacts win if this alias and generated evidence disagree.
+
+## Latest Target Vs Measured Digest
+
+**Snapshot source:** checked 2026-05-30 from the current files in `product_release/evidence/`.
+
+This is a digest, not final RC signoff. The current local evidence is useful for direction, but it does not close release readiness until the same latest commit has green CI plus fresh Service-Level Evidence artifacts.
+
+| Area | Target | Latest Measured | Status | Notes |
+|---|---:|---:|---|---|
+| Unit + E2E correctness | 0 failing tests | 0 failing tests out of 975 total | PASS in latest local quality artifact | Current latest GitHub CI still needs a new green run after the analytics-truth fix. |
+| Release-path skipped tests | 0 | 1 skipped | REVIEW | Keep skipped-test count visible; do not treat it as hidden green. |
+| Statements coverage | 60% floor / 80% industry target | 72.56% | PASS floor / below industry target | Advisory improvement target remains 80%. |
+| Branch coverage | 60% floor / 80% industry target | 76.83% | PASS floor / below industry target | Stronger than floor, still below industry target. |
+| Function coverage | 60% floor / 80% industry target | 73.55% | PASS floor / below industry target | Prioritize STT/session/billing/analytics truth coverage before broad vanity coverage. |
+| Line coverage | 60% floor / 80% industry target | 72.56% | PASS floor / below industry target | Same interpretation as statement coverage. |
+| Lighthouse accessibility | >= 90 | 94 | PASS | Latest local quality artifact. |
+| Lighthouse performance | >= 90 | 97 | PASS | Latest local quality artifact. |
+| Backend auth p95 latency | < 2000 ms floor / < 1000 ms industry target | Missing | NOT CLOSED | Needs fresh backend stress artifact. |
+| Usage-limit Edge Function p95 | < 2000 ms floor / < 1000 ms industry target | Missing | NOT CLOSED | Needs fresh backend stress artifact. |
+| Session-save RPC p95 | < 2000 ms floor / < 1000 ms industry target | Missing | NOT CLOSED | Needs fresh backend stress artifact. |
+| Backend stress failure rate | 0% | Missing | NOT CLOSED | Needs fresh backend stress artifact. |
+| Browser endurance memory growth | <= 50 MB when memory API is available | Memory API unavailable | NON-EVIDENCE FOR MEMORY | Functional endurance still needs clean current evidence. |
+| Browser endurance critical failures | 0 critical failures | 0 request failures; 4 console errors | NOT CLOSED | Current artifact does not count as release evidence. |
+| Ignored teardown reads | Only classified read-only teardown aborts allowed | 0 classified teardown reads | PASS | The classifier is present, but this artifact still fails for other reasons. |
+| Artifact completeness | 100% present and parseable | 2/3 present, backend stress missing | FAIL | This is the main SLO/SLC evidence gap to close. |
+
+## Evidence Closure Rule
+
+For RC signoff, the final row must be simple:
+
+| Gate | Required Result |
+|---|---|
+| CI/Test Audit | Green on latest commit SHA. |
+| Production canary | Green on latest commit SHA. |
+| Supabase deploy | Green on latest commit SHA when backend/Edge files changed. |
+| Service-Level Evidence | `countsAsReleaseEvidence=true`, no critical failures, backend stress present, browser endurance present, artifacts parseable. |
+| STT proof | Native/Private/Cloud evidence labeled by engine, account entitlement, browser/runtime, transcript result, and console-log artifact. |

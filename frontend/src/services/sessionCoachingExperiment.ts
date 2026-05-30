@@ -4,7 +4,7 @@ import type { SpeakingScoreResult } from '@/utils/speakingScore';
 export const SESSION_COACHING_EXPERIMENT_FLAG = 'session_live_coaching_score' as const;
 
 export type SessionCoachingVariant = 'treatment';
-export type SessionCoachingAssignmentSource = 'url' | 'fallback';
+export type SessionCoachingAssignmentSource = 'default';
 
 export interface SessionCoachingAssignment {
   variant: SessionCoachingVariant;
@@ -12,76 +12,12 @@ export interface SessionCoachingAssignment {
   flag: typeof SESSION_COACHING_EXPERIMENT_FLAG;
 }
 
-const STORAGE_KEY = 'speaksharp:session-live-coaching-assignment';
-
-const normalizeVariant = (value: unknown): SessionCoachingVariant | null => {
-    if (value === true || value === 'true' || value === 'on' || value === 'treatment') return 'treatment';
-    return null;
-};
-
-const getSearch = () => (typeof window === 'undefined' ? '' : window.location.search);
-
-export function getSessionCoachingUrlOverride(search = getSearch()): SessionCoachingVariant | null {
-  const value = new URLSearchParams(search).get('coaching');
-  return normalizeVariant(value);
-}
-
-export function readStoredSessionCoachingAssignment(): SessionCoachingAssignment | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const parsed = JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) ?? 'null') as SessionCoachingAssignment | null;
-    return parsed?.flag === SESSION_COACHING_EXPERIMENT_FLAG && normalizeVariant(parsed.variant)
-      ? parsed
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-export function storeSessionCoachingAssignment(assignment: SessionCoachingAssignment): void {
-  if (typeof window === 'undefined') return;
-  window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(assignment));
-}
-
-export function getFallbackSessionCoachingAssignment(): SessionCoachingAssignment {
+export function getSessionCoachingAssignment(): SessionCoachingAssignment {
   return {
     variant: 'treatment',
-    source: 'fallback',
+    source: 'default',
     flag: SESSION_COACHING_EXPERIMENT_FLAG,
   };
-}
-
-export function resolveSessionCoachingAssignment(search = getSearch()): SessionCoachingAssignment {
-  const override = getSessionCoachingUrlOverride(search);
-  if (override) {
-    const assignment = {
-      variant: override,
-      source: 'url',
-      flag: SESSION_COACHING_EXPERIMENT_FLAG,
-    } satisfies SessionCoachingAssignment;
-    storeSessionCoachingAssignment(assignment);
-    return assignment;
-  }
-
-  const fallback = getFallbackSessionCoachingAssignment();
-  storeSessionCoachingAssignment(fallback);
-  return fallback;
-}
-
-const getCurrentRoute = () => {
-  if (typeof window === 'undefined') return 'unknown';
-  return `${window.location.pathname}${window.location.search}`;
-};
-
-export function trackSessionCoachingExperimentViewed(assignment: SessionCoachingAssignment): void {
-  if (assignment.source === 'fallback') return;
-
-  analyticsBuffer.push('session_live_coaching_experiment_viewed', {
-    experiment: SESSION_COACHING_EXPERIMENT_FLAG,
-    variant: assignment.variant,
-    assignment_source: assignment.source,
-    route: getCurrentRoute(),
-  }, 'LOW');
 }
 
 export function trackSessionCoachingCardViewed(
@@ -121,7 +57,7 @@ export function trackSessionCoachingNumericScoreShown(
 }
 
 export function getSessionCoachingExperimentProperties(): Record<string, unknown> {
-  const assignment = readStoredSessionCoachingAssignment() ?? getFallbackSessionCoachingAssignment();
+  const assignment = getSessionCoachingAssignment();
   return {
     session_coaching_experiment: SESSION_COACHING_EXPERIMENT_FLAG,
     session_coaching_variant: assignment.variant,

@@ -10,9 +10,7 @@ vi.mock('../AnalyticsBuffer', () => ({
 
 import {
   getSessionCoachingExperimentProperties,
-  getSessionCoachingUrlOverride,
-  resolveSessionCoachingAssignment,
-  trackSessionCoachingExperimentViewed,
+  getSessionCoachingAssignment,
 } from '../sessionCoachingExperiment';
 
 describe('sessionCoachingExperiment', () => {
@@ -21,39 +19,19 @@ describe('sessionCoachingExperiment', () => {
     window.sessionStorage.clear();
   });
 
-  it('lets URL overrides force the live coaching page for manual QA', () => {
-    expect(getSessionCoachingUrlOverride('?coaching=on')).toBe('treatment');
-    expect(getSessionCoachingUrlOverride('?coaching=off')).toBeNull();
-  });
-
-  it('defaults to treatment when no URL override is present', () => {
-    expect(resolveSessionCoachingAssignment('').variant).toBe('treatment');
-    expect(resolveSessionCoachingAssignment('').source).toBe('fallback');
-  });
-
-  it('uses URL override ahead of the product default', () => {
-    expect(resolveSessionCoachingAssignment('?coaching=on')).toEqual({
+  it('always returns the live-coaching Session assignment', () => {
+    expect(getSessionCoachingAssignment()).toEqual({
       variant: 'treatment',
-      source: 'url',
+      source: 'default',
       flag: 'session_live_coaching_score',
     });
   });
 
-  it('does not emit exposure analytics for fallback assignment', () => {
-    const assignment = resolveSessionCoachingAssignment('');
-
-    expect(assignment.source).toBe('fallback');
-    trackSessionCoachingExperimentViewed(assignment);
-    expect(analyticsMock.push).not.toHaveBeenCalled();
-  });
-
-  it('includes stored assignment in downstream analytics properties', () => {
-    resolveSessionCoachingAssignment('?coaching=on');
-
+  it('includes live-coaching assignment in downstream analytics properties', () => {
     expect(getSessionCoachingExperimentProperties()).toEqual({
       session_coaching_experiment: 'session_live_coaching_score',
       session_coaching_variant: 'treatment',
-      session_coaching_assignment_source: 'url',
+      session_coaching_assignment_source: 'default',
     });
   });
 });
