@@ -2,7 +2,7 @@ import React from 'react';
 import { ENV } from '../config/TestFlags';
 import { useUserProfile } from '../hooks/useUserProfile';
 import { useAuthProvider } from '../contexts/AuthProvider';
-import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, AlertCircle, RefreshCw, LogOut } from 'lucide-react';
 import { Button } from './ui/button';
 import { ProfileProvider } from '../contexts/ProfileContext';
 import { useReadinessStore } from '@/stores/useReadinessStore';
@@ -141,20 +141,18 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
                 </div>
                 <h2 className="text-2xl font-bold text-foreground mb-2">Profile Sync Failed</h2>
                 <p className="text-center text-muted-foreground max-w-md mb-8">
-                    We couldn't load your profile settings. This is usually a temporary connection issue. If it persists, sign out and sign back in to refresh your account session.
+                    We couldn't load your profile settings. Retry sync first. If it keeps failing, sign out and sign back in to refresh your account session.
                 </p>
                 <div className="flex flex-wrap justify-center gap-4">
-                    <Button variant="outline" onClick={() => window.location.reload()}>
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                        Refresh App
-                    </Button>
                     <Button onClick={() => { void refetch(); }}>
+                        <RefreshCw className="mr-2 h-4 w-4" />
                         Retry Sync
                     </Button>
                     <Button
-                        variant="destructive"
+                        variant="outline"
                         onClick={() => { void signOut(); }}
                     >
+                        <LogOut className="mr-2 h-4 w-4" />
                         Sign Out
                     </Button>
                 </div>

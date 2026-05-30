@@ -80,9 +80,8 @@ export const TranscriptionProvider: React.FC<TranscriptionProviderProps> = ({
             intent: 'Syncing policy and setting E2E gate'
         }, '[TranscriptionProvider] Syncing policy');
 
-        const isDevUser = import.meta.env.MODE !== 'production' && import.meta.env.VITE_DEV_USER === 'true';
-        const isPro = tier === 'pro' || isDevUser;
-        const canUseCloud = (isPro && hasCloudSttEntitlement(policyProfile)) || isDevUser;
+        const isPro = tier === 'pro';
+        const canUseCloud = isPro && hasCloudSttEntitlement(policyProfile);
         const requestedMode = isPro ? currentSelectedMode : null;
         const safeMode = requestedMode === 'cloud' && !canUseCloud ? 'private' : requestedMode;
         const newPolicy = buildPolicyForUser(isPro, safeMode, { allowCloud: canUseCloud });

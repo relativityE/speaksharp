@@ -985,6 +985,7 @@ export class SpeechRuntimeController {
                 pushNativeStoreTrace('store_skip_duplicate_last_chunk', {
                     finalTranscript,
                 });
+                store.updateTranscript(currentTranscript || finalTranscript, '');
                 return;
             }
             if (isPrivateTranscriptTraceEnabled()) {
@@ -1000,6 +1001,7 @@ export class SpeechRuntimeController {
                     currentTrimmed,
                     finalTranscript,
                 });
+                store.updateTranscript(currentTranscript || finalTranscript, '');
                 return;
             }
 
@@ -1633,7 +1635,7 @@ export class SpeechRuntimeController {
                                     ? "We didn't capture enough speech to save this session."
                                     : "We didn't detect enough speech to save this session.",
                                 detail: nativeSaveQualityFailureReason
-                                    ? 'Try recording again or switch to Private or Cloud transcription.'
+                                    ? 'Try recording again and speak clearly for at least a few seconds.'
                                     : 'Try recording again and speak for at least a few seconds.'
                             };
                             store.setSTTStatus(guardedStopStatus);

@@ -59,6 +59,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     const displayInterimTranscript =
         transcript.trim() === interimTranscript.trim() ? '' : interimTranscript;
     const hasInterimTranscript = displayInterimTranscript.trim() !== '';
+    const livePreviewText = displayInterimTranscript.trim();
     const showPrivateFeedback = sttMode === 'private' && isListening;
     const privateStatus = hasTranscript || hasInterimTranscript ? 'Live text' : 'Private local';
 
@@ -88,6 +89,15 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 aria-label="Live transcript of your speech"
                 role="log"
             >
+                {isListening && livePreviewText && (
+                    <div
+                        className="sticky top-0 z-10 mb-3 rounded-md border border-primary/20 bg-background/95 px-3 py-2 text-sm font-semibold leading-relaxed text-foreground shadow-sm backdrop-blur"
+                        data-testid="live-transcript-current-line"
+                    >
+                        {livePreviewText}
+                    </div>
+                )}
+
                 {/* Segmented History (Chapters) */}
                 {history.map((segment, idx) => (
                     <div key={`history-${idx}`} className="mb-6 last:mb-4 group">

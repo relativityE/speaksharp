@@ -38,6 +38,8 @@ describe('useAnalytics', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         queryClient.clear();
+        window.history.pushState({}, '', '/analytics');
+        window.sessionStorage.clear();
         (useParams as Mock).mockReturnValue({});
         (useSession as Mock).mockReturnValue({ data: null, isLoading: false });
         (useAuthProvider as unknown as Mock).mockReturnValue({ user: { id: 'test-user' } });

@@ -107,6 +107,12 @@ const normalizeModelLoadingProgress = (progress: number | null): number | null =
     return Math.max(0, Math.min(100, Math.round(percent)));
 };
 
+const sentenceCaseStart = (text: string): string => {
+    const firstLetterIndex = text.search(/[A-Za-z]/);
+    if (firstLetterIndex === -1) return text;
+    return `${text.slice(0, firstLetterIndex)}${text.charAt(firstLetterIndex).toUpperCase()}${text.slice(firstLetterIndex + 1)}`;
+};
+
 export const useSessionStore = create<SessionStore>((set) => {
     const instanceId = Math.random().toString(36).substring(7);
     if (typeof window !== 'undefined') {
@@ -167,8 +173,8 @@ export const useSessionStore = create<SessionStore>((set) => {
     updateTranscript: (transcriptText, partial = '') => {
         set({
             transcript: {
-                transcript: transcriptText,
-                partial,
+                transcript: sentenceCaseStart(transcriptText),
+                partial: sentenceCaseStart(partial),
             },
         });
     },
@@ -213,9 +219,21 @@ export const useSessionStore = create<SessionStore>((set) => {
                 syncForensicAnchors(state.runtimeState, mode);
                 return state;
             }
+            const resetVisibleSession = state.runtimeState !== 'RECORDING';
             const next = {
                 ...state,
                 sttMode: mode,
+                ...(resetVisibleSession ? {
+                    transcript: { transcript: '', partial: '' },
+                    chunks: [],
+                    fillerData: {},
+                    elapsedTime: 0,
+                    startTime: null,
+                    activeEngine: null,
+                    sessionSaved: false,
+                    pauseMetrics: initialState.pauseMetrics,
+                    sttStatus: { type: 'ready', message: 'Ready to record' } as SttStatus,
+                } : {}),
             };
             // Immediate intent signal using next-state snapshot (Invariant I2)
             syncForensicAnchors(next.runtimeState, mode);

@@ -9,6 +9,7 @@ import { AuthContext } from '@/contexts/AuthProvider';
 import { useUserProfile } from '@/hooks/useUserProfile';
 import { useUsageLimit } from '@/hooks/useUsageLimit';
 import { makeQuerySuccess } from '../test-utils/queryMocks';
+import type { UserProfile } from '@/types/user';
 
 // Mock AuthContext instead of just the hook
 const mockAuthContextValue: Partial<AuthContextType> = {
@@ -74,6 +75,11 @@ const defaultProps: SessionSidebarProps = {
   modelLoadingProgress: null,
 };
 
+const makeProfileSuccess = (profile: UserProfile) => ({
+  ...makeQuerySuccess(profile),
+  isVerified: true,
+});
+
 describe('SessionSidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -108,7 +114,7 @@ describe('SessionSidebar', () => {
   describe('for a Free user', () => {
     beforeEach(() => {
       mockAuthContextValue.user = { id: 'free-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({
+      vi.mocked(useUserProfile).mockReturnValue(makeProfileSuccess({
         id: 'free-user',
         subscription_status: 'free',
         usage_seconds: 0,
@@ -154,7 +160,7 @@ describe('SessionSidebar', () => {
   describe('for a Pro user', () => {
     beforeEach(() => {
       mockAuthContextValue.user = { id: 'pro-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({
+      vi.mocked(useUserProfile).mockReturnValue(makeProfileSuccess({
         id: 'pro-user',
         subscription_status: 'pro',
         stripe_subscription_id: 'sub_paid_123',
@@ -230,23 +236,17 @@ describe('SessionSidebar', () => {
         executionIntent: 'prod-pro-cloud',
       });
     });
-  });
 
-  describe('for a Dev user', () => {
-    beforeEach(() => {
-      // Dev user might be on the Free tier, but the env var should override
-      mockAuthContextValue.user = { id: 'dev-user', app_metadata: {}, user_metadata: {}, aud: '', created_at: '' };
-      vi.mocked(useUserProfile).mockReturnValue(makeQuerySuccess({
-        id: 'dev-user',
-        subscription_status: 'free',
+    it('disables Cloud when the profile is Pro but lacks Cloud entitlement', async () => {
+      vi.mocked(useUserProfile).mockReturnValue(makeProfileSuccess({
+        id: 'pro-user',
+        subscription_status: 'pro',
+        stripe_subscription_id: null,
         usage_seconds: 0,
         usage_reset_date: new Date().toISOString(),
         created_at: new Date().toISOString()
       }));
-      vi.stubEnv('VITE_DEV_USER', 'true');
-    });
 
-    it('renders with all modes enabled, even from a Free profile when dev mode is enabled', async () => {
       const user = userEvent.setup();
       render(
         <MockAuthProvider value={mockAuthContextValue}>
@@ -254,59 +254,11 @@ describe('SessionSidebar', () => {
         </MockAuthProvider>
       );
 
-      await user.click(screen.getByRole('button', { name: 'Cloud' }));
-      expect(await screen.findByRole('menuitemradio', { name: /Cloud/ })).toBeEnabled();
-      expect(await screen.findByRole('menuitemradio', { name: 'Private' })).toBeEnabled();
-      expect(await screen.findByRole('menuitemradio', { name: 'Native' })).toBeEnabled();
-    });
-
-    it('can switch to and start in any mode', async () => {
-      const user = userEvent.setup();
-      render(
-        <MockAuthProvider value={mockAuthContextValue}>
-          <SessionSidebar {...defaultProps} />
-        </MockAuthProvider>
-      );
-
-      // Dev users can exercise Cloud without a paid subscription.
-      await user.click(screen.getByText('Start Speaking'));
-      expect(mockStartListening).toHaveBeenLastCalledWith({
-        allowNative: true,
-        allowCloud: true,
-        allowPrivate: true,
-        preferredMode: 'cloud',
-        allowFallback: false,
-        executionIntent: 'prod-pro-cloud',
-      });
-
-      // Switch to Private
-      await user.click(screen.getByRole('button', { name: 'Cloud' }));
-      await user.click(await screen.findByRole('menuitemradio', { name: 'Private' }));
-      await user.click(screen.getByText('Start Speaking'));
-      expect(mockStartListening).toHaveBeenLastCalledWith({
-        allowNative: true,
-        allowCloud: true,
-        allowPrivate: true,
-        preferredMode: 'private',
-        allowFallback: false,
-        executionIntent: 'prod-pro-private',
-      });
-
-      // Switch to native
       await user.click(screen.getByRole('button', { name: 'Private' }));
-      await user.click(await screen.findByRole('menuitemradio', { name: 'Native' }));
-      await user.click(screen.getByText('Start Speaking'));
-      expect(mockStartListening).toHaveBeenLastCalledWith({
-        allowNative: true,
-        allowCloud: true,
-        allowPrivate: true,
-        preferredMode: 'native',
-        allowFallback: false,
-        executionIntent: 'prod-pro-native',
-      });
+      expect(await screen.findByRole('menuitemradio', { name: /Cloud/ })).toHaveAttribute('aria-disabled', 'true');
+      expect(await screen.findByRole('menuitemradio', { name: 'Private' })).not.toHaveAttribute('aria-disabled', 'true');
     });
   });
-
 
   describe('Session Flow', () => {
     it('calls stopListening and shows the end session dialog when stopping a session', async () => {

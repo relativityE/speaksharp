@@ -138,7 +138,7 @@ export async function handler(
     console.error(`[Stripe Webhook] Error:`, error)
     return createErrorResponse(
       ErrorCodes.STRIPE_WEBHOOK_INVALID,
-      error.message || "Webhook processing failed",
+      "Webhook processing failed",
       responseHeaders
     )
   }

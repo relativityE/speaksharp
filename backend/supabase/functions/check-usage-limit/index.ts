@@ -100,10 +100,9 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
     } catch (error) {
         console.error('Error checking usage limit:', error);
-        const errorMessage = (error instanceof Error) ? error.message : 'An unexpected error occurred';
         return createErrorResponse(
             ErrorCodes.INTERNAL_ERROR,
-            errorMessage,
+            'Unable to verify usage limit',
             headers,
             {
                 can_start: false,

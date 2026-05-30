@@ -245,7 +245,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
 
       return createErrorResponse(
         ErrorCodes.STRIPE_API_ERROR,
-        err.message || "Stripe API error",
+        "Unable to start checkout. Please try again or contact support.",
         responseHeaders,
         { type: err.type, code: err.code, param: err.param }
       );
@@ -256,7 +256,7 @@ export async function handler(req: Request, deps: HandlerDeps = {}): Promise<Res
     console.error("[Stripe Checkout] 🚨 Fatal Error:", error.message);
     return createErrorResponse(
       ErrorCodes.INTERNAL_ERROR,
-      error.message || "An unexpected error occurred",
+      "Unable to start checkout. Please try again or contact support.",
       responseHeaders
     );
   }

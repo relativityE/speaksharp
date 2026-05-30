@@ -80,7 +80,7 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
 
     return (
         <section
-            className={`${SESSION_SURFACE_CLASS} p-4 ${className}`}
+            className={`${SESSION_SURFACE_CLASS} flex flex-col p-4 ${className}`}
             data-testid="live-coaching-score-card"
             data-experiment="session-live-coaching-score"
             aria-label="Live Coaching Score"
@@ -113,7 +113,7 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                 </div>
             </div>
 
-            <div className={`${SESSION_INSET_SURFACE_CLASS} p-3`}>
+            <div className={`${SESSION_INSET_SURFACE_CLASS} flex-1 p-3`}>
                 <div className="mb-2 flex items-center justify-between gap-3">
                     <span className="text-sm font-bold text-foreground">{result.label}</span>
                     <span className="flex items-center gap-1 text-xs font-bold text-foreground/70">

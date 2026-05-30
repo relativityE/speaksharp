@@ -72,7 +72,7 @@ describe('storage.ts', () => {
             expect(mockRange).toHaveBeenCalledWith(0, 49);
         });
 
-        it('should throw error with descriptive message on failure', async () => {
+        it('should throw sanitized error message on failure', async () => {
             const mockError = { message: 'DB Error' };
             const mockSelect = vi.fn().mockReturnValue({
                 eq: vi.fn().mockReturnValue({
@@ -85,7 +85,7 @@ describe('storage.ts', () => {
             });
             mockSupabase.from.mockReturnValue({ select: mockSelect } as unknown as ReturnType<SupabaseClient['from']>);
 
-            await expect(getSessionHistory('user1')).rejects.toThrow(/Failed to fetch sessions from/);
+            await expect(getSessionHistory('user1')).rejects.toThrow('Unable to load your session history. Please refresh and try again.');
         });
     });
 

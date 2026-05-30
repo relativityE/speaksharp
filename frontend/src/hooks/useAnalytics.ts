@@ -14,7 +14,6 @@ import {
 } from '../lib/analyticsUtils';
 import type { PracticeSession } from '../types/session';
 import { DASHBOARD_PAGINATION_LIMIT } from '../config/env';
-import { ANALYTICS_MOCK_SESSIONS as MOCK_SESSIONS } from '../lib/mockData';
 import { useReadinessStore } from '../stores/useReadinessStore';
 
 // Empty fallback array (defined outside hook to prevent re-creation)
@@ -26,7 +25,7 @@ export const useAnalytics = () => {
 
     // 3.2 SCALABILITY FIX: This prevents performance bottlenecks for users with many sessions.
     const paginationOptions = useMemo(() => ({
-        limit: DASHBOARD_PAGINATION_LIMIT
+        limit: DASHBOARD_PAGINATION_LIMIT,
     }), []);
 
     const { data: allSessions = EMPTY_SESSIONS, isLoading, error } = usePracticeHistory(paginationOptions);
@@ -59,13 +58,9 @@ export const useAnalytics = () => {
         staleTime: 5 * 60 * 1000,
     });
 
-    // DEV BYPASS: Add mock session data for UI testing
-    const isDevBypass = import.meta.env.DEV && window.location.search.includes('devBypass=true');
+    const sessionsToUse = allSessions;
 
-    // Use stable reference: allSessions from react-query is stable, MOCK_SESSIONS is a constant
-    const sessionsToUse = isDevBypass ? MOCK_SESSIONS : allSessions;
-
-    logger.debug({ sessionId, isLoading, sessions: sessionsToUse?.length, isDevBypass }, '[useAnalytics] Hook called');
+    logger.debug({ sessionId, isLoading, sessions: sessionsToUse?.length }, '[useAnalytics] Hook called');
 
     const sessionHistory = useMemo(() => {
         if (sessionId) {
@@ -168,8 +163,7 @@ export const useAnalytics = () => {
     return {
         sessionHistory,
         ...analyticsData,
-        // DEV BYPASS: Force loading to false when devBypass is active so UI renders with mock data
-        loading: isDevBypass ? false : ((isLoading && !error) || (effectiveSessionLoading && !error) || (shouldUseRPC && isSummaryLoading)),
+        loading: (isLoading && !error) || (effectiveSessionLoading && !error) || (shouldUseRPC && isSummaryLoading),
         error
     };
 };

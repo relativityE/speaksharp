@@ -28,9 +28,9 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 - [ ] **Storage Buckets**: Verify any production storage buckets still used by the app have correct RLS policies. Audio files are not expected to be stored for launch; finalized session records do persist transcript/analysis text needed for coaching comparison, PDF regeneration, AI suggestions, and WER-ready validation.
 
 ## 3. Vercel Frontend Environment Safety
-- [ ] **Dev User Bypass Disabled**: Production Vercel environment has `VITE_DEV_USER` absent or set to `false`.
+- [ ] **No Profile Login Bypass**: Production and manual tester builds use real Supabase auth/profile state. `devBypass` and `VITE_DEV_USER` must not grant profile login, Pro, Private, or Cloud access in the app path.
 - [ ] **Internal Routes Disabled**: Production Vercel environment has `VITE_ENABLE_INTERNAL_ROUTES` absent or set to `false`.
-- [ ] **Production Mode Build**: Production deployment is built with Vite production mode so `import.meta.env.DEV` is false and `devBypass=true` cannot inject a fake session.
+- [ ] **Production Mode Build**: Production deployment is built with Vite production mode, source maps disabled, and no manual auth bypass behavior enabled.
 - [ ] **Preview URL Policy**: Preview deployments must not be shared as tester/public URLs unless their environment is explicitly reviewed. Preview links may allow non-production developer behavior by design.
 
 ## 4. Observability & Monitoring

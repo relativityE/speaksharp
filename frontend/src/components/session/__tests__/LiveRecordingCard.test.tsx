@@ -78,6 +78,22 @@ describe('LiveRecordingCard', () => {
         expect(screen.queryByLabelText('Start Recording')).toBeNull();
     });
 
+    it('keeps Stop visible while the controller is finishing a recording', () => {
+        render(
+            <LiveRecordingCard
+                {...defaultProps}
+                isListening={false}
+                recordingIntent={true}
+                fsmState="STOPPING"
+                statusMessage="Saving session"
+            />
+        );
+
+        const stopButton = screen.getByLabelText('Stop Recording');
+        expect(stopButton).toHaveAttribute('data-recording', 'true');
+        expect(screen.queryByLabelText('Start Recording')).toBeNull();
+    });
+
     it('keeps Cloud disabled for trial-style Pro access without Cloud Pro feature entitlement', async () => {
         render(<LiveRecordingCard {...defaultProps} isProUser={true} canUseCloudStt={false} />);
 
@@ -87,22 +103,20 @@ describe('LiveRecordingCard', () => {
         const cloudOption = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
         expect(cloudOption).toHaveAttribute('data-disabled');
         expect(screen.getByText(/^Cloud$/i)).toBeDefined();
-        expect(screen.getByText(/Browser and Private \/ Vault Mode are available now/i)).toBeDefined();
-        expect(cloudOption.textContent).toMatch(/Pro feature/i);
-        expect(cloudOption.textContent).toMatch(/unavailable for trial/i);
+        expect(cloudOption).toHaveAttribute('title', expect.stringMatching(/Pro feature/i));
+        expect(cloudOption).toHaveAttribute('title', expect.stringMatching(/unavailable for trial/i));
     });
 
     it('sets Private latency and privacy expectations before recording', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="private" isProUser={true} canUseCloudStt={false} />);
 
-        expect(screen.getAllByText(/Private \/ Vault Mode/i).length).toBeGreaterThan(0);
-        expect(screen.getByText(/one-time setup/i)).toBeDefined();
-        expect(screen.getByText(/audio stays on your machine/i)).toBeDefined();
+        expect(screen.getByText(/Runs locally after one-time setup/i)).toBeDefined();
+        expect(screen.getByText(/Audio stays on your machine/i)).toBeDefined();
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
-        expect((await screen.findAllByText(/Private \/ Vault Mode keeps transcription local/i)).length).toBeGreaterThan(0);
-        expect(screen.getAllByText(/Audio stays on your machine/i).length).toBeGreaterThan(0);
+        expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/Private \/ Vault Mode keeps transcription local/i));
+        expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/Audio stays on your machine/i));
     });
 
     it('does not place Private setup inside the recording card when the model is missing', () => {
@@ -121,15 +135,17 @@ describe('LiveRecordingCard', () => {
         expect(screen.queryByTestId('download-model-button')).toBeNull();
     });
 
-    it('positions Browser STT as Chrome-recommended and browser-dependent', async () => {
+    it('positions Browser STT as instant and browser-dependent without the old badge copy', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="native" isProUser={true} canUseCloudStt={false} />);
 
-        expect(screen.getByText(/Free and instant/i)).toBeDefined();
-        expect(screen.getByText(/accuracy varies by browser and environment/i)).toBeDefined();
+        expect(screen.getByText(/Starts instantly with browser speech recognition/i)).toBeDefined();
+        expect(screen.getByText(/Accuracy depends on browser and room/i)).toBeDefined();
+        expect(screen.queryByText(/FREE BROWSER/i)).toBeNull();
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
-        expect((await screen.findAllByText(/Free and instant/i)).length).toBeGreaterThan(0);
+        expect(await screen.findByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/Free and instant/i));
+        expect(screen.getByTestId(TEST_IDS.STT_MODE_NATIVE)).toHaveAttribute('title', expect.stringMatching(/accuracy varies by browser and environment/i));
     });
 
     it('explains why Private is unavailable for Free or expired-trial users', async () => {
@@ -140,11 +156,9 @@ describe('LiveRecordingCard', () => {
         const privateOption = await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE);
         expect(privateOption).toHaveAttribute('data-disabled');
         expect(privateOption.textContent).toMatch(/^Private/i);
-        expect(privateOption.textContent).toMatch(/active trial or Pro/i);
-        expect(screen.getByText(/Browser is available now/i)).toBeDefined();
-        expect(screen.getByText(/Private \/ Vault Mode unlocks during an active trial or with Pro/i)).toBeDefined();
-        expect(screen.getAllByText(/Cloud STT is a Pro feature/i).length).toBeGreaterThan(0);
-        expect(screen.getByText(/unavailable for trial/i)).toBeDefined();
+        expect(privateOption).toHaveAttribute('title', expect.stringMatching(/active trial or Pro/i));
+        expect(screen.getByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveAttribute('title', expect.stringMatching(/Cloud STT is a Pro feature/i));
+        expect(screen.getByTestId(TEST_IDS.STT_MODE_CLOUD)).toHaveAttribute('title', expect.stringMatching(/unavailable for trial/i));
     });
 
     it('lets a trial user switch to Browser while Private setup is downloading', async () => {

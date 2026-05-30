@@ -262,8 +262,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
 
   } catch (error) {
     console.error('Error getting AI suggestions:', error);
-    const errorMessage = (error instanceof Error) ? error.message : 'An unexpected error occurred';
-    return new Response(JSON.stringify({ error: `Failed to get AI suggestions. ${errorMessage}` }), {
+    return new Response(JSON.stringify({ error: 'Failed to get AI suggestions. Please try again.' }), {
       headers: { ...responseHeaders, 'Content-Type': 'application/json' },
       status: 500,
     });

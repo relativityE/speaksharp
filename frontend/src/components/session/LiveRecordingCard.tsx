@@ -1,6 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, Download, Lock, Mic, Square, ChevronDown, Shield } from 'lucide-react';
+import { AlertCircle, Download, Lock, Mic, Square, ChevronDown } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { MIN_SESSION_DURATION_SECONDS } from '@/config/env';
 import {
@@ -40,7 +40,7 @@ interface LiveRecordingCardProps {
 }
 
 import { LocalErrorBoundary } from '@/components/LocalErrorBoundary';
-import { SESSION_SURFACE_CLASS, SESSION_INSET_SURFACE_CLASS } from '@/components/session/sessionSurface';
+import { SESSION_SURFACE_CLASS } from '@/components/session/sessionSurface';
 
 /**
  * The main recording control panel with mode selector, mic indicator,
@@ -76,15 +76,16 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
         ? (ACTIVE_INDICATOR_STATES.includes(fsmState) || ACTIVE_INDICATOR_TYPES.includes(sttStatusType || '') || isPaused)
         : (isListening || isPaused) && isReady;
 
+    const isStopControlVisible = isListening || recordingIntent;
     // data-recording: Pure intent signal for E2E tests and accessibility
-    const isRecordingSignal = recordingIntent ? 'true' : 'false';
+    const isRecordingSignal = isStopControlVisible ? 'true' : 'false';
 
     // Check if session is too short to save
     const isTooShort = isListening && elapsedSeconds > 0 && elapsedSeconds < MIN_SESSION_DURATION_SECONDS;
     const isPrivateDownloadRequired = mode === 'private' && sttStatusType === 'download-required' && !isListening;
     let displayStatusMessage = _statusMessage;
     if (isPrivateDownloadRequired) {
-        displayStatusMessage = 'Private / Vault Mode setup needed';
+        displayStatusMessage = 'Private model setup';
     } else if (/^error occurred$/i.test(_statusMessage?.trim() || '')) {
         displayStatusMessage = 'Recording could not start';
     }
@@ -95,45 +96,55 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
             case 'cloud': return 'Cloud';
         }
     };
-    const modeDescriptions: Record<RecordingMode, string> = {
-        native: "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.",
-        private: 'Private / Vault Mode. Local transcription with one-time setup; audio stays on your machine.',
-        cloud: 'Highest-accuracy transcription for Pro workflows; audio is sent to the cloud STT provider.',
+    const modeHint: Record<RecordingMode, string> = {
+        native: 'Starts instantly with browser speech recognition. Accuracy depends on browser and room.',
+        private: 'Runs locally after one-time setup. Audio stays on your machine.',
+        cloud: 'Highest-accuracy transcription for Pro. Audio is sent to cloud STT.',
         mock: 'Test transcription mode.',
     };
     const privateModeDescription = isProUser
         ? 'Private / Vault Mode keeps transcription local after one-time model setup. Audio stays on your machine.'
         : 'Private / Vault Mode unlocks with an active trial or Pro. It needs a one-time local model setup.';
-    const accessStatusMessage = canUseCloudStt
-        ? 'Browser, Private / Vault Mode, and Cloud are available. Use Cloud when highest accuracy matters more than local-only privacy.'
-        : isProUser
-            ? 'Browser and Private / Vault Mode are available now. Cloud STT is a Pro feature for highest-accuracy transcription.'
-            : 'Browser is available now. Private / Vault Mode unlocks during an active trial or with Pro; Cloud STT is a Pro feature.';
-    const trustBadge = mode === 'private'
-        ? 'VAULT MODE'
-        : mode === 'cloud'
-            ? 'PRO CLOUD'
-            : 'FREE BROWSER';
+    const nativeModeDescription = "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.";
+    const cloudModeDescription = canUseCloudStt
+        ? 'Pro feature for highest-accuracy transcription. Audio is sent to the cloud STT provider.'
+        : 'Cloud STT is a Pro feature (unavailable for trial).';
     return (
         <LocalErrorBoundary componentName="LiveRecordingCard">
-            <div className={`${SESSION_SURFACE_CLASS} relative z-10 h-full flex flex-col text-center gap-6 p-6 surface-shadow-primary sm:p-8 ${className}`} data-testid="live-recording-card">
-
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="flex flex-col items-center gap-2 text-center sm:items-start sm:text-left">
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-success/12 border border-success/30 text-[10px] font-semibold text-success" data-state="secure">
-                            <Shield className="h-2.5 w-2.5 fill-success/10" />
-                            <span>{trustBadge}</span>
-                        </div>
-                        <p className="max-w-72 text-xs font-medium leading-snug text-foreground/70">
-                            {isPrivateDownloadRequired
-                                ? 'Set up Private / Vault Mode once in this browser. Audio stays on your machine.'
-                                : modeDescriptions[mode]}
-                        </p>
-                        <div className="max-w-80 rounded-md border border-border bg-muted/45 px-3 py-2 text-left text-[11px] font-medium leading-snug text-foreground/70">
-                            {accessStatusMessage}
+            <div className={`${SESSION_SURFACE_CLASS} relative z-10 flex flex-col gap-2.5 p-4 surface-shadow-primary ${className}`} data-testid="live-recording-card">
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex w-[min(100%,260px)] items-start gap-2">
+                        {isPrivateDownloadRequired && (
+                            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary">
+                                <Lock className="h-3.5 w-3.5" />
+                            </div>
+                        )}
+                        <div>
+                            <p className="text-xs font-semibold leading-snug text-primary">
+                                {isPrivateDownloadRequired
+                                    ? 'Use Set Up to download the Private / Vault model to this computer. Your audio stays on your machine.'
+                                    : modeHint[mode]}
+                            </p>
+                            {isPrivateDownloadRequired && (
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                    <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-primary">Setup needed</span>
+                                    {onDownloadModel && (
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={onDownloadModel}
+                                            className="h-6 gap-1 rounded-md px-2 text-[9px] font-bold uppercase tracking-[0.12em]"
+                                            data-testid="download-model-button-inline"
+                                        >
+                                            <Download className="h-3 w-3" />
+                                            Set Up
+                                        </Button>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
-
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild disabled={isListening}>
                             <Button
@@ -151,76 +162,39 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-72">
                             <DropdownMenuRadioGroup value={mode} onValueChange={(v) => onModeChange(v as RecordingMode)}>
-                                <DropdownMenuRadioItem value="native" className="items-start py-2.5" data-testid={TEST_IDS.STT_MODE_NATIVE}>
-                                    <span className="flex flex-col gap-0.5">
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Browser</span>
-                                <span className="text-[11px] font-medium normal-case leading-snug text-foreground/70">
-                                            Free and instant. Uses your browser&apos;s built-in speech recognition, so accuracy varies by browser and environment.
-                                        </span>
-                                    </span>
+                                <DropdownMenuRadioItem
+                                    value="native"
+                                    className="py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
+                                    data-testid={TEST_IDS.STT_MODE_NATIVE}
+                                    title={nativeModeDescription}
+                                >
+                                    Browser
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="private"
-                                    className="items-start py-2.5"
+                                    className="py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_PRIVATE}
                                     disabled={!isProUser}
+                                    title={privateModeDescription}
                                 >
-                                    <span className="flex flex-col gap-0.5">
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Private</span>
-                                        <span className="text-[11px] font-medium normal-case leading-snug text-foreground/70">
-                                            {privateModeDescription}
-                                        </span>
-                                    </span>
+                                    Private
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem
                                     value="cloud"
-                                    className="items-start py-2.5"
+                                    className="py-2.5 text-xs font-semibold uppercase tracking-wide text-foreground"
                                     data-testid={TEST_IDS.STT_MODE_CLOUD}
                                     disabled={!canUseCloudStt}
+                                    title={cloudModeDescription}
                                 >
-                                    <span className="flex flex-col gap-0.5">
-                                        <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud</span>
-                                        <span className="text-[11px] font-medium normal-case leading-snug text-foreground/70">
-                                            {canUseCloudStt
-                                                ? 'Pro feature for highest-accuracy transcription. Audio is sent to the cloud STT provider.'
-                                                : 'Cloud STT is a Pro feature (unavailable for trial).'}
-                                        </span>
-                                    </span>
+                                    Cloud
                                 </DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
 
-                <div className="flex flex-1 flex-col items-center justify-center gap-5">
-                    <div className="flex flex-col items-center gap-4">
-                        {isPrivateDownloadRequired && (
-                            <div className="flex flex-col items-center gap-2 text-center">
-                                <div className="flex h-11 w-11 items-center justify-center rounded-full border border-primary/35 bg-primary/12 text-primary">
-                                    <Lock className="h-5 w-5" />
-                                </div>
-                                <div>
-                                    <p className="text-sm font-bold text-foreground">Private / Vault Mode setup needed</p>
-                                    <p className="mt-1 max-w-xs text-xs font-medium leading-snug text-foreground/70">
-                                        Set up the local model once in this browser. Your audio stays on your machine.
-                                    </p>
-                                    {onDownloadModel && (
-                                        <Button
-                                            type="button"
-                                            size="sm"
-                                            variant="outline"
-                                            onClick={onDownloadModel}
-                                            className="mt-3 h-8 gap-1.5 rounded-md px-3 text-[10px] font-bold uppercase tracking-[0.14em]"
-                                            data-testid="download-model-button-inline"
-                                        >
-                                            <Download className="h-3 w-3" />
-                                            Set Up Private
-                                        </Button>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
+                <div className="flex flex-col items-center justify-center gap-2 text-center">
+                    <div className="flex flex-col items-center gap-2">
                         <div className="relative">
                             {isListening && (
                                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -228,7 +202,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 </div>
                             )}
 
-                            {!isListening ? (
+                            {!isStopControlVisible ? (
                                 <Button
                                     onClick={onStartStop}
                                     disabled={isButtonDisabled}
@@ -236,9 +210,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     data-recording={isRecordingSignal}
                                     aria-label="Start Recording"
                                     title={isPrivateDownloadRequired ? 'Download required' : 'Start Recording'}
-                                    className="w-14 h-14 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground cta-shadow hover:scale-105 transition-all duration-300 p-0 disabled:cursor-not-allowed disabled:pointer-events-none disabled:bg-slate-200 disabled:text-slate-500 disabled:opacity-100 disabled:shadow-none disabled:ring-1 disabled:ring-slate-300"
+                                    className="w-12 h-12 rounded-full bg-primary text-primary-foreground ring-1 ring-primary/35 hover:bg-primary/90 cta-shadow hover:scale-105 transition-all duration-300 p-0 disabled:cursor-not-allowed disabled:pointer-events-none disabled:bg-primary disabled:text-primary-foreground disabled:opacity-100 disabled:shadow-none disabled:ring-1 disabled:ring-primary/35"
                                 >
-                                    <Mic className="w-6 h-6" />
+                                    <span className="relative flex h-6 w-6 items-center justify-center text-primary-foreground">
+                                        <Mic className="h-5 w-5" />
+                                        <span className="absolute h-0.5 w-7 -rotate-45 rounded-full bg-primary-foreground" aria-hidden="true" />
+                                    </span>
                                 </Button>
                             ) : (
                                 <Button
@@ -247,7 +224,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     data-testid={TEST_IDS.SESSION_START_STOP_BUTTON}
                                     data-recording={isRecordingSignal}
                                     aria-label="Stop Recording"
-                                    className="w-14 h-14 rounded-full bg-destructive hover:bg-destructive/90 text-destructive-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"
+                                    className="w-12 h-12 rounded-full bg-destructive hover:bg-destructive/90 text-destructive-foreground active:scale-95 transition-all duration-300 animate-pulse p-0"
                                 >
                                     <Square className="w-5 h-5 fill-current" />
                                 </Button>
@@ -256,20 +233,21 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
 
                         {/* Timer (Matching Mic weight) */}
                         <div className="flex flex-col items-center">
-                            <div className="text-4xl font-mono font-bold text-foreground tracking-tighter tabular-nums leading-none">
+                            <div className="text-3xl font-mono font-bold text-foreground tracking-tighter tabular-nums leading-none">
                                 {formattedTime}
                             </div>
-                            <div className={`mt-2 inline-flex items-center gap-1.5 py-1 px-3 rounded-full ${SESSION_INSET_SURFACE_CLASS}`}>
+                            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/55 px-3 py-1">
                                 <div className={`h-1.5 w-1.5 rounded-full ${isListening ? 'bg-primary animate-pulse' : 'bg-muted-foreground'}`} />
                                 <span className="text-[10px] font-bold text-foreground/70 uppercase tracking-[0.14em]" data-testid="stt-status-label">
-                                    {displayStatusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}
+                                    {isPrivateDownloadRequired
+                                        ? 'Ready after setup'
+                                        : displayStatusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}
                                 </span>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Stream Indicator (Refined) */}
                 <div className="h-4 w-full max-w-[140px] self-center flex items-center justify-center gap-0.5 overflow-hidden opacity-60">
                     {isIndicatorVisible && (
                         <div

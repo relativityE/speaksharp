@@ -92,7 +92,7 @@ describe('AnalyticsPage', () => {
             } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
             renderAnalyticsPage();
-            expect(screen.getByText('Failed to load sessions')).toBeInTheDocument();
+            expect(screen.getByText('We could not load your analytics right now. Refresh the page, or sign out and back in if it keeps happening.')).toBeInTheDocument();
             expect(screen.getByText('Error Loading Analytics')).toBeInTheDocument();
         });
 
@@ -104,7 +104,7 @@ describe('AnalyticsPage', () => {
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             renderAnalyticsPage();
-            expect(screen.getByText('Failed to load profile')).toBeInTheDocument();
+            expect(screen.getByText('We could not load your analytics right now. Refresh the page, or sign out and back in if it keeps happening.')).toBeInTheDocument();
         });
 
         it('should reload page when refresh button is clicked', () => {

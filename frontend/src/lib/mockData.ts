@@ -66,11 +66,11 @@ export const MOCK_SESSION_KEY = 'sb-mock-session';
 
 import type { PracticeSession } from '../types/session';
 
-// DEV BYPASS: Mock session data for UI testing in Analytics Dashboard
+// Mock session data for isolated analytics component tests.
 export const ANALYTICS_MOCK_SESSIONS: PracticeSession[] = [
     {
         id: 'mock-session-1',
-        user_id: 'dev-bypass-user-id',
+        user_id: 'mock-analytics-user-id',
         title: 'Monday Practice Session',
         transcript: 'This is a mock transcript for testing purposes.',
         duration: 720, // 12 minutes
@@ -81,7 +81,7 @@ export const ANALYTICS_MOCK_SESSIONS: PracticeSession[] = [
     },
     {
         id: 'mock-session-2',
-        user_id: 'dev-bypass-user-id',
+        user_id: 'mock-analytics-user-id',
         title: 'Tuesday Practice Session',
         transcript: 'Another mock transcript.',
         duration: 480,
@@ -92,7 +92,7 @@ export const ANALYTICS_MOCK_SESSIONS: PracticeSession[] = [
     },
     {
         id: 'mock-session-3',
-        user_id: 'dev-bypass-user-id',
+        user_id: 'mock-analytics-user-id',
         title: 'Wednesday Practice Session',
         transcript: 'Mock transcript three.',
         duration: 600,

@@ -275,6 +275,49 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         expect(useSessionStore.getState().transcript.transcript).toBe('You know, the box was thrown beside the parked truck.');
     });
 
+    it('promotes live partial text into final transcript without losing visible text', () => {
+        const push = (controller as unknown as {
+            pushTranscriptToStore: (data: { transcript: { partial?: string; final?: string } }) => void
+        }).pushTranscriptToStore.bind(controller);
+
+        push({ transcript: { partial: 'today i want to give a clear update' } });
+
+        expect(useSessionStore.getState().transcript).toEqual({
+            transcript: '',
+            partial: 'Today i want to give a clear update',
+        });
+
+        push({ transcript: { final: 'today i want to give a clear update on speaksharp' } });
+
+        expect(useSessionStore.getState().transcript).toEqual({
+            transcript: 'Today i want to give a clear update on speaksharp',
+            partial: '',
+        });
+        expect(useSessionStore.getState().chunks).toEqual([
+            expect.objectContaining({
+                transcript: 'today i want to give a clear update on speaksharp',
+                isFinal: true,
+            }),
+        ]);
+    });
+
+    it('clears stale partial text when a duplicate final arrives', () => {
+        const store = useSessionStore.getState();
+        store.updateTranscript('today i want to give a clear update', 'today i want');
+        store.setChunks([{ transcript: 'today i want to give a clear update', timestamp: 123, isFinal: true }]);
+
+        (controller as unknown as { pushTranscriptToStore: (data: { transcript: { final: string } }) => void }).pushTranscriptToStore({
+            transcript: {
+                final: 'today i want to give a clear update',
+            },
+        });
+
+        expect(useSessionStore.getState().transcript).toEqual({
+            transcript: 'Today i want to give a clear update',
+            partial: '',
+        });
+    });
+
     it('projects transcript updates to the visible store even when subscriber callbacks are not ready', () => {
         const callback = vi.fn();
         (controller as unknown as { isSubscriberReady: boolean }).isSubscriberReady = false;
@@ -286,13 +329,13 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             transcript: { partial: 'the birch canoe slid' },
         });
 
-        expect(useSessionStore.getState().transcript.partial).toBe('the birch canoe slid');
+        expect(useSessionStore.getState().transcript.partial).toBe('The birch canoe slid');
         expect(callback).not.toHaveBeenCalled();
 
         (controller as unknown as { isSubscriberReady: boolean }).isSubscriberReady = true;
         (controller as unknown as { flushQueues: () => void }).flushQueues();
 
-        expect(useSessionStore.getState().transcript.partial).toBe('the birch canoe slid');
+        expect(useSessionStore.getState().transcript.partial).toBe('The birch canoe slid');
         expect(useSessionStore.getState().chunks).toHaveLength(0);
         expect(callback).toHaveBeenCalledWith({
             transcript: { partial: 'the birch canoe slid' },

@@ -1,19 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Download, Settings } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import posthog from 'posthog-js';
 // ... existing imports ...
 import { useSessionLifecycle } from '@/hooks/useSessionLifecycle';
-import { PauseMetricsDisplay } from '@/components/session/PauseMetricsDisplay';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { UserFillerWordsManager } from '@/components/session/UserFillerWordsManager';
 import { SessionPageSkeleton } from '@/components/session/SessionPageSkeleton';
-import { ClarityScoreCard } from '@/components/session/ClarityScoreCard';
-import { SpeakingRateCard } from '@/components/session/SpeakingRateCard';
 import { FillerWordsCard } from '@/components/session/FillerWordsCard';
 import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
 import { LiveCoachingScoreCard } from '@/components/session/LiveCoachingScoreCard';
-import { SpeakingTipsCard } from '@/components/session/SpeakingTipsCard';
 import { LiveRecordingCard } from '@/components/session/LiveRecordingCard';
 import { MobileActionBar } from '@/components/session/MobileActionBar';
 import { StatusNotificationBar } from '@/components/session/StatusNotificationBar';
@@ -67,7 +63,6 @@ export const SessionPage: React.FC = () => {
         metrics,
         sttStatus,
         modelLoadingProgress,
-        privateModelStatus,
         mode,
         setMode,
         recordingIntent,
@@ -168,16 +163,6 @@ export const SessionPage: React.FC = () => {
         detail: baseStatus.detail ?? (shouldShowTrialDetail ? trialStatusDetail : undefined),
         progress: visibleModelLoadingProgress ?? undefined
     };
-    const showPrivateDownloadHeaderAction =
-        mode === 'private' &&
-        privateModelStatus !== 'ready' &&
-        visibleModelLoadingProgress === null &&
-        isProUser &&
-        !isListening;
-    const handlePrivateSetup = () => {
-        void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
-    };
-
     return (
         <main 
             aria-label="Practice Session" 
@@ -185,24 +170,10 @@ export const SessionPage: React.FC = () => {
             className="min-h-screen bg-background pt-20"
         >
             {/* Page Header */}
-            <div className="py-4 px-6 max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-3">
-                <div className="text-center md:col-start-2">
+            <div className="py-4 px-6 max-w-7xl mx-auto">
+                <div className="text-center">
                     <h1 className="mb-1 text-3xl font-extrabold tracking-tight text-foreground">Practice Session</h1>
                     <p className="text-xs font-semibold text-foreground/70">Record, review, and track your speaking patterns</p>
-                </div>
-
-                <div className="flex justify-center md:col-start-3 md:justify-end">
-                    {showPrivateDownloadHeaderAction && (
-                        <Button
-                            type="button"
-                            onClick={handlePrivateSetup}
-                            className="h-10 w-full max-w-xs gap-2 bg-primary text-xs font-bold text-primary-foreground cta-shadow hover:bg-primary/90 md:w-auto"
-                            data-testid="download-model-button"
-                        >
-                            <Download className="h-4 w-4" />
-                            Download Private Model
-                        </Button>
-                    )}
                 </div>
             </div>
 
@@ -211,14 +182,11 @@ export const SessionPage: React.FC = () => {
                 <StatusNotificationBar status={displayStatus} />
             </div>
 
-            {/* Main Content — recording/transcript workspace with filler words as a right rail */}
+            {/* Main Content — one live workflow: controls, transcript + coach, evidence band. */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-36 md:pb-6 mt-0">
-                {/* Workspace grid is isolated so the sticky filler rail cannot overlap stats below. */}
-                <div className="grid grid-cols-1 items-start gap-6 pt-6 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px]">
-
-                    <div className="contents lg:block lg:space-y-6">
-                        {/* === WORKSPACE LEFT: Recording Control === */}
-                        <div className="order-1 lg:order-none">
+                <div className="pt-6">
+                    <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
+                        <div className="grid h-full grid-rows-[auto_minmax(0,1fr)] gap-6">
                             <LocalErrorBoundary isolationKey="recording-controls" componentName="LiveRecordingCard">
                                 <LiveRecordingCard
                                     mode={mode || 'native'}
@@ -240,13 +208,9 @@ export const SessionPage: React.FC = () => {
                                     onDownloadModel={() => {
                                         void import('@/services/SpeechRuntimeController').then(m => m.speechRuntimeController.initiateModelDownload('private'));
                                     }}
-                                    className="min-h-[300px] md:min-h-[340px]"
                                 />
                             </LocalErrorBoundary>
-                        </div>
 
-                        {/* === WORKSPACE LEFT: Live Transcript === */}
-                        <div className="order-3 lg:order-none">
                             <LocalErrorBoundary isolationKey="live-transcript" componentName="LiveTranscriptPanel">
                                 <LiveTranscriptPanel
                                     transcript={transcriptContent}
@@ -257,103 +221,58 @@ export const SessionPage: React.FC = () => {
                                     micLevel={micLevel}
                                     hasSpeechActivity={hasSpeechActivity}
                                     containerRef={transcriptContainerRef}
-                                    className="min-h-[360px] h-full"
+                                    className="min-h-[340px] h-full"
                                 />
                             </LocalErrorBoundary>
                         </div>
+
+                        {showLiveCoachingScore && (
+                            <LocalErrorBoundary isolationKey="live-coaching-score" componentName="LiveCoachingScoreCard">
+                                <LiveCoachingScoreCard
+                                    transcript={transcriptContent}
+                                    wordCount={metrics.wordCount}
+                                    wpm={metrics.wpm}
+                                    clarityScore={metrics.clarityScore}
+                                    fillerCount={metrics.fillerCount}
+                                    elapsedSeconds={elapsedTime}
+                                    pauseMetrics={pauseMetrics}
+                                    engine={mode || 'native'}
+                                    isListening={isListening}
+                                    experimentAssignment={coachingAssignment}
+                                    className="h-full min-h-0 self-stretch"
+                                />
+                            </LocalErrorBoundary>
+                        )}
                     </div>
 
-                    {/* === WORKSPACE RIGHT: Live feedback rail === */}
-                    <aside className="order-2 self-start lg:sticky lg:top-24 lg:order-none">
-                        <div className="space-y-6">
-                            {showLiveCoachingScore && (
-                                <LocalErrorBoundary isolationKey="live-coaching-score" componentName="LiveCoachingScoreCard">
-                                    <LiveCoachingScoreCard
-                                        transcript={transcriptContent}
-                                        wordCount={metrics.wordCount}
-                                        wpm={metrics.wpm}
-                                        clarityScore={metrics.clarityScore}
-                                        fillerCount={metrics.fillerCount}
-                                        elapsedSeconds={elapsedTime}
-                                        pauseMetrics={pauseMetrics}
-                                        engine={mode || 'native'}
-                                        isListening={isListening}
-                                        experimentAssignment={coachingAssignment}
-                                    />
-                                </LocalErrorBoundary>
-                            )}
-                            <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
-                                <FillerWordsCard
-                                    fillerCount={metrics.fillerCount}
-                                    fillerData={fillerData}
-                                    fillerExplanation={metrics.fillerExplanation}
-                                    className="min-h-[300px] md:min-h-[340px] lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto"
-                                    headerAction={
-                                        <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-                                            <PopoverTrigger asChild>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="text-primary underline-offset-4 hover:bg-primary/10 hover:text-primary"
-                                                    data-testid="add-custom-word-button"
-                                                >
-                                                    <Settings className="h-4 w-4" />
-                                                    Custom
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-80 bg-white border-[hsl(var(--border-strong))] surface-shadow mr-6">
-                                                <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
-                                            </PopoverContent>
-                                        </Popover>
-                                    }
-                                />
-                            </LocalErrorBoundary>
-                        </div>
-                    </aside>
-                </div>
-
-                {/* === ROW 3: Secondary Metrics === */}
-                <div
-                    className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3"
-                    data-testid="metrics-panel"
-                    data-metrics-settled={elapsedTime > 0 ? "true" : "false"}
-                >
-                    <LocalErrorBoundary isolationKey="clarity-score" componentName="ClarityScoreCard">
-                        <ClarityScoreCard
-                            clarityScore={metrics.clarityScore}
-                            clarityLabel={metrics.clarityLabel}
-                            clarityExplanation={metrics.clarityExplanation}
-                            isClarityScorable={metrics.isClarityScorable}
-                            className="h-full"
-                        />
-                    </LocalErrorBoundary>
-                    <LocalErrorBoundary isolationKey="speaking-rate" componentName="SpeakingRateCard">
-                        <SpeakingRateCard
-                            wpm={metrics.wpm}
-                            wpmLabel={metrics.wpmLabel}
-                            wpmExplanation={metrics.wpmExplanation}
-                            className="h-full"
-                        />
-                    </LocalErrorBoundary>
-                    <LocalErrorBoundary isolationKey="pause-metrics" componentName="PauseMetricsDisplay">
-                        <PauseMetricsDisplay
-                            metrics={pauseMetrics}
-                            className="h-full"
-                        />
-                    </LocalErrorBoundary>
-                </div>
-
-                {/* === ROW 4: Full-Width Quick Tips === */}
-                <div className="mt-6">
-                    <LocalErrorBoundary isolationKey="speaking-tips" componentName="SpeakingTipsCard">
-                        <SpeakingTipsCard
-                            wpm={metrics.wpm}
-                            fillerCount={metrics.fillerCount}
-                            clarityScore={metrics.clarityScore}
-                            pauseMetrics={pauseMetrics}
-                            className="compact"
-                        />
-                    </LocalErrorBoundary>
+                    <div className="mt-6">
+                        <LocalErrorBoundary isolationKey="filler-words" componentName="FillerWordsCard">
+                            <FillerWordsCard
+                                fillerCount={metrics.fillerCount}
+                                fillerData={fillerData}
+                                fillerExplanation={metrics.fillerExplanation}
+                                className="min-h-0"
+                                headerAction={
+                                    <Popover open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="text-primary underline-offset-4 hover:bg-primary/10 hover:text-primary"
+                                                data-testid="add-custom-word-button"
+                                            >
+                                                <Settings className="h-4 w-4" />
+                                                Custom
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-80 bg-white border-[hsl(var(--border-strong))] surface-shadow mr-6">
+                                            <UserFillerWordsManager onWordAdded={() => setIsSettingsOpen(false)} />
+                                        </PopoverContent>
+                                    </Popover>
+                                }
+                            />
+                        </LocalErrorBoundary>
+                    </div>
                 </div>
             </div>
 

@@ -1,7 +1,6 @@
 import { useQuery, UseQueryOptions } from "@tanstack/react-query";
 import { useAuthProvider } from "../contexts/AuthProvider";
 import { profileService } from "../services/domainServices";
-import { UserProfile } from "../types/user";
 import logger from "../lib/logger";
 import { ENV } from "../config/TestFlags";
 import * as Sentry from "@sentry/react";
@@ -36,7 +35,6 @@ export interface UseUserProfileOptions {
 
 export const useUserProfile = (options: UseUserProfileOptions = {}) => {
   const { session } = useAuthProvider();
-  const isDevBypass = import.meta.env.DEV && window.location.search.includes('devBypass=true');
 
   // Production defaults: 3 retries with exponential backoff
   const retryConfig = options.retry ?? 3;
@@ -45,8 +43,8 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
   const query = useQuery({
     queryKey: ['userProfile', session?.user?.id],
     queryFn: async () => {
-      if (!session?.user?.id || isDevBypass) {
-        logger.debug('[useUserProfile] No session user or devBypass, skipping fetch');
+      if (!session?.user?.id) {
+        logger.debug('[useUserProfile] No session user, skipping fetch');
         return null;
       }
 
@@ -56,41 +54,6 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
         // P2-6 FIX: Use domain service instead of direct Supabase call
         const profile = await profileService.getById(session.user.id);
         const duration = Date.now() - startTime;
-
-        // EXPERT RESCUE: Force Pro status for accounts with 'pro-user' or 'testuser' in email
-        // Condition: Enabled in DEV or when explicitly in E2E context via Manifest
-        const email = session.user.email?.toLowerCase() || '';
-        const isProEmail = email.includes('pro-user') || email.includes('testuser') || email === 'test@example.com';
-
-        if ((import.meta.env.DEV || ENV.isE2E) && isProEmail) {
-          // GUARD: Don't override an explicitly seeded non-Pro baseline.
-          // Free is today's active baseline; Basic is retained only for future paid-plan tests.
-          const isExplicitlyNonPro = profile?.subscription_status === 'free' || profile?.subscription_status === 'basic';
-          if (profile && !isExplicitlyNonPro) {
-            profile.subscription_status = 'pro';
-            profile.stripe_subscription_id = profile.stripe_subscription_id ?? 'sub_e2e_paid_pro';
-            logger.debug({ userId: session.user.id }, '[useUserProfile] Pro rescue applied to existing profile');
-          } else if (!profile) {
-            logger.info({ userId: session.user.id }, '[useUserProfile] Generating synthetic Pro profile for rescue');
-            const syntheticProfile: UserProfile = {
-              id: session.user.id,
-              subscription_status: 'pro',
-              stripe_subscription_id: 'sub_e2e_paid_pro',
-              usage_seconds: 0,
-              usage_reset_date: new Date(Date.now() + 30 * 86400000).toISOString(),
-              created_at: new Date().toISOString(),
-            };
-
-            // Signal E2E even for synthetic profiles
-            if (ENV.isE2E && typeof window !== 'undefined') {
-              window.__e2eProfileLoaded__ = true;
-              window.__e2e_e2e_profile_loaded_fired__ = true;
-              window.dispatchEvent(new CustomEvent('e2e:profile-loaded'));
-            }
-
-            return syntheticProfile;
-          }
-        }
 
         logger.info({ userId: session.user.id, durationMs: duration }, '[useUserProfile] Profile fetched successfully');
 
@@ -129,27 +92,13 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
         throw error; // Re-throw to trigger React Query retry
       }
     },
-    enabled: !!session?.user && !isDevBypass,
+    enabled: !!session?.user,
     // Injectable retry config for testability
     retry: retryConfig,
     retryDelay: retryDelayConfig,
     // Cache profile data for 5 minutes to prevent skeleton flashing during navigation
     staleTime: 5 * 60 * 1000,
   });
-
-  // DEV BYPASS: Return mock profile immediately for UI testing
-  if (isDevBypass) {
-    return {
-      ...query,
-      data: {
-        id: '00000000-0000-0000-0000-000000000000',
-        subscription_status: 'pro',
-        usage_seconds: 0,
-        usage_reset_date: new Date(Date.now() + 30 * 86400000).toISOString(),
-        created_at: new Date().toISOString(),
-      } as UserProfile
-    };
-  }
 
   return {
     ...query,

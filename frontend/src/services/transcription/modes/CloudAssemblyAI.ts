@@ -126,8 +126,8 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
     if (!session && !this.isE2EEnvironment()) {
       return {
         isAvailable: false,
-        reason: 'NO_API_KEY', // Semantic mapping to "Not Authenticated"
-        message: 'Cloud transcription requires authentication. Please sign in.'
+        reason: 'NO_API_KEY',
+        message: 'Cloud STT is available only for signed-in Pro accounts with Cloud entitlement.'
       };
     }
 

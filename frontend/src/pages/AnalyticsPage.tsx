@@ -142,11 +142,12 @@ const AuthenticatedAnalyticsView: React.FC = () => {
 
     // Show error state if either query failed
     if (error || profileError) {
+        logger.error({ err: error || profileError }, '[AnalyticsPage] Failed to load analytics');
         return (
             <div className="text-center py-24">
                 <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Analytics</h2>
                 <p className="mb-6 font-medium text-foreground/70">
-                    {error?.message || profileError?.message || 'Something went wrong. Please try again.'}
+                    We could not load your analytics right now. Refresh the page, or sign out and back in if it keeps happening.
                 </p>
                 <Button onClick={() => window.location.reload()}>
                     Refresh Page

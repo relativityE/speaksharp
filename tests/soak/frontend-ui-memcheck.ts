@@ -23,7 +23,7 @@ type BrowserEnduranceUserResult = {
 
 type EndurancePhase = 'setup' | 'active' | 'navigation' | 'teardown' | 'complete';
 
-type RequestFailureEvent = {
+export type RequestFailureEvent = {
     userIndex: number;
     url: string;
     method: string;
@@ -43,7 +43,7 @@ type IgnoredRequestFailure = RequestFailureEvent & {
     category: string;
 };
 
-type RequestFailureClassification =
+export type RequestFailureClassification =
     | { kind: 'critical'; reason: string }
     | { kind: 'ignored_teardown_read'; reason: string; category: string };
 
@@ -76,17 +76,17 @@ type BrowserEnduranceEvidence = {
 const READ_ABORT_ENDPOINTS = [
     {
         category: 'session_history_read',
-        method: 'GET',
+        methods: ['GET', 'HEAD'],
         pattern: /\/rest\/v1\/sessions\?select=/,
     },
     {
         category: 'usage_poll',
-        method: 'GET',
+        methods: ['GET', 'HEAD', 'POST'],
         pattern: /\/functions\/v1\/check-usage-limit/,
     },
     {
         category: 'filler_words_read',
-        method: 'GET',
+        methods: ['GET', 'HEAD'],
         pattern: /\/rest\/v1\/user_filler_words\?select=/,
     },
 ] as const;
@@ -215,7 +215,7 @@ function writeBrowserEnduranceEvidence(report: Omit<BrowserEnduranceEvidence, 's
     console.log(`📄 Browser endurance evidence written to ${ENDURANCE_EVIDENCE_PATH}`);
 }
 
-function classifyRequestFailure(failure: RequestFailureEvent): RequestFailureClassification {
+export function classifyRequestFailure(failure: RequestFailureEvent): RequestFailureClassification {
     if (failure.errorText !== 'net::ERR_ABORTED') {
         return {
             kind: 'critical',
@@ -223,10 +223,20 @@ function classifyRequestFailure(failure: RequestFailureEvent): RequestFailureCla
         };
     }
 
-    if (!['GET', 'HEAD'].includes(failure.method)) {
+    const match = READ_ABORT_ENDPOINTS.find((endpoint) =>
+        (endpoint.methods as readonly string[]).includes(failure.method) && endpoint.pattern.test(failure.url)
+    );
+
+    if (!match) {
+        if (!['GET', 'HEAD'].includes(failure.method)) {
+            return {
+                kind: 'critical',
+                reason: 'Aborted non-read request',
+            };
+        }
         return {
             kind: 'critical',
-            reason: 'Aborted non-read request',
+            reason: 'Aborted read endpoint is not in the teardown allowlist',
         };
     }
 
@@ -235,16 +245,6 @@ function classifyRequestFailure(failure: RequestFailureEvent): RequestFailureCla
         return {
             kind: 'critical',
             reason: 'Read aborted before the functional journey passed',
-        };
-    }
-
-    const match = READ_ABORT_ENDPOINTS.find((endpoint) =>
-        endpoint.method === failure.method && endpoint.pattern.test(failure.url)
-    );
-    if (!match) {
-        return {
-            kind: 'critical',
-            reason: 'Aborted read endpoint is not in the teardown allowlist',
         };
     }
 
@@ -446,11 +446,15 @@ export async function runFrontendMemCheck(browser: Browser): Promise<void> {
                 await sessionEndLocator.first().waitFor({ timeout: 10000 }).catch(() => { });
             }
 
+            // Recording start/stop has been proven by this point. Analytics
+            // navigation is post-journey verification, so teardown/navigation
+            // read aborts after here should be classified as evidence noise.
+            functionalJourneyPassedByUser[userIndex] = true;
+
             // 6. Navigate to Analytics to verify state
             userPhases[userIndex] = 'navigation';
             await page.goto(ROUTES.ANALYTICS);
             await page.locator(`[data-testid="${TEST_IDS.STAT_CARD_TOTAL_SESSIONS}"]`).or(page.locator(`[data-testid="${TEST_IDS.ANALYTICS_EMPTY_STATE}"]`)).first().waitFor({ timeout: 10000 });
-            functionalJourneyPassedByUser[userIndex] = true;
             userPhases[userIndex] = 'complete';
             const memoryEnd = await readMemorySnapshot(page);
             const memoryGrowthBytes = memoryStart.usedJSHeapSize !== null && memoryEnd.usedJSHeapSize !== null

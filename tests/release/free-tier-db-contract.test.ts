@@ -29,4 +29,14 @@ describe('free tier database contract', () => {
         expect(migration).toMatch(/interval '60 minutes'/);
         expect(migration).not.toMatch(/interval '24 hours'/);
     });
+
+    it('normalizes legacy Basic state to Free for launch', () => {
+        const migration = readMigration('20260530103000_normalize_basic_to_free_for_launch.sql');
+
+        expect(migration).toMatch(/Basic is not an active public tier/i);
+        expect(migration).toMatch(/SET subscription_status = 'free'/);
+        expect(migration).toMatch(/WHERE tier_name = 'free'/);
+        expect(migration).toMatch(/ELSE 'free'/);
+        expect(migration).not.toMatch(/THEN 'basic'/i);
+    });
 });

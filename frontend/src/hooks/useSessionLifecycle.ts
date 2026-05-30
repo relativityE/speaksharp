@@ -62,13 +62,12 @@ export const useSessionLifecycle = () => {
 
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = isPro(effectiveSubscriptionStatus);
-    const isDevUser = import.meta.env.MODE !== 'production' && import.meta.env.VITE_DEV_USER === 'true';
     const hasServerTrialState = typeof usageLimit?.trial_active === 'boolean';
     const hasActiveTrialEntitlement = hasServerTrialState
         ? usageLimit.trial_active === true
         : isActiveTrialProfile(profile);
-    const canUsePrivateStt = isProUser || hasActiveTrialEntitlement || isDevUser;
-    const canUseCloudStt = (isProUser && hasCloudSttEntitlement(profile)) || isDevUser;
+    const canUsePrivateStt = isProUser || hasActiveTrialEntitlement;
+    const canUseCloudStt = isProUser && hasCloudSttEntitlement(profile);
     const shouldForceNativeMode = (ENV.isE2E && typeof window !== 'undefined' && window.__SS_E2E__?.forceNativeMode === true) || !canUsePrivateStt;
     const profileReadyForStt = isVerified && !!profile?.id && typeof profile?.subscription_status === 'string';
 
@@ -84,6 +83,8 @@ export const useSessionLifecycle = () => {
         if (typeof document === 'undefined') return 'idle';
         return document.documentElement.getAttribute('data-model-status') || 'idle';
     });
+    const isPrivateStartBlockedByModelState = effectiveMode === 'private'
+        && ['download-required', 'loading', 'init-failed', 'error'].includes(privateModelStatus);
 
     const [showAnalyticsPrompt, setShowAnalyticsPrompt] = useState(false);
     const isProcessingRef = useRef(false);
@@ -144,10 +145,14 @@ export const useSessionLifecycle = () => {
     });
 
     const handleStartStop = useCallback(async (options?: { skipRedirect?: boolean; stopReason?: string }) => {
-        if (isProcessingRef.current && !isListening) return;
+        const latestSessionState = useSessionStore.getState();
+        const latestRuntimeState = latestSessionState.runtimeState;
+        const shouldStop = latestSessionState.isListening || latestRuntimeState === 'RECORDING' || latestRuntimeState === 'STOPPING';
+
+        if (isProcessingRef.current && !shouldStop) return;
         isProcessingRef.current = true;
 
-        if (isListening) {
+        if (shouldStop) {
             // ✅ Master Invariant: stopRecording() is now handled 
             // by SpeechRuntimeController. It performs cleanup and DB ops.
 
@@ -249,7 +254,8 @@ export const useSessionLifecycle = () => {
                     }
                 }
 
-                if (runtimeState === 'ENGINE_INITIALIZING' || runtimeState === 'INITIATING') {
+                const currentRuntimeState = useSessionStore.getState().runtimeState;
+                if (currentRuntimeState === 'ENGINE_INITIALIZING' || currentRuntimeState === 'INITIATING') {
                     await speechRuntimeController.whenStable();
                 }
 
@@ -549,7 +555,7 @@ export const useSessionLifecycle = () => {
         canUseCloudStt,
         activeEngine,
         isButtonDisabled: !['IDLE', 'READY', 'RECORDING', 'FAILED', 'FAILED_VISIBLE', 'TERMINATED'].includes(runtimeState)
-            || (effectiveMode === 'private' && privateModelStatus !== 'ready'),
+            || isPrivateStartBlockedByModelState,
         usageLimit,
         history,
         profileLoading: false,

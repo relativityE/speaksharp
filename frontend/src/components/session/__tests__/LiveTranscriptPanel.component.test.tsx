@@ -16,6 +16,7 @@ describe('LiveTranscriptPanel', () => {
 
         expect(screen.queryByText('Listening...')).not.toBeInTheDocument();
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('speaking now');
+        expect(screen.getByTestId('live-transcript-current-line')).toHaveTextContent('speaking now');
     });
 
     it('renders final and interim text with normal word spacing', () => {
@@ -28,6 +29,7 @@ describe('LiveTranscriptPanel', () => {
         );
 
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).textContent).toContain('Hello world speaking now');
+        expect(screen.getByTestId('live-transcript-current-line')).toHaveTextContent('speaking now');
     });
 
     it('does not render the same Native interim hypothesis twice when it matches transcript text', () => {

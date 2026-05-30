@@ -98,16 +98,14 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ isListening, isR
     const { data: usageLimit } = useUsageLimit();
     const [isEndingSession, setIsEndingSession] = useState(false);
 
-    const isDevUser = import.meta.env.MODE !== 'production' && import.meta.env.VITE_DEV_USER === 'true';
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = checkIsPro(effectiveSubscriptionStatus);
-    const canUsePrivateStt = isProUser || isActiveTrialProfile(profile) || isDevUser;
+    const canUsePrivateStt = isProUser || isActiveTrialProfile(profile);
     const canAccessAdvancedModes = canUsePrivateStt;
-    const canUseCloudStt = (isProUser && hasCloudSttEntitlement(profile)) || isDevUser;
+    const canUseCloudStt = isProUser && hasCloudSttEntitlement(profile);
 
     type Mode = 'cloud' | 'private' | 'native';
     const getDefaultMode = (): Mode => {
-        if (isDevUser) return 'cloud';
         if (canAccessAdvancedModes) return 'private';
         return 'native';
     };

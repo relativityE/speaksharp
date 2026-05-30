@@ -32,7 +32,7 @@ describe('useUserProfile', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         queryClient = createQueryClient();
-        // Mock window.location.search to avoid devBypass
+        // Mock window.location.search for deterministic hook setup.
         Object.defineProperty(window, 'location', {
             value: { search: '' },
             writable: true,
@@ -86,4 +86,3 @@ describe('useUserProfile', () => {
         expect(profileService.getById).toHaveBeenCalledWith('test-user-id');
     });
 });
-
