@@ -4,6 +4,7 @@ import { corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent';
 const MAX_TRANSCRIPT_CHARS = 8000;
+const AI_SUGGESTION_DAILY_LIMIT = 20;
 
 type SupabaseClientFactory = (authHeader: string | null) => SupabaseClient;
 
@@ -15,6 +16,14 @@ interface SuggestionItem {
 interface AISuggestions {
   summary: string;
   suggestions: SuggestionItem[];
+}
+
+interface QuotaResult {
+  allowed?: boolean;
+  remaining?: number;
+  limit?: number;
+  used?: number;
+  error?: string;
 }
 
 const FALLBACK_SUGGESTIONS: AISuggestions = {
@@ -134,16 +143,13 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       ? `${transcript.slice(0, MAX_TRANSCRIPT_CHARS)}\n\n[Transcript truncated for coaching request length.]`
       : transcript;
 
-    let userId: string | null = null;
-    if (sessionId) {
-      const { data: userData, error: userError } = await supabaseClient.auth.getUser();
-      userId = userData?.user?.id ?? null;
-      if (userError || !userId) {
-        return new Response(JSON.stringify({ error: 'Authentication failed' }), {
-          headers: { ...responseHeaders, 'Content-Type': 'application/json' },
-          status: 401,
-        });
-      }
+    const { data: userData, error: userError } = await supabaseClient.auth.getUser();
+    const userId = userData?.user?.id ?? null;
+    if (userError || !userId) {
+      return new Response(JSON.stringify({ error: 'Authentication failed' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 401,
+      });
     }
 
     // 1. OPTIMIZATION: Check for existing suggestions if sessionId is provided
@@ -169,6 +175,30 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       return new Response(JSON.stringify({ suggestions: FALLBACK_SUGGESTIONS, degraded: true }), {
         headers: { ...responseHeaders, 'Content-Type': 'application/json' },
         status: 200,
+      });
+    }
+
+    const { data: quota, error: quotaError } = await supabaseClient.rpc('consume_ai_suggestion_quota', {
+      p_limit: AI_SUGGESTION_DAILY_LIMIT,
+    });
+
+    if (quotaError) {
+      console.error('AI suggestion quota check failed:', quotaError);
+      return new Response(JSON.stringify({ error: 'Unable to verify AI coaching quota. Please try again.' }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 503,
+      });
+    }
+
+    const quotaResult = quota as QuotaResult | null;
+    if (quotaResult && quotaResult.allowed === false) {
+      return new Response(JSON.stringify({
+        error: 'Daily AI coaching limit reached. Try again tomorrow.',
+        remaining: quotaResult.remaining ?? 0,
+        limit: quotaResult.limit ?? AI_SUGGESTION_DAILY_LIMIT,
+      }), {
+        headers: { ...responseHeaders, 'Content-Type': 'application/json' },
+        status: 429,
       });
     }
 

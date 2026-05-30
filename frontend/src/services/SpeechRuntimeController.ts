@@ -23,6 +23,7 @@ import { validateEngine, STTEngine } from '@/contracts/STTEngine';
 import { FillerCounts } from '@/utils/fillerWordUtils';
 import { calculateCoreSessionMetrics, getFillerTotal } from '@/utils/sessionAnalysis';
 import { updateSession } from '@/lib/storage';
+import { clearSessionRecoveryDraft, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 
 declare global {
     interface Window {
@@ -1739,11 +1740,22 @@ export class SpeechRuntimeController {
                                 clarityScore,
                                 accuracy,
                             }, '[DEBUG-STOP] completeSession completed-status starting');
-                            await completeSession(sessionId, {
+                            saveSessionRecoveryDraft({
+                                sessionId,
+                                userId,
+                                transcript: finalTranscript,
+                                durationSeconds: Math.round(duration),
+                                mode: modeForFinalization ?? 'unknown',
+                            });
+
+                            const completion = await completeSession(sessionId, {
                                 status: 'completed',
                                 transcript: finalTranscript,
                                 duration: Math.round(duration)
                             });
+                            if (!completion.success) {
+                                throw new Error('SESSION_COMPLETION_FAILED');
+                            }
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
                             if (token.cancelled) {
                                 logger.warn({
@@ -1763,7 +1775,7 @@ export class SpeechRuntimeController {
                             }
 
                             logger.info({ sessionId }, '[DEBUG-STOP] updateSession starting');
-                            await updateSession(sessionId, {
+                            const updateResult = await updateSession(sessionId, {
                                 total_words: wordCount,
                                 filler_words: fillerWords as unknown as FillerCounts,
                                 custom_words: this.userWords.reduce<Record<string, { count: number }>>((acc, word) => {
@@ -1775,7 +1787,11 @@ export class SpeechRuntimeController {
                                 clarity_score: clarityScore,
                                 accuracy
                             });
+                            if (!updateResult.success) {
+                                throw new Error('SESSION_METRICS_UPDATE_FAILED');
+                            }
                             logger.info('[DEBUG-STOP] updateSession done');
+                            clearSessionRecoveryDraft(sessionId);
 
                             this.updateStreakInternal();
 
@@ -1812,6 +1828,7 @@ export class SpeechRuntimeController {
                 return result;
             } catch (err: unknown) {
                 logger.error({ err }, '[DEBUG-STOP] ERROR caught');
+                const hasRecoveryDraftSignal = this.getStoreTranscriptLength() > 0;
                 if (this.sessionId) {
                     completeSession(this.sessionId, {
                         status: 'failed',
@@ -1825,6 +1842,13 @@ export class SpeechRuntimeController {
                     });
                 }
                 await this.transition('FAILED', err as Error, token);
+                if (hasRecoveryDraftSignal) {
+                    useSessionStore.getState().setSTTStatus({
+                        type: 'warning',
+                        message: 'Session was not saved yet.',
+                        detail: 'A local recovery draft was kept in this browser after a save issue.',
+                    });
+                }
                 throw err;
             }
         });

@@ -104,6 +104,7 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
       auth: {
         getUser: () => Promise.resolve({ data: { user: { id: 'pro-user' } }, error: null }),
       },
+      rpc: () => Promise.resolve({ data: { allowed: true, remaining: 19, limit: 20 }, error: null }),
       from: () => ({
         select: () => {
           const result = {
@@ -140,6 +141,7 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
       auth: {
         getUser: () => Promise.resolve({ data: { user: { id: 'pro-user' } }, error: null }),
       },
+      rpc: () => Promise.resolve({ data: { allowed: true, remaining: 19, limit: 20 }, error: null }),
       from: () => ({
         select: () => {
           const result = {
@@ -173,6 +175,9 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
     const mockCreateSupabaseWithCache = () => ({
       auth: {
         getUser: () => Promise.resolve({ data: { user: { id: 'pro-user' } }, error: null }),
+      },
+      rpc: () => {
+        throw new Error('quota should not be consumed for cached suggestions');
       },
       from: (table: string) => ({
         select: (_columns: string) => {
@@ -216,6 +221,7 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
       auth: {
         getUser: () => Promise.resolve({ data: { user: { id: 'pro-user' } }, error: null }),
       },
+      rpc: () => Promise.resolve({ data: { allowed: true, remaining: 19, limit: 20 }, error: null }),
       from: (table: string) => ({
         select: (_columns: string) => {
           const result = {
@@ -269,6 +275,10 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
     lastGeminiRequestBody = null;
 
     const mockCreateSupabaseProUser = () => ({
+      auth: {
+        getUser: () => Promise.resolve({ data: { user: { id: 'pro-user' } }, error: null }),
+      },
+      rpc: () => Promise.resolve({ data: { allowed: true, remaining: 19, limit: 20 }, error: null }),
       from: () => ({
         select: () => {
           const result = {
@@ -304,6 +314,10 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
     lastGeminiRequestBody = null;
 
     const mockCreateSupabaseProUser = () => ({
+      auth: {
+        getUser: () => Promise.resolve({ data: { user: { id: 'pro-user' } }, error: null }),
+      },
+      rpc: () => Promise.resolve({ data: { allowed: true, remaining: 19, limit: 20 }, error: null }),
       from: () => ({
         select: () => {
           const result = {
@@ -348,6 +362,10 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
     mockGeminiText = 'Here are some thoughts, but not JSON.';
 
     const mockCreateSupabaseProUser = () => ({
+      auth: {
+        getUser: () => Promise.resolve({ data: { user: { id: 'pro-user' } }, error: null }),
+      },
+      rpc: () => Promise.resolve({ data: { allowed: true, remaining: 19, limit: 20 }, error: null }),
       from: () => ({
         select: () => {
           const result = {
@@ -388,6 +406,10 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
     mockGeminiMode = 'error';
 
     const mockCreateSupabaseProUser = () => ({
+      auth: {
+        getUser: () => Promise.resolve({ data: { user: { id: 'pro-user' } }, error: null }),
+      },
+      rpc: () => Promise.resolve({ data: { allowed: true, remaining: 19, limit: 20 }, error: null }),
       from: () => ({
         select: () => {
           const result = {
@@ -414,6 +436,43 @@ Deno.test('get-ai-suggestions edge function', async (t) => {
       assertEquals(fetchCount, 1);
     } finally {
       mockGeminiMode = 'ok';
+      Deno.env.delete('GEMINI_API_KEY');
+    }
+  });
+
+  await t.step('should return 429 when daily AI coaching quota is exhausted', async () => {
+    Deno.env.set('GEMINI_API_KEY', 'mock-key');
+    fetchCount = 0;
+
+    const mockCreateSupabaseQuotaExceeded = () => ({
+      auth: {
+        getUser: () => Promise.resolve({ data: { user: { id: 'pro-user' } }, error: null }),
+      },
+      rpc: () => Promise.resolve({ data: { allowed: false, remaining: 0, limit: 20, used: 20 }, error: null }),
+      from: () => ({
+        select: () => {
+          const result = {
+            eq: () => result,
+            single: () => Promise.resolve({ data: { subscription_status: 'pro' }, error: null }),
+          };
+          return result;
+        },
+      }),
+    }) as any;
+
+    try {
+      const req = new Request('http://localhost/get-ai-suggestions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer fake-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: "hello quota" })
+      });
+      const res = await handler(req, mockCreateSupabaseQuotaExceeded);
+      const json = await res.json();
+
+      assertEquals(res.status, 429);
+      assertEquals(json.error, 'Daily AI coaching limit reached. Try again tomorrow.');
+      assertEquals(fetchCount, 0);
+    } finally {
       Deno.env.delete('GEMINI_API_KEY');
     }
   });

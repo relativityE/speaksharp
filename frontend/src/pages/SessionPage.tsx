@@ -20,6 +20,8 @@ import {
     getSessionCoachingAssignment,
 } from '@/services/sessionCoachingExperiment';
 import { formatRemainingTime, useUsageLimit } from '@/hooks/useUsageLimit';
+import { getSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 /**
  * ARCHITECTURE:
@@ -34,6 +36,9 @@ export const SessionPage: React.FC = () => {
     const previousTranscriptScrollHeightRef = useRef(0);
     const [coachingAssignment] = useState(() => getSessionCoachingAssignment());
     const { data: usageLimit } = useUsageLimit();
+    const updateRecoveredTranscript = useSessionStore(state => state.updateTranscript);
+    const setRecoveredChunks = useSessionStore(state => state.setChunks);
+    const setRecoveredStatus = useSessionStore(state => state.setSTTStatus);
 
     const {
         isListening,
@@ -62,6 +67,24 @@ export const SessionPage: React.FC = () => {
         isButtonDisabled,
         history
     } = useSessionLifecycle();
+
+    useEffect(() => {
+        if (isListening || transcriptContent.trim()) return;
+        const draft = getSessionRecoveryDraft();
+        if (!draft) return;
+
+        updateRecoveredTranscript(draft.transcript, '');
+        setRecoveredChunks([{
+            transcript: draft.transcript,
+            timestamp: new Date(draft.savedAt).getTime() || Date.now(),
+            isFinal: true,
+        }]);
+        setRecoveredStatus({
+            type: 'warning',
+            message: 'Recovered unsaved session draft.',
+            detail: 'Your last transcript was kept on this device after a save issue.',
+        });
+    }, [isListening, setRecoveredChunks, setRecoveredStatus, transcriptContent, updateRecoveredTranscript]);
 
     // Keep live transcript pinned only while the user is already reading the latest text.
     useEffect(() => {
