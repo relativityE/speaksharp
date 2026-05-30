@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { AnalyticsDashboard } from '../components/AnalyticsDashboard';
 import { useAnalytics } from '../hooks/useAnalytics';
 import { getSupabaseClient } from '@/lib/supabaseClient';
@@ -94,6 +95,7 @@ const PageHeader: React.FC<{ isPro: boolean; sessionId?: string; upgradeLoading:
 
 const AuthenticatedAnalyticsView: React.FC = () => {
     const { sessionId } = useParams<{ sessionId: string }>();
+    const queryClient = useQueryClient();
     const { sessionHistory, overallStats, fillerWordTrends, loading, error } = useAnalytics();
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useUserProfile();
     const { data: usageLimit } = useUsageLimit();
@@ -136,6 +138,13 @@ const AuthenticatedAnalyticsView: React.FC = () => {
     const effectiveSubscriptionStatus = getEffectiveSubscriptionStatus(usageLimit?.subscription_status, profile);
     const isProUser = isPro(effectiveSubscriptionStatus);
 
+    const handleRetryAnalytics = () => {
+        void queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+        void queryClient.invalidateQueries({ queryKey: ['sessionCount'] });
+        void queryClient.invalidateQueries({ queryKey: ['analyticsSummary'] });
+        void queryClient.invalidateQueries({ queryKey: ['userProfile'] });
+    };
+
     // Show loading state while fetching data
     // Loading state is now handled inside AnalyticsDashboard to provide consistent data-testids for E2E
     const isLoading = loading || isProfileLoading;
@@ -147,10 +156,10 @@ const AuthenticatedAnalyticsView: React.FC = () => {
             <div className="text-center py-24">
                 <h2 className="text-2xl font-semibold mb-4 text-destructive">Error Loading Analytics</h2>
                 <p className="mb-6 font-medium text-foreground/70">
-                    We could not load your analytics right now. Refresh the page, or sign out and back in if it keeps happening.
+                    We could not load your analytics right now. Retry sync first. If it keeps happening, sign out and back in to refresh your account session.
                 </p>
-                <Button onClick={() => window.location.reload()}>
-                    Refresh Page
+                <Button onClick={handleRetryAnalytics}>
+                    Retry Analytics
                 </Button>
             </div>
         );

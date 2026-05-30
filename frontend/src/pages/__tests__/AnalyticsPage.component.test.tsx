@@ -92,7 +92,7 @@ describe('AnalyticsPage', () => {
             } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
             renderAnalyticsPage();
-            expect(screen.getByText('We could not load your analytics right now. Refresh the page, or sign out and back in if it keeps happening.')).toBeInTheDocument();
+            expect(screen.getByText('We could not load your analytics right now. Retry sync first. If it keeps happening, sign out and back in to refresh your account session.')).toBeInTheDocument();
             expect(screen.getByText('Error Loading Analytics')).toBeInTheDocument();
         });
 
@@ -104,10 +104,10 @@ describe('AnalyticsPage', () => {
             } as unknown as ReturnType<typeof UserProfileHook.useUserProfile>);
 
             renderAnalyticsPage();
-            expect(screen.getByText('We could not load your analytics right now. Refresh the page, or sign out and back in if it keeps happening.')).toBeInTheDocument();
+            expect(screen.getByText('We could not load your analytics right now. Retry sync first. If it keeps happening, sign out and back in to refresh your account session.')).toBeInTheDocument();
         });
 
-        it('should reload page when refresh button is clicked', () => {
+        it('should retry analytics queries when retry button is clicked', () => {
             mockUseAnalytics.mockReturnValue({
                 sessionHistory: [],
                 loading: false,
@@ -115,8 +115,8 @@ describe('AnalyticsPage', () => {
             } as unknown as ReturnType<typeof AnalyticsHook.useAnalytics>);
 
             renderAnalyticsPage();
-            fireEvent.click(screen.getByText('Refresh Page'));
-            expect(mockReload).toHaveBeenCalled();
+            fireEvent.click(screen.getByText('Retry Analytics'));
+            expect(mockReload).not.toHaveBeenCalled();
         });
     });
 
