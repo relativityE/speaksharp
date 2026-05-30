@@ -203,14 +203,13 @@ export default class TranscriptionService {
     }, 5000);
   }
 
-  private markPrivateModelInitFailed(error: unknown): void {
+  private markPrivateModelInitFailed(_error: unknown): void {
     if (this.mode !== 'private') return;
 
     this.privateModelReady = false;
     this.modelLoadingProgress = null;
     this.setEngineReady(false);
 
-    const err = error instanceof Error ? error : new Error(String(error));
     const state = (useSessionStore as unknown as {
       getState: () => {
         setModelLoadingProgress: (p: number | null) => void;
