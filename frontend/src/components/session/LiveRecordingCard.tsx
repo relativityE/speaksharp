@@ -122,12 +122,11 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         <div>
                             <p className="text-xs font-semibold leading-snug text-primary">
                                 {isPrivateDownloadRequired
-                                    ? 'Use Set Up to download the Private / Vault model to this computer. Your audio stays on your machine.'
+                                    ? 'Set up Private / Vault Mode on this computer. Your audio stays on your machine.'
                                     : modeHint[mode]}
                             </p>
                             {isPrivateDownloadRequired && (
                                 <div className="mt-1 flex flex-wrap items-center gap-2">
-                                    <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-primary">Setup needed</span>
                                     {onDownloadModel && (
                                         <Button
                                             type="button"
@@ -240,7 +239,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                 <div className={`h-1.5 w-1.5 rounded-full ${isListening ? 'bg-primary animate-pulse' : 'bg-muted-foreground'}`} />
                                 <span className="text-[10px] font-bold text-foreground/70 uppercase tracking-[0.14em]" data-testid="stt-status-label">
                                     {isPrivateDownloadRequired
-                                        ? 'Ready after setup'
+                                        ? 'Ready'
                                         : displayStatusMessage || (isPaused ? "Paused" : (isListening ? (activeEngine && activeEngine !== 'none' ? "Recording" : "Listening") : "Ready"))}
                                 </span>
                             </div>
