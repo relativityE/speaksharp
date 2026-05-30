@@ -74,9 +74,9 @@ The implementation is intentionally split into two layers:
 Current Session wiring:
 
 - `frontend/src/pages/SessionPage.tsx` renders `LiveCoachingScoreCard`.
-- Production assignment: PostHog feature flag `session_live_coaching_score`
-- QA treatment route: `/session?coaching=on`
-- QA control route: `/session?coaching=off`
+- Live coaching is the default Session page path.
+- `/session?coaching=on` remains a harmless explicit QA route for the current live-coaching path.
+- The previous non-live-coaching control path is obsolete and should not be developed as a product variant.
 
 Current inputs:
 
@@ -450,21 +450,17 @@ Example user-facing coaching:
 
 The score engine should select what needs work. AI may only improve phrasing.
 
-## A/B Experiment
+## Experiment Status
 
-Initial Session experiment:
+The Session page live-coaching decision has been made: use live coaching as the default product path. The old non-live-coaching control page is obsolete.
 
-| Variant | Assignment | Description |
-|---|---|---|
-| Treatment | PostHog variant or `/session?coaching=on` | Shows Live Coaching Score. |
-| Control | PostHog variant or `/session?coaching=off` | Hides Live Coaching Score and keeps the existing metric-card experience. |
+PostHog can still be used later for layout/copy experiments inside the live-coaching experience, but it should not hide the live coach or create a separate no-coach Session path.
 
-Production experiment assignment should use the PostHog feature flag `session_live_coaching_score` with `control` and `treatment` variants. URL overrides remain for QA:
-
-| QA Route | Behavior |
+| Route / Assignment | Behavior |
 |---|---|
-| `/session?coaching=on` | Force treatment. |
-| `/session?coaching=off` | Force control. |
+| `/session` | Shows Live Coaching Score. |
+| `/session?coaching=on` | Explicitly shows the same live-coaching path for QA. |
+| `/session?coaching=off` | No longer disables live coaching. |
 
 Experiment telemetry must collect behavior, not just rendering:
 
