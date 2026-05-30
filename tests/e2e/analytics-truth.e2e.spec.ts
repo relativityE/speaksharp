@@ -8,6 +8,7 @@ import {
   waitForFeature,
 } from './helpers';
 import { TEST_IDS } from '../constants';
+import { seedMockUserFillerWord } from './mock-routes';
 
 const transcript = [
   'um speaksharp helps teams practice concise updates',
@@ -18,19 +19,7 @@ const transcript = [
 for (const mode of ['native', 'cloud'] as const) {
 test(`Gate 2 mocked ${mode}: analytics values change from transcript events and survive reload/export`, async ({ page }) => {
   await programmaticLoginWithRoutes(page, { userType: 'pro' });
-  await page.evaluate(async () => {
-    const response = await fetch('/rest/v1/user_filler_words', {
-      method: 'POST',
-      headers: {
-        accept: 'application/vnd.pgrst.object+json',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ user_id: 'test-user-123', word: 'customboost' }),
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to seed custom filler word: ${response.status}`);
-    }
-  });
+  await seedMockUserFillerWord(page, 'customboost');
 
   await navigateToRoute(page, '/session');
   await expect(page.getByTestId('filler-words-list')).toContainText('customboost');
