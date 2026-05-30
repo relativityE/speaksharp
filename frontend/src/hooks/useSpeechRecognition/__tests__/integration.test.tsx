@@ -207,7 +207,7 @@ describe('useSpeechRecognition Integration', () => {
 
         // 5. Assert — the stop handler must have captured 'Final State'
         await waitForAsync(() => {
-            expect(result.current.transcript.transcript).toBe('Final State');
+            expect(result.current.transcript.transcript).toBe('Final State.');
         });
     });
 
@@ -328,7 +328,7 @@ describe('useSpeechRecognition Integration', () => {
         });
 
         expect(useSessionStore.getState().chunks).toHaveLength(1);
-        expect(useSessionStore.getState().chunks[0].transcript).toBe('Early message');
+        expect(useSessionStore.getState().chunks[0].transcript).toBe('Early message.');
 
         await act(async () => {
             const mockedHandshake = speechRuntimeController.confirmSubscriberHandshake as unknown as { mockRestore?: () => void };
@@ -340,7 +340,7 @@ describe('useSpeechRecognition Integration', () => {
 
         await waitForAsync(() => {
             expect(result.current.chunks.length).toBe(1);
-            expect(result.current.chunks[0].transcript).toBe('Early message');
+            expect(result.current.chunks[0].transcript).toBe('Early message.');
         });
     });
 

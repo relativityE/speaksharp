@@ -18,6 +18,7 @@ loadEnv('development');
 export default defineConfig({
     ...baseConfig,
     testDir: './tests/soak',
+    testMatch: '**/*.spec.ts',
     outputDir: './test-results/soak',
     timeout: SOAK_CONFIG.PLAYWRIGHT_TIMEOUT_MS,
     expect: { timeout: 30_000 },
