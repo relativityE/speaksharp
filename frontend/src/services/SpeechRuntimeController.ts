@@ -62,6 +62,29 @@ const hasProviderFullTranscriptPrefix = (currentTranscript: string, finalTranscr
     return Boolean(normalizedCurrent && normalizedFinal.startsWith(normalizedCurrent));
 };
 
+const TERMINAL_PUNCTUATION_RE = /[.!?]["')\]]?$/;
+
+const sentenceCaseStart = (text: string): string => {
+    const firstLetterIndex = text.search(/[A-Za-z]/);
+    if (firstLetterIndex === -1) return text;
+    return `${text.slice(0, firstLetterIndex)}${text.charAt(firstLetterIndex).toUpperCase()}${text.slice(firstLetterIndex + 1)}`;
+};
+
+const ensureTerminalPunctuation = (text: string): string => {
+    const trimmed = text.trim();
+    if (!trimmed) return trimmed;
+    const sentenceCased = sentenceCaseStart(trimmed);
+    if (TERMINAL_PUNCTUATION_RE.test(sentenceCased)) return sentenceCased;
+    if (/[,:;]$/.test(sentenceCased)) return `${sentenceCased.slice(0, -1)}.`;
+    return `${sentenceCased}.`;
+};
+
+const appendFinalTranscriptText = (currentTranscript: string, finalTranscript: string): string => {
+    const finalWithPunctuation = ensureTerminalPunctuation(finalTranscript);
+    if (!currentTranscript.trim()) return finalWithPunctuation;
+    return `${ensureTerminalPunctuation(currentTranscript)} ${finalWithPunctuation}`;
+};
+
 const NATIVE_NOISE_TRANSCRIPTS = new Set([
     'stop',
     'start',
@@ -973,15 +996,18 @@ export class SpeechRuntimeController {
 
         if (data.transcript.final) {
             this.transcriptEmissionSequence += 1;
-            const finalTranscript = data.transcript.final.trim();
+            const rawFinalTranscript = data.transcript.final.trim();
+            const finalTranscript = ensureTerminalPunctuation(rawFinalTranscript);
             const currentTrimmed = currentTranscript.trim();
-            if (!finalTranscript) {
+            const currentNormalized = normalizeTranscriptPrefix(currentTrimmed);
+            const finalNormalized = normalizeTranscriptPrefix(finalTranscript);
+            if (!rawFinalTranscript) {
                 pushNativeStoreTrace('store_skip_empty_final');
                 return;
             }
 
             const lastChunk = store.chunks[store.chunks.length - 1];
-            if (lastChunk?.isFinal && lastChunk.transcript.trim() === finalTranscript) {
+            if (lastChunk?.isFinal && normalizeTranscriptPrefix(lastChunk.transcript) === finalNormalized) {
                 pushNativeStoreTrace('store_skip_duplicate_last_chunk', {
                     finalTranscript,
                 });
@@ -996,7 +1022,7 @@ export class SpeechRuntimeController {
                 }, '[PRIVATE_TRACE] store_final_transcript_apply');
             }
 
-            if (currentTrimmed === finalTranscript || currentTrimmed.endsWith(finalTranscript)) {
+            if (currentNormalized === finalNormalized || currentNormalized.endsWith(finalNormalized)) {
                 pushNativeStoreTrace('store_skip_final_already_present', {
                     currentTrimmed,
                     finalTranscript,
@@ -1005,8 +1031,8 @@ export class SpeechRuntimeController {
                 return;
             }
 
-            if (currentTrimmed && hasProviderFullTranscriptPrefix(currentTrimmed, finalTranscript)) {
-                const suffix = finalTranscript.slice(currentTrimmed.length).trim();
+            if (currentTrimmed && hasProviderFullTranscriptPrefix(currentTrimmed, rawFinalTranscript)) {
+                const suffix = ensureTerminalPunctuation(rawFinalTranscript.slice(currentTrimmed.length).trim());
                 pushNativeStoreTrace('store_replace_with_provider_full_final', {
                     suffix,
                     finalTranscript,
@@ -1023,7 +1049,7 @@ export class SpeechRuntimeController {
                 return;
             }
 
-            const newFullText = currentTranscript ? `${currentTranscript} ${finalTranscript}` : finalTranscript;
+            const newFullText = appendFinalTranscriptText(currentTranscript, finalTranscript);
             pushNativeStoreTrace('store_apply_final', {
                 finalTranscript,
                 newFullText,

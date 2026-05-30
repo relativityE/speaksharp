@@ -290,15 +290,28 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
         push({ transcript: { final: 'today i want to give a clear update on speaksharp' } });
 
         expect(useSessionStore.getState().transcript).toEqual({
-            transcript: 'Today i want to give a clear update on speaksharp',
+            transcript: 'Today i want to give a clear update on speaksharp.',
             partial: '',
         });
         expect(useSessionStore.getState().chunks).toEqual([
             expect.objectContaining({
-                transcript: 'today i want to give a clear update on speaksharp',
+                transcript: 'Today i want to give a clear update on speaksharp.',
                 isFinal: true,
             }),
         ]);
+    });
+
+    it('adds punctuation between separate final transcript segments', () => {
+        const push = (controller as unknown as {
+            pushTranscriptToStore: (data: { transcript: { final: string } }) => void
+        }).pushTranscriptToStore.bind(controller);
+
+        push({ transcript: { final: 'today i want to give a clear update' } });
+        push({ transcript: { final: 'next the coaching should turn numbers into actions' } });
+
+        expect(useSessionStore.getState().transcript.transcript).toBe(
+            'Today i want to give a clear update. Next the coaching should turn numbers into actions.'
+        );
     });
 
     it('clears stale partial text when a duplicate final arrives', () => {
