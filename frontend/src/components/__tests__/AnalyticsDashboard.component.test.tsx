@@ -119,6 +119,9 @@ describe('AnalyticsDashboard', () => {
         expect(screen.getByTestId('analytics-dashboard')).toBeInTheDocument();
         expect(screen.getByText('Analytics Focus')).toBeInTheDocument();
         expect(screen.getByText('Delivery Control')).toBeInTheDocument();
+        expect(screen.getByText('Why these tools are here')).toBeInTheDocument();
+        expect(screen.getByText(/evidence behind SpeakSharp Score/i)).toBeInTheDocument();
+        expect(screen.getByText(/Delivery Control shows which ingredient to improve/i)).toBeInTheDocument();
         expect(screen.getByText(/These cards are selected together/i)).toBeInTheDocument();
         expect(screen.getByTestId('stat-card-speaking_pace')).toBeInTheDocument();
 
@@ -136,6 +139,7 @@ describe('AnalyticsDashboard', () => {
 
         expect(screen.getByText('Custom Toolkit')).toBeInTheDocument();
         expect(screen.getByText(/inspect the specific signals/i)).toBeInTheDocument();
+        expect(screen.getByText(/Custom tools answer their own question/i)).toBeInTheDocument();
         expect(screen.getByText(/Selected tools are interpreted independently/i)).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /choose stat cards/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /choose analysis tools/i })).toBeInTheDocument();

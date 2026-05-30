@@ -859,6 +859,19 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                             <div className="rounded-lg border border-border bg-muted/50 px-4 py-3 text-sm font-semibold leading-snug text-foreground/75">
                                 {focusOutcome}
                             </div>
+                            <div className="grid gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-4 text-sm leading-snug text-foreground/80 md:grid-cols-[1fr_auto] md:items-center">
+                                <div className="space-y-1">
+                                    <p className="font-bold text-foreground">Why these tools are here</p>
+                                    <p className="font-medium">
+                                        Pace, fillers, clarity, activity, and transcript quality are the evidence behind SpeakSharp Score and your coaching feedback.
+                                    </p>
+                                </div>
+                                <div className="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground/75 md:max-w-[260px]">
+                                    {isCustomFocus
+                                        ? 'Custom tools answer their own question without changing the grouped coaching story.'
+                                        : `${focusLabel} shows which ingredient to improve before your next session.`}
+                                </div>
+                            </div>
                         </CardHeader>
                     </Card>
 
