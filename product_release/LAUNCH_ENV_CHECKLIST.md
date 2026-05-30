@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-26
 **Version:** v0.6.19-rc0
-**Last Updated:** 2026-05-26
+**Last Updated:** 2026-05-29
 
 # Runtime Configuration Verification (Launch Checklist)
 
@@ -23,24 +23,36 @@ This checklist MUST be verified against the LIVE production environment. Modern 
 ## 2. Backend Infrastructure (Supabase)
 - [ ] **Project URL**: `VITE_SUPABASE_URL` points to the production instance.
 - [ ] **Service Role**: `SUPABASE_SERVICE_ROLE_KEY` is correctly set in Edge Function secrets.
-- [ ] **CORS Origins**: `ALLOWED_ORIGIN` matches the production domain (e.g., `https://speaksharp.app`).
+- [ ] **CORS Origins**: `ALLOWED_ORIGIN` is set in Supabase Edge Function secrets to the exact allowed origins, comma-separated if needed. Current expected soft-release values are `https://speaksharp.vercel.app,https://speaksharp-public.vercel.app,http://localhost:5173`.
 - [ ] **Auth Redirects**: Production domain added to Supabase Auth Allow List.
 - [ ] **Storage Buckets**: Verify any production storage buckets still used by the app have correct RLS policies. Audio files are not expected to be stored for launch; finalized session records do persist transcript/analysis text needed for coaching comparison, PDF regeneration, AI suggestions, and WER-ready validation.
 
-## 3. Observability & Monitoring
+## 3. Vercel Frontend Environment Safety
+- [ ] **Dev User Bypass Disabled**: Production Vercel environment has `VITE_DEV_USER` absent or set to `false`.
+- [ ] **Internal Routes Disabled**: Production Vercel environment has `VITE_ENABLE_INTERNAL_ROUTES` absent or set to `false`.
+- [ ] **Production Mode Build**: Production deployment is built with Vite production mode so `import.meta.env.DEV` is false and `devBypass=true` cannot inject a fake session.
+- [ ] **Preview URL Policy**: Preview deployments must not be shared as tester/public URLs unless their environment is explicitly reviewed. Preview links may allow non-production developer behavior by design.
+
+## 4. Observability & Monitoring
 - [ ] **Sentry DSN**: `VITE_SENTRY_DSN` is set to the production project.
 - [ ] **Backend Sentry DSN**: `SENTRY_DSN` is set for Edge Functions if backend ingest is used.
 - [ ] **Sentry Ingest**: Verified one manual test error has been ingested in live project.
 - [ ] **Log Levels**: Production `LOG_LEVEL` is set to `info` to avoid debug overhead.
 
-## 4. Third-Party APIs
+## 5. Third-Party APIs
 - [ ] **AssemblyAI**: `ASSEMBLYAI_API_KEY` using production paid-tier key.
 - [ ] **PostHog**: `VITE_POSTHOG_KEY` set to production project.
 - [ ] **AssemblyAI Token Denial**: Unauthenticated token request returns 401.
 - [ ] **AssemblyAI Token Grant**: Authenticated, in-limit Pro token request returns a short-lived token.
 - [ ] **AssemblyAI Over-Limit Denial**: Authenticated, over-limit Pro token request returns 403.
 
-## 5. Security & Rate Limiting
+## 6. Live Database Entitlement Evidence
+- [ ] **Free Baseline Function**: Live `effective_subscription_tier` falls back to `free` for null/unknown inactive statuses.
+- [ ] **Usage Update Function**: Live `update_user_usage(INT, TEXT)` does not write `subscription_status = 'basic'` as part of a normal Free usage update.
+- [ ] **Tier Config Rows**: Live `tier_configs.free` exists. If `tier_configs.basic` exists as a future placeholder, it must be equivalent to Free for current unpaid-baseline behavior or documented as inactive.
+- [ ] **Cloud Policy**: Active trial profile can use Private/Vault Mode, but Cloud STT remains a Pro feature and is unavailable for trial.
+
+## 7. Security & Rate Limiting
 - [ ] **Rate Limits**: `rate-limiter` config set to production values (e.g., 100/min per IP).
 - [ ] **SSL/TLS**: Production domain has a valid, active certificate.
 - [ ] **Automatic Trial**: Migration `20260521100000_auto_trial_entitlements.sql` is deployed. A fresh production signup creates `trial_started_at` and `trial_expires_at` without any tester code or admin Edge Function.

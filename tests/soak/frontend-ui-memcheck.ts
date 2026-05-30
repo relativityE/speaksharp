@@ -180,6 +180,11 @@ function getIgnorableRequestFailureReason(failure: { url: string; errorText: str
         return 'Usage-limit poll was aborted during normal route/context teardown after functional checks passed.';
     }
 
+    const isUserFillerWordsRead = failure.url.includes('/rest/v1/user_filler_words?select=');
+    if (isUserFillerWordsRead) {
+        return 'User filler words read was aborted during normal route/context teardown after functional checks passed.';
+    }
+
     return null;
 }
 
