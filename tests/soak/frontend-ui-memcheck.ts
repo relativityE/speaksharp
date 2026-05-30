@@ -171,9 +171,16 @@ function getIgnorableRequestFailureReason(failure: { url: string; errorText: str
     if (failure.errorText !== 'net::ERR_ABORTED') return null;
 
     const isSupabaseRead = failure.url.includes('/rest/v1/sessions?select=');
-    return isSupabaseRead
-        ? 'Supabase sessions read was aborted during normal route/context teardown after functional checks passed.'
-        : null;
+    if (isSupabaseRead) {
+        return 'Supabase sessions read was aborted during normal route/context teardown after functional checks passed.';
+    }
+
+    const isUsageLimitRead = failure.url.includes('/functions/v1/check-usage-limit');
+    if (isUsageLimitRead) {
+        return 'Usage-limit poll was aborted during normal route/context teardown after functional checks passed.';
+    }
+
+    return null;
 }
 
 /**
