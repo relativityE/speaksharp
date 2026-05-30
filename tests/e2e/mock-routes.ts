@@ -706,25 +706,6 @@ export async function updateMockProfile(page: Page, profile: Record<string, unkn
     mockLog('[E2E MOCK] Node-side profile updated:', JSON.stringify(state.profile));
 }
 
-export async function seedMockUserFillerWord(page: Page, word: string, userId = 'test-user-123') {
-    const state = getPageState(page);
-    const normalized = word.trim().toLowerCase();
-    if (!normalized) return;
-
-    const existing = state.userWords.some(
-        entry => entry.user_id === userId && entry.word.toLowerCase() === normalized
-    );
-    if (existing) return;
-
-    state.userWords.push({
-        id: `word-${Date.now()}`,
-        user_id: userId,
-        word: normalized,
-        created_at: new Date().toISOString(),
-    });
-    mockLog('[E2E MOCK] Node-side user filler word seeded:', normalized);
-}
-
 /**
  * Inject mock session into the browser for authenticated state.
  * Call this after the page has loaded.

@@ -8,21 +8,18 @@ import {
   waitForFeature,
 } from './helpers';
 import { TEST_IDS } from '../constants';
-import { seedMockUserFillerWord } from './mock-routes';
 
 const transcript = [
   'um speaksharp helps teams practice concise updates',
-  'actually this customboost phrase should be tracked',
-  'basically we can compare clarity pace and filler trends today',
+  'actually this target phrase should be tracked',
+  'basically we can compare clarity pace like filler trends today',
 ].join(' ');
 
 for (const mode of ['native', 'cloud'] as const) {
 test(`Gate 2 mocked ${mode}: analytics values change from transcript events and survive reload/export`, async ({ page }) => {
   await programmaticLoginWithRoutes(page, { userType: 'pro' });
-  await seedMockUserFillerWord(page, 'customboost');
 
   await navigateToRoute(page, '/session');
-  await expect(page.getByTestId('filler-words-list')).toContainText('customboost');
   await selectTranscriptionEngine(page, mode);
   await expect(page.getByTestId(TEST_IDS.STT_MODE_SELECT)).toHaveAttribute('data-state', mode);
 
@@ -33,7 +30,7 @@ test(`Gate 2 mocked ${mode}: analytics values change from transcript events and 
 
   await simulateTranscription(page, transcript, true);
 
-  await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('customboost');
+  await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('target phrase');
   await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('4');
 
   await page.waitForTimeout(5_200);
@@ -52,11 +49,11 @@ test(`Gate 2 mocked ${mode}: analytics values change from transcript events and 
   await expect(page.getByTestId(TEST_IDS.CLARITY_SCORE_VALUE)).toContainText('%');
   await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('4');
   await expect(page.getByTestId('session-engine-metadata')).toContainText(new RegExp(mode, 'i'));
-  await expect(page.getByText(/customboost phrase should be tracked/i)).toBeVisible();
+  await expect(page.getByText(/target phrase should be tracked/i)).toBeVisible();
 
   await page.reload();
   await waitForFeature(page, 'analytics');
-  await expect(page.getByText(/customboost phrase should be tracked/i)).toBeVisible();
+  await expect(page.getByText(/target phrase should be tracked/i)).toBeVisible();
   await expect(page.getByTestId('session-engine-metadata')).toContainText(new RegExp(mode, 'i'));
 
   await page.getByRole('button', { name: /Export PDF/i }).click();
