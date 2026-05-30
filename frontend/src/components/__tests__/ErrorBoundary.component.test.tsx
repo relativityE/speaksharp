@@ -21,7 +21,8 @@ describe('ErrorBoundary', () => {
         );
 
         expect(screen.getByText(/Oops! Something went wrong/i)).toBeInTheDocument();
-        expect(screen.getByText(/Test Error/i)).toBeInTheDocument();
+        expect(screen.getByText(/The page hit a temporary problem/i)).toBeInTheDocument();
+        expect(screen.queryByText(/Test Error/i)).not.toBeInTheDocument();
     });
 
     it('should reload the page when Refresh button is clicked', () => {

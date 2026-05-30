@@ -68,7 +68,8 @@ describe('LocalErrorBoundary', () => {
         );
 
         expect(screen.getByText('Something went wrong')).toBeInTheDocument();
-        expect(screen.getByText('KABOOM')).toBeInTheDocument();
+        expect(screen.getByText('This part of the page hit a temporary problem. Try again, or refresh the page if it persists.')).toBeInTheDocument();
+        expect(screen.queryByText('KABOOM')).not.toBeInTheDocument();
         expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
     });
 

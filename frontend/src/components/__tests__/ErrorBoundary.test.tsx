@@ -3,13 +3,6 @@ import { render, screen } from '../../../tests/support/test-utils';
 import ErrorBoundary from '../ErrorBoundary';
 import logger from '../../lib/logger';
 
-
-
-// Mock ErrorDisplay to avoid alias resolution issues in test environment
-vi.mock('../ErrorDisplay', () => ({
-    ErrorDisplay: () => <div data-testid="mock-error-display">Mock Error Display</div>
-}));
-
 // Component that throws an error for testing
 const Bomb = ({ message }: { message: string }) => {
     throw new Error(message);
@@ -46,7 +39,9 @@ describe('ErrorBoundary', () => {
 
         // Verify fallback UI structure
         expect(screen.getByText('Oops! Something went wrong.')).toBeInTheDocument();
-        expect(screen.getByTestId('mock-error-display')).toBeInTheDocument();
+        expect(screen.getByText('The page hit a temporary problem. Refresh to reload the app and keep going.')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /refresh page/i })).toBeInTheDocument();
+        expect(screen.queryByText(errorMsg)).not.toBeInTheDocument();
 
         // Verify logger was called
         expect(logger.error).toHaveBeenCalledWith(

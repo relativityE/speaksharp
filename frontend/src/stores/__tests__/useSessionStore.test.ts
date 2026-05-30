@@ -109,7 +109,7 @@ describe('useSessionStore', () => {
 
             const state = useSessionStore.getState();
             expect(state.transcript.transcript).toBe('Complete text');
-            expect(state.transcript.partial).toBe('typing...');
+            expect(state.transcript.partial).toBe('Typing...');
         });
     });
 
