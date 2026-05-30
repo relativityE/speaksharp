@@ -138,6 +138,29 @@ jobs:
         if: always()
         run: cat product_release/evidence/service-levels-summary.latest.md >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Assert service-level evidence verdict
+        if: always()
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = 'product_release/evidence/service-levels.latest.json';
+            if (!fs.existsSync(path)) {
+              console.error('Service-level evidence artifact is missing.');
+              process.exit(1);
+            }
+            const evidence = JSON.parse(fs.readFileSync(path, 'utf8'));
+            if (evidence.status !== 'pass' || evidence.countsAsReleaseEvidence !== true) {
+              console.error('Service-level evidence did not pass:', JSON.stringify({
+                status: evidence.status,
+                countsAsReleaseEvidence: evidence.countsAsReleaseEvidence,
+                summary: evidence.summary,
+                invalidEvidenceReasons: evidence.invalidEvidenceReasons,
+              }, null, 2));
+              process.exit(1);
+            }
+            console.log('Service-level evidence passed and counts as release evidence.');
+          "
+
       - name: Upload service-level evidence
         if: always()
         uses: actions/upload-artifact@v6

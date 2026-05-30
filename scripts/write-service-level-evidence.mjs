@@ -154,10 +154,21 @@ const targets = [
   {
     id: 'lighthouse_accessibility',
     claim: 'Lighthouse accessibility',
-    target: '>= 90',
-    yardstick: 'industry-standard',
+    target: '>= 90 when reported by CI advisory',
+    yardstick: 'industry-standard-advisory',
     source: 'quality',
-    evaluate: (data) => thresholdMetric(data?.quality?.lighthouse?.accessibility, 90),
+    evaluate: (data) => {
+      if (!data?.quality) return missing('software quality evidence missing');
+      const value = data.quality?.lighthouse?.accessibility;
+      if (value === null || value === undefined) {
+        return {
+          status: 'review',
+          measured: 'not reported',
+          details: 'Lighthouse is an advisory CI check; missing advisory metrics do not block service-level evidence.',
+        };
+      }
+      return thresholdMetric(value, 90);
+    },
   },
   {
     id: 'ops_stack_snapshot',

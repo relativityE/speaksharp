@@ -141,20 +141,21 @@ else
 fi
 
 # ─── Lighthouse Scores ────────────────────────────────────────────────────────
-LHCI_DIR=".lighthouseci"
-lighthouse_file="$LHCI_DIR/lhr-*.json"
+lhr_file=""
 
-if compgen -G "$lighthouse_file" > /dev/null 2>&1; then
-    lhr_file=$(ls -t $LHCI_DIR/lhr-*.json 2>/dev/null | head -1)
-    if [ -n "$lhr_file" ] && [ -f "$lhr_file" ]; then
-        lighthouse_performance=$(jq  '.categories.performance.score * 100 | floor'                "$lhr_file" 2>/dev/null || echo "0")
-        lighthouse_accessibility=$(jq '.categories.accessibility.score * 100 | floor'             "$lhr_file" 2>/dev/null || echo "0")
-        lighthouse_best_practices=$(jq '(.categories["best-practices"].score // 0) * 100 | floor' "$lhr_file" 2>/dev/null || echo "0")
-        lighthouse_seo=$(jq           '.categories.seo.score * 100 | floor'                        "$lhr_file" 2>/dev/null || echo "0")
-    else
-        lighthouse_performance=0; lighthouse_accessibility=0
-        lighthouse_best_practices=0; lighthouse_seo=0
-    fi
+if compgen -G ".lighthouseci/lhr-*.json" > /dev/null 2>&1; then
+    lhr_file=$(ls -t .lighthouseci/lhr-*.json 2>/dev/null | head -1)
+elif compgen -G "artifacts/lighthouse/*-report.json" > /dev/null 2>&1; then
+    lhr_file=$(ls -t artifacts/lighthouse/*-report.json 2>/dev/null | head -1)
+elif compgen -G "lighthouse-results/*-report.json" > /dev/null 2>&1; then
+    lhr_file=$(ls -t lighthouse-results/*-report.json 2>/dev/null | head -1)
+fi
+
+if [ -n "$lhr_file" ] && [ -f "$lhr_file" ]; then
+    lighthouse_performance=$(jq  '.categories.performance.score * 100 | floor'                "$lhr_file" 2>/dev/null || echo "0")
+    lighthouse_accessibility=$(jq '.categories.accessibility.score * 100 | floor'             "$lhr_file" 2>/dev/null || echo "0")
+    lighthouse_best_practices=$(jq '(.categories["best-practices"].score // 0) * 100 | floor' "$lhr_file" 2>/dev/null || echo "0")
+    lighthouse_seo=$(jq           '.categories.seo.score * 100 | floor'                        "$lhr_file" 2>/dev/null || echo "0")
 else
     lighthouse_performance=0; lighthouse_accessibility=0
     lighthouse_best_practices=0; lighthouse_seo=0
