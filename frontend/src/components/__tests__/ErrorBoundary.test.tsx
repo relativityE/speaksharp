@@ -39,8 +39,8 @@ describe('ErrorBoundary', () => {
 
         // Verify fallback UI structure
         expect(screen.getByText('Oops! Something went wrong.')).toBeInTheDocument();
-        expect(screen.getByText('The page hit a temporary problem. Refresh to reload the app and keep going.')).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /refresh page/i })).toBeInTheDocument();
+        expect(screen.getByText('The page hit a temporary problem. Go home, then open the page again.')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /go home/i })).toBeInTheDocument();
         expect(screen.queryByText(errorMsg)).not.toBeInTheDocument();
 
         // Verify logger was called

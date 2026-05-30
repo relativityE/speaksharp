@@ -39,10 +39,10 @@ class ErrorBoundary extends React.Component<Props, State> {
                 </CardHeader>
                 <CardContent>
                     <p className="text-muted-foreground mb-4">
-                        The page hit a temporary problem. Refresh to reload the app and keep going.
+                        The page hit a temporary problem. Go home, then open the page again.
                     </p>
-                    <Button onClick={() => window.location.reload()}>
-                        Refresh Page
+                    <Button onClick={() => window.location.assign('/')}>
+                        Go Home
                     </Button>
                 </CardContent>
             </Card>
