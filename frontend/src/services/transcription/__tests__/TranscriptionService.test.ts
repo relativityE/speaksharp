@@ -133,7 +133,7 @@ describe('TranscriptionService', () => {
 
         expect(toast.info).toHaveBeenCalledTimes(1);
         expect(toast.info).toHaveBeenCalledWith(
-            expect.stringMatching(/choose Browser, or Cloud if included in your plan/i),
+            expect.stringMatching(/Private \/ Vault Mode is setting up/i),
             expect.objectContaining({ id: 'private-model-alternative-stt', duration: 5000 })
         );
         expect(toast.success).not.toHaveBeenCalled();

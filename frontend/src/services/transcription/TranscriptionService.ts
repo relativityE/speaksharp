@@ -222,8 +222,8 @@ export default class TranscriptionService {
       state.setModelLoadingProgress(null);
       state.setSTTStatus({
         type: 'init-failed',
-        message: 'Private setup failed. Retry setup.',
-        detail: err.message || 'The local model could not finish initializing.'
+        message: 'Private / Vault Mode could not finish setup.',
+        detail: 'Check microphone permission and browser storage, then retry setup. Your audio stays on your machine.'
       });
     }
   }
@@ -668,7 +668,7 @@ export default class TranscriptionService {
         this.options.onStatusChange?.({
           type: 'download-required',
           message: 'Private model setup did not complete.',
-          detail: 'Try the offline model download again, or switch to Native from the speech mode control.',
+          detail: 'Retry the local model setup. Check browser storage if setup fails again. Your audio stays on your machine.',
           progress: 0
         });
         return;
@@ -1636,7 +1636,7 @@ export default class TranscriptionService {
         } else {
           if (!this.privateDownloadAlternativeToastShown && percent > 0) {
             this.privateDownloadAlternativeToastShown = true;
-            toast.info('Private is setting up in the background. You can choose Browser, or Cloud if included in your plan, while it downloads.', {
+            toast.info('Private / Vault Mode is setting up in this browser. Keep this tab open; your audio stays on your machine.', {
               id: 'private-model-alternative-stt',
               duration: 5000,
             });
@@ -1644,7 +1644,7 @@ export default class TranscriptionService {
           state.setSTTStatus({
             type: 'downloading',
             message: `Downloading private model... ${percent}%`,
-            detail: 'Keep this tab open until the model is cached.',
+            detail: 'Keep this tab open until the local model is cached. Your audio stays on your machine.',
             progress: percent
           });
         }
@@ -1731,8 +1731,8 @@ export default class TranscriptionService {
       }; break;
       case 'INIT_FAILED': status = {
         type: 'init-failed',
-        message: 'Private setup failed. Retry setup.',
-        detail: this.lastError?.message || 'The local model could not finish initializing.'
+        message: 'Private / Vault Mode could not finish setup.',
+        detail: 'Check microphone permission and browser storage, then retry setup. Your audio stays on your machine.'
       }; break;
       case 'FAILED': status = { type: 'error', message: this.lastError?.message || 'Recording could not start. Check microphone permission and try again.' }; break;
       case 'STOPPING':

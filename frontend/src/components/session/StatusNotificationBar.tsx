@@ -135,7 +135,7 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
                 displayMessage = 'Downloading private model...';
                 break;
             case 'init-failed':
-                displayMessage = 'Private setup failed. Retry setup.';
+                displayMessage = 'Private / Vault Mode could not finish setup.';
                 break;
             case 'info':
                 displayMessage = 'Information';
@@ -147,7 +147,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
     const displayDetail = (
         status.type === 'download-required'
-            ? 'Download once to use private local transcription in this browser.'
+            ? 'Download once to use Private / Vault Mode in this browser. Your audio stays on your machine.'
+            : status.type === 'init-failed'
+                ? status.detail || 'Check microphone permission and browser storage, then retry setup. Your audio stays on your machine.'
             : status.detail || ''
     );
     const emoji = status.message?.match(/^(?:⛔|⚠️|🚫)/u)?.[0];

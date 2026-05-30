@@ -87,22 +87,22 @@ describe('LiveRecordingCard', () => {
         const cloudOption = await screen.findByTestId(TEST_IDS.STT_MODE_CLOUD);
         expect(cloudOption).toHaveAttribute('data-disabled');
         expect(screen.getByText(/^Cloud$/i)).toBeDefined();
-        expect(screen.getByText(/Browser and Private are available now/i)).toBeDefined();
+        expect(screen.getByText(/Browser and Private \/ Vault Mode are available now/i)).toBeDefined();
         expect(cloudOption.textContent).toMatch(/Pro feature/i);
-        expect(cloudOption.textContent).toMatch(/highest-accuracy transcription/i);
+        expect(cloudOption.textContent).toMatch(/unavailable for trial/i);
     });
 
     it('sets Private latency and privacy expectations before recording', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="private" isProUser={true} canUseCloudStt={false} />);
 
-        expect(screen.getAllByText(/Vault Mode/i).length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/Private \/ Vault Mode/i).length).toBeGreaterThan(0);
         expect(screen.getByText(/one-time setup/i)).toBeDefined();
-        expect(screen.getByText(/audio stays in your browser/i)).toBeDefined();
+        expect(screen.getByText(/audio stays on your machine/i)).toBeDefined();
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
-        expect((await screen.findAllByText(/Vault Mode keeps transcription local/i)).length).toBeGreaterThan(0);
-        expect(screen.getAllByText(/Audio stays in your browser/i).length).toBeGreaterThan(0);
+        expect((await screen.findAllByText(/Private \/ Vault Mode keeps transcription local/i)).length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/Audio stays on your machine/i).length).toBeGreaterThan(0);
     });
 
     it('does not place Private setup inside the recording card when the model is missing', () => {
@@ -142,8 +142,9 @@ describe('LiveRecordingCard', () => {
         expect(privateOption.textContent).toMatch(/^Private/i);
         expect(privateOption.textContent).toMatch(/active trial or Pro/i);
         expect(screen.getByText(/Browser is available now/i)).toBeDefined();
-        expect(screen.getByText(/Private unlocks during an active trial or with Pro/i)).toBeDefined();
-        expect(screen.getByText(/Cloud STT is a Pro feature\.$/i)).toBeDefined();
+        expect(screen.getByText(/Private \/ Vault Mode unlocks during an active trial or with Pro/i)).toBeDefined();
+        expect(screen.getAllByText(/Cloud STT is a Pro feature/i).length).toBeGreaterThan(0);
+        expect(screen.getByText(/unavailable for trial/i)).toBeDefined();
     });
 
     it('lets a trial user switch to Browser while Private setup is downloading', async () => {

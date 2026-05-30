@@ -63,7 +63,7 @@ export async function handler(
       case "customer.subscription.deleted": {
         const subscription = event.data.object
         subscriptionId = subscription.id
-        action = 'downgrade_to_basic';
+        action = 'downgrade_to_free';
         break;
       }
 
@@ -75,7 +75,7 @@ export async function handler(
         plan = normalizeBillingPlan(subscription.metadata?.plan)
 
         if (status === "canceled" || status === "unpaid" || status === "past_due") {
-          action = 'downgrade_to_basic';
+          action = 'downgrade_to_free';
         } else if (status === "active" && userId) {
           action = actionForPlan(plan);
         }
@@ -88,7 +88,7 @@ export async function handler(
         const attemptCount = invoice.attempt_count || 0
 
         if (attemptCount >= 3 && subscriptionId) {
-          action = 'downgrade_to_basic';
+          action = 'downgrade_to_free';
         }
         break;
       }
@@ -126,7 +126,7 @@ export async function handler(
       console.log(`[Stripe] ✅ User ${userId} upgraded to Pro successfully`)
     } else if (action === 'activate_basic') {
       console.log(`[Stripe] ✅ User ${userId} activated paid Basic successfully`)
-    } else if (action === 'downgrade_to_basic') {
+    } else if (action === 'downgrade_to_free') {
       console.log(`[Stripe] ✅ Subscription ${subscriptionId} downgraded to Free successfully`)
     }
 

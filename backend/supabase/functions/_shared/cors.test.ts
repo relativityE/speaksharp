@@ -25,4 +25,12 @@ Deno.test("shared CORS headers are request-aware", async (t) => {
 
     assertNotEquals(headers["Access-Control-Allow-Origin"], "https://evil.example");
   });
+
+  await t.step("falls back to a single valid origin instead of a comma-separated list", () => {
+    const headers = corsHeaders(new Request("http://localhost", {
+      headers: { Origin: "https://evil.example" },
+    }));
+
+    assertNotEquals(headers["Access-Control-Allow-Origin"], "https://speaksharp.vercel.app,https://speaksharp-public.vercel.app");
+  });
 });

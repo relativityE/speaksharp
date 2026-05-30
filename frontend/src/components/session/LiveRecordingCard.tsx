@@ -84,7 +84,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     const isPrivateDownloadRequired = mode === 'private' && sttStatusType === 'download-required' && !isListening;
     let displayStatusMessage = _statusMessage;
     if (isPrivateDownloadRequired) {
-        displayStatusMessage = 'Private not ready';
+        displayStatusMessage = 'Private / Vault Mode setup needed';
     } else if (/^error occurred$/i.test(_statusMessage?.trim() || '')) {
         displayStatusMessage = 'Recording could not start';
     }
@@ -97,18 +97,18 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     };
     const modeDescriptions: Record<RecordingMode, string> = {
         native: "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.",
-        private: 'Vault Mode. Local transcription with one-time setup; audio stays in your browser.',
-        cloud: 'Highest-accuracy transcription for serious Pro workflows.',
+        private: 'Private / Vault Mode. Local transcription with one-time setup; audio stays on your machine.',
+        cloud: 'Highest-accuracy transcription for Pro workflows; audio is sent to the cloud STT provider.',
         mock: 'Test transcription mode.',
     };
     const privateModeDescription = isProUser
-        ? 'Vault Mode keeps transcription local after one-time model setup. Audio stays in your browser.'
-        : 'Vault Mode unlocks with an active trial or Pro. It needs a one-time local model setup.';
+        ? 'Private / Vault Mode keeps transcription local after one-time model setup. Audio stays on your machine.'
+        : 'Private / Vault Mode unlocks with an active trial or Pro. It needs a one-time local model setup.';
     const accessStatusMessage = canUseCloudStt
-        ? 'Browser, Private, and Cloud are available for this account.'
+        ? 'Browser, Private / Vault Mode, and Cloud are available. Use Cloud when highest accuracy matters more than local-only privacy.'
         : isProUser
-            ? 'Browser and Private are available now. Cloud STT is a Pro feature for highest-accuracy transcription.'
-            : 'Browser is available now. Private unlocks during an active trial or with Pro; Cloud STT is a Pro feature.';
+            ? 'Browser and Private / Vault Mode are available now. Cloud STT is a Pro feature for highest-accuracy transcription.'
+            : 'Browser is available now. Private / Vault Mode unlocks during an active trial or with Pro; Cloud STT is a Pro feature.';
     const trustBadge = mode === 'private'
         ? 'VAULT MODE'
         : mode === 'cloud'
@@ -126,7 +126,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                         </div>
                         <p className="max-w-72 text-xs font-medium leading-snug text-foreground/70">
                             {isPrivateDownloadRequired
-                                ? 'Download the private model to start recording locally.'
+                                ? 'Set up Private / Vault Mode once in this browser. Audio stays on your machine.'
                                 : modeDescriptions[mode]}
                         </p>
                         <div className="max-w-80 rounded-md border border-border bg-muted/45 px-3 py-2 text-left text-[11px] font-medium leading-snug text-foreground/70">
@@ -181,7 +181,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <span className="flex flex-col gap-0.5">
                                         <span className="text-xs font-semibold uppercase tracking-wide text-foreground">Cloud</span>
                                         <span className="text-[11px] font-medium normal-case leading-snug text-foreground/70">
-                                            Cloud STT is a Pro feature for highest-accuracy transcription.
+                                            {canUseCloudStt
+                                                ? 'Pro feature for highest-accuracy transcription. Audio is sent to the cloud STT provider.'
+                                                : 'Cloud STT is a Pro feature (unavailable for trial).'}
                                         </span>
                                     </span>
                                 </DropdownMenuRadioItem>
@@ -198,9 +200,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                     <Lock className="h-5 w-5" />
                                 </div>
                                 <div>
-                                    <p className="text-sm font-bold text-foreground">Private not ready</p>
+                                    <p className="text-sm font-bold text-foreground">Private / Vault Mode setup needed</p>
                                     <p className="mt-1 max-w-xs text-xs font-medium leading-snug text-foreground/70">
-                                        Download the private model to start recording locally.
+                                        Set up the local model once in this browser. Your audio stays on your machine.
                                     </p>
                                     {onDownloadModel && (
                                         <Button
@@ -212,7 +214,7 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                                             data-testid="download-model-button-inline"
                                         >
                                             <Download className="h-3 w-3" />
-                                            Download Model
+                                            Set Up Private
                                         </Button>
                                     )}
                                 </div>

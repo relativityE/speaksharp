@@ -110,7 +110,8 @@ describe('StatusNotificationBar', () => {
         render(<StatusNotificationBar status={{ type: 'download-required', message: 'Private model needs a one-time download.' }} />);
 
         expect(screen.getByTestId('status-message-text')).toHaveTextContent(/Private model required/i);
-        expect(screen.getByText(/Download once to use private local transcription/i)).toBeInTheDocument();
+        expect(screen.getByText(/Download once to use Private \/ Vault Mode/i)).toBeInTheDocument();
+        expect(screen.getByText(/Your audio stays on your machine/i)).toBeInTheDocument();
         expect(screen.queryByTestId('status-download-model-button')).toBeNull();
     });
 

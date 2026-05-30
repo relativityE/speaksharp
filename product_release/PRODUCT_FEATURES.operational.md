@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-28
 **Version:** v0.6.19-rc0
-**Last Updated:** 2026-05-28
+**Last Updated:** 2026-05-29
 
 # SpeakSharp Product Features
 
@@ -52,9 +52,14 @@ This table keeps product claims honest before product release. A feature can app
 | **Branded PDF Reports** | Implemented through PDF export. | `frontend/src/lib/pdfGenerator.ts`, Analytics PDF actions | Current branded report artifact. | Future score/report claims must use the same saved score payload as Session/Analytics. |
 | **Goals / Streaks** | Implemented as goal/streak foundation. | `frontend/src/hooks/useGoals.ts`, `frontend/src/hooks/useStreak.ts`, `frontend/src/hooks/useSessionLifecycle.ts` | Current habit foundation. | Tie goals/streaks more directly to score movement and next-practice targets. |
 | **Score-Based Gamification** | Implemented as a Session A/B candidate through SpeakSharp Score, confidence state, next target, and live coaching actions. | `frontend/src/utils/speakingScore.ts`, `frontend/src/components/session/LiveCoachingScoreCard.tsx`, `frontend/src/pages/SessionPage.tsx` | Current gamification foundation / A/B candidate. | Prove that the score feels motivating and trustworthy; persist score payload before broad cross-page claims. |
-| **Guided Habit Pathways** | Not implemented as a packaged guided-drill journey. | No guided drill route/component exists yet; backlog item tracks it. | Planned post-soft release. | Design and build 2-5 minute drills, progression loops, streak reinforcement, and recurring next-practice prompts. |
-| **Live Meeting Companion** | Not implemented. | No `/companion` route/component exists yet; backlog item tracks it. | Planned post-soft release. | Design and build a compact overlay-friendly mode after Session coaching is calibrated. |
+| **Guided Habit Pathways** | Not implemented as a packaged guided-drill journey. | No guided drill route/component exists yet. | Planned post-soft release. | Design and build 2-5 minute drills, progression loops, streak reinforcement, and recurring next-practice prompts. |
+| **Live Meeting Companion** | Not implemented. | No `/companion` route/component exists yet. | Planned post-soft release. | Design and build a compact overlay-friendly mode after Session coaching is calibrated. |
 | **Referral Proof Loop** | Partially supported by branded PDF/report artifacts, but not a full product loop. | `frontend/src/lib/pdfGenerator.ts`; no shareable progress-summary flow exists yet. | Planned post-soft release. | Add shareable "what improved" summaries and validate whether artifacts make others curious enough to join. |
+| **Analytics Tool Groups** | Planned product clarity improvement for Analytics. | `frontend/src/pages/AnalyticsPage.tsx`; current analytics signals exist, grouping model not complete. | Planned post-soft release. | Group analytics around SpeakSharp Score ingredients and trend interpretation while preserving custom single-tool inspection. |
+| **Daily Usage Visibility** | Planned access/reliability surface. | Usage RPCs exist; no dedicated daily progress surface is committed as a product claim. | Planned post-soft release. | Add a lightweight daily usage status/progress indicator so Pro users understand remaining practice time before they hit a cap. |
+| **Landing Social Proof** | Planned conversion/trust surface. | Testimonials section is not active as a current claim. | Planned, content-dependent. | Use real tester quotes or concrete outcome snippets only; avoid synthetic testimonials. |
+| **Invite / Share Hook** | Planned lightweight growth entry point. | No committed invite CTA exists yet. | Planned post-soft release. | Add a post-session or Analytics share hook after shareable reports and progress summaries are calibrated. |
+| **PostHog Live-Coaching Experiment Operations** | Infrastructure direction accepted for live-coaching layout testing. | PostHog is integrated; Session QA overrides exist for forcing coaching variants. | A/B operations planned / limited. | Keep deterministic QA overrides, document variant ownership, and validate Session layout variants before broader rollout. |
 
 ## Product Surface Summary
 
@@ -73,6 +78,10 @@ This table keeps product claims honest before product release. A feature can app
 | **Score-Based Gamification** | A/B candidate | SpeakSharp Score, confidence states, next target, and live coaching actions give the current Session experience a motivating progress loop. This is the first version of gamification, not a validated public-speaking grade. |
 | **Guided Habit Pathways** | Planned post-soft release | Packaged 2-5 minute speaking drills that help users practice one behavior at a time, return regularly, and chase progress through score movement, streaks, targets, and recurring coaching themes rather than an open-ended sandbox alone. Not part of the current soft-release product claim. |
 | **Live Meeting Companion** | Planned post-soft release | Compact real-time coaching mode intended for live calls or overlays, such as Zoom/Teams/Meet workflows. Not part of the current soft-release product claim. |
+| **Analytics Tool Groups** | Planned post-soft release | Analytics-page tool bundles that explain how WPM, fillers, pauses, clarity, structure, and other signals support SpeakSharp Score and practice focus. Users should still be able to inspect a single custom tool independently with its own interpretation. |
+| **Daily Usage Visibility** | Planned post-soft release | Lightweight Session or Analytics usage progress surface so Pro users can see daily practice usage before hitting a cap. |
+| **Landing Social Proof** | Planned, content-dependent | Real tester quotes or concrete outcome snippets that help first-time visitors trust the product. Not active until real source material exists. |
+| **Invite / Share Hook** | Planned post-soft release | Simple post-session or Analytics entry point that lets users share a report or progress moment with a friend. Builds on the Referral Proof Loop. |
 
 ## Accepted Feature Candidates & Timing
 
@@ -86,6 +95,11 @@ These are accepted product directions used to vet the current offering and futur
 | **Guided Habit Pathways** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Packaged guided drills, progression loops, streak reinforcement, and recurring next-practice targets. Builds on the score/live-coach foundation. |
 | **Live Meeting Companion** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Strong Pro differentiator, but higher effort. Should wait until Session coaching and score model are calibrated. |
 | **Referral Proof Loop** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Shared PDFs, progress summaries, and “what improved” moments should make friends curious and give users a story to tell. |
+| **Analytics Tool Groups** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Should make Analytics feel like a coherent coaching story instead of a collection of unrelated numbers. |
+| **Daily Usage Visibility** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Access/reliability affordance for Pro users; should be lightweight and not dominate the practice flow. |
+| **Landing Social Proof** | Post-soft release, content-dependent | Planned | Requires real user/tester source material before it can become a credible public claim. |
+| **Invite / Share Hook** | Post-soft release, date TBD after RC gates and tester feedback | Planned | Lightweight growth hook tied to PDF/report/progress moments. |
+| **PostHog Live-Coaching Experiment Operations** | Soft-release A/B operations | Infrastructure / limited | PostHog can assign variants; QA overrides must remain available so manual validation can force treatment/control. |
 
 ## Detailed Feature Inventory
 
@@ -108,14 +122,18 @@ These are accepted product directions used to vet the current offering and futur
 | Post-Session Coaching | **AI Suggestions** | Current / proving | Post-session AI feedback path for deeper coaching. | AI may help wording and content analysis, but must not calculate the SpeakSharp Score. |
 | Post-Session Coaching | **Session History** | Current | Users can review past sessions and saved transcripts/metrics. | Persistence is required for returning-user comparison and PDF regeneration. |
 | Post-Session Coaching | **Analytics Dashboard** | Current | Shows progress trends, session list, engine metadata, and report actions. | Future score trend must consume the same saved score payload as Session/PDF. |
+| Post-Session Coaching | **Analytics Tool Groups** | Planned post-soft release | Curated Analytics groups that map raw tools into coaching narratives, such as delivery control, clarity, structure, and habit progress. | Preserve custom single-tool selection with standalone explanations so users can inspect one signal without losing context. |
 | Post-Session Coaching | **PDF Export** | Current | Generates branded PDF reports from current transcript/report state and persisted session data. | All PDFs retain SpeakSharp branding/watermarking. |
 | Habit & Progress | **Goals / Streaks** | Current foundation | Tracks practice goals and streak-like progress signals. | Existing habit foundation; should increasingly connect to score movement and next-practice targets. |
 | Habit & Progress | **Score-Based Gamification** | A/B candidate | Uses SpeakSharp Score, confidence state, next target, and live coaching actions to create a motivating practice loop. | Current version of gamification; validate trust, motivation, and retention before broad claims. |
 | Habit & Progress | **Guided Habit Pathways** | Planned post-soft release | Packaged 2-5 minute drills such as concise update, filler-to-pause replacement, opening/closing clarity, and main-point-first practice. | Planned post-soft release once score/coaching loop is calibrated; not implemented as a complete guided journey today. |
 | Access & Reliability | **Usage Limits / Quotas** | Current | Enforces daily/monthly practice limits by tier. | Must fail closed if quota service is unavailable. |
+| Access & Reliability | **Daily Usage Visibility** | Planned post-soft release | User-facing progress/status for remaining daily practice time. | Should reduce surprise at limits without making the app feel quota-first. |
 | Conversion & Trust | **Upgrade / Conversion Funnel** | Current | Free-to-Pro upgrade path through pricing, analytics, and relevant feature gates. | Basic paid checkout remains deferred/future-only. |
 | Conversion & Trust | **Privacy-First Free Plan Support** | Infrastructure / limited | House/sponsor support messaging for Free users outside private practice surfaces. | No third-party ad vendors before privacy/vendor review. No transcript/session data for ads. |
-| Future Expansion | **Live Meeting Companion** | Planned | Overlay-friendly companion mode for live meeting support. | P1 backlog candidate after soft release; not current release scope. |
+| Conversion & Trust | **Landing Social Proof** | Planned, content-dependent | Real user/tester quotes or outcome snippets for first-time visitor trust. | Must use real source material; do not invent testimonials. |
+| Conversion & Trust | **Invite / Share Hook** | Planned post-soft release | Simple entry point to share a report or progress moment. | Should build on branded reports and Referral Proof Loop rather than becoming a disconnected CTA. |
+| Future Expansion | **Live Meeting Companion** | Planned | Overlay-friendly companion mode for live meeting support. | Planned after soft release; not current release scope. |
 | Access & Reliability | **Accessibility / Screen Reader Support** | Current | Live transcript uses accessibility-aware UI patterns. | Keep aligned with UX smoke and page-level accessibility checks. |
 | Access & Reliability | **Design System / Visual Surfaces** | Current | Shared visual tokens and standardized card/surface styling. | Theme contrast and Session/Analytics surfaces have been hardened during soft-release prep. |
 
