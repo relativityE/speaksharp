@@ -4,6 +4,10 @@ import { promisify } from 'node:util';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import dotenv from 'dotenv';
+import {
+  buildSandboxProcessControlEpermArtifact,
+  isSandboxProcessControlEperm,
+} from './sandbox-eperm-evidence.mjs';
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env.test') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: false });
@@ -849,6 +853,12 @@ async function runFixture(page, mode, fixture) {
       result.truthWordRecall < 0.35
     )
   );
+  if (mode === 'native' && USE_FAKE_AUDIO_CAPTURE) {
+    result.inputLikelyContaminated = true;
+    result.invalidForWer = true;
+    result.invalidReason = 'native_webspeech_fake_audio_capture_invalid';
+    result.invalidDetails = 'Chrome Web Speech is server-side live recognition; Playwright fake-audio capture starts at browser launch, loops the file, ignores per-fixture playback timing, and is not a valid WER route for Native.';
+  }
   if (fixture.expectedFillers) {
     const expectedKeys = Object.keys(fixture.expectedFillers);
     result.observedFillers = countFillerOccurrences(transcript, [...new Set([...expectedKeys, ...DEFAULT_FILLER_WORDS])]);
@@ -856,7 +866,9 @@ async function runFixture(page, mode, fixture) {
   }
   result.journeyPass = Boolean(result.sessionPersisted && result.historyVisible && result.detailVisible && result.firstText.timestampMs != null);
   result.meetsWerThreshold = MAX_WER == null ? null : result.wer <= MAX_WER;
-  result.verdict = result.inputLikelyContaminated
+  result.verdict = result.invalidForWer
+    ? result.invalidReason
+    : result.inputLikelyContaminated
     ? 'input-contaminated-or-fixture-not-captured'
     : result.fillerPass === false
       ? 'filler-count-mismatch'
@@ -882,6 +894,8 @@ const evidence = {
   fakeAudioCapture: USE_FAKE_AUDIO_CAPTURE ? {
     enabled: true,
     file: FAKE_AUDIO_FILE || null,
+    validForNativeWebSpeechWer: false,
+    invalidReason: 'Chrome Web Speech uses Google server-side live recognition; Playwright fake-audio capture is not a valid WER route for Native because the file stream is launch-time, looped, and not paced to recognition start.',
   } : {
     enabled: false,
   },
@@ -898,19 +912,44 @@ const evidence = {
   results: [],
 };
 
-const browser = await chromium.launch({
-  channel: 'chrome',
-  headless: HEADLESS,
-  args: [
-    '--autoplay-policy=no-user-gesture-required',
-    '--disable-blink-features=AutomationControlled',
-    ...(USE_FAKE_AUDIO_CAPTURE ? [
-      '--use-fake-ui-for-media-stream',
-      '--use-fake-device-for-media-stream',
-      `--use-file-for-fake-audio-capture=${FAKE_AUDIO_FILE}`,
-    ] : []),
-  ],
-});
+let browser = null;
+try {
+  browser = await chromium.launch({
+    channel: 'chrome',
+    headless: HEADLESS,
+    args: [
+      '--autoplay-policy=no-user-gesture-required',
+      '--disable-blink-features=AutomationControlled',
+      ...(USE_FAKE_AUDIO_CAPTURE ? [
+        '--use-fake-ui-for-media-stream',
+        '--use-fake-device-for-media-stream',
+        `--use-file-for-fake-audio-capture=${FAKE_AUDIO_FILE}`,
+      ] : []),
+    ],
+  });
+} catch (error) {
+  if (isSandboxProcessControlEperm(error)) {
+    Object.assign(evidence, buildSandboxProcessControlEpermArtifact({
+      error,
+      command: 'chromium.launch',
+    }), {
+      completedAt: new Date().toISOString(),
+      runnerPass: false,
+      gatePass: false,
+      pass: false,
+    });
+    await writeFile(OUT, JSON.stringify(evidence, null, 2));
+    console.log(`STT_CORPUS_EVIDENCE ${JSON.stringify({
+      out: OUT,
+      runnerPass: false,
+      gatePass: false,
+      resultCount: evidence.results.length,
+      invalidReason: evidence.reason,
+    })}`);
+    process.exit(78);
+  }
+  throw error;
+}
 
 try {
   const fixtures = await loadFixtures();
@@ -973,8 +1012,22 @@ try {
 } catch (error) {
   evidence.error = error instanceof Error ? error.message : String(error);
 } finally {
+  const closeError = browser
+    ? await browser.close().then(() => null).catch((error) => error)
+    : null;
+  if (closeError && isSandboxProcessControlEperm(closeError)) {
+    Object.assign(evidence, buildSandboxProcessControlEpermArtifact({
+      error: closeError,
+      command: 'browser.close',
+    }));
+  } else if (closeError) {
+    evidence.browserCloseWarning = closeError instanceof Error ? closeError.message : String(closeError);
+  }
+
   evidence.completedAt = new Date().toISOString();
-  evidence.runnerPass = evidence.results.length > 0 && evidence.results.every((result) => !result.error);
+  evidence.runnerPass = evidence.sandboxEperm === true
+    ? false
+    : evidence.results.length > 0 && evidence.results.every((result) => !result.error);
   evidence.gatePass = evidence.runnerPass && evidence.results.every((result) => (
     result.journeyPass === true &&
     result.inputLikelyContaminated !== true &&
@@ -989,10 +1042,10 @@ try {
     gatePass: evidence.gatePass,
     resultCount: evidence.results.length,
     maxWer: MAX_WER,
+    invalidReason: evidence.reason,
   })}`);
-  await browser.close().catch(() => undefined);
 }
 
 if (!evidence.pass) {
-  process.exitCode = 1;
+  process.exitCode = evidence.sandboxEperm === true ? 78 : 1;
 }
