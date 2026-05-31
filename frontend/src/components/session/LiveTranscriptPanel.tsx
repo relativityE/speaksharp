@@ -62,6 +62,28 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     const livePreviewText = displayInterimTranscript.trim();
     const showPrivateFeedback = sttMode === 'private' && isListening;
     const privateStatus = hasTranscript || hasInterimTranscript ? 'Live text' : 'Private local';
+    const visibleTranscript = [transcript.trim(), displayInterimTranscript.trim()].filter(Boolean).join(' ').trim();
+
+    React.useEffect(() => {
+        if (typeof window === 'undefined' || !visibleTranscript) return;
+        const traceWindow = window as Window & {
+            __SS_TRANSCRIPT_TRACE__?: Array<Record<string, unknown>>;
+            __SS_TRANSCRIPT_TRACE_SEQ__?: number;
+        };
+        traceWindow.__SS_TRANSCRIPT_TRACE__ = traceWindow.__SS_TRANSCRIPT_TRACE__ ?? [];
+        traceWindow.__SS_TRANSCRIPT_TRACE_SEQ__ = (traceWindow.__SS_TRANSCRIPT_TRACE_SEQ__ ?? 0) + 1;
+        traceWindow.__SS_TRANSCRIPT_TRACE__.push({
+            sequence: traceWindow.__SS_TRANSCRIPT_TRACE_SEQ__,
+            t: Number(performance.now().toFixed(1)),
+            stage: 'ui:visible',
+            timestamp: Date.now(),
+            textLength: visibleTranscript.length,
+            preview: visibleTranscript.slice(0, 80),
+        });
+        if (traceWindow.__SS_TRANSCRIPT_TRACE__.length > 1000) {
+            traceWindow.__SS_TRANSCRIPT_TRACE__.shift();
+        }
+    }, [visibleTranscript]);
 
     return (
         <div

@@ -230,6 +230,30 @@ describe('native browser strategies', () => {
     expect(update.interimTranscript).toBe('the quick brown fox');
   });
 
+  it('matches Web Speech final-plus-interim assembly when a later final slot and active interim arrive together', () => {
+    const strategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: chromeUa });
+    const finalized = new Set<number>([0, 1]);
+    const update = strategy.extractTranscripts({
+      resultIndex: 2,
+      results: [
+        result('today I want to test speak sharp', true),
+        result('with browser transcription', true),
+        result('first I expect the words to appear while I am speaking', true),
+        result('not all at once after I stop', false),
+      ],
+    }, finalized);
+
+    expect(update.rawResults).toEqual([
+      { index: 0, isFinal: true, transcript: 'today I want to test speak sharp' },
+      { index: 1, isFinal: true, transcript: 'with browser transcription' },
+      { index: 2, isFinal: true, transcript: 'first I expect the words to appear while I am speaking' },
+      { index: 3, isFinal: false, transcript: 'not all at once after I stop' },
+    ]);
+    expect(update.finalTranscript).toBe('first I expect the words to appear while I am speaking');
+    expect(update.interimTranscript).toBe('not all at once after I stop');
+    expect([...finalized]).toEqual([0, 1, 2]);
+  });
+
   it('emits each final result slot only once', () => {
     const strategy = resolveNativeBrowserStrategy({ hasSpeechRecognition: true, userAgent: chromeUa });
     const finalized = new Set<number>();

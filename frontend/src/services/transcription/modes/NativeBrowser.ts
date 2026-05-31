@@ -497,9 +497,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
               pendingInterim.length > trimmedFinal.length
               ? pendingInterim
               : trimmedFinal;
-            const finalForEmission = this.interimTranscriptBuffer
-              ? NativeBrowser.appendTranscriptSegment(this.interimTranscriptBuffer, bestFinalCandidate)
-              : bestFinalCandidate;
+            const finalForEmission = bestFinalCandidate;
             this.lastInterim = '';
             this.interimTranscriptBuffer = '';
             this.currentTranscript = this.currentTranscript
@@ -1096,28 +1094,9 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       return '';
     }
 
-    const previousInterim = this.lastInterim.trim();
-    if (
-      previousInterim &&
-      this.isMeaningfulInterimTranscript(previousInterim) &&
-      !NativeBrowser.isSameInterimWindow(previousInterim, normalizedNext)
-    ) {
-      this.interimTranscriptBuffer = NativeBrowser.appendTranscriptSegment(
-        this.interimTranscriptBuffer,
-        previousInterim,
-      );
-      pushNativeTrace('interim_window_committed', {
-        sId: this.serviceId,
-        rId: this.runId,
-        eId: this.instanceId,
-        previousInterim,
-        normalizedNext,
-        interimTranscriptBuffer: this.interimTranscriptBuffer,
-      });
-    }
-
     this.lastInterim = normalizedNext;
-    const visibleInterim = NativeBrowser.appendTranscriptSegment(this.interimTranscriptBuffer, normalizedNext);
+    this.interimTranscriptBuffer = '';
+    const visibleInterim = normalizedNext;
     if (
       this.isMeaningfulInterimTranscript(visibleInterim) &&
       visibleInterim.length >= this.lastMeaningfulInterim.length

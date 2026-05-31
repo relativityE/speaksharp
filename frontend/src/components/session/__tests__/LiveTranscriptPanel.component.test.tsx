@@ -5,6 +5,30 @@ import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
 import { TEST_IDS } from '@/constants/testIds';
 
 describe('LiveTranscriptPanel', () => {
+    it('records a timestamped UI-visible lifecycle trace when text renders', () => {
+        window.__SS_TRANSCRIPT_TRACE__ = [];
+        window.__SS_TRANSCRIPT_TRACE_SEQ__ = 0;
+
+        render(
+            <LiveTranscriptPanel
+                transcript="Hello world"
+                interimTranscript="speaking now"
+                isListening={true}
+            />
+        );
+
+        expect(window.__SS_TRANSCRIPT_TRACE__).toEqual([
+            expect.objectContaining({
+                sequence: 1,
+                stage: 'ui:visible',
+                timestamp: expect.any(Number),
+                t: expect.any(Number),
+                textLength: 'Hello world speaking now'.length,
+                preview: 'Hello world speaking now',
+            }),
+        ]);
+    });
+
     it('shows interim transcript text while listening before final chunks arrive', () => {
         render(
             <LiveTranscriptPanel

@@ -21,6 +21,8 @@ const initialState: SessionState = {
     isLockHeldByOther: false,
     history: [],
     chunks: [],
+    frozenTranscriptAtStop: null,
+    isTranscriptFinalizing: false,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -162,6 +164,16 @@ export function createTestSessionStore(
         setChunks: vi.fn((chunks) =>
             set({
                 chunks,
+            })),
+
+        freezeTranscriptAtStop: vi.fn((frozenTranscriptAtStop) =>
+            set({
+                frozenTranscriptAtStop,
+            })),
+
+        setTranscriptFinalizing: vi.fn((isTranscriptFinalizing) =>
+            set({
+                isTranscriptFinalizing,
             })),
 
         setPauseMetrics: vi.fn((pauseMetrics) =>

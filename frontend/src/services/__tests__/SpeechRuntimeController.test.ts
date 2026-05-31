@@ -17,7 +17,8 @@ vi.mock('../../lib/logger', () => ({
 vi.mock('../../lib/storage', () => ({
     saveSession: vi.fn().mockResolvedValue({ session: { id: 'test-sess' }, usageExceeded: false }),
     heartbeatSession: vi.fn().mockResolvedValue({ success: true }),
-    completeSession: vi.fn(),
+    completeSession: vi.fn().mockResolvedValue({ success: true }),
+    updateSession: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 vi.mock('../../lib/supabaseClient', () => ({
@@ -382,4 +383,69 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             transcript: { partial: 'the birch canoe slid' },
         });
     });
+
+    it.each(['native', 'private', 'cloud'] as const)(
+        'preserves visible partial transcript through stop/save for %s',
+        async (mode) => {
+            const storage = await import('../../lib/storage');
+            const visiblePartial = 'today i expect live transcript text to remain after stop';
+            window.__SS_TRANSCRIPT_TRACE__ = [];
+            vi.mocked(storage.completeSession).mockClear();
+            vi.mocked(storage.updateSession).mockClear();
+
+            const stopTranscription = vi.fn().mockResolvedValue({
+                success: true,
+                transcript: '',
+                stats: {
+                    total_words: 0,
+                    filler_words: {},
+                    speaking_rate: 0,
+                    duration: 10,
+                    accuracy: 1,
+                },
+            });
+            const destroy = vi.fn().mockResolvedValue(undefined);
+            (controller as unknown as { service: unknown }).service = {
+                getMode: vi.fn().mockReturnValue(mode),
+                getState: vi.fn().mockReturnValue('RECORDING'),
+                getStartTime: vi.fn().mockReturnValue(Date.now() - 10_000),
+                stopTranscription,
+                destroy,
+                getMetadata: vi.fn().mockReturnValue({ engineVersion: mode, modelName: mode, deviceType: mode }),
+                setSessionId: vi.fn(),
+                isServiceDestroyed: () => false,
+            };
+            (controller as unknown as { state: string }).state = 'RECORDING';
+            (controller as unknown as { sessionId: string }).sessionId = `sess-${mode}`;
+            useSessionStore.getState().setRuntimeState('RECORDING');
+            useSessionStore.getState().setSTTMode(mode);
+
+            (controller as unknown as { handleTranscriptUpdate: (data: { transcript: { partial: string } }) => void }).handleTranscriptUpdate({
+                transcript: { partial: visiblePartial },
+            });
+
+            expect(useSessionStore.getState().transcript.partial.toLowerCase()).toContain('today i expect');
+
+            await controller.stopRecording();
+            await controller.whenStable();
+
+            const trace = window.__SS_TRANSCRIPT_TRACE__ ?? [];
+            expect(trace.some(event => event.stage === 'controller:receive')).toBe(true);
+            expect(trace.some(event => event.stage === 'store:update' && event.type === 'partial')).toBe(true);
+            expect(trace.some(event => event.stage === 'lifecycle:stop')).toBe(true);
+            expect(trace.some(event => event.stage === 'save:candidate' && event.reason === 'visible_snapshot')).toBe(true);
+            const completionPayload = vi.mocked(storage.completeSession).mock.calls[0]?.[1];
+            expect(storage.completeSession).toHaveBeenCalledWith(`sess-${mode}`, expect.objectContaining({
+                status: 'completed',
+            }));
+            const normalizeForAssertion = (value: string | undefined) => (value ?? '')
+                .toLowerCase()
+                .replace(/[^\p{L}\p{N}\s']/gu, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            expect(normalizeForAssertion(completionPayload?.transcript)).toContain('today i expect live transcript text');
+            expect(normalizeForAssertion(useSessionStore.getState().transcript.transcript)).toContain('today i expect live transcript text');
+            expect(useSessionStore.getState().transcript.partial).toBe('');
+        }
+    );
 });

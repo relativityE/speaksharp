@@ -20,6 +20,9 @@ import type {
 // Internal connection state tracking
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
+const traceTextSample = (text: string | undefined): string | undefined =>
+  text?.replace(/\s+/g, ' ').trim().slice(0, 120);
+
 /**
  * ARCHITECTURE:
  * TranscriptionService generates a runId (e.g., abc-123) every time you click record. 
@@ -54,6 +57,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   private sentAudioChunks: number = 0;
   private receivedMessageCounts: Record<string, number> = {};
   private isManualStop: boolean = false;
+  private terminateResolve: (() => void) | null = null;
   private providerReady: boolean = false;
   private readyEmitted: boolean = false;
   private providerSessionId: string | null = null;
@@ -459,6 +463,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
         provider: this.provider.id,
         eventType: event.type,
         textLength: 'text' in event ? event.text.length : 0,
+        textSample: 'text' in event ? traceTextSample(event.text) : undefined,
         counts: this.receivedMessageCounts,
         error: event.type === 'error' ? event.message : undefined,
       }, '[CloudAssemblyAI] provider event received');
@@ -504,7 +509,11 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
           this.terminationReason = 'provider-terminated';
           this.metadata = this.buildProviderMetadata();
           logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, '[CloudAssemblyAI] Session terminated by provider.');
-          void this.onStop();
+          if (this.terminateResolve) {
+            this.terminateResolve();
+          } else {
+            void this.onStop();
+          }
           break;
 
         case 'error':
@@ -567,14 +576,15 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       this.reconnectTimer = null;
     }
 
-    if (this.socket) {
+    const ws = this.socket;
+    if (ws) {
       // Send termination message if open
-      if (this.socket.readyState === WebSocket.OPEN) {
+      if (ws.readyState === WebSocket.OPEN) {
         try {
           await this.flushAudioQueue({ forceTail: true });
           const terminateMessage = this.provider.buildTerminateMessage();
           if (terminateMessage) {
-            this.socket.send(terminateMessage);
+            ws.send(terminateMessage);
           }
         } catch (err) {
           logger.warn({
@@ -582,40 +592,59 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
             rId: this.instanceId,
             eId: this.instanceId,
             err,
-            socketReadyState: this.socket.readyState,
+            socketReadyState: ws.readyState,
             pendingAudioSamples: this.pendingAudioSamples,
             queuedAudioFrames: this.audioQueue.length,
           }, '[CloudAssemblyAI] Failed to flush tail audio or send terminate message during shutdown');
         }
       }
 
-      // DETERMINISTIC SHUTDOWN: Await the actual 'close' event
-      if (this.socket.readyState !== WebSocket.CLOSED) {
-        // Silencing listeners EXCEPT for onclose (the resolve trigger)
-        this.socket.onmessage = null;
-        this.socket.onopen = null;
-        this.socket.onerror = null;
-
-        await new Promise<void>((resolve) => {
-          const timeout = setTimeout(() => {
-            logger.warn('[CloudAssemblyAI] Socket close timed out. Forcing closure.');
-            resolve();
-          }, CLOUD_STT.SOCKET_CLOSE_TIMEOUT_MS);
-
-          if (this.socket) {
-            this.socket.onclose = () => {
+      // DETERMINISTIC SHUTDOWN: Await the actual 'close' event or termination ack
+      if (ws.readyState !== WebSocket.CLOSED) {
+        if (this.isTerminated) {
+          // Nuclear/immediate shutdown: close immediately and do not wait for provider termination
+          ws.close();
+        } else {
+          await new Promise<void>((resolve) => {
+            let settled = false;
+            const finish = () => {
+              if (settled) return;
+              settled = true;
               clearTimeout(timeout);
               resolve();
             };
-            this.socket.close();
-          } else {
-            resolve();
-          }
-        });
+            const timeout = setTimeout(() => {
+              logger.warn('[CloudAssemblyAI] Socket close/termination timed out. Forcing closure.');
+              finish();
+            }, CLOUD_STT.SOCKET_CLOSE_TIMEOUT_MS);
+            this.terminateResolve = finish;
+
+            const originalOnClose = ws.onclose;
+            ws.onclose = (event) => {
+              if (originalOnClose) {
+                originalOnClose.call(ws, event);
+              }
+              finish();
+            };
+          });
+
+          this.terminateResolve = null;
+        }
+
+        ws.onmessage = null;
+        ws.onopen = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        if (ws.readyState !== WebSocket.CLOSED) {
+          ws.close();
+        }
+        if (this.socket === ws) {
+          this.socket = null;
+        }
       }
       
-      if (this.socket) {
-          this.socket.onclose = null;
+      if (this.socket === ws) {
+          ws.onclose = null;
           this.socket = null;
       }
     }

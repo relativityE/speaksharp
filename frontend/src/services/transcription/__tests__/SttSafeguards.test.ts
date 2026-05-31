@@ -325,7 +325,7 @@ describe('STT Safeguards Unit Tests', () => {
 
         expect(storageMocks.completeSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
             status: 'completed',
-            transcript: 'Yes, I agree'
+            transcript: 'Yes, I agree.'
         }));
         expect(storageMocks.updateSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
             total_words: 3

@@ -40,7 +40,7 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
                 </p>
             )}
 
-            <div className="grid gap-1.5 sm:grid-cols-5 lg:grid-cols-10 xl:grid-cols-12" data-testid="filler-words-list">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(72px,88px))] gap-1.5" data-testid="filler-words-list">
                 {Object.entries(fillerData)
                     .filter(([key]) => key !== 'total')
                     .sort(([, a], [, b]) => b.count - a.count)
@@ -48,9 +48,9 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
                         const isZero = data.count === 0;
                         const wordColor = getWordColor(word.toLowerCase());
                         return (
-                            <div key={word} className={`flex min-h-[40px] flex-col items-center justify-center rounded-md px-1 py-1 text-center ${isZero ? 'bg-muted/40' : 'bg-white border border-[hsl(var(--border))]'}`} data-testid="filler-badge">
+                            <div key={word} className={`flex min-h-[48px] flex-col items-center justify-center rounded-md px-1.5 py-1 text-center ${isZero ? 'bg-muted/40' : 'bg-white border border-[hsl(var(--border-strong))]'}`} data-testid="filler-badge">
                                 <span
-                                    className={`max-w-full truncate text-[10px] ${isZero ? 'font-semibold text-foreground/70' : 'font-bold'}`}
+                                    className={`max-w-full truncate text-sm leading-tight ${isZero ? 'font-extrabold text-foreground/85' : 'font-black'}`}
                                     style={{
                                         color: isZero ? undefined : wordColor,
                                     }}
@@ -59,7 +59,7 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
                                 </span>
                                 <span
                                     data-testid="filler-badge-count"
-                                    className={`mt-0.5 text-sm font-extrabold leading-none ${!isZero ? "" : "text-foreground/70"}`}
+                                    className={`mt-0.5 text-xl font-black leading-none ${!isZero ? "" : "text-foreground/85"}`}
                                     style={{ color: !isZero ? wordColor : undefined }}
                                 >
                                     {data.count}

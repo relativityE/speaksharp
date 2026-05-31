@@ -16,13 +16,9 @@ import { setAppVisibleReady } from '@/lib/forensicAnchors';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { speechRuntimeController } from '@/services/SpeechRuntimeController';
 
-const isMockAuthMode =
-  import.meta.env.VITE_AUTH_MODE === 'mock' ||
-  import.meta.env.VITE_USE_MOCK_AUTH === 'true';
-
 const showTestModeBadge =
   !import.meta.env.PROD &&
-  (import.meta.env.MODE === 'test' || import.meta.env.VITE_TEST_MODE === 'true' || isMockAuthMode);
+  (import.meta.env.MODE === 'test' || import.meta.env.VITE_TEST_MODE === 'true');
 
 /**
  * ARCHITECTURE:

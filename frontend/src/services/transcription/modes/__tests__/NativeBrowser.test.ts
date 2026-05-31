@@ -491,7 +491,7 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(await nativeBrowser.getTranscript()).toBe('quick brown fox');
     });
 
-    it('REGRESSION: final-only result does not emit stale buffered partial before final', async () => {
+    it('REGRESSION: final-only result emits the current Web Speech final window only', async () => {
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
       mockRecognition.onstart?.({} as Event);
@@ -508,7 +508,7 @@ describe('NativeBrowser Transcription Mode', () => {
 
       expect(onTranscriptUpdate).toHaveBeenCalledTimes(1);
       expect(onTranscriptUpdate).toHaveBeenCalledWith({
-        transcript: { final: 'native chrome microphone proof the quick brown fox' },
+        transcript: { final: 'the quick brown fox' },
       });
     });
 
@@ -555,7 +555,7 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(await nativeBrowser.getTranscript()).toBe('native chrome microphone release validation native chrome microphone release validation');
     });
 
-    it('REGRESSION: accumulates rolling Native interim windows when Chrome never finalizes', async () => {
+    it('REGRESSION: treats rolling Native interim windows as replaceable hypotheses', async () => {
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
       mockRecognition.onstart?.({} as Event);
@@ -568,7 +568,7 @@ describe('NativeBrowser Transcription Mode', () => {
       mockRecognition.onresult?.({ results: [secondWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
 
       expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
-        transcript: { partial: 'native chrome microphone proof the quick brown fox reads clearly' },
+        transcript: { partial: 'the quick brown fox reads clearly' },
       });
 
       const stopPromise = nativeBrowser.stop();
@@ -576,12 +576,12 @@ describe('NativeBrowser Transcription Mode', () => {
       await stopPromise;
 
       expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
-        transcript: { final: 'native chrome microphone proof the quick brown fox reads clearly' },
+        transcript: { final: 'the quick brown fox reads clearly' },
       });
-      expect(await nativeBrowser.getTranscript()).toBe('native chrome microphone proof the quick brown fox reads clearly');
+      expect(await nativeBrowser.getTranscript()).toBe('the quick brown fox reads clearly');
     });
 
-    it('REGRESSION: merges buffered interim with a later final result without duplicating overlap', async () => {
+    it('REGRESSION: commits the later Web Speech final window without stale interim accumulation', async () => {
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
       mockRecognition.onstart?.({} as Event);
@@ -596,9 +596,9 @@ describe('NativeBrowser Transcription Mode', () => {
       mockRecognition.onresult?.({ results: [finalWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
 
       expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
-        transcript: { final: 'native chrome microphone proof the quick brown fox' },
+        transcript: { final: 'the quick brown fox' },
       });
-      expect(await nativeBrowser.getTranscript()).toBe('native chrome microphone proof the quick brown fox');
+      expect(await nativeBrowser.getTranscript()).toBe('the quick brown fox');
     });
 
     it('REGRESSION: restarts a stalled Native recognition cycle after first meaningful interim', async () => {
@@ -623,7 +623,7 @@ describe('NativeBrowser Transcription Mode', () => {
       mockRecognition.onresult?.({ results: [secondWindow], resultIndex: 0 } as unknown as MockSpeechEvent);
 
       expect(onTranscriptUpdate).toHaveBeenLastCalledWith({
-        transcript: { partial: 'native chrome microphone the quick brown fox continues' },
+        transcript: { partial: 'the quick brown fox continues' },
       });
 
       vi.useRealTimers();

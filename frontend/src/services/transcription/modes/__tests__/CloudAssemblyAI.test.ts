@@ -163,6 +163,7 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         expect(socket).toBeDefined();
 
         const keyterms = new URL(socket.url).searchParams.get('keyterms_prompt');
+        const prompt = new URL(socket.url).searchParams.get('prompt');
         expect(keyterms).toBeTruthy();
         expect(JSON.parse(keyterms!)).toEqual(expect.arrayContaining([
             'um',
@@ -170,6 +171,8 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
             'canaryboosttest',
             'productization',
         ]));
+        expect(prompt).toContain('Preserve filler words');
+        expect(prompt).toContain('canaryboosttest');
     });
 
     it('should include default filler keyterms when Cloud starts without user words', async () => {
@@ -180,6 +183,7 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         expect(socket).toBeDefined();
 
         const keyterms = new URL(socket.url).searchParams.get('keyterms_prompt');
+        const prompt = new URL(socket.url).searchParams.get('prompt');
         expect(keyterms).toBeTruthy();
         expect(JSON.parse(keyterms!)).toEqual(expect.arrayContaining([
             'um',
@@ -187,6 +191,8 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
             'uh',
             'you know',
         ]));
+        expect(prompt).toContain('Transcribe verbatim');
+        expect(prompt).toContain('um');
     });
 
     it('Pillar 2: should ignore events from zombie connections (Identity Hardening)', async () => {
@@ -315,6 +321,41 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
                 speaker: undefined,
             },
         });
+    });
+
+    it('REGRESSION: preserves final AssemblyAI tail Turn after Terminate is sent', async () => {
+        await mode.init();
+        await mode.start();
+        const socket = LAST_SOCKET();
+        socket.simulateOpen();
+        socket.simulateBegin();
+
+        socket.simulateMessage({ type: 'Turn', transcript: 'The visible opening', end_of_turn: false });
+        expect(onTranscriptUpdate).toHaveBeenCalledWith({ transcript: { partial: 'The visible opening' } });
+
+        const stopPromise = mode.stop();
+        await vi.waitFor(() => {
+            expect(socket.send).toHaveBeenLastCalledWith(JSON.stringify({ type: 'Terminate' }));
+        });
+
+        expect(socket.onmessage).toBeTypeOf('function');
+
+        socket.simulateMessage({
+            type: 'Turn',
+            transcript: 'The visible opening and the final tail sentence.',
+            end_of_turn: true,
+        });
+        socket.simulateMessage({ type: 'Termination' });
+
+        await stopPromise;
+
+        expect(onTranscriptUpdate).toHaveBeenCalledWith({
+            transcript: {
+                final: 'The visible opening and the final tail sentence.',
+                speaker: undefined,
+            },
+        });
+        expect(await mode.getTranscript()).toBe('The visible opening and the final tail sentence.');
     });
 
     it('should handle AssemblyAI v3 partial Turn text from words when top-level text is empty', async () => {

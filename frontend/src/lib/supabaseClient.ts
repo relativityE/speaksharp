@@ -1,7 +1,6 @@
 // src/lib/supabaseClient.ts
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@supabase/supabase-js';
-import { createMockSupabase } from './mockSupabase';
 import logger from './logger';
 
 declare global {
@@ -26,17 +25,26 @@ export function getSupabaseClient(): SupabaseClient {
   const url = import.meta.env.VITE_SUPABASE_URL;
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-  // Check for mock mode or dummy credentials
-  const useMock = import.meta.env.VITE_USE_MOCK_AUTH === 'true' ||
-    (import.meta.env.DEV && url?.includes('example.supabase.co'));
-
-  if (useMock) {
-    logger.warn('[supabaseClient] Creating MOCK Supabase client for development');
-    return (cachedClient = createMockSupabase() as unknown as SupabaseClient);
-  }
-
   if (!url || !anonKey) {
     throw new Error('Missing Supabase environment variables (VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY)');
+  }
+
+  const isVitestUnitRun = typeof process !== 'undefined' && (process.env.NODE_ENV === 'test' || process.env.VITEST);
+  const allowMockAuth = isVitestUnitRun && process.env.VITE_ALLOW_MOCK_AUTH_IN_TESTS !== 'false';
+
+  if (
+    (import.meta.env.VITE_USE_MOCK_AUTH === 'true' || import.meta.env.VITE_AUTH_MODE === 'mock') &&
+    !allowMockAuth
+  ) {
+    throw new Error(
+      'Mock auth is not available from the runtime app. Use the centralized E2E test harness or create real test users through the test-user workflow.'
+    );
+  }
+
+  if (import.meta.env.DEV && url?.includes('example.supabase.co')) {
+    throw new Error(
+      'Example Supabase configuration cannot start the runtime app. Use pnpm dev for real local auth or the E2E harness for mocked tests.'
+    );
   }
 
   if (url.includes('.supabase.co') && anonKey.startsWith('mock_')) {

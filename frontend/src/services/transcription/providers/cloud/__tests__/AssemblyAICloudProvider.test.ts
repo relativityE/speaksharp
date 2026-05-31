@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AssemblyAICloudProvider, buildAssemblyAICloudKeyterms } from '../AssemblyAICloudProvider';
+import { AssemblyAICloudProvider, buildAssemblyAICloudKeyterms, buildAssemblyAICloudPrompt } from '../AssemblyAICloudProvider';
 
 vi.mock('../../../utils/AudioProcessor', () => ({
   floatToInt16: vi.fn((float32Array: Float32Array) => new Int16Array(float32Array.length)),
@@ -25,6 +25,16 @@ describe('AssemblyAICloudProvider', () => {
       'canary',
       'speaksharp',
     ]));
+    expect(url.searchParams.get('prompt')).toContain('Preserve filler words');
+    expect(url.searchParams.get('prompt')).toContain('canary');
+  });
+
+  it('builds a verbatim coaching prompt from default and custom keyterms', () => {
+    const prompt = buildAssemblyAICloudPrompt(['um', 'you know', 'canary']);
+
+    expect(prompt).toContain('Transcribe verbatim');
+    expect(prompt).toContain('Preserve filler words');
+    expect(prompt).toContain('um, you know, canary');
   });
 
   it('parses Begin as provider-ready metadata', () => {
@@ -56,6 +66,50 @@ describe('AssemblyAICloudProvider', () => {
     }))).toEqual([{
       type: 'partial',
       text: 'On track',
+      speaker: undefined,
+      confidence: undefined,
+    }]);
+  });
+
+  it('prefers v3 Turn transcript for live partial/current turn text', () => {
+    const provider = new AssemblyAICloudProvider();
+
+    expect(provider.parseMessage(JSON.stringify({
+      type: 'Turn',
+      transcript: 'Today I want',
+      end_of_turn: false,
+      words: [
+        { text: 'Today', word_is_final: true },
+        { text: 'I', word_is_final: true },
+        { text: 'want', word_is_final: true },
+        { text: 'to', word_is_final: false },
+        { text: 'test', word_is_final: false },
+      ],
+    }))).toEqual([{
+      type: 'partial',
+      text: 'Today I want',
+      speaker: undefined,
+      confidence: undefined,
+    }]);
+  });
+
+  it('falls back to word text when partial Turn transcript is empty', () => {
+    const provider = new AssemblyAICloudProvider();
+
+    expect(provider.parseMessage(JSON.stringify({
+      type: 'Turn',
+      transcript: '',
+      end_of_turn: false,
+      words: [
+        { text: 'Today', word_is_final: true },
+        { text: 'I', word_is_final: true },
+        { text: 'want', word_is_final: true },
+        { text: 'to', word_is_final: false },
+        { text: 'test', word_is_final: false },
+      ],
+    }))).toEqual([{
+      type: 'partial',
+      text: 'Today I want to test',
       speaker: undefined,
       confidence: undefined,
     }]);

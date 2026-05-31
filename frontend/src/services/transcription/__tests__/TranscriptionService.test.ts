@@ -173,12 +173,12 @@ describe('TranscriptionService', () => {
             }
         });
 
-        expect(mockOnTranscriptUpdate).toHaveBeenCalledWith(expect.objectContaining({
-            transcript: {
-                final: 'Hello world',
-                partial: ''
-            }
-        }));
+        expect(mockOnTranscriptUpdate).toHaveBeenNthCalledWith(1, {
+            transcript: { final: 'Hello world' }
+        });
+        expect(mockOnTranscriptUpdate).toHaveBeenNthCalledWith(2, {
+            transcript: { partial: 'thinking...' }
+        });
     });
 
     it('should reject startTranscription when strategy start fails', async () => {
@@ -206,10 +206,108 @@ describe('TranscriptionService', () => {
         expect(service.getState()).toBe('FAILED');
     });
 
+    it('starts the selected strategy exactly once for one recording start', async () => {
+        const { sttRegistry } = await import('../STTRegistry');
+        sttRegistry.clear();
+        const onStart = vi.fn();
+
+        class CountingStartEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            public async checkAvailability() { return { isAvailable: true }; }
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() { onStart(); }
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+        }
+
+        sttRegistry.registerStatic('mock', new CountingStartEngine({} as unknown as TranscriptionModeOptions));
+
+        await service.startTranscription();
+
+        expect(onStart).toHaveBeenCalledTimes(1);
+    });
+
     it('should sanitize bracketed and parenthetical transcript metadata tags', () => {
         expect(sanitizeTranscriptText('[MUSIC] Hello  (applause) world [BLANK_AUDIO]')).toBe('Hello world');
         expect(sanitizeTranscriptText('Testing (laughter) one [SILENCE] two')).toBe('Testing one two');
         expect(sanitizeTranscriptText('>> On the stale smell')).toBe('On the stale smell');
+    });
+
+    it('REGRESSION: forwards later partials without re-sending stale final transcript', async () => {
+        const { sttRegistry } = await import('../STTRegistry');
+
+        class MockEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            public async checkAvailability() { return { isAvailable: true }; }
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() {}
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+
+            public triggerTranscript(data: { transcript: { final?: string; partial?: string } }) {
+                (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
+            }
+        }
+
+        const mockEngine = new MockEngine({} as unknown as TranscriptionModeOptions);
+        sttRegistry.registerStatic('mock', mockEngine);
+
+        await service.startTranscription();
+
+        mockEngine.triggerTranscript({ transcript: { final: 'already committed final text' } });
+        mockEngine.triggerTranscript({ transcript: { partial: 'new live partial words' } });
+
+        expect(mockOnTranscriptUpdate).toHaveBeenLastCalledWith({
+            transcript: { partial: 'new live partial words' },
+        });
+    });
+
+    it('REGRESSION: splits combined Web Speech final+interim into final commit then visible partial', async () => {
+        const { sttRegistry } = await import('../STTRegistry');
+
+        class MockEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            public async checkAvailability() { return { isAvailable: true }; }
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() {}
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+
+            public triggerTranscript(data: { transcript: { final?: string; partial?: string } }) {
+                (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
+            }
+        }
+
+        const mockEngine = new MockEngine({} as unknown as TranscriptionModeOptions);
+        sttRegistry.registerStatic('mock', mockEngine);
+
+        await service.startTranscription();
+
+        mockEngine.triggerTranscript({
+            transcript: {
+                final: 'committed final words',
+                partial: 'current interim window',
+            },
+        });
+
+        expect(mockOnTranscriptUpdate).toHaveBeenNthCalledWith(1, {
+            transcript: { final: 'committed final words' },
+        });
+        expect(mockOnTranscriptUpdate).toHaveBeenNthCalledWith(2, {
+            transcript: { partial: 'current interim window' },
+        });
     });
 
     it('should synchronously rehydrate transcript and recording status on subscription', () => {

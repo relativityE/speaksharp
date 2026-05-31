@@ -35,6 +35,8 @@ declare global {
         Result?: typeof Result;
         __PRIVATE_TRANSCRIPT_TRACE__?: boolean;
         __NATIVE_BROWSER_TRACE__?: Array<Record<string, unknown>>;
+        __SS_TRANSCRIPT_TRACE__?: Array<Record<string, unknown>>;
+        __SS_TRANSCRIPT_TRACE_SEQ__?: number;
     }
 }
 
@@ -48,6 +50,39 @@ const pushNativeRuntimeTrace = (event: string, payload: Record<string, unknown> 
         event,
         ...payload,
     });
+};
+
+const pushTranscriptLifecycleTrace = (stage: string, payload: Record<string, unknown> = {}) => {
+    if (typeof window === 'undefined') return;
+    window.__SS_TRANSCRIPT_TRACE__ = window.__SS_TRANSCRIPT_TRACE__ ?? [];
+    window.__SS_TRANSCRIPT_TRACE_SEQ__ = (window.__SS_TRANSCRIPT_TRACE_SEQ__ ?? 0) + 1;
+    window.__SS_TRANSCRIPT_TRACE__.push({
+        sequence: window.__SS_TRANSCRIPT_TRACE_SEQ__,
+        t: Number(performance.now().toFixed(1)),
+        stage,
+        timestamp: Date.now(),
+        ...payload,
+    });
+    if (window.__SS_TRANSCRIPT_TRACE__.length > 1000) {
+        window.__SS_TRANSCRIPT_TRACE__.shift();
+    }
+};
+
+const getVisibleTranscriptText = (transcript: { transcript: string; partial: string }): string =>
+    [transcript.transcript.trim(), transcript.partial.trim()]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+
+const hasMeaningfulTranscriptText = (text: string): boolean => {
+    const normalized = text
+        .toLowerCase()
+        .replace(/[^a-z0-9'\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!normalized) return false;
+    if (NATIVE_NOISE_TRANSCRIPTS.has(normalized)) return false;
+    return normalized.split(' ').filter(Boolean).length >= 2;
 };
 
 const normalizeTranscriptPrefix = (text: string): string =>
@@ -167,6 +202,34 @@ export interface LifecycleToken {
     cancelled: boolean;
 }
 
+type TranscriptLifecycleSource =
+    | 'service_result'
+    | 'committed_final'
+    | 'visible_snapshot'
+    | 'best_meaningful_partial'
+    | 'store_visible_snapshot'
+    | 'empty';
+
+interface TranscriptLifecycleState {
+    committedFinal: string;
+    currentPartial: string;
+    bestMeaningfulPartial: string;
+    visibleTranscript: string;
+    lastVisibleTranscriptAtStop: string | null;
+    selectedTranscriptForSave: string | null;
+    selectedTranscriptSource: TranscriptLifecycleSource | null;
+}
+
+const createEmptyTranscriptLifecycleState = (): TranscriptLifecycleState => ({
+    committedFinal: '',
+    currentPartial: '',
+    bestMeaningfulPartial: '',
+    visibleTranscript: '',
+    lastVisibleTranscriptAtStop: null,
+    selectedTranscriptForSave: null,
+    selectedTranscriptSource: null,
+});
+
 /**
  * LIFECYCLE CONTRACT (v2 — Emission Control)
  * Any async work via enqueue() may be aborted if lifecycleVersion changes.
@@ -215,6 +278,7 @@ export class SpeechRuntimeController {
     private isSubscriberReady: boolean = false;
     private isEmissionsSafe: boolean = false;
     private transcriptEmissionSequence = 0;
+    private transcriptLifecycle: TranscriptLifecycleState = createEmptyTranscriptLifecycleState();
 
     // Segmented Emission Queue
     private emissionQueue: TranscriptUpdate[] = [];
@@ -817,6 +881,11 @@ export class SpeechRuntimeController {
     }
 
     private handleTranscriptUpdate(data: TranscriptUpdate) {
+        pushTranscriptLifecycleTrace('controller:receive', {
+            type: data.transcript.final ? 'final' : 'partial',
+            textLength: (data.transcript.final || data.transcript.partial || '').length,
+            preview: (data.transcript.final || data.transcript.partial || '').slice(0, 80),
+        });
         // Keep the visible transcript store current even if the React subscriber
         // temporarily detaches/remounts during long idle or recognition restart
         // windows. Callback delivery can wait; user-visible text should not.
@@ -932,7 +1001,10 @@ export class SpeechRuntimeController {
 
     private resetAnalysisStateForNewRecording(): void {
         const store = useSessionStore.getState();
+        this.resetTranscriptLifecycle();
         store.updateTranscript('', '');
+        store.freezeTranscriptAtStop(null);
+        store.setTranscriptFinalizing(false);
         store.updateFillerData({});
         store.setChunks([]);
         store.setPauseMetrics({
@@ -965,6 +1037,39 @@ export class SpeechRuntimeController {
                 });
             }
         }
+    }
+
+    private syncTranscriptLifecycleFromStore(): void {
+        const { transcript } = useSessionStore.getState();
+        const committedFinal = transcript.transcript.trim();
+        const currentPartial = transcript.partial.trim();
+        const visibleTranscript = getVisibleTranscriptText(transcript);
+
+        this.transcriptLifecycle.committedFinal = committedFinal;
+        this.transcriptLifecycle.currentPartial = currentPartial;
+        this.transcriptLifecycle.visibleTranscript = visibleTranscript;
+        if (hasMeaningfulTranscriptText(currentPartial)) {
+            this.transcriptLifecycle.bestMeaningfulPartial = currentPartial;
+        }
+    }
+
+    private resetTranscriptLifecycle(): void {
+        this.transcriptLifecycle = createEmptyTranscriptLifecycleState();
+    }
+
+    private freezeTranscriptLifecycleAtStop(): string {
+        this.syncTranscriptLifecycleFromStore();
+        const frozen =
+            this.transcriptLifecycle.visibleTranscript ||
+            this.transcriptLifecycle.bestMeaningfulPartial ||
+            this.transcriptLifecycle.currentPartial ||
+            this.transcriptLifecycle.committedFinal;
+
+        this.transcriptLifecycle.lastVisibleTranscriptAtStop = frozen || null;
+        const store = useSessionStore.getState();
+        store.freezeTranscriptAtStop(frozen || null);
+        store.setTranscriptFinalizing(true);
+        return frozen;
     }
 
     private pushTranscriptToStore(data: TranscriptUpdate): void {
@@ -1020,7 +1125,13 @@ export class SpeechRuntimeController {
                 pushNativeStoreTrace('store_skip_duplicate_last_chunk', {
                     finalTranscript,
                 });
-                store.updateTranscript(currentTranscript || finalTranscript, '');
+                store.updateTranscript(currentTranscript || finalTranscript, data.transcript.partial || '');
+                this.syncTranscriptLifecycleFromStore();
+                pushTranscriptLifecycleTrace('store:update', {
+                    type: 'final_duplicate',
+                    committedLength: useSessionStore.getState().transcript.transcript.length,
+                    partialLength: useSessionStore.getState().transcript.partial.length,
+                });
                 return;
             }
             if (isPrivateTranscriptTraceEnabled()) {
@@ -1036,7 +1147,13 @@ export class SpeechRuntimeController {
                     currentTrimmed,
                     finalTranscript,
                 });
-                store.updateTranscript(currentTranscript || finalTranscript, '');
+                store.updateTranscript(currentTranscript || finalTranscript, data.transcript.partial || '');
+                this.syncTranscriptLifecycleFromStore();
+                pushTranscriptLifecycleTrace('store:update', {
+                    type: 'final_already_present',
+                    committedLength: useSessionStore.getState().transcript.transcript.length,
+                    partialLength: useSessionStore.getState().transcript.partial.length,
+                });
                 return;
             }
 
@@ -1047,7 +1164,14 @@ export class SpeechRuntimeController {
                     finalTranscript,
                     normalizedPrefixMatch: true,
                 });
-                store.updateTranscript(finalTranscript, '');
+                store.updateTranscript(finalTranscript, data.transcript.partial || '');
+                this.syncTranscriptLifecycleFromStore();
+                pushTranscriptLifecycleTrace('store:update', {
+                    type: 'final_replace',
+                    committedLength: useSessionStore.getState().transcript.transcript.length,
+                    partialLength: useSessionStore.getState().transcript.partial.length,
+                    preview: finalTranscript.slice(0, 80),
+                });
                 if (suffix) {
                     store.addChunk({
                         transcript: suffix,
@@ -1063,7 +1187,14 @@ export class SpeechRuntimeController {
                 finalTranscript,
                 newFullText,
             });
-            store.updateTranscript(newFullText, '');
+            store.updateTranscript(newFullText, data.transcript.partial || '');
+            this.syncTranscriptLifecycleFromStore();
+            pushTranscriptLifecycleTrace('store:update', {
+                type: 'final',
+                committedLength: useSessionStore.getState().transcript.transcript.length,
+                partialLength: useSessionStore.getState().transcript.partial.length,
+                preview: newFullText.slice(0, 80),
+            });
             store.addChunk({
                 transcript: finalTranscript,
                 timestamp: Date.now(),
@@ -1083,6 +1214,13 @@ export class SpeechRuntimeController {
             });
             if (partialSequence === this.transcriptEmissionSequence) {
                 store.updateTranscript(currentTranscript, data.transcript.partial);
+                this.syncTranscriptLifecycleFromStore();
+                pushTranscriptLifecycleTrace('store:update', {
+                    type: 'partial',
+                    committedLength: useSessionStore.getState().transcript.transcript.length,
+                    partialLength: useSessionStore.getState().transcript.partial.length,
+                    preview: data.transcript.partial.slice(0, 80),
+                });
             } else {
                 pushNativeStoreTrace('store_skip_stale_partial', {
                     partialTranscript: data.transcript.partial,
@@ -1401,6 +1539,7 @@ export class SpeechRuntimeController {
 
         this.serviceUnsubscribe = null;
         this.setEngineReady(false);
+        this.resetTranscriptLifecycle();
         syncRuntimeState('IDLE', null);
         useSessionStore.getState().setRuntimeState('IDLE');
         this.updateSessionPersisted(false);
@@ -1461,9 +1600,22 @@ export class SpeechRuntimeController {
                 }
                 return null;
             }
+            const stopSnapshotStore = useSessionStore.getState();
+            const frozenAtStop = this.freezeTranscriptLifecycleAtStop();
+            pushTranscriptLifecycleTrace('lifecycle:stop', {
+                mode: stopEntryMode,
+                visibleAtStopLength: frozenAtStop.length,
+                committedLength: stopSnapshotStore.transcript.transcript.length,
+                partialLength: stopSnapshotStore.transcript.partial.length,
+                preview: frozenAtStop.slice(0, 80),
+            });
             const wasRecording = this.state === 'RECORDING';
             await this.transition('STOPPING', undefined, token);
-            if (token.cancelled || token.version !== this.lifecycleVersion) return null;
+            if (token.cancelled || token.version !== this.lifecycleVersion) {
+                useSessionStore.getState().setTranscriptFinalizing(false);
+                useSessionStore.getState().freezeTranscriptAtStop(null);
+                return null;
+            }
             try {
                 this.stopHeartbeat();
                 this.stopWatchdog();
@@ -1481,6 +1633,8 @@ export class SpeechRuntimeController {
                         }, '[CLOUD_SAVE_DECISION]');
                     }
                     await this.transition('READY', undefined, token);
+                    useSessionStore.getState().setTranscriptFinalizing(false);
+                    useSessionStore.getState().freezeTranscriptAtStop(null);
                     return null;
                 }
 
@@ -1541,11 +1695,18 @@ export class SpeechRuntimeController {
                                         ? { engineVersion: 'assemblyai', modelName: 'universal-streaming', deviceType: 'cloud' }
                                         : { engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }
                             );
+                            this.syncTranscriptLifecycleFromStore();
+                            const fallbackTranscript =
+                                result.transcript?.trim() ||
+                                this.transcriptLifecycle.lastVisibleTranscriptAtStop ||
+                                this.transcriptLifecycle.visibleTranscript ||
+                                this.transcriptLifecycle.bestMeaningfulPartial ||
+                                ' ';
                             const fallbackSessionData = {
                                 user_id: userId,
                                 title: `Session ${new Date().toLocaleString()}`,
                                 duration: Math.round(duration),
-                                transcript: result.transcript?.trim() || ' ',
+                                transcript: fallbackTranscript,
                                 total_words: 0,
                                 engine: mode,
                             };
@@ -1580,12 +1741,37 @@ export class SpeechRuntimeController {
 
                     if (result && sessionId) {
                         const duration = startTime ? (Date.now() - startTime) / 1000 : 0;
+                        this.syncTranscriptLifecycleFromStore();
                         const store = useSessionStore.getState();
                         const chunkTranscript = store.chunks.map(chunk => chunk.transcript).join(' ').trim();
                         const storeTranscript = store.transcript.transcript.trim();
+                        const storePartialTranscript = store.transcript.partial.trim();
+                        const visibleStoreTranscript = [storeTranscript, storePartialTranscript]
+                            .filter(Boolean)
+                            .join(' ')
+                            .trim();
+                        const frozenStopTranscript = store.frozenTranscriptAtStop?.trim() || '';
                         const resultTranscript = result.transcript?.trim() || '';
-                        const finalTranscript = [resultTranscript, chunkTranscript, storeTranscript]
-                            .sort((a, b) => b.split(/\s+/).filter(Boolean).length - a.split(/\s+/).filter(Boolean).length)[0] || '';
+                        const candidates: Array<{ source: TranscriptLifecycleSource; text: string }> = [
+                            { source: 'service_result', text: resultTranscript },
+                            { source: 'committed_final', text: this.transcriptLifecycle.committedFinal || chunkTranscript || storeTranscript },
+                            { source: 'visible_snapshot', text: this.transcriptLifecycle.lastVisibleTranscriptAtStop || frozenStopTranscript },
+                            { source: 'best_meaningful_partial', text: this.transcriptLifecycle.bestMeaningfulPartial || storePartialTranscript },
+                            { source: 'store_visible_snapshot', text: visibleStoreTranscript },
+                        ];
+                        const preparedCandidates = candidates
+                            .map(candidate => ({ ...candidate, text: candidate.text.trim() }))
+                            .filter(candidate => Boolean(candidate.text));
+                        const selectedCandidate =
+                            preparedCandidates.find(candidate => hasMeaningfulTranscriptText(candidate.text)) ??
+                            preparedCandidates[0] ??
+                            { source: 'empty' as const, text: '' };
+                        const finalTranscript = selectedCandidate.text
+                            ? ensureTerminalPunctuation(selectedCandidate.text)
+                            : '';
+                        const saveCandidateReason = selectedCandidate.source;
+                        this.transcriptLifecycle.selectedTranscriptForSave = finalTranscript || null;
+                        this.transcriptLifecycle.selectedTranscriptSource = saveCandidateReason;
                         const meaningfulTranscript = finalTranscript
                             .replace(/\[(inaudible|blank_audio|music|applause|laughter|noise|mumbles)\]/gi, '')
                             .trim();
@@ -1598,6 +1784,10 @@ export class SpeechRuntimeController {
                             resultTranscriptLength: resultTranscript.length,
                             chunkTranscriptLength: chunkTranscript.length,
                             storeTranscriptLength: storeTranscript.length,
+                            storePartialTranscriptLength: storePartialTranscript.length,
+                            visibleStoreTranscriptLength: visibleStoreTranscript.length,
+                            frozenStopTranscriptLength: frozenStopTranscript.length,
+                            saveCandidateReason,
                             finalTranscriptLength: finalTranscript.length,
                             finalWordCount: finalTranscript.split(/\s+/).filter(Boolean).length,
                             meaningfulWordCount,
@@ -1618,9 +1808,19 @@ export class SpeechRuntimeController {
                                 resultTranscriptLength: resultTranscript.length,
                                 chunkTranscriptLength: chunkTranscript.length,
                                 storeTranscriptLength: storeTranscript.length,
+                                storePartialTranscriptLength: storePartialTranscript.length,
+                                visibleStoreTranscriptLength: visibleStoreTranscript.length,
+                                frozenStopTranscriptLength: frozenStopTranscript.length,
+                                saveCandidateReason,
                                 sessionId,
                             }, '[CLOUD_SAVE_DECISION]');
                         }
+                        pushTranscriptLifecycleTrace('save:candidate', {
+                            mode: service.getMode?.() ?? stopEntryMode,
+                            selectedLength: finalTranscript.length,
+                            reason: saveCandidateReason,
+                            preview: finalTranscript.slice(0, 80),
+                        });
 
                         const modeForFinalization = service.getMode?.() ?? stopEntryMode;
                         const nativeSaveQualityFailureReason = modeForFinalization === 'native'
@@ -1689,12 +1889,7 @@ export class SpeechRuntimeController {
                             const wpm = sessionMetrics.wpm;
                             const accuracy = result.stats.accuracy;
                             const clarityScore = sessionMetrics.clarityScore;
-                            const currentStoreTranscript = store.transcript.transcript.trim();
-                            const currentStorePartial = store.transcript.partial.trim();
-                            const isPromotingOnlyPartial =
-                                currentStorePartial &&
-                                !currentStoreTranscript &&
-                                finalTranscript === currentStorePartial;
+                            const currentStoreTranscript = useSessionStore.getState().transcript.transcript.trim();
 
                             if (store.chunks.length === 0) {
                                 store.setChunks([{
@@ -1702,9 +1897,6 @@ export class SpeechRuntimeController {
                                     timestamp: startTime || Date.now(),
                                     isFinal: true
                                 }]);
-                                if (isPromotingOnlyPartial) {
-                                    store.updateTranscript(finalTranscript, '');
-                                }
                             } else if (finalTranscript && finalTranscript.length > store.transcript.transcript.length) {
                                 const currentTranscript = store.transcript.transcript.trim();
                                 const correctionSuffix = currentTranscript && finalTranscript.startsWith(currentTranscript)
@@ -1718,8 +1910,17 @@ export class SpeechRuntimeController {
                                         isFinal: true,
                                         isCorrection: true
                                     });
-                                    store.updateTranscript(finalTranscript, '');
                                 }
+                            }
+                            if (finalTranscript && finalTranscript !== currentStoreTranscript) {
+                                store.updateTranscript(finalTranscript, '');
+                                this.syncTranscriptLifecycleFromStore();
+                                pushTranscriptLifecycleTrace('store:update', {
+                                    type: 'selected_for_save',
+                                    committedLength: useSessionStore.getState().transcript.transcript.length,
+                                    partialLength: useSessionStore.getState().transcript.partial.length,
+                                    preview: finalTranscript.slice(0, 80),
+                                });
                             }
 
                             const supabase = getSupabaseClient();
@@ -1818,6 +2019,8 @@ export class SpeechRuntimeController {
                 this.stopWatchdog();
                 await service.destroy();
                 this.service = null;
+                useSessionStore.getState().setTranscriptFinalizing(false);
+                useSessionStore.getState().freezeTranscriptAtStop(null);
 
                 logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
@@ -1842,6 +2045,8 @@ export class SpeechRuntimeController {
                     });
                 }
                 await this.transition('FAILED', err as Error, token);
+                useSessionStore.getState().setTranscriptFinalizing(false);
+                useSessionStore.getState().freezeTranscriptAtStop(null);
                 if (hasRecoveryDraftSignal) {
                     useSessionStore.getState().setSTTStatus({
                         type: 'warning',

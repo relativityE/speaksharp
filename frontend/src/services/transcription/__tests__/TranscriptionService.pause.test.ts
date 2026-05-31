@@ -97,7 +97,7 @@ describe('TranscriptionService Pause/Resume', () => {
     callbacks.onTranscriptUpdate({ transcript: { final: 'Visible text' } });
 
     expect(onTranscriptUpdate).toHaveBeenCalledWith(expect.objectContaining({
-      transcript: { final: 'Visible text', partial: '' }
+      transcript: { final: 'Visible text' }
     }));
   });
 

@@ -32,6 +32,8 @@ export interface SessionState {
     activeEngine: TranscriptionMode | 'none' | null;
     history: Array<HistorySegment>;
     chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean }>;
+    frozenTranscriptAtStop: string | null;
+    isTranscriptFinalizing: boolean;
     pauseMetrics: PauseMetrics;
     sessionSaved: boolean;
     sunsetModal: { type: 'daily' | 'monthly'; open: boolean };
@@ -59,6 +61,8 @@ interface SessionActions {
     addChunk: (chunk: { transcript: string; timestamp: number; isFinal: boolean }) => void;
     appendChunk: (chunk: { transcript: string; timestamp: number; isFinal: boolean; isCorrection?: boolean }) => void;
     setChunks: (chunks: Array<{ transcript: string; timestamp: number; isFinal: boolean; isCorrection?: boolean }>) => void;
+    freezeTranscriptAtStop: (transcript: string | null) => void;
+    setTranscriptFinalizing: (finalizing: boolean) => void;
     setPauseMetrics: (metrics: PauseMetrics) => void;
     setLockHeldByOther: (held: boolean) => void;
     setSessionSaved: (saved: boolean) => void;
@@ -87,6 +91,8 @@ const initialState: SessionState = {
     activeEngine: null,
     history: [],
     chunks: [],
+    frozenTranscriptAtStop: null,
+    isTranscriptFinalizing: false,
     pauseMetrics: {
         totalPauses: 0,
         averagePauseDuration: 0,
@@ -219,7 +225,10 @@ export const useSessionStore = create<SessionStore>((set) => {
                 syncForensicAnchors(state.runtimeState, mode);
                 return state;
             }
-            const resetVisibleSession = state.runtimeState !== 'RECORDING';
+            const resetVisibleSession =
+                state.runtimeState !== 'RECORDING' &&
+                !state.isTranscriptFinalizing &&
+                !state.frozenTranscriptAtStop;
             const next = {
                 ...state,
                 sttMode: mode,
@@ -296,6 +305,16 @@ export const useSessionStore = create<SessionStore>((set) => {
     setChunks: (chunks) =>
         set({
             chunks,
+        }),
+
+    freezeTranscriptAtStop: (frozenTranscriptAtStop) =>
+        set({
+            frozenTranscriptAtStop,
+        }),
+
+    setTranscriptFinalizing: (isTranscriptFinalizing) =>
+        set({
+            isTranscriptFinalizing,
         }),
 
     setPauseMetrics: (pauseMetrics) =>

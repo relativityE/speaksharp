@@ -99,6 +99,7 @@ const PRIVATE_STT_SAMPLE_RATE = PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ;
 const MIN_TRANSCRIPTION_SAMPLES = PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES;
 const MAX_RETRY_SAMPLES = PRIV_STT_DERIVED.MAX_RETRY_SAMPLES;
 const PROCESSING_INTERVAL_MS = PRIV_STT.PROCESSING_INTERVAL_MS;
+const TRANSCRIPTION_TIMEOUT_MS = 60_000;
 const SPEECH_START_MIN_SAMPLES = PRIV_STT_DERIVED.SPEECH_START_MIN_SAMPLES;
 const SPEECH_START_PREROLL_SAMPLES = PRIV_STT_DERIVED.SPEECH_START_PREROLL_SAMPLES;
 const SPEECH_START_RESET_TOLERANCE_SAMPLES = PRIV_STT_DERIVED.SPEECH_START_RESET_TOLERANCE_SAMPLES;
@@ -227,6 +228,29 @@ function hasFirstTranscriptEmissionSubstance(
     words.length >= PRIV_STT.FIRST_TRANSCRIPT_MIN_WORDS &&
     durationSec >= PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS &&
     energy.rms >= PRIV_STT.FIRST_TRANSCRIPT_MIN_RMS
+  );
+}
+
+function shouldPreferVisibleProvisional(provisional: string, finalCandidate: string): boolean {
+  const provisionalText = provisional.trim();
+  const finalText = finalCandidate.trim();
+  if (!provisionalText || !finalText) return false;
+  if (isKnownHallucinationTranscript(provisionalText)) return false;
+
+  const provisionalWords = getTranscriptWords(provisionalText);
+  const finalWords = getTranscriptWords(finalText);
+  if (provisionalWords.length < PRIV_STT.FIRST_TRANSCRIPT_MIN_WORDS) return false;
+
+  const provisionalNormalized = normalizeTranscriptForGate(provisionalText);
+  const finalNormalized = normalizeTranscriptForGate(finalText);
+  if (!provisionalNormalized || provisionalNormalized === finalNormalized) return false;
+
+  return (
+    provisionalWords.length > finalWords.length ||
+    (
+      provisionalWords.length === finalWords.length &&
+      provisionalNormalized.length > finalNormalized.length
+    )
   );
 }
 
@@ -363,6 +387,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private lastTranscriptEmitAtMs: number = 0;
   private preTranscriptMetadataRetryCount: number = 0;
   private pendingFirstTranscript: string | null = null;
+  private bestVisibleProvisionalTranscript: string = '';
   private firstTranscriptAgreementRounds: number = 0;
   private speechGateStats: SpeechGateStats = {
     framesSeen: 0,
@@ -379,6 +404,26 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
   public get type(): EngineType {
     return (this.privateSTT.getEngineType() as EngineType) || 'whisper-turbo';
+  }
+
+  private emitProvisionalPartial(text: string, reason: string): void {
+    const partial = text.trim();
+    if (!partial || !this.onTranscriptUpdate) return;
+    if (shouldPreferVisibleProvisional(partial, this.bestVisibleProvisionalTranscript)) {
+      this.bestVisibleProvisionalTranscript = partial;
+    } else if (!this.bestVisibleProvisionalTranscript.trim()) {
+      this.bestVisibleProvisionalTranscript = partial;
+    }
+    pushPrivateTimeline('first_transcript_provisional_partial_emit', {
+      serviceId: this.serviceId,
+      runId: this.instanceId,
+      textLength: partial.length,
+      preview: partial.slice(0, 160),
+      reason,
+      emittedToUi: true,
+    });
+    this.lastTranscriptEmitAtMs = performance.now();
+    this.onTranscriptUpdate({ transcript: { partial } });
   }
 
   constructor(options: TranscriptionModeOptions, privateSTT?: IPrivateSTT) {
@@ -513,6 +558,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.lastTranscriptEmitAtMs = 0;
     this.preTranscriptMetadataRetryCount = 0;
     this.pendingFirstTranscript = null;
+    this.bestVisibleProvisionalTranscript = '';
     this.firstTranscriptAgreementRounds = 0;
     this.updateHeartbeat();
     pushPrivateTimeline('stream_start', {
@@ -779,7 +825,28 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       // and require a fresh speech-start gate so room noise cannot be sent as
       // another Whisper chunk.
       const isFirstChunk = this.currentTranscript.trim() === '';
-      if (!force && (isBufferSilent || isLowEnergyPauseTail || isPostTranscriptLowEnergy) && !isFirstChunk) {
+      if (!force && isPostTranscriptLowEnergy && !isBufferSilent && !isLowEnergyPauseTail && !isFirstChunk) {
+        pushPrivateTimeline('post_transcript_low_energy_tail_deferred', {
+          serviceId: this.serviceId,
+          runId: this.instanceId,
+          samples: concatenated.length,
+          rms: Number(energy.rms.toFixed(6)),
+          isBufferSilent,
+          isMeaningfullySilent,
+          isLowEnergyPauseTail,
+          isPostTranscriptLowEnergy,
+        });
+        logger.debug({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          samples: concatenated.length,
+          rms: Number(energy.rms.toFixed(6)),
+          threshold: SESSION_PAUSE.SILENCE_RMS_THRESHOLD,
+        }, '[PrivateWhisper] Deferring low-energy post-transcript tail for later speech or stop');
+        return;
+      }
+
+      if (!force && (isBufferSilent || isLowEnergyPauseTail) && !isFirstChunk) {
         pushPrivateTimeline('silence_gate_drop', {
           serviceId: this.serviceId,
           runId: this.instanceId,
@@ -986,14 +1053,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             durationSec: Number(processedDurationSec.toFixed(3)),
           }, '[PrivateWhisper] Holding first transcript until it has speech-like substance');
           if (canEmitPartial) {
-            pushPrivateTimeline('first_transcript_provisional_partial_emit', {
-              serviceId: this.serviceId,
-              runId: this.instanceId,
-              textLength: newText.trim().length,
-              preview: newText.trim().slice(0, 160),
-              reason: 'pre_final_threshold',
-              emittedToUi: false,
-            });
+            this.emitProvisionalPartial(newText, 'pre_final_threshold');
           }
           this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'first_transcript_substance');
           return;
@@ -1028,13 +1088,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             previousPreview: previousCandidate?.slice(0, 120) ?? null,
             stablePrefix: stablePrefix.slice(0, 120),
           }, '[PrivateWhisper] Holding first transcript until local agreement confirms it');
-          pushPrivateTimeline('first_transcript_provisional_partial_emit', {
-            serviceId: this.serviceId,
-            runId: this.instanceId,
-            textLength: newText.trim().length,
-            preview: newText.trim().slice(0, 160),
-            emittedToUi: false,
-          });
+          if (canEmitPartial) {
+            this.emitProvisionalPartial(newText, 'local_agreement_pending');
+          }
           this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'first_transcript_local_agreement');
           return;
         }
@@ -1058,14 +1114,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
               stablePrefixWordCount,
               minWords: PRIV_STT.FIRST_TRANSCRIPT_MIN_WORDS,
             }, '[PrivateWhisper] Holding first transcript because stable prefix is too short');
-            pushPrivateTimeline('first_transcript_provisional_partial_emit', {
-              serviceId: this.serviceId,
-              runId: this.instanceId,
-              textLength: newText.trim().length,
-              preview: newText.trim().slice(0, 160),
-              reason: 'stable_prefix_too_short',
-              emittedToUi: false,
-            });
+            if (canEmitPartial) {
+              this.emitProvisionalPartial(newText, 'stable_prefix_too_short');
+            }
             this.pendingFirstTranscript = newText;
             this.firstTranscriptAgreementRounds = 1;
             this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'first_transcript_stable_prefix_too_short');
@@ -1123,8 +1174,27 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         this.preTranscriptMetadataRetryCount = 0;
         this.pendingFirstTranscript = null;
         this.firstTranscriptAgreementRounds = 0;
+        if (!this.currentTranscript.trim() && shouldPreferVisibleProvisional(newText, textToEmit)) {
+          pushPrivateTimeline('first_transcript_final_candidate_replaced_by_current_inference', {
+            serviceId: this.serviceId,
+            runId: this.instanceId,
+            finalPreview: textToEmit.slice(0, 160),
+            inferencePreview: newText.slice(0, 160),
+          });
+          textToEmit = newText;
+        } else if (!this.currentTranscript.trim() && shouldPreferVisibleProvisional(this.bestVisibleProvisionalTranscript, textToEmit)) {
+          pushPrivateTimeline('first_transcript_final_candidate_replaced_by_visible_provisional', {
+            serviceId: this.serviceId,
+            runId: this.instanceId,
+            finalPreview: textToEmit.slice(0, 160),
+            provisionalPreview: this.bestVisibleProvisionalTranscript.slice(0, 160),
+          });
+          textToEmit = this.bestVisibleProvisionalTranscript;
+        }
+
         logger.info({ sId: this.serviceId, rId: this.instanceId, newText: textToEmit, latencyMs: (performance.now() - tStart).toFixed(2) }, '[PrivateWhisper] ✨ Transcription success');
         this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${textToEmit}` : textToEmit;
+        this.bestVisibleProvisionalTranscript = '';
         if (this.onTranscriptUpdate) {
           pushPrivateTimeline('transcript_callback_emit', {
             serviceId: this.serviceId,
@@ -1217,6 +1287,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
 
     this.cleanupFrameListener();
+
+    const waitStartedAt = performance.now();
+    while (this.isProcessing && performance.now() - waitStartedAt < TRANSCRIPTION_TIMEOUT_MS) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
 
     // Process any remaining audio
     await this.processAudio({ force: true });

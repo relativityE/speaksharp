@@ -49,6 +49,10 @@ const CUSTOM_WORD = (process.env.STT_CUSTOM_WORD || '').trim().toLowerCase();
 const NATIVE_CONTINUOUS = process.env.STT_NATIVE_CONTINUOUS || '';
 const NATIVE_INTERIM_RESULTS = process.env.STT_NATIVE_INTERIM_RESULTS || '';
 const NATIVE_MAX_ALTERNATIVES = process.env.STT_NATIVE_MAX_ALTERNATIVES || '';
+const USE_FAKE_AUDIO_CAPTURE = process.env.STT_USE_FAKE_AUDIO_CAPTURE === 'true';
+const FAKE_AUDIO_FILE = process.env.STT_FAKE_AUDIO_FILE || '';
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
 function compact(text) {
   return (text || '').replace(/\s+/g, ' ').trim();
@@ -298,7 +302,7 @@ async function ensureCustomWordThroughUi(page, word) {
 async function getPrivateReadinessSnapshot(page) {
   return page.evaluate(async () => {
     const root = document.documentElement;
-    const downloadButton = document.querySelector('[data-testid="status-download-model-button"], [data-testid="download-model-button"]');
+    const downloadButton = document.querySelector('[data-testid="status-download-model-button"], [data-testid="download-model-button"], [data-testid="download-model-button-inline"]');
     const setupPanel = document.querySelector('[data-testid="private-setup-panel"]');
     const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
     const cacheNames = 'caches' in window ? await caches.keys() : [];
@@ -334,7 +338,7 @@ async function preparePrivateModel(page) {
   const before = await getPrivateReadinessSnapshot(page);
   await markPhase(page, 'private_model_readiness_before', before);
 
-  const downloadButton = page.locator('[data-testid="status-download-model-button"], [data-testid="download-model-button"]').first();
+  const downloadButton = page.locator('[data-testid="status-download-model-button"], [data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
   if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
     if (PRIVATE_SETUP_CLICK_DELAY_MS > 0) {
       await markPhase(page, 'private_model_download_visible_hold', {
@@ -349,7 +353,7 @@ async function preparePrivateModel(page) {
 
   await page.waitForFunction(() => {
     const root = document.documentElement;
-    const downloadButton = document.querySelector('[data-testid="status-download-model-button"], [data-testid="download-model-button"]');
+    const downloadButton = document.querySelector('[data-testid="status-download-model-button"], [data-testid="download-model-button"], [data-testid="download-model-button-inline"]');
     const downloadVisible = Boolean(downloadButton && getComputedStyle(downloadButton).display !== 'none');
     return !downloadVisible && root.getAttribute('data-model-status') === 'ready';
   }, null, { timeout: 180_000 });
@@ -472,10 +476,14 @@ async function waitForFirstText(page, startedAt) {
 }
 
 async function playFixture(audioPath) {
+  if (USE_FAKE_AUDIO_CAPTURE) {
+    return { source: 'chrome-fake-audio-capture', audioPath: FAKE_AUDIO_FILE || audioPath };
+  }
   if (process.platform !== 'darwin') {
     throw new Error('Real-mic STT corpus proof currently uses macOS afplay and must run on darwin.');
   }
   await execFileAsync('/usr/bin/afplay', [audioPath], { timeout: 45_000 });
+  return { source: 'afplay-physical-speaker-mic', audioPath };
 }
 
 async function markPhase(page, phase, detail = {}) {
@@ -500,6 +508,7 @@ async function markPhase(page, phase, detail = {}) {
 async function collectTraceSnapshot(page, mode) {
   return page.evaluate((currentMode) => ({
     phases: window.__STT_CORPUS_PHASES__ ?? [],
+    transcriptLifecycleTrace: window.__SS_TRANSCRIPT_TRACE__ ?? [],
     nativeTrace: currentMode === 'native' ? window.__NATIVE_BROWSER_TRACE__ ?? [] : undefined,
     nativeParallelCapture: currentMode === 'native' ? (window.__NATIVE_PARALLEL_CAPTURE__ ?? []).map((capture) => ({
       createdAt: capture.createdAt,
@@ -521,6 +530,166 @@ async function collectTraceSnapshot(page, mode) {
       wavDataUrlBytes: chunk.wavDataUrl?.length ?? 0,
     })) : undefined,
   }), mode).catch(() => ({}));
+}
+
+function traceTextLength(entry) {
+  if (!entry || typeof entry !== 'object') return 0;
+  for (const key of ['textLength', 'selectedLength', 'visibleAtStopLength', 'transcriptLength', 'finalLength', 'partialLength', 'committedLength']) {
+    const value = entry[key];
+    if (typeof value === 'number' && value > 0) return value;
+  }
+  for (const key of ['preview', 'text', 'selected', 'transcript', 'partial', 'committed']) {
+    const value = entry[key];
+    if (typeof value === 'string' && value.trim()) return value.trim().length;
+  }
+  return 0;
+}
+
+function hasTraceText(trace, stage) {
+  return trace.some((entry) => entry.stage === stage && traceTextLength(entry) > 0);
+}
+
+function latestTraceStage(trace, stage) {
+  return [...trace].reverse().find((entry) => entry.stage === stage) ?? null;
+}
+
+function summarizeTranscriptLifecycle(trace = []) {
+  const stageCounts = trace.reduce((counts, entry) => {
+    const stage = entry?.stage ?? 'unknown';
+    counts[stage] = (counts[stage] ?? 0) + 1;
+    return counts;
+  }, {});
+  const stopEvent = latestTraceStage(trace, 'lifecycle:stop');
+  const saveEvent = latestTraceStage(trace, 'save:candidate');
+  const boundaryOrder = [
+    ['engine_emits_text', 'engine:emit'],
+    ['service_normalized_event', 'service:receive'],
+    ['controller_updates_lifecycle', 'controller:receive'],
+    ['store_updates', 'store:update'],
+    ['ui_visible_before_stop', 'ui:visible'],
+    ['stop_called', 'lifecycle:stop'],
+    ['save_candidate_selected', 'save:candidate'],
+  ];
+  const boundaryStatus = Object.fromEntries(
+    boundaryOrder.map(([key, stage]) => [key, hasTraceText(trace, stage) || (stage === 'lifecycle:stop' && Boolean(stopEvent))]),
+  );
+  const firstBrokenBoundary = boundaryOrder.find(([key]) => !boundaryStatus[key])?.[0] ?? null;
+
+  return {
+    traceEventCount: trace.length,
+    stageCounts,
+    boundaryStatus,
+    firstBrokenBoundary,
+    stopSelectedSource: typeof saveEvent?.reason === 'string' ? saveEvent.reason : null,
+    stopSelectedTranscriptLength: typeof saveEvent?.selectedLength === 'number' ? saveEvent.selectedLength : null,
+    visibleTranscriptAtStopLength: typeof stopEvent?.visibleAtStopLength === 'number' ? stopEvent.visibleAtStopLength : null,
+    stopPreview: typeof stopEvent?.preview === 'string' ? stopEvent.preview : null,
+    saveCandidatePreview: typeof saveEvent?.preview === 'string' ? saveEvent.preview : null,
+  };
+}
+
+function transcriptEvidenceInBody(bodyText, transcript) {
+  const bodyWords = new Set(words(bodyText));
+  const transcriptWords = words(transcript);
+  const uniqueTranscriptWords = [...new Set(transcriptWords)];
+  const matchedWords = uniqueTranscriptWords.filter((word) => bodyWords.has(word));
+  return {
+    bodyLength: compact(bodyText).length,
+    uniqueTranscriptWordCount: uniqueTranscriptWords.length,
+    matchedUniqueTranscriptWordCount: matchedWords.length,
+    matchedUniqueTranscriptWords: matchedWords.slice(0, 20),
+    containsAtLeastHalfUniqueTranscriptWords: uniqueTranscriptWords.length > 0 && matchedWords.length / uniqueTranscriptWords.length >= 0.5,
+  };
+}
+
+async function readSupabaseAuthFromBrowser(page) {
+  return page.evaluate(() => {
+    for (const [key, rawValue] of Object.entries(localStorage)) {
+      if (!/^sb-.*-auth-token$/.test(key) || typeof rawValue !== 'string') continue;
+      try {
+        const parsed = JSON.parse(rawValue);
+        const userId = parsed?.user?.id ?? parsed?.currentSession?.user?.id ?? null;
+        const accessToken = parsed?.access_token ?? parsed?.currentSession?.access_token ?? null;
+        if (userId && accessToken) {
+          return { storageKey: key, userId, accessToken };
+        }
+      } catch {
+        // Keep scanning other localStorage keys.
+      }
+    }
+    return null;
+  }).catch(() => null);
+}
+
+async function fetchLatestSavedSessions(page) {
+  try {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      return { skipped: true, reason: 'missing_supabase_url_or_anon_key' };
+    }
+    if (/mock\.supabase\.co/i.test(SUPABASE_URL) || /^mock_/i.test(SUPABASE_ANON_KEY)) {
+      return { skipped: true, reason: 'mock_supabase_env_for_direct_query' };
+    }
+    const auth = await readSupabaseAuthFromBrowser(page);
+    if (!auth) {
+      return { skipped: true, reason: 'missing_browser_supabase_auth' };
+    }
+
+    const url = new URL(`${SUPABASE_URL}/rest/v1/sessions`);
+    url.searchParams.set('select', 'id,user_id,status,transcript,created_at,engine,total_words');
+    url.searchParams.set('user_id', `eq.${auth.userId}`);
+    url.searchParams.set('or', '(status.is.null,status.eq.completed)');
+    url.searchParams.set('order', 'created_at.desc');
+    url.searchParams.set('limit', '5');
+
+    const fetched = await page.evaluate(async ({ requestUrl, anonKey, accessToken }) => {
+      const response = await fetch(requestUrl, {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const bodyText = await response.text();
+      return {
+        ok: response.ok,
+        status: response.status,
+        bodyText,
+      };
+    }, {
+      requestUrl: url.toString(),
+      anonKey: SUPABASE_ANON_KEY,
+      accessToken: auth.accessToken,
+    });
+    let rows = null;
+    try {
+      rows = JSON.parse(fetched.bodyText);
+    } catch {
+      rows = null;
+    }
+
+    return {
+      skipped: false,
+      ok: fetched.ok,
+      status: fetched.status,
+      userId: auth.userId,
+      rowCount: Array.isArray(rows) ? rows.length : null,
+      latest: Array.isArray(rows) && rows[0] ? {
+        id: rows[0].id,
+        status: rows[0].status,
+        engine: rows[0].engine,
+        total_words: rows[0].total_words,
+        transcriptLength: typeof rows[0].transcript === 'string' ? rows[0].transcript.length : null,
+        transcriptPreview: typeof rows[0].transcript === 'string' ? rows[0].transcript.slice(0, 120) : null,
+        created_at: rows[0].created_at,
+      } : null,
+      errorBody: fetched.ok ? undefined : compact(fetched.bodyText).slice(0, 500),
+    };
+  } catch (error) {
+    return {
+      skipped: false,
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function runFixture(page, mode, fixture) {
@@ -545,6 +714,8 @@ async function runFixture(page, mode, fixture) {
 
   await page.evaluate(() => {
     window.__STT_CORPUS_PHASES__ = [];
+    window.__SS_TRANSCRIPT_TRACE__ = [];
+    window.__SS_TRANSCRIPT_TRACE_SEQ__ = 0;
     window.__NATIVE_BROWSER_TRACE__ = [];
     window.__PRIVATE_TRANSCRIPT_TRACE__ = true;
     window.__NATIVE_PARALLEL_CAPTURE_TRACE__ = true;
@@ -571,8 +742,8 @@ async function runFixture(page, mode, fixture) {
 
   const firstTextPromise = waitForFirstText(page, startedAt);
   await markPhase(page, 'afplay_start', { audioPath: fixture.audioPath });
-  await playFixture(fixture.audioPath);
-  await markPhase(page, 'afplay_end', { audioPath: fixture.audioPath });
+  const playbackResult = await playFixture(fixture.audioPath);
+  await markPhase(page, 'afplay_end', { audioPath: fixture.audioPath, playbackResult });
   const firstText = await firstTextPromise;
   await markPhase(page, 'first_text_observed', firstText);
   await page.waitForTimeout(POST_PLAYBACK_WAIT_MS);
@@ -599,6 +770,7 @@ async function runFixture(page, mode, fixture) {
   await markPhase(page, 'after_stop_settle');
 
   const traceSnapshot = await collectTraceSnapshot(page, mode);
+  const transcriptLifecycleSummary = summarizeTranscriptLifecycle(traceSnapshot.transcriptLifecycleTrace);
 
   const normalizedTranscript = normalizeForWer(transcript);
   const wer = calculateWordErrorRate(fixture.transcript, transcript);
@@ -627,17 +799,56 @@ async function runFixture(page, mode, fixture) {
     nativeParallelCapture: traceSnapshot.nativeParallelCapture,
     privateTrace: traceSnapshot.privateTrace,
     privateAudioChunks: traceSnapshot.privateAudioChunks,
+    transcriptLifecycleTrace: traceSnapshot.transcriptLifecycleTrace,
+    transcriptLifecycleSummary,
+    traceStageCounts: transcriptLifecycleSummary.stageCounts,
+    traceBoundaryStatus: transcriptLifecycleSummary.boundaryStatus,
+    firstBrokenBoundary: transcriptLifecycleSummary.firstBrokenBoundary,
+    stopSelectedSource: transcriptLifecycleSummary.stopSelectedSource,
+    stopSelectedTranscriptLength: transcriptLifecycleSummary.stopSelectedTranscriptLength,
+    visibleTranscriptAtStopLength: transcriptLifecycleSummary.visibleTranscriptAtStopLength,
+    savePayloadTranscriptLength: transcriptLifecycleSummary.stopSelectedTranscriptLength,
   };
 
   await page.goto(`${BASE_URL}/analytics`, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
   await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 30_000 }).catch(() => undefined);
-  await page.reload({ waitUntil: 'domcontentloaded' }).catch(() => undefined);
-  await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 30_000 }).catch(() => undefined);
+  await page.waitForFunction(() => {
+    if (document.querySelector('[data-testid^="session-history-item-"]')) return true;
+    if (document.querySelector('[data-testid="app-error"]')) return true;
+    if (document.querySelector('[data-testid="app-loading"]')) return false;
+    const body = document.body?.textContent ?? '';
+    return /No sessions yet|Error Loading Analytics|Session Not Found/i.test(body);
+  }, null, { timeout: 45_000 }).catch(() => undefined);
   result.historyVisible = await page.getByTestId(/^session-history-item-/).first().isVisible({ timeout: 15_000 }).catch(() => false);
-  result.detailVisible = await page.getByTestId(/^open-session-detail-/).first().isVisible({ timeout: 5_000 }).catch(() => false);
-  result.analyticsBodySample = compact(await page.locator('body').textContent().catch(() => '')).slice(0, 1000);
-  result.truthWordsHeard = words(fixture.transcript).filter((word) => new RegExp(`\\b${word}\\b`, 'i').test(result.normalizedTranscript));
-  result.inputLikelyContaminated = result.wordCount > 0 && result.truthWordsHeard.length === 0;
+  const detailButton = page.getByTestId(/^open-session-detail-/).first();
+  result.detailVisible = await detailButton.isVisible({ timeout: 5_000 }).catch(() => false);
+  const analyticsBody = compact(await page.locator('body').textContent().catch(() => ''));
+  result.analyticsBodySample = analyticsBody.slice(0, 1000);
+  result.analyticsTranscriptEvidence = transcriptEvidenceInBody(analyticsBody, transcript);
+  result.directSavedSessionQuery = await fetchLatestSavedSessions(page);
+  if (result.detailVisible) {
+    await detailButton.click().catch(() => undefined);
+    await page.waitForTimeout(750);
+    const detailBody = compact(await page.locator('body').textContent().catch(() => ''));
+    result.detailBodySample = detailBody.slice(0, 1000);
+    result.detailTranscriptEvidence = transcriptEvidenceInBody(detailBody, transcript);
+  }
+  result.savedTranscriptLength = result.sessionPersisted ? result.savePayloadTranscriptLength : null;
+  const truthWords = words(fixture.transcript);
+  const uniqueTruthWords = [...new Set(truthWords)];
+  const normalizedTranscriptWordSet = new Set(words(result.normalizedTranscript));
+  result.truthWordsHeard = uniqueTruthWords.filter((word) => normalizedTranscriptWordSet.has(word));
+  result.truthWordRecall = uniqueTruthWords.length > 0
+    ? Number((result.truthWordsHeard.length / uniqueTruthWords.length).toFixed(4))
+    : null;
+  result.inputLikelyContaminated = result.wordCount > 0 && (
+    result.truthWordsHeard.length === 0 ||
+    (
+      result.wordCount > truthWords.length * 2 &&
+      result.truthWordRecall !== null &&
+      result.truthWordRecall < 0.35
+    )
+  );
   if (fixture.expectedFillers) {
     const expectedKeys = Object.keys(fixture.expectedFillers);
     result.observedFillers = countFillerOccurrences(transcript, [...new Set([...expectedKeys, ...DEFAULT_FILLER_WORDS])]);
@@ -668,6 +879,12 @@ const evidence = {
     interimResults: NATIVE_INTERIM_RESULTS || 'default',
     maxAlternatives: NATIVE_MAX_ALTERNATIVES || 'default',
   },
+  fakeAudioCapture: USE_FAKE_AUDIO_CAPTURE ? {
+    enabled: true,
+    file: FAKE_AUDIO_FILE || null,
+  } : {
+    enabled: false,
+  },
   customWord: CUSTOM_WORD || null,
   microphonePath: 'real browser getUserMedia with afplay through the physical speaker/mic path',
   auth: {
@@ -687,6 +904,11 @@ const browser = await chromium.launch({
   args: [
     '--autoplay-policy=no-user-gesture-required',
     '--disable-blink-features=AutomationControlled',
+    ...(USE_FAKE_AUDIO_CAPTURE ? [
+      '--use-fake-ui-for-media-stream',
+      '--use-fake-device-for-media-stream',
+      `--use-file-for-fake-audio-capture=${FAKE_AUDIO_FILE}`,
+    ] : []),
   ],
 });
 

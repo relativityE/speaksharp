@@ -41,12 +41,30 @@ declare global {
   interface Window {
     __TRANSCRIPTION_SERVICE_INTERNAL__?: TranscriptionService;
     __PRIVATE_TRANSCRIPT_TRACE__?: boolean;
+    __SS_TRANSCRIPT_TRACE__?: Array<Record<string, unknown>>;
+    __SS_TRANSCRIPT_TRACE_SEQ__?: number;
   }
 }
 
 // Singleton managed via SessionManager
 const isPrivateTranscriptTraceEnabled = () =>
   typeof window !== 'undefined' && Boolean(window.__PRIVATE_TRANSCRIPT_TRACE__);
+
+const pushTranscriptLifecycleTrace = (stage: string, payload: Record<string, unknown> = {}) => {
+  if (typeof window === 'undefined') return;
+  window.__SS_TRANSCRIPT_TRACE__ = window.__SS_TRANSCRIPT_TRACE__ ?? [];
+  window.__SS_TRANSCRIPT_TRACE_SEQ__ = (window.__SS_TRANSCRIPT_TRACE_SEQ__ ?? 0) + 1;
+  window.__SS_TRANSCRIPT_TRACE__.push({
+    sequence: window.__SS_TRANSCRIPT_TRACE_SEQ__,
+    t: Number(performance.now().toFixed(1)),
+    stage,
+    timestamp: Date.now(),
+    ...payload,
+  });
+  if (window.__SS_TRANSCRIPT_TRACE__.length > 1000) {
+    window.__SS_TRANSCRIPT_TRACE__.shift();
+  }
+};
 
 /**
  * Strip STT metadata tokens such as [MUSIC], [BLANK_AUDIO], or (applause)
@@ -342,6 +360,12 @@ export default class TranscriptionService {
     this.strategyCallbacks = {
       onTranscriptUpdate: (data) => {
         if (this.isTerminated) return;
+        pushTranscriptLifecycleTrace('engine:emit', {
+          engine: this.mode,
+          type: data.transcript.final ? 'final' : 'partial',
+          textLength: (data.transcript.final || data.transcript.partial || '').length,
+          preview: (data.transcript.final || data.transcript.partial || '').slice(0, 80),
+        });
         if (isPrivateTranscriptTraceEnabled()) {
           logger.info({
             serviceId: this.serviceId,
@@ -1551,6 +1575,12 @@ export default class TranscriptionService {
    */
   private processTranscript(update: TranscriptUpdate): void {
     logger.debug(`[TRACE] ENGINE_DATA ${!!update.transcript.final}`);
+    pushTranscriptLifecycleTrace('service:receive', {
+      engine: this.mode,
+      type: update.transcript.final ? 'final' : 'partial',
+      textLength: (update.transcript.final || update.transcript.partial || '').length,
+      preview: (update.transcript.final || update.transcript.partial || '').slice(0, 80),
+    });
 
     if (this.fsm.is('TERMINATED') || this.fsm.is('CLEANING_UP') || this.isTerminated) {
       logger.debug('[TranscriptionService] 🛡️ Guard: Dropping transcript update because service is terminated');
@@ -1584,23 +1614,22 @@ export default class TranscriptionService {
       store.updateTranscript(store.transcript.transcript, transcript.partial);
     }
 
-    // Only forward if there's actually something left after sanitization
-    if (transcript.final || transcript.partial) {
-
-      if (transcript.final) {
-        this.currentTranscript = transcript.final;
-        this.partialTranscript = '';
-      } else if (transcript.partial) {
-        this.partialTranscript = transcript.partial;
-      }
-
+    if (transcript.final) {
+      this.currentTranscript = transcript.final;
+      this.partialTranscript = '';
       this.options.onTranscriptUpdate?.({
-        transcript: {
-          final: this.currentTranscript,
-          partial: this.partialTranscript
-        }
+        transcript: { final: this.currentTranscript }
       });
-    } else {
+    }
+
+    if (transcript.partial) {
+      this.partialTranscript = transcript.partial;
+      this.options.onTranscriptUpdate?.({
+        transcript: { partial: this.partialTranscript }
+      });
+    }
+
+    if (!transcript.final && !transcript.partial) {
       logger.warn('[TranscriptionService] Transcript EMPTY after sanitization; dropping.');
     }
   }

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SpeakSharp Private Drop-In Browser Harness</title>
+  </head>
+  <body>
+    <main style="font: 16px system-ui, sans-serif; margin: 32px; max-width: 960px;">
+      <h1>Private Drop-In Browser Harness</h1>
+      <p>
+        Browser mic capture plus Transformers.js transcription, without the
+        SpeakSharp session lifecycle, store, coaching, save, or analytics path.
+      </p>
+      <button id="init">Init model</button>
+      <button id="start">Start capture</button>
+      <button id="stop">Stop and transcribe</button>
+      <pre id="status" data-testid="dropin-status">idle</pre>
+      <h2>Transcript</h2>
+      <pre id="transcript" data-testid="dropin-transcript"></pre>
+      <h2>Events</h2>
+      <pre id="events" data-testid="dropin-events"></pre>
+    </main>
+    <script type="module" src="/src/benchmark/private-browser-dropin.ts"></script>
+  </body>
+</html>
