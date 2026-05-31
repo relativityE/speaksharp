@@ -34,6 +34,7 @@
  */
 
 import logger from '../../../lib/logger';
+import { sanitizeTranscriptText } from '../transcriptSanitizer';
 import { createPrivateSTT, EngineType } from '../engines';
 import { IPrivateSTT } from '../../../contracts/IPrivateSTT';
 import type { PrivateSTTInitOptions } from '../../../contracts/IPrivateSTT';
@@ -58,6 +59,7 @@ declare global {
     __e2e_stt_engine_ready_fired__?: boolean;
     __PRIVATE_TRANSCRIPT_TRACE__?: boolean;
     __PRIVATE_INFERENCE_AUDIO_CHUNKS__?: PrivateInferenceAudioCapture[];
+    __PRIVATE_UTTERANCE_AUDIO_CHUNKS__?: PrivateInferenceAudioCapture[];
     __PRIVATE_STT_TIMELINE__?: PrivateSttTimelineEvent[];
   }
 }
@@ -176,6 +178,12 @@ const HALLUCINATION_BLOCKLIST: readonly RegExp[] = [
   /^\s*$/,
 ];
 
+const NON_SPEECH_MARKER_PATTERN =
+  /(?:^|\s)(?:\*[^*]{1,40}\*|\[[^\]]{1,40}\]|\((?:music|laughter|laughing|applause|inaudible|silence|noise|coughing|speaking in foreign language)[^)]*\))/i;
+
+const TRAILING_NUMERIC_JUNK_PATTERN =
+  /(?:^|[\s.?!,])(?:\d+(?:\.\d+)?)(?:\s*,\s*\d+(?:\.\d+)?){1,}\s*[.!?]?\s*$/;
+
 function normalizeTranscriptForGate(text: string): string {
   return text
     .toLowerCase()
@@ -209,11 +217,101 @@ function isKnownHallucinationTranscript(text: string): boolean {
   return HALLUCINATION_BLOCKLIST.some((pattern) => pattern.test(normalized));
 }
 
+function hasUnsafePrivateCandidateMarker(text: string): boolean {
+  return NON_SPEECH_MARKER_PATTERN.test(text);
+}
+
+function hasUnsupportedNumericTail(text: string): boolean {
+  return TRAILING_NUMERIC_JUNK_PATTERN.test(text);
+}
+
+function sanitizePrivateTranscriptCandidate(text: string): string {
+  return sanitizeTranscriptText(text);
+}
+
+function isPurePrivateHallucinationTranscript(text: string): boolean {
+  return isKnownHallucinationTranscript(sanitizePrivateTranscriptCandidate(text));
+}
+
+function isUnsafePrivateTranscriptCandidate(text: string): boolean {
+  return (
+    hasUnsafePrivateCandidateMarker(text) ||
+    hasUnsupportedNumericTail(text) ||
+    isKnownHallucinationTranscript(text)
+  );
+}
+
+function wordOverlapRatio(left: string, right: string): number {
+  const leftWords = new Set(getTranscriptWords(left));
+  const rightWords = getTranscriptWords(right);
+  if (leftWords.size === 0 || rightWords.length === 0) return 0;
+
+  const overlap = rightWords.filter((word) => leftWords.has(word)).length;
+  return overlap / rightWords.length;
+}
+
+function appendTranscriptWithoutDuplicate(base: string, segment: string): string {
+  const baseText = base.replace(/\s+/g, ' ').trim();
+  const segmentText = segment.replace(/\s+/g, ' ').trim();
+  if (!baseText) return segmentText;
+  if (!segmentText) return baseText;
+
+  const baseWords = baseText.split(/\s+/);
+  const segmentWords = segmentText.split(/\s+/);
+  const normalizedBaseWords = getTranscriptWords(baseText);
+  const normalizedSegmentWords = getTranscriptWords(segmentText);
+
+  let overlap = 0;
+  const maxOverlap = Math.min(normalizedBaseWords.length, normalizedSegmentWords.length);
+  for (let size = 1; size <= maxOverlap; size += 1) {
+    const baseTail = normalizedBaseWords.slice(-size).join(' ');
+    const segmentHead = normalizedSegmentWords.slice(0, size).join(' ');
+    if (baseTail === segmentHead) {
+      overlap = size;
+    }
+  }
+
+  return [baseWords.join(' '), segmentWords.slice(overlap).join(' ')].filter(Boolean).join(' ').trim();
+}
+
+function mergeLiveProvisionalTranscript(previous: string, next: string): string {
+  const previousWords = getTranscriptWords(previous);
+  const nextWords = getTranscriptWords(next);
+  if (previousWords.length === 0) return next.trim();
+  if (nextWords.length === 0) return previous.trim();
+
+  const overlap = wordOverlapRatio(previous, next);
+  const isLikelyShortOpeningSegment = previousWords.length <= 3 && nextWords.length >= 2;
+  const isLikelyRevision = previousWords.length > 3 && overlap <= 0.25;
+
+  if (isLikelyRevision) {
+    return next.trim();
+  }
+  if (isLikelyShortOpeningSegment || overlap > 0) {
+    return appendTranscriptWithoutDuplicate(previous, next);
+  }
+
+  return next.trim();
+}
+
+function isUnsupportedPostTranscriptCandidate(candidate: string, currentTranscript: string): boolean {
+  const candidateText = candidate.trim();
+  const currentText = currentTranscript.trim();
+  if (!candidateText || !currentText) return false;
+  if (isUnsafePrivateTranscriptCandidate(candidateText)) return true;
+
+  const candidateWords = getTranscriptWords(candidateText);
+  if (candidateWords.length < PRIV_STT.FIRST_TRANSCRIPT_MIN_WORDS) return false;
+
+  const overlap = wordOverlapRatio(currentText, candidateText);
+  return overlap < 0.35 && candidateWords.length >= 5;
+}
+
 function canEmitFirstPartial(text: string, energy: { rms: number }): boolean {
   return (
     getTranscriptWords(text).length >= 2 &&
-    energy.rms >= PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS &&
-    !isKnownHallucinationTranscript(text)
+    energy.rms >= SESSION_PAUSE.SILENCE_RMS_THRESHOLD &&
+    !isUnsafePrivateTranscriptCandidate(text)
   );
 }
 
@@ -231,11 +329,19 @@ function hasFirstTranscriptEmissionSubstance(
   );
 }
 
+function getRetryRetentionMinRms(): number {
+  return Math.min(
+    PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS,
+    SESSION_PAUSE.SILENCE_RMS_THRESHOLD * 3,
+  );
+}
+
 function shouldPreferVisibleProvisional(provisional: string, finalCandidate: string): boolean {
   const provisionalText = provisional.trim();
   const finalText = finalCandidate.trim();
   if (!provisionalText || !finalText) return false;
-  if (isKnownHallucinationTranscript(provisionalText)) return false;
+  if (isUnsafePrivateTranscriptCandidate(provisionalText)) return false;
+  if (isUnsafePrivateTranscriptCandidate(finalText)) return true;
 
   const provisionalWords = getTranscriptWords(provisionalText);
   const finalWords = getTranscriptWords(finalText);
@@ -314,6 +420,23 @@ function capturePrivateInferenceAudio(audio: Float32Array): number | null {
   return window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__.length - 1;
 }
 
+function capturePrivateUtteranceAudio(audio: Float32Array): number | null {
+  if (!isPrivateTranscriptTraceEnabled()) return null;
+
+  const energy = summarizeAudioEnergy(audio);
+  window.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__ = window.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__ ?? [];
+  window.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__.push({
+    createdAt: new Date().toISOString(),
+    samples: audio.length,
+    durationSec: samplesToSeconds(audio.length, PRIVATE_STT_SAMPLE_RATE),
+    rms: Number(energy.rms.toFixed(6)),
+    peak: Number(energy.peak.toFixed(6)),
+    wavDataUrl: encodePcm16WavDataUrl(audio),
+  });
+
+  return window.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__.length - 1;
+}
+
 /**
  * Utility to clear the Whisper model cache from IndexedDB.
  * Used for self-repair when browser locks occur.
@@ -388,7 +511,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private preTranscriptMetadataRetryCount: number = 0;
   private pendingFirstTranscript: string | null = null;
   private bestVisibleProvisionalTranscript: string = '';
+  private liveProvisionalTranscript: string = '';
   private firstTranscriptAgreementRounds: number = 0;
+  private utteranceAudioChunks: Float32Array[] = [];
+  private utteranceSampleCount: number = 0;
+  private wholeUtteranceTranscript: string = '';
   private speechGateStats: SpeechGateStats = {
     framesSeen: 0,
     speechFramesSeen: 0,
@@ -409,21 +536,34 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private emitProvisionalPartial(text: string, reason: string): void {
     const partial = text.trim();
     if (!partial || !this.onTranscriptUpdate) return;
-    if (shouldPreferVisibleProvisional(partial, this.bestVisibleProvisionalTranscript)) {
-      this.bestVisibleProvisionalTranscript = partial;
+    if (isUnsafePrivateTranscriptCandidate(partial)) {
+      pushPrivateTimeline('first_transcript_provisional_partial_rejected', {
+        serviceId: this.serviceId,
+        runId: this.instanceId,
+        textLength: partial.length,
+        preview: partial.slice(0, 160),
+        reason,
+      });
+      return;
+    }
+    const visiblePartial = mergeLiveProvisionalTranscript(this.liveProvisionalTranscript, partial);
+    this.liveProvisionalTranscript = visiblePartial;
+    if (shouldPreferVisibleProvisional(visiblePartial, this.bestVisibleProvisionalTranscript)) {
+      this.bestVisibleProvisionalTranscript = visiblePartial;
     } else if (!this.bestVisibleProvisionalTranscript.trim()) {
-      this.bestVisibleProvisionalTranscript = partial;
+      this.bestVisibleProvisionalTranscript = visiblePartial;
     }
     pushPrivateTimeline('first_transcript_provisional_partial_emit', {
       serviceId: this.serviceId,
       runId: this.instanceId,
-      textLength: partial.length,
-      preview: partial.slice(0, 160),
+      textLength: visiblePartial.length,
+      preview: visiblePartial.slice(0, 160),
+      rawPreview: partial.slice(0, 160),
       reason,
       emittedToUi: true,
     });
     this.lastTranscriptEmitAtMs = performance.now();
-    this.onTranscriptUpdate({ transcript: { partial } });
+    this.onTranscriptUpdate({ transcript: { partial: visiblePartial } });
   }
 
   constructor(options: TranscriptionModeOptions, privateSTT?: IPrivateSTT) {
@@ -440,6 +580,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     this.status = 'uninitialized';
     this.currentTranscript = '';
+    this.wholeUtteranceTranscript = '';
+    this.utteranceAudioChunks = [];
+    this.utteranceSampleCount = 0;
     this.privateSTT = (privateSTT as IPrivateSTT) || (createPrivateSTT(options as PrivateSTTInitOptions) as IPrivateSTT);
     this.pauseDetector = new PauseDetector();
     this.lastHeartbeat = Date.now();
@@ -555,10 +698,14 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.noiseFloor = 0.002;
     this.currentThreshold = PRIV_STT.SPEECH_START_RMS_THRESHOLD;
     this.currentTranscript = '';
+    this.wholeUtteranceTranscript = '';
+    this.utteranceAudioChunks = [];
+    this.utteranceSampleCount = 0;
     this.lastTranscriptEmitAtMs = 0;
     this.preTranscriptMetadataRetryCount = 0;
     this.pendingFirstTranscript = null;
     this.bestVisibleProvisionalTranscript = '';
+    this.liveProvisionalTranscript = '';
     this.firstTranscriptAgreementRounds = 0;
     this.updateHeartbeat();
     pushPrivateTimeline('stream_start', {
@@ -627,6 +774,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             ...this.speechStartAudioChunks.map((chunk) => chunk.slice(0)),
           ];
           this.bufferedSampleCount = this.prerollSampleCount + speechStartBufferedSamples;
+          this.appendUtteranceAudio(this.audioChunks);
           this.prerollAudioChunks = [];
           this.prerollSampleCount = 0;
           this.speechStartAudioChunks = [];
@@ -657,6 +805,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       } else {
         this.audioChunks.push(clonedFrame);
         this.bufferedSampleCount += clonedFrame.length;
+        this.appendUtteranceAudio([clonedFrame]);
       }
 
       if (isPrivateTranscriptTraceEnabled()) {
@@ -1025,6 +1174,25 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         return;
       }
 
+      if (!this.currentTranscript.trim() && hasUnsafePrivateCandidateMarker(newText)) {
+        pushPrivateTimeline('first_transcript_unsafe_marker_retain', {
+          serviceId: this.serviceId,
+          runId: this.instanceId,
+          preview: newText.slice(0, 160),
+          samples: processedAudio.length,
+          durationSec: Number(samplesToSeconds(processedAudio.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+          rms: Number(energy.rms.toFixed(6)),
+          peak: Number(energy.peak.toFixed(6)),
+        });
+        logger.info({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          preview: newText.slice(0, 120),
+        }, '[PrivateWhisper] Holding unsafe non-speech marker before first transcript');
+        this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'unsafe_marker_first_transcript');
+        return;
+      }
+
       if (!this.currentTranscript.trim() && newText.trim()) {
         const processedDurationSec = samplesToSeconds(processedAudio.length, PRIVATE_STT_SAMPLE_RATE);
         const canEmitPartial = canEmitFirstPartial(newText, energy);
@@ -1155,6 +1323,25 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         return;
       }
 
+      if (force && isUnsupportedPostTranscriptCandidate(newText, this.currentTranscript)) {
+        this.clearRetryAudioBuffer();
+        this.clearSpeechStartState();
+        pushPrivateTimeline('unsafe_force_tail_drop', {
+          serviceId: this.serviceId,
+          runId: this.instanceId,
+          preview: newText.slice(0, 160),
+          currentPreview: this.currentTranscript.slice(0, 160),
+          overlapRatio: Number(wordOverlapRatio(this.currentTranscript, newText).toFixed(3)),
+        });
+        logger.info({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          preview: newText.slice(0, 120),
+          currentPreview: this.currentTranscript.slice(0, 120),
+        }, '[PrivateWhisper] Dropping unsupported forced final candidate');
+        return;
+      }
+
       if (!force && this.currentTranscript.trim() && isTinyTranscriptFragment(newText)) {
         pushPrivateTimeline('tiny_post_transcript_fragment_drop', {
           serviceId: this.serviceId,
@@ -1192,9 +1379,30 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           textToEmit = this.bestVisibleProvisionalTranscript;
         }
 
+        if (!this.currentTranscript.trim() && isUnsafePrivateTranscriptCandidate(textToEmit)) {
+          if (shouldPreferVisibleProvisional(this.bestVisibleProvisionalTranscript, textToEmit)) {
+            pushPrivateTimeline('first_transcript_unsafe_final_replaced_by_visible_provisional', {
+              serviceId: this.serviceId,
+              runId: this.instanceId,
+              finalPreview: textToEmit.slice(0, 160),
+              provisionalPreview: this.bestVisibleProvisionalTranscript.slice(0, 160),
+            });
+            textToEmit = this.bestVisibleProvisionalTranscript;
+          } else {
+            pushPrivateTimeline('first_transcript_unsafe_final_retain', {
+              serviceId: this.serviceId,
+              runId: this.instanceId,
+              preview: textToEmit.slice(0, 160),
+            });
+            this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'unsafe_first_transcript_final');
+            return;
+          }
+        }
+
         logger.info({ sId: this.serviceId, rId: this.instanceId, newText: textToEmit, latencyMs: (performance.now() - tStart).toFixed(2) }, '[PrivateWhisper] ✨ Transcription success');
         this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${textToEmit}` : textToEmit;
         this.bestVisibleProvisionalTranscript = '';
+        this.liveProvisionalTranscript = '';
         if (this.onTranscriptUpdate) {
           pushPrivateTimeline('transcript_callback_emit', {
             serviceId: this.serviceId,
@@ -1295,13 +1503,19 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     // Process any remaining audio
     await this.processAudio({ force: true });
+    await this.commitWholeUtteranceTranscript();
     pushPrivateTimeline('stop_force_processing_complete', {
       serviceId: this.serviceId,
       runId: this.instanceId,
       currentTranscriptLength: this.currentTranscript.length,
+      wholeUtteranceTranscriptLength: this.wholeUtteranceTranscript.length,
     });
 
     this.status = 'stopped';
+  }
+
+  public override async getTranscript(): Promise<string> {
+    return this.wholeUtteranceTranscript.trim() || this.currentTranscript.trim();
   }
 
   protected async onDestroy(): Promise<void> {
@@ -1462,6 +1676,85 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.resetSpeechGateStats();
   }
 
+  private appendUtteranceAudio(chunks: Float32Array[]): void {
+    for (const chunk of chunks) {
+      if (chunk.length === 0) continue;
+      this.utteranceAudioChunks.push(chunk.slice(0));
+      this.utteranceSampleCount += chunk.length;
+    }
+  }
+
+  private async commitWholeUtteranceTranscript(): Promise<void> {
+    if (this.utteranceAudioChunks.length === 0 || this.utteranceSampleCount < MIN_TRANSCRIPTION_SAMPLES) {
+      pushPrivateTimeline('whole_utterance_commit_skip', {
+        serviceId: this.serviceId,
+        runId: this.instanceId,
+        reason: 'insufficient_audio',
+        samples: this.utteranceSampleCount,
+      });
+      return;
+    }
+
+    const audio = concatenateFloat32Arrays(this.utteranceAudioChunks);
+    const energy = summarizeAudioEnergy(audio);
+    pushPrivateTimeline('whole_utterance_commit_start', {
+      serviceId: this.serviceId,
+      runId: this.instanceId,
+      samples: audio.length,
+      durationSec: Number(samplesToSeconds(audio.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+      rms: Number(energy.rms.toFixed(6)),
+      peak: Number(energy.peak.toFixed(6)),
+      currentPreview: this.currentTranscript.slice(0, 160),
+    });
+
+    const capturedAudioIndex = capturePrivateUtteranceAudio(audio);
+    const result = await this.privateSTT.transcribe(audio);
+    const rawText = result.isOk ? result.data : '';
+    if (capturedAudioIndex !== null) {
+      const captured = window.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__?.[capturedAudioIndex];
+      if (captured) {
+        if (result.isOk) captured.transcript = rawText;
+        else captured.error = result.error?.message;
+      }
+    }
+
+    if (!result.isOk) {
+      pushPrivateTimeline('whole_utterance_commit_error', {
+        serviceId: this.serviceId,
+        runId: this.instanceId,
+        error: result.error?.message,
+      });
+      return;
+    }
+
+    const transcript = sanitizePrivateTranscriptCandidate(rawText);
+    if (!transcript || isPurePrivateHallucinationTranscript(transcript)) {
+      pushPrivateTimeline('whole_utterance_commit_reject', {
+        serviceId: this.serviceId,
+        runId: this.instanceId,
+        reason: !transcript ? 'empty' : 'pure_hallucination',
+        rawPreview: rawText.slice(0, 160),
+        preview: transcript.slice(0, 160),
+        currentPreview: this.currentTranscript.slice(0, 160),
+      });
+      return;
+    }
+
+    const replacedRollingTranscript = this.currentTranscript;
+    this.wholeUtteranceTranscript = transcript;
+    this.currentTranscript = transcript;
+    pushPrivateTimeline('whole_utterance_commit_accept', {
+      serviceId: this.serviceId,
+      runId: this.instanceId,
+      textLength: transcript.length,
+      rawPreview: rawText.slice(0, 160),
+      preview: transcript.slice(0, 160),
+      replacedRollingPreview: replacedRollingTranscript.slice(0, 160),
+    });
+
+    this.onTranscriptUpdate?.({ transcript: { final: transcript } });
+  }
+
   private retainAudioForRetry(audio: Float32Array): void {
     if (audio.length === 0) {
       this.clearRetryAudioBuffer();
@@ -1493,7 +1786,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     energy: { rms: number; peak: number },
     reason: string,
   ): void {
-    if (energy.rms < PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS) {
+    const minRetryRms = getRetryRetentionMinRms();
+    if (energy.rms < minRetryRms) {
       pushPrivateTimeline('retry_audio_low_rms_drop', {
         serviceId: this.serviceId,
         runId: this.instanceId,
@@ -1502,7 +1796,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         durationSec: Number(samplesToSeconds(audio.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
         rms: Number(energy.rms.toFixed(6)),
         peak: Number(energy.peak.toFixed(6)),
-        minRms: PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS,
+        minRms: minRetryRms,
         droppedRetrySamples: this.retryAudioBuffer?.length ?? 0,
       });
       this.clearRetryAudioBuffer();

@@ -30,6 +30,8 @@ import { sessionManager } from './SessionManager';
 import { DistributedLock } from '@/lib/DistributedLock';
 import type { TranscriptUpdate, HistorySegment, SttStatus } from '@/types/transcription';
 import type { LifecycleToken } from '../SpeechRuntimeController';
+export { sanitizeTranscriptText } from './transcriptSanitizer';
+import { sanitizeTranscriptText } from './transcriptSanitizer';
 
 import {
   saveSession,
@@ -65,19 +67,6 @@ const pushTranscriptLifecycleTrace = (stage: string, payload: Record<string, unk
     window.__SS_TRANSCRIPT_TRACE__.shift();
   }
 };
-
-/**
- * Strip STT metadata tokens such as [MUSIC], [BLANK_AUDIO], or (applause)
- * while preserving the spoken transcript text around them.
- */
-export function sanitizeTranscriptText(raw: string): string {
-  return raw
-    .replace(/>>/g, '')
-    .replace(/\[[A-Z_\s]+\]/gi, '')
-    .replace(/\([a-z\s]+\)/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
 
 /**
  * @deprecated Use SpeechRuntimeController as the sole manager of service instances.

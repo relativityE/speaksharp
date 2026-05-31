@@ -63,11 +63,18 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
     };
 
     beforeEach(() => {
-        vi.clearAllMocks();
+        mocks.init.mockReset();
+        mocks.checkAvailability.mockReset();
+        mocks.transcribe.mockReset();
+        mocks.reset.mockReset();
+        mocks.stop.mockReset();
+        mocks.isMeaningfullySilent.mockReset();
+        mocks.processAudioFrame.mockReset();
 
         // Setup successful init
         mocks.init.mockResolvedValue(Result.ok('whisper-turbo'));
         mocks.checkAvailability.mockResolvedValue({ isAvailable: false, reason: 'CACHE_MISS', message: 'Download required' });
+        mocks.isMeaningfullySilent.mockReturnValue(false);
 
         // Setup successful transcription
         mocks.transcribe.mockResolvedValue(Result.ok('Test transcript'));
@@ -358,7 +365,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         await privateWhisper.stop();
 
-        expect(mocks.transcribe).toHaveBeenCalledTimes(2);
+        expect(mocks.transcribe).toHaveBeenCalledTimes(3);
         vi.useRealTimers();
     });
 
@@ -386,12 +393,49 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         expect(engine.bufferedSampleCount).toBe(lowEnergyTail.length);
     });
 
+    it('REGRESSION: retains recognized low-energy opener audio for the next first-transcript decode', async () => {
+        await privateWhisper.init();
+        const engine = privateWhisper as unknown as {
+            status: string;
+            audioChunks: Float32Array[];
+            bufferedSampleCount: number;
+            hasDetectedSpeech: boolean;
+            processAudio: (options?: { force?: boolean }) => Promise<void>;
+        };
+        const opener = new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES + 500).fill(0.031);
+        const continuation = new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES + 700).fill(0.09);
+
+        engine.status = 'transcribing';
+        engine.audioChunks = [opener];
+        engine.bufferedSampleCount = opener.length;
+        engine.hasDetectedSpeech = true;
+        mocks.transcribe.mockResolvedValueOnce(Result.ok('We'));
+
+        await engine.processAudio();
+
+        expect(mocks.transcribe).toHaveBeenCalledTimes(1);
+        expect(mockCallbacks.onTranscriptUpdate).not.toHaveBeenCalled();
+
+        engine.audioChunks = [continuation];
+        engine.bufferedSampleCount = continuation.length;
+        mocks.transcribe.mockResolvedValueOnce(Result.ok('We, um, find joy in the simplest things'));
+
+        await engine.processAudio();
+
+        expect(mocks.transcribe).toHaveBeenCalledTimes(2);
+        const secondAudio = mocks.transcribe.mock.calls[1][0] as Float32Array;
+        expect(secondAudio.length).toBe(opener.length + continuation.length);
+        expect(secondAudio[0]).toBeCloseTo(0.031);
+        expect(secondAudio[opener.length]).toBeCloseTo(0.09);
+    });
+
     it('REGRESSION: drops tiny forced stop transcript fragments after transcript exists', async () => {
         vi.useFakeTimers();
         mocks.transcribe
             .mockResolvedValueOnce(Result.ok('the stale smell of old beer'))
             .mockResolvedValueOnce(Result.ok('the stale smell of old beer continues'))
-            .mockResolvedValueOnce(Result.ok(' or'));
+            .mockResolvedValueOnce(Result.ok(' or'))
+            .mockResolvedValueOnce(Result.ok('the stale smell of old beer continues'));
         await privateWhisper.init();
 
         let frameCallback: ((frame: Float32Array) => void) | undefined;
@@ -426,8 +470,8 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         await privateWhisper.stop();
 
-        expect(mocks.transcribe).toHaveBeenCalledTimes(3);
-        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledTimes(2);
+        expect(mocks.transcribe).toHaveBeenCalledTimes(4);
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledTimes(3);
         vi.useRealTimers();
     });
 
@@ -568,6 +612,185 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         vi.useRealTimers();
     });
 
+    it('REGRESSION: rejects unsafe non-speech marker candidates before first final transcript', async () => {
+        vi.useFakeTimers();
+        mocks.transcribe
+            .mockResolvedValueOnce(Result.ok('Stay, my told wild'))
+            .mockResolvedValueOnce(Result.ok('*Spits* "Stay, my told wild tales to frightened him."'))
+            .mockResolvedValueOnce(Result.ok('They, like, told wild tales to frighten him'))
+            .mockResolvedValueOnce(Result.ok('They, like, told wild tales to frighten him'));
+        await privateWhisper.init();
+
+        let frameCallback: ((frame: Float32Array) => void) | undefined;
+        const mockMic: MicStream = {
+            state: 'ready',
+            sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+            onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
+
+        await privateWhisper.start(mockMic);
+
+        for (let i = 0; i < 4; i += 1) {
+            frameCallback?.(new Float32Array(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS * PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ).fill(0.5));
+            await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
+        }
+
+        const emitted = mockCallbacks.onTranscriptUpdate.mock.calls.map((call) => JSON.stringify(call[0]));
+        expect(emitted.some((payload) => payload.includes('*Spits*'))).toBe(false);
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
+            transcript: { final: 'They, like, told wild tales to frighten him' },
+        });
+
+        await privateWhisper.stop();
+        vi.useRealTimers();
+    });
+
+    it('REGRESSION: whole-utterance stop decode sanitizes and replaces degraded rolling text', async () => {
+        await privateWhisper.init();
+        const engine = privateWhisper as unknown as {
+            currentTranscript: string;
+            wholeUtteranceTranscript: string;
+            utteranceAudioChunks: Float32Array[];
+            utteranceSampleCount: number;
+            commitWholeUtteranceTranscript: () => Promise<void>;
+            getTranscript: () => Promise<string>;
+        };
+
+        engine.currentTranscript = 'Happy, light, tune up the new shoes.';
+        const audio = new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES + 500).fill(0.25);
+        engine.utteranceAudioChunks = [audio];
+        engine.utteranceSampleCount = audio.length;
+        mocks.transcribe.mockResolvedValueOnce(Result.ok('*Spits* The puppy, like, chewed up the new shoes. 1.2.'));
+
+        await engine.commitWholeUtteranceTranscript();
+
+        expect(engine.wholeUtteranceTranscript).toBe('The puppy, like, chewed up the new shoes.');
+        expect(await engine.getTranscript()).toBe('The puppy, like, chewed up the new shoes.');
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
+            transcript: { final: 'The puppy, like, chewed up the new shoes.' },
+        });
+    });
+
+    it('REGRESSION: whole-utterance stop decode rejects only pure hallucination after cleanup', async () => {
+        await privateWhisper.init();
+        const engine = privateWhisper as unknown as {
+            currentTranscript: string;
+            wholeUtteranceTranscript: string;
+            utteranceAudioChunks: Float32Array[];
+            utteranceSampleCount: number;
+            commitWholeUtteranceTranscript: () => Promise<void>;
+        };
+
+        engine.currentTranscript = 'stable visible transcript';
+        const audio = new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES + 500).fill(0.25);
+        engine.utteranceAudioChunks = [audio];
+        engine.utteranceSampleCount = audio.length;
+        mocks.transcribe.mockResolvedValueOnce(Result.ok('*noise* Thanks.'));
+
+        await engine.commitWholeUtteranceTranscript();
+
+        expect(engine.wholeUtteranceTranscript).toBe('');
+        expect(engine.currentTranscript).toBe('stable visible transcript');
+        expect(mockCallbacks.onTranscriptUpdate).not.toHaveBeenCalledWith({
+            transcript: { final: 'Thanks.' },
+        });
+    });
+
+    it('REGRESSION: resets whole-utterance audio at the start of each recording', async () => {
+        await privateWhisper.init();
+        const engine = privateWhisper as unknown as {
+            utteranceAudioChunks: Float32Array[];
+            utteranceSampleCount: number;
+        };
+        engine.utteranceAudioChunks = [new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES).fill(0.2)];
+        engine.utteranceSampleCount = PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES;
+
+        const mockMic: MicStream = {
+            state: 'ready',
+            sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+            onFrame: vi.fn(() => () => { }),
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
+
+        await privateWhisper.start(mockMic);
+
+        expect(engine.utteranceAudioChunks).toEqual([]);
+        expect(engine.utteranceSampleCount).toBe(0);
+
+        await privateWhisper.stop();
+    });
+
+    it('REGRESSION: prefers a clean visible provisional over a first-final candidate with numeric junk', async () => {
+        vi.useFakeTimers();
+        mocks.transcribe
+            .mockResolvedValueOnce(Result.ok('Basically, a dash of peppers foil.'))
+            .mockResolvedValueOnce(Result.ok('Basically, a dash of peppers, oil, beef stew. 1.2, 1.5.'));
+        await privateWhisper.init();
+
+        let frameCallback: ((frame: Float32Array) => void) | undefined;
+        const mockMic: MicStream = {
+            state: 'ready',
+            sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+            onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
+
+        await privateWhisper.start(mockMic);
+
+        frameCallback?.(new Float32Array(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS * PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ).fill(0.5));
+        await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
+            transcript: { partial: 'Basically, a dash of peppers foil.' },
+        });
+
+        frameCallback?.(new Float32Array(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS * PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ).fill(0.5));
+        await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
+
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
+            transcript: { final: 'Basically, a dash of peppers foil.' },
+        });
+
+        await privateWhisper.stop();
+        vi.useRealTimers();
+    });
+
+    it('REGRESSION: drops unsupported forced final tails instead of appending stop hallucinations', async () => {
+        await privateWhisper.init();
+        const engine = privateWhisper as unknown as {
+            status: string;
+            currentTranscript: string;
+            audioChunks: Float32Array[];
+            bufferedSampleCount: number;
+            hasDetectedSpeech: boolean;
+            processAudio: (options?: { force?: boolean }) => Promise<void>;
+        };
+        const tailAudio = new Float32Array(PRIV_STT_DERIVED.FORCE_FINAL_MIN_SAMPLES + 200).fill(0.5);
+
+        engine.status = 'transcribing';
+        engine.currentTranscript = 'Basically, a dash of peppers, oil, beef stew.';
+        engine.audioChunks = [tailAudio];
+        engine.bufferedSampleCount = tailAudio.length;
+        engine.hasDetectedSpeech = true;
+        mocks.transcribe.mockResolvedValueOnce(Result.ok("Y'all are in each other. I'm gonna leave here."));
+
+        await engine.processAudio({ force: true });
+
+        expect(mockCallbacks.onTranscriptUpdate).not.toHaveBeenCalledWith({
+            transcript: { final: "Y'all are in each other. I'm gonna leave here." },
+        });
+        expect(engine.currentTranscript).toBe('Basically, a dash of peppers, oil, beef stew.');
+    });
+
     it('REGRESSION: preserves audio chunks arriving during inference', async () => {
         vi.useFakeTimers();
         await privateWhisper.init();
@@ -616,6 +839,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         });
         mocks.transcribe
             .mockReturnValueOnce(firstInference)
+            .mockResolvedValueOnce(Result.ok('first stable words continue with tail'))
             .mockResolvedValueOnce(Result.ok('first stable words continue with tail'));
 
         let frameCallback: ((frame: Float32Array) => void) | undefined;
@@ -648,7 +872,7 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         await firstProcessing;
         await stopPromise;
 
-        expect(mocks.transcribe).toHaveBeenCalledTimes(2);
+        expect(mocks.transcribe).toHaveBeenCalledTimes(3);
         expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledWith({
             transcript: { partial: 'first stable words continue' },
         });

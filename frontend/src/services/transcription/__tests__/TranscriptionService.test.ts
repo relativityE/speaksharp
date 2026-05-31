@@ -235,6 +235,8 @@ describe('TranscriptionService', () => {
         expect(sanitizeTranscriptText('[MUSIC] Hello  (applause) world [BLANK_AUDIO]')).toBe('Hello world');
         expect(sanitizeTranscriptText('Testing (laughter) one [SILENCE] two')).toBe('Testing one two');
         expect(sanitizeTranscriptText('>> On the stale smell')).toBe('On the stale smell');
+        expect(sanitizeTranscriptText('*Spits* Stay, my told wild tales to frightened him.')).toBe('Stay, my told wild tales to frightened him.');
+        expect(sanitizeTranscriptText('Basically, a dash of peppers, oil, beef stew. 1.2, 1.5.')).toBe('Basically, a dash of peppers, oil, beef stew.');
     });
 
     it('REGRESSION: forwards later partials without re-sending stale final transcript', async () => {

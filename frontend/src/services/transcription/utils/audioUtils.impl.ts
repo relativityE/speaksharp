@@ -76,7 +76,14 @@ export async function createMicStreamImpl(
     oscillator.start();
     mediaStream = dst.stream;
   } else {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        channelCount: 1,
+      },
+    });
   }
 
   // Load worklet URL dynamically, passing the audio context instance for the check.
