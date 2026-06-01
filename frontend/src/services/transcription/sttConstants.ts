@@ -77,7 +77,12 @@ export const PRIV_STT = {
   FIRST_TRANSCRIPT_LOCAL_AGREEMENT_ROUNDS: 2,
   FIRST_TRANSCRIPT_MIN_WORDS: 4,
   FIRST_TRANSCRIPT_PARTIAL_MIN_RMS: 0.04,
-  FIRST_TRANSCRIPT_MIN_DURATION_SECONDS: 5.0,
+  // Path C (first-paint): the previous 5.0s threshold held the first transcript
+  // for so long that slow CPU decodes produced no visible live text during short
+  // utterances (the "Holding first transcript until it has speech-like substance"
+  // symptom). The whole-utterance stop-commit is now the saved-accuracy authority,
+  // so the provisional first-paint can promote sooner without risking saved quality.
+  FIRST_TRANSCRIPT_MIN_DURATION_SECONDS: 2.0,
   FIRST_TRANSCRIPT_MIN_RMS: 0.05,
   FORCE_FINAL_MIN_SECONDS: 2,
 } as const;
