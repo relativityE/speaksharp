@@ -496,7 +496,21 @@ async function waitForFirstText(page, startedAt) {
   let lastText = '';
 
   while (Date.now() < deadline) {
-    const text = await readTranscript(page);
+    let text = '';
+    try {
+      text = await readTranscript(page);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/Target page, context or browser has been closed/i.test(message)) {
+        return {
+          timestampMs: null,
+          text: lastText,
+          error: 'browser_closed_while_waiting_for_first_text',
+          errorMessage: message,
+        };
+      }
+      throw error;
+    }
     lastText = text;
     if (!isPlaceholderTranscript(text) && words(text).length > 0) {
       return {
@@ -504,7 +518,20 @@ async function waitForFirstText(page, startedAt) {
         text,
       };
     }
-    await page.waitForTimeout(250);
+    try {
+      await page.waitForTimeout(250);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/Target page, context or browser has been closed/i.test(message)) {
+        return {
+          timestampMs: null,
+          text: lastText,
+          error: 'browser_closed_while_waiting_for_first_text',
+          errorMessage: message,
+        };
+      }
+      throw error;
+    }
   }
 
   return {
