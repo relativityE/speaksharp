@@ -103,6 +103,40 @@ h1_6 app path: determine why app final changes "like" -> "light",
 same-route drop-in preserves more of the sentence.
 ```
 
+Additional h1_6 trace evidence:
+
+| Evidence Source | Finding |
+| --- | --- |
+| App visible at Stop | `Told Wildtailed to brighten him.` |
+| App final/selected | `Day, light, told Wildtailed to brighten him.` |
+| App first visible text | `6899 ms`, after playback had already ended |
+| App private audio chunks | first chunk transcript `day`; second chunk transcript `told Wildtailed to brighten him.`; later chunks were `[BLANK_AUDIO]` / `[sigh]` |
+| App Stop finalization | whole-utterance decode started after Stop and accepted in `~2.65s`; forced-tail decode skipped |
+| Drop-in capture | full capture `~6.059s` |
+| Drop-in final | `Day, like, told Wild Tales to frightened him.` |
+
+Working diagnosis for h1_6:
+
+```text
+This is no longer a generic "slow Stop" bug. The Stop sequencing improvement worked:
+whole-utterance decode started promptly and forced-tail was skipped.
+
+The remaining h1_6 gap is input/window/segmentation quality. The app live path
+captured/decoded the sentence as separated fragments ("day" + "told Wildtailed...")
+and the final whole-utterance result still inherited "light/Wildtailed/brighten".
+The drop-in, with a single continuous capture, kept "like" and separated
+"Wild Tales", though it still missed "They" and "frighten".
+```
+
+Concrete reviewer/dev question:
+
+```text
+Why does the app's Private path lose or damage the onset/filler region of h1_6
+relative to the same-route drop-in? Inspect speech-start gating, preroll retention,
+whole-utterance buffer contents, and mic constraints. Do not spend time on Stop
+forced-tail order for this row; latest evidence shows that part is fixed.
+```
+
 Clarification on the proposed “stall / in-progress” UI approach:
 
 ```text
