@@ -187,6 +187,86 @@ Do not hide interim text entirely until h1_2/h1_6/h1_8 final quality is fixed
 or proven equivalent to drop-in.
 ```
 
+Ownership:
+
+| Work | Owner | Why |
+| --- | --- | --- |
+| Interim/draft UI implementation | Dev agent / product implementation | This changes the user-facing live transcript behavior and component state. |
+| Acceptance criteria + browser proof | STT test agent | This must be proven in headed browser with timing, transcript, save/history/detail, and user-visible state evidence. |
+| h1_6 final-quality root cause | Shared, but dev needs a concrete implementation hypothesis | Browser proof shows the failure; dev needs unit/fixture-level probes to isolate gate/preroll/chunk behavior. |
+
+Proposed interim UI design:
+
+```text
+1. Keep "Listening..." visible immediately after Start.
+2. When Private emits a provisional transcript, render it as a visibly provisional
+   draft, not as final-quality text.
+3. If a provisional candidate is short, low-confidence, metadata-like, or changes
+   substantially between windows, keep the transcript area in a "Processing speech
+   locally..." / "Draft forming..." state and show the text with draft styling.
+4. When whole-utterance finalization completes, replace the draft with the selected
+   final transcript.
+5. Never imply that the provisional draft is the saved transcript.
+```
+
+Suggested state model:
+
+| State | UI Text/Behavior | Entry Condition | Exit Condition |
+| --- | --- | --- | --- |
+| `listening` | `Listening...` | Mic started, no meaningful transcript yet | First meaningful provisional or Stop |
+| `drafting` | Draft transcript with provisional styling | Private emits provisional/rolling text | Stable provisional or Stop |
+| `finalizing` | `Processing speech locally...` plus last draft, if any | User clicks Stop | Whole-utterance final accepted |
+| `final` | Normal transcript styling | Selected transcript is final/save candidate | Save/history/detail |
+
+Acceptance criteria for interim UI:
+
+```text
+1. User sees feedback within 1s of mic start: "Listening..." or equivalent.
+2. Provisional text is visually distinguishable from final text.
+3. Bad provisional text must not be presented as final/saved.
+4. On Stop, UI shows "Processing speech locally..." if finalization exceeds 1s.
+5. Final selected transcript replaces the draft and is what save/history/detail use.
+```
+
+How dev can test the interim UI without a browser:
+
+```text
+Unit-test the state reducer/component logic using synthetic event sequences:
+- start -> no text -> listening
+- provisional "day" -> drafting, not final
+- provisional changes to "Told Wildtailed..." -> remains drafting
+- stop -> finalizing with last draft retained
+- final selected -> final styling and save candidate
+```
+
+What dev cannot prove without browser:
+
+```text
+Dev cannot prove h1_6 accuracy/parity without a browser or a captured audio fixture.
+The h1_6 failure depends on real mic capture, timing, speech-start gating, model
+decode, and app chunking. Unit tests can prove candidate policy and state behavior,
+but app-vs-drop-in parity requires the headed harness.
+```
+
+Recommended non-browser h1_6 dev probes:
+
+```text
+1. Export or preserve the app-captured h1_6 audio buffer from the browser artifact
+   as a deterministic fixture.
+2. Run that exact buffer through the app's whole-utterance decode path in a Node/
+   browser-worker style harness.
+3. Compare it to the drop-in captured buffer and duration.
+4. Unit-test speech-start gate/preroll so "They, like" is not clipped before decode.
+5. Unit-test that live rolling chunks cannot overwrite a better whole-utterance final.
+```
+
+Until those probes exist, h1_6 is browser-evidence-owned:
+
+```text
+The dev agent can make hypotheses and add deterministic guards.
+The STT test agent must confirm the fix with the same h1_6 app-vs-drop-in browser run.
+```
+
 Strict acceptance validator result:
 
 ```text
