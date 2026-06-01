@@ -166,7 +166,7 @@ async function createStreamingToken(): Promise<string> {
     throw new Error('ASSEMBLYAI_API_KEY is required for AssemblyAI streaming A/B proof.');
   }
 
-  const response = await fetch('https://streaming.assemblyai.com/v3/token', {
+  const response = await fetch('https://streaming.assemblyai.com/v3/token?expires_in_seconds=600', {
     method: 'GET',
     headers: { Authorization: apiKey },
   });
