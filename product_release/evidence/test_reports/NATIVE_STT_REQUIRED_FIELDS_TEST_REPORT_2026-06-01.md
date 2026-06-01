@@ -1,531 +1,255 @@
-# Native STT Required-Fields Test Report — Latest State, 2026-06-01
-
----
-
-## ⇄ DEV → TEST AGENT REVIEW REQUEST (2026-06-01)
-
-**What dev changed:** nothing in the Native app path (no regression found — see "Dev
-Regression Review" below). Only the harness/evidence side: `parallelCaptureSummary`
-now carries `speechStartMs/speechEndMs/speechDurationMs/segmentCount`; 4 invalid
-Native harnesses deleted (`probe-native-fake-audio`, `standalone-native-webspeech-proof`,
-`standalone-native-isolated-corpus-proof`, `native-isolated-corpus-proof`).
-
-**What dev verified (no browser):** the latest failure is **Chrome under-capture (0
-finals delivered), not an app regression** — proven from the artifact trace. Native
-no-browser safeguard checks #1–5 RAN green (NativeBrowser.test.ts:558/581/446,
-nativeTranscriptFormatter.test.ts:17/34).
-
-**What dev needs the test agent to verify / decide:**
-1. Run the human real-mic proof via `scripts/native-human-cdp-monitor.mjs` (the only
-   endorsed Native route) with the 3 scripts — `say`/fake-audio routes are removed.
-2. Confirm the harness deletions did not remove anything you still rely on.
-3. Product decision still open: trusted punctuation/casing restorer (formatter seam
-   exists, identity default — no restorer registered).
-
-**Not done / cannot do here:** human-mic capture, drop-in parity. No app code change
-is warranted by this run.
-
-## Executive Summary
-
-Native STT is **not release-green**. The latest automated Native diagnostic run captured the required fields, but Chrome/Web Speech emitted only one interim word and no final transcript. The app correctly refused to save a meaningless session, but the user-facing Native path did not work in this run.
-
-Current classification:
-
-```text
-Native lifecycle instrumentation: present
-Native automated diagnostic: FAIL
-Native human-real-mic release proof: still required
-Native drop-in parity: not proven
-Native punctuation/casing: unresolved
-```
-
-## Latest Evidence
-
-Artifact:
-
-```text
-/private/tmp/speaksharp-native-current-required-fields-20260601.json
-```
-
-Setup:
-
-| Field | Value |
-| --- | --- |
-| App URL | `http://127.0.0.1:4182` |
-| Browser | Google Chrome via Playwright, headed |
-| Fake audio | false |
-| Input route | macOS `say` playback into real browser mic path |
-| Mode | Native |
-| Script | `Native Chrome microphone proof. The quick brown fox reads clear speech for SpeakSharp release validation.` |
-
-## Latest Result Table
-
-| Field | Value |
-| --- | --- |
-| Pass | false |
-| Visible at stop | `Native` |
-| Post-stop transcript | `Native` |
-| Selected for save | `Native` |
-| Transcript visible | false |
-| Saved | false |
-| History visible | false |
-| Detail visible | false |
-| First result | `native` at 5981.5 ms |
-| Final result count | 0 |
-| Result event count | 1 |
-| Duplicate full transcript | false |
-
-Parallel capture was populated:
-
-| Field | Value |
-| --- | ---: |
-| Duration | 16.291 sec |
-| RMS | 0.006956 |
-| Peak | 0.080567 |
-| Speech start | 2200 ms |
-| Speech end | 7850 ms |
-| Speech duration | 2700 ms |
-| Speech segments | 4 |
-
-## What Worked
-
-| Area | Result |
-| --- | --- |
-| Required transcript-state fields | Captured |
-| Parallel mic fields | Captured, including speech window and segment count |
-| Duplicate detection | Captured; no duplicate in this run |
-| Meaningless-session guard | Worked; app did not save one-word `Native` as a completed session |
-
-## Current Blockers
-
-### P0 — Native Live Transcript Is Not Reliable
-
-Latest run:
-
-```text
-Chrome/Web Speech heard audio but returned only "native".
-No final result arrived.
-No useful session was saved.
-```
-
-Consequence if not fixed:
-
-Native cannot serve as a credible Free quick-start path. Users may click the mic, speak normally, and see nothing useful until Stop or never get a saved transcript.
-
-Benefit of fixing:
-
-Native can become an acceptable browser-dependent quick-start mode instead of a trust-eroding first impression.
-
-Native needs the same style of timing decomposition as Private, but the ownership is split differently. Chrome/Web Speech owns speech recognition and endpointing; SpeakSharp owns state propagation, final/interim merge, stop selection, save, and formatting.
-
-Reviewer/agent must answer during human real-mic proof:
-
-```text
-How long until first interim text appears?
-Does early interim text remain wrong for several seconds before Chrome final converges?
-Does Stop wait long enough for Chrome final without duplicating stale interim?
-Does selected-for-save come from Chrome final, visible-at-stop, or stale interim?
-Does punctuation/casing come from Chrome, a formatter, or no formatter?
-```
-
-Required Native timing fields:
-
-| Field | Meaning |
-| --- | --- |
-| `micClickedAt` | user clicked mic |
-| `onaudiostartAt` | Chrome audio started |
-| `onspeechstartAt` | Chrome detected speech |
-| `firstInterimAt` | first interim result |
-| `firstFinalAt` | first final result |
-| `visibleAtStopAt` | transcript visible when Stop clicked |
-| `stopClickedAt` | user clicked Stop |
-| `onendAt` | Chrome recognition ended |
-| `selectedForSaveAt` | app selected transcript |
-| `savedAt` | session persisted |
-| `detailVisibleAt` | saved transcript visible in detail |
-
-> **DEV RESPONSE (2026-06-01):** Not an app bug in this run. The trace proves Chrome
-> delivered **0 final results** and only one interim ("native"); the app received
-> nothing to render/save (full regression matrix in "Dev Regression Review" below).
-> This is Chrome under-capture of the macOS `say` route, not a SpeakSharp regression —
-> so there is no app code change for me to make here. The per-stage Native timing fields
-> you list are a harness instrumentation task on the human-mic CDP path.
-
-### P0 — Human Real-Mic Proof Still Missing
-
-The current automation route is diagnostic only. Native Web Speech is server-side and sensitive to browser/audio route. The latest automated failure cannot be treated as a final WER benchmark, but it also cannot be ignored because it reflects a failed browser path.
-
-Required proof:
-
-```text
-Human speaks into Chrome mic.
-Capture first visible text, visible at stop, post-stop final, selected-for-save, saved/detail transcript, duplicate flag, and punctuation/readability.
-```
-
-Consequence if missing:
-
-We cannot tell whether Native is viable for actual users or only failing under automation.
-
-Benefit:
-
-Separates app bugs from Chrome/input-route instability and gives product-relevant evidence.
-
-> **DEV RESPONSE (2026-06-01):** Agreed, and this is yours to run — I cannot do human
-> mic here. To unblock it I deleted the 4 invalid `say`/fake-audio Native harnesses so
-> there is one endorsed route left: `scripts/native-human-cdp-monitor.mjs`. Please run
-> the 3 scripts through it. No app change from me on this point.
-
-### P0 — Native Punctuation/Casing Is Unresolved
-
-Prior human Native runs showed:
-
-```text
-run-on transcript
-missing sentence stops
-wrong capitalization such as "Starts Now"
-```
-
-Current code has a formatter seam, but no trusted formatter implementation is proven.
-
-Consequence if not fixed:
-
-Even when Chrome recognition is accurate, saved Native transcripts may look amateurish and hurt trust.
-
-Benefit:
-
-Readable Native transcripts with normal casing and punctuation, ideally through a trusted off-the-shelf formatter/API rather than custom formatting logic.
-
-> **DEV RESPONSE (2026-06-01):** Architecture ready, restorer NOT chosen — this is a
-> product/vendor decision, not something I implement blind. The pluggable seam exists
-> (`nativeTranscriptFormatter.ts`, identity default, applied to the saved transcript
-> only) and `registerNativeTranscriptFormatter(...)` accepts a trusted model/API once
-> selected. I deliberately did NOT ship a regex formatter, per the stated rule. Needs:
-> pick a trusted punctuation/casing restorer (+ privacy review since Native is
-> Cloud-adjacent) and register it.
-
-### P0 — Stop/Finalization Merge Needs Continued Human Verification
-
-Prior human evidence showed a concrete app bug:
-
-```text
-Chrome produced a good final transcript.
-SpeakSharp appended a stale pending interim copy on Stop.
-Saved transcript duplicated the full speech.
-```
-
-Regression coverage exists, but this needs human proof after the latest changes.
-
-Consequence if not proven:
-
-Native may corrupt good Chrome output at the exact moment the user trusts the app to save.
-
-Benefit:
-
-Native can preserve good browser output instead of damaging it.
-
-> **DEV RESPONSE (2026-06-01):** Regression coverage confirmed present and passing (no
-> browser): `NativeBrowser.test.ts:558` (final + identical interim → no duplicate),
-> `:581` (case/punct variant → no duplicate), `:446` (one-word interim → not saved). In
-> this run there was nothing to duplicate (0 Chrome finals). Still needs your human-mic
-> proof to confirm the merge on a *successful* Chrome final after the latest changes.
-
-## Drop-In Parity Status
-
-Native has not met drop-in parity.
-
-Reason:
-
-```text
-The automated Web Speech route is not a stable release WER benchmark.
-Standalone/drop-in Web Speech must be compared against SpeakSharp under the same real mic conditions.
-Latest automated SpeakSharp run failed with only one interim word.
-```
-
-What prevents parity:
-
-1. Chrome/Web Speech input route is unstable in automation.
-2. Human real-mic evidence is incomplete after the duplicate-stop fix.
-3. Punctuation/casing is unresolved.
-4. Native saved-output behavior still needs proof under real speech.
-
-## Required Native Test Matrix
-
-| Script | Required Evidence |
-| --- | --- |
-| Clean | first text ms, visible at stop, post-stop final, selected save, saved/detail, duplicate flag |
-| Filler-heavy | filler preservation, punctuation, selected save, detail transcript |
-| Realistic | readability, sentence stops, no duplication, history/detail |
-
-Required scripts:
-
-```text
-Native Chrome microphone proof starts now. I want to make one simple point before we move on. The quick brown fox reads clear speech for SpeakSharp validation.
-
-Um, basically, I want to explain one thing. Like, the puppy chewed up the new shoes, and that changed the whole plan.
-
-The main takeaway is that we should pause before the next idea, give one concrete example, and end with a clear next step.
-```
-
-## Immediate Development Needs
-
-| Priority | Need | Consequence If Missing | Benefit If Fixed |
-| --- | --- | --- | --- |
-| P0 | Human real-mic proof after duplicate-stop fix | Cannot classify Native product viability | Product-relevant Native release decision |
-| P0 | Trusted punctuation/casing formatter | Accurate words still look unpolished | Native transcripts become readable |
-| P0 | Confirm no duplicate append on Stop | Good Chrome final can be corrupted | Stop/save becomes trustworthy |
-| P1 | Standalone-vs-app real-mic comparison | Drop-in parity remains unknown | Isolates app degradation vs Chrome behavior |
-
-## No-Browser Verification Instructions For Next Agent
-
-Use this when Chrome/human mic testing is unavailable. This cannot prove Native release readiness, but it can verify the latest failure and inspect the app-side merge/selection logic.
-
-### 1. Extract current Native evidence artifact
-
-Artifact:
-
-```text
-/private/tmp/speaksharp-native-current-required-fields-20260601.json
-```
-
-Command:
-
-```bash
-node - <<'NODE'
-const fs = require('fs');
-const row = JSON.parse(fs.readFileSync('/private/tmp/speaksharp-native-current-required-fields-20260601.json', 'utf8'));
-console.log({
-  pass: row.pass,
-  blockers: row.blockers,
-  visibleAtStop: row.visibleAtStop,
-  postStop: row.postStopTranscript,
-  selectedForSave: row.selectedForSave,
-  transcriptVisible: row.transcriptVisible,
-  saved: row.saved,
-  historyVisible: row.historyVisible,
-  detailVisible: Boolean(row.detailTranscript),
-  traceSummary: row.nativeTraceSummary,
-  parallelCapture: row.parallelCaptureSummary,
-});
-console.table((row.nativeTrace || [])
-  .filter((event) => /audio|speech|result|interim|final|stop|cycle|parallel|promot/i.test(event.event || ''))
-  .map((event) => ({
-    event: event.event,
-    t: event.t,
-    transcript: event.rawResults?.map((r) => r.transcript).join(' ') || '',
-    finalCount: event.finalResultCount,
-    interimCount: event.interimResultCount,
-    resultCount: event.resultCount,
-    skipReason: event.skipReason,
-  })));
-NODE
-```
-
-Expected no-browser finding:
-
-```text
-Audio and speech were detected.
-Only one interim result, "native", arrived.
-No final result arrived.
-The app did not save the meaningless transcript.
-```
-
-### 2. Inspect Native merge/finalization code without browser
-
-Files/lines to review:
-
-| File | Lines | Why |
-| --- | ---: | --- |
-| `frontend/src/services/transcription/modes/NativeBrowser.ts` | 478-580 | result extraction, partial emit, final emit |
-| `frontend/src/services/transcription/modes/NativeBrowser.ts` | 640-669 | audio/speech start tracing |
-| `frontend/src/services/transcription/modes/NativeBrowser.ts` | 682-747 | onend/restart behavior |
-| `frontend/src/services/transcription/modes/NativeBrowser.ts` | 754-760 | cycle reset and interim preservation |
-
-No-browser review questions:
-
-```text
-If Chrome emits only interim "native", does app correctly avoid saving it? Current answer: yes.
-If Chrome emits a good final and stale matching interim, does app avoid duplicating it? Verify regression tests.
-If Chrome emits final with poor punctuation, where will formatter be applied?
-```
-
-### 3. Unit-testable checks without browser
-
-Add or run tests that do not need Chrome:
-
-```text
-1. Native final + identical pending interim -> no duplicate append.
-2. Native final + punctuation/case variant pending interim -> no duplicate append.
-3. Native one-word interim only -> do not save as completed session.
-4. Formatter seam identity default -> unchanged transcript.
-5. Formatter throws -> original transcript preserved.
-```
-
-These checks do not replace human real-mic proof. They only prove app-side safeguards before the next live run.
-
-## Evidence Appendix — Latest Native Failure
-
-Artifact:
-
-```text
-/private/tmp/speaksharp-native-current-required-fields-20260601.json
-```
-
-Script:
-
-```text
-Native Chrome microphone proof. The quick brown fox reads clear speech for SpeakSharp release validation.
-```
-
-Observed:
-
-| Field | Value |
-| --- | --- |
-| Visible at Stop | `Native` |
-| Post-stop transcript | `Native` |
-| Selected for save | `Native` |
-| Transcript visible | false |
-| Saved | false |
-| History visible | false |
-| Detail visible | false |
-| First result | `native` at 5981.5 ms |
-| Final result count | 0 |
-| Result event count | 1 |
-
-Parallel capture:
-
-```json
-{
-  "durationSec": 16.290625,
-  "sampleRate": 16000,
-  "rms": 0.006956,
-  "peak": 0.080567,
-  "speechStartMs": 2200,
-  "speechEndMs": 7850,
-  "speechDurationMs": 2700,
-  "segmentCount": 4
-}
-```
-
-Native trace:
-
-```json
-{"event":"onaudiostart","t":3257}
-{"event":"onspeechstart","t":5256.2}
-{"event":"onresult_raw","t":5981.5,"rawResults":[{"isFinal":false,"transcript":"native"}],"finalTranscriptLength":0,"interimTranscriptLength":6}
-{"event":"onStop_enter","t":19292.8,"currentTranscript":{"redacted":true,"length":0}}
-{"event":"parallel_capture_saved","t":19317.5,"durationSec":16.291,"rms":0.006956,"peak":0.080567,"speechStartMs":2200,"speechEndMs":7850,"speechDurationMs":2700,"segmentCount":4}
-{"event":"recognition_cycle_summary","t":19368.9,"sawAudio":true,"sawSound":true,"sawSpeech":true,"resultCount":1,"finalResultCount":0,"interimResultCount":1}
-{"event":"native_interim_promotion_skipped","t":19369.5,"skipReason":"no_meaningful_interim","lastInterim":{"redacted":true,"length":6}}
-```
-
-Conclusion:
-
-```text
-Chrome/Web Speech heard audio and detected speech, but only returned a one-word interim and no final. The app correctly refused to promote/save it.
-```
-
-## Code Evidence
-
-### Native result extraction and emit path
-
-File: `frontend/src/services/transcription/modes/NativeBrowser.ts`
-
-Relevant lines: 478-580.
-
-```ts
-this.recognition.onresult = (event: SpeechRecognitionEvent) => {
-  const { rawResults, finalTranscript, interimTranscript } = strategy.extractTranscripts(
-    event,
-    this.finalizedResultIndexes,
-  );
-  ...
-  if (latestInterim) {
-    this.onTranscriptUpdate({ transcript: { partial: latestInterim } });
-  }
-  if (finalTranscript) {
-    this.currentTranscript = this.currentTranscript
-      ? NativeBrowser.appendTranscriptSegment(this.currentTranscript, finalForEmission)
-      : finalForEmission;
-    this.onTranscriptUpdate({ transcript: { final: finalForEmission } });
-  }
-};
-```
-
-Why it matters:
-
-```text
-The latest Native run never reached the final path. It only emitted one interim: "native".
-```
-
-### Native audio/speech event tracing
-
-Relevant lines: 640-669.
-
-```ts
-this.recognition.onaudiostart = () => {
-  this.cycleAudioStartedAtMs = performance.now();
-  pushNativeTrace('onaudiostart', ...);
-};
-...
-this.recognition.onspeechstart = () => {
-  this.cycleSpeechStartedAtMs = performance.now();
-  pushNativeTrace('onspeechstart', ...);
-  this.scheduleNoResultSpeechRestart('speechstart');
-};
-```
-
-Why it matters:
-
-```text
-The trace proves Chrome reached audio and speech start. The failure was no usable Web Speech result, not total mic silence.
-```
-
-### Native cycle summary and no-result detection
-
-Relevant lines: 335-371.
-
-```ts
-const summary = this.getRecognitionCycleSummary(reason);
-pushNativeTrace('recognition_cycle_summary', summary);
-...
-if (summary.sawSpeech && speechDurationMs > 500 && this.cycleResultCount === 0) {
-  pushNativeTrace('vad_truncation_drop', summary);
-}
-```
-
-Why it matters:
-
-```text
-The instrumentation is present to distinguish heard-audio/no-result from app save failures. Latest run had one result, but no final and no meaningful transcript.
-```
-
-## Dev Regression Review (no-browser, against this artifact)
-
-Question: is the latest Native failure an app regression from recent changes?
-
-| Recent Native change | Could suppress live text? | Could drop final? | Verdict |
-| --- | --- | --- | --- |
-| Formatter seam (`01715a23`) | No — applies to `getTranscript()` saved path only, identity default | No | Not implicated |
-| Duplicate-stop fix / interim merge | No new suppression of finals | Only de-dupes identical interim | Not implicated |
-| Status/lifecycle (`P0.2`) | Writes `info` status during STOPPING only | No transcript path change | Not implicated |
-
-Decisive trace evidence from `/private/tmp/speaksharp-native-current-required-fields-20260601.json`:
-
-```text
-Chrome onresult events:            1
-Chrome FINAL results delivered:    0
-app duplicate/append events:       0
-app promotion-skip events:         1  (correctly skipped meaningless one-word interim)
-```
-
-Conclusion: the app received **zero finals** from Chrome, so there was nothing for app code to drop, duplicate, or suppress. This is **Chrome/Web Speech under-capture of the macOS `say` route, not an app regression**. App-side safeguards (final+identical-interim no-dup, one-word-interim no-save, formatter identity) remain covered by `NativeBrowser.test.ts` and `nativeTranscriptFormatter.test.ts`. No app code change is warranted; the gap is the input route + missing human real-mic proof.
+# Native STT Required-Fields Test Report — Current Open Work, 2026-06-01
 
 ## Current Verdict
 
 ```text
-Native STT is instrumented but not proven.
-Latest failure is Chrome under-capture (0 finals), not an app regression.
-Do not claim Native meets drop-in behavior.
-Do not use automated Native WER (say/fake-audio route) as release proof.
-Next decisive step is human real-mic proof via native-human-cdp-monitor.mjs plus a punctuation/formatting plan.
+Native STT: NOT RELEASE-GREEN
+Evidence type: automated diagnostic + prior human-mic observations
+Primary blockers: human real-mic proof still needed, punctuation/casing unresolved
 ```
+
+Current artifact:
+
+```text
+/private/tmp/speaksharp-native-current-required-fields-20260601.json
+```
+
+Completed or obsolete items removed from this report:
+
+```text
+Invalid fake-audio Native harnesses: removed from active script set.
+One-word meaningless-session guard: working in latest diagnostic run.
+Duplicate final/interim unit regression coverage: present.
+Formatter seam identity default: present.
+Parallel capture required fields: present in latest diagnostic artifact.
+```
+
+## Latest Diagnostic Result
+
+Latest automated route:
+
+```text
+Chrome headed + macOS say playback into real mic path.
+Diagnostic only; not release WER proof.
+```
+
+Result:
+
+| Field | Value |
+| --- | --- |
+| Visible at stop | `Native` |
+| Post-stop transcript | `Native` |
+| Selected for save | `Native` |
+| Final result count | 0 |
+| Result event count | 1 |
+| Saved/history/detail | not saved, correctly |
+| Parallel capture duration | 16.291 sec |
+| Parallel capture RMS / peak | 0.006956 / 0.080567 |
+| Speech window | 2200-7850 ms |
+| Segment count | 4 |
+
+Interpretation:
+
+```text
+The automated say/mic route under-captured Chrome Web Speech. The app correctly
+refused to save a one-word "Native" session. This is not enough to call Native
+good or bad for real users.
+```
+
+## Open Issue P0.1 — Human Real-Mic Native Proof
+
+Issue:
+
+```text
+Native release readiness depends on real Chrome microphone behavior. Automated
+WAV/say/fake-audio routes are diagnostic only and cannot be the release gate.
+```
+
+Dev-agent responsibility:
+
+```text
+None unless human-mic proof finds app-side corruption. Do not patch Native based
+only on the latest say-route diagnostic.
+```
+
+STT test-agent responsibility:
+
+```text
+Run human real-mic proof through the endorsed CDP/human path and collect the
+required transcript states and timing fields.
+```
+
+Expected test output:
+
+| Field | Required |
+| --- | --- |
+| `micClickedAt` | yes |
+| `firstInterimAt` / first visible text ms | yes |
+| `firstFinalAt` | yes, if Chrome emits final |
+| `visibleAtStop` | yes |
+| `postStopFinal` | yes |
+| `selectedForSave` | yes |
+| `savedTranscript` | yes |
+| `detailTranscript` | yes |
+| duplicate full transcript? | yes |
+| transcript disappeared on Stop? | yes |
+| punctuation/readability notes | yes |
+| save/history/detail pass | yes |
+
+What I will do with the result:
+
+```text
+If Chrome final is good but saved/detail is duplicated, erased, or different,
+I will hand dev a concrete app-side merge/save bug.
+
+If Chrome itself emits poor or no final in a clean human run, I will classify
+Native as browser-dependent/quality-limited rather than app-corrupted.
+```
+
+Bright-line boundary:
+
+```text
+Dev does not own human-mic collection.
+STT testing owns the browser/human proof and evidence classification.
+```
+
+## Open Issue P0.2 — Native Punctuation/Casing
+
+Issue:
+
+```text
+Prior human Native runs showed readable recognition but poor formatting:
+run-on text, missing sentence stops, and bad capitalization such as "Starts Now".
+```
+
+Current code state:
+
+```text
+Formatter seam exists and defaults to identity.
+No trusted punctuation/casing formatter is registered.
+No off-the-shelf formatter/provider has been selected.
+```
+
+Dev-agent responsibility:
+
+```text
+Research and propose a trusted punctuation/casing formatter option compatible
+with the product privacy/architecture requirements. Do not implement a bespoke
+regex formatter as the final answer.
+```
+
+Expected dev handoff interface:
+
+```text
+1. Recommended formatter/API/library and why it is trusted.
+2. Privacy implications: does transcript leave the browser/device?
+3. Cost/latency implications.
+4. Integration point through the existing Native formatter seam.
+5. Unit tests for identity fallback, formatter success, formatter failure, and
+   empty/unsafe output fallback.
+6. Clear statement of whether the formatter applies only to saved final text or
+   also to live interim text.
+```
+
+What I will do with dev results:
+
+```text
+I will run the human Native scripts and compare raw Chrome output vs formatted
+saved/detail transcript for punctuation, casing, duplication, and preservation.
+```
+
+Bright-line boundary:
+
+```text
+Dev chooses/integrates the formatter.
+STT testing verifies real browser output and user-visible saved/detail quality.
+```
+
+## Open Issue P0.3 — Stop/Finalization Merge Human Verification
+
+Issue:
+
+```text
+A prior human run showed Chrome produced a good final transcript, then SpeakSharp
+duplicated stale interim text on Stop. Unit regression coverage exists, but human
+proof after the latest changes is still required.
+```
+
+Dev-agent responsibility:
+
+```text
+No new code unless the next human proof reproduces duplication or save mismatch.
+Keep existing unit tests for duplicate-final/interim merge behavior.
+```
+
+STT test-agent responsibility:
+
+```text
+In the next human proof, explicitly capture:
+visibleAtStop, postStopFinal, selectedForSave, savedTranscript, detailTranscript,
+and duplicate flag.
+```
+
+Expected handoff if it fails:
+
+```text
+I will provide the exact trace event sequence showing where the duplicate or
+mismatch entered: Chrome result, service event, controller merge, store update,
+save candidate, or detail read.
+```
+
+Scope limit if Native dev work becomes necessary:
+
+```text
+Do not ask dev to improve Native Harvard WER broadly.
+Native automated Harvard/say/fake-audio routes are diagnostic only.
+If dev work is needed, it must be tied to one failed human-mic script and one
+specific app boundary.
+```
+
+Example acceptable dev deliverable after a human-mic app-side failure:
+
+```text
+Root cause found:
+Chrome emitted a good final transcript for Script B, but NativeBrowser appended
+the pending interim after final because the normalized overlap guard did not
+handle punctuation/casing differences in the final event.
+
+Code changed:
+- NativeBrowser.ts: pending-interim append guard updated.
+
+Unit/no-browser proof:
+- final + same pending interim -> no append.
+- final + punctuation/casing variant pending interim -> no append.
+- no final + meaningful interim -> promote interim.
+- one-word/junk interim -> do not save.
+
+Expected browser-observable change:
+On the same human Script B, saved/detail transcript should contain the speech once,
+not duplicated.
+
+Files changed:
+<list files + commit SHA>
+```
+
+Example unacceptable dev deliverable:
+
+```text
+"Adjusted Native recognition settings."
+```
+
+Why unacceptable:
+
+```text
+It does not identify whether the failure was Chrome output, service normalization,
+controller merge, store state, save candidate, or detail read. It also gives STT
+testing no specific human script or transcript-state expectation to verify.
+```
+
+## Native Launch Blockers
+
+| Blocker | Owner | Launch Impact |
+| --- | --- | --- |
+| Human real-mic proof missing | STT test agent | Cannot classify Native as viable quick-start. |
+| Punctuation/casing unresolved | Dev proposal/integration, STT verify | Native may look amateurish even if recognition is accurate. |
+| Duplicate/stop merge needs human proof | STT test agent first; dev only if reproduced | Saved transcript trust risk. |
