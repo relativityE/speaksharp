@@ -1013,6 +1013,14 @@ export class SpeechRuntimeController {
         if (status.type === 'ready') {
             this.setEngineReady(true);
         }
+        // P0.2: surface engine-originated local finalization status to the store so
+        // the UI shows "Processing speech locally…" during STOPPING instead of the
+        // stale "Recording active". Scoped to informational status while a session
+        // is stopping/active; engine ready/recording/error remain owned by the
+        // lifecycle transitions, so this does not disturb the status machine.
+        if (status.type === 'info' && (this.state === 'STOPPING' || this.state === 'RECORDING')) {
+            useSessionStore.getState().setSTTStatus(status);
+        }
         this.subscriberCallbacks.onStatusChange?.(status);
     }
 

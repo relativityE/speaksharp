@@ -46,7 +46,28 @@ import { ENV } from '@/config/TestFlags';
 import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
 // Stale import removed
 
+declare global {
+    interface Window {
+        /**
+         * Stable, structured Private STT runtime decision for the harness/CI to
+         * read as release proof. Populated when the resolver runs and kept after
+         * Stop/teardown so evidence collection is not racing strategy disposal.
+         */
+        __PRIVATE_STT_RUNTIME_DEBUG__?: PrivateRuntimeDecision & { selectedAt: string };
+    }
+}
+
 const PRIVATE_ENGINE_OVERRIDE_KEY = 'speaksharp.private.engine';
+
+/**
+ * Publish the resolved runtime decision to a stable window debug object so the
+ * harness can collect structured runtime/provider/threads/fallback fields after
+ * Stop without traversing fragile internal references. No-op outside the browser.
+ */
+function publishPrivateRuntimeDebug(decision: PrivateRuntimeDecision): void {
+    if (typeof window === 'undefined') return;
+    window.__PRIVATE_STT_RUNTIME_DEBUG__ = { ...decision, selectedAt: new Date().toISOString() };
+}
 type PrivateEngineType = Extract<EngineType, PrivateSttProvider>;
 type SelectedPrivateEngine = PrivateEngineType | 'mock';
 
@@ -226,6 +247,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
 
         const decision = await resolvePrivateRuntimePath({ webgpuPromotionAllowed, turboModelCached });
         this.runtimePath = decision;
+        publishPrivateRuntimeDebug(decision);
         logger.info({ sId: this.serviceId, rId: this.runId, runtimeDecision: decision, configured }, '[PrivateSTT] Resolved private runtime decision');
 
         if (configured !== 'transformers-js') return configured;
