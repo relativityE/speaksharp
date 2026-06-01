@@ -100,6 +100,7 @@ type SpeechGateStats = {
 const PRIVATE_STT_SAMPLE_RATE = PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ;
 const MIN_TRANSCRIPTION_SAMPLES = PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES;
 const LIVE_DECODE_WINDOW_SAMPLES = PRIV_STT_DERIVED.LIVE_DECODE_WINDOW_SAMPLES;
+const UTTERANCE_SILENCE_TAIL_SAMPLES = PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES;
 const MAX_RETRY_SAMPLES = PRIV_STT_DERIVED.MAX_RETRY_SAMPLES;
 const PROCESSING_INTERVAL_MS = PRIV_STT.PROCESSING_INTERVAL_MS;
 const TRANSCRIPTION_TIMEOUT_MS = 60_000;
@@ -185,6 +186,22 @@ const NON_SPEECH_MARKER_PATTERN =
 const TRAILING_NUMERIC_JUNK_PATTERN =
   /(?:^|[\s.?!,])(?:\d+(?:\.\d+)?)(?:\s*,\s*\d+(?:\.\d+)?){1,}\s*[.!?]?\s*$/;
 
+const PRIVATE_DISPLAY_FILLERS = new Set([
+  'um',
+  'umm',
+  'ummm',
+  'uh',
+  'uhh',
+  'uhhh',
+  'ah',
+  'like',
+  'basically',
+  'actually',
+  'literally',
+  'so',
+  'oh',
+]);
+
 function normalizeTranscriptForGate(text: string): string {
   return text
     .toLowerCase()
@@ -197,6 +214,11 @@ function normalizeTranscriptForGate(text: string): string {
 function getTranscriptWords(text: string): string[] {
   const normalized = normalizeTranscriptForGate(text);
   return normalized ? normalized.split(' ').filter(Boolean) : [];
+}
+
+function isFillerOnlyTranscript(text: string): boolean {
+  const words = getTranscriptWords(text);
+  return words.length > 0 && words.every((word) => PRIVATE_DISPLAY_FILLERS.has(word));
 }
 
 function getStableWordPrefix(previousText: string, currentText: string): string {
@@ -283,8 +305,12 @@ function mergeLiveProvisionalTranscript(previous: string, next: string): string 
 
   const overlap = wordOverlapRatio(previous, next);
   const isLikelyShortOpeningSegment = previousWords.length <= 3 && nextWords.length >= 2;
+  const isLikelyShortTailSegment = previousWords.length >= 3 && nextWords.length <= 3;
   const isLikelyRevision = previousWords.length > 3 && overlap <= 0.25;
 
+  if (isLikelyShortTailSegment) {
+    return appendTranscriptWithoutDuplicate(previous, next);
+  }
   if (isLikelyRevision) {
     return next.trim();
   }
@@ -308,12 +334,24 @@ function isUnsupportedPostTranscriptCandidate(candidate: string, currentTranscri
   return overlap < 0.35 && candidateWords.length >= 5;
 }
 
-function canEmitFirstPartial(text: string, energy: { rms: number }): boolean {
-  return (
-    getTranscriptWords(text).length >= 2 &&
-    energy.rms >= SESSION_PAUSE.SILENCE_RMS_THRESHOLD &&
-    !isUnsafePrivateTranscriptCandidate(text)
-  );
+function canEmitFirstPartial(
+  text: string,
+  energy: { rms: number },
+  hasVisibleProvisional: boolean,
+): boolean {
+  if (isUnsafePrivateTranscriptCandidate(text)) return false;
+
+  const words = getTranscriptWords(text);
+  if (words.length === 0) return false;
+
+  const relaxedRmsThreshold = SESSION_PAUSE.SILENCE_RMS_THRESHOLD * 0.5;
+  if (isFillerOnlyTranscript(text)) return energy.rms >= relaxedRmsThreshold;
+
+  if (hasVisibleProvisional && words.length >= 2) {
+    return energy.rms >= relaxedRmsThreshold;
+  }
+
+  return words.length >= 2 && energy.rms >= SESSION_PAUSE.SILENCE_RMS_THRESHOLD;
 }
 
 function hasFirstTranscriptEmissionSubstance(
@@ -516,6 +554,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private firstTranscriptAgreementRounds: number = 0;
   private utteranceAudioChunks: Float32Array[] = [];
   private utteranceSampleCount: number = 0;
+  private utteranceTrailingSilentSamples: number = 0;
   private wholeUtteranceTranscript: string = '';
   private speechGateStats: SpeechGateStats = {
     framesSeen: 0,
@@ -584,6 +623,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.wholeUtteranceTranscript = '';
     this.utteranceAudioChunks = [];
     this.utteranceSampleCount = 0;
+    this.utteranceTrailingSilentSamples = 0;
     this.privateSTT = (privateSTT as IPrivateSTT) || (createPrivateSTT(options as PrivateSTTInitOptions) as IPrivateSTT);
     this.pauseDetector = new PauseDetector();
     this.lastHeartbeat = Date.now();
@@ -702,6 +742,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.wholeUtteranceTranscript = '';
     this.utteranceAudioChunks = [];
     this.utteranceSampleCount = 0;
+    this.utteranceTrailingSilentSamples = 0;
     this.lastTranscriptEmitAtMs = 0;
     this.preTranscriptMetadataRetryCount = 0;
     this.pendingFirstTranscript = null;
@@ -806,7 +847,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       } else {
         this.audioChunks.push(clonedFrame);
         this.bufferedSampleCount += clonedFrame.length;
-        this.appendUtteranceAudio([clonedFrame]);
+        this.appendFrameToUtteranceAudio(clonedFrame, energy);
       }
 
       if (isPrivateTranscriptTraceEnabled()) {
@@ -1222,7 +1263,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
       if (!this.currentTranscript.trim() && newText.trim()) {
         const processedDurationSec = samplesToSeconds(processedAudio.length, PRIVATE_STT_SAMPLE_RATE);
-        const canEmitPartial = canEmitFirstPartial(newText, energy);
+        const canEmitPartial = canEmitFirstPartial(
+          newText,
+          energy,
+          Boolean(this.liveProvisionalTranscript.trim()),
+        );
         const canPromoteToFinal = hasFirstTranscriptEmissionSubstance(newText, energy, processedDurationSec);
 
         if (!canPromoteToFinal) {
@@ -1744,6 +1789,35 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       if (chunk.length === 0) continue;
       this.utteranceAudioChunks.push(chunk.slice(0));
       this.utteranceSampleCount += chunk.length;
+    }
+  }
+
+  private appendFrameToUtteranceAudio(
+    frame: Float32Array,
+    energy: ReturnType<typeof summarizeAudioEnergy>,
+  ): void {
+    const isSpeechLike = energy.rms >= SESSION_PAUSE.SILENCE_RMS_THRESHOLD;
+    if (isSpeechLike) {
+      this.utteranceTrailingSilentSamples = 0;
+      this.appendUtteranceAudio([frame]);
+      return;
+    }
+
+    this.utteranceTrailingSilentSamples += frame.length;
+    if (this.utteranceTrailingSilentSamples <= UTTERANCE_SILENCE_TAIL_SAMPLES) {
+      this.appendUtteranceAudio([frame]);
+      return;
+    }
+
+    if (this.utteranceTrailingSilentSamples === UTTERANCE_SILENCE_TAIL_SAMPLES + frame.length) {
+      pushPrivateTimeline('whole_utterance_silence_tail_capped', {
+        serviceId: this.serviceId,
+        runId: this.instanceId,
+        retainedTailSamples: UTTERANCE_SILENCE_TAIL_SAMPLES,
+        retainedTailSeconds: PRIV_STT.UTTERANCE_SILENCE_TAIL_SECONDS,
+        currentUtteranceSamples: this.utteranceSampleCount,
+        currentUtteranceSeconds: Number(samplesToSeconds(this.utteranceSampleCount, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+      });
     }
   }
 

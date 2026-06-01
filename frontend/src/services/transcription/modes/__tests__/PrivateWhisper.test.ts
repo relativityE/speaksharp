@@ -609,6 +609,49 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         vi.useRealTimers();
     });
 
+    it('REGRESSION: emits filler-only opener and low-energy provisional tail as live text', async () => {
+        vi.useFakeTimers();
+        mocks.transcribe
+            .mockResolvedValueOnce(Result.ok('Um.'))
+            .mockResolvedValueOnce(Result.ok('the stale smell of old beer.'))
+            .mockResolvedValueOnce(Result.ok('like lingers.'));
+        await privateWhisper.init();
+
+        let frameCallback: ((frame: Float32Array) => void) | undefined;
+        const mockMic: MicStream = {
+            state: 'ready',
+            sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+            onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
+
+        await privateWhisper.start(mockMic);
+
+        frameCallback?.(new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES).fill(0.006));
+        await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
+            transcript: { partial: 'Um.' },
+        });
+
+        frameCallback?.(new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES * 2).fill(0.012));
+        await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
+            transcript: { partial: 'Um. the stale smell of old beer.' },
+        });
+
+        frameCallback?.(new Float32Array(PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES * 2).fill(0.006));
+        await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
+            transcript: { partial: 'Um. the stale smell of old beer. like lingers.' },
+        });
+
+        await privateWhisper.stop();
+        vi.useRealTimers();
+    });
+
     it('REGRESSION: holds first transcript until overlapping decode locally agrees', async () => {
         vi.useFakeTimers();
         mocks.transcribe
