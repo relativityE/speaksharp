@@ -43,7 +43,7 @@ import { TranscriptionError } from '../errors';
 
 import { MicStream } from '../utils/types';
 import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
-import { TranscriptUpdate } from '../../../types/transcription';
+import { TranscriptUpdate, SttStatus } from '../../../types/transcription';
 import { ENV } from '../../../config/TestFlags';
 import { PauseDetector } from '../../audio/pauseDetector';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_DERIVED, SESSION_PAUSE, samplesToSeconds, secondsToSamples } from '../sttConstants';
@@ -530,6 +530,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private onModelLoadProgress?: (progress: number | null) => void;
   public onReady?: () => void;
   private onAudioData?: (data: Float32Array) => void;
+  private onStatusChange?: (status: SttStatus) => void;
   private status: Status;
   private privateSTT: IPrivateSTT;
   private engineType: EngineType | null = null;
@@ -612,6 +613,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.onModelLoadProgress = options.onModelLoadProgress;
     this.onReady = options.onReady;
     this.onAudioData = options.onAudioData;
+    this.onStatusChange = options.onStatusChange;
 
     // Set base properties manually for immediate construction logging
     // init() will override these based on callbacks, but constructor runs first
@@ -1573,9 +1575,29 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
 
-    // Process any remaining audio
-    await this.processAudio({ force: true });
-    await this.commitWholeUtteranceTranscript();
+    // Path C (UX honesty): the whole-utterance stop-commit re-decodes the full
+    // utterance and can take several seconds on CPU. Surface an explicit
+    // "processing speech" state so the post-Stop wait reads as intentional work
+    // rather than a frozen UI. Only signal when there is actually audio to decode.
+    const hasUtteranceToFinalize =
+      this.utteranceSampleCount >= MIN_TRANSCRIPTION_SAMPLES || this.audioChunks.length > 0;
+    if (hasUtteranceToFinalize) {
+      this.onStatusChange?.({
+        type: 'info',
+        message: 'Processing speech locally…',
+        detail: 'Finalizing your private transcript on this device.',
+      });
+    }
+
+    try {
+      // Process any remaining audio
+      await this.processAudio({ force: true });
+      await this.commitWholeUtteranceTranscript();
+    } finally {
+      if (hasUtteranceToFinalize) {
+        this.onStatusChange?.({ type: 'ready', message: 'Ready to record' });
+      }
+    }
     pushPrivateTimeline('stop_force_processing_complete', {
       serviceId: this.serviceId,
       runId: this.instanceId,
