@@ -67,7 +67,7 @@ export class AssemblyAICloudProvider implements CloudSttProvider {
       confidenceScores: true,
       wordTimestamps: true,
       speakerLabels: false,
-      customTerms: true,
+      customTerms: false,
       punctuation: true,
     };
   }
@@ -153,11 +153,10 @@ export class AssemblyAICloudProvider implements CloudSttProvider {
       token: context.token.token,
     });
 
-    const keyterms = buildAssemblyAICloudKeyterms(context.customTerms);
-    if (keyterms.length > 0) {
-      connectionParams.set('keyterms_prompt', JSON.stringify(keyterms));
-      connectionParams.set('prompt', buildAssemblyAICloudPrompt(keyterms));
-    }
+    // Launch-safe path: keep the v3 Universal Streaming connection on the
+    // provider baseline URL. Prompt/keyterms are preserved as helpers for future
+    // experiments, but standalone A/B evidence showed they can suppress Turn
+    // output for the $0.15/hr universal-streaming-english path.
 
     return `wss://streaming.assemblyai.com/v3/ws?${connectionParams.toString()}`;
   }

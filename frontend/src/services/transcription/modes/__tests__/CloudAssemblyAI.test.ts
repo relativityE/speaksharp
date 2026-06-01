@@ -155,44 +155,28 @@ describe('CloudAssemblyAI (STT Engine Stabilization)', () => {
         expect(socket.url).toContain('token=callback-token');
     });
 
-    it('should include custom words in keyterms_prompt when Cloud starts with user words', async () => {
+    it('does not include unproven keyterms/prompt params when Cloud starts with user words', async () => {
         await mode.init();
         await mode.start(undefined, ['CanaryBoostTest', 'Productization']);
 
         const socket = LAST_SOCKET();
         expect(socket).toBeDefined();
 
-        const keyterms = new URL(socket.url).searchParams.get('keyterms_prompt');
-        const prompt = new URL(socket.url).searchParams.get('prompt');
-        expect(keyterms).toBeTruthy();
-        expect(JSON.parse(keyterms!)).toEqual(expect.arrayContaining([
-            'um',
-            'uh',
-            'canaryboosttest',
-            'productization',
-        ]));
-        expect(prompt).toContain('Preserve filler words');
-        expect(prompt).toContain('canaryboosttest');
+        const params = new URL(socket.url).searchParams;
+        expect(params.has('keyterms_prompt')).toBe(false);
+        expect(params.has('prompt')).toBe(false);
     });
 
-    it('should include default filler keyterms when Cloud starts without user words', async () => {
+    it('does not include default filler prompt params on the launch-safe AssemblyAI path', async () => {
         await mode.init();
         await mode.start();
 
         const socket = LAST_SOCKET();
         expect(socket).toBeDefined();
 
-        const keyterms = new URL(socket.url).searchParams.get('keyterms_prompt');
-        const prompt = new URL(socket.url).searchParams.get('prompt');
-        expect(keyterms).toBeTruthy();
-        expect(JSON.parse(keyterms!)).toEqual(expect.arrayContaining([
-            'um',
-            'umm',
-            'uh',
-            'you know',
-        ]));
-        expect(prompt).toContain('Transcribe verbatim');
-        expect(prompt).toContain('um');
+        const params = new URL(socket.url).searchParams;
+        expect(params.has('keyterms_prompt')).toBe(false);
+        expect(params.has('prompt')).toBe(false);
     });
 
     it('Pillar 2: should ignore events from zombie connections (Identity Hardening)', async () => {

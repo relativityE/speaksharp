@@ -6,7 +6,7 @@ vi.mock('../../../utils/AudioProcessor', () => ({
 }));
 
 describe('AssemblyAICloudProvider', () => {
-  it('builds the v3 Universal Streaming URL and encodes custom terms as keyterms_prompt', () => {
+  it('builds the launch-safe v3 Universal Streaming URL without unproven prompt/keyterms params', () => {
     const provider = new AssemblyAICloudProvider();
     const url = new URL(provider.buildWebSocketUrl({
       token: { token: 'token-123' },
@@ -19,14 +19,14 @@ describe('AssemblyAICloudProvider', () => {
     expect(url.searchParams.get('sample_rate')).toBe('16000');
     expect(url.searchParams.get('format_turns')).toBe('true');
     expect(url.searchParams.get('token')).toBe('token-123');
-    expect(JSON.parse(url.searchParams.get('keyterms_prompt') ?? '[]')).toEqual(expect.arrayContaining([
-      'um',
-      'uh',
-      'canary',
-      'speaksharp',
-    ]));
-    expect(url.searchParams.get('prompt')).toContain('Preserve filler words');
-    expect(url.searchParams.get('prompt')).toContain('canary');
+    expect(url.searchParams.has('keyterms_prompt')).toBe(false);
+    expect(url.searchParams.has('prompt')).toBe(false);
+  });
+
+  it('does not advertise custom terms on the launch-safe AssemblyAI path', () => {
+    const provider = new AssemblyAICloudProvider();
+
+    expect(provider.getCapabilities().customTerms).toBe(false);
   });
 
   it('builds a verbatim coaching prompt from default and custom keyterms', () => {
