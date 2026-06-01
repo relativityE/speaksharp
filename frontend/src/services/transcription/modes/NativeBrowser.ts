@@ -7,6 +7,7 @@ import { STTEngine } from '../../../contracts/STTEngine';
 import { ENV } from '../../../config/TestFlags';
 import { NATIVE_STT } from '../sttConstants';
 import { NativeBrowserStrategy, resolveNativeBrowserStrategy } from './nativeBrowserStrategies';
+import { formatNativeTranscript } from './nativeTranscriptFormatter';
 
 declare global {
   interface Window {
@@ -1624,7 +1625,11 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
         return engineWithGet.getTranscript();
     }
     const transcript = await super.getTranscript();
-    return transcript || this.lastMeaningfulInterim || this.interimTranscriptBuffer;
+    const saved = transcript || this.lastMeaningfulInterim || this.interimTranscriptBuffer;
+    // Apply the trusted punctuation/casing restoration formatter to the SAVED
+    // transcript only (never live partials). Identity no-op until a trusted
+    // formatter is registered; failures fall back to the unformatted text.
+    return formatNativeTranscript(saved);
   }
 
   public getLastHeartbeatTimestamp(): number {
