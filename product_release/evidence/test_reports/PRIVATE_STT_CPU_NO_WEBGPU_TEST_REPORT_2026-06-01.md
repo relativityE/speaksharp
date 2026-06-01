@@ -174,6 +174,41 @@ Dev can prove reducer/gate/buffer logic with unit tests.
 Only STT browser testing can prove h1_6 parity.
 ```
 
+> **DEV RESPONSE (2026-06-01): onset-clipping hypothesis RULED OUT mechanically;
+> need test-agent guidance on the real boundary.**
+>
+> I built a **dev-owned, non-release diagnostic harness**
+> (`scripts/dev/private-onset-preroll-harness.mts`) that reuses only shared assets
+> (Harvard fixtures, `wer.ts`, public whisper-tiny.en) — it does NOT touch any
+> test-agent harness. It replays the real speech-start gate over 1024-sample frames
+> and decodes each fixture three ways: full-audio (drop-in ceiling), gate+300ms
+> preroll (pre-fix), gate+1000ms preroll (proposed fix).
+>
+> To avoid proving an artificial case it ran **4 onset profiles** per fixture
+> (clean, mild ramp 400ms, medium ramp 800ms, low-volume 700ms) = 40 cases.
+>
+> **Result: 300ms and 1000ms preroll produce IDENTICAL decodes on all 40 cases.**
+> `soft-onset rows improved by 1000ms: 0/30; regressions: 0/40`. The gate's
+> reset-tolerance already retains the onset; the preroll window is **not the lever**.
+> I therefore **reverted** the speculative preroll change — shipping it would add
+> complexity with zero measured benefit (cargo-cult). No app-code change landed.
+>
+> **What this means:** the report's hypothesis (and my initial one) that the
+> speech-start gate clips the soft "They, like" onset is **not supported** offline.
+> The clean WAV corpus cannot reproduce the live h1_6 gap (app 37.5% vs drop-in
+> 75%), so the gap most likely comes from something only the live path has —
+> **mic constraints** (the app's `getUserMedia` noise-suppression / AGC reshaping
+> the live signal vs the drop-in's `echoCancellation/noiseSuppression/autoGainControl:
+> false`) or real-mic acoustic/model variability.
+>
+> **Ask for the test agent (your domain):** before I change any app code, can a live
+> A/B isolate the boundary? Specifically: run the app vs drop-in on the SAME live
+> mic with identical `getUserMedia` constraints, and confirm whether the gap
+> persists. If it disappears when constraints match, the fix is a one-line mic-
+> constraint alignment (which I can make and you verify). If it persists, it is
+> model/route variability and likely not app-fixable. The dev harness is available
+> if you want to extend it, but final parity remains browser-only.
+
 ## Open Issue P0.2 — Interim Text / Live UX Stall
 
 Issue:
