@@ -204,6 +204,10 @@ async function transcribeStreaming(variant: Variant, fixtureId: string): Promise
   transcript: string;
   turns: Array<{ type: string; end_of_turn?: boolean; transcript?: string; text?: string }>;
   terminationSeen: boolean;
+  closeCode: number | null;
+  closeReason: string;
+  firstMessageRaw: string | null;
+  messageCount: number;
 }> {
   const audioPath = path.join(AUDIO_DIR, `${fixtureId}.wav`);
   const wav = parsePcm16Wav(await fs.readFile(audioPath));
@@ -212,6 +216,10 @@ async function transcribeStreaming(variant: Variant, fixtureId: string): Promise
   const finals: string[] = [];
   let latestPartial = '';
   let terminationSeen = false;
+  let closeCode: number | null = null;
+  let closeReason = '';
+  let firstMessageRaw: string | null = null;
+  let messageCount = 0;
 
   await new Promise<void>((resolve, reject) => {
     const ws = new WebSocket(buildUrl(variant, token));
@@ -240,6 +248,8 @@ async function transcribeStreaming(variant: Variant, fixtureId: string): Promise
     ws.addEventListener('message', (event) => {
       const raw = typeof event.data === 'string' ? event.data : '';
       if (!raw) return;
+      messageCount += 1;
+      if (firstMessageRaw === null) firstMessageRaw = raw.slice(0, 500);
       const message = JSON.parse(raw) as { type?: string; end_of_turn?: boolean; transcript?: string; text?: string };
       turns.push({
         type: message.type ?? 'unknown',
@@ -278,14 +288,42 @@ async function transcribeStreaming(variant: Variant, fixtureId: string): Promise
       sendNext();
     });
 
-    ws.addEventListener('close', () => finish());
+    ws.addEventListener('close', (event) => {
+      closeCode = typeof (event as { code?: number }).code === 'number' ? (event as { code?: number }).code as number : null;
+      closeReason = String((event as { reason?: string }).reason ?? '');
+      finish();
+    });
   });
 
   return {
     transcript: compact([...finals, latestPartial].join(' ')),
     turns,
     terminationSeen,
+    closeCode,
+    closeReason,
+    firstMessageRaw,
+    messageCount,
   };
+}
+
+/**
+ * A session is INVALID evidence (not a real zero-accuracy result) when the
+ * provider stream never produced a usable transcript through a normal lifecycle:
+ *   - no usable Turn transcript arrived, AND
+ *   - either Termination was never seen, or only one/zero messages came back.
+ * Invalid rows are excluded from WER/filler averages so provider/script defects
+ * are not scored as genuine model failures.
+ */
+function classifyInvalidSession(result: {
+  transcript: string;
+  terminationSeen: boolean;
+  messageCount: number;
+}): { invalid: boolean; reason: string | null } {
+  const hasUsableTranscript = compact(result.transcript).length > 0;
+  if (hasUsableTranscript) return { invalid: false, reason: null };
+  if (!result.terminationSeen) return { invalid: true, reason: 'empty_no_termination' };
+  if (result.messageCount <= 1) return { invalid: true, reason: 'empty_single_message_session' };
+  return { invalid: true, reason: 'empty_transcript' };
 }
 
 const fixtures = HARVARD_SENTENCES.filter((sentence) => FIXTURES.includes(sentence.id));
@@ -302,12 +340,15 @@ for (const variant of VARIANTS) {
   for (const fixture of fixtures) {
     try {
       const result = await transcribeStreaming(variant, fixture.id);
+      const { invalid, reason: invalidReason } = classifyInvalidSession(result);
       const wer = calculateWordErrorRate(fixture.transcript, result.transcript);
       const row = {
         variant,
         fixture: fixture.id,
         truth: fixture.transcript,
         transcript: result.transcript,
+        // WER/accuracy are recorded for visibility but are only aggregated for
+        // valid sessions; invalid sessions are provider/script defects, not 0% model results.
         wer,
         accuracyPct: Number(((1 - wer) * 100).toFixed(2)),
         fillerRecall: fillerRecall(fixture.transcript, result.transcript),
@@ -315,6 +356,12 @@ for (const variant of VARIANTS) {
         finalTurnCount: result.turns.filter((turn) => turn.type === 'Turn' && turn.end_of_turn).length,
         partialTurnCount: result.turns.filter((turn) => turn.type === 'Turn' && !turn.end_of_turn).length,
         terminationSeen: result.terminationSeen,
+        messageCount: result.messageCount,
+        closeCode: result.closeCode,
+        closeReason: result.closeReason,
+        firstMessageRaw: result.firstMessageRaw,
+        invalidSession: invalid,
+        invalidReason,
       };
       evidence.results.push(row);
       console.log(`ASSEMBLYAI_STREAMING_AB_ROW ${JSON.stringify(row)}`);
@@ -331,7 +378,13 @@ for (const variant of VARIANTS) {
 }
 
 const variantSummaries = VARIANTS.map((variant) => {
-  const rows = evidence.results.filter((row) => row.variant === variant && typeof row.wer === 'number');
+  const variantRows = evidence.results.filter((row) => row.variant === variant && typeof row.wer === 'number');
+  // Only VALID sessions contribute to averages. Invalid sessions (empty +
+  // no-Termination / single-message) are provider/script defects, not real
+  // zero-accuracy model results, and would otherwise poison the averages.
+  const rows = variantRows.filter((row) => row.invalidSession !== true);
+  const invalidRows = variantRows.filter((row) => row.invalidSession === true);
+  const errorRows = evidence.results.filter((row) => row.variant === variant && typeof row.wer !== 'number');
   const averageWer = rows.length
     ? rows.reduce((sum, row) => sum + (row.wer as number), 0) / rows.length
     : null;
@@ -341,7 +394,13 @@ const variantSummaries = VARIANTS.map((variant) => {
     : null;
   return {
     variant,
-    rowCount: rows.length,
+    validRowCount: rows.length,
+    invalidRowCount: invalidRows.length,
+    errorRowCount: errorRows.length,
+    invalidReasons: [...new Set(invalidRows.map((row) => row.invalidReason).filter(Boolean))],
+    // A variant whose every session was invalid cannot be judged — flag it so a
+    // reviewer never reads "0% accuracy" as a real model result.
+    evidenceValid: rows.length > 0,
     averageWer,
     averageAccuracyPct: averageWer == null ? null : Number(((1 - averageWer) * 100).toFixed(2)),
     averageFillerRecall,
