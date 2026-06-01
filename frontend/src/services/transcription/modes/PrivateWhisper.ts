@@ -1021,6 +1021,32 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         return;
       }
 
+      if (force && hasTranscript && (isBufferSilent || isLowEnergyPauseTail || isPostTranscriptLowEnergy)) {
+        pushPrivateTimeline('force_low_energy_tail_drop', {
+          serviceId: this.serviceId,
+          runId: this.instanceId,
+          samples: concatenated.length,
+          rms: Number(energy.rms.toFixed(6)),
+          isBufferSilent,
+          isMeaningfullySilent,
+          isLowEnergyPauseTail,
+          isPostTranscriptLowEnergy,
+        });
+        logger.debug({
+          sId: this.serviceId,
+          rId: this.instanceId,
+          samples: concatenated.length,
+          rms: Number(energy.rms.toFixed(6)),
+          threshold: SESSION_PAUSE.SILENCE_RMS_THRESHOLD,
+          isMeaningfullySilent,
+          isLowEnergyPauseTail,
+        }, '[PrivateWhisper] Dropping low-energy forced tail before Whisper inference');
+        this.clearAudioBuffer();
+        this.clearRetryAudioBuffer();
+        this.clearSpeechStartState();
+        return;
+      }
+
       if (this.currentTranscript.length === 0) {
         const expectedDurationSec = samplesToSeconds(concatenated.length, PRIVATE_STT_SAMPLE_RATE);
         logger.info({ sId: this.serviceId, rId: this.instanceId, samples: concatenated.length, expectedDurationSec }, '[PrivateWhisper] 🎤 Processing chunk');

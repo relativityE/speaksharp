@@ -791,6 +791,32 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         expect(engine.currentTranscript).toBe('Basically, a dash of peppers, oil, beef stew.');
     });
 
+    it('REGRESSION: drops low-energy forced tails before Whisper inference', async () => {
+        await privateWhisper.init();
+        const engine = privateWhisper as unknown as {
+            status: string;
+            currentTranscript: string;
+            audioChunks: Float32Array[];
+            bufferedSampleCount: number;
+            hasDetectedSpeech: boolean;
+            processAudio: (options?: { force?: boolean }) => Promise<void>;
+        };
+        const tailAudio = new Float32Array(PRIV_STT_DERIVED.FORCE_FINAL_MIN_SAMPLES + 200).fill(0.0001);
+
+        engine.status = 'transcribing';
+        engine.currentTranscript = 'Basically, a dash of peppers, oil, beef stew.';
+        engine.audioChunks = [tailAudio];
+        engine.bufferedSampleCount = tailAudio.length;
+        engine.hasDetectedSpeech = true;
+        mocks.transcribe.mockResolvedValueOnce(Result.ok("Y'all are in each other. I'm gonna leave here."));
+
+        await engine.processAudio({ force: true });
+
+        expect(mocks.transcribe).not.toHaveBeenCalled();
+        expect(mockCallbacks.onTranscriptUpdate).not.toHaveBeenCalled();
+        expect(engine.currentTranscript).toBe('Basically, a dash of peppers, oil, beef stew.');
+    });
+
     it('REGRESSION: preserves audio chunks arriving during inference', async () => {
         vi.useFakeTimers();
         await privateWhisper.init();
