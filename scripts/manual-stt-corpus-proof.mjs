@@ -56,6 +56,7 @@ const NATIVE_INTERIM_RESULTS = process.env.STT_NATIVE_INTERIM_RESULTS || '';
 const NATIVE_MAX_ALTERNATIVES = process.env.STT_NATIVE_MAX_ALTERNATIVES || '';
 const USE_FAKE_AUDIO_CAPTURE = process.env.STT_USE_FAKE_AUDIO_CAPTURE === 'true';
 const FAKE_AUDIO_FILE = process.env.STT_FAKE_AUDIO_FILE || '';
+const DISABLE_WEBGPU = process.env.STT_DISABLE_WEBGPU === 'true';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
@@ -274,6 +275,36 @@ async function selectMode(page, mode) {
   }
 
   throw new Error(`Could not select STT mode "${mode}"; final state=${await select.getAttribute('data-state')}`);
+}
+
+async function assertModePreflight(page, mode) {
+  const select = page.getByTestId('stt-mode-select');
+  await select.waitFor({ state: 'visible', timeout: 45_000 });
+  const preflight = await page.evaluate((targetMode) => {
+    const root = document.documentElement;
+    const selectNode = document.querySelector('[data-testid="stt-mode-select"]');
+    const option = document.querySelector(`[data-testid="stt-mode-${targetMode}"]`);
+    return {
+      targetMode,
+      currentMode: selectNode?.getAttribute('data-state') ?? null,
+      userTier: root.getAttribute('data-user-tier'),
+      profileReady: root.getAttribute('data-profile-ready'),
+      privateOptionInDom: Boolean(option),
+      privateOptionVisible: option ? getComputedStyle(option).display !== 'none' : false,
+      privateOptionDisabled: option?.getAttribute('aria-disabled') ?? option?.getAttribute('data-disabled') ?? null,
+      bodySample: document.body?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 500) ?? '',
+    };
+  }, mode);
+  await markPhase(page, 'mode_preflight', preflight);
+
+  if (mode === 'private' && preflight.currentMode !== 'private' && !preflight.privateOptionInDom) {
+    const error = new Error('INVALID_PRECONDITION private mode is not available for this account/session');
+    error.invalidForSttEvidence = true;
+    error.invalidReason = 'private_mode_not_available';
+    error.preflight = preflight;
+    throw error;
+  }
+  return preflight;
 }
 
 async function readCustomWordCount(page, word) {
@@ -583,20 +614,59 @@ async function markPhase(page, phase, detail = {}) {
   };
   await page.evaluate((entry) => {
     window.__STT_CORPUS_PHASES__ = window.__STT_CORPUS_PHASES__ ?? [];
+    const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
     window.__STT_CORPUS_PHASES__.push({
       ...entry,
       perfNow: Number(performance.now().toFixed(1)),
       recording: document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') ?? null,
       transcript: document.querySelector('[data-testid="transcript-container"]')?.textContent ?? null,
+      statusText: statusNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       runtimeState: document.documentElement.getAttribute('data-runtime-state'),
       sessionPersisted: document.documentElement.getAttribute('data-session-persisted'),
     });
   }, stamped).catch(() => undefined);
 }
 
+async function readUiStatusSnapshot(page) {
+  return page.evaluate(() => {
+    const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
+    return {
+      perfNow: Number(performance.now().toFixed(1)),
+      recording: document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') ?? null,
+      runtimeState: document.documentElement.getAttribute('data-runtime-state'),
+      transcript: document.querySelector('[data-testid="transcript-container"]')?.textContent ?? null,
+      statusText: statusNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+    };
+  }).catch(() => null);
+}
+
+async function observeStopStatus(page, startedAt, maxMs = 10_000) {
+  const snapshots = [];
+  while (Date.now() - startedAt < maxMs) {
+    const snapshot = await readUiStatusSnapshot(page);
+    if (snapshot) snapshots.push({ t: Date.now(), ...snapshot });
+    if (snapshot?.recording === 'false') break;
+    await page.waitForTimeout(250);
+  }
+  return snapshots;
+}
+
 async function collectTraceSnapshot(page, mode) {
   return page.evaluate((currentMode) => ({
     phases: window.__STT_CORPUS_PHASES__ ?? [],
+    speechRuntimeDebug: typeof window.__SPEECH_RUNTIME_DEBUG__ === 'function'
+      ? window.__SPEECH_RUNTIME_DEBUG__()
+      : null,
+    // Single source of truth: PrivateSTT publishes the resolved decision to this
+    // stable global and keeps it after Stop. (The old chain read
+    // window.__TRANSCRIPTION_SERVICE__.strategy.getRuntimePath(), but that global
+    // is the controller — no .strategy — so it always resolved to null.)
+    privateRuntimePath: currentMode === 'private'
+      ? window.__PRIVATE_STT_RUNTIME_DEBUG__ ?? null
+      : undefined,
+    privateEngineVariant: currentMode === 'private'
+      ? document.body?.getAttribute('data-engine-variant') ?? null
+      : undefined,
     transcriptLifecycleTrace: window.__SS_TRANSCRIPT_TRACE__ ?? [],
     nativeTrace: currentMode === 'native' ? window.__NATIVE_BROWSER_TRACE__ ?? [] : undefined,
     nativeParallelCapture: currentMode === 'native' ? (window.__NATIVE_PARALLEL_CAPTURE__ ?? []).map((capture) => ({
@@ -626,6 +696,16 @@ async function collectTraceSnapshot(page, mode) {
       wavDataUrlBytes: chunk.wavDataUrl?.length ?? 0,
     })) : undefined,
   }), mode).catch(() => ({}));
+}
+
+async function collectPrivateRuntimeSnapshot(page) {
+  return page.evaluate(() => ({
+    speechRuntimeDebug: typeof window.__SPEECH_RUNTIME_DEBUG__ === 'function'
+      ? window.__SPEECH_RUNTIME_DEBUG__()
+      : null,
+    runtimePath: window.__PRIVATE_STT_RUNTIME_DEBUG__ ?? null,
+    engineVariant: document.body?.getAttribute('data-engine-variant') ?? null,
+  })).catch(() => ({}));
 }
 
 function traceTextLength(entry) {
@@ -809,6 +889,7 @@ async function runFixture(page, mode, fixture) {
   }
   await page.goto(sessionUrl.toString(), { waitUntil: 'domcontentloaded' });
   await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
+  await assertModePreflight(page, mode);
   await selectMode(page, mode);
 
   await page.evaluate(() => {
@@ -833,6 +914,9 @@ async function runFixture(page, mode, fixture) {
   const startClick = await clickStartStopButton(page, 'click_start');
   await markPhase(page, 'click_start_done', startClick);
   await waitForRecordingGoSignal(page, mode);
+  const privateRuntimeDuringRecording = mode === 'private'
+    ? await collectPrivateRuntimeSnapshot(page)
+    : undefined;
   await markPhase(page, 'recording_attribute_true');
 
   const startedAt = Date.now();
@@ -859,6 +943,7 @@ async function runFixture(page, mode, fixture) {
     error: error instanceof Error ? error.message : String(error),
   }));
   await markPhase(page, 'click_stop_done', stopClick);
+  const stopStatusSnapshots = await observeStopStatus(page, Date.now());
   await page.waitForFunction(
     () => document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') === 'false',
     null,
@@ -910,6 +995,8 @@ async function runFixture(page, mode, fixture) {
     nativeParallelCapture: traceSnapshot.nativeParallelCapture,
     privateTrace: traceSnapshot.privateTrace,
     privateAudioChunks: traceSnapshot.privateAudioChunks,
+    privateEngineVariant: traceSnapshot.privateEngineVariant,
+    stopStatusSnapshots,
     transcriptLifecycleTrace: traceSnapshot.transcriptLifecycleTrace,
     transcriptLifecycleSummary,
     traceStageCounts: transcriptLifecycleSummary.stageCounts,
@@ -919,6 +1006,16 @@ async function runFixture(page, mode, fixture) {
     stopSelectedTranscriptLength: transcriptLifecycleSummary.stopSelectedTranscriptLength,
     visibleTranscriptAtStopLength: transcriptLifecycleSummary.visibleTranscriptAtStopLength,
     savePayloadTranscriptLength: transcriptLifecycleSummary.stopSelectedTranscriptLength,
+    speechRuntimeDebug: traceSnapshot.speechRuntimeDebug,
+    privateRuntimeDuringRecording,
+    privateRuntimePath: privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath,
+    privateRuntime: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.runtime ?? null,
+    privateProvider: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.provider ?? null,
+    privateWebgpuAvailable: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.webgpuAvailable ?? null,
+    privateTurboCached: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.turboCached ?? null,
+    privateCrossOriginIsolated: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.crossOriginIsolated ?? null,
+    privateWasmThreadCount: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.wasmThreadCount ?? null,
+    privateCloudFallbackAttempted: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.cloudFallbackAttempted ?? null,
   };
 
   await page.goto(`${BASE_URL}/analytics`, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
@@ -983,6 +1080,19 @@ async function runFixture(page, mode, fixture) {
     result.fillerPass = expectedKeys.every((filler) => result.observedFillers[filler] === fixture.expectedFillers[filler]);
   }
   result.journeyPass = Boolean(result.sessionPersisted && result.historyVisible && result.detailVisible && result.firstText.timestampMs != null);
+  result.processingSpeechLocallyShown = Array.isArray(result.phases)
+    ? result.phases.some((phase) => /Processing speech locally/i.test(phase.statusText || ''))
+      || (Array.isArray(result.stopStatusSnapshots) && result.stopStatusSnapshots.some((snapshot) => /Processing speech locally/i.test(snapshot.statusText || '')))
+    : false;
+  const stopStartPhase = Array.isArray(result.phases) ? result.phases.find((phase) => phase.phase === 'click_stop') : null;
+  const stopCompletePhase = Array.isArray(result.phases) ? result.phases.find((phase) => phase.phase === 'stop_force_processing_complete') : null;
+  const afterStopSettlePhase = Array.isArray(result.phases) ? result.phases.find((phase) => phase.phase === 'after_stop_settle') : null;
+  const stopPrivateComplete = Array.isArray(result.privateTrace)
+    ? [...result.privateTrace].reverse().find((event) => event.event === 'stop_force_processing_complete')
+    : null;
+  result.stopFinalizationMs = stopPrivateComplete?.epochMs && stopStartPhase?.t
+    ? stopPrivateComplete.epochMs - stopStartPhase.t
+    : (afterStopSettlePhase?.t && stopStartPhase?.t ? afterStopSettlePhase.t - stopStartPhase.t : null);
   result.meetsWerThreshold = MAX_WER == null ? null : result.wer <= MAX_WER;
   result.verdict = result.invalidForWer
     ? result.invalidReason
@@ -1017,6 +1127,7 @@ const evidence = {
   } : {
     enabled: false,
   },
+  webgpuDisabledForRun: DISABLE_WEBGPU,
   customWord: CUSTOM_WORD || null,
   microphonePath: 'real browser getUserMedia with afplay through the physical speaker/mic path',
   auth: {
@@ -1038,6 +1149,10 @@ try {
     args: [
       '--autoplay-policy=no-user-gesture-required',
       '--disable-blink-features=AutomationControlled',
+      ...(DISABLE_WEBGPU ? [
+        '--disable-webgpu',
+        '--disable-features=Vulkan,WebGPU',
+      ] : []),
       ...(USE_FAKE_AUDIO_CAPTURE ? [
         '--use-fake-ui-for-media-stream',
         '--use-fake-device-for-media-stream',
@@ -1122,8 +1237,9 @@ try {
           fixture: fixture.id,
           error: error instanceof Error ? error.message : String(error),
           playbackFailure: error?.playbackFailure,
-          invalidForSttEvidence: Boolean(error?.playbackFailure),
-          invalidReason: error?.playbackFailure ? error.playbackFailure.reason : undefined,
+          invalidForSttEvidence: Boolean(error?.playbackFailure || error?.invalidForSttEvidence),
+          invalidReason: error?.invalidReason ?? (error?.playbackFailure ? error.playbackFailure.reason : undefined),
+          preflight: error?.preflight,
           currentUrl: page.url(),
           bodyText: compact(await page.locator('body').textContent().catch(() => '')).slice(0, 1200),
         });
