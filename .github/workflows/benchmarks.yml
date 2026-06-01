@@ -38,6 +38,20 @@ jobs:
           RUN_BENCHMARKS: 'true'
         run: pnpm benchmark:cloud
 
+      - name: Run AssemblyAI streaming prompt/keyterms A/B proof
+        env:
+          ASSEMBLYAI_API_KEY: ${{ secrets.ASSEMBLYAI_API_KEY }}
+          ASSEMBLYAI_STREAMING_AB_OUT: /tmp/assemblyai-streaming-ab-proof.json
+        run: pnpm benchmark:cloud:streaming-ab
+
+      - name: Upload AssemblyAI streaming A/B proof
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: assemblyai-streaming-ab-proof
+          path: /tmp/assemblyai-streaming-ab-proof.json
+          if-no-files-found: warn
+
       - name: Open PR with updated benchmarks
         if: success() && inputs.write_results != false
         uses: peter-evans/create-pull-request@v6
