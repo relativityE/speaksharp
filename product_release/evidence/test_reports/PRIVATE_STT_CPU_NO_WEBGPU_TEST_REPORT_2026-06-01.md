@@ -1,1066 +1,286 @@
-# Private STT CPU No-WebGPU Test Report — Latest State, 2026-06-01
+# Private STT CPU No-WebGPU Test Report — Current Open Work, 2026-06-01
 
----
-
-## OFFICIAL TEST AGENT UPDATE — 2026-06-01 17:40 ET
-
-Official browser proof was run after the dev-agent changes landed. This is the
-current release evidence for Private CPU no-WebGPU.
-
-Artifact:
-
-```text
-/private/tmp/speaksharp-private-official-focused-20260601173817.json
-```
-
-Command shape:
-
-```text
-BASE_URL=http://127.0.0.1:4182
-STT_AUTH=existing
-STT_MODES=private
-STT_FIXTURES=h1_1,h1_2,h1_6,h1_8,h1_10
-STT_DISABLE_WEBGPU=true
-HEADLESS=false
-```
-
-Result:
+## Current Verdict
 
 ```text
 Private CPU floor: FAIL
-Reason: telemetry/journey improved, but final quality fails targeted rows.
+Evidence type: headed browser app proof + headed browser drop-in proof
+Primary blocker: app is not parity-green on h1_6 and live UX still exposes late/unstable draft text
 ```
 
-| Fixture | Final Transcript | Accuracy | First Text | Stop Finalization | Runtime | Cloud Fallback | Save/History/Detail | Release Issue |
-| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- |
-| `h1_1` | `Um, the stale smell of old beer. Like, lingers.` | 100% | 5633 ms | 3382 ms | `wasm-singlethread` | false | pass | First text still late. |
-| `h1_2` | `Basically, a dash of pepper spoils beeps too.` | 75% | 4880 ms | 3007 ms | `wasm-singlethread` | false | pass | Final corrupts `beef stew` -> `beeps too`. |
-| `h1_6` | `Day, light, told Wildtailed to brighten him.` | 37.5% | 6899 ms | 4249 ms | `wasm-singlethread` | false | pass | Severe final quality failure; loses filler/onset/content. |
-| `h1_8` | `The puppy, light, chewed up the new shoe.` | 75% | 6709 ms | 5594 ms | `wasm-singlethread` | false | pass | `like` -> `light`; plural tail lost. |
-| `h1_10` | `Basically, the quick brown fox jumps over the lazy dog.` | 100% | 4646 ms | 2450 ms | `wasm-singlethread` | false | pass | Pass. |
-
-What improved versus the prior focused artifact:
-
-| Area | Prior Problem | Latest Result |
-| --- | --- | --- |
-| Runtime telemetry | `privateRuntime*` fields were null | Populated: `wasm-singlethread`, `transformers-js`, `threads=1`, `cloudFallbackAttempted=false` |
-| Stop latency | ~6.6-9.3s stop finalization in the prior focused run | ~2.45-5.59s in this focused run |
-| Processing UI state | Needed proof | `processingSpeechLocallyShown=true` for all five rows |
-| Journey | Needed preservation proof | Save/history/detail pass for all five rows |
-
-What still fails:
-
-| Failure | Evidence | Consequence |
-| --- | --- | --- |
-| Final quality on targeted rows | `h1_2`, `h1_6`, `h1_8` fail truth-preserving final text | Private cannot be launch/pride path yet. |
-| First visible text latency | 4.6-6.9s across focused rows | User can see a blank or stale transcript for too long. |
-| Interim-result UI stall | No product/UI treatment landed. The latest run still shows first visible text at 4.6-6.9s, and prior human runs showed an incorrect partial visible for many seconds before final convergence. | Users can watch wrong draft text and lose trust before the final result arrives. |
-| Same-run drop-in comparator | `scripts/private-browser-dropin-proof.mts` could not find `window.__PRIVATE_DROPIN__` because `/private-dropin.html` is not present in the current preview and falls back to the app shell | Nominal drop-in parity cannot be closed from this run. Comparator asset/page must be available before parity can be judged. |
-
-Update after unblocking comparator:
+Current artifacts:
 
 ```text
-Comparator page issue fixed by adding frontend/private-dropin.html as a Vite
-production build input. Production build now emits dist/private-dropin.html.
+App focused run:     /private/tmp/speaksharp-private-official-focused-20260601173817.json
+Drop-in all-10 run:  /private/tmp/speaksharp-private-dropin-official-all-20260601175117.json
 ```
 
-Drop-in artifact:
+Completed items removed from this report:
 
 ```text
-/private/tmp/speaksharp-private-dropin-official-all-20260601175117.json
+Runtime telemetry null: fixed and browser-proven populated.
+Cloud fallback ambiguity: fixed for this run; cloudFallbackAttempted=false.
+Post-Stop dead-time order: improved; whole-utterance decode starts before forced tail.
+Processing speech locally after Stop: browser-proven true.
+Save/history/detail journey: browser-proven pass for the focused Private run.
+Missing drop-in page: fixed; private-dropin.html now builds into production dist.
 ```
 
-Drop-in all-10 result:
+## Latest Browser Results
+
+Focused app run:
+
+| Fixture | App Final Transcript | App Accuracy | First Text | Stop Finalization | Runtime | Save/History/Detail | Status |
+| --- | --- | ---: | ---: | ---: | --- | --- | --- |
+| `h1_1` | `Um, the stale smell of old beer. Like, lingers.` | 100% | 5633 ms | 3382 ms | `wasm-singlethread` | pass | Usable final; late first text. |
+| `h1_2` | `Basically, a dash of pepper spoils beeps too.` | 75% | 4880 ms | 3007 ms | `wasm-singlethread` | pass | Final corrupts `beef stew`. |
+| `h1_6` | `Day, light, told Wildtailed to brighten him.` | 37.5% | 6899 ms | 4249 ms | `wasm-singlethread` | pass | App-worse parity blocker. |
+| `h1_8` | `The puppy, light, chewed up the new shoe.` | 75% | 6709 ms | 5594 ms | `wasm-singlethread` | pass | Better than drop-in, still not exact. |
+| `h1_10` | `Basically, the quick brown fox jumps over the lazy dog.` | 100% | 4646 ms | 2450 ms | `wasm-singlethread` | pass | Parity. |
+
+Focused app-vs-drop-in comparison:
+
+| Fixture | App Accuracy | Drop-In Accuracy | Delta | App Transcript | Drop-In Transcript | Current Read |
+| --- | ---: | ---: | ---: | --- | --- | --- |
+| `h1_1` | 100% | 88.89% | +11.11pp | `Um, the stale smell of old beer. Like, lingers.` | `Um, the stale smell of old beer, like lingers.` | App better by WER; still late. |
+| `h1_2` | 75% | 75% | 0pp | `Basically, a dash of pepper spoils beeps too.` | `Basically, a dash of peppers, foils, beef stew.` | Same WER, different errors. |
+| `h1_6` | 37.5% | 75% | -37.5pp | `Day, light, told Wildtailed to brighten him.` | `Day, like, told Wild Tales to frightened him.` | App materially worse. |
+| `h1_8` | 75% | 37.5% | +37.5pp | `The puppy, light, chewed up the new shoe.` | `The puppy like Chudak the new shoe.` | App materially better. |
+| `h1_10` | 100% | 100% | 0pp | `Basically, the quick brown fox jumps over the lazy dog.` | `Basically, the quick brown fox jumps over the lazy dog.` | Parity. |
+
+Drop-in all-10 summary:
 
 ```text
 Average accuracy: 83.14%
 Average WER: 16.86%
 ```
 
-Focused app-vs-drop-in comparison:
+## Open Issue P0.1 — h1_6 App-Worse Accuracy Gap
 
-| Fixture | App Accuracy | Drop-In Accuracy | Delta | App Transcript | Drop-In Transcript | Interpretation |
-| --- | ---: | ---: | ---: | --- | --- | --- |
-| `h1_1` | 100% | 88.89% | +11.11pp | `Um, the stale smell of old beer. Like, lingers.` | `Um, the stale smell of old beer, like lingers.` | App WER better, but first text still late. |
-| `h1_2` | 75% | 75% | 0pp | `Basically, a dash of pepper spoils beeps too.` | `Basically, a dash of peppers, foils, beef stew.` | Same WER, different errors; app preserves `pepper spoils`, drop-in preserves `beef stew`. |
-| `h1_6` | 37.5% | 75% | -37.5pp | `Day, light, told Wildtailed to brighten him.` | `Day, like, told Wild Tales to frightened him.` | App materially worse; loses filler and key words. |
-| `h1_8` | 75% | 37.5% | +37.5pp | `The puppy, light, chewed up the new shoe.` | `The puppy like Chudak the new shoe.` | App materially better but still not exact. |
-| `h1_10` | 100% | 100% | 0pp | `Basically, the quick brown fox jumps over the lazy dog.` | `Basically, the quick brown fox jumps over the lazy dog.` | Parity. |
-
-Updated parity finding:
+Issue:
 
 ```text
-Private app is NOT uniformly worse than drop-in on the focused set.
-Private app is also NOT parity-green, because h1_6 is materially worse than
-drop-in and first-text latency remains user-visible.
+On h1_6, SpeakSharp Private app is materially worse than the same-route browser
+drop-in: 37.5% app accuracy vs 75% drop-in accuracy.
 ```
 
-Current highest-value Private root-cause target:
-
-```text
-h1_6 app path: determine why app final changes "like" -> "light",
-"wild tales" -> "Wildtailed", and "frighten" -> "brighten" when the
-same-route drop-in preserves more of the sentence.
-```
-
-Additional h1_6 trace evidence:
+Trace evidence:
 
 | Evidence Source | Finding |
 | --- | --- |
+| Truth | `They, like, told wild tales to frighten him.` |
 | App visible at Stop | `Told Wildtailed to brighten him.` |
 | App final/selected | `Day, light, told Wildtailed to brighten him.` |
-| App first visible text | `6899 ms`, after playback had already ended |
-| App private audio chunks | first chunk transcript `day`; second chunk transcript `told Wildtailed to brighten him.`; later chunks were `[BLANK_AUDIO]` / `[sigh]` |
-| App Stop finalization | whole-utterance decode started after Stop and accepted in `~2.65s`; forced-tail decode skipped |
-| Drop-in capture | full capture `~6.059s` |
 | Drop-in final | `Day, like, told Wild Tales to frightened him.` |
+| App first visible text | `6899 ms`, after playback ended |
+| App private chunks | first chunk `day`; second chunk `told Wildtailed to brighten him.`; later chunks `[BLANK_AUDIO]` / `[sigh]` |
+| App Stop behavior | whole-utterance decode accepted; forced-tail skipped |
 
-Working diagnosis for h1_6:
-
-```text
-This is no longer a generic "slow Stop" bug. The Stop sequencing improvement worked:
-whole-utterance decode started promptly and forced-tail was skipped.
-
-The remaining h1_6 gap is input/window/segmentation quality. The app live path
-captured/decoded the sentence as separated fragments ("day" + "told Wildtailed...")
-and the final whole-utterance result still inherited "light/Wildtailed/brighten".
-The drop-in, with a single continuous capture, kept "like" and separated
-"Wild Tales", though it still missed "They" and "frighten".
-```
-
-Concrete reviewer/dev question:
+What this means:
 
 ```text
-Why does the app's Private path lose or damage the onset/filler region of h1_6
-relative to the same-route drop-in? Inspect speech-start gating, preroll retention,
-whole-utterance buffer contents, and mic constraints. Do not spend time on Stop
-forced-tail order for this row; latest evidence shows that part is fixed.
+This is not the old forced-tail Stop-order bug. Stop sequencing improved and is
+not the remaining h1_6 blocker. The likely problem is input/window/segmentation,
+speech-start gating, preroll retention, mic constraints, or whole-utterance buffer
+contents before final decode.
 ```
 
-Clarification on the proposed “stall / in-progress” UI approach:
+Dev-agent responsibility:
 
 ```text
-Status: NOT IMPLEMENTED AS A UI FIX.
+Investigate and patch the app-side path that makes h1_6 worse than drop-in.
+Do not spend time on the already-fixed forced-tail order unless new evidence
+contradicts this run.
 ```
 
-What did land:
+Expected dev handoff interface:
 
 ```text
-1. Stop finalization now starts with the whole-utterance decode instead of a
-   redundant forced-tail decode.
-2. The store can surface "Processing speech locally…" during Stop/finalization.
-3. Latest focused run confirms post-Stop finalization improved to ~2.45-5.59s.
+1. Brief root-cause note naming the exact suspected boundary:
+   speech-start gate, preroll, mic constraints, chunk/windowing, buffer content,
+   whole-utterance decode input, or post-processing.
+2. Unit or no-browser tests proving the chosen boundary behavior.
+3. If possible, a deterministic h1_6 fixture/probe using captured app audio or
+   synthetic gate/preroll events.
+4. Commit SHA and exact files changed.
+5. Any expected browser-observable change I should verify.
 ```
 
-What did **not** land:
+Scope limit for this development pass:
 
 ```text
-1. No confidence-aware provisional/draft UI.
-2. No hiding or softening of low-confidence interim text during recording.
-3. No "listening/processing" replacement for unstable interim text before Stop.
-4. No policy that withholds bad provisional text until a stable draft appears.
+Do not try to improve all Private corpus rows at once.
+Focus first on h1_6 because it is the clearest app-worse row:
+app 37.5% vs drop-in 75%.
+
+Use h1_2 only as a secondary regression check:
+app and drop-in were both 75%, but each failed different words.
 ```
 
-Why this matters:
+Example acceptable dev deliverable:
 
 ```text
-The stall approach is only safe if final whole-utterance output is consistently
-correct. Latest browser evidence disproves that assumption for h1_2, h1_6, and
-h1_8. Therefore, masking interim text would currently delay user disappointment
-rather than solve transcript quality.
+Root cause found:
+The speech-start gate starts the app's retained utterance buffer after the soft
+"They, like" onset, so the whole-utterance final decode never receives the same
+leading audio that the drop-in receives. This causes "like" -> "light" and
+"wild tales" -> "Wildtailed" in h1_6.
+
+Code changed:
+- PrivateWhisper.ts: retain N ms preroll before speech_start_detected in the
+  whole-utterance buffer.
+- PrivateWhisper.ts: log retainedPrerollSamples and utteranceStartOffsetMs.
+
+Unit/no-browser proof:
+- Synthetic low-RMS onset fixture keeps preroll samples in the retained utterance.
+- h1_6-style event sequence no longer drops the first 300-500ms before decode.
+- Existing stop-order tests still pass; forced-tail still skipped when whole
+  utterance succeeds.
+
+Expected browser-observable change:
+On h1_6, app final should preserve "like" and separate "wild tales"; first
+visible text may still be late unless the UI draft work also lands.
+
+Files changed:
+<list files + commit SHA>
 ```
 
-Required next product decision for Private interim UX:
-
-| Option | Benefit | Risk |
-| --- | --- | --- |
-| Show raw provisional text as-is | Feels live | Current behavior exposes wrong text for seconds |
-| Mark provisional text as draft/low-confidence | Honest feedback; avoids overclaiming | Requires UI/state work |
-| Show "Listening..." until stable draft | Avoids visible bad text | Can feel stalled if final remains slow |
-| Show "Processing speech locally..." after Stop only | Already partly working | Does not address during-recording stall |
-
-Recommended next requirement:
+Example unacceptable dev deliverable:
 
 ```text
-Private UI must distinguish "draft/provisional" from "final selected" text.
-Do not hide interim text entirely until h1_2/h1_6/h1_8 final quality is fixed
-or proven equivalent to drop-in.
+"Tuned Whisper thresholds and tests pass."
 ```
 
-Ownership:
-
-| Work | Owner | Why |
-| --- | --- | --- |
-| Interim/draft UI implementation | Dev agent / product implementation | This changes the user-facing live transcript behavior and component state. |
-| Acceptance criteria + browser proof | STT test agent | This must be proven in headed browser with timing, transcript, save/history/detail, and user-visible state evidence. |
-| h1_6 final-quality root cause | Shared, but dev needs a concrete implementation hypothesis | Browser proof shows the failure; dev needs unit/fixture-level probes to isolate gate/preroll/chunk behavior. |
-
-Proposed interim UI design:
+Why unacceptable:
 
 ```text
-1. Keep "Listening..." visible immediately after Start.
-2. When Private emits a provisional transcript, render it as a visibly provisional
-   draft, not as final-quality text.
-3. If a provisional candidate is short, low-confidence, metadata-like, or changes
-   substantially between windows, keep the transcript area in a "Processing speech
-   locally..." / "Draft forming..." state and show the text with draft styling.
-4. When whole-utterance finalization completes, replace the draft with the selected
-   final transcript.
-5. Never imply that the provisional draft is the saved transcript.
+It does not name the boundary, does not prove h1_6-specific behavior, and does
+not tell STT testing what browser-observable change to verify.
 ```
 
-Suggested state model:
-
-| State | UI Text/Behavior | Entry Condition | Exit Condition |
-| --- | --- | --- | --- |
-| `listening` | `Listening...` | Mic started, no meaningful transcript yet | First meaningful provisional or Stop |
-| `drafting` | Draft transcript with provisional styling | Private emits provisional/rolling text | Stable provisional or Stop |
-| `finalizing` | `Processing speech locally...` plus last draft, if any | User clicks Stop | Whole-utterance final accepted |
-| `final` | Normal transcript styling | Selected transcript is final/save candidate | Save/history/detail |
-
-Acceptance criteria for interim UI:
+What I will do with dev results:
 
 ```text
-1. User sees feedback within 1s of mic start: "Listening..." or equivalent.
-2. Provisional text is visually distinguishable from final text.
-3. Bad provisional text must not be presented as final/saved.
-4. On Stop, UI shows "Processing speech locally..." if finalization exceeds 1s.
-5. Final selected transcript replaces the draft and is what save/history/detail use.
+I will rerun the same focused browser proof:
+Private app h1_1,h1_2,h1_6,h1_8,h1_10 + drop-in comparator.
+The pass question for h1_6 is whether app accuracy is no worse than drop-in and
+whether the app preserves "like", separates "wild tales", and avoids "brighten".
 ```
 
-How dev can test the interim UI without a browser:
+Bright-line boundary:
 
 ```text
-Unit-test the state reducer/component logic using synthetic event sequences:
-- start -> no text -> listening
-- provisional "day" -> drafting, not final
-- provisional changes to "Told Wildtailed..." -> remains drafting
-- stop -> finalizing with last draft retained
-- final selected -> final styling and save candidate
+Dev can prove reducer/gate/buffer logic with unit tests.
+Only STT browser testing can prove h1_6 parity.
 ```
 
-What dev cannot prove without browser:
+## Open Issue P0.2 — Interim Text / Live UX Stall
+
+Issue:
 
 ```text
-Dev cannot prove h1_6 accuracy/parity without a browser or a captured audio fixture.
-The h1_6 failure depends on real mic capture, timing, speech-start gating, model
-decode, and app chunking. Unit tests can prove candidate policy and state behavior,
-but app-vs-drop-in parity requires the headed harness.
+Private first visible text is still late: 4.6-6.9s in the focused browser run.
+Prior human testing also showed incorrect draft text visible for many seconds
+before final convergence.
 ```
 
-Recommended non-browser h1_6 dev probes:
+What is already complete:
 
 ```text
-1. Export or preserve the app-captured h1_6 audio buffer from the browser artifact
-   as a deterministic fixture.
-2. Run that exact buffer through the app's whole-utterance decode path in a Node/
-   browser-worker style harness.
-3. Compare it to the drop-in captured buffer and duration.
-4. Unit-test speech-start gate/preroll so "They, like" is not clipped before decode.
-5. Unit-test that live rolling chunks cannot overwrite a better whole-utterance final.
+"Processing speech locally..." after Stop is working.
+Post-Stop finalization is faster than before.
 ```
 
-Until those probes exist, h1_6 is browser-evidence-owned:
+What is not complete:
 
 ```text
-The dev agent can make hypotheses and add deterministic guards.
-The STT test agent must confirm the fix with the same h1_6 app-vs-drop-in browser run.
+No confidence-aware draft UI exists during recording.
+No visual distinction exists between unstable provisional text and final selected text.
+No policy prevents obviously unstable provisional text from appearing as final-quality copy.
 ```
 
-Strict acceptance validator result:
+Dev-agent responsibility:
 
 ```text
-rowCount=5
-passCount=1
-failCount=4
-pass=false
+Implement the user-facing interim/draft UI behavior. This is product code, not
+browser test code.
 ```
-
-Failed expectations:
-
-| Fixture | Validator Failures |
-| --- | --- |
-| `h1_1` | `final_missing:like lingers` due punctuation split in expected phrase check, despite WER=0 |
-| `h1_2` | `final_missing:beef stew` |
-| `h1_6` | `final_missing:They, like`; `final_missing:wild tales`; `final_missing:frighten him` |
-| `h1_8` | `final_missing:like`; `final_missing:new shoes` |
-
-Immediate testing conclusion:
-
-```text
-Dev instrumentation changes are testable and partially successful.
-Private STT itself remains blocked by final quality and first-text latency.
-Do not run full 10-row Private as a release proof until the h1_2/h1_6/h1_8
-failure mechanism is explained against a working same-route drop-in comparator.
-```
-
----
-
-## ⇄ DEV → TEST AGENT REVIEW REQUEST (2026-06-01)
-
-**What dev changed (merged to main):** (1) P0.1 telemetry read-side — harness now reads
-the single-source `window.__PRIVATE_STT_RUNTIME_DEBUG__`; (2) post-Stop latency — Stop
-runs the whole-utterance decode first and skips the redundant forced-tail decode
-(removes the measured ~5s pre-decode wait); (3) acceptance validator + timing/status
-reducers encoding your no-browser checks.
-
-**What dev verified (no browser, RAN not asserted):** all 4 Private + 5 Native
-no-browser checks pass — see "Test-agent no-browser checks — RAN, not asserted" table
-below. Timing reducer reproduces the ~5s pre-decode wait on the real artifact;
-validator reproduces your gatePass=false.
-
-**What dev needs the test agent to verify (live, I cannot run):**
-1. Full `h1_1..h1_10` Private CPU `STT_DISABLE_WEBGPU=true` re-run.
-2. Confirm `privateRuntime`/`privateProvider` now **non-null** and
-   `privateCloudFallbackAttempted=false`.
-3. Confirm `stopFinalizationMs` **materially lower** than this run **AND finals no
-   worse** (the latency fix must not trade speed for quality — this is the key gate).
-4. Gate the artifact with `scripts/private-corpus-acceptance.mjs`.
-
-**Still open (not addressed by this pass):** wrong finals `spoils→spurtles` (h1_2),
-`They→Day` (h1_6) are model/route variability — need your same-run app-vs-drop-in diff
-before any fix. First-paint latency.
-
----
-
-## DEV UPDATE (2026-06-01, post-report) — changes landed + no-browser verification
-
-A dev pass addressed the report's actionable P0s. **All claims below are unit- and
-artifact-verified WITHOUT a browser. None are live-harness-proven — a corpus
-re-run by the test agent is still required to confirm timing and final quality on
-real audio.**
-
-### What changed (branch merged to main)
-
-| Report issue | Change | Verification (no browser) | Live re-run still needed? |
-| --- | --- | --- | --- |
-| P0 runtime telemetry null | Read-side fix: harness now reads the single-source global `window.__PRIVATE_STT_RUNTIME_DEBUG__` (the old `__TRANSCRIPTION_SERVICE__.strategy.getRuntimePath()` chain was the controller, no `.strategy`, so always null). PrivateSTT publishes + persists the decision after Stop. | Unit test asserts the global is populated with provider/runtime/threads/`cloudFallbackAttempted=false` after init. | Yes — re-run must show non-null `privateRuntime*` rows. |
-| P0 stop finalization too slow | onStop now runs the whole-utterance decode FIRST and skips the redundant forced-tail decode on success. Timing math confirmed ~5s of pre-decode dead time (`stopToWholeStartMs` 5074/5013ms for h1_2/h1_6) that this removes. | 27/27 PrivateWhisper unit tests pass under new order; timeline events added. | **Yes — see "Latency safety" below.** |
-| P0 processing state | Already verified: artifact shows `processingSpeechLocallyShown=true`. | Confirmed in `speaksharp-stt-corpus-1780341387199.json`. | No (confirmed). |
-| Cloud A/B invalid sessions | (Cloud report) invalid empty/no-Termination sessions excluded from averages. | Verified against real artifact: keyterms/prompt 10/10 invalid → `evidenceValid=false` not "0%". | Yes — fresh valid A/B subset. |
-| Harness duplication | Deleted 4 invalid/duplicate Native harnesses; one job → one harness. | N/A | No. |
-| Acceptance gate as code | Added `scripts/private-corpus-acceptance.mjs` + release test encoding the report's gate (telemetry non-null, truth-preserving final, `stopFinalizationMs<=8000`, cloud-fallback=false). Cross-checks the real pre-fix artifact and reproduces gatePass=false. | Release test passes. | No. |
-
-### Latency safety — answer to "did lowering time cause no-final / worse-final?"
-
-- **Final correctness is unchanged by the reorder (logically + unit-level).** In the
-  OLD order the forced-tail decode ran first but `commitWholeUtteranceTranscript()`
-  OVERWROTE it, so the saved final was always the whole-utterance result. The NEW
-  order produces the SAME whole-utterance result, only without the discarded tail
-  decode. Updated regression tests assert identical final text with fewer decodes.
-- **"No final" is not introduced:** the empty-commit fallback still runs forced-tail
-  processing when the whole-utterance decode yields nothing.
-- **NOT yet proven on real audio.** Unit tests mock `transcribe`. The actual latency
-  drop (predicted ~9s → ~4s) and "finals are no worse" MUST be confirmed by a live
-  corpus re-run. This is the open gate. Do NOT treat the latency fix as proven until
-  a real run shows `stopFinalizationMs` down AND h1_x finals no worse than this run.
-- **Out of scope of this change:** the wrong finals `spoils→spurtles` (h1_2) and
-  `They→Day` (h1_6) are model/route variability, not the latency path. Still require
-  the same-run app-vs-drop-in diagnosis the report requested before any "fix."
-
-### Test-agent no-browser checks — RAN, not asserted
-
-Every "Unit-testable checks without browser" item from the Private AND Native
-reports was executed (not claimed). Results:
-
-| Report | # | Check | Implemented in | Result |
-| --- | --- | --- | --- | --- |
-| Private | 1 | Timing reducer (firstDraftDelay/stopToWholeStart/wholeDecodeDuration/stopFinalizationMs) | `scripts/private-timing-reducer.mjs` + test | PASS — reproduces ~5s pre-decode wait on real artifact |
-| Private | 2 | Artifact validator (null telemetry / wrong final / stopFinalizationMs>8000) | `scripts/private-corpus-acceptance.mjs` + test | PASS — reproduces report gatePass=false on real artifact |
-| Private | 3 | Sanitizer does not alter h1_2/h1_6 clean finals | `private-no-browser-checks.test.ts` | PASS |
-| Private | 4 | Status reducer prefers "Processing speech locally…" during STOPPING | `scripts/private-status-reducer.mjs` + test | PASS |
-| Native | 1 | final + identical interim → no duplicate append | `NativeBrowser.test.ts:558` | PASS |
-| Native | 2 | final + case/punct variant interim → no duplicate | `NativeBrowser.test.ts:581` | PASS |
-| Native | 3 | one-word interim → not saved | `NativeBrowser.test.ts:446` | PASS |
-| Native | 4 | formatter identity default → unchanged | `nativeTranscriptFormatter.test.ts:17` | PASS |
-| Native | 5 | formatter throws → original preserved | `nativeTranscriptFormatter.test.ts:34` | PASS |
-
-These prove app-side logic + evidence-field integrity without a browser. They do
-NOT prove transcription quality, latency, or human-mic behavior — those remain the
-live-run gates below.
-
-### Test agent — required next run
-
-1. Rebuild prod, fresh preview, real Pro, `STT_DISABLE_WEBGPU=true`.
-2. Run full Harvard `h1_1..h1_10` Private CPU corpus.
-3. Confirm: `privateRuntime`/`privateProvider` non-null, `privateCloudFallbackAttempted=false`,
-   `stopFinalizationMs` materially lower than this run, finals no worse than this run,
-   `processingSpeechLocallyShown=true`, save/history/detail pass.
-4. Run `node` against the new validator to gate the artifact:
-   `import { validatePrivateCorpusArtifact } from 'scripts/private-corpus-acceptance.mjs'`.
-
----
-
-## Executive Summary
-
-Private STT is **not release-green**. The latest focused real-Pro, no-WebGPU run completed the app journey, but it failed the P0 verification gate because final quality regressed on targeted rows and required runtime/fallback telemetry is still missing.
-
-Current classification:
-
-```text
-Private CPU floor: FAIL
-Evidence type: browser-proof / harness-proof
-Primary blocker: slow and sometimes incorrect live/final transcription under CPU path
-Drop-in parity: not proven by the latest focused run
-```
-
-## Latest Evidence
-
-Artifact:
-
-```text
-/private/tmp/speaksharp-stt-corpus-1780341387199.json
-```
-
-Setup:
-
-| Field | Value |
-| --- | --- |
-| App URL | `http://127.0.0.1:4182` |
-| Account | fresh real Pro account from workflow `26776295751` |
-| Mode | Private |
-| WebGPU | disabled with `STT_DISABLE_WEBGPU=true` |
-| Fixtures | `h1_1,h1_2,h1_6,h1_8,h1_10` |
-| Runner result | `runnerPass=true`, `gatePass=false` |
-
-## Latest Result Table
-
-| Fixture | Final Transcript | Accuracy | First Text | Stop Finalization | Save | History | Detail | Key Issue |
-| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- |
-| `h1_1` | Um, the stale smell of old beer, like lingers. | 100% | 4136 ms | 9044 ms | yes | yes | yes | Slow but correct. |
-| `h1_2` | Basically, a dash of pepper spurtles beef stew. | 87.5% | 7709 ms | 9316 ms | yes | yes | yes | `spoils` became `spurtles`; bad interim exposed first. |
-| `h1_6` | Day, like, told Wild Tales to frighten him. | 87.5% | null | 8383 ms | yes | yes | yes | `They` became `Day`; no useful live text before Stop. |
-| `h1_8` | The puppy, like, chewed up the new shoes. | 100% | 6907 ms | 7831 ms | yes | yes | yes | Final recovered from poor live chunks. |
-| `h1_10` | Basically, the quick brown fox jumps over the lazy dog. | 100% | 6678 ms | 6619 ms | yes | yes | yes | Slow but correct. |
-
-## Current Blockers
-
-### P0 — Bad Interim Text Is Visible Too Long
-
-Evidence from `h1_2`:
-
-```text
-Live/rolling chunks: Basically. / Peace too. / [BLANK_AUDIO]...
-Final selected: Basically, a dash of pepper spurtles beef stew.
-Truth: Basically, a dash of pepper spoils beef stew.
-```
-
-Evidence from `h1_6`:
-
-```text
-Live/rolling chunks: day. / and / [BLANK_AUDIO]...
-Final selected: Day, like, told Wild Tales to frighten him.
-Truth: They, like, told wild tales to frighten him.
-```
-
-Consequence if not fixed:
-
-Users see obviously wrong text in the live transcript window for several seconds. If final text later corrects it, the experience still feels unstable. If final text does not fully correct it, the user loses trust in Private STT.
-
-Benefit of fixing:
-
-Private can feel honest while local inference is still working: users get immediate feedback without mistaking low-confidence draft text for final-quality transcription.
 
 Recommended design:
 
-```text
-1. Keep live chunks visually marked as provisional/draft.
-2. Show "Processing speech locally..." when finalization starts or when provisional text is low confidence.
-3. Do not hide all feedback; show listening/processing state immediately.
-4. Only promote draft text visually when it is coherent and stable.
-5. Do not rely on the stall/processing UX unless final whole-utterance output is consistently correct.
-```
-
-> **DEV RESPONSE (2026-06-01):** Not fixed yet, and I agree with your point #5 — I did
-> NOT add draft-hiding, precisely because you said not to hide bad interim until the
-> final is reliable, and it is not (see next block). The first-paint gate was already
-> lowered (5.0s→2.0s) which can surface *more* low-confidence interim; that trade is
-> intentional for "feels alive" but it makes your "mark as provisional/draft" design
-> (#1/#4) the right next step. **This is a UI-state change I have not made** — it needs a
-> provisional/draft visual treatment in the live transcript panel. Flagging as open for
-> a dev+design pass, not silently resolved.
-
-### P0 — Final Output Does Not Always Converge Correctly
-
-The stall solution is only safe if final output is nearly perfect. Latest evidence does not meet that bar:
-
-| Fixture | Final Problem |
-| --- | --- |
-| `h1_2` | `pepper spoils` became `pepper spurtles` |
-| `h1_6` | `They` became `Day` |
-
-Consequence if not fixed:
-
-Masking interim text would only hide the problem until the final incorrect text appears. That creates delayed disappointment instead of live confusion.
-
-Benefit of fixing:
-
-Once final text is reliable, we can safely de-emphasize unstable drafts and let users wait briefly for a high-quality local result.
-
-Required next diagnosis:
-
-```text
-Compare same-run browser drop-in vs SpeakSharp app for h1_2 and h1_6.
-Capture raw rolling chunks, whole-utterance raw output, sanitized output, selected-for-save, and captured audio RMS/peak.
-Decide whether the final error comes from app audio capture/preprocessing or from route/model variability.
-```
-
-> **DEV RESPONSE (2026-06-01):** Not fixed — and deliberately NOT touched by code yet,
-> because your "required next diagnosis" must come first. I verified (no browser) that
-> the sanitizer is NOT the cause: `private-no-browser-checks.test.ts` proves the clean
-> finals "pepper spoils" / "They, like..." pass through `sanitizeTranscriptText`
-> unchanged, so cleanup is not corrupting them — the wrong text comes from the model/
-> route. **The same-run app-vs-drop-in diff is yours to run** (needs browser + the
-> kept `private-browser-dropin-proof.mts` comparator). I will not "fix" candidate
-> selection blind until that diff says whether it is app audio prep vs model
-> variability — changing it blind risks a rewrite chasing a model limitation.
-
-### P0 — Runtime/Fallback Telemetry Is Still Missing
-
-Required fields still came through as `null`:
-
-```text
-privateRuntime
-privateProvider
-privateWebgpuAvailable
-privateCrossOriginIsolated
-privateWasmThreadCount
-privateCloudFallbackAttempted
-```
-
-Consequence if not fixed:
-
-We cannot prove the privacy promise. Reviewers cannot verify that CPU/no-WebGPU selected local Private STT and that Cloud fallback was not attempted.
-
-Benefit of fixing:
-
-Private becomes auditable: every run can prove runtime, provider, thread count, isolation state, and `cloudFallbackAttempted=false`.
-
-> **DEV RESPONSE (2026-06-01):** Fixed on the read side, needs your re-run to confirm.
-> Root cause was a read/write split: PrivateSTT publishes the decision to
-> `window.__PRIVATE_STT_RUNTIME_DEBUG__` (persisted after Stop), but the harness read
-> `window.__TRANSCRIPTION_SERVICE__.strategy.getRuntimePath()` — and that global is the
-> *controller* (no `.strategy`), so it always resolved to null. Corpus harness now reads
-> the single-source global. Unit test asserts it is populated with provider/runtime/
-> threads/`cloudFallbackAttempted=false`. **Verify on next run:** these fields non-null
-> per row. (This artifact predates the fix, so it still shows null — expected.)
-
-### P0 — Stop Finalization Is Too Slow For a Live Transcript Product
-
-Latest focused run:
-
-| Fixture | First Draft | Final After Stop |
-| --- | ---: | ---: |
-| `h1_1` | 4.1s | 9.0s |
-| `h1_2` | 7.7s | 9.3s |
-| `h1_6` | none | 8.4s |
-| `h1_8` | 6.9s | 7.8s |
-| `h1_10` | 6.7s | 6.6s |
-
-User-observed timing in human Private tests:
-
-```text
-partial/draft around 6s
-final earliest around 16s from start
-sometimes final text arrives around 26s from start
-```
-
-This timing issue is **not fixed**. It is now a required root-cause question for the next development/reviewer pass.
-
-Reviewer/agent must answer:
-
-```text
-Why does first visible draft take roughly 6 seconds?
-Why does final text take another 10+ seconds after the first draft?
-Why does final convergence vary from about 16 seconds to 26 seconds from recording start?
-Which stage owns the delay: speech gate, audio buffer cadence, worker queue, model inference, whole-utterance final decode, transcript selection, store update, or UI render?
-```
-
-Required trace fields for the next Private run:
-
-| Field | Meaning |
-| --- | --- |
-| `micClickedAt` | user clicked mic |
-| `recordingStateAt` | app entered recording |
-| `speechDetectedAt` | VAD/speech gate detected speech |
-| `firstAudioChunkQueuedAt` | first audio chunk reached worker queue |
-| `firstInferenceStartAt` | first model inference started |
-| `firstInferenceEndAt` | first model inference ended |
-| `firstDraftVisibleAt` | first visible non-placeholder text |
-| `stopClickedAt` | user clicked Stop |
-| `finalInferenceStartAt` | final/whole-utterance decode started |
-| `finalInferenceEndAt` | final/whole-utterance decode ended |
-| `selectedForSaveAt` | selected transcript committed |
-| `savedAt` | save completed |
-| `detailVisibleAt` | saved transcript visible in detail |
-
-> **DEV RESPONSE (2026-06-01):** Partially fixed — the *app-owned* slice is addressed;
-> the model-decode slice is irreducible on CPU. I confirmed your timing math on the real
-> artifact via `private-timing-reducer.mjs`: `stopToWholeStart ≈ 5074ms (h1_2) / 5013ms
-> (h1_6)` of dead time before the whole-utterance decode even began, plus ~3-4s for the
-> decode itself. Fix: `onStop` now runs the whole-utterance decode FIRST and skips the
-> redundant forced-tail rolling decode on success (it was being overwritten anyway) —
-> removing the ~5s. `wholeDecodeDuration` (~3-4s) is the model on CPU and cannot be cut
-> without WebGPU/threads (tracked separately). New timeline events `stop_whole_utterance
-> _decode_start` / `stop_force_tail_skipped|fallback` let you measure it. **Verify on
-> next run:** `stopFinalizationMs` materially lower AND finals no worse — I cannot prove
-> the real-audio number here. Re: the requested per-stage trace fields — added the
-> Stop-side decode markers; the full mic→detail field set is a harness instrumentation
-> task on your side.
-
-## Timing Budget Required To Fix Private
-
-This is the target timing budget for CPU Private STT:
-
-| Stage | Target | Hard Limit | Current Evidence | Status |
-| --- | ---: | ---: | --- | --- |
-| Mic click feedback | < 300 ms | 500 ms | generally immediate | pass |
-| Listening/recording indicator | < 300 ms | 500 ms | generally immediate | pass |
-| First useful draft, if shown | <= 3000 ms | 5000 ms | 4.1s to 7.7s; sometimes null | fail |
-| Low-confidence draft state | immediate when draft is unstable | 1000 ms | not explicit enough | fail |
-| Processing state after Stop | < 500 ms | 1000 ms | now observed in latest run | improved |
-| Stop finalization | <= 5000 ms | 8000 ms | 6.6s to 9.3s | fail |
-| Final from recording start | <= 12000 ms for short phrase | 16000 ms | user saw 16s to 26s | fail |
-| Save/history/detail after final | <= 3000 ms | 5000 ms | passed once final exists | pass |
-
-If CPU cannot meet the latency budget consistently, the UI must communicate this honestly:
-
-```text
-Draft transcript
-Processing speech locally...
-Final transcript
-```
-
-But this UI treatment is acceptable only after final transcript quality is stable.
-
-## Wrong-Final Rows Requiring Immediate Verification
-
-The latest focused run had two wrong final transcripts:
-
-| Fixture | Truth | Latest Final | Failure |
+| State | UI Behavior | Entry | Exit |
 | --- | --- | --- | --- |
-| `h1_2` | Basically, a dash of pepper spoils beef stew. | Basically, a dash of pepper spurtles beef stew. | `spoils -> spurtles` |
-| `h1_6` | They, like, told wild tales to frighten him. | Day, like, told Wild Tales to frighten him. | `They -> Day` |
+| `listening` | Show immediate listening/working feedback | Mic starts, no meaningful text yet | First provisional or Stop |
+| `drafting` | Show provisional transcript with draft styling | Rolling/provisional text appears | Stable provisional or Stop |
+| `finalizing` | Show `Processing speech locally...` while preserving last draft | Stop clicked | Whole-utterance final accepted |
+| `final` | Normal transcript styling | Selected final exists | Save/history/detail |
 
-Required reviewer/agent verification:
-
-```text
-Run h1_2 and h1_6 through browser drop-in and SpeakSharp app in the same run.
-Use the same audio route and no-WebGPU CPU runtime.
-Capture raw rolling chunks, whole-utterance raw output, sanitized output, selected-for-save, and detail transcript.
-Verify whether drop-in converges correctly while SpeakSharp does not.
-```
-
-Acceptance:
+Acceptance criteria:
 
 ```text
-h1_2 final must preserve "pepper spoils".
-h1_6 final must preserve "They, like".
-Final convergence must meet the timing budget or be explicitly labeled slow CPU behavior.
+1. User gets visible feedback within 1s of mic start.
+2. Provisional text is visually distinguishable from final text.
+3. Bad provisional text is never implied to be saved/final.
+4. If finalization exceeds 1s, "Processing speech locally..." is visible.
+5. Saved/detail transcript uses selected final, not draft-only text.
 ```
 
-## Drop-In Parity Status
-
-Private has not met drop-in parity yet.
-
-Latest focused SpeakSharp run is not sufficient to claim drop-in parity because it is not a full corpus run and it failed two targeted rows. The next valid parity proof must compare the same fixtures, same browser route, and same run window against the browser drop-in control.
-
-What prevents parity:
-
-1. SpeakSharp rolling chunks expose low-quality interim text.
-2. Whole-utterance finalization is not consistently perfect.
-3. CPU finalization latency is too high.
-4. Runtime/fallback telemetry is missing, so the run is not fully auditable.
-
-## Immediate Development Needs
-
-| Priority | Need | Consequence If Missing | Benefit If Fixed |
-| --- | --- | --- | --- |
-| P0 | Publish stable Private runtime telemetry | Cannot prove local/private runtime or no Cloud fallback | Privacy promise becomes testable |
-| P0 | Same-run app vs browser drop-in for `h1_2`/`h1_6` | Cannot isolate app degradation vs model/route variability | Root cause becomes actionable |
-| P0 | Add low-confidence draft UI state | Users see wrong text as if it is normal live transcript | UX becomes honest during local inference |
-| P0 | Reduce or explain stop finalization delay | User waits 8-26s with stale/wrong text | Private feels reliable even when CPU is slow |
-| P1 | Full Harvard 10 rerun only after focused P0 passes | Bad full-corpus data wastes time | Clean parity evidence |
-
-## No-Browser Verification Instructions For Next Agent
-
-Use this when a browser run is unavailable. This does not prove product behavior, but it can identify root cause candidates and prevent blind changes.
-
-### 1. Extract timing and transcript evidence from the latest artifact
-
-Artifact:
+Expected dev handoff interface:
 
 ```text
-/private/tmp/speaksharp-stt-corpus-1780341387199.json
+1. Component/state changes named.
+2. Unit tests or component tests for synthetic event sequences:
+   start -> listening
+   provisional "day" -> drafting
+   provisional changes -> still drafting
+   stop -> finalizing
+   final selected -> final styling/save candidate
+3. Clear selectors/data attributes I can assert in browser proof, if new ones are added.
+4. Commit SHA and expected user-visible behavior.
 ```
 
-Command:
-
-```bash
-node - <<'NODE'
-const fs = require('fs');
-const artifact = JSON.parse(fs.readFileSync('/private/tmp/speaksharp-stt-corpus-1780341387199.json', 'utf8'));
-for (const fixture of ['h1_2', 'h1_6']) {
-  const row = artifact.results.find((r) => r.fixture === fixture);
-  console.log('\\n###', fixture);
-  console.log({
-    truth: row.truth,
-    visibleAtStop: row.visibleAtStopTranscript,
-    final: row.postStopTranscript,
-    detail: row.detailTranscript,
-    wer: row.wer,
-    firstText: row.firstText,
-    stopFinalizationMs: row.stopFinalizationMs,
-    processingSpeechLocallyShown: row.processingSpeechLocallyShown,
-  });
-  console.table((row.privateAudioChunks || []).map((chunk) => ({
-    durationSec: chunk.durationSec,
-    rms: chunk.rms,
-    peak: chunk.peak,
-    transcript: chunk.transcript,
-  })));
-  console.table((row.privateTrace || [])
-    .filter((event) => [
-      'speech_start_detected',
-      'process_audio_ready',
-      'model_inference_start',
-      'model_inference_result',
-      'first_transcript_substance_retain',
-      'first_transcript_provisional_partial_emit',
-      'stop_requested',
-      'whole_utterance_commit_start',
-      'whole_utterance_commit_accept',
-      'stop_force_processing_complete',
-    ].includes(event.event))
-    .map((event) => ({
-      event: event.event,
-      epochMs: event.epochMs,
-      perfMs: event.perfMs,
-      preview: event.payload?.preview || event.payload?.rawPreview || '',
-      durationSec: event.payload?.durationSec,
-      rms: event.payload?.rms,
-      samples: event.payload?.samples,
-    })));
-}
-NODE
-```
-
-Expected no-browser finding:
+What I will do with dev results:
 
 ```text
-h1_2 exposes bad draft text: "Basically. Peace too."
-h1_2 final remains wrong: "pepper spurtles"
-h1_6 exposes no useful live text
-h1_6 final remains wrong: "Day, like..."
+I will run headed Private browser proof and capture:
+first feedback ms, first provisional ms, draft/final UI state, visibleAtStop,
+postStopFinal, selectedForSave, save/history/detail, and whether bad draft text
+was visually presented as provisional rather than final.
 ```
 
-### 2. Validate timing math from artifact only
-
-Calculate:
+Bright-line boundary:
 
 ```text
-firstDraftDelay = firstText.timestampMs
-stopDelay = stopFinalizationMs
-wholeDecodeDuration = whole_utterance_commit_accept.epochMs - whole_utterance_commit_start.epochMs
-stopToWholeStart = whole_utterance_commit_start.epochMs - stop_requested.epochMs
+Dev owns implementation and unit/component testing.
+STT testing owns browser timing and UX evidence.
 ```
 
-Expected current values:
+## Open Issue P1 — Full Private Corpus After P0 Fixes
 
-| Fixture | First Draft | Stop Delay | Whole Decode | Stop To Whole Start |
-| --- | ---: | ---: | ---: | ---: |
-| `h1_2` | 7709 ms | 9316 ms | ~3828 ms | ~5074 ms |
-| `h1_6` | null | 8383 ms | ~2919 ms | ~5013 ms |
-
-Interpretation:
+Issue:
 
 ```text
-About 5 seconds after Stop is spent before whole-utterance final decode begins.
-Whole-utterance decode itself takes about 3-4 seconds on this CPU path.
-Together they explain the 8-9 second stop finalization window.
+Only focused app run was executed after the latest changes. Full 10-row app proof
+should wait until h1_6 and interim UX are addressed; otherwise it mostly confirms
+known failures.
 ```
 
-### 3. Inspect code paths without browser
-
-Files/lines to review:
-
-| File | Lines | Why |
-| --- | ---: | --- |
-| `frontend/src/services/transcription/modes/PrivateWhisper.ts` | 780-848 | speech-start gate / preroll / first accepted audio |
-| `frontend/src/services/transcription/modes/PrivateWhisper.ts` | 926-1099 | rolling chunk decode, silence gate, force handling |
-| `frontend/src/services/transcription/modes/PrivateWhisper.ts` | 1266-1301 | weak first transcript hold vs provisional emit |
-| `frontend/src/services/transcription/modes/PrivateWhisper.ts` | 1573-1596 | Stop waits for active inference, then force-processes tail and whole decode |
-| `frontend/src/services/transcription/modes/PrivateWhisper.ts` | 1846-1915 | whole-utterance final decode and commit |
-
-No-browser review questions:
+Dev-agent responsibility:
 
 ```text
-Why is Stop waiting for active rolling inference before whole-utterance decode?
-Can blank/low-energy rolling chunks be skipped faster once Stop is requested?
-Can whole-utterance final decode start sooner?
-Is the final decode audio identical to browser drop-in audio for h1_2/h1_6?
+None until P0.1/P0.2 code changes are ready.
 ```
 
-### 4. Unit-testable checks without browser
-
-Add or run unit tests that do not require Chrome:
+STT test-agent responsibility:
 
 ```text
-1. Timing reducer: given Private trace events, computes firstDraftDelay, stopToWholeStart, wholeDecodeDuration, stopFinalizationMs.
-2. Artifact validator: fails if any focused row has null runtime telemetry, wrong final, or stopFinalizationMs > 8000.
-3. Candidate sanitizer: h1_2/h1_6 final text should not be altered by cleanup.
-4. Status reducer: STOPPING + local finalization must prefer "Processing speech locally..." over "Recording active".
+After P0 fixes, run full h1_1-h1_10 app proof and full drop-in proof from the
+same preview build, then compare against drop-in parity and journey fields.
 ```
 
-These tests will not prove transcription quality, but they will prevent the evidence fields and timing analysis from regressing again.
+## Current Launch Blockers
 
-## Evidence Appendix — Exact Failing Harvard Corpus Rows
-
-Artifact:
-
-```text
-/private/tmp/speaksharp-stt-corpus-1780341387199.json
-```
-
-Run window:
-
-```text
-startedAt: 2026-06-01T19:16:27.200Z
-completedAt: 2026-06-01T19:20:10.110Z
-runnerPass: true
-gatePass: false
-```
-
-### h1_2 — Bad Interim, Slow Final, Wrong Final
-
-Truth:
-
-```text
-Basically, a dash of pepper spoils beef stew.
-```
-
-Observed:
-
-| State | Value |
-| --- | --- |
-| First text | `Basically.` at 7709 ms |
-| Visible at Stop | `Basically. Peace too.` |
-| Post-stop final | `Basically, a dash of pepper spurtles beef stew.` |
-| Detail transcript | `Basically, a dash of pepper spurtles beef stew.` |
-| Error | `spoils -> spurtles` |
-| Accuracy | 87.5% |
-| Stop finalization | 9316 ms |
-
-Raw chunk evidence:
-
-```json
-[
-  {"durationSec":1.041,"rms":0.00861,"peak":0.041458,"transcript":" Basically."},
-  {"durationSec":3,"rms":0.004483,"peak":0.03813,"transcript":" Peace too."},
-  {"durationSec":3,"rms":0.000637,"peak":0.019531,"transcript":" [BLANK_AUDIO]"},
-  {"durationSec":3,"rms":0.000537,"peak":0.00882,"transcript":" [BLANK_AUDIO]"},
-  {"durationSec":1.456,"rms":0.000729,"peak":0.006062,"transcript":" [BLANK_AUDIO]"}
-]
-```
-
-Timing evidence:
-
-```text
-speech_start_detected: 19:17:35.476
-first model_inference_start: 19:17:36.116
-first model_inference_result: 19:17:40.537 -> "Basically."
-first draft emitted: 19:17:40.540
-second result: 19:17:44.389 -> "Peace too."
-Stop clicked: 19:17:50.586
-Processing speech locally visible: 19:17:52.701
-whole_utterance_commit_start: 19:17:55.730
-whole_utterance_commit_accept: 19:17:59.558 -> "Basically, a dash of pepper spurtles beef stew."
-stop_force_processing_complete: 19:17:59.902
-```
-
-Key trace rows:
-
-```json
-{"event":"first_transcript_provisional_partial_emit","preview":"Basically.","reason":"pre_final_threshold","emittedToUi":true}
-{"event":"first_transcript_provisional_partial_emit","preview":"Basically. Peace too.","rawPreview":"Peace too.","reason":"pre_final_threshold","emittedToUi":true}
-{"event":"whole_utterance_commit_accept","rawPreview":" Basically, a dash of pepper spurtles beef stew.","preview":"Basically, a dash of pepper spurtles beef stew."}
-```
-
-Conclusion:
-
-```text
-h1_2 is the clearest Private row where the UI exposed a bad draft and the final whole-utterance decode still failed to converge correctly.
-```
-
-### h1_6 — No Useful Live Text, Slow Final, Wrong Onset
-
-Truth:
-
-```text
-They, like, told wild tales to frighten him.
-```
-
-Observed:
-
-| State | Value |
-| --- | --- |
-| First text | none; harness still saw placeholder/listening |
-| Visible at Stop | `Listening...` |
-| Post-stop final | `Day, like, told Wild Tales to frighten him.` |
-| Detail transcript | `Day, like, told Wild Tales to frighten him.` |
-| Error | `They -> Day` |
-| Accuracy | 87.5% |
-| Stop finalization | 8383 ms |
-
-Raw chunk evidence:
-
-```json
-[
-  {"durationSec":1.073,"rms":0.011706,"peak":0.09054,"transcript":" day."},
-  {"durationSec":3,"rms":0.004228,"peak":0.038502,"transcript":" and"},
-  {"durationSec":3,"rms":0.000412,"peak":0.006038,"transcript":" [BLANK_AUDIO]"},
-  {"durationSec":3,"rms":0.000247,"peak":0.00241,"transcript":" [BLANK_AUDIO]"},
-  {"durationSec":3,"rms":0.000225,"peak":0.001247,"transcript":" [BLANK_AUDIO]"},
-  {"durationSec":3,"rms":0.000242,"peak":0.001036,"transcript":" [BLANK_AUDIO]"},
-  {"durationSec":3,"rms":0.000177,"peak":0.000911,"transcript":" [BLANK_AUDIO]"},
-  {"durationSec":3,"rms":0.00016,"peak":0.000724,"transcript":" [BLANK_AUDIO]"},
-  {"durationSec":0.869,"rms":0.00018,"peak":0.000683,"transcript":" [BLANK_AUDIO]"}
-]
-```
-
-Timing evidence:
-
-```text
-speech_start_detected: 19:18:14.974
-first model_inference_start: 19:18:15.644
-first model_inference_result: 19:18:20.361 -> "day."
-first transcript retained, not emitted: wordCount=1, canEmitPartial=false
-second model_inference_result: 19:18:23.761 -> "and"
-second transcript retained, not emitted: wordCount=1, canEmitPartial=false
-Stop clicked: 19:18:43.705
-Processing speech locally visible: 19:18:46.166
-whole_utterance_commit_start: 19:18:49.134
-whole_utterance_commit_accept: 19:18:52.053 -> "Day, like, told Wild Tales to frighten him."
-stop_force_processing_complete: 19:18:52.088
-```
-
-Key trace rows:
-
-```json
-{"event":"first_transcript_substance_retain","preview":" day.","wordCount":1,"minWords":4,"rms":0.011706,"minRms":0.05,"canEmitPartial":false}
-{"event":"first_transcript_substance_retain","preview":" and","wordCount":1,"minWords":4,"rms":0.009414,"minRms":0.05,"canEmitPartial":false}
-{"event":"whole_utterance_commit_accept","rawPreview":" Day, like, told Wild Tales to frighten him.","preview":"Day, like, told Wild Tales to frighten him."}
-```
-
-Conclusion:
-
-```text
-h1_6 failed badly as a user experience because no useful live text appeared, then the final arrived late and still had the wrong onset.
-```
-
-## Code Evidence
-
-### Speech-start gate and buffering
-
-File: `frontend/src/services/transcription/modes/PrivateWhisper.ts`
-
-Relevant lines: 780-848.
-
-```ts
-if (!this.hasDetectedSpeech) {
-  this.recordSpeechGateFrame(energy, isSpeechFrame);
-  ...
-  if (this.consecutiveSpeechSamples >= SPEECH_START_MIN_SAMPLES) {
-    this.hasDetectedSpeech = true;
-    this.audioChunks = [
-      ...this.prerollAudioChunks.map((chunk) => chunk.slice(0)),
-      ...this.speechStartAudioChunks.map((chunk) => chunk.slice(0)),
-    ];
-    this.appendUtteranceAudio(this.audioChunks);
-    pushPrivateTimeline('speech_start_detected', ...);
-  }
-}
-```
-
-Why it matters:
-
-```text
-h1_2 and h1_6 both start with short, low-energy first chunks. The first accepted audio was about 1.0 second, and the model produced weak first guesses.
-```
-
-### Rolling live decode and silence/low-energy gates
-
-Relevant lines: 926-1099.
-
-```ts
-pushPrivateTimeline('process_audio_ready', ...);
-...
-const isBufferSilent = energy.rms < SESSION_PAUSE.SILENCE_RMS_THRESHOLD;
-const isLowEnergyPauseTail = isMeaningfullySilent && energy.rms < SESSION_PAUSE.SILENCE_RMS_THRESHOLD * 3;
-const isPostTranscriptLowEnergy = hasTranscript && energy.rms < SESSION_PAUSE.SILENCE_RMS_THRESHOLD * 3;
-...
-const processedAudio = force ? concatenated : this.capLiveDecodeWindow(concatenated);
-this.clearAudioBuffer();
-const result = await this.privateSTT.transcribe(processedAudio);
-```
-
-Why it matters:
-
-```text
-Live UI is fed by rolling chunks. In h1_2 the second rolling chunk decoded as "Peace too"; in h1_6 rolling chunks decoded as "day" and "and" and were mostly withheld.
-```
-
-### First-transcript hold and provisional emit
-
-Relevant lines: 1266-1301.
-
-```ts
-if (!canPromoteToFinal) {
-  pushPrivateTimeline('first_transcript_substance_retain', ...);
-  if (canEmitPartial) {
-    this.emitProvisionalPartial(newText, 'pre_final_threshold');
-  }
-  this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'first_transcript_substance');
-  return;
-}
-```
-
-Why it matters:
-
-```text
-h1_2 emitted weak provisional text to the UI. h1_6 withheld weak one-word outputs, leaving the user with no useful live text.
-```
-
-### Stop-time final decode
-
-Relevant lines: 1573-1605 and 1846-1915.
-
-```ts
-while (this.isProcessing && performance.now() - waitStartedAt < TRANSCRIPTION_TIMEOUT_MS) {
-  await new Promise((resolve) => setTimeout(resolve, 10));
-}
-...
-this.onStatusChange?.({ message: 'Processing speech locally…' });
-await this.processAudio({ force: true });
-await this.commitWholeUtteranceTranscript();
-...
-const result = await this.privateSTT.transcribe(audio);
-const transcript = sanitizePrivateTranscriptCandidate(rawText);
-this.wholeUtteranceTranscript = transcript;
-this.currentTranscript = transcript;
-this.onTranscriptUpdate?.({ transcript: { final: transcript } });
-```
-
-Why it matters:
-
-```text
-The app waits for any active live inference, runs forced tail processing, then runs a whole-utterance decode. This explains why final text appears much later than first draft. In h1_2/h1_6, that final decode still produced wrong text.
-```
-
-## Current Verdict
-
-```text
-Private STT is journey-functional but not parity-green.
-Do not claim Private meets or exceeds drop-in vendor behavior.
-Do not rely on a stall/progress UI until final text is consistently correct.
-```
+| Blocker | Owner | Launch Impact |
+| --- | --- | --- |
+| h1_6 app-worse final quality | Dev fix, STT browser verify | Blocks Private as a brag-worthy/local privacy STT. |
+| Late/unstable interim UI | Dev implementation, STT browser verify | Blocks acceptable live UX even when final is eventually good. |

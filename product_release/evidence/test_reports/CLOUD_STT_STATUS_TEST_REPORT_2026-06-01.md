@@ -1,81 +1,30 @@
-# Cloud STT Status Test Report — Latest State, 2026-06-01
+# Cloud STT Status Test Report — Current Open Work, 2026-06-01
 
----
-
-## ⇄ DEV → TEST AGENT REVIEW REQUEST (2026-06-01)
-
-**What dev changed (merged to main):** `scripts/assemblyai-streaming-ab-proof.mts`
-no longer scores invalid empty/no-Termination sessions as real 0% rows — they are
-classified invalid and excluded from averages; summaries now report
-`validRowCount`/`invalidRowCount`/`invalidReasons`/`evidenceValid` and capture
-`closeCode`/`closeReason`/`firstMessageRaw`/`messageCount`.
-
-**What dev verified (no browser):** against the real artifact `assemblyai-ab-26776256219` —
-baseline 5 valid/5 invalid; keyterms/prompt/prompt+keyterms 10/10 invalid →
-`evidenceValid=false` instead of "0%".
-
-**What dev needs the test agent to verify (live, I cannot run — needs credentials):**
-rerun a small VALID A/B subset to actually prove prompt/keyterms filler behavior on
-non-empty sessions. The runner no longer poisons averages but cannot manufacture
-valid provider sessions.
-
----
-
-## DEV UPDATE (2026-06-01, post-report) — A/B invalid-session detection landed
-
-Addressed the P0 "A/B runner treats invalid provider sessions as real 0% rows".
-
-`scripts/assemblyai-streaming-ab-proof.mts` now:
-- captures `closeCode`, `closeReason`, `firstMessageRaw`, `messageCount` per session;
-- `classifyInvalidSession` flags empty+no-Termination and empty single-message
-  sessions as invalid (provider/script defects, not model results);
-- variant summaries EXCLUDE invalid rows from WER/filler averages and report
-  `validRowCount` / `invalidRowCount` / `invalidReasons` / `evidenceValid`.
-
-Verified (no browser) against the real artifact `assemblyai-ab-26776256219`:
-baseline = 5 valid / 5 invalid; keyterms, prompt, prompt+keyterms = 10/10 invalid
-(empty, 0 Terminations) → now `evidenceValid=false` instead of a misleading "0%".
-
-Still required (test agent): rerun a small VALID A/B subset with real credentials to
-actually prove prompt/keyterms filler behavior on non-empty sessions. The runner no
-longer poisons averages, but it cannot manufacture valid provider sessions.
-
----
-
-## Executive Summary
-
-Cloud STT remains the strongest SpeakSharp STT path, but the latest credentialed A/B verification failed as an evidence run. The app path is near AssemblyAI's corrected streaming target, but filler-preservation validation is not complete because the A/B runner produced invalid empty rows for prompt/keyterms variants.
-
-Current classification:
+## Current Verdict
 
 ```text
-Cloud product journey: strongest current STT path
-Cloud accuracy: near corrected AssemblyAI streaming target
-Cloud A/B filler proof: FAIL / INVALID EVIDENCE
-Cloud drop-in parity: not fully proven with latest trace schema
+Cloud STT: strongest current STT path, but not fully release-proven
+Evidence type: prior app corpus + provider A/B artifact with invalid-session handling
+Primary blockers: valid prompt/keyterms A/B, filler recall proof, current app trace proof
 ```
 
-## Latest Evidence
-
-Credentialed A/B workflow:
+Current artifacts:
 
 ```text
-Controlled STT Benchmarks, run 26776256219
+Prior app corpus:      /private/tmp/speaksharp-cloud-harvard10-app.json
+Prior provider A/B:    /private/tmp/assemblyai-ab-26776256219/assemblyai-streaming-ab-proof.json
 ```
 
-Downloaded artifact:
+Completed or obsolete items removed from this report:
 
 ```text
-/private/tmp/assemblyai-ab-26776256219/assemblyai-streaming-ab-proof.json
+A/B invalid empty sessions being scored as real 0% rows: fixed.
+closeCode/closeReason/firstMessageRaw/messageCount capture: implemented.
+Summary validRowCount/invalidRowCount/evidenceValid fields: implemented.
+Cloud 95% batch target mismatch: superseded by corrected streaming target.
 ```
 
-Latest app corpus reference still used for current status:
-
-```text
-/private/tmp/speaksharp-cloud-harvard10-app.json
-```
-
-## Current Cloud Accuracy Status
+## Current Accuracy Context
 
 Latest available SpeakSharp Cloud app corpus:
 
@@ -94,181 +43,223 @@ WER: 8.14%
 Interpretation:
 
 ```text
-Cloud app is within 0.33 percentage points of the corrected streaming target.
-This is near target, not a broad Cloud integration failure.
+Cloud is near the corrected AssemblyAI streaming target. It is not currently a
+broad integration failure. The remaining work is validation, filler preservation,
+and full boundary proof.
 ```
 
-## Latest Credentialed A/B Result
+## Open Issue P0.1 — Valid AssemblyAI Prompt/Keyterms A/B
 
-The A/B run had real credentials, but the artifact is not valid proof of prompt/keyterm behavior.
-
-| Variant | Rows | Average Accuracy | Average Filler Recall | Result |
-| --- | ---: | ---: | ---: | --- |
-| baseline | 10 | 47.78% | 45% | partially valid; first five rows transcribed, last five empty |
-| keyterms | 10 | 0% | 0% | invalid; all rows empty |
-| prompt | 10 | 0% | 0% | invalid; all rows empty |
-| prompt + keyterms | 10 | 0% | 0% | invalid; all rows empty |
-
-Example rows:
-
-| Variant | Fixture | Transcript | Termination Seen | Accuracy |
-| --- | --- | --- | --- | ---: |
-| baseline | `h1_1` | The stale smell of old beer, like, lingers. | yes | 88.89% |
-| baseline | `h1_2` | Basically, a dash of pepper spoils beef stew. | yes | 100% |
-| baseline | `h1_6` | empty | no | 0% |
-| keyterms | `h1_1` | empty | no | 0% |
-| prompt | `h1_1` | empty | no | 0% |
-| prompt + keyterms | `h1_1` | empty | no | 0% |
-
-The repeated failure shape:
+Issue:
 
 ```text
-empty transcript
-turnCount=1
-terminationSeen=false
+Prior A/B run had valid credentials, but keyterms/prompt variants returned empty
+or no-Termination sessions. The script now marks those rows invalid instead of
+scoring them as real model failures, but valid prompt/keyterms behavior is still
+not proven.
 ```
 
-This should be treated as a verification/script defect until provider close/error details prove otherwise.
-
-## Current Blockers
-
-### P0 — A/B Runner Treats Invalid Provider Sessions As Real Zero-Accuracy Rows
-
-The runner currently scores empty rows as WER=`1` even when the stream never reaches `Termination` and no usable Turn transcript arrives.
-
-Consequence if not fixed:
-
-We may reject good Cloud behavior or accept bad prompt/keyterm behavior based on invalid A/B data. Reviewers cannot trust filler-preservation conclusions.
-
-Benefit of fixing:
-
-Cloud prompt/keyterms can be judged on valid provider sessions only, with close codes and provider messages explaining failures.
-
-Required fix:
+Dev-agent responsibility:
 
 ```text
-Mark close-without-Termination, no usable Turn, or one-message empty sessions as invalid.
-Capture WebSocket close code/reason and raw first provider message.
-Do not include invalid rows in WER/filler averages.
+None unless the next credentialed run shows a concrete script/provider request
+construction bug. Do not refactor Cloud architecture preemptively.
 ```
 
-> **DEV RESPONSE (2026-06-01): FIXED — exactly to your spec.** `assemblyai-streaming-ab-proof.mts`
-> now: `classifyInvalidSession` marks empty+no-Termination and empty single-message
-> sessions invalid; captures `closeCode`/`closeReason`/`firstMessageRaw`/`messageCount`;
-> variant summaries exclude invalid rows from averages and report `validRowCount`/
-> `invalidRowCount`/`invalidReasons`/`evidenceValid`. Verified against the real artifact
-> `assemblyai-ab-26776256219`: baseline 5 valid/5 invalid; keyterms/prompt/prompt+keyterms
-> 10/10 invalid → `evidenceValid=false` instead of "0%". Ready for your next A/B run.
+STT test-agent responsibility:
 
-### P0 — Prompt/Keyterms Variant Is Not Proven
+```text
+Run a small credentialed A/B subset with real AssemblyAI credentials available
+in the environment. This is testing work, not dev work.
+```
 
-All keyterms/prompt variants returned empty rows in the latest artifact.
+Required variants:
 
-Consequence if not fixed:
-
-We cannot claim the AssemblyAI prompt/keyterms work improves filler preservation. Worse, if the app uses a variant that provider streaming rejects or degrades, Cloud's strongest path could be damaged.
-
-Benefit of fixing:
-
-We can safely decide whether to use baseline, keyterms, prompt, or prompt+keyterms for Cloud filler preservation.
-
-Required proof:
-
-| Fixture Type | Required |
+| Variant | Purpose |
 | --- | --- |
-| `h1_1` | filler-leading Harvard row |
-| `h1_6` | filler/onset-sensitive Harvard row |
-| `h1_8` | `like` preservation row |
-| filler-heavy conversational script | SpeakSharp product value |
-| clean non-filler script | regression guard |
+| `baseline` | Current default/control |
+| `keyterms` | Keyterm boosting only |
+| `prompt` | Verbatim/disfluency instruction only |
+| `prompt_keyterms` | Candidate combined behavior |
 
-> **DEV RESPONSE (2026-06-01):** Unblocked, not proven — yours to run. The runner no
-> longer poisons averages, so a re-run can now actually judge prompt/keyterms on valid
-> sessions. But I cannot manufacture valid provider sessions (needs credentials/live WS).
-> Please run a small VALID A/B subset; if variants still come back all-invalid, the
-> `closeCode`/`firstMessageRaw` fields I added will show the provider's reason.
-
-### P0 — Filler Preservation Is Not Proven
-
-Current Cloud app evidence still shows missed fillers in key rows:
-
-| Fixture | Truth Concern | Cloud Output Issue |
-| --- | --- | --- |
-| `h1_1` | `Um`, `like` | `Um` missed; `like` became `light` |
-| `h1_6` | `They, like...` | beginning/filler dropped |
-| `h1_8` | `like` | `like` dropped |
-
-Consequence if not fixed:
-
-Cloud may be accurate in general but miss the exact filler/disfluency signals SpeakSharp is supposed to coach.
-
-Benefit of fixing:
-
-Cloud becomes the first STT path we can credibly brag about: strong transcription plus SpeakSharp-relevant filler recall.
-
-> **DEV RESPONSE (2026-06-01):** Not addressed by code — this is a measurement gap that
-> depends on the valid A/B re-run above, not an app change. Filler recall can only be
-> judged once variants produce valid (non-empty) sessions. No dev action until that run
-> exists; then if fillers are genuinely dropped we can look at provider params vs app
-> handling.
-
-### P1 — Current Shared Trace Schema Is Not Yet Proven For Cloud Corpus
-
-The latest Cloud A/B artifact is provider-level, not a full app journey trace.
-
-Required fields for next app proof:
+Required fixtures:
 
 ```text
-engine/provider message received
-service normalized event
-controller lifecycle update
-store update
-UI visible before stop
-stopSelectedSource
-savedTranscriptLength
-historyVisible
-detailVisible
-firstBrokenBoundary
+h1_1
+h1_6
+h1_8
+one filler-heavy conversational script
+one clean non-filler script
 ```
 
-Consequence if not fixed:
+Required output:
 
-Cloud may pass transcription but still lack the same boundary proof required of Native and Private.
+| Field | Required |
+| --- | --- |
+| transcript | yes |
+| WER / accuracy | yes |
+| expected fillers | yes |
+| recognized fillers | yes |
+| filler recall | yes |
+| false filler insertions | yes |
+| tail preserved | yes |
+| invalidSession / invalidReason | yes |
+| closeCode / closeReason / firstMessageRaw | yes, especially on invalid rows |
 
-Benefit:
-
-All STTs can be compared with the same evidence standard.
-
-## Drop-In / Vendor Parity Status
-
-Cloud is close to published streaming target, but latest A/B/drop-in parity is not complete.
-
-| Target | Current Cloud Status | Verdict |
-| --- | --- | --- |
-| AssemblyAI corrected streaming target | App corpus is within -0.33pp accuracy | near target |
-| Direct provider/drop-in behavior | A/B evidence invalid for prompt/keyterms | not proven |
-| SpeakSharp product journey | strongest current product path | needs fresh trace-complete proof |
-| Filler preservation | current evidence misses fillers | not proven |
-
-What prevents Cloud from being the pristine STT today:
-
-1. The A/B runner produced invalid empty sessions for prompt/keyterms variants.
-2. Filler recall is not proven.
-3. The latest provider A/B does not include the full app boundary trace.
-
-## Immediate Development Needs
-
-| Priority | Need | Consequence If Missing | Benefit If Fixed |
-| --- | --- | --- | --- |
-| P0 | Harden A/B runner invalid-session detection | Bad averages drive wrong provider decisions | Trustworthy Cloud validation |
-| P0 | Capture provider close/error details | Empty rows remain unexplained | Clear root cause for prompt/keyterms failures |
-| P0 | Rerun small valid A/B subset before full matrix | 40 rapid sessions can hide/rate-limit failures | Fast, reliable filler proof |
-| P1 | Rerun Cloud app corpus with shared trace fields | Cloud cannot be compared apples-to-apples | Complete release evidence |
-
-## Current Verdict
+What I will do with the result:
 
 ```text
-Cloud remains the best candidate for one pristine STT.
-Do not refactor Cloud architecture without a concrete app-path bug.
-Fix the A/B evidence path and prove filler recall before claiming Cloud is complete.
+If prompt/keyterms variants are valid and improve filler recall without harming
+clean transcription, I will mark Cloud A/B as passing and recommend the best
+variant.
+
+If variants remain invalid, I will hand dev the close/reason/provider payload so
+they can fix request construction or provider compatibility.
 ```
+
+Bright-line boundary:
+
+```text
+Credentials and live provider A/B are STT testing.
+Provider request construction bugs are dev work only after live evidence proves them.
+```
+
+## Open Issue P0.2 — Cloud Filler Preservation
+
+Issue:
+
+```text
+Cloud is generally accurate, but current evidence does not prove it preserves
+the filler/disfluency signals SpeakSharp cares about.
+```
+
+Known concerns from prior evidence:
+
+| Fixture | Concern |
+| --- | --- |
+| `h1_1` | `Um` missed; `like` fragile |
+| `h1_6` | onset/filler fragile |
+| `h1_8` | `like` preservation fragile |
+
+Dev-agent responsibility:
+
+```text
+None until the valid A/B run identifies whether the selected provider params are
+wrong. Do not tune Cloud blindly.
+```
+
+STT test-agent responsibility:
+
+```text
+Measure filler recall and false filler insertion in the credentialed A/B and
+app proof runs.
+```
+
+Expected handoff if it fails:
+
+```text
+I will provide per-variant transcripts and filler counts showing exactly which
+fillers were missed or inserted. Dev can then adjust AssemblyAI prompt/keyterms
+construction or product expectations.
+```
+
+Scope limit if Cloud dev work becomes necessary:
+
+```text
+Do not ask dev to "improve Cloud accuracy" broadly.
+If A/B fails, hand dev only the worst one or two concrete rows/variants.
+Expected likely focus rows: h1_1, h1_6, h1_8, or the filler-heavy script.
+```
+
+Example acceptable dev deliverable after a failed A/B:
+
+```text
+Root cause found:
+The prompt+keyterms variant is rejected or silently closed by AssemblyAI streaming
+when keyterms_prompt is JSON-encoded in the current URL shape. Provider evidence:
+closeCode=<code>, firstMessageRaw=<message>, invalidReason=<reason>.
+
+Code changed:
+- AssemblyAICloudProvider.ts or assemblyai-streaming-ab-proof.mts: request
+  construction adjusted to match AssemblyAI v3 streaming expectations.
+
+Unit/no-browser proof:
+- buildWebSocketUrl emits the exact expected query parameters for baseline,
+  keyterms, prompt, and prompt+keyterms.
+- invalid-session classifier still excludes empty/no-Termination sessions.
+
+Expected live-observable change:
+prompt/keyterms variants produce valid non-empty sessions for h1_1/h1_6/h1_8,
+with filler recall reported.
+
+Files changed:
+<list files + commit SHA>
+```
+
+Example unacceptable dev deliverable:
+
+```text
+"Changed the Cloud prompt; try it again."
+```
+
+Why unacceptable:
+
+```text
+It does not identify the failing provider variant, does not cite close/provider
+evidence, and does not tell STT testing which row/metric should improve.
+```
+
+## Open Issue P1 — Trace-Complete Cloud App Proof
+
+Issue:
+
+```text
+The latest Cloud provider A/B artifact is provider-level. Cloud still needs a
+fresh app proof using the shared boundary schema.
+```
+
+Required app trace fields:
+
+| Field | Required |
+| --- | --- |
+| engine/provider message received | yes |
+| service normalized event | yes |
+| controller lifecycle update | yes |
+| store update | yes |
+| UI visible before stop | yes |
+| stopSelectedSource | yes |
+| savedTranscriptLength | yes |
+| historyVisible | yes |
+| detailVisible | yes |
+| firstBrokenBoundary | if failed |
+
+Dev-agent responsibility:
+
+```text
+Only add instrumentation if the app proof cannot capture these fields from the
+current harness.
+```
+
+STT test-agent responsibility:
+
+```text
+Run the Cloud app proof and report the trace fields. If a field is missing due
+to harness/instrumentation limitations, identify the exact missing field and
+where it should be emitted.
+```
+
+What I will do with the result:
+
+```text
+If Cloud passes A/B and trace-complete app proof, I will classify Cloud as the
+first candidate STT path for launch/bragging, subject to any remaining product
+journey checks.
+```
+
+## Cloud Launch Blockers
+
+| Blocker | Owner | Launch Impact |
+| --- | --- | --- |
+| Valid prompt/keyterms A/B not run after invalid-session fix | STT test agent | Cannot choose or reject filler-preservation variant. |
+| Filler recall not proven | STT test agent first; dev if provider params fail | Cannot claim SpeakSharp-quality filler coaching for Cloud. |
+| Trace-complete app proof stale/missing | STT test agent first; dev only if instrumentation missing | Cannot compare Cloud to Native/Private under same lifecycle contract. |
