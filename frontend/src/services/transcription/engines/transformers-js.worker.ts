@@ -1,4 +1,5 @@
 import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
+import { computeWasmThreadCount, getHardwareThreads, isCrossOriginIsolated } from '../utils/wasmThreads';
 
 type Pipeline = Awaited<ReturnType<typeof import('@xenova/transformers')['pipeline']>>;
 
@@ -10,7 +11,7 @@ type WorkerRequest =
 type WorkerResponse =
     | { id: number; type: 'ready' }
     | { id: number; type: 'progress'; progress: number }
-    | { id: number; type: 'loaded'; loadTimeMs: number; model: string }
+    | { id: number; type: 'loaded'; loadTimeMs: number; model: string; device: string; threads: number; crossOriginIsolated: boolean }
     | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string }
     | { id: number; type: 'destroyed' }
     | { id: number; type: 'error'; errorName: string; errorMessage: string };
@@ -64,6 +65,27 @@ async function init(id: number, isE2E: boolean): Promise<void> {
     env.allowRemoteModels = false;
     env.useBrowserCache = true;
 
+    // PERF (P3): The ONNX WASM backend defaults to a single thread, which is the
+    // dominant reason CPU Whisper decodes take tens of seconds and no live text
+    // appears while a decode is blocked. Multi-threaded WASM requires the worker
+    // to be cross-origin isolated (COOP/COEP). The shared `computeWasmThreadCount`
+    // policy degrades to 1 thread (the guaranteed CPU floor) when isolation is
+    // unavailable, so this is safe everywhere. Telemetry below reports the actual
+    // device/threads so release proof can confirm which CPU tier ran.
+    let cpuThreads = 1;
+    const cpuIsolated = isCrossOriginIsolated();
+    try {
+        const wasmBackend = env.backends?.onnx?.wasm;
+        if (wasmBackend) {
+            cpuThreads = computeWasmThreadCount(cpuIsolated, getHardwareThreads());
+            wasmBackend.numThreads = cpuThreads;
+            wasmBackend.simd = true;
+        }
+    } catch {
+        // Non-fatal: fall back to library defaults (single-threaded).
+        cpuThreads = 1;
+    }
+
     const progress_callback = (data: { progress?: number }) => {
         if (data.progress !== undefined) {
             post({ id, type: 'progress', progress: data.progress });
@@ -98,6 +120,9 @@ async function init(id: number, isE2E: boolean): Promise<void> {
         type: 'loaded',
         loadTimeMs: Math.round(performance.now() - loadStart),
         model: 'whisper-tiny.en',
+        device: cpuThreads > 1 ? 'wasm-multithread' : 'wasm-singlethread',
+        threads: cpuThreads,
+        crossOriginIsolated: cpuIsolated,
     });
     await warmUpTranscriber();
     post({ id, type: 'ready' });

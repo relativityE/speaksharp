@@ -30,7 +30,7 @@ type UnknownRecord = Record<string, unknown>;
 type WorkerResponse =
     | { id: number; type: 'ready' }
     | { id: number; type: 'progress'; progress: number }
-    | { id: number; type: 'loaded'; loadTimeMs: number; model: string }
+    | { id: number; type: 'loaded'; loadTimeMs: number; model: string; device?: string; threads?: number; crossOriginIsolated?: boolean }
     | { id: number; type: 'result'; transcript: string; latencyMs: number; audioLengthSeconds: number; resultShape: string }
     | { id: number; type: 'destroyed' }
     | { id: number; type: 'error'; errorName: string; errorMessage: string };
@@ -484,6 +484,9 @@ export class TransformersJSEngine extends STTEngine {
                     model: response.model,
                     load_time_ms: response.loadTimeMs,
                     engine: 'transformersjs-worker',
+                    device: response.device,
+                    threads: response.threads,
+                    crossOriginIsolated: response.crossOriginIsolated,
                 }, '[TransformersJS] Worker engine initialized successfully.');
                 return;
             }
