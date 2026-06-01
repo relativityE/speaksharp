@@ -150,7 +150,9 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(gotType, `[TRACE-PSTT] wrong engine type — ${traceEnv}, gotType=${gotType}`).toBe('mock');
     });
 
-    it('selects TransformersJSEngine by default even when WebGPU is available', async () => {
+    it('stays on TransformersJSEngine when navigator.gpu lacks a usable adapter', async () => {
+        // navigator.gpu present but WITHOUT requestAdapter is NOT real WebGPU
+        // support; detectWebGPUSupport must treat it as unsupported and keep CPU.
         if (window.__SS_E2E__) {
             window.__SS_E2E__.isActive = true;
             window.__SS_E2E__.engineType = 'real';
@@ -161,6 +163,73 @@ describe('PrivateSTT (Routing Logic)', () => {
         pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
         await pstt.init();
 
+        expect(pstt.getEngineType()).toBe('transformers-js');
+        expect(mockWTEInit).not.toHaveBeenCalled();
+    });
+
+    it('auto-promotes to WhisperTurbo when WebGPU is usable and the turbo model is cached', async () => {
+        if (window.__SS_E2E__) {
+            window.__SS_E2E__.isActive = true;
+            window.__SS_E2E__.engineType = 'real';
+        }
+        Object.defineProperty(navigator, 'gpu', {
+            value: { requestAdapter: vi.fn().mockResolvedValue({ name: 'mock-adapter' }) },
+            writable: true,
+            configurable: true,
+        });
+        const { ModelManager } = await import('../../ModelManager');
+        vi.spyOn(ModelManager, 'isModelDownloaded').mockResolvedValue(true);
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        expect(pstt.getEngineType()).toBe('whisper-turbo');
+        expect(mockWTEInit).toHaveBeenCalledOnce();
+    });
+
+    it('stays on CPU when WebGPU is usable but the turbo model is NOT cached (no surprise download)', async () => {
+        if (window.__SS_E2E__) {
+            window.__SS_E2E__.isActive = true;
+            window.__SS_E2E__.engineType = 'real';
+        }
+        Object.defineProperty(navigator, 'gpu', {
+            value: { requestAdapter: vi.fn().mockResolvedValue({ name: 'mock-adapter' }) },
+            writable: true,
+            configurable: true,
+        });
+        const { ModelManager } = await import('../../ModelManager');
+        vi.spyOn(ModelManager, 'isModelDownloaded').mockResolvedValue(false);
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        await pstt.init();
+
+        expect(pstt.getEngineType()).toBe('transformers-js');
+        expect(mockWTEInit).not.toHaveBeenCalled();
+    });
+
+    it('falls back to CPU automatically when the auto-promoted GPU engine fails to initialize', async () => {
+        if (window.__SS_E2E__) {
+            window.__SS_E2E__.isActive = true;
+            window.__SS_E2E__.engineType = 'real';
+        }
+        Object.defineProperty(navigator, 'gpu', {
+            value: { requestAdapter: vi.fn().mockResolvedValue({ name: 'mock-adapter' }) },
+            writable: true,
+            configurable: true,
+        });
+        const { ModelManager } = await import('../../ModelManager');
+        vi.spyOn(ModelManager, 'isModelDownloaded').mockResolvedValue(true);
+        mockWTEInit.mockResolvedValueOnce({ isOk: false, error: new Error('WebGPU lost') });
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn() });
+        const result = await pstt.init();
+
+        expect(result.isOk).toBe(true);
+        expect(mockWTEInit).toHaveBeenCalledOnce();
+        expect(mockTJInit).toHaveBeenCalledOnce();
         expect(pstt.getEngineType()).toBe('transformers-js');
     });
 

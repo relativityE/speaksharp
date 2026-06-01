@@ -12,15 +12,20 @@
  * ============================================================================
  * 
  * Main entry point for Private STT. Automatically selects the best engine:
- * 
- * 1. In CI/Playwright: Forces TransformersJSEngine (safe)
- * 2. In production: Uses deterministic TransformersJS CPU path by default
- *    WebGPU/WhisperTurbo remains available through explicit engine override.
- * 
+ *
+ * 1. In CI/Playwright/unit (ENV.disableWasm): Forces TransformersJSEngine (safe).
+ * 2. Explicit override (forceEngine / ?privateEngine / localStorage): runs that
+ *    engine strictly, with NO automatic fallback.
+ * 3. Default (auto) path: promotes to WhisperTurbo (WebGPU) only when WebGPU is
+ *    genuinely usable AND the turbo model is already cached, otherwise stays on
+ *    the CPU TransformersJSEngine. If the GPU engine fails to initialize, it
+ *    falls back automatically to the CPU engine — never to cloud.
+ *
  * DESIGN PRINCIPLES:
  * - Single API: App only sees PrivateSTT.init() and transcribe()
  * - Lazy loading: Heavy WASM imported only when needed
- * - Automatic fallback: User never notices engine switch
+ * - Automatic fallback: fast GPU when available, safe CPU otherwise; on-device
+ *   only — audio is never sent off-device as a fallback (privacy promise).
  * 
  * @see docs/ARCHITECTURE.md - "Dual-Engine Private STT"
  */
@@ -37,6 +42,8 @@ import { getEngine } from '@/services/transcription/STTRegistry';
 import { PRIV_STT_V4 } from '../sttConstants';
 import { getDefaultProviderForMode, getProviderIdsForMode } from '../providers/sttProviderConfig';
 import type { PrivateSttProvider } from '../providers/types';
+import { ENV } from '@/config/TestFlags';
+import { resolvePrivateRuntimePath, type PrivateRuntimeDecision } from '../utils/privateRuntimePath';
 // Stale import removed
 
 const PRIVATE_ENGINE_OVERRIDE_KEY = 'speaksharp.private.engine';
@@ -85,6 +92,7 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
     protected _engineType: EngineType | 'mock' | null = null;
     protected serviceId: string = 'unknown';
     protected runId: string = 'unknown';
+    private runtimePath: PrivateRuntimeDecision | null = null;
 
     /**
      * PrivateSTT manages the dual-engine strategy for on-device transcription.
@@ -142,9 +150,86 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
             return Result.ok(undefined);
         }
 
-        logger.info({ sId: this.serviceId, rId: this.runId, provider: selectedEngine, source: overrideEngine ? 'override' : 'config' }, '[PrivateSTT] Initializing configured private provider');
-        const res = await this.initSelectedEngine(selectedEngine, timeoutMs, isMock);
-        return res.isOk ? Result.ok(undefined) : (res as Result<void, Error>);
+        // EXPLICIT OVERRIDE PATH (forceEngine / ?privateEngine / localStorage):
+        // strict, no automatic fallback. A user/test that explicitly demands an
+        // engine must get exactly that engine or a hard failure — this preserves
+        // the v4 contract ("failed explicit init does not silently fall back").
+        if (overrideEngine) {
+            logger.info({ sId: this.serviceId, rId: this.runId, provider: selectedEngine, source: 'override' }, '[PrivateSTT] Initializing explicitly overridden private provider');
+            const res = await this.initSelectedEngine(selectedEngine, timeoutMs, isMock);
+            return res.isOk ? Result.ok(undefined) : (res as Result<void, Error>);
+        }
+
+        // DEFAULT (AUTO) PATH — the dual-engine promise:
+        //   fast GPU (whisper-turbo) when WebGPU is genuinely usable AND already
+        //   cached, with a GUARANTEED automatic fall back to the safe CPU engine
+        //   (transformers-js) on absence, init failure, or any error. This is how
+        //   Private STT was sold: never strand a user without on-device STT, and
+        //   never silently send audio off-device (cloud is never a fallback).
+        const autoEngine = await this.resolveAutoPrivateEngine(selectedEngine);
+        logger.info({ sId: this.serviceId, rId: this.runId, provider: autoEngine, configured: selectedEngine, source: 'auto' }, '[PrivateSTT] Initializing auto-selected private provider');
+        const primary = await this.initSelectedEngine(autoEngine, timeoutMs, isMock);
+        if (primary.isOk) {
+            return Result.ok(undefined);
+        }
+
+        // Guaranteed CPU fallback: only when the auto path tried the GPU engine.
+        // If the configured default itself failed, there is nothing safer to try,
+        // so surface that error rather than loop.
+        if (autoEngine === 'whisper-turbo' && selectedEngine !== 'whisper-turbo') {
+            const fallbackEngine: SelectedPrivateEngine = isPrivateEngineProvider(selectedEngine) ? selectedEngine : 'transformers-js';
+            logger.warn({ sId: this.serviceId, rId: this.runId, failed: autoEngine, fallback: fallbackEngine, err: (primary as { error?: Error }).error }, '[PrivateSTT] GPU engine unavailable — falling back to CPU engine');
+            // Discard any partially-initialized GPU engine before retrying.
+            await this.onDestroy();
+            const fallback = await this.initSelectedEngine(fallbackEngine, timeoutMs, isMock);
+            return fallback.isOk ? Result.ok(undefined) : (fallback as Result<void, Error>);
+        }
+
+        return primary as Result<void, Error>;
+    }
+
+    /**
+     * Structured runtime path chosen on the DEFAULT (auto) path: which provider
+     * + device + thread tier Private STT resolved to. Null until init runs, or on
+     * the explicit-override path (which bypasses the resolver). Exposed for UX
+     * copy, telemetry, and release proof — never includes a Cloud option.
+     */
+    public getRuntimePath(): PrivateRuntimeDecision | null {
+        return this.runtimePath;
+    }
+
+    /**
+     * Decide which engine the DEFAULT (non-override) path should attempt first,
+     * via the single deterministic runtime-path resolver. CPU is the product
+     * FLOOR; WebGPU is acceleration only.
+     *
+     * Promotes to whisper-turbo (WebGPU) only when ALL of the following hold:
+     *   - the configured default is the standard CPU engine (`transformers-js`),
+     *   - we are NOT in a CI/unit/E2E-forced-CPU context (`ENV.disableWasm`),
+     *   - WebGPU is genuinely usable (real adapter, not merely `navigator.gpu`),
+     *   - the turbo model is ALREADY cached (no surprise ~75MB download).
+     *
+     * Otherwise it resolves to a CPU tier (multi-thread when cross-origin
+     * isolated, else single-thread) and returns the configured CPU engine. The
+     * resolved path is stored for telemetry/UX. No-WebGPU / no-turbo-cache users
+     * (and all tests) keep today's exact CPU behavior; the caller still
+     * guarantees CPU fallback if a promoted GPU engine fails to init.
+     */
+    private async resolveAutoPrivateEngine(configured: SelectedPrivateEngine): Promise<SelectedPrivateEngine> {
+        // WebGPU promotion is only *considered* on the standard CPU default and
+        // outside CI/forced-CPU. The turbo-cache check gates the actual promotion
+        // (no surprise ~75MB download) and is reported in the decision either way.
+        const webgpuPromotionAllowed = configured === 'transformers-js' && !ENV.disableWasm;
+        const turboModelCached = webgpuPromotionAllowed
+            ? await ModelManager.isModelDownloaded('whisper-turbo').catch(() => false)
+            : false;
+
+        const decision = await resolvePrivateRuntimePath({ webgpuPromotionAllowed, turboModelCached });
+        this.runtimePath = decision;
+        logger.info({ sId: this.serviceId, rId: this.runId, runtimeDecision: decision, configured }, '[PrivateSTT] Resolved private runtime decision');
+
+        if (configured !== 'transformers-js') return configured;
+        return decision.provider === 'whisper-turbo' ? 'whisper-turbo' : configured;
     }
 
     protected async onStart(mic?: MicStream, userWords: string[] = []): Promise<void> {
