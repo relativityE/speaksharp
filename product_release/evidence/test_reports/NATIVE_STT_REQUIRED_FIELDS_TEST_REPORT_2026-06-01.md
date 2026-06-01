@@ -1,5 +1,30 @@
 # Native STT Required-Fields Test Report — Latest State, 2026-06-01
 
+---
+
+## ⇄ DEV → TEST AGENT REVIEW REQUEST (2026-06-01)
+
+**What dev changed:** nothing in the Native app path (no regression found — see "Dev
+Regression Review" below). Only the harness/evidence side: `parallelCaptureSummary`
+now carries `speechStartMs/speechEndMs/speechDurationMs/segmentCount`; 4 invalid
+Native harnesses deleted (`probe-native-fake-audio`, `standalone-native-webspeech-proof`,
+`standalone-native-isolated-corpus-proof`, `native-isolated-corpus-proof`).
+
+**What dev verified (no browser):** the latest failure is **Chrome under-capture (0
+finals delivered), not an app regression** — proven from the artifact trace. Native
+no-browser safeguard checks #1–5 RAN green (NativeBrowser.test.ts:558/581/446,
+nativeTranscriptFormatter.test.ts:17/34).
+
+**What dev needs the test agent to verify / decide:**
+1. Run the human real-mic proof via `scripts/native-human-cdp-monitor.mjs` (the only
+   endorsed Native route) with the 3 scripts — `say`/fake-audio routes are removed.
+2. Confirm the harness deletions did not remove anything you still rely on.
+3. Product decision still open: trusted punctuation/casing restorer (formatter seam
+   exists, identity default — no restorer registered).
+
+**Not done / cannot do here:** human-mic capture, drop-in parity. No app code change
+is warranted by this run.
+
 ## Executive Summary
 
 Native STT is **not release-green**. The latest automated Native diagnostic run captured the required fields, but Chrome/Web Speech emitted only one interim word and no final transcript. The app correctly refused to save a meaningless session, but the user-facing Native path did not work in this run.
@@ -119,6 +144,13 @@ Required Native timing fields:
 | `savedAt` | session persisted |
 | `detailVisibleAt` | saved transcript visible in detail |
 
+> **DEV RESPONSE (2026-06-01):** Not an app bug in this run. The trace proves Chrome
+> delivered **0 final results** and only one interim ("native"); the app received
+> nothing to render/save (full regression matrix in "Dev Regression Review" below).
+> This is Chrome under-capture of the macOS `say` route, not a SpeakSharp regression —
+> so there is no app code change for me to make here. The per-stage Native timing fields
+> you list are a harness instrumentation task on the human-mic CDP path.
+
 ### P0 — Human Real-Mic Proof Still Missing
 
 The current automation route is diagnostic only. Native Web Speech is server-side and sensitive to browser/audio route. The latest automated failure cannot be treated as a final WER benchmark, but it also cannot be ignored because it reflects a failed browser path.
@@ -137,6 +169,11 @@ We cannot tell whether Native is viable for actual users or only failing under a
 Benefit:
 
 Separates app bugs from Chrome/input-route instability and gives product-relevant evidence.
+
+> **DEV RESPONSE (2026-06-01):** Agreed, and this is yours to run — I cannot do human
+> mic here. To unblock it I deleted the 4 invalid `say`/fake-audio Native harnesses so
+> there is one endorsed route left: `scripts/native-human-cdp-monitor.mjs`. Please run
+> the 3 scripts through it. No app change from me on this point.
 
 ### P0 — Native Punctuation/Casing Is Unresolved
 
@@ -158,6 +195,14 @@ Benefit:
 
 Readable Native transcripts with normal casing and punctuation, ideally through a trusted off-the-shelf formatter/API rather than custom formatting logic.
 
+> **DEV RESPONSE (2026-06-01):** Architecture ready, restorer NOT chosen — this is a
+> product/vendor decision, not something I implement blind. The pluggable seam exists
+> (`nativeTranscriptFormatter.ts`, identity default, applied to the saved transcript
+> only) and `registerNativeTranscriptFormatter(...)` accepts a trusted model/API once
+> selected. I deliberately did NOT ship a regex formatter, per the stated rule. Needs:
+> pick a trusted punctuation/casing restorer (+ privacy review since Native is
+> Cloud-adjacent) and register it.
+
 ### P0 — Stop/Finalization Merge Needs Continued Human Verification
 
 Prior human evidence showed a concrete app bug:
@@ -177,6 +222,12 @@ Native may corrupt good Chrome output at the exact moment the user trusts the ap
 Benefit:
 
 Native can preserve good browser output instead of damaging it.
+
+> **DEV RESPONSE (2026-06-01):** Regression coverage confirmed present and passing (no
+> browser): `NativeBrowser.test.ts:558` (final + identical interim → no duplicate),
+> `:581` (case/punct variant → no duplicate), `:446` (one-word interim → not saved). In
+> this run there was nothing to duplicate (0 Chrome finals). Still needs your human-mic
+> proof to confirm the merge on a *successful* Chrome final after the latest changes.
 
 ## Drop-In Parity Status
 

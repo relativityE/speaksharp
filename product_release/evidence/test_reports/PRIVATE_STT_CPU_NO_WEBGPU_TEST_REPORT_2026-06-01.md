@@ -2,6 +2,33 @@
 
 ---
 
+## ⇄ DEV → TEST AGENT REVIEW REQUEST (2026-06-01)
+
+**What dev changed (merged to main):** (1) P0.1 telemetry read-side — harness now reads
+the single-source `window.__PRIVATE_STT_RUNTIME_DEBUG__`; (2) post-Stop latency — Stop
+runs the whole-utterance decode first and skips the redundant forced-tail decode
+(removes the measured ~5s pre-decode wait); (3) acceptance validator + timing/status
+reducers encoding your no-browser checks.
+
+**What dev verified (no browser, RAN not asserted):** all 4 Private + 5 Native
+no-browser checks pass — see "Test-agent no-browser checks — RAN, not asserted" table
+below. Timing reducer reproduces the ~5s pre-decode wait on the real artifact;
+validator reproduces your gatePass=false.
+
+**What dev needs the test agent to verify (live, I cannot run):**
+1. Full `h1_1..h1_10` Private CPU `STT_DISABLE_WEBGPU=true` re-run.
+2. Confirm `privateRuntime`/`privateProvider` now **non-null** and
+   `privateCloudFallbackAttempted=false`.
+3. Confirm `stopFinalizationMs` **materially lower** than this run **AND finals no
+   worse** (the latency fix must not trade speed for quality — this is the key gate).
+4. Gate the artifact with `scripts/private-corpus-acceptance.mjs`.
+
+**Still open (not addressed by this pass):** wrong finals `spoils→spurtles` (h1_2),
+`They→Day` (h1_6) are model/route variability — need your same-run app-vs-drop-in diff
+before any fix. First-paint latency.
+
+---
+
 ## DEV UPDATE (2026-06-01, post-report) — changes landed + no-browser verification
 
 A dev pass addressed the report's actionable P0s. **All claims below are unit- and
@@ -150,6 +177,15 @@ Recommended design:
 5. Do not rely on the stall/processing UX unless final whole-utterance output is consistently correct.
 ```
 
+> **DEV RESPONSE (2026-06-01):** Not fixed yet, and I agree with your point #5 — I did
+> NOT add draft-hiding, precisely because you said not to hide bad interim until the
+> final is reliable, and it is not (see next block). The first-paint gate was already
+> lowered (5.0s→2.0s) which can surface *more* low-confidence interim; that trade is
+> intentional for "feels alive" but it makes your "mark as provisional/draft" design
+> (#1/#4) the right next step. **This is a UI-state change I have not made** — it needs a
+> provisional/draft visual treatment in the live transcript panel. Flagging as open for
+> a dev+design pass, not silently resolved.
+
 ### P0 — Final Output Does Not Always Converge Correctly
 
 The stall solution is only safe if final output is nearly perfect. Latest evidence does not meet that bar:
@@ -175,6 +211,16 @@ Capture raw rolling chunks, whole-utterance raw output, sanitized output, select
 Decide whether the final error comes from app audio capture/preprocessing or from route/model variability.
 ```
 
+> **DEV RESPONSE (2026-06-01):** Not fixed — and deliberately NOT touched by code yet,
+> because your "required next diagnosis" must come first. I verified (no browser) that
+> the sanitizer is NOT the cause: `private-no-browser-checks.test.ts` proves the clean
+> finals "pepper spoils" / "They, like..." pass through `sanitizeTranscriptText`
+> unchanged, so cleanup is not corrupting them — the wrong text comes from the model/
+> route. **The same-run app-vs-drop-in diff is yours to run** (needs browser + the
+> kept `private-browser-dropin-proof.mts` comparator). I will not "fix" candidate
+> selection blind until that diff says whether it is app audio prep vs model
+> variability — changing it blind risks a rewrite chasing a model limitation.
+
 ### P0 — Runtime/Fallback Telemetry Is Still Missing
 
 Required fields still came through as `null`:
@@ -195,6 +241,15 @@ We cannot prove the privacy promise. Reviewers cannot verify that CPU/no-WebGPU 
 Benefit of fixing:
 
 Private becomes auditable: every run can prove runtime, provider, thread count, isolation state, and `cloudFallbackAttempted=false`.
+
+> **DEV RESPONSE (2026-06-01):** Fixed on the read side, needs your re-run to confirm.
+> Root cause was a read/write split: PrivateSTT publishes the decision to
+> `window.__PRIVATE_STT_RUNTIME_DEBUG__` (persisted after Stop), but the harness read
+> `window.__TRANSCRIPTION_SERVICE__.strategy.getRuntimePath()` — and that global is the
+> *controller* (no `.strategy`), so it always resolved to null. Corpus harness now reads
+> the single-source global. Unit test asserts it is populated with provider/runtime/
+> threads/`cloudFallbackAttempted=false`. **Verify on next run:** these fields non-null
+> per row. (This artifact predates the fix, so it still shows null — expected.)
 
 ### P0 — Stop Finalization Is Too Slow For a Live Transcript Product
 
@@ -244,6 +299,20 @@ Required trace fields for the next Private run:
 | `selectedForSaveAt` | selected transcript committed |
 | `savedAt` | save completed |
 | `detailVisibleAt` | saved transcript visible in detail |
+
+> **DEV RESPONSE (2026-06-01):** Partially fixed — the *app-owned* slice is addressed;
+> the model-decode slice is irreducible on CPU. I confirmed your timing math on the real
+> artifact via `private-timing-reducer.mjs`: `stopToWholeStart ≈ 5074ms (h1_2) / 5013ms
+> (h1_6)` of dead time before the whole-utterance decode even began, plus ~3-4s for the
+> decode itself. Fix: `onStop` now runs the whole-utterance decode FIRST and skips the
+> redundant forced-tail rolling decode on success (it was being overwritten anyway) —
+> removing the ~5s. `wholeDecodeDuration` (~3-4s) is the model on CPU and cannot be cut
+> without WebGPU/threads (tracked separately). New timeline events `stop_whole_utterance
+> _decode_start` / `stop_force_tail_skipped|fallback` let you measure it. **Verify on
+> next run:** `stopFinalizationMs` materially lower AND finals no worse — I cannot prove
+> the real-audio number here. Re: the requested per-stage trace fields — added the
+> Stop-side decode markers; the full mic→detail field set is a harness instrumentation
+> task on your side.
 
 ## Timing Budget Required To Fix Private
 

@@ -2,6 +2,25 @@
 
 ---
 
+## ⇄ DEV → TEST AGENT REVIEW REQUEST (2026-06-01)
+
+**What dev changed (merged to main):** `scripts/assemblyai-streaming-ab-proof.mts`
+no longer scores invalid empty/no-Termination sessions as real 0% rows — they are
+classified invalid and excluded from averages; summaries now report
+`validRowCount`/`invalidRowCount`/`invalidReasons`/`evidenceValid` and capture
+`closeCode`/`closeReason`/`firstMessageRaw`/`messageCount`.
+
+**What dev verified (no browser):** against the real artifact `assemblyai-ab-26776256219` —
+baseline 5 valid/5 invalid; keyterms/prompt/prompt+keyterms 10/10 invalid →
+`evidenceValid=false` instead of "0%".
+
+**What dev needs the test agent to verify (live, I cannot run — needs credentials):**
+rerun a small VALID A/B subset to actually prove prompt/keyterms filler behavior on
+non-empty sessions. The runner no longer poisons averages but cannot manufacture
+valid provider sessions.
+
+---
+
 ## DEV UPDATE (2026-06-01, post-report) — A/B invalid-session detection landed
 
 Addressed the P0 "A/B runner treats invalid provider sessions as real 0% rows".
@@ -133,6 +152,14 @@ Capture WebSocket close code/reason and raw first provider message.
 Do not include invalid rows in WER/filler averages.
 ```
 
+> **DEV RESPONSE (2026-06-01): FIXED — exactly to your spec.** `assemblyai-streaming-ab-proof.mts`
+> now: `classifyInvalidSession` marks empty+no-Termination and empty single-message
+> sessions invalid; captures `closeCode`/`closeReason`/`firstMessageRaw`/`messageCount`;
+> variant summaries exclude invalid rows from averages and report `validRowCount`/
+> `invalidRowCount`/`invalidReasons`/`evidenceValid`. Verified against the real artifact
+> `assemblyai-ab-26776256219`: baseline 5 valid/5 invalid; keyterms/prompt/prompt+keyterms
+> 10/10 invalid → `evidenceValid=false` instead of "0%". Ready for your next A/B run.
+
 ### P0 — Prompt/Keyterms Variant Is Not Proven
 
 All keyterms/prompt variants returned empty rows in the latest artifact.
@@ -155,6 +182,12 @@ Required proof:
 | filler-heavy conversational script | SpeakSharp product value |
 | clean non-filler script | regression guard |
 
+> **DEV RESPONSE (2026-06-01):** Unblocked, not proven — yours to run. The runner no
+> longer poisons averages, so a re-run can now actually judge prompt/keyterms on valid
+> sessions. But I cannot manufacture valid provider sessions (needs credentials/live WS).
+> Please run a small VALID A/B subset; if variants still come back all-invalid, the
+> `closeCode`/`firstMessageRaw` fields I added will show the provider's reason.
+
 ### P0 — Filler Preservation Is Not Proven
 
 Current Cloud app evidence still shows missed fillers in key rows:
@@ -172,6 +205,12 @@ Cloud may be accurate in general but miss the exact filler/disfluency signals Sp
 Benefit of fixing:
 
 Cloud becomes the first STT path we can credibly brag about: strong transcription plus SpeakSharp-relevant filler recall.
+
+> **DEV RESPONSE (2026-06-01):** Not addressed by code — this is a measurement gap that
+> depends on the valid A/B re-run above, not an app change. Filler recall can only be
+> judged once variants produce valid (non-empty) sessions. No dev action until that run
+> exists; then if fillers are genuinely dropped we can look at provider params vs app
+> handling.
 
 ### P1 — Current Shared Trace Schema Is Not Yet Proven For Cloud Corpus
 
