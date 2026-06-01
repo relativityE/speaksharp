@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-31
 **Version:** v0.6.19-rc0
-**Last Updated:** 2026-05-31
+**Last Updated:** 2026-06-01
 
 # STT Baseline Contracts
 
@@ -14,6 +14,20 @@ The repair order is:
 3. SpeakSharp analytics, scoring, copy, and product policy last.
 
 No STT mode is acceptable because its internal engine logs text. It is acceptable only when useful text becomes visible quickly, survives stop, saves correctly, and feeds history/analytics from the same selected transcript.
+
+## 2026-06-01 Current Execution Addendum
+
+This addendum records the current state after the latest Private v2 timing work and Native duplicate-finalization regression coverage. It supersedes any optimistic interpretation of older corpus rows, but does not delete them because reviewers still need the historical trail.
+
+| Area | Current Finding | Evidence / Artifact | Status |
+|---|---|---|---|
+| Native duplicate-on-stop | A real human Chrome run proved Chrome could produce a strong final transcript, then SpeakSharp duplicated it by appending a stale pending interim during stop/finalization. The current code has a regression guard for this exact failure. | `NativeBrowser.test.ts` includes the human-run phrase regression: committed final plus same/case/punctuation-variant pending interim must not append. Latest focused Native + Private unit run: 66 tests passed. | App-side duplicate-finalization bug is covered by deterministic tests. Fresh human proof still required before Native release-green. |
+| Native WER harness | Chrome Web Speech fake-audio and physical speaker/mic Harvard routes are diagnostic only, not release WER gates. They can expose app lifecycle bugs, but contamination/timing/device route issues can invalidate accuracy rows. | Fake-audio standalone and app Native rows produced empty or unrelated speech-like text. Physical route rows have shown contamination and non-determinism. | Native release proof must be human-style Chrome real-mic or a validated loopback route with separated transcript states. |
+| Private v2 live timing | The previous bad human Private run showed first text around 10.9s for a 1.127s decode, then a 34.9s live decode and a much later stop final. Root cause was live decode buffers growing while v2 was busy plus long retained silence in whole-utterance finalization. | `/private/tmp/speaksharp-private-human-2026-06-01T11-13-26-524Z.jsonl` and follow-up timing artifacts. | Fixed with live decode window capping, whole-utterance silence-tail capping, warm-engine idle reset guard, and lighter provisional display gates. |
+| Private focused accuracy | After timing fixes, focused rows `h1_2`, `h1_6`, and `h1_8` beat the browser drop-in comparator on the same fixtures. | `/private/tmp/speaksharp-private-v2-final-accuracy-h268-after-timing-fixes.json`: `h1_2` 100%, `h1_6` 87.5%, `h1_8` 100%; drop-in for those rows was 75%, 75%, 87.5%. | Encouraging focused proof. Full 10-row current corpus still required. |
+| Private remaining known row gap | `h1_1` final whole-utterance decode still transcribed `like` as `light`; this came from the authoritative final model output, not post-processing. | `/private/tmp/speaksharp-private-v2-timing-after-display-gate-fresh-h1.json`: final `Um, the stale smell of old beer, light, lingers.` vs truth `like`. | Do not patch with speculative text replacement. Track as model/audio/filler-recognition gap unless a provider-level or engine-level evidence-backed fix is found. |
+| Private automation blocker | The current broad corpus runner is blocked by environment/harness input failures, not by a new observed Private STT failure. `afplay` failed with `AudioQueueStart failed (-66681)`; Chrome fake-audio capture produced zero Private audio chunks in this setup. | `/private/tmp/speaksharp-private-v2-h1_3-current-retry.json` now classifies `invalidReason: afplay_audio_queue_start_failed`; `/private/tmp/speaksharp-private-v2-h1_3-padded-fake-current.json` showed `audioChunks: 0`. | Harness failures must be excluded from STT quality math. Need either working physical playback, a validated virtual loopback route, or code-level boundary tests for remaining fixtures. |
+| Cloud A/B | Cloud code/tests cover AssemblyAI v3 prompt/keyterms and post-Terminate tail handling, but this local environment only has mock AssemblyAI credentials. | Local env check: no non-mock `ASSEMBLYAI_API_KEY`. Cloud provider/mode tests pass. | Fresh streaming A/B and app journey proof require real AssemblyAI credentials/pro account evidence. |
 
 ## Test Environment For Latest Corpus Evidence
 
