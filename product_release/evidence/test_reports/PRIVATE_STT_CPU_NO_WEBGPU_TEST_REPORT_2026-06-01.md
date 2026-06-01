@@ -37,6 +37,27 @@ real audio.**
   `They→Day` (h1_6) are model/route variability, not the latency path. Still require
   the same-run app-vs-drop-in diagnosis the report requested before any "fix."
 
+### Test-agent no-browser checks — RAN, not asserted
+
+Every "Unit-testable checks without browser" item from the Private AND Native
+reports was executed (not claimed). Results:
+
+| Report | # | Check | Implemented in | Result |
+| --- | --- | --- | --- | --- |
+| Private | 1 | Timing reducer (firstDraftDelay/stopToWholeStart/wholeDecodeDuration/stopFinalizationMs) | `scripts/private-timing-reducer.mjs` + test | PASS — reproduces ~5s pre-decode wait on real artifact |
+| Private | 2 | Artifact validator (null telemetry / wrong final / stopFinalizationMs>8000) | `scripts/private-corpus-acceptance.mjs` + test | PASS — reproduces report gatePass=false on real artifact |
+| Private | 3 | Sanitizer does not alter h1_2/h1_6 clean finals | `private-no-browser-checks.test.ts` | PASS |
+| Private | 4 | Status reducer prefers "Processing speech locally…" during STOPPING | `scripts/private-status-reducer.mjs` + test | PASS |
+| Native | 1 | final + identical interim → no duplicate append | `NativeBrowser.test.ts:558` | PASS |
+| Native | 2 | final + case/punct variant interim → no duplicate | `NativeBrowser.test.ts:581` | PASS |
+| Native | 3 | one-word interim → not saved | `NativeBrowser.test.ts:446` | PASS |
+| Native | 4 | formatter identity default → unchanged | `nativeTranscriptFormatter.test.ts:17` | PASS |
+| Native | 5 | formatter throws → original preserved | `nativeTranscriptFormatter.test.ts:34` | PASS |
+
+These prove app-side logic + evidence-field integrity without a browser. They do
+NOT prove transcription quality, latency, or human-mic behavior — those remain the
+live-run gates below.
+
 ### Test agent — required next run
 
 1. Rebuild prod, fresh preview, real Pro, `STT_DISABLE_WEBGPU=true`.
