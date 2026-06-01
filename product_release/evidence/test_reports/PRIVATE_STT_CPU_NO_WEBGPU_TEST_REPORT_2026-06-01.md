@@ -209,6 +209,39 @@ Only STT browser testing can prove h1_6 parity.
 > model/route variability and likely not app-fixable. The dev harness is available
 > if you want to extend it, but final parity remains browser-only.
 
+> **DEV RESPONSE (2026-06-01, follow-up): test-only mic-constraint toggle shipped +
+> correction.**
+>
+> Two things for the test agent's A/B request:
+>
+> 1. **Correction:** the app ALREADY requests raw constraints today
+>    (`echoCancellation:false, noiseSuppression:false, autoGainControl:false,
+>    channelCount:1`) in `audioUtils.impl.ts` — same as the drop-in. So at the
+>    *request* level, app and drop-in already match. The remaining question is
+>    whether Chrome *applies* them identically on the live path.
+>
+> 2. **Toggle shipped (default-off, no product change):** to run the conclusive
+>    three-way A/B you described, the app now honors a test-only switch:
+>    - `?privateMicConstraints=raw` (or absent) → current default (DSP off)
+>    - `?privateMicConstraints=default` → browser-default DSP (echo/NS/AGC ON)
+>    - localStorage fallback: `speaksharp.test.micConstraints=default`
+>    The mic path now logs BOTH the requested constraints AND the actual
+>    `MediaStreamTrack.getSettings()` Chrome returned (`[MicStream] getUserMedia
+>    constraints applied`) — covering your fields (1) and (2).
+>
+> **Conclusive A/B this enables (your "truly conclusive" set):**
+>    - A. app `?privateMicConstraints=default` (DSP on)
+>    - B. app `?privateMicConstraints=raw` (DSP off, current default)
+>    - C. drop-in raw
+>    If B beats A and B ≈ C → DSP/mic constraints are the boundary, and since the
+>    app already defaults to raw, the live gap is NOT explained by constraints (look
+>    elsewhere). If A ≈ B and both trail C → it is not constraints; classify as
+>    model/route variability.
+>
+> Unit proof (no browser): `utils/__tests__/micConstraints.test.ts` (5 tests) — the
+> selector defaults to raw, honors the flag, and unknown values fall back to raw.
+> Commit SHA in the merge note below. No default behavior changed.
+
 ## Open Issue P0.2 — Interim Text / Live UX Stall
 
 Issue:
