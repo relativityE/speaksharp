@@ -98,6 +98,10 @@ export default defineConfig(({ mode }) => {
       minify: process.env.NODE_ENV === 'test' ? false : 'esbuild',
       outDir: 'dist',
       rollupOptions: {
+        input: {
+          main: path.resolve(__dirname, 'index.html'),
+          privateDropin: path.resolve(__dirname, 'private-dropin.html'),
+        },
         output: {
           // Add timestamp to filenames to force cache bust
           entryFileNames: `assets/[name]-[hash]-${buildStamp}.js`,
