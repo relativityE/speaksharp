@@ -42,6 +42,7 @@ const FIXTURE_LIST = (process.env.STT_FIXTURES || 'h1_1')
 const PLAYBACK_GRACE_MS = Number(process.env.STT_PLAYBACK_GRACE_MS || 800);
 const POST_PLAYBACK_WAIT_MS = Number(process.env.STT_POST_PLAYBACK_WAIT_MS || 10_000);
 const FIRST_TEXT_TIMEOUT_MS = Number(process.env.STT_FIRST_TEXT_TIMEOUT_MS || 20_000);
+const AFPLAY_RETRIES = Number(process.env.STT_AFPLAY_RETRIES || 2);
 const PRIVATE_SETUP_CLICK_DELAY_MS = Number(process.env.STT_PRIVATE_SETUP_CLICK_DELAY_MS || 0);
 const HEADLESS = process.env.HEADLESS === 'true';
 const MAX_WER = process.env.STT_MAX_WER == null ? null : Number(process.env.STT_MAX_WER);
@@ -547,8 +548,31 @@ async function playFixture(audioPath) {
   if (process.platform !== 'darwin') {
     throw new Error('Real-mic STT corpus proof currently uses macOS afplay and must run on darwin.');
   }
-  await execFileAsync('/usr/bin/afplay', [audioPath], { timeout: 45_000 });
-  return { source: 'afplay-physical-speaker-mic', audioPath };
+  let lastError;
+  for (let attempt = 1; attempt <= AFPLAY_RETRIES + 1; attempt += 1) {
+    try {
+      await execFileAsync('/usr/bin/afplay', [audioPath], { timeout: 45_000 });
+      return { source: 'afplay-physical-speaker-mic', audioPath, attempt };
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/AudioQueueStart failed/i.test(message) || attempt > AFPLAY_RETRIES) {
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 750 * attempt));
+    }
+  }
+  const message = lastError instanceof Error ? lastError.message : String(lastError);
+  const playbackError = new Error(`fixture_playback_failed: ${message}`);
+  playbackError.cause = lastError;
+  playbackError.playbackFailure = {
+    source: 'afplay-physical-speaker-mic',
+    audioPath,
+    attempts: AFPLAY_RETRIES + 1,
+    reason: /AudioQueueStart failed/i.test(message) ? 'afplay_audio_queue_start_failed' : 'afplay_failed',
+    message,
+  };
+  throw playbackError;
 }
 
 async function markPhase(page, phase, detail = {}) {
@@ -1097,6 +1121,9 @@ try {
           mode,
           fixture: fixture.id,
           error: error instanceof Error ? error.message : String(error),
+          playbackFailure: error?.playbackFailure,
+          invalidForSttEvidence: Boolean(error?.playbackFailure),
+          invalidReason: error?.playbackFailure ? error.playbackFailure.reason : undefined,
           currentUrl: page.url(),
           bodyText: compact(await page.locator('body').textContent().catch(() => '')).slice(0, 1200),
         });
