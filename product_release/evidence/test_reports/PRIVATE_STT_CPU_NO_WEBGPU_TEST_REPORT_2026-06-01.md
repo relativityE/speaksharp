@@ -2,6 +2,186 @@
 
 ---
 
+## OFFICIAL TEST AGENT UPDATE — 2026-06-01 17:40 ET
+
+Official browser proof was run after the dev-agent changes landed. This is the
+current release evidence for Private CPU no-WebGPU.
+
+Artifact:
+
+```text
+/private/tmp/speaksharp-private-official-focused-20260601173817.json
+```
+
+Command shape:
+
+```text
+BASE_URL=http://127.0.0.1:4182
+STT_AUTH=existing
+STT_MODES=private
+STT_FIXTURES=h1_1,h1_2,h1_6,h1_8,h1_10
+STT_DISABLE_WEBGPU=true
+HEADLESS=false
+```
+
+Result:
+
+```text
+Private CPU floor: FAIL
+Reason: telemetry/journey improved, but final quality fails targeted rows.
+```
+
+| Fixture | Final Transcript | Accuracy | First Text | Stop Finalization | Runtime | Cloud Fallback | Save/History/Detail | Release Issue |
+| --- | --- | ---: | ---: | ---: | --- | --- | --- | --- |
+| `h1_1` | `Um, the stale smell of old beer. Like, lingers.` | 100% | 5633 ms | 3382 ms | `wasm-singlethread` | false | pass | First text still late. |
+| `h1_2` | `Basically, a dash of pepper spoils beeps too.` | 75% | 4880 ms | 3007 ms | `wasm-singlethread` | false | pass | Final corrupts `beef stew` -> `beeps too`. |
+| `h1_6` | `Day, light, told Wildtailed to brighten him.` | 37.5% | 6899 ms | 4249 ms | `wasm-singlethread` | false | pass | Severe final quality failure; loses filler/onset/content. |
+| `h1_8` | `The puppy, light, chewed up the new shoe.` | 75% | 6709 ms | 5594 ms | `wasm-singlethread` | false | pass | `like` -> `light`; plural tail lost. |
+| `h1_10` | `Basically, the quick brown fox jumps over the lazy dog.` | 100% | 4646 ms | 2450 ms | `wasm-singlethread` | false | pass | Pass. |
+
+What improved versus the prior focused artifact:
+
+| Area | Prior Problem | Latest Result |
+| --- | --- | --- |
+| Runtime telemetry | `privateRuntime*` fields were null | Populated: `wasm-singlethread`, `transformers-js`, `threads=1`, `cloudFallbackAttempted=false` |
+| Stop latency | ~6.6-9.3s stop finalization in the prior focused run | ~2.45-5.59s in this focused run |
+| Processing UI state | Needed proof | `processingSpeechLocallyShown=true` for all five rows |
+| Journey | Needed preservation proof | Save/history/detail pass for all five rows |
+
+What still fails:
+
+| Failure | Evidence | Consequence |
+| --- | --- | --- |
+| Final quality on targeted rows | `h1_2`, `h1_6`, `h1_8` fail truth-preserving final text | Private cannot be launch/pride path yet. |
+| First visible text latency | 4.6-6.9s across focused rows | User can see a blank or stale transcript for too long. |
+| Interim-result UI stall | No product/UI treatment landed. The latest run still shows first visible text at 4.6-6.9s, and prior human runs showed an incorrect partial visible for many seconds before final convergence. | Users can watch wrong draft text and lose trust before the final result arrives. |
+| Same-run drop-in comparator | `scripts/private-browser-dropin-proof.mts` could not find `window.__PRIVATE_DROPIN__` because `/private-dropin.html` is not present in the current preview and falls back to the app shell | Nominal drop-in parity cannot be closed from this run. Comparator asset/page must be available before parity can be judged. |
+
+Update after unblocking comparator:
+
+```text
+Comparator page issue fixed by adding frontend/private-dropin.html as a Vite
+production build input. Production build now emits dist/private-dropin.html.
+```
+
+Drop-in artifact:
+
+```text
+/private/tmp/speaksharp-private-dropin-official-all-20260601175117.json
+```
+
+Drop-in all-10 result:
+
+```text
+Average accuracy: 83.14%
+Average WER: 16.86%
+```
+
+Focused app-vs-drop-in comparison:
+
+| Fixture | App Accuracy | Drop-In Accuracy | Delta | App Transcript | Drop-In Transcript | Interpretation |
+| --- | ---: | ---: | ---: | --- | --- | --- |
+| `h1_1` | 100% | 88.89% | +11.11pp | `Um, the stale smell of old beer. Like, lingers.` | `Um, the stale smell of old beer, like lingers.` | App WER better, but first text still late. |
+| `h1_2` | 75% | 75% | 0pp | `Basically, a dash of pepper spoils beeps too.` | `Basically, a dash of peppers, foils, beef stew.` | Same WER, different errors; app preserves `pepper spoils`, drop-in preserves `beef stew`. |
+| `h1_6` | 37.5% | 75% | -37.5pp | `Day, light, told Wildtailed to brighten him.` | `Day, like, told Wild Tales to frightened him.` | App materially worse; loses filler and key words. |
+| `h1_8` | 75% | 37.5% | +37.5pp | `The puppy, light, chewed up the new shoe.` | `The puppy like Chudak the new shoe.` | App materially better but still not exact. |
+| `h1_10` | 100% | 100% | 0pp | `Basically, the quick brown fox jumps over the lazy dog.` | `Basically, the quick brown fox jumps over the lazy dog.` | Parity. |
+
+Updated parity finding:
+
+```text
+Private app is NOT uniformly worse than drop-in on the focused set.
+Private app is also NOT parity-green, because h1_6 is materially worse than
+drop-in and first-text latency remains user-visible.
+```
+
+Current highest-value Private root-cause target:
+
+```text
+h1_6 app path: determine why app final changes "like" -> "light",
+"wild tales" -> "Wildtailed", and "frighten" -> "brighten" when the
+same-route drop-in preserves more of the sentence.
+```
+
+Clarification on the proposed “stall / in-progress” UI approach:
+
+```text
+Status: NOT IMPLEMENTED AS A UI FIX.
+```
+
+What did land:
+
+```text
+1. Stop finalization now starts with the whole-utterance decode instead of a
+   redundant forced-tail decode.
+2. The store can surface "Processing speech locally…" during Stop/finalization.
+3. Latest focused run confirms post-Stop finalization improved to ~2.45-5.59s.
+```
+
+What did **not** land:
+
+```text
+1. No confidence-aware provisional/draft UI.
+2. No hiding or softening of low-confidence interim text during recording.
+3. No "listening/processing" replacement for unstable interim text before Stop.
+4. No policy that withholds bad provisional text until a stable draft appears.
+```
+
+Why this matters:
+
+```text
+The stall approach is only safe if final whole-utterance output is consistently
+correct. Latest browser evidence disproves that assumption for h1_2, h1_6, and
+h1_8. Therefore, masking interim text would currently delay user disappointment
+rather than solve transcript quality.
+```
+
+Required next product decision for Private interim UX:
+
+| Option | Benefit | Risk |
+| --- | --- | --- |
+| Show raw provisional text as-is | Feels live | Current behavior exposes wrong text for seconds |
+| Mark provisional text as draft/low-confidence | Honest feedback; avoids overclaiming | Requires UI/state work |
+| Show "Listening..." until stable draft | Avoids visible bad text | Can feel stalled if final remains slow |
+| Show "Processing speech locally..." after Stop only | Already partly working | Does not address during-recording stall |
+
+Recommended next requirement:
+
+```text
+Private UI must distinguish "draft/provisional" from "final selected" text.
+Do not hide interim text entirely until h1_2/h1_6/h1_8 final quality is fixed
+or proven equivalent to drop-in.
+```
+
+Strict acceptance validator result:
+
+```text
+rowCount=5
+passCount=1
+failCount=4
+pass=false
+```
+
+Failed expectations:
+
+| Fixture | Validator Failures |
+| --- | --- |
+| `h1_1` | `final_missing:like lingers` due punctuation split in expected phrase check, despite WER=0 |
+| `h1_2` | `final_missing:beef stew` |
+| `h1_6` | `final_missing:They, like`; `final_missing:wild tales`; `final_missing:frighten him` |
+| `h1_8` | `final_missing:like`; `final_missing:new shoes` |
+
+Immediate testing conclusion:
+
+```text
+Dev instrumentation changes are testable and partially successful.
+Private STT itself remains blocked by final quality and first-text latency.
+Do not run full 10-row Private as a release proof until the h1_2/h1_6/h1_8
+failure mechanism is explained against a working same-route drop-in comparator.
+```
+
+---
+
 ## ⇄ DEV → TEST AGENT REVIEW REQUEST (2026-06-01)
 
 **What dev changed (merged to main):** (1) P0.1 telemetry read-side — harness now reads
