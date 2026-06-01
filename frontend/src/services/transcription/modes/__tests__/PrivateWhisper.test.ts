@@ -434,7 +434,9 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         mocks.transcribe
             .mockResolvedValueOnce(Result.ok('the stale smell of old beer'))
             .mockResolvedValueOnce(Result.ok('the stale smell of old beer continues'))
-            .mockResolvedValueOnce(Result.ok(' or'))
+            // Whole-utterance stop decode now runs FIRST and is the saved authority.
+            // When it succeeds the forced-tail rolling decode is skipped, so the
+            // earlier ' or' tiny-tail path is no longer exercised on this run.
             .mockResolvedValueOnce(Result.ok('the stale smell of old beer continues'));
         await privateWhisper.init();
 
@@ -470,7 +472,9 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         await privateWhisper.stop();
 
-        expect(mocks.transcribe).toHaveBeenCalledTimes(4);
+        // 2 live decodes + 1 whole-utterance stop decode. The forced-tail decode is
+        // skipped because the whole-utterance commit succeeded (post-Stop latency fix).
+        expect(mocks.transcribe).toHaveBeenCalledTimes(3);
         expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledTimes(3);
         vi.useRealTimers();
     });
@@ -952,7 +956,8 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         });
         mocks.transcribe
             .mockReturnValueOnce(firstInference)
-            .mockResolvedValueOnce(Result.ok('first stable words continue with tail'))
+            // Whole-utterance stop decode runs first and is the saved authority; it
+            // succeeds here, so the forced-tail rolling decode is skipped.
             .mockResolvedValueOnce(Result.ok('first stable words continue with tail'));
 
         let frameCallback: ((frame: Float32Array) => void) | undefined;
@@ -985,7 +990,10 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         await firstProcessing;
         await stopPromise;
 
-        expect(mocks.transcribe).toHaveBeenCalledTimes(3);
+        // Stop still waits for the in-flight live inference (call 1), then runs the
+        // whole-utterance decode (call 2) which is the saved authority. The forced
+        // tail decode is skipped because the whole-utterance commit succeeded.
+        expect(mocks.transcribe).toHaveBeenCalledTimes(2);
         expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledWith({
             transcript: { partial: 'first stable words continue' },
         });

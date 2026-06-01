@@ -1590,9 +1590,33 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     }
 
     try {
-      // Process any remaining audio
-      await this.processAudio({ force: true });
+      // PERF: the whole-utterance decode is the saved-transcript authority and
+      // re-decodes the entire utterance. Run it FIRST. The old order ran a forced
+      // rolling decode of the (usually blank/low-energy) tail first — a full extra
+      // CPU inference of ~3-4s on the critical path whose result the whole-utterance
+      // commit then overwrote. Now the forced tail decode runs only as a fallback
+      // when the whole-utterance commit produced nothing, cutting post-Stop latency.
+      pushPrivateTimeline('stop_whole_utterance_decode_start', {
+        serviceId: this.serviceId,
+        runId: this.instanceId,
+        utteranceSamples: this.utteranceSampleCount,
+      });
       await this.commitWholeUtteranceTranscript();
+
+      if (!this.wholeUtteranceTranscript.trim()) {
+        pushPrivateTimeline('stop_force_tail_fallback', {
+          serviceId: this.serviceId,
+          runId: this.instanceId,
+          reason: 'whole_utterance_commit_empty',
+        });
+        await this.processAudio({ force: true });
+      } else {
+        pushPrivateTimeline('stop_force_tail_skipped', {
+          serviceId: this.serviceId,
+          runId: this.instanceId,
+          reason: 'whole_utterance_commit_succeeded',
+        });
+      }
     } finally {
       if (hasUtteranceToFinalize) {
         this.onStatusChange?.({ type: 'ready', message: 'Ready to record' });
