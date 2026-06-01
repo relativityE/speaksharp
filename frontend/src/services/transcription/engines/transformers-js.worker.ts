@@ -22,6 +22,21 @@ interface TranscriptionResult {
 
 let transcriber: Pipeline | null = null;
 
+const WARMUP_AUDIO_SECONDS = 1;
+
+async function warmUpTranscriber(): Promise<void> {
+    if (!transcriber) return;
+
+    const warmupAudio = new Float32Array(PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ * WARMUP_AUDIO_SECONDS);
+    const options: Record<string, unknown> = {
+        chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
+        stride_length_s: 0,
+        return_timestamps: false,
+    };
+
+    await (transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(warmupAudio, options);
+}
+
 function post(response: WorkerResponse): void {
     self.postMessage(response);
 }
@@ -84,6 +99,7 @@ async function init(id: number, isE2E: boolean): Promise<void> {
         loadTimeMs: Math.round(performance.now() - loadStart),
         model: 'whisper-tiny.en',
     });
+    await warmUpTranscriber();
     post({ id, type: 'ready' });
 }
 

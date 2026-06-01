@@ -565,6 +565,50 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         vi.useRealTimers();
     });
 
+    it('REGRESSION: caps post-transcript live v2 decode windows while keeping full utterance audio for stop', async () => {
+        vi.useFakeTimers();
+        mocks.transcribe
+            .mockResolvedValueOnce(Result.ok('private local preview words'))
+            .mockResolvedValueOnce(Result.ok('private local full final transcript'));
+        await privateWhisper.init();
+
+        let frameCallback: ((frame: Float32Array) => void) | undefined;
+        const mockMic: MicStream = {
+            state: 'ready',
+            sampleRate: PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+            onFrame: vi.fn((cb: (frame: Float32Array) => void) => { frameCallback = cb; return () => { }; }),
+            offFrame: vi.fn(),
+            stop: vi.fn(),
+            close: vi.fn(),
+            _mediaStream: new MediaStream(),
+        };
+
+        await privateWhisper.start(mockMic);
+        (privateWhisper as unknown as { currentTranscript: string }).currentTranscript = 'existing committed words';
+
+        const longLiveChunk = new Float32Array(
+            PRIV_STT_DERIVED.LIVE_DECODE_WINDOW_SAMPLES + PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES,
+        ).fill(0.5);
+
+        frameCallback?.(longLiveChunk);
+        await vi.advanceTimersByTimeAsync(PRIV_STT.PROCESSING_INTERVAL_MS);
+
+        expect(mocks.transcribe).toHaveBeenCalledTimes(1);
+        expect((mocks.transcribe.mock.calls[0][0] as Float32Array).length).toBe(
+            PRIV_STT_DERIVED.LIVE_DECODE_WINDOW_SAMPLES,
+        );
+
+        await privateWhisper.stop();
+
+        expect(mocks.transcribe).toHaveBeenCalledTimes(2);
+        expect((mocks.transcribe.mock.calls[1][0] as Float32Array).length).toBe(longLiveChunk.length);
+        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
+            transcript: { final: 'private local full final transcript' },
+        });
+
+        vi.useRealTimers();
+    });
+
     it('REGRESSION: holds first transcript until overlapping decode locally agrees', async () => {
         vi.useFakeTimers();
         mocks.transcribe

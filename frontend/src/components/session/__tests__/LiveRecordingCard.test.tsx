@@ -110,13 +110,13 @@ describe('LiveRecordingCard', () => {
     it('sets Private latency and privacy expectations before recording', async () => {
         render(<LiveRecordingCard {...defaultProps} mode="private" isProUser={true} canUseCloudStt={false} />);
 
-        expect(screen.getByText(/Runs locally after one-time setup/i)).toBeDefined();
-        expect(screen.getByText(/Audio stays on your machine/i)).toBeDefined();
+        expect(screen.getByText(/Runs locally after model setup/i)).toBeDefined();
+        expect(screen.getByText(/All audio processing remains local/i)).toBeDefined();
 
         fireEvent.pointerDown(screen.getByTestId(TEST_IDS.STT_MODE_SELECT));
 
         expect(await screen.findByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/Private \/ Vault Mode keeps transcription local/i));
-        expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/Audio stays on your machine/i));
+        expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/All audio processing remains local/i));
     });
 
     it('does not place Private setup inside the recording card when the model is missing', () => {

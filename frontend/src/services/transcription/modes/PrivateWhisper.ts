@@ -46,7 +46,7 @@ import { concatenateFloat32Arrays } from '../utils/AudioProcessor';
 import { TranscriptUpdate } from '../../../types/transcription';
 import { ENV } from '../../../config/TestFlags';
 import { PauseDetector } from '../../audio/pauseDetector';
-import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_DERIVED, SESSION_PAUSE, samplesToSeconds } from '../sttConstants';
+import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_DERIVED, SESSION_PAUSE, samplesToSeconds, secondsToSamples } from '../sttConstants';
 
 // Extend Window interface for E2E test flags
 declare global {
@@ -99,6 +99,7 @@ type SpeechGateStats = {
 
 const PRIVATE_STT_SAMPLE_RATE = PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ;
 const MIN_TRANSCRIPTION_SAMPLES = PRIV_STT_DERIVED.MIN_TRANSCRIPTION_SAMPLES;
+const LIVE_DECODE_WINDOW_SAMPLES = PRIV_STT_DERIVED.LIVE_DECODE_WINDOW_SAMPLES;
 const MAX_RETRY_SAMPLES = PRIV_STT_DERIVED.MAX_RETRY_SAMPLES;
 const PROCESSING_INTERVAL_MS = PRIV_STT.PROCESSING_INTERVAL_MS;
 const TRANSCRIPTION_TIMEOUT_MS = 60_000;
@@ -1052,7 +1053,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         logger.info({ sId: this.serviceId, rId: this.instanceId, samples: concatenated.length, expectedDurationSec }, '[PrivateWhisper] 🎤 Processing chunk');
       }
 
-      const processedAudio = concatenated;
+      const processedAudio = force ? concatenated : this.capLiveDecodeWindow(concatenated);
 
       // Atomically capture and clear live frames in the same synchronous tick.
       // New frames that arrive while inference is running will be appended to a
@@ -1583,6 +1584,42 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
   private clearRetryAudioBuffer(): void {
     this.retryAudioBuffer = null;
+  }
+
+  private capLiveDecodeWindow(audio: Float32Array): Float32Array {
+    const hasCommittedTranscript = this.currentTranscript.trim().length > 0;
+    const maxLiveSamples = hasCommittedTranscript
+      ? LIVE_DECODE_WINDOW_SAMPLES
+      : Math.max(
+        LIVE_DECODE_WINDOW_SAMPLES,
+        secondsToSamples(PRIV_STT.FIRST_TRANSCRIPT_MIN_DURATION_SECONDS, PRIVATE_STT_SAMPLE_RATE),
+      );
+
+    if (audio.length <= maxLiveSamples) return audio;
+
+    const cappedAudio = audio.slice(audio.length - maxLiveSamples);
+    pushPrivateTimeline('live_decode_window_capped', {
+      serviceId: this.serviceId,
+      runId: this.instanceId,
+      inputSamples: audio.length,
+      inputDurationSec: Number(samplesToSeconds(audio.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+      outputSamples: cappedAudio.length,
+      outputDurationSec: Number(samplesToSeconds(cappedAudio.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+      windowSeconds: Number(samplesToSeconds(maxLiveSamples, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+      hasCommittedTranscript,
+    });
+
+    if (isPrivateTranscriptTraceEnabled()) {
+      logger.info({
+        sId: this.serviceId,
+        rId: this.instanceId,
+        inputSamples: audio.length,
+        outputSamples: cappedAudio.length,
+        outputDurationSec: Number(samplesToSeconds(cappedAudio.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+      }, '[PRIVATE_TRACE] live_decode_window_capped');
+    }
+
+    return cappedAudio;
   }
 
   private addPrerollFrame(frame: Float32Array): void {

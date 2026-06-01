@@ -107,11 +107,11 @@ describe('StatusNotificationBar', () => {
             return typeof selector === 'function' ? selector(state) : state;
         });
 
-        render(<StatusNotificationBar status={{ type: 'download-required', message: 'Private model needs a one-time download.' }} />);
+        render(<StatusNotificationBar status={{ type: 'download-required', message: 'Private model setup required.' }} />);
 
         expect(screen.getByTestId('status-message-text')).toHaveTextContent(/Private model required/i);
-        expect(screen.getByText(/Download once to use Private \/ Vault Mode/i)).toBeInTheDocument();
-        expect(screen.getByText(/Your audio stays on your machine/i)).toBeInTheDocument();
+        expect(screen.getByText(/Set up the Private model in this browser/i)).toBeInTheDocument();
+        expect(screen.getByText(/All audio processing remains local/i)).toBeInTheDocument();
         expect(screen.queryByTestId('status-download-model-button')).toBeNull();
     });
 
@@ -124,7 +124,7 @@ describe('StatusNotificationBar', () => {
             return typeof selector === 'function' ? selector(state) : state;
         });
 
-        render(<StatusNotificationBar status={{ type: 'download-required', message: 'Private model needs a one-time download.', progress: 100 }} />);
+        render(<StatusNotificationBar status={{ type: 'download-required', message: 'Private model setup required.', progress: 100 }} />);
 
         expect(screen.queryByTestId('status-download-model-button')).toBeNull();
         expect(screen.getByTestId('background-task-indicator')).toHaveTextContent('Complete');

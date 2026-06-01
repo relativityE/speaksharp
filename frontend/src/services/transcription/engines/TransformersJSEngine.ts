@@ -41,11 +41,16 @@ type PendingWorkerRequest = {
     timeoutId: ReturnType<typeof setTimeout>;
 };
 
+interface TranscriptionResult {
+    text?: string;
+    transcript?: string;
+}
+
 const isPrivateTranscriptTraceEnabled = () =>
     typeof window !== 'undefined' &&
     Boolean((window as unknown as { __PRIVATE_TRANSCRIPT_TRACE__?: boolean }).__PRIVATE_TRANSCRIPT_TRACE__);
 
-export const TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS = 60_000;
+export const TRANSFORMERS_WORKER_REQUEST_TIMEOUT_MS = 120_000;
 
 function summarizeRawResult(result: unknown): UnknownRecord {
     if (typeof result === 'string') {
@@ -94,6 +99,19 @@ export class TransformersJSEngine extends STTEngine {
     private worker: Worker | null = null;
     private workerRequestId: number = 0;
     private pendingWorkerRequests = new Map<number, PendingWorkerRequest>();
+
+    private async warmUpTranscriber(): Promise<void> {
+        if (!this.transcriber || ENV.isTest || ENV.isE2E) return;
+
+        const warmupAudio = new Float32Array(PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
+        const options: Record<string, unknown> = {
+            chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
+            stride_length_s: 0,
+            return_timestamps: false,
+        };
+
+        await (this.transcriber as (audio: Float32Array, options: Record<string, unknown>) => Promise<string | TranscriptionResult>)(warmupAudio, options);
+    }
 
     constructor(options?: TranscriptionModeOptions) {
         super(options);
@@ -229,6 +247,17 @@ export class TransformersJSEngine extends STTEngine {
                 load_time_ms: Math.round(loadTime),
                 engine: 'transformersjs',
             }, '[TransformersJS] Engine initialized successfully.');
+
+            const warmupStart = performance.now();
+            await this.warmUpTranscriber();
+            logger.info({
+                sId: this.serviceId,
+                rId: this.runId,
+                eId: this.instanceId,
+                event: 'warmup_complete',
+                latency_ms: Math.round(performance.now() - warmupStart),
+                engine: 'transformersjs',
+            }, '[TransformersJS] Engine warm-up complete.');
 
             if (options.onModelLoadProgress) {
                 options.onModelLoadProgress(100);
@@ -370,10 +399,6 @@ export class TransformersJSEngine extends STTEngine {
             }
 
             const start = performance.now();
-            interface TranscriptionResult {
-                text?: string;
-                transcript?: string;
-            }
             const audioLengthSeconds = samplesToSeconds(audio.length, PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ);
             const modelName = 'whisper-tiny.en';
             const isEnglishOnly = modelName.endsWith('.en');

@@ -147,9 +147,9 @@ export const StatusNotificationBar: React.FC<StatusNotificationBarProps> = ({ st
 
     const displayDetail = (
         status.type === 'download-required'
-            ? 'Download once to use Private / Vault Mode in this browser. Your audio stays on your machine.'
+            ? 'Set up the Private model in this browser. All audio processing remains local.'
             : status.type === 'init-failed'
-                ? status.detail || 'Check microphone permission and browser storage, then retry setup. Your audio stays on your machine.'
+                ? status.detail || 'Check microphone permission and browser storage, then retry setup. All audio processing remains local.'
             : status.detail || ''
     );
     const emoji = status.message?.match(/^(?:⛔|⚠️|🚫)/u)?.[0];

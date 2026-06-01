@@ -98,12 +98,12 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
     };
     const modeHint: Record<RecordingMode, string> = {
         native: 'Starts instantly with browser speech recognition. Accuracy depends on browser and room.',
-        private: 'Runs locally after one-time setup. Audio stays on your machine.',
+        private: 'Runs locally after model setup. All audio processing remains local.',
         cloud: 'Highest-accuracy transcription for Pro. Audio is sent to cloud STT.',
         mock: 'Test transcription mode.',
     };
     const privateModeDescription = isProUser
-        ? 'Private / Vault Mode keeps transcription local after one-time model setup. Audio stays on your machine.'
+        ? 'Private / Vault Mode keeps transcription local after model setup. All audio processing remains local.'
         : 'Private / Vault Mode unlocks with an active trial or Pro. It needs a one-time local model setup.';
     const nativeModeDescription = "Free and instant. Uses your browser's built-in speech recognition, so accuracy varies by browser and environment.";
     const cloudModeDescription = canUseCloudStt
@@ -120,9 +120,9 @@ const LiveRecordingCardContent: React.FC<LiveRecordingCardProps> = ({
                             </div>
                         )}
                         <div>
-                            <p className="text-xs font-semibold leading-snug text-primary">
+                            <p className="text-sm font-bold leading-snug text-primary">
                                 {isPrivateDownloadRequired
-                                    ? 'Set up Private / Vault Mode on this computer. Your audio stays on your machine.'
+                                    ? 'Set up Private / Vault Mode on this computer. All audio processing remains local.'
                                     : modeHint[mode]}
                             </p>
                             {isPrivateDownloadRequired && (

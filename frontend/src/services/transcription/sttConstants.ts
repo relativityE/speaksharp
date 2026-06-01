@@ -58,6 +58,11 @@ export const PRIV_STT = {
   // Product latency target, not a Transformers.js provider minimum. Whisper can
   // run on shorter Float32Array inputs; waiting longer only delays first text.
   MIN_TRANSCRIPTION_SECONDS: 1.0,
+  // Private v2 is the default browser-local engine. It is not fast enough to
+  // keep decoding every accumulated live sample while speech continues, so
+  // live/provisional decodes use a recent window. Stop/final save still uses
+  // the full utterance buffer.
+  LIVE_DECODE_WINDOW_SECONDS: 3.0,
   PROCESSING_INTERVAL_MS: 250,
   MAX_RETRY_SECONDS: 12,
   WHISPER_WINDOW_SECONDS: STT_PROVIDER_REQUIREMENTS.PRIVATE_TRANSFORMERS_WHISPER.MODEL_CONTEXT_WINDOW_SECONDS,
@@ -163,6 +168,10 @@ export function samplesToSeconds(
 export const PRIV_STT_DERIVED = {
   MIN_TRANSCRIPTION_SAMPLES: secondsToSamples(
     PRIV_STT.MIN_TRANSCRIPTION_SECONDS,
+    PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
+  ),
+  LIVE_DECODE_WINDOW_SAMPLES: secondsToSamples(
+    PRIV_STT.LIVE_DECODE_WINDOW_SECONDS,
     PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ,
   ),
   MAX_RETRY_SAMPLES: secondsToSamples(

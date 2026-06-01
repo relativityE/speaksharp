@@ -2201,6 +2201,22 @@ export class SpeechRuntimeController {
         this.stopIdleTimer();
         this.idleTimeout = setTimeout(() => {
             if (this.state === 'IDLE' || this.state === 'READY') {
+                const serviceMode = this.service?.getMode();
+                const selectedMode = useSessionStore.getState().sttMode;
+                const shouldPreserveReadyPrivateEngine =
+                    this.state === 'READY' &&
+                    this.isEngineReady &&
+                    serviceMode === 'private' &&
+                    selectedMode === 'private';
+
+                if (shouldPreserveReadyPrivateEngine) {
+                    logger.info({
+                        state: this.state,
+                        serviceMode,
+                        selectedMode,
+                    }, '[SpeechRuntimeController] Skipping idle reclamation for ready Private engine');
+                    return;
+                }
                 void this.reset('idle_reclamation');
             }
         }, this.IDLE_RECLAMATION_MS);
