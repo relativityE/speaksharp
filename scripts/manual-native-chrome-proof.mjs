@@ -33,7 +33,83 @@ const NATIVE_AUDIO_READY_GRACE_MS = Number(process.env.NATIVE_AUDIO_READY_GRACE_
 const POST_AUDIO_WAIT_MS = Number(process.env.NATIVE_PROOF_POST_AUDIO_WAIT_MS || (AUDIO_FILE ? 500 : 8_000));
 
 function compact(text) {
-  return (text || '').replace(/\s+/g, ' ').trim();
+  return String(text ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeForDuplicateScan(text) {
+  return compact(text)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s']/gu, '');
+}
+
+function repeatedFourWordSequence(text) {
+  const words = normalizeForDuplicateScan(text).split(/\s+/).filter(Boolean);
+  const seen = new Map();
+  for (let index = 0; index <= words.length - 4; index += 1) {
+    const phrase = words.slice(index, index + 4).join(' ');
+    const prior = seen.get(phrase);
+    if (prior != null && index - prior >= 4) return phrase;
+    if (prior == null) seen.set(phrase, index);
+  }
+  return '';
+}
+
+function extractNativeTraceSummary(trace) {
+  const entries = Array.isArray(trace) ? trace : [];
+  const firstResult = entries.find((entry) => entry.event === 'onresult_raw');
+  const finalResults = entries.filter((entry) => entry.event === 'onresult_raw'
+    && Array.isArray(entry.rawResults)
+    && entry.rawResults.some((result) => result?.isFinal));
+  const lastFinalResult = finalResults.at(-1);
+  const storeUpdates = entries.filter((entry) => entry.event === 'store_apply_final' || entry.event === 'store_apply_partial');
+  const lastStoreUpdate = storeUpdates.at(-1);
+  const promoted = entries.find((entry) => /promot/i.test(entry.event || ''));
+  const stopEvents = entries.filter((entry) => /stop/i.test(entry.event || ''));
+
+  const postStopFinal = lastFinalResult?.rawResults
+    ?.filter((result) => result?.isFinal)
+    ?.map((result) => result.transcript || '')
+    ?.join(' ') || '';
+
+  return {
+    firstResultMs: firstResult?.t ?? null,
+    firstResultText: compact(firstResult?.rawResults?.map((result) => result.transcript || '').join(' ') || ''),
+    finalResultCount: finalResults.length,
+    postStopFinal: compact(postStopFinal),
+    lastStoreTranscript: compact(lastStoreUpdate?.final || lastStoreUpdate?.partial || lastStoreUpdate?.currentTranscript || ''),
+    promotedTranscript: compact(promoted?.transcript || promoted?.text || ''),
+    stopEventCount: stopEvents.length,
+    resultEventCount: entries.filter((entry) => entry.event === 'onresult_raw').length,
+  };
+}
+
+function summarizeParallelCapture(captures, nativeTrace) {
+  const capture = Array.isArray(captures) ? captures.at(-1) : null;
+  if (!capture) return null;
+
+  // P1: carry segment-level speech fields from the raw `parallel_capture_saved`
+  // trace event into the summary so the report does not have to dig into the trace.
+  const trace = Array.isArray(nativeTrace) ? nativeTrace : [];
+  const savedEvent = [...trace].reverse().find((entry) => entry?.event === 'parallel_capture_saved');
+  const segments = savedEvent ?? {};
+
+  return {
+    durationSec: capture.durationSec ?? null,
+    sampleRate: capture.sampleRate ?? null,
+    rms: capture.rms ?? null,
+    peak: capture.peak ?? null,
+    samples: capture.samples ?? null,
+    wavBytesApprox: capture.wavBytesApprox ?? null,
+    speechStartMs: segments.speechStartMs ?? null,
+    speechEndMs: segments.speechEndMs ?? null,
+    speechDurationMs: segments.speechDurationMs ?? null,
+    segmentCount: segments.segmentCount ?? null,
+    speechSegments: segments.segmentCount ?? null,
+    speechWindow: (segments.speechStartMs != null && segments.speechEndMs != null)
+      ? { startMs: segments.speechStartMs, endMs: segments.speechEndMs }
+      : null,
+    contaminationFlag: segments.contaminationFlag ?? null,
+  };
 }
 
 async function selectMode(page, mode) {
@@ -205,6 +281,7 @@ try {
   await page.waitForTimeout(POST_AUDIO_WAIT_MS);
 
   const transcriptText = compact(await page.getByTestId('transcript-container').textContent().catch(() => ''));
+  evidence.visibleAtStop = transcriptText;
   evidence.transcriptSample = transcriptText.slice(0, 500);
   evidence.transcriptLength = transcriptText.length;
   evidence.transcriptVisible = transcriptText.length >= 12 && !/\b(listening|words appear here|start speaking)\b/i.test(transcriptText);
@@ -215,8 +292,10 @@ try {
     evidence.blockers.push(`stop did not settle: ${error.message}`);
   });
   await page.waitForTimeout(3_000);
+  evidence.postStopTranscript = compact(await page.getByTestId('transcript-container').textContent().catch(() => ''));
   evidence.saved = await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false);
   evidence.nativeTrace = await page.evaluate(() => window.__NATIVE_BROWSER_TRACE__ || []);
+  evidence.nativeTraceSummary = extractNativeTraceSummary(evidence.nativeTrace);
   evidence.nativeParallelCapture = await page.evaluate(() => {
     const captures = window.__NATIVE_PARALLEL_CAPTURE__ || [];
     return captures.map((capture) => ({
@@ -229,6 +308,10 @@ try {
       wavBytesApprox: typeof capture.wavDataUrl === 'string' ? capture.wavDataUrl.length : 0,
     }));
   });
+  evidence.parallelCaptureSummary = summarizeParallelCapture(evidence.nativeParallelCapture, evidence.nativeTrace);
+  evidence.selectedForSave = evidence.postStopTranscript || evidence.visibleAtStop || evidence.nativeTraceSummary.lastStoreTranscript || '';
+  evidence.duplicateFullTranscript = Boolean(repeatedFourWordSequence(evidence.selectedForSave));
+  evidence.repeatedFourWordSequence = repeatedFourWordSequence(evidence.selectedForSave);
 
   await page.goto(`${BASE_URL}/analytics`, { waitUntil: 'domcontentloaded' });
   await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
@@ -240,13 +323,19 @@ try {
     await historyItem.click();
     await page.waitForTimeout(3_000);
   }
-  evidence.analyticsVisible = /analytics|words per minute|wpm|clarity|filler|session/i.test(compact(await page.locator('body').textContent()));
+  const detailBody = compact(await page.locator('body').textContent());
+  evidence.detailBodySample = detailBody.slice(0, 1200);
+  evidence.detailTranscript = detailBody.includes(evidence.selectedForSave)
+    ? evidence.selectedForSave
+    : '';
+  evidence.analyticsVisible = /analytics|words per minute|wpm|clarity|filler|session/i.test(detailBody);
   evidence.finalUrl = page.url();
 
   if (!evidence.transcriptVisible) evidence.blockers.push('No non-placeholder live Native transcript from real Chrome/mic path.');
   if (!evidence.saved) evidence.blockers.push('Native session did not expose saved-session marker.');
   if (!evidence.historyVisible) evidence.blockers.push('Native session history item was not visible.');
   if (!evidence.analyticsVisible) evidence.blockers.push('Native analytics detail/context was not visible.');
+  if (evidence.duplicateFullTranscript) evidence.blockers.push(`Native selected transcript repeats 4-word sequence: ${evidence.repeatedFourWordSequence}`);
 } catch (error) {
   evidence.blockers.push(error instanceof Error ? error.message : String(error));
 } finally {
