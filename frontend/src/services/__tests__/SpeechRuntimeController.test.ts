@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SpeechRuntimeController } from '../SpeechRuntimeController';
 import { useSessionStore } from '@/stores/useSessionStore';
 import { ITranscriptionService } from '../../hooks/useSpeechRecognition/useTranscriptionService';
+import { sessionManager } from '@/services/transcription/SessionManager';
 
 // Mock Dependencies
 vi.mock('../../lib/logger', () => ({
@@ -448,4 +449,52 @@ describe('SpeechRuntimeController FSM Expansion (Steps 1-4)', () => {
             expect(useSessionStore.getState().transcript.partial).toBe('');
         }
     );
+
+    it('routes newly-created service transcript callbacks through the controller before subscriber callbacks', async () => {
+        SpeechRuntimeController.__resetForTests();
+        controller = SpeechRuntimeController.getInstance();
+        (controller as unknown as { state: string }).state = 'IDLE';
+        (controller as unknown as { initialized: boolean }).initialized = true;
+        (controller as unknown as { service: unknown }).service = null;
+        useSessionStore.getState().resetSession();
+        useSessionStore.getState().setRuntimeState('IDLE');
+        window.__SS_TRANSCRIPT_TRACE__ = [];
+
+        let capturedOptions: { onTranscriptUpdate?: (data: { transcript: { partial?: string; final?: string } }) => void } = {};
+        const subscriberUpdate = vi.fn();
+        controller.setSubscriberCallbacks({
+            onTranscriptUpdate: subscriberUpdate,
+        } as never);
+        (controller as unknown as { isSubscriberReady: boolean }).isSubscriberReady = true;
+
+        const service = {
+            warmUp: vi.fn().mockResolvedValue(undefined),
+            getStrategy: vi.fn().mockReturnValue(null),
+            startTranscription: vi.fn().mockImplementation(async () => {
+                capturedOptions.onTranscriptUpdate?.({ transcript: { partial: 'native live text appears now' } });
+            }),
+            getState: vi.fn().mockReturnValue('RECORDING'),
+            getMode: vi.fn().mockReturnValue('native'),
+            getMetadata: vi.fn().mockReturnValue({ engineVersion: 'web-speech-api', modelName: 'browser-native', deviceType: 'browser' }),
+            setSessionId: vi.fn(),
+            isServiceDestroyed: () => false,
+            fsm: { is: vi.fn((state: string) => state === 'RECORDING') },
+        } as unknown as ITranscriptionService;
+
+        const getOrCreateSpy = vi.spyOn(sessionManager, 'getOrCreateService').mockImplementation((options) => {
+            capturedOptions = options as typeof capturedOptions;
+            return service as never;
+        });
+
+        await controller.startRecording({ preferredMode: 'native' } as never);
+        await controller.whenStable();
+
+        expect(getOrCreateSpy).toHaveBeenCalled();
+        expect(useSessionStore.getState().transcript.partial).toBe('Native live text appears now');
+        expect(subscriberUpdate).toHaveBeenCalledWith({ transcript: { partial: 'native live text appears now' } });
+        expect(window.__SS_TRANSCRIPT_TRACE__?.some(event => event.stage === 'controller:receive')).toBe(true);
+        expect(window.__SS_TRANSCRIPT_TRACE__?.some(event => event.stage === 'store:update' && event.type === 'partial')).toBe(true);
+
+        getOrCreateSpy.mockRestore();
+    });
 });

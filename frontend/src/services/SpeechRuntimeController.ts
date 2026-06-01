@@ -129,6 +129,30 @@ const appendFinalTranscriptText = (currentTranscript: string, finalTranscript: s
     return `${ensureTerminalPunctuation(currentTranscript)} ${finalWithPunctuation}`;
 };
 
+const createControllerOwnedServiceCallbacks = (
+    callbacks: Partial<TranscriptionServiceOptions>,
+    handlers: Required<Pick<
+        TranscriptionServiceOptions,
+        | 'onTranscriptUpdate'
+        | 'onModelLoadProgress'
+        | 'onReady'
+        | 'onAudioData'
+        | 'onModeChange'
+        | 'onStatusChange'
+        | 'onError'
+    >> & Pick<TranscriptionServiceOptions, 'onHistoryUpdate'>
+): Partial<TranscriptionServiceOptions> => ({
+    ...callbacks,
+    onTranscriptUpdate: handlers.onTranscriptUpdate,
+    onHistoryUpdate: handlers.onHistoryUpdate,
+    onError: handlers.onError,
+    onStatusChange: handlers.onStatusChange,
+    onModelLoadProgress: handlers.onModelLoadProgress,
+    onReady: handlers.onReady,
+    onAudioData: handlers.onAudioData,
+    onModeChange: handlers.onModeChange,
+});
+
 const NATIVE_NOISE_TRANSCRIPTS = new Set([
     'stop',
     'start',
@@ -538,12 +562,9 @@ export class SpeechRuntimeController {
         if (callbacks.getAssemblyAIToken) this.getAssemblyAIToken = callbacks.getAssemblyAIToken;
 
         if (this.service) {
-            this.service.updateCallbacks({
-                ...callbacks,
-                onTranscriptUpdate: (data) => this.handleTranscriptUpdate(data),
-                onHistoryUpdate: (history) => this.handleHistoryUpdate(history),
-                onError: (error) => this.handleError(error),
-            });
+            this.service.updateCallbacks(
+                createControllerOwnedServiceCallbacks(callbacks, this.serviceCallbacks as Required<typeof this.serviceCallbacks>)
+            );
         }
     }
 
@@ -1309,10 +1330,10 @@ export class SpeechRuntimeController {
 
             if (!this.service) {
                 pushNativeRuntimeTrace('controller_start_create_service');
-                this.service = getTranscriptionService({
-                    ...this.serviceCallbacks,
-                    ...this.subscriberCallbacks,
-                }, this.lock);
+                this.service = getTranscriptionService(
+                    createControllerOwnedServiceCallbacks(this.subscriberCallbacks, this.serviceCallbacks as Required<typeof this.serviceCallbacks>),
+                    this.lock
+                );
             }
 
             pushE2EEvent('SR_START_ENTER');
@@ -2068,13 +2089,15 @@ export class SpeechRuntimeController {
         }
 
         if (!this.service) {
-            this.service = getTranscriptionService({
-                ...this.serviceCallbacks,
-                navigate: this.navigate,
-                session: this.session,
-                getAssemblyAIToken: this.getAssemblyAIToken,
-                userWords: this.userWords
-            }, this.lock);
+            this.service = getTranscriptionService(
+                createControllerOwnedServiceCallbacks({
+                    navigate: this.navigate,
+                    session: this.session,
+                    getAssemblyAIToken: this.getAssemblyAIToken,
+                    userWords: this.userWords
+                }, this.serviceCallbacks as Required<typeof this.serviceCallbacks>),
+                this.lock
+            );
         }
 
         if (options.skipIfDownloadPending && this.service.fsm?.is('DOWNLOAD_REQUIRED')) {

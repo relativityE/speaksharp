@@ -97,6 +97,33 @@ function calculateWordErrorRate(reference, hypothesis) {
   return dp[ref.length][hyp.length] / ref.length;
 }
 
+function buildWerMetric(reference, transcript) {
+  const text = compact(transcript);
+  const wer = calculateWordErrorRate(reference, text);
+  return {
+    transcript: text,
+    normalizedTranscript: normalizeForWer(text),
+    wordCount: words(text).length,
+    wer,
+    accuracyPct: Number(((1 - wer) * 100).toFixed(2)),
+  };
+}
+
+function extractSessionDetailTranscript(bodyText) {
+  const body = compact(bodyText);
+  if (!body) return '';
+  const recordedWithIndex = body.indexOf('Recorded with');
+  const suggestionsIndex = body.indexOf('AI-Powered Suggestions');
+  if (recordedWithIndex === -1 || suggestionsIndex === -1 || suggestionsIndex <= recordedWithIndex) {
+    return '';
+  }
+
+  const between = body.slice(recordedWithIndex, suggestionsIndex);
+  const modeMatch = between.match(/Recorded with(.+?)(Native Browser|Private|Cloud|AssemblyAI|Browser|Whisper|web-speech-api|browser\))/i);
+  const afterMode = modeMatch ? between.slice(modeMatch.index + modeMatch[0].length) : between.replace(/^Recorded with\s*/i, '');
+  return compact(afterMode);
+}
+
 async function loadFixtures() {
   const sourcePath = path.resolve('tests/fixtures/stt-isomorphic/harvard-sentences.ts');
   const source = await readFile(sourcePath, 'utf8');
@@ -453,6 +480,13 @@ async function readTranscript(page) {
   return compact(await page.getByTestId('transcript-container').textContent().catch(() => ''));
 }
 
+async function readSessionDetailTranscript(page) {
+  const byTestId = compact(await page.getByTestId('session-detail-transcript').textContent().catch(() => ''));
+  if (byTestId) return byTestId;
+  const body = compact(await page.locator('body').textContent().catch(() => ''));
+  return extractSessionDetailTranscript(body);
+}
+
 function isPlaceholderTranscript(text) {
   return !text || /\b(listening|words appear here|start speaking)\b/i.test(text);
 }
@@ -521,6 +555,13 @@ async function collectTraceSnapshot(page, mode) {
       sampleRate: capture.sampleRate,
       rms: capture.rms,
       peak: capture.peak,
+      startedAt: capture.startedAt,
+      endedAt: capture.endedAt,
+      speechStartMs: capture.speechStartMs,
+      speechEndMs: capture.speechEndMs,
+      speechDurationMs: capture.speechDurationMs,
+      segmentCount: capture.segmentCount,
+      speechSegments: capture.speechSegments,
       wavDataUrlBytes: capture.wavDataUrl?.length ?? 0,
     })) : undefined,
     privateTrace: currentMode === 'private' ? window.__PRIVATE_STT_TIMELINE__ ?? [] : undefined,
@@ -589,6 +630,9 @@ function summarizeTranscriptLifecycle(trace = []) {
     visibleTranscriptAtStopLength: typeof stopEvent?.visibleAtStopLength === 'number' ? stopEvent.visibleAtStopLength : null,
     stopPreview: typeof stopEvent?.preview === 'string' ? stopEvent.preview : null,
     saveCandidatePreview: typeof saveEvent?.preview === 'string' ? saveEvent.preview : null,
+    saveCandidateSelectedTranscript: typeof saveEvent?.selected === 'string'
+      ? saveEvent.selected
+      : (typeof saveEvent?.preview === 'string' ? saveEvent.preview : null),
   };
 }
 
@@ -753,12 +797,12 @@ async function runFixture(page, mode, fixture) {
   await page.waitForTimeout(POST_PLAYBACK_WAIT_MS);
   await markPhase(page, 'post_playback_wait_done', { postPlaybackWaitMs: POST_PLAYBACK_WAIT_MS });
 
-  const transcript = await readTranscript(page);
+  const visibleAtStopTranscript = await readTranscript(page);
   const liveCustomWord = CUSTOM_WORD ? await readCustomWordCount(page, CUSTOM_WORD) : undefined;
   if (liveCustomWord) {
     await markPhase(page, 'custom_word_live_count', { word: CUSTOM_WORD, ...liveCustomWord });
   }
-  await markPhase(page, 'click_stop', { transcript });
+  await markPhase(page, 'click_stop', { transcript: visibleAtStopTranscript });
   const stopClick = await clickStartStopButton(page, 'click_stop').catch((error) => ({
     method: 'failed',
     error: error instanceof Error ? error.message : String(error),
@@ -772,12 +816,15 @@ async function runFixture(page, mode, fixture) {
   await markPhase(page, 'recording_attribute_false');
   await page.waitForTimeout(2_000);
   await markPhase(page, 'after_stop_settle');
+  const postStopTranscript = await readTranscript(page);
 
   const traceSnapshot = await collectTraceSnapshot(page, mode);
   const transcriptLifecycleSummary = summarizeTranscriptLifecycle(traceSnapshot.transcriptLifecycleTrace);
+  const selectedForSaveTranscript = transcriptLifecycleSummary.saveCandidateSelectedTranscript || postStopTranscript || visibleAtStopTranscript;
+  const visibleAtStopMetric = buildWerMetric(fixture.transcript, visibleAtStopTranscript);
+  const postStopMetric = buildWerMetric(fixture.transcript, postStopTranscript);
+  const selectedForSaveMetric = buildWerMetric(fixture.transcript, selectedForSaveTranscript);
 
-  const normalizedTranscript = normalizeForWer(transcript);
-  const wer = calculateWordErrorRate(fixture.transcript, transcript);
   const result = {
     mode,
     fixture: fixture.id,
@@ -785,17 +832,26 @@ async function runFixture(page, mode, fixture) {
     audioPath: fixture.audioPath,
     truth: fixture.transcript,
     expectedFillers: fixture.expectedFillers,
-    transcript,
-    normalizedTranscript,
-    wordCount: words(transcript).length,
-    wer,
-    accuracyPct: Number(((1 - wer) * 100).toFixed(2)),
+    transcript: postStopTranscript,
+    visibleAtStopTranscript,
+    postStopTranscript,
+    selectedForSaveTranscript,
+    normalizedTranscript: postStopMetric.normalizedTranscript,
+    wordCount: postStopMetric.wordCount,
+    wer: postStopMetric.wer,
+    accuracyPct: postStopMetric.accuracyPct,
+    visibleAtStopWer: visibleAtStopMetric.wer,
+    visibleAtStopAccuracyPct: visibleAtStopMetric.accuracyPct,
+    postStopWer: postStopMetric.wer,
+    postStopAccuracyPct: postStopMetric.accuracyPct,
+    selectedForSaveWer: selectedForSaveMetric.wer,
+    selectedForSaveAccuracyPct: selectedForSaveMetric.accuracyPct,
     firstText,
     sessionPersisted: await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false),
     customWord: customWordEvidence ? {
       ...customWordEvidence,
       liveAfterTranscript: liveCustomWord,
-      transcriptContainsWord: new RegExp(`\\b${CUSTOM_WORD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(transcript),
+      transcriptContainsWord: new RegExp(`\\b${CUSTOM_WORD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(postStopTranscript),
     } : undefined,
     privateReadiness,
     phases: traceSnapshot.phases,
@@ -823,19 +879,30 @@ async function runFixture(page, mode, fixture) {
     const body = document.body?.textContent ?? '';
     return /No sessions yet|Error Loading Analytics|Session Not Found/i.test(body);
   }, null, { timeout: 45_000 }).catch(() => undefined);
-  result.historyVisible = await page.getByTestId(/^session-history-item-/).first().isVisible({ timeout: 15_000 }).catch(() => false);
+  const rawHistoryVisible = await page.getByTestId(/^session-history-item-/).first().isVisible({ timeout: 15_000 }).catch(() => false);
+  result.historyVisible = Boolean(result.sessionPersisted && rawHistoryVisible);
   const detailButton = page.getByTestId(/^open-session-detail-/).first();
-  result.detailVisible = await detailButton.isVisible({ timeout: 5_000 }).catch(() => false);
+  const rawDetailVisible = await detailButton.isVisible({ timeout: 5_000 }).catch(() => false);
   const analyticsBody = compact(await page.locator('body').textContent().catch(() => ''));
   result.analyticsBodySample = analyticsBody.slice(0, 1000);
-  result.analyticsTranscriptEvidence = transcriptEvidenceInBody(analyticsBody, transcript);
+  result.analyticsTranscriptEvidence = transcriptEvidenceInBody(analyticsBody, selectedForSaveTranscript);
   result.directSavedSessionQuery = await fetchLatestSavedSessions(page);
-  if (result.detailVisible) {
+  result.detailVisible = false;
+  if (result.sessionPersisted && rawDetailVisible) {
     await detailButton.click().catch(() => undefined);
     await page.waitForTimeout(750);
     const detailBody = compact(await page.locator('body').textContent().catch(() => ''));
+    const detailTranscript = await readSessionDetailTranscript(page);
     result.detailBodySample = detailBody.slice(0, 1000);
-    result.detailTranscriptEvidence = transcriptEvidenceInBody(detailBody, transcript);
+    result.detailTranscript = detailTranscript;
+    const detailMetric = buildWerMetric(fixture.transcript, detailTranscript);
+    result.detailWer = detailMetric.wer;
+    result.detailAccuracyPct = detailMetric.accuracyPct;
+    result.detailTranscriptEvidence = transcriptEvidenceInBody(detailTranscript, selectedForSaveTranscript);
+    result.detailVisible = Boolean(
+      detailTranscript &&
+      result.detailTranscriptEvidence.containsAtLeastHalfUniqueTranscriptWords
+    );
   }
   result.savedTranscriptLength = result.sessionPersisted ? result.savePayloadTranscriptLength : null;
   const truthWords = words(fixture.transcript);
@@ -861,7 +928,7 @@ async function runFixture(page, mode, fixture) {
   }
   if (fixture.expectedFillers) {
     const expectedKeys = Object.keys(fixture.expectedFillers);
-    result.observedFillers = countFillerOccurrences(transcript, [...new Set([...expectedKeys, ...DEFAULT_FILLER_WORDS])]);
+    result.observedFillers = countFillerOccurrences(selectedForSaveTranscript, [...new Set([...expectedKeys, ...DEFAULT_FILLER_WORDS])]);
     result.fillerPass = expectedKeys.every((filler) => result.observedFillers[filler] === fixture.expectedFillers[filler]);
   }
   result.journeyPass = Boolean(result.sessionPersisted && result.historyVisible && result.detailVisible && result.firstText.timestampMs != null);

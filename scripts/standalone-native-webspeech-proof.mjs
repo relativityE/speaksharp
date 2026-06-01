@@ -46,6 +46,15 @@ function html() {
       const eventsEl = document.getElementById('events');
       const visibleEl = document.getElementById('visible');
       const statusEl = document.getElementById('status');
+      const capture = {
+        stream: null,
+        audioContext: null,
+        source: null,
+        processor: null,
+        frames: [],
+        sampleRate: 0,
+        startedAt: 0,
+      };
       const state = window.__STANDALONE_WEB_SPEECH__ = {
         supported: Boolean(SpeechRecognition),
         events: [],
@@ -55,6 +64,7 @@ function html() {
         startedAt: 0,
         endedAt: 0,
         config: null,
+        parallelCapture: null,
       };
 
       function compact(value) {
@@ -71,6 +81,125 @@ function html() {
       function render() {
         state.visibleTranscript = [state.finalTranscript, state.interimTranscript].filter(Boolean).join(' ').trim();
         visibleEl.textContent = state.visibleTranscript;
+      }
+
+      function summarizeAudioEnergy(audio) {
+        let sumSquares = 0;
+        let peak = 0;
+        for (let i = 0; i < audio.length; i += 1) {
+          const sample = audio[i] || 0;
+          const abs = Math.abs(sample);
+          sumSquares += sample * sample;
+          if (abs > peak) peak = abs;
+        }
+        return {
+          rms: audio.length ? Math.sqrt(sumSquares / audio.length) : 0,
+          peak,
+        };
+      }
+
+      function analyzeSpeechSegments(audio, sampleRate) {
+        const windowSize = Math.max(1, Math.round(sampleRate * 0.05));
+        const minSegmentMs = 120;
+        const mergeGapMs = 180;
+        const totalEnergy = summarizeAudioEnergy(audio);
+        const threshold = Math.max(0.006, totalEnergy.rms * 1.8);
+        const segments = [];
+        for (let start = 0; start < audio.length; start += windowSize) {
+          const end = Math.min(audio.length, start + windowSize);
+          const energy = summarizeAudioEnergy(audio.subarray(start, end));
+          const speech = energy.rms >= threshold || energy.peak >= threshold * 3;
+          if (!speech) continue;
+          const startMs = (start / sampleRate) * 1000;
+          const endMs = (end / sampleRate) * 1000;
+          const previous = segments[segments.length - 1];
+          if (previous && startMs - previous.endMs <= mergeGapMs) {
+            previous.endMs = endMs;
+            previous.rms = Math.max(previous.rms, energy.rms);
+            previous.peak = Math.max(previous.peak, energy.peak);
+          } else {
+            segments.push({ startMs, endMs, rms: energy.rms, peak: energy.peak });
+          }
+        }
+        const filtered = segments
+          .filter(segment => segment.endMs - segment.startMs >= minSegmentMs)
+          .map(segment => ({
+            startMs: Math.round(segment.startMs),
+            endMs: Math.round(segment.endMs),
+            rms: Number(segment.rms.toFixed(6)),
+            peak: Number(segment.peak.toFixed(6)),
+          }));
+        return {
+          speechStartMs: filtered[0]?.startMs ?? null,
+          speechEndMs: filtered[filtered.length - 1]?.endMs ?? null,
+          speechDurationMs: Math.round(filtered.reduce((sum, segment) => sum + segment.endMs - segment.startMs, 0)),
+          segmentCount: filtered.length,
+          speechSegments: filtered,
+        };
+      }
+
+      function concatenateFrames(frames) {
+        const total = frames.reduce((sum, frame) => sum + frame.length, 0);
+        const audio = new Float32Array(total);
+        let offset = 0;
+        for (const frame of frames) {
+          audio.set(frame, offset);
+          offset += frame.length;
+        }
+        return audio;
+      }
+
+      async function startParallelCapture() {
+        try {
+          capture.stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false,
+              channelCount: 1,
+            },
+          });
+          capture.audioContext = new AudioContext({ sampleRate: 16000 });
+          capture.sampleRate = capture.audioContext.sampleRate;
+          capture.source = capture.audioContext.createMediaStreamSource(capture.stream);
+          capture.processor = capture.audioContext.createScriptProcessor(4096, 1, 1);
+          capture.frames = [];
+          capture.startedAt = Date.now();
+          capture.processor.onaudioprocess = (event) => {
+            capture.frames.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+          };
+          capture.source.connect(capture.processor);
+          capture.processor.connect(capture.audioContext.destination);
+          log('parallel_capture_started', { sampleRate: capture.sampleRate });
+        } catch (error) {
+          log('parallel_capture_error', { error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+
+      async function stopParallelCapture() {
+        try {
+          capture.processor?.disconnect();
+          capture.source?.disconnect();
+          capture.stream?.getTracks?.().forEach(track => track.stop());
+          await capture.audioContext?.close?.();
+        } catch {
+          // best effort cleanup
+        }
+        if (!capture.frames.length) return;
+        const audio = concatenateFrames(capture.frames);
+        const energy = summarizeAudioEnergy(audio);
+        const sampleRate = capture.sampleRate || 16000;
+        state.parallelCapture = {
+          startedAt: new Date(capture.startedAt || Date.now()).toISOString(),
+          endedAt: new Date().toISOString(),
+          samples: audio.length,
+          durationSec: audio.length / sampleRate,
+          sampleRate,
+          rms: Number(energy.rms.toFixed(6)),
+          peak: Number(energy.peak.toFixed(6)),
+          ...analyzeSpeechSegments(audio, sampleRate),
+        };
+        log('parallel_capture_saved', state.parallelCapture);
       }
 
       let recognition = null;
@@ -148,7 +277,7 @@ function html() {
         };
       }
 
-      document.getElementById('start').addEventListener('click', () => {
+      document.getElementById('start').addEventListener('click', async () => {
         if (!SpeechRecognition) {
           log('unsupported');
           return;
@@ -158,13 +287,15 @@ function html() {
         state.interimTranscript = '';
         state.visibleTranscript = '';
         state.events = [];
+        state.parallelCapture = null;
         render();
+        await startParallelCapture();
         createRecognition();
         recognition.start();
         log('start_invoked');
       });
 
-      document.getElementById('stop').addEventListener('click', () => {
+      document.getElementById('stop').addEventListener('click', async () => {
         shouldListen = false;
         log('stop_requested');
         try {
@@ -173,6 +304,7 @@ function html() {
         } catch (error) {
           log('stop_error', { error: error instanceof Error ? error.message : String(error) });
         }
+        await stopParallelCapture();
       });
     </script>
   </body>

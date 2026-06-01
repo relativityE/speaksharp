@@ -757,7 +757,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                         {formatSessionRecordingMode(targetSession)}
                                     </span>
                                 </div>
-                                <div className="p-4 bg-muted rounded-lg border border-[hsl(var(--border))] min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
+                                <div
+                                    className="p-4 bg-muted rounded-lg border border-[hsl(var(--border))] min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed"
+                                    data-testid="session-detail-transcript"
+                                >
                                     {targetSession.transcript || "No transcript available for this session."}
                                 </div>
                             </CardContent>

@@ -19,11 +19,18 @@ declare global {
 
 type NativeParallelMicCapture = {
   createdAt: string;
+  startedAt: string;
+  endedAt: string;
   samples: number;
   durationSec: number;
   sampleRate: number;
   rms: number;
   peak: number;
+  speechStartMs: number | null;
+  speechEndMs: number | null;
+  speechDurationMs: number;
+  segmentCount: number;
+  speechSegments: Array<{ startMs: number; endMs: number; rms: number; peak: number }>;
   wavDataUrl: string;
 };
 
@@ -83,6 +90,62 @@ function concatenateFrames(frames: Float32Array[]): Float32Array {
   }
 
   return output;
+}
+
+function analyzeSpeechSegments(audio: Float32Array, sampleRate: number) {
+  const windowSize = Math.max(1, Math.round(sampleRate * 0.05));
+  const minSegmentMs = 120;
+  const mergeGapMs = 180;
+  const energy = summarizeAudioEnergy(audio);
+  const threshold = Math.max(0.006, energy.rms * 1.8);
+  const windows: Array<{ startMs: number; endMs: number; rms: number; peak: number; speech: boolean }> = [];
+
+  for (let start = 0; start < audio.length; start += windowSize) {
+    const end = Math.min(audio.length, start + windowSize);
+    const slice = audio.subarray(start, end);
+    const sliceEnergy = summarizeAudioEnergy(slice);
+    windows.push({
+      startMs: (start / sampleRate) * 1000,
+      endMs: (end / sampleRate) * 1000,
+      rms: sliceEnergy.rms,
+      peak: sliceEnergy.peak,
+      speech: sliceEnergy.rms >= threshold || sliceEnergy.peak >= threshold * 3,
+    });
+  }
+
+  const segments: Array<{ startMs: number; endMs: number; rms: number; peak: number }> = [];
+  for (const window of windows) {
+    if (!window.speech) continue;
+    const previous = segments[segments.length - 1];
+    if (previous && window.startMs - previous.endMs <= mergeGapMs) {
+      previous.endMs = window.endMs;
+      previous.rms = Math.max(previous.rms, window.rms);
+      previous.peak = Math.max(previous.peak, window.peak);
+    } else {
+      segments.push({
+        startMs: window.startMs,
+        endMs: window.endMs,
+        rms: window.rms,
+        peak: window.peak,
+      });
+    }
+  }
+
+  const filtered = segments
+    .filter(segment => segment.endMs - segment.startMs >= minSegmentMs)
+    .map(segment => ({
+      startMs: Math.round(segment.startMs),
+      endMs: Math.round(segment.endMs),
+      rms: Number(segment.rms.toFixed(6)),
+      peak: Number(segment.peak.toFixed(6)),
+    }));
+  return {
+    speechStartMs: filtered[0]?.startMs ?? null,
+    speechEndMs: filtered[filtered.length - 1]?.endMs ?? null,
+    speechDurationMs: Math.round(filtered.reduce((sum, segment) => sum + segment.endMs - segment.startMs, 0)),
+    segmentCount: filtered.length,
+    speechSegments: filtered,
+  };
 }
 
 function encodePcm16WavDataUrl(audio: Float32Array, sampleRate: number): string {
@@ -207,6 +270,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   private parallelCaptureDisposer: (() => void) | null = null;
   private parallelCaptureFrames: Float32Array[] = [];
   private parallelCaptureSampleRate = 0;
+  private parallelCaptureStartedAtMs = 0;
   private recognitionCycleId = 0;
   private cycleStartedAtMs = 0;
   private cycleAudioStartedAtMs = 0;
@@ -1003,6 +1067,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     this.flushParallelCapture();
     this.parallelCaptureFrames = [];
     this.parallelCaptureSampleRate = mic?.sampleRate ?? 0;
+    this.parallelCaptureStartedAtMs = 0;
 
     if (!isNativeParallelCaptureEnabled() || !mic || typeof mic.onFrame !== 'function') {
       pushNativeTrace('parallel_capture_skipped', {
@@ -1016,6 +1081,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       return;
     }
 
+    this.parallelCaptureStartedAtMs = Date.now();
     this.parallelCaptureDisposer = mic.onFrame((frame: Float32Array) => {
       this.parallelCaptureFrames.push(frame.slice(0));
     });
@@ -1043,13 +1109,19 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     const sampleRate = this.parallelCaptureSampleRate || 16000;
     const audio = concatenateFrames(this.parallelCaptureFrames);
     const energy = summarizeAudioEnergy(audio);
+    const speech = analyzeSpeechSegments(audio, sampleRate);
+    const endedAtMs = Date.now();
+    const startedAtMs = this.parallelCaptureStartedAtMs || endedAtMs - (audio.length / sampleRate) * 1000;
     const capture: NativeParallelMicCapture = {
       createdAt: new Date().toISOString(),
+      startedAt: new Date(startedAtMs).toISOString(),
+      endedAt: new Date(endedAtMs).toISOString(),
       samples: audio.length,
       durationSec: audio.length / sampleRate,
       sampleRate,
       rms: Number(energy.rms.toFixed(6)),
       peak: Number(energy.peak.toFixed(6)),
+      ...speech,
       wavDataUrl: encodePcm16WavDataUrl(audio, sampleRate),
     };
 
@@ -1064,6 +1136,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       sampleRate: capture.sampleRate,
       rms: capture.rms,
       peak: capture.peak,
+      speechStartMs: capture.speechStartMs,
+      speechEndMs: capture.speechEndMs,
+      speechDurationMs: capture.speechDurationMs,
+      segmentCount: capture.segmentCount,
     });
     logger.info({
       sId: this.serviceId,
@@ -1078,6 +1154,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
     this.parallelCaptureFrames = [];
     this.parallelCaptureSampleRate = 0;
+    this.parallelCaptureStartedAtMs = 0;
   }
 
   private getLatestInterimTranscript(nextInterim: string): string {
@@ -1277,6 +1354,23 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       const pendingTranscript = this.lastMeaningfulInterim.trim();
       if (pendingTranscript && !NativeBrowser.normalizeForComparison(this.currentTranscript).includes(NativeBrowser.normalizeForComparison(pendingTranscript))) {
         const transcript = NativeBrowser.mergeFinalWithPendingInterim(this.currentTranscript, pendingTranscript);
+        if (NativeBrowser.normalizeForComparison(transcript) === NativeBrowser.normalizeForComparison(this.currentTranscript)) {
+          pushNativeTrace('native_interim_append_skipped_duplicate', {
+            sId: this.serviceId,
+            rId: this.runId,
+            eId: this.instanceId,
+            reason,
+            pendingTranscript,
+            currentTranscript: this.currentTranscript,
+          });
+          logger.info({
+            sId: this.serviceId,
+            rId: this.runId,
+            eId: this.instanceId,
+            reason,
+          }, '[NativeBrowser] Skipped duplicate pending interim transcript on stop');
+          return;
+        }
         this.currentTranscript = transcript;
         pushNativeTrace('native_interim_appended_to_final', {
           sId: this.serviceId,
@@ -1367,6 +1461,29 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     return previousNormalized.startsWith(nextNormalized) || nextNormalized.startsWith(previousNormalized);
   }
 
+  private static wordOverlapRatio(base: string, candidate: string): number {
+    const baseWords = new Set(NativeBrowser.wordsForComparison(base));
+    const candidateWords = NativeBrowser.wordsForComparison(candidate);
+    if (candidateWords.length === 0) return 0;
+
+    const overlappingWords = candidateWords.filter((word) => baseWords.has(word)).length;
+    return overlappingWords / candidateWords.length;
+  }
+
+  private static isSubstantiallyDuplicatePendingInterim(finalTranscript: string, pendingInterim: string): boolean {
+    const finalWords = NativeBrowser.wordsForComparison(finalTranscript);
+    const pendingWords = NativeBrowser.wordsForComparison(pendingInterim);
+    if (finalWords.length === 0 || pendingWords.length === 0) return false;
+
+    const shorterLength = Math.min(finalWords.length, pendingWords.length);
+    const longerLength = Math.max(finalWords.length, pendingWords.length);
+    const comparableLengthRatio = shorterLength / longerLength;
+    const pendingOverlap = NativeBrowser.wordOverlapRatio(finalTranscript, pendingInterim);
+    const finalOverlap = NativeBrowser.wordOverlapRatio(pendingInterim, finalTranscript);
+
+    return comparableLengthRatio >= 0.75 && pendingOverlap >= 0.75 && finalOverlap >= 0.75;
+  }
+
   private static appendTranscriptSegment(base: string, segment: string): string {
     const baseText = base.trim();
     const segmentText = segment.trim();
@@ -1412,6 +1529,9 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       return pendingText;
     }
     if (finalNormalized.includes(pendingNormalized)) {
+      return finalText;
+    }
+    if (NativeBrowser.isSubstantiallyDuplicatePendingInterim(finalText, pendingText)) {
       return finalText;
     }
 

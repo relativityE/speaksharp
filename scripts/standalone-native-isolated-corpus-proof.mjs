@@ -6,6 +6,7 @@ import path from 'node:path';
 const execFileAsync = promisify(execFile);
 
 const OUT = process.env.NATIVE_HARNESS_OUT || `/private/tmp/speaksharp-native-standalone-isolated-harvard10-${Date.now()}.json`;
+const USE_FAKE_AUDIO_CAPTURE = process.env.NATIVE_HARNESS_FAKE_AUDIO_CAPTURE === 'true';
 const FIXTURES = (process.env.STT_FIXTURES || 'h1_1,h1_2,h1_3,h1_4,h1_5,h1_6,h1_7,h1_8,h1_9,h1_10')
   .split(',')
   .map((fixture) => fixture.trim())
@@ -81,7 +82,9 @@ function average(rows, selector) {
 const aggregate = {
   startedAt: new Date().toISOString(),
   mode: 'standalone-native',
-  inputRoute: 'chrome-fake-audio-capture',
+  inputRoute: USE_FAKE_AUDIO_CAPTURE
+    ? 'chrome-fake-audio-capture'
+    : 'real browser getUserMedia with afplay through the physical speaker/mic path',
   fixtureCount: FIXTURES.length,
   rowArtifacts: [],
   results: [],
@@ -93,7 +96,7 @@ for (const fixture of await loadFixtures()) {
   const env = {
     ...process.env,
     HEADLESS: process.env.HEADLESS ?? 'true',
-    NATIVE_HARNESS_FAKE_AUDIO_CAPTURE: 'true',
+    NATIVE_HARNESS_FAKE_AUDIO_CAPTURE: USE_FAKE_AUDIO_CAPTURE ? 'true' : 'false',
     NATIVE_HARNESS_AUDIO_FILE: fixture.audioPath,
     NATIVE_HARNESS_AUDIO_SOURCE: 'fixture',
     NATIVE_HARNESS_OUT: rowOut,

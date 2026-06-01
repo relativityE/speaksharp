@@ -555,6 +555,50 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(await nativeBrowser.getTranscript()).toBe('native chrome microphone release validation native chrome microphone release validation');
     });
 
+    it('REGRESSION: does not append a stale full interim after Chrome already committed the final', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const pendingInterimText = 'native Chrome microphone proof Starts Now basically I want to make one simple point before we move on the puppy like chewed up the new shoes and that change the whole plan we find joy in the seamless things when the message is clear';
+      const finalText = 'native Chrome microphone proof Starts Now basically I want to make one simple point before we move on the puppy like chewed up the new shoes and that change the whole plan we find joy in the simplest things when the message is clear';
+      const pendingInterim = Object.assign([{ transcript: pendingInterimText, confidence: 0.8, isFinal: false }], { isFinal: false });
+      const finalResult = Object.assign([{ transcript: finalText, confidence: 0.9, isFinal: true }], { isFinal: true });
+
+      mockRecognition.onresult?.({ results: [pendingInterim], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [finalResult], resultIndex: 0 } as unknown as MockSpeechEvent);
+      const updatesBeforeStop = onTranscriptUpdate.mock.calls.length;
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      expect(onTranscriptUpdate.mock.calls.length).toBe(updatesBeforeStop);
+      expect(await nativeBrowser.getTranscript()).toBe(finalText);
+    });
+
+    it('REGRESSION: treats case and punctuation variants of pending interim as duplicate after final', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const pendingInterim = Object.assign([{ transcript: 'Native chrome microphone proof starts now basically I want to make one simple point', confidence: 0.8, isFinal: false }], { isFinal: false });
+      const finalResult = Object.assign([{ transcript: 'native Chrome microphone proof starts now. Basically, I want to make one simple point.', confidence: 0.9, isFinal: true }], { isFinal: true });
+
+      mockRecognition.onresult?.({ results: [pendingInterim], resultIndex: 0 } as unknown as MockSpeechEvent);
+      mockRecognition.onresult?.({ results: [finalResult], resultIndex: 0 } as unknown as MockSpeechEvent);
+      const updatesBeforeStop = onTranscriptUpdate.mock.calls.length;
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      expect(onTranscriptUpdate.mock.calls.length).toBe(updatesBeforeStop);
+      expect(await nativeBrowser.getTranscript()).toBe('native Chrome microphone proof starts now. Basically, I want to make one simple point.');
+    });
+
     it('REGRESSION: treats rolling Native interim windows as replaceable hypotheses', async () => {
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();
