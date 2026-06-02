@@ -1397,8 +1397,8 @@
   "classifications": {
     "cloud": {
       "status": "caveated",
-      "reason": "Baseline credentialed A/B valid rows are strong (95.56% accuracy, 90% filler recall), but h1_6-h1_10 baseline rows are invalid and all prompt/keyterms variants are invalid empty/no-termination sessions. Dev/provider request investigation required before green/brag classification.",
-      "next": "Fix/diagnose prompt,keyterms,prompt_keyterms invalid sessions; rerun credentialed A/B and app trace proof."
+      "reason": "Baseline credentialed A/B valid rows are strong (95.56% accuracy, 90% filler recall) and prompt valid rows were 100%/100%, but half-row invalids remain and keyterms variants still need credentialed proof after the latest local request-shape/backoff fix.",
+      "next": "Validate latest local A/B fix with cheap credentialed subset; then rerun app trace proof."
     },
     "private": {
       "status": "caveated",
@@ -1406,10 +1406,10 @@
       "next": "Resolve readability/punctuation for medium speech; run v4 browser proof if v4 is candidate; rerun human/physical mic when audio output works."
     },
     "native": {
-      "status": "backlog",
-      "reason": "No current human real-mic proof in this cycle. Native cannot be classified from fake/say routes. Punctuation/casing strategy remains unresolved.",
-      "next": "Run human Chrome mic proof after Private/Cloud closure; verify first visible text, final, no duplicate, punctuation/readability, save/history/detail."
+      "status": "backlog_failed_current_proof",
+      "reason": "Human real-mic proof ran and failed product readiness: Chrome produced words, but selectedForSave became Listening..., save/detail failed, readability failed, and filler recall was 66.67%.",
+      "next": "Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-02T16:23:40Z"
+  "lastUpdatedAt": "2026-06-02T20:05:00Z"
 }

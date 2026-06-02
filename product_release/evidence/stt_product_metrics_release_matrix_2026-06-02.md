@@ -1,7 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-02T17:42:16Z  
+**Last updated:** 2026-06-02T20:05:00Z  
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
@@ -149,7 +149,7 @@ Current status:
 The timing fields are now part of the MD/JSON metric contract.
 Private browser values were refreshed on 2026-06-02 with the injected-mic route.
 Cloud provider A/B values were refreshed via GitHub Actions credentialed run.
-Native remains NOT_CAPTURED_CURRENT_RUN until human real-mic proof runs.
+Native human real-mic proof ran on 2026-06-02 and failed product-readiness.
 ```
 
 ## Current Values
@@ -168,8 +168,8 @@ BLOCKER = missing value blocks green classification.
 | STT | Classification | Why | Next action |
 | --- | --- | --- | --- |
 | Private | Caveated | Current injected browser proof is much improved: `washington_01` 98.95%; guard rows mostly exact; `h1_6` improved to 87.5%. Not green because Washington readability fails max run-on gate, v4 browser proof is not captured, and physical/human mic route was unavailable. | Resolve readability/punctuation; run v4 browser proof if v4 is candidate; rerun physical/human mic when audio output works. |
-| Cloud | Caveated | Baseline credentialed A/B valid rows are strong: 95.56% accuracy and 90% filler recall. Not green because h1_6-h1_10 baseline rows are invalid and all prompt/keyterms variants are invalid empty/no-termination sessions. | Dev/provider request investigation for invalid prompt/keyterms sessions; rerun A/B and app trace proof. |
-| Native | Backlog | No current human real-mic proof in this cycle. Native cannot be classified from fake/say routes. Punctuation/casing strategy remains unresolved. | Run human Chrome mic proof after Private/Cloud closure; verify live text, final, no duplicate, readability, save/history/detail. |
+| Cloud | Caveated | Baseline credentialed A/B valid rows are strong: 95.56% accuracy and 90% filler recall; prompt valid rows were 100%/100%. Not green because half-row invalids remain and keyterms variants still need credentialed proof after the latest local request-shape/backoff fix. | Validate latest local A/B fix with cheap credentialed subset; then run app trace proof. |
+| Native | Backlog / failed current proof | Human real-mic proof ran and failed product readiness: Chrome produced words, but selectedForSave became `Listening...`, save/detail failed, readability failed, and filler recall was 66.67%. | Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof. |
 
 Clarifications:
 
@@ -177,12 +177,13 @@ Clarifications:
 Private browser evidence collected on 2026-06-02 is v2 / transformers-js only.
 v4 still needs the same browser fixture set before Private engine selection.
 
-Cloud "invalid" means empty/no-termination provider sessions, not bad WER.
+Cloud "invalid" means no usable provider transcript session, not bad WER.
 Those rows are excluded from quality averages and block green classification.
+Latest local Cloud A/B code now treats `keyterms_prompt` as a JSON-array-string
+and retries 1008 concurrency rows; this still needs credentialed proof.
 
-Native was not collected because the current comparable route requires human
-Chrome microphone proof. Injected mic/fake/say routes are not valid release
-proof for Native Web Speech.
+Native human real-mic proof is now collected and failed. Injected mic/fake/say
+routes remain invalid release proof for Native Web Speech.
 ```
 
 ### Short Corpus: Harvard h1_1-h1_10
@@ -191,7 +192,7 @@ proof for Native Web Speech.
 | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |
 | Private v2 | MEASURED_NODE full-WAV | 93.89% | 6.11% | 90.9% (10/11) | 0 | 9/10 rows | 9/10 rows | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | Not browser-green |
 | Private v4 | MEASURED_NODE full-WAV | 96.39% | 3.61% | 90.9% (10/11) | 0 | 10/10 rows | 10/10 rows | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | Best Private candidate; needs browser proof |
-| Native | Human real-mic required | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | BLOCKER |
+| Native | Human real-mic proof | script-level exact WER not scored | n/a | 66.67% (2/3) | 0 | pass | fail | first interim 32.1s after audio start | stop-to-onend 167 ms, but save/detail failed | fail: selected `Listening...`, detail empty | FAIL / not release-green |
 | Cloud | MEASURED_PRIOR_APP | 91.53% | 8.47% | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | prior proof exists but current trace proof needed | Strongest path, not closed |
 
 ### Private Browser Proof: Current Guard Rows, 2026-06-02
@@ -233,7 +234,7 @@ The prior h1_6 app-worse browser row improved materially in current proof:
 | --- | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- | --- | --- |
 | Private v2 | MEASURED_NODE full-WAV | 98.95% | 1.05% | 0.1652 | 190 | true | 4 | 104 | false | fail | Accuracy strong, punctuation/run-on fails |
 | Private v4 | MEASURED_NODE full-WAV | 98.95% | 1.05% | 0.0961 | 192 | true | 4 | 56 | false | fail | Accuracy strong, faster than v2, punctuation/run-on fails |
-| Native | Human real-mic required | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | n/a | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | BLOCKER if Native is positioned beyond quick-start |
+| Native | Human real-mic proof | script-level exact WER not scored | n/a | n/a | usable words, missed filler/punctuation | true | 2 / expected ~4 | 49 | false | fail | FAIL / not release-green |
 | Cloud | Credentialed long-form proof required | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | streaming | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | BLOCKER before Cloud brag path |
 
 ### Private Browser Proof: `washington_01`, 2026-06-02

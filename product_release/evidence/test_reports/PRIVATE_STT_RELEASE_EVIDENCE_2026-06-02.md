@@ -1,6 +1,6 @@
 # Private STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T16:23:40Z  
+**Updated:** 2026-06-02T20:10:00Z  
 **Scope:** Private v2/v4 local STT, browser app path, drop-in parity, timing, and readability  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -374,3 +374,64 @@ replay was meant to localize has effectively closed. The remaining 12.5% on h1_6
 short-utterance variation, not an app boundary defect. Recommendation: retire the replay as a release
 gate; keep `scripts/dev/private-app-buffer-replay.mts` in the toolbox only if a NEW app-worse row
 appears. If you'd still like one confirmatory replay for the record, I'll run it — but it's optional now.
+
+## TEST AGENT UPDATE (2026-06-02T20:10Z) — current-head release proof is blocked before transcription
+
+After the accuracy/timing improvements above, the current production-like GitHub proof is not yet
+collecting Private STT data. The latest failures are setup/auth/model-download failures, not
+transcription failures.
+
+### Current-head workflow blockers
+
+| Workflow / job | Result | Blocking evidence | Current read |
+| --- | --- | --- | --- |
+| Controlled STT Benchmarks / Private Browser Benchmarks | failed before STT | `/auth/signin` did not expose `[data-testid="auth-form"]`; both v2 and v4 specs failed at login | Benchmark auth selector/build route is not release-proof-ready. |
+| Pro STT Artifact Matrix | failed before STT | Real Pro account reached Private mode, but UI showed `Private model required`; Start disabled with title `Download required`; harness did not click `Set Up` / wait for ready | Pro proof must explicitly handle first-time Private setup and model cache readiness. |
+
+Known run IDs:
+
+```text
+Controlled STT Benchmarks: 26842655423
+Pro STT Artifact Matrix:   26842655363
+```
+
+Downloaded Pro matrix evidence path:
+
+```text
+/private/tmp/pro-stt-artifact-matrix-26842655363/test-results/live/
+```
+
+Required dev/harness fix:
+
+```text
+1. Make the benchmark login preflight production-like and deterministic:
+   - auth form visible
+   - login succeeds
+   - effective tier is Pro
+   - Private mode selectable
+
+2. Add explicit first-time Private setup handling:
+   - if status is "Private model required", click Set Up
+   - wait for model download/cache completion and "Private ready"
+   - only then click Start
+
+3. If model setup cannot complete, classify the run as INVALID_DOWNLOAD_REQUIRED
+   rather than Private STT FAIL.
+
+4. Capture model readiness fields in the artifact:
+   - privateModelRequired
+   - setupClicked
+   - downloadStarted
+   - downloadCompleted
+   - privateReadyAt
+   - selected runtime/provider
+   - cloudFallbackAttempted=false
+```
+
+Current release implication:
+
+```text
+Private accuracy looks promising after return_timestamps:true, but release proof
+is blocked until first-time setup/auth/model-readiness is part of the harness.
+This is the next Private closure task before another accuracy claim.
+```
