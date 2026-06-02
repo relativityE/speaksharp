@@ -320,3 +320,55 @@ export async function expectBenchmarkTranscriptOutput(page: Page, label: string,
         throw new Error(`Benchmark transcript precondition failed for ${label}: transcript did not exceed ${minWords} words before WER\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
     }
 }
+
+type BenchmarkSaveCandidate = {
+    selectedForSave?: string;
+    saveCandidateReason?: string;
+    selectedForSaveLength?: number;
+    finalWordCount?: number;
+    meaningfulWordCount?: number;
+    resultTranscriptLength?: number;
+    chunkTranscriptLength?: number;
+    storeTranscriptLength?: number;
+    storePartialTranscriptLength?: number;
+    visibleStoreTranscriptLength?: number;
+    frozenStopTranscriptLength?: number;
+    candidateLengths?: Array<{ source: string; length: number }>;
+};
+
+export async function waitForBenchmarkSaveCandidate(
+    page: Page,
+    label: string,
+    timeout = 90_000,
+): Promise<BenchmarkSaveCandidate> {
+    try {
+        await expect(async () => {
+            const candidate = await page.evaluate(() => {
+                const debugWindow = window as Window & {
+                    __SPEECH_RUNTIME_DEBUG__?: () => { saveCandidate?: BenchmarkSaveCandidate | null };
+                };
+                return debugWindow.__SPEECH_RUNTIME_DEBUG__?.().saveCandidate ?? null;
+            });
+            expect(candidate, 'saveCandidate must be exposed after Stop').toBeTruthy();
+        }).toPass({ timeout, intervals: [250, 500, 1_000, 2_000] });
+
+        const candidate = await page.evaluate(() => {
+            const debugWindow = window as Window & {
+                __SPEECH_RUNTIME_DEBUG__?: () => { saveCandidate?: BenchmarkSaveCandidate | null };
+            };
+            return debugWindow.__SPEECH_RUNTIME_DEBUG__?.().saveCandidate ?? null;
+        });
+        await logBenchmarkPhase(page, `PROOF_JOURNEY_SAVE_CANDIDATE_READY_${label.toUpperCase()}`);
+        if (!candidate) {
+            throw new Error('saveCandidate unexpectedly missing after wait.');
+        }
+        return candidate;
+    } catch (error) {
+        const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-save-candidate-missing`);
+        throw new Error(
+            `PROOF_FAIL proof.journey.stop_save_detail saveCandidate missing for ${label} after ${timeout}ms\n` +
+            `${JSON.stringify(snapshot, null, 2)}\n` +
+            `${error instanceof Error ? error.message : String(error)}`,
+        );
+    }
+}

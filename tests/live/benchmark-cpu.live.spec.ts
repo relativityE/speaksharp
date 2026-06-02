@@ -1,10 +1,10 @@
 /**
  * Benchmark: Private — TransformersJS (CPU)
  */
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, preparePrivateModelIfPrompted, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, logBenchmarkPhase } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, preparePrivateModelIfPrompted, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, logBenchmarkPhase, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -73,8 +73,8 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
     // Stop and collect transcript
     await page.getByTestId('session-start-stop-button').click();
     await logBenchmarkPhase(page, 'PROOF_JOURNEY_STOP_CLICKED_PRIVATE_CPU');
-    await expect(page.getByTestId('transcript-container')).not.toBeEmpty({ timeout: 15_000 });
-    const transcriptText = (await page.getByTestId('transcript-container').textContent() ?? '')
+    const saveCandidate = await waitForBenchmarkSaveCandidate(page, 'private-cpu');
+    const transcriptText = (saveCandidate.selectedForSave ?? '')
         .toLowerCase()
         .replace(/[^\w\s]/g, '')
         .replace(/\s+/g, ' ')
@@ -89,6 +89,7 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
         throw new Error(
             `PROOF_FAIL proof.accuracy.final_completeness under_capture: transcript has only ${wordCount} words against ` +
             `${referenceWordCount} expected. Engine likely did not initialize. ` +
+            `saveCandidate=${JSON.stringify(saveCandidate)} ` +
             `WER of ${(wer * 100).toFixed(1)}% would be meaningless and must not ` +
             `be committed as a ceiling.`
         );
