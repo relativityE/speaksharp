@@ -548,7 +548,11 @@ STT testing owns browser timing and UX evidence.
 > the new timing fields + utterance-audio artifact populate in trace runs. Commit SHA
 > in merge note. No default audio/decode behavior changed.
 
-### 2026-06-01 Browser Proof Update — Transcript-State UI
+### 2026-06-01 Browser Proof Update — Transcript-State UI (Superseded By Patch)
+
+This browser proof is retained only as the evidence that exposed the Draft-marker
+gap. Its dev ask is now superseded by the later `LiveTranscriptPanel` patch
+described below.
 
 STT testing created a dedicated Pro proof account through the GitHub
 `setup-test-users.yml` workflow, then ran a focused Private h1_6 browser proof
@@ -603,7 +607,7 @@ recording_attribute_false:
   transcript="Day, like, told Wild Tales to frighten him."
 ```
 
-Test-agent conclusion:
+Test-agent conclusion from this pre-patch browser run:
 
 ```text
 The state machine and finalizing/final indicators are browser-proven.
@@ -613,29 +617,13 @@ path while listening, not the interim span/live-preview path that carries the
 Draft chip and data-transcript-draft marker.
 ```
 
-Current dev ask:
+Current status:
 
 ```text
-When data-transcript-state="drafting", every visible transcript text path should
-be visually marked as draft, including committed/current transcript text shown
-while still listening.
-
-Add component coverage for:
-- isListening=true
-- transcript has text
-- interimTranscript is empty
-- expected: visible Draft marker or data-transcript-draft="true" on the displayed text.
-```
-
-What STT testing will rerun after the dev patch:
-
-```text
-Private h1_6 focused proof with the same selectors:
-- transcriptState transitions listening -> drafting -> finalizing -> final
-- draftVisible=true while text is shown during drafting
-- finalizingVisible=true after Stop
-- draftVisible=false and finalizingVisible=false after final
-- saved/detail transcript equals selected final.
+Superseded. The component patch now marks committed Private live text as Draft,
+prevents stale interim from rendering after final state, and avoids the idle
+placeholder during Private recording/finalization. Browser proof still needs to
+rerun against the patched build.
 ```
 
 ### 2026-06-01 Follow-Up — Draft Label Patched, Blank-Screen Latency Still Blocks
@@ -701,6 +689,38 @@ For Private h1_6 and one longer script:
 - Draft label visible for any live transcript text while recording
 - finalizing banner visible after Stop
 - final transcript replaces draft and saves to history/detail
+```
+
+Long-speech release risk:
+
+```text
+The current implementation is still whole-panel trust-state UI, not segment-level
+finalization. It is acceptable as a short-term controlled-test mitigation for
+single-sentence or short-paragraph practice, but it does not prove half-page or
+page-length speeches will feel live.
+
+For long speeches, the expected product model is:
+- completed prior segments become normal/final text
+- the active/current segment remains Draft
+- slow local finalization is shown per segment, not as one giant session-wide wait
+- the final saved transcript is assembled from accepted segments
+
+Without segment-level finalization or earlier reliable rolling drafts, Private
+will behave more like local batch transcription with progress indicators than
+true live transcription on CPU.
+```
+
+Current dev questions:
+
+```text
+1. Can the Private engine expose segment-level finalization without destabilizing
+   the whole-utterance final decode?
+2. If not, what is the maximum supported Private recording length on CPU before
+   UX becomes unacceptable?
+3. Can the app-buffer replay diagnostic for h1_6/h1_8 prove whether remaining
+   accuracy gaps are audio-prep, runtime nondeterminism, or selection/cleanup?
+4. What telemetry should STT testing capture for long speeches: per-segment
+   firstDraftMs, finalAtMs, decodeInputDurationMs, decodeMs, and saved segment text?
 ```
 
 ## Open Issue P1 — Full Private Corpus After P0 Fixes

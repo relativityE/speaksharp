@@ -8,6 +8,16 @@ Evidence type: automated diagnostic + prior human-mic observations
 Primary blockers: human real-mic proof still needed, punctuation/casing unresolved
 ```
 
+Current long-speech status:
+
+```text
+Not proven. Native depends on Chrome Web Speech live behavior and the app's
+stop/final merge path. The current report does not include a clean human real-mic
+multi-sentence or half-page proof. Do not claim Native long-speech readiness until
+human proof shows live text, no duplicate-on-stop, acceptable punctuation/casing,
+and save/history/detail consistency.
+```
+
 Current artifact:
 
 ```text
