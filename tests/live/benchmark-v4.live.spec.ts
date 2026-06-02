@@ -30,7 +30,7 @@ test.use({
 });
 
 test('measure Transformers.js v4 worker', async ({ page }) => {
-    test.setTimeout(420_000);
+    test.setTimeout(180_000);
 
     const testEmail = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
     const testPassword = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
@@ -62,7 +62,7 @@ test('measure Transformers.js v4 worker', async ({ page }) => {
 
     await waitForBenchmarkSession(page);
     await selectBenchmarkMode(page, 'private');
-    await preparePrivateModelIfPrompted(page, 180_000);
+    await preparePrivateModelIfPrompted(page, 90_000);
 
     await page.getByTestId('session-start-stop-button').click();
     await expectBenchmarkRecordingStarted(page, 'private-v4');
@@ -86,7 +86,7 @@ test('measure Transformers.js v4 worker', async ({ page }) => {
     if (wordCount < referenceWordCount * 0.3) {
         await logBenchmarkPhase(page, 'PROOF_ACCURACY_FINAL_COMPLETENESS_FAIL_PRIVATE_V4');
         throw new Error(
-            `Benchmark aborted: transcript has only ${wordCount} words against ` +
+            `PROOF_FAIL proof.accuracy.final_completeness under_capture: transcript has only ${wordCount} words against ` +
             `${referenceWordCount} expected. Engine likely did not initialize. ` +
             `WER of ${(wer * 100).toFixed(1)}% would be meaningless and must not ` +
             `be committed as a ceiling.`
