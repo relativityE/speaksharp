@@ -24,6 +24,24 @@ const traceTextSample = (text: string | undefined): string | undefined =>
   text?.replace(/\s+/g, ' ').trim().slice(0, 120);
 
 /**
+ * Inert browser-side cloud lifecycle trace for timing decomposition. Mirrors the
+ * Native/Private trace globals so `scripts/lib/sttTiming.ts` readCloudStreamTiming
+ * can derive socket-open→partial/final latency and the stop→termination tail wait.
+ * Events: socket_open, first_partial, first_final, termination, stop_invoked.
+ */
+declare global {
+  interface Window {
+    __CLOUD_STT_TIMELINE__?: Array<Record<string, unknown>>;
+  }
+}
+function pushCloudTrace(event: string, payload: Record<string, unknown> = {}): void {
+  if (typeof window === 'undefined') return;
+  window.__CLOUD_STT_TIMELINE__ = window.__CLOUD_STT_TIMELINE__ ?? [];
+  window.__CLOUD_STT_TIMELINE__.push({ t: Number(performance.now().toFixed(1)), event, ...payload });
+  if (window.__CLOUD_STT_TIMELINE__.length > 500) window.__CLOUD_STT_TIMELINE__.shift();
+}
+
+/**
  * ARCHITECTURE:
  * TranscriptionService generates a runId (e.g., abc-123) every time you click record. 
  * This identifies the current recording session.
@@ -58,6 +76,10 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
   private receivedMessageCounts: Record<string, number> = {};
   private isManualStop: boolean = false;
   private terminateResolve: (() => void) | null = null;
+  // Cloud lifecycle trace bookkeeping (first-event flags + stop timestamp).
+  private cloudFirstPartialTraced: boolean = false;
+  private cloudFirstFinalTraced: boolean = false;
+  private stopInvokedAtMs: number | null = null;
   private providerReady: boolean = false;
   private readyEmitted: boolean = false;
   private providerSessionId: string | null = null;
@@ -345,6 +367,10 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
       this.metadata = this.buildProviderMetadata();
 
       ws.onopen = () => {
+        // Cloud trace: new session lifecycle starts. Reset first-event flags.
+        this.cloudFirstPartialTraced = false;
+        this.cloudFirstFinalTraced = false;
+        pushCloudTrace('socket_open', { connectionId: currentConnectionId });
         // Guard: zombie socket check
         if (currentConnectionId !== this.connectionId) {
           logger.warn({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, `[CloudAssemblyAI] closing zombie socket for ID ${currentConnectionId}`);
@@ -488,6 +514,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
           break;
 
         case 'partial':
+          if (!this.cloudFirstPartialTraced) { this.cloudFirstPartialTraced = true; pushCloudTrace('first_partial'); }
           this.updateHeartbeat();
           this.onTranscriptUpdate?.({
             transcript: { partial: event.text },
@@ -495,6 +522,7 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
           break;
 
         case 'final':
+          if (!this.cloudFirstFinalTraced) { this.cloudFirstFinalTraced = true; pushCloudTrace('first_final'); }
           this.updateHeartbeat();
           this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${event.text}` : event.text;
           this.onTranscriptUpdate?.({
@@ -507,6 +535,9 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
 
         case 'terminated':
           this.terminationReason = 'provider-terminated';
+          pushCloudTrace('termination', {
+            stopToTerminationMs: this.stopInvokedAtMs != null ? Math.round(performance.now() - this.stopInvokedAtMs) : null,
+          });
           this.metadata = this.buildProviderMetadata();
           logger.info({ sId: this.serviceId, rId: this.instanceId, eId: this.instanceId }, '[CloudAssemblyAI] Session terminated by provider.');
           if (this.terminateResolve) {
@@ -585,6 +616,9 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
           const terminateMessage = this.provider.buildTerminateMessage();
           if (terminateMessage) {
             ws.send(terminateMessage);
+            // Mark stop for the stop→termination tail measurement.
+            this.stopInvokedAtMs = performance.now();
+            pushCloudTrace('stop_invoked');
           }
         } catch (err) {
           logger.warn({
@@ -614,9 +648,10 @@ export default class CloudAssemblyAI extends STTEngine implements ITranscription
               resolve();
             };
             const timeout = setTimeout(() => {
-              logger.warn('[CloudAssemblyAI] Socket close/termination timed out. Forcing closure.');
+              logger.warn({ stopToTerminationBudgetMs: CLOUD_STT.STOP_TERMINATION_TIMEOUT_MS },
+                '[CloudAssemblyAI] Provider final/termination not received before budget; forcing closure (tail may be lost).');
               finish();
-            }, CLOUD_STT.SOCKET_CLOSE_TIMEOUT_MS);
+            }, CLOUD_STT.STOP_TERMINATION_TIMEOUT_MS);
             this.terminateResolve = finish;
 
             const originalOnClose = ws.onclose;

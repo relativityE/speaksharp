@@ -130,6 +130,11 @@ export const CLOUD_STT = {
   RECONNECT_EXPONENT_CAP: 16,
   RECONNECT_JITTER_MS: 200,
   SOCKET_CLOSE_TIMEOUT_MS: 2_000,
+  // After Stop we send Terminate and must WAIT for the provider's final turn +
+  // Termination so the tail of the speech is not dropped. 2s was too short
+  // (test-agent finding #2); give the provider a realistic budget to flush the
+  // last final turn. Measured via stopToTerminationMs on the cloud trace.
+  STOP_TERMINATION_TIMEOUT_MS: 8_000,
 } as const;
 
 export const NATIVE_STT = {
