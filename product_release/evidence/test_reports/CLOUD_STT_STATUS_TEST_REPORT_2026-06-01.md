@@ -305,3 +305,43 @@ one **long-form** item (a ~1-2 min / page-length script) and report tail preserv
 + filler recall across the whole speech, not just single Harvard sentences? That is
 the proof that would let us position Cloud as the full-speech path. No dev change
 needed unless that run exposes a concrete request/streaming bug.
+
+## STT TEST AGENT UPDATE (2026-06-02) — Cloud speed/accuracy role
+
+User release bar:
+
+```text
+One STT must be pristine enough to brag about. For full speeches, Cloud remains
+the natural candidate because streaming providers are designed to deliver
+progressive/final turn text instead of one large local decode at Stop.
+```
+
+Current Cloud status:
+
+| Area | Latest position |
+| --- | --- |
+| Vendor/path | AssemblyAI Universal Streaming baseline path. |
+| Current blocker | Credentialed A/B and trace-complete app proof are still required. |
+| Strength | Streaming turn/final architecture maps better to half-page/page-length speeches than Private's current local whole-utterance-at-Stop path. |
+| Risk | Prior prompt/keyterms variants produced invalid/empty sessions before the invalid-session scoring fix; do not re-enable provider parameters without a valid A/B. |
+
+AssemblyAI source facts relevant to our roadmap:
+
+| Source fact | Product implication |
+| --- | --- |
+| Universal Streaming returns real-time turn transcripts and end-of-turn events. | Cloud should provide a better long-speech UX baseline than Private local batch finalization. |
+| AssemblyAI describes immutable streaming transcriptions. | Less risk of visible text being repeatedly rewritten compared with Private draft text. |
+| Turn detection has tunable silence/confidence behavior. | Cloud may be tunable for speeches with thinking pauses, but tuning must be A/B tested. |
+
+Current Cloud launch classification:
+
+```text
+Closest STT path, but not yet closed. Cloud still needs credentialed long-form
+A/B, filler recall, tail preservation, and app trace proof before it can be the
+wide-use launch anchor.
+```
+
+Sources checked:
+
+- AssemblyAI Universal Streaming docs: https://www.assemblyai.com/docs/streaming/universal-streaming
+- AssemblyAI turn detection docs: https://www.assemblyai.com/docs/universal-streaming/turn-detection
