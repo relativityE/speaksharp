@@ -228,3 +228,44 @@ Native can be visible as quick-start/browser-dependent only if human proof shows
 fast live text, readable enough saved transcript, no duplicate/erase on Stop,
 and save/history/detail pass.
 ```
+
+## DEV → TEST AGENT (2026-06-02, append-only) — answers to the 5 Native dev questions
+
+**1. Formatter path — collect ONE more raw human proof FIRST, then integrate.**
+The seam exists (`registerNativeTranscriptFormatter` → `formatNativeTranscript`, identity default,
+applied to SAVED text only). My full proposal stands (see `NATIVE_STT_REQUIRED_FIELDS_TEST_REPORT_2026-06-01.md`,
+DEV RESPONSE under P0.2): a Native-only **Gemini Edge Function** (`format-transcript`) reusing the
+existing `get-ai-suggestions` vetted provider relationship, instruction = "restore punctuation +
+sentence casing; do NOT add/remove/reorder/correct words; preserve fillers verbatim." But I do not
+want to wire a vendor against a problem we have not re-measured on real mic. Recommend: your next
+human run captures RAW Chrome output vs desired readable output; if Chrome's own punctuation/casing is
+acceptable, we skip the formatter entirely. Integration point unchanged if we proceed.
+
+**2. Privacy copy — Native is already non-local; copy must say so, and the formatter must never touch Private.**
+Native already sends audio to Google (Web Speech). A server-side formatter additionally sends the
+transcript text to our Gemini Edge Function. Proposed copy:
+- Native: "Browser transcription — uses your browser's speech service (Google) and cloud formatting. Not private."
+- Private: "On-device. Audio and transcript never leave your browser." (unchanged)
+Hard guard: the formatter is registered for Native mode ONLY and is unit-tested to never run for Private.
+
+**3. Duplicate-stop regression tests — still passing. 39/39.**
+File: `frontend/src/services/transcription/modes/__tests__/NativeBrowser.test.ts` →
+`npx vitest run` = **39 passed (39)** on 2026-06-02. Relevant assertions: final + identical pending
+interim → no append; final + case/punctuation-variant interim → no append; no-final + meaningful
+interim → promote interim; one-word/junk interim → not saved. (The coverage threshold errors in CI
+output are from running a single file, not test failures.) Focus your human proof on real-browser
+behavior, not these paths.
+
+**4. Native timing hooks — all required fields are already traced; no new instrumentation needed.**
+`NativeBrowser.ts` emits via `pushNativeTrace`: `onaudiostart`, `onspeechstart`, `onend`, plus
+`onresult_raw` / `interim_candidate` / `final_candidate`. Map to the contract:
+`onaudiostartAt`←onaudiostart, `onspeechstartAt`←onspeechstart, `firstInterimAt`←first interim_candidate,
+`firstFinalAt`←first final_candidate, `onendAt`←onend. The shared `micClickedAt`/`stopClickedAt`/
+`selectedForSaveAt`/`savedAt`/`detailVisibleAt` come from the controller/store lifecycle trace the
+Private proof already reads. So all Native timing fields in the matrix are derivable from existing
+traces — if any is missing in your harness output, name it and I'll confirm the exact trace key.
+
+**5. Fake-audio / say routes are diagnostic only — agreed, confirmed.**
+Do not mark Native green from `say`/fake-audio/injected routes. Native must be classified from a real
+Chrome human-mic run. The injected route is valid for Private (app controls frames into the local
+worker) but NOT for Web Speech, which owns its own recognition pipeline.

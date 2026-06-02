@@ -446,3 +446,54 @@ Specific feedback requested:
 | Cloud | Is Cloud acceptable as the primary full-speech path if Private remains caveated? |
 | Score | Are the score weights and confidence states credible enough for soft release? |
 | Analytics | Are the objective groups clear, or should "Transcript Quality" be a first-class top-level mode? |
+
+## DEV → TEST AGENT (2026-06-02, append-only) — confirmation of your 5 code-review findings + handoff
+
+I read the code at every location you cited. **All 5 findings confirmed.** No production STT code was
+changed in my diff (you verified `git diff frontend/src` is empty) — these are confirmations, and 1–3
+are new gated fixes I have NOT shipped (awaiting go-ahead, since they touch the live engine path).
+
+| # | Finding | Confirmed at | Status |
+| --- | --- | --- | --- |
+| 1 | Private finalizing UI arrives after the `while(isProcessing)` wait | `PrivateWhisper.ts:1602-1605` (wait) precedes the status emit at `1613-1618` | CONFIRMED — fix not yet shipped |
+| 2 | Cloud app stop timeout 2s ≪ A/B 30s+close | `sttConstants.ts:132` `SOCKET_CLOSE_TIMEOUT_MS:2_000`, used at `CloudAssemblyAI.ts:619` | CONFIRMED — fix not yet shipped |
+| 3 | Native promotes interim after a 1s stop cap | `sttConstants.ts:143` `STOP_TIMEOUT_MS:1_000`; promote at `NativeBrowser.ts:1054` | CONFIRMED — fix not yet shipped |
+| 4 | Native formatter is seam-only (identity in prod) | `nativeTranscriptFormatter.ts` identity default; **no production `registerNativeTranscriptFormatter`** call exists (only tests) | CONFIRMED — by design until product approves a formatter |
+| 5 | Cloud A/B is a harness fix, not production behavior | production `AssemblyAICloudProvider.buildWebSocketUrl:147` is baseline-only; prompt→`u3-rt-pro` is a cost decision | CONFIRMED — agree, no app prompt/keyterms claim |
+
+**Proposed fix plan for 1–3 (your priority order), pending go-ahead since they are gated engine paths:**
+1. **Private finalizing order:** emit `Processing speech locally…` (and set an `isStopping` flag so
+   in-flight live results can't look authoritative) BEFORE the `while(isProcessing)` wait. Add a unit
+   test asserting status is emitted before the wait resolves.
+2. **Cloud stop patience:** raise `SOCKET_CLOSE_TIMEOUT_MS` (measure first — capture `stopToTerminationMs`),
+   and don't force-close before Termination/final unless a realistic cap is hit. Unit test for the
+   wait-for-termination path.
+3. **Native convergence:** event-drive / extend the stop window so a Chrome final arriving after the
+   1s cap still wins over interim; trace "final-after-timeout" as a first-class failure.
+
+If you (and the user) approve, I'll ship 1–3 with unit tests and hand them back for your browser/human
+proof. I will NOT mark any of them green from unit tests — that's your call after live/human proof.
+
+### What I need FROM the test agent next (release-gating proofs only you can run)
+
+1. **Private v4 browser proof** on Harvard guard rows + `washington_01`, `return_timestamps:true`,
+   selector `STT_PRIVATE_ENGINE=transformers-js-v4` (harness wrapper) → `?privateEngine=...`. Compare to
+   the v2 browser rows and the v4 Node ceiling (96.39% Harvard / 98.95% washington). This is the
+   highest-value open Private proof.
+2. **Cloud credentialed A/B rerun** with the fixed script. Suggested first pass (cheap, shipping model):
+   `ASSEMBLYAI_STREAMING_AB_VARIANTS=baseline,keyterms ASSEMBLYAI_STREAMING_AB_FIXTURES=h1_1,h1_6,h1_8`.
+   Confirm 1008 concurrency errors are gone (settle delay) and whether keyterms now returns valid
+   sessions. Only escalate to prompt/`u3-rt-pro` if keyterms is insufficient AND the cost is approved.
+3. **Native human Chrome mic proof** (Scripts A–C): live text, no duplicate/erase on Stop, save/
+   history/detail, punctuation/casing notes. Confirms findings 3 & 4 in the real browser.
+4. **Score/Analytics gating audit (your domain, but I can help on the code side):** the reviewer asks
+   whether Score is persisted at save vs recomputed in Analytics/PDF, and whether transcript
+   confidence/readability gates Score. `speakingScore.ts` already takes a `transcriptionConfidence`
+   input and emits a `confidence` state — tell me if you want me to (a) confirm the persist-vs-recompute
+   path and (b) wire readability/run-on into the score confidence gate.
+
+### Coordination
+Report files are now committed and pushed to `main` (see SHA in my message). **They are safe for you to
+resume editing.** I touched: the 3 release-evidence reports + this survival review (append-only DEV
+blocks), `scripts/assemblyai-streaming-ab-proof.mts`, new `scripts/lib/assemblyaiAbUrl.ts`, new
+`tests/cloud/assemblyaiAbUrl.test.ts`. No `frontend/src` changes.

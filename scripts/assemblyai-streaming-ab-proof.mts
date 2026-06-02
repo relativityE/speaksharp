@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { HARVARD_SENTENCES } from '../tests/fixtures/stt-isomorphic/harvard-sentences.js';
 import { calculateWordErrorRate } from '../frontend/src/lib/wer.js';
+import { buildAbStreamingUrl, type AbVariant } from './lib/assemblyaiAbUrl.js';
 
 dotenv.config();
 
@@ -32,7 +33,13 @@ const ENCODING = 'pcm_s16le';
 const SPEECH_MODEL = 'universal-streaming-english';
 const CHUNK_MS = Number(process.env.ASSEMBLYAI_STREAMING_AB_CHUNK_MS || 50);
 const SOCKET_TIMEOUT_MS = Number(process.env.ASSEMBLYAI_STREAMING_AB_TIMEOUT_MS || 30_000);
+// Settle delay between sessions. The credentialed run hit error 1008 "Too many
+// concurrent sessions" because the server had not released the prior streaming
+// slot when the next connected. We now (a) wait for the actual WS close before
+// resolving and (b) pause between rows so the account session pool drains.
+const SETTLE_MS = Number(process.env.ASSEMBLYAI_STREAMING_AB_SETTLE_MS || 1_500);
 const apiKey = process.env.ASSEMBLYAI_API_KEY;
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const FILLER_TERMS = [
   'um',
@@ -182,22 +189,18 @@ async function createStreamingToken(): Promise<string> {
 
 function buildUrl(variant: Variant, token: string): string {
   const keyterms = buildKeyterms([]);
-  const params = new URLSearchParams({
-    sample_rate: String(SAMPLE_RATE_HZ),
-    encoding: ENCODING,
-    speech_model: SPEECH_MODEL,
-    format_turns: 'true',
+  // Delegate to the pure, unit-tested builder. It encodes the two credentialed-A/B
+  // fixes: keyterms_prompt as REPEATED params (not JSON.stringify), and prompt
+  // variants on the u3-rt-pro model (universal-streaming-english rejects prompt: 3006).
+  return buildAbStreamingUrl({
+    variant: variant as AbVariant,
     token,
+    sampleRateHz: SAMPLE_RATE_HZ,
+    encoding: ENCODING,
+    keyterms,
+    prompt: buildPrompt(keyterms),
+    baseModel: SPEECH_MODEL,
   });
-
-  if (variant === 'keyterms' || variant === 'prompt_keyterms') {
-    params.set('keyterms_prompt', JSON.stringify(keyterms));
-  }
-  if (variant === 'prompt' || variant === 'prompt_keyterms') {
-    params.set('prompt', buildPrompt(keyterms));
-  }
-
-  return `wss://streaming.assemblyai.com/v3/ws?${params.toString()}`;
 }
 
 async function transcribeStreaming(variant: Variant, fixtureId: string): Promise<{
@@ -268,7 +271,11 @@ async function transcribeStreaming(variant: Variant, fixtureId: string): Promise
       }
       if (message.type === 'Termination') {
         terminationSeen = true;
-        finish();
+        // Resolve on the ACTUAL socket close (handler below), not on the
+        // Termination message, so the server fully releases the session slot
+        // before the next row connects. Prevents error 1008 (too many
+        // concurrent sessions). The timeout still guards if close never fires.
+        try { ws.close(); } catch { /* already closing */ }
       }
     });
 
@@ -374,6 +381,9 @@ for (const variant of VARIANTS) {
       evidence.results.push(row);
       console.error(`ASSEMBLYAI_STREAMING_AB_ROW ${JSON.stringify(row)}`);
     }
+    // Let the provider release the streaming session slot before the next
+    // connection (mitigates error 1008 "Too many concurrent sessions").
+    await sleep(SETTLE_MS);
   }
 }
 

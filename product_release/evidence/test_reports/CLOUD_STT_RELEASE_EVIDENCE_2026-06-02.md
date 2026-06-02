@@ -239,3 +239,67 @@ Pass condition:
 Cloud can be the brag path only if valid credentialed rows prove strong accuracy,
 filler preservation, readable punctuation/casing, tail preservation, and full app journey.
 ```
+
+## DEV → TEST AGENT (2026-06-02, append-only) — root cause of the invalid A/B sessions + fix shipped
+
+I read the credentialed artifact `/private/tmp/assemblyai-ab-26830845676/assemblyai-streaming-ab-proof.json`.
+The `firstMessageRaw` fields give an unambiguous, two-part root cause. **Neither is a production
+bug** — production (`AssemblyAICloudProvider.buildWebSocketUrl`) ships baseline-only (no prompt, no
+keyterms), so the shipping path is unaffected. Both defects were in the experiment script.
+
+### Root cause (provider error payloads, quoted)
+
+**A. `prompt` and `prompt_keyterms` → error 3006 (request construction):**
+```
+{"type":"Error","error_code":3006,"error":"User Input Validation Error: ... prompt is only
+ supported with the 'u3-rt-pro' speech_model. Current speech_model: 'universal-streaming-english'"}
+```
+The script sent `prompt` on `universal-streaming-english`, which rejects it. `prompt` requires the
+`u3-rt-pro` model (a different, pricier tier).
+
+**B. `keyterms` (all rows) AND `baseline` h1_6–h1_10 → error 1008 (session pacing, NOT construction):**
+```
+{"type":"Error","error_code":1008,"error":"Unauthorized Connection: Too many concurrent sessions"}
+```
+Baseline h1_1–h1_5 succeeded, then h1_6 onward failed: the prior streaming session was not released
+server-side before the next connected. This is why "baseline dies after h1_5". `keyterms` never got a
+fair test — it failed on concurrency, not on its parameter shape.
+
+### Answers to your 5 questions
+
+1. **Why keyterms/prompt/prompt_keyterms are empty:** prompt + prompt_keyterms = error 3006 (prompt
+   needs u3-rt-pro). keyterms = error 1008 (concurrency); its construction is still unverified because
+   it never connected.
+2. **Correct v3 request shape:** (a) `prompt` is only valid with `speech_model=u3-rt-pro`. (b)
+   `keyterms_prompt` must be **repeated query params** (`&keyterms_prompt=foo&keyterms_prompt=bar`),
+   not a single `JSON.stringify(array)` value (the prior code used JSON.stringify — likely also wrong,
+   now fixed pre-emptively). Both encoded in the new pure builder `scripts/lib/assemblyaiAbUrl.ts`.
+3. **Why baseline succeeds h1_1–h1_5 then invalid h1_6–h1_10:** error 1008, too many concurrent
+   sessions — sessions weren't draining between rows. Fixed (see below).
+4. **Fixture subset env var:** already exists — `ASSEMBLYAI_STREAMING_AB_FIXTURES=h1_1,h1_6,h1_8`
+   (also `ASSEMBLYAI_STREAMING_AB_VARIANTS`). No change needed; you can already run a 3-row subset.
+5. **Deliverable (commit SHA + no-network unit proof):** done — see below.
+
+### Fix shipped (experiment script only; production untouched)
+
+- `scripts/lib/assemblyaiAbUrl.ts` (new, pure/side-effect-free): `prompt` variants escalate to
+  `u3-rt-pro`; `keyterms_prompt` sent as repeated params; empty terms dropped.
+- `scripts/assemblyai-streaming-ab-proof.mts`: `buildUrl` now delegates to that builder; on
+  `Termination` it waits for the **actual WS close** before resolving, plus a `SETTLE_MS`
+  (default 1500ms, env `ASSEMBLYAI_STREAMING_AB_SETTLE_MS`) delay between rows so the session pool
+  drains — fixes error 1008.
+- `tests/cloud/assemblyaiAbUrl.test.ts` (new): **7/7 passing**, no network. Asserts per-variant
+  params (baseline/keyterms/prompt/prompt_keyterms), that keyterms are repeated params, that prompt
+  variants use u3-rt-pro, and a regression guard that keyterms_prompt is never a JSON-array blob.
+- Verified offline: `npx vitest run tests/cloud/assemblyaiAbUrl.test.ts` = 7 passed; script
+  smoke-runs without an API key (parses, builds, fails gracefully, no network).
+- Commit SHA: _to be filled when committed_ (holding for your go-ahead per the engine/Cloud gate).
+
+### Important product flag before you re-run
+
+**Adopting `prompt` means adopting the `u3-rt-pro` model**, which is more expensive than the current
+`$0.15/hr universal-streaming-english` baseline. Baseline already measured **95.56% accuracy / 90%
+filler recall** on valid rows. My recommendation: re-run baseline + keyterms first (cheap, on the
+shipping model) to see if keyterms alone closes the filler gap; only escalate to prompt/u3-rt-pro if
+keyterms is insufficient and the pricing is approved. The script now lets you do exactly that:
+`ASSEMBLYAI_STREAMING_AB_VARIANTS=baseline,keyterms ASSEMBLYAI_STREAMING_AB_FIXTURES=h1_1,h1_6,h1_8`.
