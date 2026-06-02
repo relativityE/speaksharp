@@ -435,33 +435,49 @@
       }
     },
     {
-      "id": "cloud_current_head_ab_26850691978",
+      "id": "cloud_current_head_ab_26852918607",
       "candidate": "cloud",
-      "fixture": "h1_1_h1_6_h1_8",
+      "fixture": "h1_1_h1_2_h1_6_h1_8_h1_10",
       "evidenceType": "github-actions-proof",
-      "workflowRun": 26850691978,
-      "commit": "5669c1be",
-      "artifact": "/private/tmp/speaksharp-cloud-ab-26850691978/assemblyai-streaming-ab-proof.json",
-      "collectedAt": "2026-06-02T22:03:37.968Z",
-      "finishedAt": "2026-06-02T22:04:16.127Z",
+      "workflowRun": 26852918607,
+      "commit": "b63768aa",
+      "artifact": "/private/tmp/speaksharp-cloud-ab-26852918607/assemblyai-streaming-ab-proof.json",
+      "collectedAt": "2026-06-02T22:57:00.139Z",
+      "finishedAt": "2026-06-02T22:58:29.880Z",
+      "requestedFixtures": [
+        "h1_1",
+        "h1_2",
+        "h1_6",
+        "h1_8",
+        "h1_10",
+        "washington_01"
+      ],
+      "scoredFixtures": [
+        "h1_1",
+        "h1_2",
+        "h1_6",
+        "h1_8",
+        "h1_10"
+      ],
+      "artifactCaveat": "washington_01 was requested but did not appear in the emitted fixture list/results; Cloud long-speech/app-tail proof remains open.",
       "variants": [
         {
           "name": "baseline",
-          "validRowCount": 3,
+          "validRowCount": 5,
           "invalidRowCount": 0,
           "errorRowCount": 0,
-          "averageAccuracyPct": 96.3,
-          "averageWer": 0.037037037037037035,
-          "averageFillerRecallPct": 83.33,
+          "averageAccuracyPct": 97.78,
+          "averageWer": 0.02222222222222222,
+          "averageFillerRecallPct": 90,
           "releaseRead": "safe_current_cloud_candidate"
         },
         {
           "name": "keyterms",
-          "validRowCount": 3,
+          "validRowCount": 5,
           "invalidRowCount": 0,
           "errorRowCount": 0,
-          "averageAccuracyPct": 91.67,
-          "averageWer": 0.08333333333333333,
+          "averageAccuracyPct": 95,
+          "averageWer": 0.05,
           "averageFillerRecallPct": 100,
           "releaseRead": "valid_but_not_quality_safe_h1_6_regression"
         }
@@ -473,7 +489,17 @@
           "accuracyPct": 88.89,
           "fillerRecallPct": 50,
           "concurrencyRetries": 0,
+          "terminationSeen": true,
           "transcript": "The stale smell of old beer, like, lingers."
+        },
+        {
+          "variant": "baseline",
+          "fixture": "h1_2",
+          "accuracyPct": 100,
+          "fillerRecallPct": 100,
+          "concurrencyRetries": 0,
+          "terminationSeen": true,
+          "transcript": "Basically, a dash of pepper spoils beef stew."
         },
         {
           "variant": "baseline",
@@ -481,6 +507,7 @@
           "accuracyPct": 100,
           "fillerRecallPct": 100,
           "concurrencyRetries": 0,
+          "terminationSeen": true,
           "transcript": "They, like, told Wild Tales to frighten him."
         },
         {
@@ -489,7 +516,17 @@
           "accuracyPct": 100,
           "fillerRecallPct": 100,
           "concurrencyRetries": 0,
+          "terminationSeen": true,
           "transcript": "The puppy, like, chewed up the new shoes."
+        },
+        {
+          "variant": "baseline",
+          "fixture": "h1_10",
+          "accuracyPct": 100,
+          "fillerRecallPct": 100,
+          "concurrencyRetries": 0,
+          "terminationSeen": true,
+          "transcript": "Basically, the quick brown fox jumps over the lazy dog."
         },
         {
           "variant": "keyterms",
@@ -497,7 +534,17 @@
           "accuracyPct": 100,
           "fillerRecallPct": 100,
           "concurrencyRetries": 0,
+          "terminationSeen": true,
           "transcript": "Um, the stale smell of old beer, like, lingers."
+        },
+        {
+          "variant": "keyterms",
+          "fixture": "h1_2",
+          "accuracyPct": 100,
+          "fillerRecallPct": 100,
+          "concurrencyRetries": 2,
+          "terminationSeen": true,
+          "transcript": "Basically, a dash of pepper spoils beef stew."
         },
         {
           "variant": "keyterms",
@@ -505,6 +552,7 @@
           "accuracyPct": 75,
           "fillerRecallPct": 100,
           "concurrencyRetries": 0,
+          "terminationSeen": true,
           "transcript": "They like told wild tales to frighten him."
         },
         {
@@ -513,17 +561,29 @@
           "accuracyPct": 100,
           "fillerRecallPct": 100,
           "concurrencyRetries": 0,
+          "terminationSeen": true,
           "transcript": "The puppy, like, chewed up the new shoes."
+        },
+        {
+          "variant": "keyterms",
+          "fixture": "h1_10",
+          "accuracyPct": 100,
+          "fillerRecallPct": 100,
+          "concurrencyRetries": 0,
+          "terminationSeen": true,
+          "transcript": "Basically, the quick brown fox jumps over the lazy dog."
         }
       ],
-      "releaseStatus": "baseline_caveated_green_keyterms_blocked",
+      "releaseStatus": "baseline_caveated_green_keyterms_blocked_long_speech_app_tail_open",
       "closedActionItems": [
         "cloud_ab_request_shape_valid",
-        "cloud_ab_session_validity_on_current_head_subset"
+        "cloud_ab_session_validity_on_current_head_h1_subset",
+        "larger_baseline_vs_keyterms_h1_subset_run"
       ],
       "openActionItems": [
         "decide_or_fix_keyterms_quality_tradeoff",
-        "larger_baseline_vs_keyterms_run_before_keyterms_launch"
+        "cloud_long_speech_tail_readability_proof",
+        "cloud_app_journey_tail_timing_with_CLOUD_STT_TIMELINE"
       ]
     },
     {
@@ -1704,12 +1764,12 @@
       "stopToDetailVisibleMs": "Total post-stop user wait."
     }
   },
-  "classificationUpdatedAt": "2026-06-02T23:05:00Z",
+  "classificationUpdatedAt": "2026-06-02T23:10:00Z",
   "classifications": {
     "cloud": {
-      "status": "caveated",
-      "reason": "Cheap credentialed subset on current code is valid: baseline 96.3% accuracy / 83.33% filler recall; keyterms 91.67% / 100%. Keyterms improves filler recall but hurts h1_6 accuracy, so baseline remains safer until a larger baseline-vs-keyterms proof passes.",
-      "next": "Run larger baseline-vs-keyterms proof without prompt/u3-rt-pro; then rerun app trace proof."
+      "status": "caveated_closest",
+      "reason": "Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. washington_01 did not appear in the A/B artifact, so long-speech/app-tail proof remains open.",
+      "next": "Launch/position Cloud baseline as quality path if app-tail proof passes. Dev/product should change, narrow, or disable keyterms before defaulting it. Test should run Cloud app journey/tail proof with __CLOUD_STT_TIMELINE__."
     },
     "private": {
       "status": "caveated",
@@ -1722,5 +1782,5 @@
       "next": "Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-02T23:05:00Z"
+  "lastUpdatedAt": "2026-06-02T23:10:00Z"
 }

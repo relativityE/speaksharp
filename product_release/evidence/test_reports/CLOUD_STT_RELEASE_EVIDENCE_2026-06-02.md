@@ -483,15 +483,71 @@ Expected dev deliverable:
    materially degrading ordinary-word accuracy on h1_6/h1_8 and a clean row.
 ```
 
-Next Cloud run:
+## TEST AGENT UPDATE (2026-06-02T23:00Z) — larger baseline-vs-keyterms proof
 
 ```text
-Run a larger baseline vs keyterms proof, still without prompt/u3-rt-pro:
-ASSEMBLYAI_STREAMING_AB_VARIANTS=baseline,keyterms
-ASSEMBLYAI_STREAMING_AB_FIXTURES=h1_1,h1_2,h1_6,h1_8,h1_10,washington_01
+Controlled STT Benchmarks: 26852918607
+Commit: b63768aa
+Artifact: /private/tmp/speaksharp-cloud-ab-26852918607/assemblyai-streaming-ab-proof.json
+Dispatch:
+- run_cloud_ceiling=false
+- run_private_browser=false
+- streaming_ab_variants=baseline,keyterms
+- streaming_ab_fixtures=h1_1,h1_2,h1_6,h1_8,h1_10,washington_01
 ```
 
-## TEST AGENT UPDATE — Cloud A/B validity action closed on current main
+The artifact contains h1 rows only:
+
+```text
+h1_1, h1_2, h1_6, h1_8, h1_10
+```
+
+`washington_01` did not appear in the emitted fixture list/results, so this
+proof closes the larger Harvard subset but **does not close Cloud long-speech
+tail/readability**.
+
+### Larger A/B Summary
+
+| Variant | Valid rows | Invalid rows | Errors | Average accuracy | Average filler recall | Release read |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| baseline | 5 | 0 | 0 | 97.78% | 90% | Safest current Cloud candidate. Strong accuracy; still misses `um` on h1_1. |
+| keyterms | 5 | 0 | 0 | 95% | 100% | Valid and best filler recall, but h1_6 still regresses to 75% accuracy. Not default-green. |
+
+### Larger A/B Rows
+
+| Variant | Fixture | Accuracy | Filler recall | Retries | Termination seen | Transcript |
+| --- | --- | ---: | ---: | ---: | --- | --- |
+| baseline | h1_1 | 88.89% | 50% | 0 | yes | `The stale smell of old beer, like, lingers.` |
+| baseline | h1_2 | 100% | 100% | 0 | yes | `Basically, a dash of pepper spoils beef stew.` |
+| baseline | h1_6 | 100% | 100% | 0 | yes | `They, like, told Wild Tales to frighten him.` |
+| baseline | h1_8 | 100% | 100% | 0 | yes | `The puppy, like, chewed up the new shoes.` |
+| baseline | h1_10 | 100% | 100% | 0 | yes | `Basically, the quick brown fox jumps over the lazy dog.` |
+| keyterms | h1_1 | 100% | 100% | 0 | yes | `Um, the stale smell of old beer, like, lingers.` |
+| keyterms | h1_2 | 100% | 100% | 2 | yes | `Basically, a dash of pepper spoils beef stew.` |
+| keyterms | h1_6 | 75% | 100% | 0 | yes | `They like told wild tales to frighten him.` |
+| keyterms | h1_8 | 100% | 100% | 0 | yes | `The puppy, like, chewed up the new shoes.` |
+| keyterms | h1_10 | 100% | 100% | 0 | yes | `Basically, the quick brown fox jumps over the lazy dog.` |
+
+### Current Cloud Decision
+
+```text
+Cloud baseline is the current quality path. It is valid across the larger h1
+subset and has the best accuracy. Keyterms is now request/session-valid and
+improves filler recall, but still degrades h1_6 enough that it should not ship
+as default without a dev/product change.
+```
+
+Open Cloud items:
+
+| Item | Status | Owner |
+| --- | --- | --- |
+| Baseline vs keyterms request/session validity | Closed on h1 subset | Test |
+| Baseline quality candidate | Strongest current candidate | Product/test |
+| Keyterms as default | Blocked by h1_6 accuracy regression | Dev/product |
+| Washington/long-speech Cloud tail/readability | Not captured by this A/B artifact | Test |
+| App journey/tail with `__CLOUD_STT_TIMELINE__` | Still open; requires Cloud app proof, not provider-only A/B | Test |
+
+## TEST AGENT UPDATE — superseded narrow Cloud A/B validity proof
 
 **Collected:** 2026-06-02T22:03:37.968Z to 2026-06-02T22:04:16.127Z  
 **Workflow:** `Controlled STT Benchmarks` run `26850691978`  
@@ -500,6 +556,10 @@ ASSEMBLYAI_STREAMING_AB_FIXTURES=h1_1,h1_2,h1_6,h1_8,h1_10,washington_01
 **Dispatch:** `run_cloud_ceiling=false`, `run_private_browser=false`,
 `streaming_ab_variants=baseline,keyterms`,
 `streaming_ab_fixtures=h1_1,h1_6,h1_8`
+
+Superseded by the 2026-06-02T23:00Z larger h1 subset above. Keep this section
+only as historical evidence that request/session validity first closed on the
+cheap subset.
 
 This closes the Cloud A/B **request/session validity** action item:
 
