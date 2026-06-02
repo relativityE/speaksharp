@@ -157,6 +157,20 @@ BLOCKER = missing value blocks green classification.
 | Cloud | Caveated | Baseline credentialed A/B valid rows are strong: 95.56% accuracy and 90% filler recall. Not green because h1_6-h1_10 baseline rows are invalid and all prompt/keyterms variants are invalid empty/no-termination sessions. | Dev/provider request investigation for invalid prompt/keyterms sessions; rerun A/B and app trace proof. |
 | Native | Backlog | No current human real-mic proof in this cycle. Native cannot be classified from fake/say routes. Punctuation/casing strategy remains unresolved. | Run human Chrome mic proof after Private/Cloud closure; verify live text, final, no duplicate, readability, save/history/detail. |
 
+Clarifications:
+
+```text
+Private browser evidence collected on 2026-06-02 is v2 / transformers-js only.
+v4 still needs the same browser fixture set before Private engine selection.
+
+Cloud "invalid" means empty/no-termination provider sessions, not bad WER.
+Those rows are excluded from quality averages and block green classification.
+
+Native was not collected because the current comparable route requires human
+Chrome microphone proof. Injected mic/fake/say routes are not valid release
+proof for Native Web Speech.
+```
+
 ### Short Corpus: Harvard h1_1-h1_10
 
 | Candidate | Evidence | Accuracy | Error | Filler recall | False filler insertion | Terminal punctuation | Readability | First progress | Finalization wait | Save/history/detail | Release status |

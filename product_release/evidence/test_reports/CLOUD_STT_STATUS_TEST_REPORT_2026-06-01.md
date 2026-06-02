@@ -10,10 +10,10 @@
 Cloud STT: CLOSEST TO RELEASE-GREEN
 Current product status: paid quality path / likely brag path after validation
 Primary launch blockers:
-1. Credentialed AssemblyAI A/B subset must run with real key.
-2. Filler recall and false filler insertion must be measured.
-3. Current app trace proof must confirm live -> stop -> save -> history/detail.
-4. Long-speech tail and readability proof must be captured.
+1. Credentialed A/B ran, but prompt/keyterms variants are invalid.
+2. Baseline is only partial because h1_6-h1_10 are invalid empty/no-termination.
+3. Current app trace proof must still confirm live -> stop -> save -> history/detail.
+4. Long-speech tail and readability proof must still be captured.
 ```
 
 Cloud is currently the strongest STT candidate, but it must not be treated as complete until the credentialed provider and app-path proof are refreshed with the current release metric schema.
@@ -142,12 +142,35 @@ Prompt/keyterms variants currently fail as invalid sessions. This is a concrete
 provider/request-construction issue for dev review, not a broad Cloud rewrite.
 ```
 
+What "invalid" means:
+
+```text
+The variant did not produce a usable provider transcript session. Rows were
+classified invalid because they had empty transcript output and no observed
+Termination message (`empty_no_termination`). They are not scored as bad WER,
+because no transcription result was produced. This blocks green classification
+because prompt/keyterms behavior is unproven and may be malformed or incompatible
+with the streaming request shape.
+```
+
 Dev handoff:
 
 ```text
 Inspect why keyterms, prompt, and prompt_keyterms variants produce empty/no-
 termination sessions. Use the artifact fields closeCode, closeReason,
 firstMessageRaw, messageCount, invalidSession, and invalidReason.
+```
+
+Equal-variant rerun plan:
+
+```text
+1. Fix or explain invalid prompt/keyterms request construction.
+2. Rerun baseline, keyterms, prompt, and prompt_keyterms on the same subset.
+3. Require every variant to produce valid sessions before comparing quality.
+4. Populate the shared JSON with accuracy, filler recall, false filler insertion,
+   readability, tail preservation, provider timing, invalid-session status, and
+   app journey fields.
+5. Then run Cloud app-path proof for the chosen variant.
 ```
 
 ## Dev/Test Boundary
