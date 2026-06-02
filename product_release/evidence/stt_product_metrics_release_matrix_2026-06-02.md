@@ -1,7 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-02T23:45:00Z  
+**Last updated:** 2026-06-02T23:58:00Z  
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
@@ -169,6 +169,37 @@ The 8-word DOM/banner artifact is superseded. Current Private v2 can save an
 authoritative transcript, but the transcript is materially worse than the v2
 drop-in/full-WAV baseline. Dev needs the app-buffer replay diagnostic to decide
 whether this is audio prep/windowing, runtime/config, or candidate selection.
+```
+
+### Latest Current-Head Private Cache/Setup Proof: 2026-06-02T23:34Z
+
+Run:
+
+```text
+Live Release Matrix: 26854295228
+Private cache job: 79193489334
+Commit: bc6ca5da
+Artifact: /private/tmp/live-private-cache-26854295228/
+```
+
+Result:
+
+```text
+PASS_SETUP_ONLY
+```
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| First start model ready | pass | `modelStatus:"ready"`, `runtimeState:"READY"` |
+| Transformer cache populated | pass | `cacheNames:["transformers-cache"]`, `transformerCacheKeyCount:7` |
+| Second start avoids download prompt | pass | `downloadVisible:false`, `secondStartReadyWithoutDownloadPrompt:true` |
+| Cache persists | pass | `cachePersisted:true` |
+
+Interpretation:
+
+```text
+Private v2 setup/cache is not the current release blocker. This proof does not
+score transcript accuracy; v2 final quality and v4 init failure remain open.
 ```
 
 ### Latest Current-Head Private Browser Proof: 2026-06-02T22:46Z
