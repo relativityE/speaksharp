@@ -1,6 +1,6 @@
 # Private STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T21:05:00Z  
+**Updated:** 2026-06-02T23:35:00Z  
 **Scope:** Private v2/v4 local STT, browser app path, drop-in parity, timing, and readability  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -10,18 +10,19 @@
 Private STT: NOT GREEN YET
 Current product status: caveated local/private path
 Two-step status:
-- Private v4 browser proof: setup failure at `setup.model_provider`. Vault setup/readiness did not finish; Start stayed disabled.
-- Private v2 browser proof: proof failure in accuracy phase at `proof.accuracy.final_completeness`. Recording started, but only 8 words were captured against 87 expected.
+- Private v4 browser proof: setup/runtime failure at `setup.model_provider`; service reaches `INIT_FAILED` before transcription.
+- Private v2 browser proof: setup/saveCandidate/persistence now work, but proof fails in accuracy phase: 51 saved words, WER 66.67%, accuracy 33.33% against the 87-word fixture.
 Primary launch blockers:
-1. v4 browser app proof is still missing; current browser proof is v2 only.
-2. Physical/human mic route was unavailable in this environment because afplay failed.
-3. Washington readability fails the max-run-on gate even though accuracy is strong.
-4. Private must still be compared equally across v2 and v4 before release selection.
+1. Private v2 app/browser path materially underperforms its drop-in/full-WAV baseline.
+2. Private v4 does not reach proof in this browser workflow; it fails setup/runtime before transcription.
+3. Private user-trust UX remains weak if useful draft text is late/sparse and the final transcript is wrong.
+4. Washington/readability and long-form proof remain required before broad use.
 ```
 
 Private has moved from lifecycle failure to targeted quality/timing validation.
-The 2026-06-02 browser proof shows strong v2 accuracy and timing, but it is not
-the full release matrix because v4 browser proof is not yet captured.
+The current browser proof shows that lifecycle/Stop/save are not the primary
+v2 blocker anymore. The blocker is final transcript quality/completeness versus
+drop-in. v4 still cannot be scored because setup/runtime fails before recording.
 
 ## Current Release Metrics
 
@@ -575,6 +576,73 @@ fix user trust or accuracy. User trust still requires immediate progress state,
 useful draft timing, accurate final saveCandidate text, and score/analytics
 confidence gating.
 ```
+
+## TEST AGENT UPDATE (2026-06-02T23:18Z) — current-head rerun confirms real v2 accuracy/tail blocker
+
+**Workflow:** `Controlled STT Benchmarks` run `26853628019`  
+**Private Browser job:** `79191366613`  
+**Commit:** `2a6fe37a`  
+**Artifact:** `/private/tmp/private-browser-26853628019/`  
+**Artifact ID:** `7372094146`
+
+This rerun is after the saveCandidate harness fix and after the inert
+cross-origin-isolation toggle commit. It confirms the old 8-word result was
+DOM/banner contamination, but the current Private v2 browser path is still not
+release-green.
+
+| Engine | Setup | Proof result | Classification |
+| --- | --- | --- | --- |
+| Private v2 / CPU | Passed: Pro, Private, setup/model ready, saved session | Failed accuracy regression: WER 66.67%, accuracy 33.33%; selected transcript 51 words, expected fixture 87 words | `PROOF_FAIL proof.accuracy.final_completeness` / quality regression |
+| Private v4 | Failed before transcription: `modelStatus=init-failed`, `serviceState=INIT_FAILED`, Start disabled | Not scored | `INVALID_SETUP setup.model_provider` |
+
+Authoritative v2 save candidate:
+
+```text
+saveCandidateReason: service_result
+finalWordCount: 51
+meaningfulWordCount: 51
+selectedForSaveLength: 269
+resultTranscriptLength: 268
+chunkTranscriptLength: 269
+storeTranscriptLength: 269
+storePartialTranscriptLength: 0
+visibleStoreTranscriptLength: 269
+frozenStopTranscriptLength: 22
+candidateLengths:
+- service_result: 268
+- committed_final: 269
+- visible_snapshot: 22
+- best_meaningful_partial: 22
+- store_visible_snapshot: 269
+```
+
+Selected transcript:
+
+```text
+The tail smell of old beer, like lingers, basically, a dash of pepper spoils beef to, well, the one knife was far short on perfect, you know, the marks was thrown beside the parked truck, literally, the twister left no trace on the town, a, like, toed wild tail to fry.
+```
+
+Current read:
+
+```text
+Private v2 setup, Stop, saveCandidate, and persistence are working enough to
+produce an authoritative saved transcript. The failure is now a real proof
+failure: final quality/completeness is far below the v2 drop-in/full-WAV
+baseline and the transcript truncates before the expected tail.
+```
+
+Immediate dev attention:
+
+1. Determine why the browser app path produces 51 words / 33.33% accuracy when
+   the v2 full-WAV baseline is 93.89%.
+2. Compare the exact app whole-utterance buffer against the Node/drop-in decoder
+   to separate audio prep/windowing from runtime/candidate-selection issues.
+3. Explain why `visible_snapshot` / `best_meaningful_partial` froze at only 22
+   characters while service/store had 269 characters; this may affect user trust
+   during Stop even when saved candidate is non-empty.
+4. Private v4 remains blocked at setup/runtime. The failure is not an accuracy
+   result: it is `INIT_FAILED` before transcription despite `hasWebGPU=true` in
+   the browser snapshot.
 
 ## TEST AGENT UPDATE (2026-06-02T21:35Z) — superseded by 22:58Z saveCandidate rerun
 
