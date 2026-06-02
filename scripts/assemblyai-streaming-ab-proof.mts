@@ -196,8 +196,9 @@ async function createStreamingToken(): Promise<string> {
 
 function buildUrl(variant: Variant, token: string): string {
   const keyterms = buildKeyterms([]);
-  // Delegate to the pure, unit-tested builder. It encodes the two credentialed-A/B
-  // fixes: keyterms_prompt as REPEATED params (not JSON.stringify), and prompt
+  // Delegate to the pure, unit-tested builder. It encodes the credentialed-A/B fixes:
+  // keyterms_prompt as a SINGLE JSON-ARRAY string (run 26842655423 proved the server
+  // validates it as JSON — other shapes get 3006 "Invalid JSON array"), and prompt
   // variants on the u3-rt-pro model (universal-streaming-english rejects prompt: 3006).
   return buildAbStreamingUrl({
     variant: variant as AbVariant,

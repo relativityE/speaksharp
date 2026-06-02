@@ -186,7 +186,19 @@ export class TransformersJSV4Engine extends STTEngine {
                 pipelineOptions
             );
 
-            await this.warmUpMainThreadTranscriber();
+            // Warm-up is a one-shot JIT trigger on 1s of silence; it must NOT gate
+            // readiness. The model already loaded above, so a warm-up hiccup should
+            // never surface as init-failed (test-agent finding #2).
+            try {
+                await this.warmUpMainThreadTranscriber();
+            } catch (warmupError) {
+                logger.warn({
+                    sId: this.serviceId,
+                    rId: this.runId,
+                    eId: this.instanceId,
+                    warmupError: warmupError instanceof Error ? warmupError.message : String(warmupError),
+                }, '[TransformersJSV4] Warm-up failed; proceeding to ready (model is loaded).');
+            }
 
             const loadTime = performance.now() - loadStart;
             logger.info({
