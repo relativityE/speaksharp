@@ -621,6 +621,10 @@ async function markPhase(page, phase, detail = {}) {
       perfNow: Number(performance.now().toFixed(1)),
       recording: document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') ?? null,
       transcript: document.querySelector('[data-testid="transcript-container"]')?.textContent ?? null,
+      transcriptState: document.querySelector('[data-testid="transcript-container"]')?.getAttribute('data-transcript-state') ?? null,
+      draftVisible: Boolean(document.querySelector('[data-transcript-draft="true"]')),
+      finalizingVisible: Boolean(document.querySelector('[data-testid="live-transcript-finalizing"]')),
+      draftText: document.querySelector('[data-testid="live-transcript-current-line"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       statusText: statusNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       runtimeState: document.documentElement.getAttribute('data-runtime-state'),
       sessionPersisted: document.documentElement.getAttribute('data-session-persisted'),
@@ -631,11 +635,16 @@ async function markPhase(page, phase, detail = {}) {
 async function readUiStatusSnapshot(page) {
   return page.evaluate(() => {
     const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
+    const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
     return {
       perfNow: Number(performance.now().toFixed(1)),
       recording: document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') ?? null,
       runtimeState: document.documentElement.getAttribute('data-runtime-state'),
-      transcript: document.querySelector('[data-testid="transcript-container"]')?.textContent ?? null,
+      transcript: transcriptContainer?.textContent ?? null,
+      transcriptState: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
+      draftVisible: Boolean(document.querySelector('[data-transcript-draft="true"]')),
+      finalizingVisible: Boolean(document.querySelector('[data-testid="live-transcript-finalizing"]')),
+      draftText: document.querySelector('[data-testid="live-transcript-current-line"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       statusText: statusNode?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
     };
   }).catch(() => null);
@@ -699,6 +708,15 @@ async function collectTraceSnapshot(page, mode) {
       rejectedReason: chunk.rejectedReason,
       wavDataUrlBytes: chunk.wavDataUrl?.length ?? 0,
     })) : undefined,
+    transcriptUiState: (() => {
+      const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
+      return {
+        state: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
+        draftVisible: Boolean(document.querySelector('[data-transcript-draft="true"]')),
+        finalizingVisible: Boolean(document.querySelector('[data-testid="live-transcript-finalizing"]')),
+        draftText: document.querySelector('[data-testid="live-transcript-current-line"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+      };
+    })(),
   }), mode).catch(() => ({}));
 }
 
@@ -1004,6 +1022,7 @@ async function runFixture(page, mode, fixture) {
     privateAudioChunks: traceSnapshot.privateAudioChunks,
     privateEngineVariant: traceSnapshot.privateEngineVariant,
     privateMicConstraintsDebug: traceSnapshot.privateMicConstraintsDebug,
+    transcriptUiState: traceSnapshot.transcriptUiState,
     stopStatusSnapshots,
     transcriptLifecycleTrace: traceSnapshot.transcriptLifecycleTrace,
     transcriptLifecycleSummary,

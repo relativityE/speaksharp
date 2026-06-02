@@ -465,6 +465,96 @@ STT testing owns browser timing and UX evidence.
 > the new timing fields + utterance-audio artifact populate in trace runs. Commit SHA
 > in merge note. No default audio/decode behavior changed.
 
+### 2026-06-01 Browser Proof Update — Transcript-State UI
+
+STT testing created a dedicated Pro proof account through the GitHub
+`setup-test-users.yml` workflow, then ran a focused Private h1_6 browser proof
+against the local preview.
+
+Artifact:
+
+```text
+/private/tmp/speaksharp-private-ui-state-proof-h1_6-pro-created.json
+```
+
+Result summary:
+
+| Check | Result |
+|---|---|
+| Runner/gate | PASS |
+| Fixture | `h1_6` |
+| Final transcript | `Day, like, told Wild Tales to frighten him.` |
+| Final accuracy | 87.5% |
+| Visible at Stop | `Day like Told wild tales to frighten` |
+| Visible-at-Stop accuracy | 75.0% |
+| First text | 4097ms, `Day like` |
+| Runtime | `wasm-singlethread`, `transformers-js`, Cloud fallback `false` |
+| Save/history/detail | pass/pass/pass |
+| Observed states | `idle`, `listening`, `drafting`, `finalizing`, `final` |
+| Finalizing banner | PASS: `Processing speech locally…` visible after Stop |
+| Final state | PASS: final transcript shown after save |
+| Visible Draft marker | FAIL/PARTIAL: `data-transcript-state="drafting"` was present, but `draftVisible=false` and no visible Draft chip/text was captured |
+
+Key evidence:
+
+```text
+afplay_end:
+  transcriptState=drafting
+  transcript="Day like"
+  draftVisible=false
+  draftText=null
+
+post_playback_wait_done:
+  transcriptState=drafting
+  transcript="Day like Told wild tales to frighten"
+  draftVisible=false
+  draftText=null
+
+click_stop_done:
+  transcriptState=finalizing
+  finalizingVisible=true
+  transcript="Processing speech locally…Day like Told wild tales to frighten"
+
+recording_attribute_false:
+  transcriptState=final
+  transcript="Day, like, told Wild Tales to frighten him."
+```
+
+Test-agent conclusion:
+
+```text
+The state machine and finalizing/final indicators are browser-proven.
+The visible Draft indicator is NOT browser-proven for the h1_6 live path.
+The likely cause is that live text arrived through the committed/current transcript
+path while listening, not the interim span/live-preview path that carries the
+Draft chip and data-transcript-draft marker.
+```
+
+Current dev ask:
+
+```text
+When data-transcript-state="drafting", every visible transcript text path should
+be visually marked as draft, including committed/current transcript text shown
+while still listening.
+
+Add component coverage for:
+- isListening=true
+- transcript has text
+- interimTranscript is empty
+- expected: visible Draft marker or data-transcript-draft="true" on the displayed text.
+```
+
+What STT testing will rerun after the dev patch:
+
+```text
+Private h1_6 focused proof with the same selectors:
+- transcriptState transitions listening -> drafting -> finalizing -> final
+- draftVisible=true while text is shown during drafting
+- finalizingVisible=true after Stop
+- draftVisible=false and finalizingVisible=false after final
+- saved/detail transcript equals selected final.
+```
+
 ## Open Issue P1 — Full Private Corpus After P0 Fixes
 
 Issue:
