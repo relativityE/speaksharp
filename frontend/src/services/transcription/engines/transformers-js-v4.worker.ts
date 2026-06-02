@@ -39,7 +39,7 @@ function getAsrOptions(audioLengthSeconds: number): Record<string, unknown> {
     const options: Record<string, unknown> = {
         chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
         stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
-        return_timestamps: false,
+        return_timestamps: true,
     };
 
     if (!PRIV_STT_V4.MODEL_ID.endsWith('.en')) {

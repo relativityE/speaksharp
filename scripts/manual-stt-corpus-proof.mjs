@@ -161,6 +161,21 @@ async function loadFixtures() {
     });
   }
 
+  const washingtonSourcePath = path.resolve('tests/fixtures/stt-isomorphic/washington-speeches.ts');
+  const washingtonSource = await readFile(washingtonSourcePath, 'utf8').catch(() => '');
+  const washingtonBlocks = [...washingtonSource.matchAll(/id:\s*'([^']+)'[\s\S]*?audio:\s*'([^']+)'[\s\S]*?transcript:\s*\[([\s\S]*?)\]\.join\(' '\)/g)];
+  for (const [, id, audio, transcriptBlock] of washingtonBlocks) {
+    const transcript = [...transcriptBlock.matchAll(/'((?:\\'|[^'])*)'/g)]
+      .map(([, line]) => line.replace(/\\'/g, "'"))
+      .join(' ');
+    byId.set(id, {
+      id,
+      transcript,
+      audioPath: path.resolve(`tests/fixtures/stt-isomorphic/audio/${audio}`),
+      type: 'long-form',
+    });
+  }
+
   return FIXTURE_LIST.map((id) => {
     const fixture = byId.get(id);
     if (!fixture) throw new Error(`Unknown STT fixture "${id}". Known: ${[...byId.keys()].join(', ')}`);

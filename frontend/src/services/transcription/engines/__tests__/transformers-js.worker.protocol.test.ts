@@ -138,7 +138,7 @@ describe('transformers-js.worker protocol contract', () => {
         expect(observedOptions).toMatchObject({
             chunk_length_s: 30,
             stride_length_s: 0,
-            return_timestamps: false,
+            return_timestamps: true,
         });
     });
 

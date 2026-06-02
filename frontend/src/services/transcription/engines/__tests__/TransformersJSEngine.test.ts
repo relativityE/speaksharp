@@ -135,7 +135,7 @@ describe('TransformersJSEngine (Unit)', () => {
         expect(transcriber).toHaveBeenCalledWith(expect.any(Float32Array), expect.objectContaining({
             chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
             stride_length_s: 0,
-            return_timestamps: false,
+            return_timestamps: true,
         }));
     });
 
@@ -150,7 +150,7 @@ describe('TransformersJSEngine (Unit)', () => {
         expect(transcriber).toHaveBeenCalledWith(expect.any(Float32Array), expect.objectContaining({
             chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
             stride_length_s: PRIV_STT.WHISPER_STRIDE_SECONDS,
-            return_timestamps: false,
+            return_timestamps: true,
         }));
     });
 
