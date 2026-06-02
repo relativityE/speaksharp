@@ -1397,8 +1397,8 @@
   "classifications": {
     "cloud": {
       "status": "caveated",
-      "reason": "Baseline credentialed A/B valid rows are strong (95.56% accuracy, 90% filler recall) and prompt valid rows were 100%/100%, but half-row invalids remain and keyterms variants still need credentialed proof after the latest local request-shape/backoff fix.",
-      "next": "Validate latest local A/B fix with cheap credentialed subset; then rerun app trace proof."
+      "reason": "Cheap credentialed subset on current code is valid: baseline 96.3% accuracy / 83.33% filler recall; keyterms 91.67% / 100%. Keyterms improves filler recall but hurts h1_6 accuracy, so baseline remains safer until a larger baseline-vs-keyterms proof passes.",
+      "next": "Run larger baseline-vs-keyterms proof without prompt/u3-rt-pro; then rerun app trace proof."
     },
     "private": {
       "status": "caveated",
@@ -1411,5 +1411,5 @@
       "next": "Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-02T20:05:00Z"
+  "lastUpdatedAt": "2026-06-02T20:20:00Z"
 }

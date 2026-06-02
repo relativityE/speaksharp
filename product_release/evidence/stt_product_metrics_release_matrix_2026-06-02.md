@@ -1,7 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-02T20:05:00Z  
+**Last updated:** 2026-06-02T20:20:00Z  
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
@@ -168,7 +168,7 @@ BLOCKER = missing value blocks green classification.
 | STT | Classification | Why | Next action |
 | --- | --- | --- | --- |
 | Private | Caveated | Current injected browser proof is much improved: `washington_01` 98.95%; guard rows mostly exact; `h1_6` improved to 87.5%. Not green because Washington readability fails max run-on gate, v4 browser proof is not captured, and physical/human mic route was unavailable. | Resolve readability/punctuation; run v4 browser proof if v4 is candidate; rerun physical/human mic when audio output works. |
-| Cloud | Caveated | Baseline credentialed A/B valid rows are strong: 95.56% accuracy and 90% filler recall; prompt valid rows were 100%/100%. Not green because half-row invalids remain and keyterms variants still need credentialed proof after the latest local request-shape/backoff fix. | Validate latest local A/B fix with cheap credentialed subset; then run app trace proof. |
+| Cloud | Caveated | Cheap credentialed subset on current code is valid: baseline 96.3% accuracy / 83.33% filler recall; keyterms 91.67% / 100%. Keyterms improves filler recall but hurts h1_6 accuracy, so baseline remains safer until a larger baseline-vs-keyterms proof passes. | Run larger baseline-vs-keyterms proof without prompt/u3-rt-pro; then run app trace proof. |
 | Native | Backlog / failed current proof | Human real-mic proof ran and failed product readiness: Chrome produced words, but selectedForSave became `Listening...`, save/detail failed, readability failed, and filler recall was 66.67%. | Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof. |
 
 Clarifications:
@@ -179,8 +179,10 @@ v4 still needs the same browser fixture set before Private engine selection.
 
 Cloud "invalid" means no usable provider transcript session, not bad WER.
 Those rows are excluded from quality averages and block green classification.
-Latest local Cloud A/B code now treats `keyterms_prompt` as a JSON-array-string
-and retries 1008 concurrency rows; this still needs credentialed proof.
+Latest local Cloud A/B code treats `keyterms_prompt` as a JSON-array-string.
+The cheap credentialed subset confirms baseline/keyterms are both valid on
+`h1_1,h1_6,h1_8`. Keyterms improves filler recall but currently lowers h1_6
+accuracy, so it is not selected yet.
 
 Native human real-mic proof is now collected and failed. Injected mic/fake/say
 routes remain invalid release proof for Native Web Speech.

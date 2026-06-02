@@ -13,6 +13,10 @@ on:
         description: 'Run the legacy AssemblyAI ceiling benchmark before the streaming A/B proof'
         type: boolean
         default: true
+      run_private_browser:
+        description: 'Run Private browser benchmarks in this workflow'
+        type: boolean
+        default: true
       streaming_ab_variants:
         description: 'Comma-separated AssemblyAI streaming A/B variants'
         type: string
@@ -89,6 +93,7 @@ jobs:
 
   benchmark-private-browser:
     name: Private Browser Benchmarks (v2 + v4)
+    if: inputs.run_private_browser != false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
