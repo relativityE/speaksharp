@@ -1,6 +1,6 @@
 # Private STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T20:10:00Z  
+**Updated:** 2026-06-02T21:05:00Z  
 **Scope:** Private v2/v4 local STT, browser app path, drop-in parity, timing, and readability  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -9,6 +9,9 @@
 ```text
 Private STT: NOT GREEN YET
 Current product status: caveated local/private path
+Two-step status:
+- Private v4 browser proof: SETUP failure at `SETUP_4_MODEL_READY`. Vault setup/readiness did not finish; Start stayed disabled.
+- Private v2 browser proof: EXECUTION failure at `EXEC_3_FINAL_COMPLETENESS`. Recording started, but only 8 words were captured against 87 expected.
 Primary launch blockers:
 1. v4 browser app proof is still missing; current browser proof is v2 only.
 2. Physical/human mic route was unavailable in this environment because afplay failed.

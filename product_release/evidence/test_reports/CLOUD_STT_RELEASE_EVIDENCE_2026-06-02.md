@@ -1,6 +1,6 @@
 # Cloud STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T20:20:00Z  
+**Updated:** 2026-06-02T21:05:00Z  
 **Scope:** AssemblyAI Cloud STT, credentialed A/B, filler/readability/tail proof, app journey  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -9,9 +9,12 @@
 ```text
 Cloud STT: CLOSEST TO RELEASE-GREEN
 Current product status: paid quality path / likely brag path after validation
+Two-step status:
+- Baseline: SETUP passing; EXECUTION strongest current candidate.
+- Keyterms: SETUP passing after request/session fix; EXECUTION failure at `EXEC_4_ACCURACY_FILLERS` because filler recall improves but h1_6 accuracy regresses.
 Primary launch blockers:
-1. Credentialed A/B ran, but prompt/keyterms variants are invalid.
-2. Baseline is only partial because h1_6-h1_10 are invalid empty/no-termination.
+1. Credentialed A/B now runs valid baseline/keyterms sessions on the cheap subset, but keyterms is not shippable because it improves filler recall while hurting h1_6 accuracy.
+2. Baseline is the safest current Cloud candidate, but must still be proven on the broader release matrix.
 3. Current app trace proof must still confirm live -> stop -> save -> history/detail.
 4. Long-speech tail and readability proof must still be captured.
 ```

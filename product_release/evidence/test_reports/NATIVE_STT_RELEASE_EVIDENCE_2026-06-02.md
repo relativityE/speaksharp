@@ -1,6 +1,6 @@
 # Native STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T20:08:00Z  
+**Updated:** 2026-06-02T21:05:00Z  
 **Scope:** Chrome Web Speech Native STT, human real-mic proof, punctuation/readability, stop/save integrity  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -9,6 +9,9 @@
 ```text
 Native STT: NOT GREEN YET
 Current product status: backlog / failed current human proof
+Two-step status:
+- SETUP passing for current human-mic proof: Chrome heard the speaker and produced usable transcript text.
+- EXECUTION failure at `EXEC_5_READABILITY` and `EXEC_6_STOP_SAVE_DETAIL`: readability/punctuation/casing failed, and stop/save/detail selected or exposed `Listening...`.
 Primary launch blockers:
 1. Human real-mic proof ran and failed product readiness.
 2. Stop/save selected `Listening...` even though Chrome produced usable transcript text.
