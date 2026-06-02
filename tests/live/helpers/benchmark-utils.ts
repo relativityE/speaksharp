@@ -144,6 +144,12 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
     }));
 }
 
+export async function logBenchmarkPhase(page: Page, phase: string) {
+    const snapshot = await collectBenchmarkPreconditionSnapshot(page, phase);
+    console.log(`[STT_BENCHMARK_PHASE] ${JSON.stringify(snapshot)}`);
+    return snapshot;
+}
+
 export async function assertNativeSpeechRecognitionIsReal(page: Page, label: string) {
     const snapshot = await collectBenchmarkPreconditionSnapshot(page, label);
     if (snapshot.browser?.speechRecognitionIsMock) {
@@ -178,6 +184,7 @@ export async function waitForBenchmarkSession(page: Page) {
     await page.goto('/session');
     try {
         await expect(page.getByTestId('stt-mode-select')).toBeVisible({ timeout: 20_000 });
+        await logBenchmarkPhase(page, 'SETUP_STT_MODE_SESSION_READY');
     } catch (error) {
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'benchmark-session-selector-missing');
         throw new Error(`Benchmark session precondition failed: stt-mode-select missing\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
@@ -222,6 +229,7 @@ export async function selectBenchmarkMode(page: Page, mode: 'native' | 'cloud' |
 
             try {
                 await expect(select).toHaveAttribute('data-state', mode, { timeout: 5_000 });
+                await logBenchmarkPhase(page, `SETUP_STT_MODE_SELECTED_${mode.toUpperCase()}`);
                 return;
             } catch (error) {
                 lastOptionState = {
@@ -246,6 +254,7 @@ export async function selectBenchmarkMode(page: Page, mode: 'native' | 'cloud' |
 }
 
 export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {
+    await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_WAIT_START');
     try {
         await page.waitForFunction(() => {
             const root = document.documentElement;
@@ -258,6 +267,7 @@ export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {
                 runtimeState === 'RECORDING'
             );
         }, { timeout });
+        await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_READY');
     } catch (error) {
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-engine-ready-timeout');
         throw new Error(`Private engine readiness precondition failed\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
@@ -273,7 +283,11 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 180_00
     ).first();
 
     if (await setupButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+        await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_VISIBLE');
         await setupButton.click();
+        await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_CLICKED');
+    } else {
+        await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_NOT_VISIBLE');
     }
 
     await waitForPrivateEngineReady(page, timeout);
@@ -282,6 +296,7 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 180_00
 export async function expectBenchmarkRecordingStarted(page: Page, label: string) {
     try {
         await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10_000 });
+        await logBenchmarkPhase(page, `PROOF_RUNTIME_RECORDING_STARTED_${label.toUpperCase()}`);
     } catch (error) {
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-recording-not-started`);
         throw new Error(`Benchmark recording precondition failed for ${label}\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
@@ -295,6 +310,7 @@ export async function expectBenchmarkTranscriptOutput(page: Page, label: string,
             const currentWordCount = text.trim().split(/\s+/).filter(w => w.length > 2).length;
             expect(currentWordCount).toBeGreaterThan(minWords);
         }).toPass({ timeout });
+        await logBenchmarkPhase(page, `PROOF_TIMING_FIRST_TEXT_${label.toUpperCase()}`);
     } catch (error) {
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, `${label}-transcript-output-missing`);
         throw new Error(`Benchmark transcript precondition failed for ${label}: transcript did not exceed ${minWords} words before WER\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);

@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, preparePrivateModelIfPrompted, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, preparePrivateModelIfPrompted, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, logBenchmarkPhase } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -19,7 +19,7 @@ test.use({
 });
 
 test('measure TransformersJS (CPU)', async ({ page }) => {
-    test.setTimeout(240_000); // 4 minutes overall to allow for 3min WASM load + audio recording
+    test.setTimeout(360_000); // allow setup/readiness to fail with diagnostics before global timeout
 
     const testEmail = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
     const testPassword = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
@@ -39,6 +39,7 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
     // Real Authentication Flow to ensure real WASM engines are loaded
     await page.goto('/auth/signin');
     await page.waitForSelector(`[data-testid="auth-form"]`, { timeout: 15_000 });
+    await logBenchmarkPhase(page, 'SETUP_AUTH_TIER_FORM_VISIBLE');
 
     await page.getByTestId('email-input').fill(testEmail);
     await page.getByTestId('password-input').fill(testPassword);
@@ -48,6 +49,7 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
     );
     await page.getByTestId('sign-in-submit').click();
     await loginPromise;
+    await logBenchmarkPhase(page, 'SETUP_AUTH_TIER_LOGIN_SUCCESS');
 
     // Navigate to the session page where the STT WASM engines actually initialize.
     await waitForBenchmarkSession(page);
@@ -70,6 +72,7 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
 
     // Stop and collect transcript
     await page.getByTestId('session-start-stop-button').click();
+    await logBenchmarkPhase(page, 'PROOF_JOURNEY_STOP_CLICKED_PRIVATE_CPU');
     await expect(page.getByTestId('transcript-container')).not.toBeEmpty({ timeout: 15_000 });
     const transcriptText = (await page.getByTestId('transcript-container').textContent() ?? '')
         .toLowerCase()
@@ -82,6 +85,7 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
     const wer = calculateWordErrorRate(HARVARD_FULL, transcriptText);
 
     if (wordCount < referenceWordCount * 0.3) {
+        await logBenchmarkPhase(page, 'PROOF_ACCURACY_FINAL_COMPLETENESS_FAIL_PRIVATE_CPU');
         throw new Error(
             `Benchmark aborted: transcript has only ${wordCount} words against ` +
             `${referenceWordCount} expected. Engine likely did not initialize. ` +
