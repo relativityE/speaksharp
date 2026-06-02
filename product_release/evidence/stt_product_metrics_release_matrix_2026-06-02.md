@@ -1,7 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-02T21:35:00Z  
+**Last updated:** 2026-06-02T22:12:00Z  
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
@@ -67,7 +67,7 @@ Current example:
 | --- | --- | --- | --- |
 | Private v4 browser proof | setup | `setup.model_provider` | Private/Vault setup did not finish; Start stayed disabled. |
 | Private v2 browser proof | accuracy | `proof.accuracy.final_completeness` | Setup reached recording, but transcript captured only 8 words against 87 expected. |
-| Cloud A/B keyterms | accuracy | `proof.accuracy.fillers` | Requests are now valid, but keyterms hurt h1_6 accuracy. |
+| Cloud A/B keyterms | accuracy | `proof.accuracy.fillers` | Current-head run `26850691978`: requests/session validity closed; keyterms still hurts h1_6 accuracy. |
 | Native human proof | accuracy, journey | `proof.accuracy.readability`, `proof.journey.stop_save_detail` | Chrome produced words, but readability and stop/save/detail failed. |
 
 ### Latest Current-Head Private Browser Proof: 2026-06-02T21:29Z
@@ -98,6 +98,46 @@ Private v2 is no longer blocked by auth/model setup in this workflow; it reaches
 proof but fails final completeness badly. Private v4 is still blocked before
 transcription by setup/model-provider readiness. These are different blockers
 and must not be collapsed into one "Private failed" bucket.
+```
+
+### Latest Current-Head Cloud A/B Proof: 2026-06-02T22:04Z
+
+Run:
+
+```text
+Controlled STT Benchmarks: 26850691978
+Commit: 5669c1be
+Artifact: /private/tmp/speaksharp-cloud-ab-26850691978/assemblyai-streaming-ab-proof.json
+Variants: baseline,keyterms
+Fixtures: h1_1,h1_6,h1_8
+```
+
+This run closes the Cloud A/B request/session validity action item. Both
+variants produced valid sessions on the narrow current-head subset.
+
+| Candidate | Step | Expected | Actual | First broken gate | Exit/error code |
+| --- | --- | --- | --- | --- | --- |
+| Cloud baseline | proof | Valid AssemblyAI streaming sessions with strong accuracy and filler evidence | 3/3 valid, 96.3% average accuracy, 83.33% filler recall | none | none |
+| Cloud keyterms | proof | Improve filler recall without material ordinary-word accuracy loss | 3/3 valid, 91.67% average accuracy, 100% filler recall; h1_6 dropped to 75% | `proof.accuracy.fillers` | quality tradeoff, not request failure |
+
+Per-row detail:
+
+| Variant | Fixture | Accuracy | Filler recall | Retries | Transcript |
+| --- | --- | ---: | ---: | ---: | --- |
+| baseline | h1_1 | 88.89% | 50% | 0 | `The stale smell of old beer, like, lingers.` |
+| baseline | h1_6 | 100% | 100% | 0 | `They, like, told Wild Tales to frighten him.` |
+| baseline | h1_8 | 100% | 100% | 0 | `The puppy, like, chewed up the new shoes.` |
+| keyterms | h1_1 | 100% | 100% | 0 | `Um, the stale smell of old beer, like, lingers.` |
+| keyterms | h1_6 | 75% | 100% | 0 | `They like told wild tales to frighten him.` |
+| keyterms | h1_8 | 100% | 100% | 0 | `The puppy, like, chewed up the new shoes.` |
+
+Current read:
+
+```text
+Cloud baseline remains the safest Cloud release candidate. The Cloud A/B
+plumbing is no longer the blocker: request shape, session validity, and
+artifact capture worked on current main. Keyterms remains blocked only because
+it trades better filler recall for worse h1_6 transcript accuracy.
 ```
 
 ## Candidate Set
