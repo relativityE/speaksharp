@@ -8,12 +8,18 @@
 
 ```text
 Native STT: NOT GREEN YET
-Current product status: quick-start/browser-dependent path
+Current product status: backlog until current-cycle human proof runs
 Primary launch blockers:
 1. Human real-mic proof is still required.
 2. Punctuation/casing remains unresolved.
 3. No duplicate-on-stop regression must be verified in real browser use.
 4. Native cannot be judged by fake-audio or macOS say WER.
+```
+
+Current classification:
+
+```text
+Native = backlog for the current release matrix until human Chrome mic proof runs.
 ```
 
 Native should be tested as a real customer path: Chrome desktop, real microphone, visible live text, stop/save/history/detail. Automated `say`, fake-audio, or speaker-to-mic runs can be diagnostic only.

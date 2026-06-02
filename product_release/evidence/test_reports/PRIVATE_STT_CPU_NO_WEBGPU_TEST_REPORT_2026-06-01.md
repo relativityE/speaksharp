@@ -68,6 +68,61 @@ App focused run:     /private/tmp/speaksharp-private-official-focused-2026060117
 Drop-in all-10 run:  /private/tmp/speaksharp-private-dropin-official-all-20260601175117.json
 ```
 
+## Latest Current Browser Evidence — 2026-06-02
+
+Route:
+
+```text
+page getUserMedia override with per-fixture WAV injected at mic request time
+```
+
+Reason:
+
+```text
+Physical afplay failed in this environment with AudioQueueStart failed (-66680).
+Chrome fake-audio launch-time capture is timing-ambiguous. The injected route
+starts the selected WAV when the app requests mic input, which is valid for
+Private browser/app proof but not Native Web Speech proof.
+```
+
+Guard-row results after `return_timestamps:true`:
+
+| Fixture | Accuracy | First progress | First draft | Finalization wait | Readability | Journey | Transcript |
+| --- | ---: | ---: | ---: | ---: | --- | --- | --- |
+| `h1_1` | 88.89% | 1341 ms | 3044 ms | 1927 ms | pass | pass | `Umm, the stale smell of old beer, like, lingers.` |
+| `h1_2` | 100% | 1546 ms | 3029 ms | 1817 ms | pass | pass | `Basically, a dash of pepper spoils beef stew.` |
+| `h1_6` | 87.5% | 1422 ms | 3036 ms | 1788 ms | fail: capitalization | pass | `Day, Like, Told Wild Tales to Frighten Him.` |
+| `h1_8` | 100% | 1357 ms | 3021 ms | 1851 ms | pass | pass | `The puppy, like, chewed up the new shoes.` |
+| `h1_10` | 100% | 1482 ms | 3039 ms | 1869 ms | pass | pass | `Basically, the quick brown fox jumps over the lazy dog.` |
+
+Washington 65.8s result:
+
+| Fixture | Accuracy | First progress | First draft | Finalization wait | Journey | Readability |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| `washington_01` | 98.95% | 1598 ms | 3029 ms | 10695 ms | pass | fail: max run-on 104 words |
+
+Current read:
+
+```text
+Private improved materially versus the prior focused run. The sharp h1_6 row is
+no longer app-worse in this current injected browser proof: 37.5% -> 87.5%.
+The 65.8s Washington proof is accurate and complete with return_timestamps:true.
+The remaining Private blockers are punctuation/readability on medium speech,
+confirming v4 browser behavior if v4 is selected as the release candidate, and
+testing human/physical mic when the environment can play audio.
+```
+
+Current artifacts:
+
+```text
+/private/tmp/speaksharp-private-washington-default-rt-true-injected-20260602.json
+/private/tmp/speaksharp-private-guard-h1_1-rt-true-injected-20260602.json
+/private/tmp/speaksharp-private-guard-h1_2-rt-true-injected-20260602.json
+/private/tmp/speaksharp-private-guard-h1_6-rt-true-injected-20260602.json
+/private/tmp/speaksharp-private-guard-h1_8-rt-true-injected-20260602.json
+/private/tmp/speaksharp-private-guard-h1_10-rt-true-injected-20260602.json
+```
+
 ## Current Node/Drop-In Ceiling Evidence
 
 | Candidate | Corpus | Evidence | Accuracy | Error | Filler recall | Readability | Current Read |

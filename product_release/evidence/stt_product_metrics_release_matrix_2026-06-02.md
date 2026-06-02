@@ -132,8 +132,10 @@ queue, model inference, store/UI update, final decode, save, or detail loading.
 Current status:
 
 ```text
-The timing fields are now part of the MD/JSON metric contract, but current
-values are NOT_CAPTURED_CURRENT_RUN until the next browser/human app proofs run.
+The timing fields are now part of the MD/JSON metric contract.
+Private browser values were refreshed on 2026-06-02 with the injected-mic route.
+Cloud provider A/B values were refreshed via GitHub Actions credentialed run.
+Native remains NOT_CAPTURED_CURRENT_RUN until human real-mic proof runs.
 ```
 
 ## Current Values
@@ -147,6 +149,14 @@ NOT_CAPTURED_CURRENT_RUN = no defensible current value yet.
 BLOCKER = missing value blocks green classification.
 ```
 
+## Current Product Classification — 2026-06-02
+
+| STT | Classification | Why | Next action |
+| --- | --- | --- | --- |
+| Private | Caveated | Current injected browser proof is much improved: `washington_01` 98.95%; guard rows mostly exact; `h1_6` improved to 87.5%. Not green because Washington readability fails max run-on gate, v4 browser proof is not captured, and physical/human mic route was unavailable. | Resolve readability/punctuation; run v4 browser proof if v4 is candidate; rerun physical/human mic when audio output works. |
+| Cloud | Caveated | Baseline credentialed A/B valid rows are strong: 95.56% accuracy and 90% filler recall. Not green because h1_6-h1_10 baseline rows are invalid and all prompt/keyterms variants are invalid empty/no-termination sessions. | Dev/provider request investigation for invalid prompt/keyterms sessions; rerun A/B and app trace proof. |
+| Native | Backlog | No current human real-mic proof in this cycle. Native cannot be classified from fake/say routes. Punctuation/casing strategy remains unresolved. | Run human Chrome mic proof after Private/Cloud closure; verify live text, final, no duplicate, readability, save/history/detail. |
+
 ### Short Corpus: Harvard h1_1-h1_10
 
 | Candidate | Evidence | Accuracy | Error | Filler recall | False filler insertion | Terminal punctuation | Readability | First progress | Finalization wait | Save/history/detail | Release status |
@@ -156,6 +166,39 @@ BLOCKER = missing value blocks green classification.
 | Native | Human real-mic required | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | BLOCKER |
 | Cloud | MEASURED_PRIOR_APP | 91.53% | 8.47% | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | prior proof exists but current trace proof needed | Strongest path, not closed |
 
+### Private Browser Proof: Current Guard Rows, 2026-06-02
+
+Route:
+
+```text
+page getUserMedia override with per-fixture WAV injected at mic request time
+```
+
+Why this route was used:
+
+```text
+macOS afplay failed in this environment with AudioQueueStart failed (-66680).
+Chrome launch-time fake audio is invalid for Native and timing-ambiguous for
+Private. The injected route starts the selected WAV only when the app requests
+mic input, preserving the Private browser/app path while avoiding physical audio.
+```
+
+| Fixture | Accuracy | Error | Filler recall | First progress | First draft | Finalization wait | Readability | Save/history/detail |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| `h1_1` | 88.89% | 11.11% | 50% | 1341 ms | 3044 ms | 1927 ms | pass | pass |
+| `h1_2` | 100% | 0% | 100% | 1546 ms | 3029 ms | 1817 ms | pass | pass |
+| `h1_6` | 87.5% | 12.5% | 100% | 1422 ms | 3036 ms | 1788 ms | fail: capitalization | pass |
+| `h1_8` | 100% | 0% | 100% | 1357 ms | 3021 ms | 1851 ms | pass | pass |
+| `h1_10` | 100% | 0% | 100% | 1482 ms | 3039 ms | 1869 ms | pass | pass |
+
+Current read:
+
+```text
+The prior h1_6 app-worse browser row improved materially in current proof:
+37.5% -> 87.5%. h1_2 and h1_8 are now exact. First draft is consistently about
+3 seconds. Finalization is under 2 seconds for short guard rows.
+```
+
 ### Medium Speech: `washington_01` 65.8s
 
 | Candidate | Evidence | Accuracy | Error | RTF | Words emitted | Terminal punctuation | Sentence count | Max run-on words | Duplicate detected | Readability verdict | Release status |
@@ -164,6 +207,64 @@ BLOCKER = missing value blocks green classification.
 | Private v4 | MEASURED_NODE full-WAV | 98.95% | 1.05% | 0.0961 | 192 | true | 4 | 56 | false | fail | Accuracy strong, faster than v2, punctuation/run-on fails |
 | Native | Human real-mic required | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | n/a | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | BLOCKER if Native is positioned beyond quick-start |
 | Cloud | Credentialed long-form proof required | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | streaming | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | NOT_CAPTURED_CURRENT_RUN | BLOCKER before Cloud brag path |
+
+### Private Browser Proof: `washington_01`, 2026-06-02
+
+| Candidate | Evidence | Accuracy | Error | First progress | First draft | Finalization wait | Save/history/detail | Readability verdict |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| Private v2 app | browser injected-mic | 98.95% | 1.05% | 1598 ms | 3029 ms | 10695 ms | pass | fail: max run-on 104 words |
+
+Artifact:
+
+```text
+/private/tmp/speaksharp-private-washington-default-rt-true-injected-20260602.json
+```
+
+Current read:
+
+```text
+return_timestamps:true resolves the prior long-form completeness concern for
+this 65.8s browser proof. The final/detail transcript is accurate and saved.
+Remaining blocker is readability/punctuation: 4 sentences are present, but one
+sentence-like span is 104 words, above the 45-word release target.
+```
+
+Artifact note:
+
+```text
+The artifact's selectedForSaveTranscript field is an 80-character preview.
+Full text is present in transcript/postStopTranscript/detailTranscript, and
+the selected/saved length is 1074.
+```
+
+### Cloud Credentialed A/B, 2026-06-02
+
+Artifact:
+
+```text
+/private/tmp/assemblyai-ab-26830845676/assemblyai-streaming-ab-proof.json
+```
+
+Workflow:
+
+```text
+https://github.com/relativityE/speaksharp/actions/runs/26830845676
+```
+
+| Variant | Valid rows | Invalid rows | Accuracy on valid rows | Filler recall on valid rows | Readability | Current read |
+| --- | ---: | ---: | ---: | ---: | --- | --- |
+| baseline | 5 | 5 | 95.56% | 90% | pass on valid rows | Strong partial evidence; invalid h1_6-h1_10 blocks green. |
+| keyterms | 0 | 10 | n/a | n/a | fail | Invalid empty/no-termination sessions. |
+| prompt | 0 | 10 | n/a | n/a | fail | Invalid empty/no-termination sessions. |
+| prompt_keyterms | 0 | 10 | n/a | n/a | fail | Invalid empty/no-termination sessions. |
+
+Current read:
+
+```text
+Cloud baseline remains promising, but the credentialed A/B is not green.
+Prompt/keyterms variants currently produce invalid empty/no-termination sessions.
+This is now a concrete Cloud provider/request-construction blocker for dev review.
+```
 
 ## Punctuation Quality Metric
 

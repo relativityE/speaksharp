@@ -296,6 +296,999 @@
         "terminationToSavedMs": "NOT_CAPTURED_CURRENT_RUN",
         "stopToDetailVisibleMs": "NOT_CAPTURED_CURRENT_RUN"
       }
+    },
+    {
+      "id": "private_browser_washington_v2_rt_true_injected",
+      "candidate": "Private v2 browser app",
+      "mode": "private",
+      "engine": "transformers-js",
+      "fixture": "washington_01",
+      "evidenceType": "browser-proof",
+      "route": "page getUserMedia override with per-fixture WAV injected at mic request time",
+      "artifact": "/private/tmp/speaksharp-private-washington-default-rt-true-injected-20260602.json",
+      "collectedAt": "2026-06-02T15:36:44.058Z",
+      "accuracyPct": 98.95,
+      "errorPct": 1.05,
+      "wer": 0.010471204188481676,
+      "transcript": "On the one hand, I was summoned by my country, whose voice I can never hear but with veneration and love, from a retreat which I had chosen with the fondest predilection, and, in my flattering hopes, with an immutable decision, as the asylum of my declining years, on the other hand, the magnitude and difficulty of the trust to which the voice of my country called me, being sufficient to awaken in the wisest and most experienced of her citizens a distrustful scrutiny into his qualifications, could not but overwhelm with despondence one who ought to be peculiarly conscious of his own deficiencies. In this conflict of emotions all I dare a veris that it has been my faithful study to collect my duty from a just appreciation of every circumstance by which it might be affected. All I dare hope is that if, in executing this task, I have been too much swayed by a grateful remembrance of former instances. My error will be palliated by the motives which mislead me, and its consequences be judged by my country with some share of the partiality in which they originated.",
+      "expectedFillers": {},
+      "observedFillers": {},
+      "fillerRecallPct": null,
+      "falseFillerInsertion": 0,
+      "readability": {
+        "terminalPunctuationPresent": true,
+        "sentenceCount": 4,
+        "expectedSentenceCount": 4,
+        "maxRunOnWords": 104,
+        "capitalizationErrors": 0,
+        "duplicateSentenceDetected": false,
+        "readabilityVerdict": "fail"
+      },
+      "timing": {
+        "micClickedAt": 1780414490605,
+        "recordingStateAt": 1780414492203,
+        "stopClickedAt": 1780414589072,
+        "selectedForSaveAt": 1780414600043,
+        "savedAt": 1780414600043,
+        "detailVisibleAt": null,
+        "firstProgressMs": 1598,
+        "firstDraftMs": 3029,
+        "finalizationWaitMs": 10695,
+        "stopToDetailVisibleMs": null,
+        "firstDraftText": "DraftOn the one hand."
+      },
+      "runtime": {
+        "provider": "transformers-js",
+        "runtime": "wasm-singlethread",
+        "webgpuAvailable": true,
+        "crossOriginIsolated": false,
+        "wasmThreadCount": 1,
+        "cloudFallbackAttempted": false
+      },
+      "journey": {
+        "processingSpeechLocallyShown": true,
+        "sessionPersisted": true,
+        "historyVisible": true,
+        "detailVisible": true,
+        "journeyPass": true,
+        "selectedSource": "service_result"
+      },
+      "releaseRead": "long-form browser proof passed accuracy and timing budget; readability still checked by max run-on metric",
+      "artifactNote": "Artifact selectedForSaveTranscript field is an 80-char preview; full final/save/detail text is present in transcript/postStopTranscript/detailTranscript and selected length is 1074."
+    },
+    {
+      "id": "private_browser_guard_h1_1_rt_true_injected",
+      "candidate": "Private v2 browser app",
+      "mode": "private",
+      "engine": "transformers-js",
+      "fixture": "h1_1",
+      "evidenceType": "browser-proof",
+      "route": "page getUserMedia override with per-fixture WAV injected at mic request time",
+      "artifact": "/private/tmp/speaksharp-private-guard-h1_1-rt-true-injected-20260602.json",
+      "collectedAt": "2026-06-02T15:37:49.853Z",
+      "accuracyPct": 88.89,
+      "errorPct": 11.11,
+      "wer": 0.1111111111111111,
+      "transcript": "Umm, the stale smell of old beer, like, lingers.",
+      "expectedFillers": {
+        "um": 1,
+        "like": 1
+      },
+      "observedFillers": {
+        "like": 1
+      },
+      "fillerRecallPct": 50,
+      "falseFillerInsertion": 0,
+      "readability": {
+        "terminalPunctuationPresent": true,
+        "sentenceCount": 1,
+        "expectedSentenceCount": 1,
+        "maxRunOnWords": 9,
+        "capitalizationErrors": 0,
+        "duplicateSentenceDetected": false,
+        "readabilityVerdict": "pass"
+      },
+      "timing": {
+        "micClickedAt": 1780414630183,
+        "recordingStateAt": 1780414631524,
+        "stopClickedAt": 1780414645597,
+        "selectedForSaveAt": 1780414647692,
+        "savedAt": 1780414647692,
+        "detailVisibleAt": null,
+        "firstProgressMs": 1341,
+        "firstDraftMs": 3044,
+        "finalizationWaitMs": 1927,
+        "stopToDetailVisibleMs": null,
+        "firstDraftText": "DraftOn. The stale smell"
+      },
+      "runtime": {
+        "provider": "transformers-js",
+        "runtime": "wasm-singlethread",
+        "webgpuAvailable": true,
+        "crossOriginIsolated": false,
+        "wasmThreadCount": 1,
+        "cloudFallbackAttempted": false
+      },
+      "journey": {
+        "processingSpeechLocallyShown": true,
+        "sessionPersisted": true,
+        "historyVisible": true,
+        "detailVisible": true,
+        "journeyPass": true,
+        "selectedSource": "service_result"
+      },
+      "releaseRead": "guard-row browser proof after return_timestamps:true"
+    },
+    {
+      "id": "private_browser_guard_h1_2_rt_true_injected",
+      "candidate": "Private v2 browser app",
+      "mode": "private",
+      "engine": "transformers-js",
+      "fixture": "h1_2",
+      "evidenceType": "browser-proof",
+      "route": "page getUserMedia override with per-fixture WAV injected at mic request time",
+      "artifact": "/private/tmp/speaksharp-private-guard-h1_2-rt-true-injected-20260602.json",
+      "collectedAt": "2026-06-02T15:38:36.179Z",
+      "accuracyPct": 100,
+      "errorPct": 0,
+      "wer": 0,
+      "transcript": "Basically, a dash of pepper spoils beef stew.",
+      "expectedFillers": {
+        "basically": 1
+      },
+      "observedFillers": {
+        "basically": 1
+      },
+      "fillerRecallPct": 100,
+      "falseFillerInsertion": 0,
+      "readability": {
+        "terminalPunctuationPresent": true,
+        "sentenceCount": 1,
+        "expectedSentenceCount": 1,
+        "maxRunOnWords": 8,
+        "capitalizationErrors": 0,
+        "duplicateSentenceDetected": false,
+        "readabilityVerdict": "pass"
+      },
+      "timing": {
+        "micClickedAt": 1780414676389,
+        "recordingStateAt": 1780414677935,
+        "stopClickedAt": 1780414691965,
+        "selectedForSaveAt": 1780414694078,
+        "savedAt": 1780414694078,
+        "detailVisibleAt": null,
+        "firstProgressMs": 1546,
+        "firstDraftMs": 3029,
+        "finalizationWaitMs": 1817,
+        "stopToDetailVisibleMs": null,
+        "firstDraftText": "DraftBasically, a dash"
+      },
+      "runtime": {
+        "provider": "transformers-js",
+        "runtime": "wasm-singlethread",
+        "webgpuAvailable": true,
+        "crossOriginIsolated": false,
+        "wasmThreadCount": 1,
+        "cloudFallbackAttempted": false
+      },
+      "journey": {
+        "processingSpeechLocallyShown": true,
+        "sessionPersisted": true,
+        "historyVisible": true,
+        "detailVisible": true,
+        "journeyPass": true,
+        "selectedSource": "service_result"
+      },
+      "releaseRead": "guard-row browser proof after return_timestamps:true"
+    },
+    {
+      "id": "private_browser_guard_h1_6_rt_true_injected",
+      "candidate": "Private v2 browser app",
+      "mode": "private",
+      "engine": "transformers-js",
+      "fixture": "h1_6",
+      "evidenceType": "browser-proof",
+      "route": "page getUserMedia override with per-fixture WAV injected at mic request time",
+      "artifact": "/private/tmp/speaksharp-private-guard-h1_6-rt-true-injected-20260602.json",
+      "collectedAt": "2026-06-02T15:39:22.980Z",
+      "accuracyPct": 87.5,
+      "errorPct": 12.5,
+      "wer": 0.125,
+      "transcript": "Day, Like, Told Wild Tales to Frighten Him.",
+      "expectedFillers": {
+        "like": 1
+      },
+      "observedFillers": {
+        "like": 1
+      },
+      "fillerRecallPct": 100,
+      "falseFillerInsertion": 0,
+      "readability": {
+        "terminalPunctuationPresent": true,
+        "sentenceCount": 1,
+        "expectedSentenceCount": 1,
+        "maxRunOnWords": 8,
+        "capitalizationErrors": 1,
+        "duplicateSentenceDetected": false,
+        "readabilityVerdict": "fail"
+      },
+      "timing": {
+        "micClickedAt": 1780414722495,
+        "recordingStateAt": 1780414723917,
+        "stopClickedAt": 1780414737951,
+        "selectedForSaveAt": 1780414740064,
+        "savedAt": 1780414740064,
+        "detailVisibleAt": null,
+        "firstProgressMs": 1422,
+        "firstDraftMs": 3036,
+        "finalizationWaitMs": 1788,
+        "stopToDetailVisibleMs": null,
+        "firstDraftText": "DraftDay, Like."
+      },
+      "runtime": {
+        "provider": "transformers-js",
+        "runtime": "wasm-singlethread",
+        "webgpuAvailable": true,
+        "crossOriginIsolated": false,
+        "wasmThreadCount": 1,
+        "cloudFallbackAttempted": false
+      },
+      "journey": {
+        "processingSpeechLocallyShown": true,
+        "sessionPersisted": true,
+        "historyVisible": true,
+        "detailVisible": true,
+        "journeyPass": true,
+        "selectedSource": "service_result"
+      },
+      "releaseRead": "guard-row browser proof after return_timestamps:true"
+    },
+    {
+      "id": "private_browser_guard_h1_8_rt_true_injected",
+      "candidate": "Private v2 browser app",
+      "mode": "private",
+      "engine": "transformers-js",
+      "fixture": "h1_8",
+      "evidenceType": "browser-proof",
+      "route": "page getUserMedia override with per-fixture WAV injected at mic request time",
+      "artifact": "/private/tmp/speaksharp-private-guard-h1_8-rt-true-injected-20260602.json",
+      "collectedAt": "2026-06-02T15:40:09.115Z",
+      "accuracyPct": 100,
+      "errorPct": 0,
+      "wer": 0,
+      "transcript": "The puppy, like, chewed up the new shoes.",
+      "expectedFillers": {
+        "like": 1
+      },
+      "observedFillers": {
+        "like": 1
+      },
+      "fillerRecallPct": 100,
+      "falseFillerInsertion": 0,
+      "readability": {
+        "terminalPunctuationPresent": true,
+        "sentenceCount": 1,
+        "expectedSentenceCount": 1,
+        "maxRunOnWords": 8,
+        "capitalizationErrors": 0,
+        "duplicateSentenceDetected": false,
+        "readabilityVerdict": "pass"
+      },
+      "timing": {
+        "micClickedAt": 1780414769694,
+        "recordingStateAt": 1780414771051,
+        "stopClickedAt": 1780414785099,
+        "selectedForSaveAt": 1780414787196,
+        "savedAt": 1780414787196,
+        "detailVisibleAt": null,
+        "firstProgressMs": 1357,
+        "firstDraftMs": 3021,
+        "finalizationWaitMs": 1851,
+        "stopToDetailVisibleMs": null,
+        "firstDraftText": "DraftThe puppy, like."
+      },
+      "runtime": {
+        "provider": "transformers-js",
+        "runtime": "wasm-singlethread",
+        "webgpuAvailable": true,
+        "crossOriginIsolated": false,
+        "wasmThreadCount": 1,
+        "cloudFallbackAttempted": false
+      },
+      "journey": {
+        "processingSpeechLocallyShown": true,
+        "sessionPersisted": true,
+        "historyVisible": true,
+        "detailVisible": true,
+        "journeyPass": true,
+        "selectedSource": "service_result"
+      },
+      "releaseRead": "guard-row browser proof after return_timestamps:true"
+    },
+    {
+      "id": "private_browser_guard_h1_10_rt_true_injected",
+      "candidate": "Private v2 browser app",
+      "mode": "private",
+      "engine": "transformers-js",
+      "fixture": "h1_10",
+      "evidenceType": "browser-proof",
+      "route": "page getUserMedia override with per-fixture WAV injected at mic request time",
+      "artifact": "/private/tmp/speaksharp-private-guard-h1_10-rt-true-injected-20260602.json",
+      "collectedAt": "2026-06-02T15:40:54.883Z",
+      "accuracyPct": 100,
+      "errorPct": 0,
+      "wer": 0,
+      "transcript": "Basically, the quick brown fox jumps over the lazy dog.",
+      "expectedFillers": {
+        "basically": 1
+      },
+      "observedFillers": {
+        "basically": 1
+      },
+      "fillerRecallPct": 100,
+      "falseFillerInsertion": 0,
+      "readability": {
+        "terminalPunctuationPresent": true,
+        "sentenceCount": 1,
+        "expectedSentenceCount": 1,
+        "maxRunOnWords": 10,
+        "capitalizationErrors": 0,
+        "duplicateSentenceDetected": false,
+        "readabilityVerdict": "pass"
+      },
+      "timing": {
+        "micClickedAt": 1780414815418,
+        "recordingStateAt": 1780414816900,
+        "stopClickedAt": 1780414830935,
+        "selectedForSaveAt": 1780414833067,
+        "savedAt": 1780414833067,
+        "detailVisibleAt": null,
+        "firstProgressMs": 1482,
+        "firstDraftMs": 3039,
+        "finalizationWaitMs": 1869,
+        "stopToDetailVisibleMs": null,
+        "firstDraftText": "DraftBasically, the quick..."
+      },
+      "runtime": {
+        "provider": "transformers-js",
+        "runtime": "wasm-singlethread",
+        "webgpuAvailable": true,
+        "crossOriginIsolated": false,
+        "wasmThreadCount": 1,
+        "cloudFallbackAttempted": false
+      },
+      "journey": {
+        "processingSpeechLocallyShown": true,
+        "sessionPersisted": true,
+        "historyVisible": true,
+        "detailVisible": true,
+        "journeyPass": true,
+        "selectedSource": "service_result"
+      },
+      "releaseRead": "guard-row browser proof after return_timestamps:true"
+    },
+    {
+      "id": "cloud_assemblyai_ab_baseline_20260602",
+      "candidate": "Cloud AssemblyAI baseline",
+      "mode": "cloud",
+      "engine": "assemblyai-universal-streaming",
+      "fixture": "h1_1-h1_10",
+      "evidenceType": "provider-proof",
+      "route": "GitHub Actions credentialed AssemblyAI streaming A/B",
+      "artifact": "/private/tmp/assemblyai-ab-26830845676/assemblyai-streaming-ab-proof.json",
+      "workflowRun": "https://github.com/relativityE/speaksharp/actions/runs/26830845676",
+      "collectedAt": "2026-06-02T15:43:26.266Z",
+      "variant": "baseline",
+      "validRowCount": 5,
+      "invalidRowCount": 5,
+      "invalidReasons": [
+        "empty_no_termination"
+      ],
+      "accuracyPct": 95.56,
+      "errorPct": 4.44,
+      "fillerRecallPct": 90,
+      "falseFillerInsertion": null,
+      "readability": {
+        "terminalPunctuationPresent": true,
+        "sentenceCount": 5,
+        "expectedSentenceCount": null,
+        "maxRunOnWords": 10,
+        "capitalizationErrors": 0,
+        "duplicateSentenceDetected": false,
+        "readabilityVerdict": "pass"
+      },
+      "provider": {
+        "messageCountRange": [
+          13,
+          16
+        ],
+        "terminationSeenRows": 5,
+        "exampleFirstMessageRaw": "{\"type\":\"Begin\",\"id\":\"df699d7a-c829-4b53-976b-22e3f4b24e6c\",\"expires_at\":1780425806,\"configuration\":{\"model\":\"universal-streaming-english\",\"api_version\":\"2025-05-12\"}}",
+        "closeCodes": [
+          1008
+        ],
+        "closeReasons": [
+          "See Error message for details"
+        ]
+      },
+      "rows": [
+        {
+          "fixture": "h1_1",
+          "transcript": "The stale smell of old beer, like, lingers.",
+          "accuracyPct": 88.89,
+          "wer": 0.1111111111111111,
+          "fillerRecall": 0.5,
+          "invalidSession": false,
+          "invalidReason": null,
+          "messageCount": 15,
+          "terminationSeen": true
+        },
+        {
+          "fixture": "h1_2",
+          "transcript": "Basically, a dash of pepper spoils beef stew.",
+          "accuracyPct": 100,
+          "wer": 0,
+          "fillerRecall": 1,
+          "invalidSession": false,
+          "invalidReason": null,
+          "messageCount": 15,
+          "terminationSeen": true
+        },
+        {
+          "fixture": "h1_3",
+          "transcript": "Well, the Swan Dive was far short of perfect.",
+          "accuracyPct": 100,
+          "wer": 0,
+          "fillerRecall": 1,
+          "invalidSession": false,
+          "invalidReason": null,
+          "messageCount": 16,
+          "terminationSeen": true
+        },
+        {
+          "fixture": "h1_4",
+          "transcript": "You know, the box was thrown beside the parked truck.",
+          "accuracyPct": 100,
+          "wer": 0,
+          "fillerRecall": 1,
+          "invalidSession": false,
+          "invalidReason": null,
+          "messageCount": 15,
+          "terminationSeen": true
+        },
+        {
+          "fixture": "h1_5",
+          "transcript": "Literally, the twister left no trace of the tone.",
+          "accuracyPct": 88.89,
+          "wer": 0.1111111111111111,
+          "fillerRecall": 1,
+          "invalidSession": false,
+          "invalidReason": null,
+          "messageCount": 13,
+          "terminationSeen": true
+        },
+        {
+          "fixture": "h1_6",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_7",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_8",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_9",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_10",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        }
+      ],
+      "releaseRead": "partial evidence only; invalid rows block green classification"
+    },
+    {
+      "id": "cloud_assemblyai_ab_keyterms_20260602",
+      "candidate": "Cloud AssemblyAI keyterms",
+      "mode": "cloud",
+      "engine": "assemblyai-universal-streaming",
+      "fixture": "h1_1-h1_10",
+      "evidenceType": "provider-proof",
+      "route": "GitHub Actions credentialed AssemblyAI streaming A/B",
+      "artifact": "/private/tmp/assemblyai-ab-26830845676/assemblyai-streaming-ab-proof.json",
+      "workflowRun": "https://github.com/relativityE/speaksharp/actions/runs/26830845676",
+      "collectedAt": "2026-06-02T15:43:26.266Z",
+      "variant": "keyterms",
+      "validRowCount": 0,
+      "invalidRowCount": 10,
+      "invalidReasons": [
+        "empty_no_termination"
+      ],
+      "accuracyPct": null,
+      "errorPct": null,
+      "fillerRecallPct": null,
+      "falseFillerInsertion": null,
+      "readability": {
+        "terminalPunctuationPresent": false,
+        "sentenceCount": 0,
+        "expectedSentenceCount": null,
+        "maxRunOnWords": 0,
+        "capitalizationErrors": 0,
+        "duplicateSentenceDetected": false,
+        "readabilityVerdict": "fail"
+      },
+      "provider": {
+        "messageCountRange": null,
+        "terminationSeenRows": 0,
+        "exampleFirstMessageRaw": "{\"type\":\"Error\",\"error_code\":1008,\"error\":\"Unauthorized Connection: Too many concurrent sessions\"}",
+        "closeCodes": [
+          1008
+        ],
+        "closeReasons": [
+          "See Error message for details"
+        ]
+      },
+      "rows": [
+        {
+          "fixture": "h1_1",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_2",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_3",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_4",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_5",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_6",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_7",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_8",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_9",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_10",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        }
+      ],
+      "releaseRead": "invalid variant; provider/session bug blocks use"
+    },
+    {
+      "id": "cloud_assemblyai_ab_prompt_20260602",
+      "candidate": "Cloud AssemblyAI prompt",
+      "mode": "cloud",
+      "engine": "assemblyai-universal-streaming",
+      "fixture": "h1_1-h1_10",
+      "evidenceType": "provider-proof",
+      "route": "GitHub Actions credentialed AssemblyAI streaming A/B",
+      "artifact": "/private/tmp/assemblyai-ab-26830845676/assemblyai-streaming-ab-proof.json",
+      "workflowRun": "https://github.com/relativityE/speaksharp/actions/runs/26830845676",
+      "collectedAt": "2026-06-02T15:43:26.266Z",
+      "variant": "prompt",
+      "validRowCount": 0,
+      "invalidRowCount": 10,
+      "invalidReasons": [
+        "empty_no_termination"
+      ],
+      "accuracyPct": null,
+      "errorPct": null,
+      "fillerRecallPct": null,
+      "falseFillerInsertion": null,
+      "readability": {
+        "terminalPunctuationPresent": false,
+        "sentenceCount": 0,
+        "expectedSentenceCount": null,
+        "maxRunOnWords": 0,
+        "capitalizationErrors": 0,
+        "duplicateSentenceDetected": false,
+        "readabilityVerdict": "fail"
+      },
+      "provider": {
+        "messageCountRange": null,
+        "terminationSeenRows": 0,
+        "exampleFirstMessageRaw": "{\"type\":\"Error\",\"error_code\":3006,\"error\":\"User Input Validation Error: Invalid '': Value error, prompt is only supported with the 'u3-rt-pro' speech_model. Current speech_model: 'universal-streaming-english'\"}",
+        "closeCodes": [
+          3006
+        ],
+        "closeReasons": [
+          "See Error message for details"
+        ]
+      },
+      "rows": [
+        {
+          "fixture": "h1_1",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_2",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_3",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_4",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_5",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_6",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_7",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_8",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_9",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_10",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        }
+      ],
+      "releaseRead": "invalid variant; provider/session bug blocks use"
+    },
+    {
+      "id": "cloud_assemblyai_ab_prompt_keyterms_20260602",
+      "candidate": "Cloud AssemblyAI prompt_keyterms",
+      "mode": "cloud",
+      "engine": "assemblyai-universal-streaming",
+      "fixture": "h1_1-h1_10",
+      "evidenceType": "provider-proof",
+      "route": "GitHub Actions credentialed AssemblyAI streaming A/B",
+      "artifact": "/private/tmp/assemblyai-ab-26830845676/assemblyai-streaming-ab-proof.json",
+      "workflowRun": "https://github.com/relativityE/speaksharp/actions/runs/26830845676",
+      "collectedAt": "2026-06-02T15:43:26.266Z",
+      "variant": "prompt_keyterms",
+      "validRowCount": 0,
+      "invalidRowCount": 10,
+      "invalidReasons": [
+        "empty_no_termination"
+      ],
+      "accuracyPct": null,
+      "errorPct": null,
+      "fillerRecallPct": null,
+      "falseFillerInsertion": null,
+      "readability": {
+        "terminalPunctuationPresent": false,
+        "sentenceCount": 0,
+        "expectedSentenceCount": null,
+        "maxRunOnWords": 0,
+        "capitalizationErrors": 0,
+        "duplicateSentenceDetected": false,
+        "readabilityVerdict": "fail"
+      },
+      "provider": {
+        "messageCountRange": null,
+        "terminationSeenRows": 0,
+        "exampleFirstMessageRaw": "{\"type\":\"Error\",\"error_code\":3006,\"error\":\"User Input Validation Error: Invalid '': Value error, prompt is only supported with the 'u3-rt-pro' speech_model. Current speech_model: 'universal-streaming-english'\"}",
+        "closeCodes": [
+          3006
+        ],
+        "closeReasons": [
+          "See Error message for details"
+        ]
+      },
+      "rows": [
+        {
+          "fixture": "h1_1",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_2",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_3",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_4",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_5",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_6",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_7",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_8",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_9",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        },
+        {
+          "fixture": "h1_10",
+          "transcript": "",
+          "accuracyPct": 0,
+          "wer": 1,
+          "fillerRecall": 0,
+          "invalidSession": true,
+          "invalidReason": "empty_no_termination",
+          "messageCount": 1,
+          "terminationSeen": false
+        }
+      ],
+      "releaseRead": "invalid variant; provider/session bug blocks use"
     }
   ],
   "timingContract": {
@@ -344,6 +1337,24 @@
       "providerOpenToFirstPartialMs": "Cloud streaming partial latency.",
       "providerOpenToFirstFinalMs": "Cloud streaming final latency.",
       "stopToDetailVisibleMs": "Total post-stop user wait."
+    }
+  },
+  "classificationUpdatedAt": "2026-06-02T15:53:29.893Z",
+  "classifications": {
+    "cloud": {
+      "status": "caveated",
+      "reason": "Baseline credentialed A/B valid rows are strong (95.56% accuracy, 90% filler recall), but h1_6-h1_10 baseline rows are invalid and all prompt/keyterms variants are invalid empty/no-termination sessions. Dev/provider request investigation required before green/brag classification.",
+      "next": "Fix/diagnose prompt,keyterms,prompt_keyterms invalid sessions; rerun credentialed A/B and app trace proof."
+    },
+    "private": {
+      "status": "caveated",
+      "reason": "Current injected browser proof is much improved: Washington 65.8s 98.95%, h1 guard rows mostly 100%, h1_6 87.5%. Still not green because Washington readability fails max run-on gate, v4 browser proof is not captured, and physical/human mic route was unavailable in this environment.",
+      "next": "Resolve readability/punctuation for medium speech; run v4 browser proof if v4 is candidate; rerun human/physical mic when audio output works."
+    },
+    "native": {
+      "status": "backlog",
+      "reason": "No current human real-mic proof in this cycle. Native cannot be classified from fake/say routes. Punctuation/casing strategy remains unresolved.",
+      "next": "Run human Chrome mic proof after Private/Cloud closure; verify first visible text, final, no duplicate, punctuation/readability, save/history/detail."
     }
   }
 }
