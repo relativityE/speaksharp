@@ -1,7 +1,7 @@
 # STT Speed, Accuracy, And Market Survival Review
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-02T16:23:40Z  
+**Last updated:** 2026-06-02T16:27:05Z  
 **Owner:** STT test/release agent  
 **Audience:** dev agent, product reviewer, test agent, launch decision maker  
 **Status:** Current snapshot and approach request
@@ -30,6 +30,54 @@ For launch, the bar should be:
 The project is no longer blocked by "nothing works." It is blocked by whether
 we can make at least one path feel excellent, and make the others honest about
 their tradeoffs.
+
+## Canonical Reviewer Path To Release
+
+This file is the home for the reviewer path-to-release. It should be read with
+the shared release matrix:
+
+```text
+product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.md
+product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json
+```
+
+Current reviewer framing:
+
+| Product path | Release posture | Why |
+| --- | --- | --- |
+| Cloud | Close first; candidate brag path | Best architecture for long/full speeches if credentialed app proof passes |
+| Private | Local/privacy value path; caveated until v2/v4 browser proof and readability close | Current v2 browser proof is much improved, but v4 app proof and punctuation/readability gates remain open |
+| Native | Quick-start/browser-dependent; backlog until current human Chrome mic proof | Fake/say/injected routes are not release proof for Web Speech |
+| Score/Analytics | Confidence-gated | Transcript quality must affect how strongly scores and analysis are presented |
+
+Release rule:
+
+```text
+At least one STT path must be strong enough to sell or brag about.
+Every visible STT path must either meet its drop-in/customer baseline or be
+caveated/de-emphasized.
+Scores and analytics must not imply speaking weakness when transcript quality is
+the limiting factor.
+```
+
+Current 24-hour direction:
+
+| Priority | Action | Owner | Release decision unlocked |
+| --- | --- | --- | --- |
+| 1 | Fix/validate Cloud credentialed baseline and A/B invalid sessions | Dev if provider/request bug; test after fix | Whether Cloud can be the quality/full-speech launch anchor |
+| 2 | Run Private v4 browser proof on the same Washington + guard-row matrix as v2 | Test/release; dev only if selector/instrumentation blocks | Whether Private can be promoted beyond caveated local path |
+| 3 | Resolve Private readability/punctuation on long speech | Dev + test | Whether Private final transcript is visually usable enough for users |
+| 4 | Run Native human Chrome mic proof | Test/release with user/human mic | Whether Native is visible quick-start or hidden/backlog |
+| 5 | Gate Score/Analytics by transcript quality fields | Dev + product/reviewer | Whether analysis is safe to show when STT confidence is weak |
+
+Current 48-hour direction:
+
+| Track | Exit criterion |
+| --- | --- |
+| Cloud | Baseline and selected tuning variant produce non-empty transcripts, preserve tail, pass save/history/detail, and show good filler/readability metrics |
+| Private | v2 and v4 browser app proof collected equally; final transcript at or above drop-in/customer baseline or product copy is explicitly caveated |
+| Native | Human Chrome mic proof has live text, no duplicate-on-stop, save/history/detail pass, and acceptable punctuation/casing strategy |
+| Score/Analytics | Transcript Quality is a first-class guardrail for score confidence and report interpretation |
 
 ## User Request Coverage Checklist
 
