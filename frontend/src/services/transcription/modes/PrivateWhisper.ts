@@ -1871,8 +1871,17 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     frame: Float32Array,
     energy: ReturnType<typeof summarizeAudioEnergy>,
   ): void {
-    const isSpeechLike = energy.rms >= SESSION_PAUSE.SILENCE_RMS_THRESHOLD;
-    if (isSpeechLike) {
+    // Fix A (final-buffer bound): "real speech" for the purpose of resetting the
+    // trailing-tail counter uses the app's existing partial-speech bar
+    // (FIRST_TRANSCRIPT_PARTIAL_MIN_RMS), NOT the silence floor. The old code reset
+    // on anything >= SILENCE_RMS_THRESHOLD (0.01), so low-energy post-speech
+    // "chatter" (e.g. rms 0.02-0.09) kept resetting the cap and the whole-utterance
+    // buffer grew unbounded (h1_6: committed 10.75s for ~7s of speech, degrading the
+    // final decode). This bar is an existing product threshold, not an h1_6-tuned
+    // value. Frames below it still get the bounded tail allowance so genuinely quiet
+    // endings are preserved up to UTTERANCE_SILENCE_TAIL_SAMPLES.
+    const isRealSpeech = energy.rms >= PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS;
+    if (isRealSpeech) {
       this.utteranceTrailingSilentSamples = 0;
       this.appendUtteranceAudio([frame]);
       return;
@@ -1890,6 +1899,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         runId: this.instanceId,
         retainedTailSamples: UTTERANCE_SILENCE_TAIL_SAMPLES,
         retainedTailSeconds: PRIV_STT.UTTERANCE_SILENCE_TAIL_SECONDS,
+        tailResetThresholdRms: PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS,
         currentUtteranceSamples: this.utteranceSampleCount,
         currentUtteranceSeconds: Number(samplesToSeconds(this.utteranceSampleCount, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
       });
