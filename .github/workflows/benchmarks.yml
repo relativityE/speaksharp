@@ -124,6 +124,12 @@ jobs:
           LIVE_VITE_MODE: test
           VITE_USE_LIVE_DB: 'true'
           VITE_SKIP_MSW: 'true'
+          VITE_AUTH_MODE: real
+          VITE_USE_MOCK_AUTH: 'false'
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
         # Native Web Speech is intentionally excluded: it is browser-dependent
