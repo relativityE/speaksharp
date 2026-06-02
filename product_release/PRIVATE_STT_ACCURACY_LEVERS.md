@@ -13,7 +13,7 @@
 |---|---|---|---|
 | Node full-WAV `whisper-tiny.en` (CPU) | 93.89% (WER 6.11%), dated 2026-06-02T00:19:51Z | Clean-file tiny.en model ceiling | Browser mic/app parity |
 | Browser drop-in (same route) | ~83.14% | Same-route browser/mic comparator | Product lifecycle |
-| SpeakSharp app focused run | varies; h1_6 = 37.5% | Product path behavior | Whether the gap is model-only (no matched constraints yet) |
+| SpeakSharp app focused run | varies; h1_6 = 37.5%, then 75%/25% in mic-constraint repeats | Product path behavior and repeat variability | Whether the gap is model-only or app-buffer/input related |
 
 The Node ceiling is a **reference only**. It bypasses browser getUserMedia
 constraints, mic DSP/AGC/noise-suppression, the app speech-start gate, chunk/
@@ -92,8 +92,9 @@ A/B plus final-decode input-buffer diagnostics, not a one-line mic-default chang
 
 ## Recommended sequence
 
-1. Test agent runs Lever 1 A/B (toggle is ready). → classifies the gap.
-2. If app-side audio degradation is found, dev localizes that one boundary (gate /
+1. If h1_6 remains launch-blocking, STT testing runs a multi-repeat live A/B using
+   the shipped mic-constraint toggle and captured Chrome settings.
+2. If stable app-side audio degradation is found, dev localizes that one boundary (gate /
    windowing / buffer) with a unit-proven fix.
 3. Separately, pursue Lever 2 (isolation→threads) for CPU latency.
 4. Lever 3 (WebGPU enablement UX) for GPU users.
