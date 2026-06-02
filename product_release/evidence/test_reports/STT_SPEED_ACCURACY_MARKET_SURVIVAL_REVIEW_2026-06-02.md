@@ -1,7 +1,7 @@
 # STT Speed, Accuracy, And Market Survival Review
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-02T16:27:05Z  
+**Last updated:** 2026-06-02T21:05:00Z  
 **Owner:** STT test/release agent  
 **Audience:** dev agent, product reviewer, test agent, launch decision maker  
 **Status:** Current snapshot and approach request
@@ -30,6 +30,55 @@ For launch, the bar should be:
 The project is no longer blocked by "nothing works." It is blocked by whether
 we can make at least one path feel excellent, and make the others honest about
 their tradeoffs.
+
+## Two-Step Operating Model
+
+Optimization is now the process rule. Every STT path is handled in a straight
+line:
+
+| Step | Name | What must be true |
+| --- | --- | --- |
+| 1 | Setup | Account/tier, build mode, STT mode, model/provider/runtime, mic/input route, and instrumentation are correct. |
+| 2 | Execution | Accuracy, timing, readability, filler metrics, and save/history/detail meet the product gate. |
+
+If Step 1 fails, the run is `INVALID_SETUP` and must not be interpreted as an
+STT quality result. If Step 2 fails, the run is `EXECUTION_FAIL` and must name
+the first broken product metric. Each bucket has enumerated substeps; reports
+must name the exact failed substep, not just "setup" or "execution." This
+replaces layered preflight/proof language for release triage.
+
+Setup substeps:
+
+| Code | Substep |
+| --- | --- |
+| `SETUP_1_ENV` | Build mode, app URL, secrets, test/live mode |
+| `SETUP_2_AUTH_TIER` | Sign-in and effective Free/Pro entitlement |
+| `SETUP_3_MODE` | Intended STT mode selected and machine-readable |
+| `SETUP_4_MODEL_READY` | Model/provider/runtime ready before scoring |
+| `SETUP_5_INPUT_ROUTE` | Mic/audio route and constraints valid |
+| `SETUP_6_INSTRUMENTATION` | Logs, timing fields, transcript states, artifact writers populated |
+
+Execution substeps:
+
+| Code | Substep |
+| --- | --- |
+| `EXEC_1_START_PROGRESS` | User sees recording/listening/processing quickly |
+| `EXEC_2_FIRST_TEXT` | First usable text appears within mode budget |
+| `EXEC_3_FINAL_COMPLETENESS` | Final transcript preserves beginning, middle, tail, expected length |
+| `EXEC_4_ACCURACY_FILLERS` | Accuracy, filler recall, false filler insertion meet baseline |
+| `EXEC_5_READABILITY` | Punctuation, casing, sentence boundaries, no run-on/duplication |
+| `EXEC_6_STOP_SAVE_DETAIL` | Stop selects intended transcript; saved/history/detail match |
+| `EXEC_7_TIMING_BUDGET` | Finalization and detail visibility meet timing budget |
+
+Current application of the rule:
+
+| STT | Step 1 Setup | Step 2 Execution | Current action |
+| --- | --- | --- | --- |
+| Cloud baseline | Passing with real credentials | Strong candidate; baseline safer than keyterms | Close Cloud baseline proof first |
+| Cloud keyterms | Passing after request/session fix | `EXEC_4_ACCURACY_FILLERS`: filler improves, h1_6 accuracy regresses | Dev must fix/narrow/disable keyterms |
+| Private v2 browser | Passing far enough to record | `EXEC_3_FINAL_COMPLETENESS`: 8/87 words captured | Debug under-capture |
+| Private v4 browser | `SETUP_4_MODEL_READY`: Vault setup/readiness did not finish | Not scoreable | Fix setup/readiness before STT claims |
+| Native human mic | Passing real-human input route | `EXEC_5_READABILITY` and `EXEC_6_STOP_SAVE_DETAIL` | Fix formatting/stop-save, then rerun |
 
 ## Canonical Reviewer Path To Release
 
