@@ -916,3 +916,149 @@ agent territory.
 - AssemblyAI turn detection / immutable partials: https://www.assemblyai.com/docs/streaming/universal-3-pro/turn-detection-and-partials
 - AssemblyAI streaming session limits: https://www.assemblyai.com/docs/speech-to-text/universal-streaming
 - Web Speech ~60s cap + 7s-silence termination + restart rate-limit: https://groups.google.com/a/chromium.org/g/chromium-html5/c/s2XhT-Y5qAc
+
+## STT TEST AGENT UPDATE (2026-06-02) — long-speech stress attempt
+
+Goal:
+
+```text
+Stress Private with a half-page style script instead of a single Harvard sentence,
+and verify whether the patched progress UI appears during the known no-text stall.
+```
+
+Generated stress script:
+
+```text
+170 words / 54.356 sec synthesized audio.
+Includes filler-like phrasing, h1_8-like "puppy, like, chewed up..." content,
+and explicit long-rehearsal trust-state language.
+```
+
+Browser proof status:
+
+| Attempt | Result | Artifact |
+| --- | --- | --- |
+| Sandboxed Chrome launch | INVALID: Chrome Crashpad / kill EPERM before reaching app | `/private/tmp/speaksharp-private-long-stress-1780400288176.json` |
+| Elevated fresh Chrome context | INVALID: Private model setup required; setup button visible | `/private/tmp/speaksharp-private-long-stress-1780400339655.json` |
+| Elevated persistent CDP profile | INVALID: Private model setup still required; setup button visible | `/private/tmp/speaksharp-private-long-stress-1780400396367.json` |
+
+Important privacy note:
+
+```text
+The test agent did not click Set Up or auto-download the Private model.
+This preserves the product rule that first-time Private model download must be
+user-initiated and visible.
+```
+
+Fallback final-decode stress result:
+
+```text
+Artifact: /private/tmp/speaksharp-private-long-node-decode-1780400485970.json
+Model: Xenova/whisper-tiny.en
+Options: chunk_length_s=30, stride_length_s=5
+Audio duration: 54.356 sec
+Expected words: 170
+Transcript words: 170
+Decode time: 7243 ms
+Realtime factor: 0.133
+Accuracy: 99.41%
+Only material text miss: "um" -> "I'm"
+```
+
+Interpretation:
+
+```text
+The final model path can produce a strong transcript for this synthetic long
+script when given clean audio in Node. This does NOT prove browser Private UX.
+It does prove that a half-page final decode can be accurate on clean audio, and
+that the remaining browser risk is UX/engine orchestration: setup/cache, earlier
+draft availability, segment-level trust, and finalization timing in the browser.
+```
+
+Current blocked browser proof:
+
+```text
+To verify the patched progress UI during the 20-30s stall, the browser profile
+must already have the Private model ready, or a human/tester must explicitly click
+Set Up and wait for the model download. STT testing should not auto-download it.
+```
+
+Dev diagnostic result received:
+
+```text
+Dev added a replay harness at scripts/dev/private-app-buffer-replay.mts and ran
+the requested h1_6/h1_8 app-buffer replay check.
+
+Exact replay is still blocked because current app artifacts expose
+privateAudioChunks.wavDataUrlBytes, but not the actual wavDataUrl payload. No
+privateUtteranceAudioChunks payload was present. Therefore the requested
+"exact app buffer -> offline decoder" experiment cannot yet classify the first
+bad boundary.
+```
+
+Dev replay artifacts:
+
+```text
+Exact replay attempt:
+/private/tmp/speaksharp-private-app-buffer-replay-h1_6-h1_8-noexact.json
+
+Fixture fallback control:
+/private/tmp/speaksharp-private-app-buffer-replay-h1_6-h1_8-fixture-fallback.json
+```
+
+Replay findings:
+
+| Fixture | Result | Interpretation |
+| --- | --- | --- |
+| `h1_6` | Exact app buffer unavailable. Fixture fallback decodes `day. Like, told Wild Tales to frighten him.` at 87.5% accuracy. | The `They -> day` failure occurs even on clean fixture decode, so candidate selection/cleanup is not the obvious primary cause. |
+| `h1_8` | Exact app buffer unavailable. Fixture fallback decodes `the puppy, like "chooed up the new shoes."` at 62.5% accuracy. | Browser/drop-in/app route differences remain plausible, but exact app-buffer proof is blocked by missing payload capture. |
+
+New instrumentation blocker:
+
+```text
+The next browser artifact must export the actual whole-utterance WAV payload or
+a reusable local file path for h1_6/h1_8. Byte counts are not enough. Without
+that payload, we cannot distinguish app audio-prep/windowing from runtime
+nondeterminism or candidate selection.
+```
+
+Segment-level feasibility answer from dev:
+
+```text
+Feasible, but only as a new display/telemetry contract:
+- expose stableSegments[] for UI display only
+- keep activeSegmentDraft for current speech
+- keep whole-utterance Stop decode as saved-transcript authority
+- do not reuse existing final chunk path as true saved final unless controller
+  gets segment IDs/revision semantics
+
+Dev estimate: 30-45s Private CPU can be tolerable with honest progress; 60-90s
+starts feeling batch-like; half-page/page speech needs segment display plus
+progress telemetry or it will feel stalled.
+```
+
+Telemetry required for the next long-speech proof:
+
+```text
+Per segment:
+- segmentId
+- startMs / endMs
+- firstDraftMs
+- finalAtMs
+- decodeInputDurationMs
+- decodeMs
+- rms / peak
+- sourceSamples
+- draftText
+- rawDecodeText
+- sanitizedText
+- savedSegmentText
+- commitSource
+- revisionCount
+
+Whole utterance:
+- decodeInputDurationMs
+- decodeMs
+- savedText
+- WER / readability / filler recall
+```
