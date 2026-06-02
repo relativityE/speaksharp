@@ -134,9 +134,25 @@ describe('LiveTranscriptPanel', () => {
             />
         );
 
-        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('Processing locally...');
-        expect(screen.getAllByText('Processing locally...')).toHaveLength(1);
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('Processing speech locally…');
+        expect(screen.getAllByText('Processing speech locally…')).toHaveLength(1);
         expect(screen.getByText('Private local')).toBeInTheDocument();
+    });
+
+    it('shows Private-local listening feedback before speech activity starts', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript=""
+                interimTranscript=""
+                isListening={true}
+                sttMode="private"
+                micLevel={0}
+                hasSpeechActivity={false}
+            />
+        );
+
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('Listening locally…');
+        expect(screen.queryByText('Start recording and your words will appear here.')).not.toBeInTheDocument();
     });
 
     it('keeps non-Private modes on the simple listening state', () => {
@@ -152,7 +168,7 @@ describe('LiveTranscriptPanel', () => {
         );
 
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('Listening...');
-        expect(screen.queryByText('Processing locally...')).not.toBeInTheDocument();
+        expect(screen.queryByText('Processing speech locally…')).not.toBeInTheDocument();
     });
 
     // --- Interim/draft + finalizing UI states (test-agent acceptance criteria) ---
@@ -238,6 +254,24 @@ describe('LiveTranscriptPanel', () => {
         );
         expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing speech locally');
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'finalizing');
+    });
+
+    it('does not show the idle placeholder while Private finalization has no text yet', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript=""
+                interimTranscript=""
+                isListening={false}
+                isFinalizing={true}
+                sttMode="private"
+            />
+        );
+
+        const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+        expect(transcriptContainer).toHaveAttribute('data-transcript-state', 'finalizing');
+        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing speech locally');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing local transcript…');
+        expect(transcriptContainer).not.toHaveTextContent('Start recording and your words will appear here.');
     });
 
     it('reports final state (no draft) once listening stops with committed text', () => {

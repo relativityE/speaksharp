@@ -198,7 +198,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                                 <WaveformMeter level={micLevel} isProcessing={hasSpeechActivity} />
                             </div>
                             <p className={hasSpeechActivity ? 'text-primary font-medium' : 'animate-pulse'}>
-                                {hasSpeechActivity ? 'Processing locally...' : 'Listening...'}
+                                {hasSpeechActivity ? 'Processing speech locally…' : 'Listening locally…'}
                             </p>
                         </div>
                     ) : (
@@ -247,6 +247,16 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                                 {displayInterimTranscript}
                             </span>
                         )}
+                    </div>
+                ) : isFinalizing ? (
+                    <div
+                        className="flex min-h-[120px] flex-col items-center justify-center gap-2 text-center text-foreground/80"
+                        data-testid="live-transcript-finalizing-empty"
+                    >
+                        <p className="text-sm font-semibold text-primary">Finalizing local transcript…</p>
+                        <p className="max-w-sm text-xs text-foreground/60">
+                            Your final transcript will appear here when local processing finishes.
+                        </p>
                     </div>
                 ) : (
                     <p className="text-sm font-semibold text-foreground/75">Start recording and your words will appear here.</p>

@@ -647,7 +647,9 @@ Trust-state UI patch implemented:
 - Private committed live transcript text is marked Draft while recording.
 - Stale interim text no longer renders after final state.
 - Non-Private committed live text is not marked Draft.
-- LiveTranscriptPanel component coverage: 16/16 passing.
+- Private no-text recording now shows Listening locally / Processing speech locally instead of the idle placeholder.
+- Private no-text finalization now shows Finalizing local transcript under the Processing speech locally banner instead of the idle placeholder.
+- LiveTranscriptPanel component coverage: 18/18 passing.
 ```
 
 Remaining browser/product blocker:
@@ -662,7 +664,8 @@ Why this matters:
 
 ```text
 The Draft badge only protects trust after text exists.
-It does not solve the more severe "nothing useful appears while I am speaking" failure.
+The component now avoids the idle placeholder during recording/finalization, but this still
+does not solve the more severe "nothing useful appears while I am speaking" failure.
 For a half-page speech, waiting for final decode creates a frozen or broken-feeling product.
 ```
 
