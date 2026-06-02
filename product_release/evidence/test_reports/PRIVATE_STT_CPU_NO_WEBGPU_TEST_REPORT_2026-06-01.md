@@ -176,6 +176,16 @@ Private Transformers.js worker and engine paths are being switched to return_tim
 manual-stt-corpus-proof.mjs is being extended to include washington_01.
 ```
 
+## Direct Questions For Dev Agent
+
+Please answer these before the next equal-variant browser run:
+
+1. **Private v4 browser selection:** What exact query/localStorage switch should STT testing use to force v4 in `manual-stt-corpus-proof.mjs`? Confirm whether `STT_PRIVATE_ENGINE=transformers-js-v4` is the correct value, or provide the exact value.
+2. **v2/v4 parity expectation:** Should v4 be expected to match the v2 browser app path on `h1_1,h1_2,h1_6,h1_8,h1_10,washington_01`, or are there known v4 browser-path caveats we should record before testing?
+3. **Readability failure:** For `washington_01`, final accuracy is 98.95% but readability fails because max run-on span is 104 words. Is this expected Whisper punctuation behavior, or is there an app post-processing/segmentation opportunity that should be investigated before release?
+4. **Artifact preview quirk:** The Washington artifact has full `transcript/postStopTranscript/detailTranscript`, but `selectedForSaveTranscript` is only an 80-character preview. Is that intentional harness behavior, or should the harness expose full `selectedForSaveTranscript` for release evidence?
+5. **App-buffer replay:** Do you still need to run the h1_6/h1_8 app-buffer replay after current h1_6 improved to 87.5%, or is the current injected-mic browser proof sufficient to retire that diagnostic?
+
 Dev-agent responsibility:
 
 ```text

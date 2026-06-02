@@ -161,6 +161,16 @@ termination sessions. Use the artifact fields closeCode, closeReason,
 firstMessageRaw, messageCount, invalidSession, and invalidReason.
 ```
 
+## Direct Questions For Dev Agent
+
+Please answer these before STT testing reruns Cloud A/B:
+
+1. **Invalid variants:** Why do `keyterms`, `prompt`, and `prompt_keyterms` produce `empty_no_termination` for all 10 rows in `/private/tmp/assemblyai-ab-26830845676/assemblyai-streaming-ab-proof.json`?
+2. **Request construction:** Are the prompt/keyterms parameters being sent in the correct AssemblyAI Universal Streaming v3 format? If not, provide the exact code fix and expected URL/body shape.
+3. **Baseline partial invalids:** Why does baseline succeed for `h1_1-h1_5` but return invalid empty/no-termination for `h1_6-h1_10` in the same credentialed run?
+4. **A/B subset control:** Can the A/B script accept a fixture subset env var so testing can rerun only `h1_1,h1_6,h1_8` plus conversational scripts without burning a full 40-row run every time?
+5. **Expected dev deliverable:** Please return a commit SHA plus a small no-network/unit proof that the four variants build the correct provider request. STT testing will rerun the credentialed provider proof after that.
+
 Equal-variant rerun plan:
 
 ```text
