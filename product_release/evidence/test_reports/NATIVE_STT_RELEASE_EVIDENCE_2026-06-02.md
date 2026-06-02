@@ -11,7 +11,7 @@ Native STT: NOT GREEN YET
 Current product status: backlog / failed current human proof
 Two-step status:
 - SETUP passing for current human-mic proof: Chrome heard the speaker and produced usable transcript text.
-- EXECUTION failure at `EXEC_5_READABILITY` and `EXEC_6_STOP_SAVE_DETAIL`: readability/punctuation/casing failed, and stop/save/detail selected or exposed `Listening...`.
+- Proof failure in accuracy phase at `proof.accuracy.readability` and journey phase at `proof.journey.stop_save_detail`: readability/punctuation/casing failed, and stop/save/detail selected or exposed `Listening...`.
 Primary launch blockers:
 1. Human real-mic proof ran and failed product readiness.
 2. Stop/save selected `Listening...` even though Chrome produced usable transcript text.

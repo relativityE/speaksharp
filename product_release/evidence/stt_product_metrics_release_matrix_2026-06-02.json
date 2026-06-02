@@ -12,118 +12,208 @@
       "rule": "Do not score accuracy, timing, or release quality when setup fails."
     },
     "step2": {
-      "name": "execution",
-      "question": "Once setup is proven, does the STT path meet accuracy, speed, readability, filler, and save/history/detail expectations versus its baseline?",
-      "failureClassification": "EXECUTION_FAIL",
-      "rule": "Name the first broken product metric when execution fails."
+      "name": "proof",
+      "question": "Once setup is proven, does the STT path meet runtime, timing, accuracy, and journey expectations versus its baseline?",
+      "failureClassification": "PROOF_FAIL",
+      "rule": "Name the first broken proof phase and gate."
     },
     "rules": [
       "No setup proof, no STT scoring.",
-      "No execution proof, no release claim.",
-      "Every failure must be classified as either SETUP or EXECUTION.",
-      "Every SETUP failure must name the exact failed setup substep.",
-      "Every EXECUTION failure must name the exact failed execution substep."
+      "No proof, no release claim.",
+      "Every failure must identify one error phase: setup, runtime, timing, accuracy, or journey.",
+      "Every setup failure must name the exact setup gate.",
+      "Every proof failure must name the exact proof phase and gate."
     ],
-    "setupSubsteps": [
+    "setupGates": [
       {
-        "code": "SETUP_1_ENV",
-        "name": "Build and environment",
-        "passCondition": "Correct build mode, app URL, secrets, and test/live mode are proven."
+        "gate": "setup.build_env",
+        "passCondition": "Correct build mode, app URL, secrets, and test/live mode are proven.",
+        "breadcrumbs": [
+          "BUILD_ENV_READY",
+          "APP_URL_READY",
+          "SECRETS_PRESENT"
+        ]
       },
       {
-        "code": "SETUP_2_AUTH_TIER",
-        "name": "Auth and entitlement",
-        "passCondition": "User is signed in and effective Free/Pro tier matches the STT path."
+        "gate": "setup.auth_tier",
+        "passCondition": "User is signed in and effective Free/Pro tier matches the STT path.",
+        "breadcrumbs": [
+          "AUTH_FORM_VISIBLE",
+          "LOGIN_SUCCESS",
+          "TIER_CONFIRMED"
+        ]
       },
       {
-        "code": "SETUP_3_MODE",
-        "name": "STT mode selected",
-        "passCondition": "Intended STT mode is visible and machine-readable."
+        "gate": "setup.stt_mode",
+        "passCondition": "Intended STT mode is visible and machine-readable.",
+        "breadcrumbs": [
+          "MODE_SELECTED",
+          "MODE_VISIBLE",
+          "MODE_DEBUG_VALUE"
+        ]
       },
       {
-        "code": "SETUP_4_MODEL_READY",
-        "name": "Model/provider/runtime ready",
-        "passCondition": "Private model/provider/runtime or Cloud/Native provider is ready before scoring."
+        "gate": "setup.model_provider",
+        "passCondition": "Intended model/provider can be reached and is ready or explicitly downloading.",
+        "breadcrumbs": [
+          "SETUP_BUTTON_VISIBLE",
+          "SETUP_CLICKED",
+          "MODEL_STATUS",
+          "PROVIDER_READY"
+        ]
       },
       {
-        "code": "SETUP_5_INPUT_ROUTE",
-        "name": "Mic/audio route",
-        "passCondition": "Requested mic constraints or human-mic/input route are captured and valid."
+        "gate": "setup.runtime_telemetry",
+        "passCondition": "Runtime/provider/device/thread/fallback telemetry is populated before scoring.",
+        "breadcrumbs": [
+          "RUNTIME_DEBUG_READY",
+          "WORKER_TELEMETRY_READY",
+          "CLOUD_FALLBACK_FALSE"
+        ]
       },
       {
-        "code": "SETUP_6_INSTRUMENTATION",
-        "name": "Evidence hooks",
-        "passCondition": "Required logs, timing fields, transcript states, and artifact writers are populated."
+        "gate": "setup.mic_input",
+        "passCondition": "Requested mic constraints or human-mic/input route are captured and valid.",
+        "breadcrumbs": [
+          "MIC_CONSTRAINTS_CAPTURED",
+          "AUDIO_ROUTE_VALID",
+          "HUMAN_MIC_CONFIRMED"
+        ]
+      },
+      {
+        "gate": "setup.artifact_schema",
+        "passCondition": "Required logs, timing fields, transcript states, and artifact writers are populated.",
+        "breadcrumbs": [
+          "ARTIFACT_WRITER_READY",
+          "TIMING_FIELDS_READY",
+          "TRANSCRIPT_STATES_READY"
+        ]
       }
     ],
-    "executionSubsteps": [
+    "proofGates": [
       {
-        "code": "EXEC_1_START_PROGRESS",
-        "name": "Start/progress",
-        "passCondition": "User sees recording/listening/processing progress quickly."
+        "phase": "runtime",
+        "gate": "proof.runtime.provider_selected",
+        "passCondition": "Correct STT provider/runtime actually handles the run; no unintended fallback.",
+        "breadcrumbs": [
+          "ENGINE_READY",
+          "RUNTIME_SELECTED",
+          "RECORDING_STARTED"
+        ]
       },
       {
-        "code": "EXEC_2_FIRST_TEXT",
-        "name": "First text/draft",
-        "passCondition": "First usable interim/draft/final text appears within the mode budget."
+        "phase": "timing",
+        "gate": "proof.timing.first_progress",
+        "passCondition": "User sees recording/listening/processing progress quickly.",
+        "breadcrumbs": [
+          "FIRST_PROGRESS_MS",
+          "RECORDING_STATE_AT"
+        ]
       },
       {
-        "code": "EXEC_3_FINAL_COMPLETENESS",
-        "name": "Final transcript completeness",
-        "passCondition": "Final transcript preserves beginning, middle, tail, and expected length."
+        "phase": "timing",
+        "gate": "proof.timing.first_text",
+        "passCondition": "First usable interim/draft/final text appears within the mode budget.",
+        "breadcrumbs": [
+          "FIRST_TEXT_MS",
+          "FIRST_DRAFT_VISIBLE_AT"
+        ]
       },
       {
-        "code": "EXEC_4_ACCURACY_FILLERS",
-        "name": "Accuracy and fillers",
-        "passCondition": "Accuracy, filler recall, and false filler insertion meet baseline/target."
+        "phase": "timing",
+        "gate": "proof.timing.finalization_wait",
+        "passCondition": "Finalization and detail visibility are within the mode-specific budget.",
+        "breadcrumbs": [
+          "STOP_CLICKED",
+          "FINAL_READY_MS",
+          "DETAIL_VISIBLE_AT"
+        ]
       },
       {
-        "code": "EXEC_5_READABILITY",
-        "name": "Punctuation/readability",
-        "passCondition": "Terminal punctuation, sentence boundaries, casing, no run-on text, no duplication."
+        "phase": "accuracy",
+        "gate": "proof.accuracy.final_completeness",
+        "passCondition": "Final transcript preserves beginning, middle, tail, and expected length.",
+        "breadcrumbs": [
+          "FINAL_TRANSCRIPT_WORDS",
+          "EXPECTED_WORDS",
+          "TAIL_PRESERVED"
+        ]
       },
       {
-        "code": "EXEC_6_STOP_SAVE_DETAIL",
-        "name": "Stop/save/history/detail",
-        "passCondition": "Stop selects the intended transcript and saved/history/detail match it."
+        "phase": "accuracy",
+        "gate": "proof.accuracy.fillers",
+        "passCondition": "Accuracy, filler recall, and false filler insertion meet baseline/target.",
+        "breadcrumbs": [
+          "FILLER_RECALL",
+          "FALSE_FILLERS",
+          "WER"
+        ]
       },
       {
-        "code": "EXEC_7_TIMING_BUDGET",
-        "name": "Timing budget",
-        "passCondition": "Finalization and detail visibility are within the mode-specific budget."
+        "phase": "accuracy",
+        "gate": "proof.accuracy.readability",
+        "passCondition": "Terminal punctuation, sentence boundaries, casing, no run-on text, no duplication.",
+        "breadcrumbs": [
+          "PUNCTUATION_QUALITY",
+          "READABILITY_VERDICT"
+        ]
+      },
+      {
+        "phase": "journey",
+        "gate": "proof.journey.stop_save_detail",
+        "passCondition": "Stop selects the intended transcript and saved/history/detail match it.",
+        "breadcrumbs": [
+          "STOP_SELECTED_SOURCE",
+          "SAVED",
+          "HISTORY_VISIBLE",
+          "DETAIL_VISIBLE"
+        ]
       }
     ],
     "currentBuckets": [
       {
         "candidate": "private_v4_browser",
-        "bucket": "SETUP",
-        "failedSubsteps": [
-          "SETUP_4_MODEL_READY"
+        "step": "setup",
+        "errorPhases": [
+          "setup"
+        ],
+        "failedGates": [
+          "setup.model_provider"
         ],
         "reason": "Private/Vault setup did not finish; Start stayed disabled."
       },
       {
         "candidate": "private_v2_browser",
-        "bucket": "EXECUTION",
-        "failedSubsteps": [
-          "EXEC_3_FINAL_COMPLETENESS"
+        "step": "proof",
+        "errorPhases": [
+          "accuracy"
+        ],
+        "failedGates": [
+          "proof.accuracy.final_completeness"
         ],
         "reason": "Setup reached recording, but transcript captured only 8 words against 87 expected."
       },
       {
         "candidate": "cloud_keyterms",
-        "bucket": "EXECUTION",
-        "failedSubsteps": [
-          "EXEC_4_ACCURACY_FILLERS"
+        "step": "proof",
+        "errorPhases": [
+          "accuracy"
+        ],
+        "failedGates": [
+          "proof.accuracy.fillers"
         ],
         "reason": "Requests are valid, but keyterms hurt h1_6 accuracy."
       },
       {
         "candidate": "native_human_mic",
-        "bucket": "EXECUTION",
-        "failedSubsteps": [
-          "EXEC_5_READABILITY",
-          "EXEC_6_STOP_SAVE_DETAIL"
+        "step": "proof",
+        "errorPhases": [
+          "accuracy",
+          "journey"
+        ],
+        "failedGates": [
+          "proof.accuracy.readability",
+          "proof.journey.stop_save_detail"
         ],
         "reason": "Chrome produced words, but readability and stop/save/detail failed."
       }

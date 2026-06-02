@@ -10,8 +10,8 @@
 Cloud STT: CLOSEST TO RELEASE-GREEN
 Current product status: paid quality path / likely brag path after validation
 Two-step status:
-- Baseline: SETUP passing; EXECUTION strongest current candidate.
-- Keyterms: SETUP passing after request/session fix; EXECUTION failure at `EXEC_4_ACCURACY_FILLERS` because filler recall improves but h1_6 accuracy regresses.
+- Baseline: SETUP passing; proof strongest current candidate.
+- Keyterms: SETUP passing after request/session fix; proof failure in accuracy phase at `proof.accuracy.fillers` because filler recall improves but h1_6 accuracy regresses.
 Primary launch blockers:
 1. Credentialed A/B now runs valid baseline/keyterms sessions on the cheap subset, but keyterms is not shippable because it improves filler recall while hurting h1_6 accuracy.
 2. Baseline is the safest current Cloud candidate, but must still be proven on the broader release matrix.
