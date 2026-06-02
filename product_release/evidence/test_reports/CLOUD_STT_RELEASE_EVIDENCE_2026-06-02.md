@@ -490,3 +490,69 @@ Run a larger baseline vs keyterms proof, still without prompt/u3-rt-pro:
 ASSEMBLYAI_STREAMING_AB_VARIANTS=baseline,keyterms
 ASSEMBLYAI_STREAMING_AB_FIXTURES=h1_1,h1_2,h1_6,h1_8,h1_10,washington_01
 ```
+
+## TEST AGENT UPDATE — Cloud A/B validity action closed on current main
+
+**Collected:** 2026-06-02T22:03:37.968Z to 2026-06-02T22:04:16.127Z  
+**Workflow:** `Controlled STT Benchmarks` run `26850691978`  
+**Commit:** `5669c1be`  
+**Artifact:** `/private/tmp/speaksharp-cloud-ab-26850691978/assemblyai-streaming-ab-proof.json`  
+**Dispatch:** `run_cloud_ceiling=false`, `run_private_browser=false`,
+`streaming_ab_variants=baseline,keyterms`,
+`streaming_ab_fixtures=h1_1,h1_6,h1_8`
+
+This closes the Cloud A/B **request/session validity** action item:
+
+```text
+baseline: 3/3 valid, 0 invalid, 0 errors
+keyterms: 3/3 valid, 0 invalid, 0 errors
+1008 concurrency did not reproduce on this narrow subset; retries remained 0.
+```
+
+It does **not** close the Cloud product-quality decision. The same quality
+tradeoff remains:
+
+| Variant | Valid rows | Invalid rows | Errors | Average accuracy | Average filler recall | Release read |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| baseline | 3 | 0 | 0 | 96.3% | 83.33% | Current safe Cloud release candidate |
+| keyterms | 3 | 0 | 0 | 91.67% | 100% | Valid but not quality-safe; h1_6 regression blocks launch |
+
+Per-row results:
+
+| Variant | Fixture | Accuracy | Filler recall | Retries | Transcript |
+| --- | --- | ---: | ---: | ---: | --- |
+| baseline | h1_1 | 88.89% | 50% | 0 | `The stale smell of old beer, like, lingers.` |
+| baseline | h1_6 | 100% | 100% | 0 | `They, like, told Wild Tales to frighten him.` |
+| baseline | h1_8 | 100% | 100% | 0 | `The puppy, like, chewed up the new shoes.` |
+| keyterms | h1_1 | 100% | 100% | 0 | `Um, the stale smell of old beer, like, lingers.` |
+| keyterms | h1_6 | 75% | 100% | 0 | `They like told wild tales to frighten him.` |
+| keyterms | h1_8 | 100% | 100% | 0 | `The puppy, like, chewed up the new shoes.` |
+
+### Closed vs Still Open
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| Cloud A/B request shape | Closed | Both variants produced 3/3 valid sessions on current `main`. |
+| Cloud A/B session validity | Closed on narrow subset | No invalid rows, no error rows, no 1008 concurrency. |
+| Cloud baseline launch candidate | Still strongest | 96.3% average accuracy, h1_6/h1_8 both 100%. |
+| Cloud keyterms launch candidate | Not green | Filler recall improves to 100%, but h1_6 accuracy drops to 75%. |
+
+### Direction to Dev Agent
+
+The blocker is no longer “can the keyterms request run?” It can. The blocker is:
+
+```text
+Cloud keyterms improves filler recall but degrades ordinary transcript accuracy
+on h1_6. Baseline remains the release candidate unless dev can recover fillers
+without materially degrading h1_6/h1_8/clean-row accuracy.
+```
+
+Required dev decision:
+
+1. Keep Cloud launch baseline-only, or
+2. narrow/alter keyterms and request a rerun, or
+3. move keyterms behind an experiment flag, or
+4. propose a different AssemblyAI-supported filler/disfluency mechanism.
+
+Do **not** promote prompt/u3-rt-pro without product approval because that changes
+the cost model.

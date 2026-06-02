@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-02T21:05:00Z",
+  "lastUpdated": "2026-06-02T22:12:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -202,7 +202,7 @@
         "failedGates": [
           "proof.accuracy.fillers"
         ],
-        "reason": "Requests are valid, but keyterms hurt h1_6 accuracy."
+        "reason": "Current-head run 26850691978 closed request/session validity; keyterms still hurt h1_6 accuracy."
       },
       {
         "candidate": "native_human_mic",
@@ -430,6 +430,98 @@
         "finalInferenceEndToSaveMs": "NOT_CAPTURED_CURRENT_RUN",
         "stopToDetailVisibleMs": "NOT_CAPTURED_CURRENT_RUN"
       }
+    },
+    {
+      "id": "cloud_current_head_ab_26850691978",
+      "candidate": "cloud",
+      "fixture": "h1_1_h1_6_h1_8",
+      "evidenceType": "github-actions-proof",
+      "workflowRun": 26850691978,
+      "commit": "5669c1be",
+      "artifact": "/private/tmp/speaksharp-cloud-ab-26850691978/assemblyai-streaming-ab-proof.json",
+      "collectedAt": "2026-06-02T22:03:37.968Z",
+      "finishedAt": "2026-06-02T22:04:16.127Z",
+      "variants": [
+        {
+          "name": "baseline",
+          "validRowCount": 3,
+          "invalidRowCount": 0,
+          "errorRowCount": 0,
+          "averageAccuracyPct": 96.3,
+          "averageWer": 0.037037037037037035,
+          "averageFillerRecallPct": 83.33,
+          "releaseRead": "safe_current_cloud_candidate"
+        },
+        {
+          "name": "keyterms",
+          "validRowCount": 3,
+          "invalidRowCount": 0,
+          "errorRowCount": 0,
+          "averageAccuracyPct": 91.67,
+          "averageWer": 0.08333333333333333,
+          "averageFillerRecallPct": 100,
+          "releaseRead": "valid_but_not_quality_safe_h1_6_regression"
+        }
+      ],
+      "rows": [
+        {
+          "variant": "baseline",
+          "fixture": "h1_1",
+          "accuracyPct": 88.89,
+          "fillerRecallPct": 50,
+          "concurrencyRetries": 0,
+          "transcript": "The stale smell of old beer, like, lingers."
+        },
+        {
+          "variant": "baseline",
+          "fixture": "h1_6",
+          "accuracyPct": 100,
+          "fillerRecallPct": 100,
+          "concurrencyRetries": 0,
+          "transcript": "They, like, told Wild Tales to frighten him."
+        },
+        {
+          "variant": "baseline",
+          "fixture": "h1_8",
+          "accuracyPct": 100,
+          "fillerRecallPct": 100,
+          "concurrencyRetries": 0,
+          "transcript": "The puppy, like, chewed up the new shoes."
+        },
+        {
+          "variant": "keyterms",
+          "fixture": "h1_1",
+          "accuracyPct": 100,
+          "fillerRecallPct": 100,
+          "concurrencyRetries": 0,
+          "transcript": "Um, the stale smell of old beer, like, lingers."
+        },
+        {
+          "variant": "keyterms",
+          "fixture": "h1_6",
+          "accuracyPct": 75,
+          "fillerRecallPct": 100,
+          "concurrencyRetries": 0,
+          "transcript": "They like told wild tales to frighten him."
+        },
+        {
+          "variant": "keyterms",
+          "fixture": "h1_8",
+          "accuracyPct": 100,
+          "fillerRecallPct": 100,
+          "concurrencyRetries": 0,
+          "transcript": "The puppy, like, chewed up the new shoes."
+        }
+      ],
+      "releaseStatus": "baseline_caveated_green_keyterms_blocked",
+      "closedActionItems": [
+        "cloud_ab_request_shape_valid",
+        "cloud_ab_session_validity_on_current_head_subset"
+      ],
+      "openActionItems": [
+        "decide_or_fix_keyterms_quality_tradeoff",
+        "larger_baseline_vs_keyterms_run_before_keyterms_launch"
+      ]
     },
     {
       "candidate": "cloud",
