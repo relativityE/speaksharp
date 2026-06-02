@@ -57,12 +57,92 @@ const NATIVE_INTERIM_RESULTS = process.env.STT_NATIVE_INTERIM_RESULTS || '';
 const NATIVE_MAX_ALTERNATIVES = process.env.STT_NATIVE_MAX_ALTERNATIVES || '';
 const USE_FAKE_AUDIO_CAPTURE = process.env.STT_USE_FAKE_AUDIO_CAPTURE === 'true';
 const FAKE_AUDIO_FILE = process.env.STT_FAKE_AUDIO_FILE || '';
+const INJECT_MIC_AUDIO = process.env.STT_INJECT_MIC_AUDIO === 'true';
 const DISABLE_WEBGPU = process.env.STT_DISABLE_WEBGPU === 'true';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
 function compact(text) {
   return (text || '').replace(/\s+/g, ' ').trim();
+}
+
+async function getPcmWavDurationMs(audioPath) {
+  const wav = await readFile(audioPath);
+  const channels = wav.readUInt16LE(22);
+  const sampleRate = wav.readUInt32LE(24);
+  const bitsPerSample = wav.readUInt16LE(34);
+  let offset = 12;
+  while (offset + 8 <= wav.length) {
+    const chunkId = wav.toString('ascii', offset, offset + 4);
+    const chunkSize = wav.readUInt32LE(offset + 4);
+    if (chunkId === 'data') {
+      const bytesPerSecond = sampleRate * channels * (bitsPerSample / 8);
+      return Math.ceil((chunkSize / bytesPerSecond) * 1000);
+    }
+    offset += 8 + chunkSize + (chunkSize % 2);
+  }
+  return 0;
+}
+
+async function installInjectedMicAudio(page, audioPath) {
+  const wav = await readFile(audioPath);
+  const audioBase64 = wav.toString('base64');
+  await page.addInitScript(({ audioBase64: injectedAudioBase64 }) => {
+    const state = {
+      installedAt: Date.now(),
+      getUserMediaCalls: 0,
+      startedAt: null,
+      endedAt: null,
+      error: null,
+      route: 'page-getUserMedia-injected-wav',
+    };
+    Object.defineProperty(window, '__STT_INJECTED_MIC_AUDIO__', {
+      configurable: true,
+      value: state,
+    });
+
+    const originalGetUserMedia = navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices);
+    if (!originalGetUserMedia) {
+      state.error = 'getUserMedia_unavailable';
+      return;
+    }
+
+    navigator.mediaDevices.getUserMedia = async (constraints) => {
+      state.getUserMediaCalls += 1;
+      if (!constraints || !constraints.audio) {
+        return originalGetUserMedia(constraints);
+      }
+      try {
+        const binary = atob(injectedAudioBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+        const audioContext = new AudioContextCtor({ sampleRate: 16000 });
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+        }
+        const decoded = await audioContext.decodeAudioData(bytes.buffer.slice(0));
+        const destination = audioContext.createMediaStreamDestination();
+        const source = audioContext.createBufferSource();
+        source.buffer = decoded;
+        source.connect(destination);
+        source.onended = () => {
+          state.endedAt = Date.now();
+        };
+        source.start(0);
+        state.startedAt = Date.now();
+        state.durationMs = Math.round(decoded.duration * 1000);
+        state.sampleRate = decoded.sampleRate;
+        state.channels = decoded.numberOfChannels;
+        return destination.stream;
+      } catch (error) {
+        state.error = error instanceof Error ? error.message : String(error);
+        throw error;
+      }
+    };
+  }, { audioBase64 });
 }
 
 function normalizeForWer(text) {
@@ -589,6 +669,11 @@ async function waitForFirstText(page, startedAt) {
 }
 
 async function playFixture(audioPath) {
+  if (INJECT_MIC_AUDIO) {
+    const durationMs = await getPcmWavDurationMs(audioPath);
+    await new Promise(resolve => setTimeout(resolve, durationMs + PLAYBACK_GRACE_MS));
+    return { source: 'page-getUserMedia-injected-wav', audioPath, durationMs };
+  }
   if (USE_FAKE_AUDIO_CAPTURE) {
     return { source: 'chrome-fake-audio-capture', audioPath: FAKE_AUDIO_FILE || audioPath };
   }
@@ -927,6 +1012,9 @@ async function runFixture(page, mode, fixture) {
       sessionUrl.searchParams.set('nativeMaxAlternatives', NATIVE_MAX_ALTERNATIVES);
     }
   }
+  if (INJECT_MIC_AUDIO && mode !== 'native') {
+    await installInjectedMicAudio(page, fixture.audioPath);
+  }
   await page.goto(sessionUrl.toString(), { waitUntil: 'domcontentloaded' });
   await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 60_000 });
   await assertModePreflight(page, mode);
@@ -1170,9 +1258,16 @@ const evidence = {
   } : {
     enabled: false,
   },
+  injectedMicAudio: {
+    enabled: INJECT_MIC_AUDIO,
+    validForNativeWebSpeechWer: false,
+    route: INJECT_MIC_AUDIO ? 'page getUserMedia override; WAV starts when the app requests mic input' : null,
+  },
   webgpuDisabledForRun: DISABLE_WEBGPU,
   customWord: CUSTOM_WORD || null,
-  microphonePath: 'real browser getUserMedia with afplay through the physical speaker/mic path',
+  microphonePath: INJECT_MIC_AUDIO
+    ? 'page getUserMedia override with per-fixture WAV injected at mic request time'
+    : 'real browser getUserMedia with afplay through the physical speaker/mic path',
   auth: {
     mode: AUTH_MODE,
     email: AUTH_MODE === 'fresh' ? SIGNUP_EMAIL : EMAIL,

@@ -105,6 +105,51 @@ Required output per row:
 | invalidSession / invalidReason | yes |
 | closeCode / closeReason / firstMessageRaw / messageCount | yes |
 
+## Latest Credentialed A/B — 2026-06-02
+
+Artifact:
+
+```text
+/private/tmp/assemblyai-ab-26830845676/assemblyai-streaming-ab-proof.json
+```
+
+Workflow:
+
+```text
+https://github.com/relativityE/speaksharp/actions/runs/26830845676
+```
+
+Workflow note:
+
+```text
+The workflow concluded failure because its older ceiling-regression gate failed
+after the A/B step. The AssemblyAI streaming A/B step itself completed and
+uploaded the artifact, so this A/B evidence is usable.
+```
+
+| Variant | Valid rows | Invalid rows | Accuracy on valid rows | Filler recall | Current read |
+| --- | ---: | ---: | ---: | ---: | --- |
+| baseline | 5 | 5 | 95.56% | 90% | Strong partial evidence; h1_6-h1_10 invalid. |
+| keyterms | 0 | 10 | n/a | n/a | Invalid empty/no-termination sessions. |
+| prompt | 0 | 10 | n/a | n/a | Invalid empty/no-termination sessions. |
+| prompt_keyterms | 0 | 10 | n/a | n/a | Invalid empty/no-termination sessions. |
+
+Current read:
+
+```text
+Cloud baseline remains the strongest path on valid rows, but Cloud is not green.
+Prompt/keyterms variants currently fail as invalid sessions. This is a concrete
+provider/request-construction issue for dev review, not a broad Cloud rewrite.
+```
+
+Dev handoff:
+
+```text
+Inspect why keyterms, prompt, and prompt_keyterms variants produce empty/no-
+termination sessions. Use the artifact fields closeCode, closeReason,
+firstMessageRaw, messageCount, invalidSession, and invalidReason.
+```
+
 ## Dev/Test Boundary
 
 Dev-agent responsibility:
