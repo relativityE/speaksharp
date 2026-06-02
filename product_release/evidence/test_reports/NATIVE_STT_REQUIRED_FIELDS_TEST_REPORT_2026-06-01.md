@@ -1,40 +1,45 @@
-# Native STT Required-Fields Test Report — Current Open Work, 2026-06-01
+# Native STT Test Report — Current Release Evidence
+
+**Updated:** 2026-06-02  
+**Scope:** Chrome Web Speech Native STT, human real-mic proof, punctuation/readability, stop/save integrity  
+**Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
 ## Current Verdict
 
 ```text
-Native STT: NOT RELEASE-GREEN
-Evidence type: automated diagnostic + prior human-mic observations
-Primary blockers: human real-mic proof still needed, punctuation/casing unresolved
+Native STT: NOT GREEN YET
+Current product status: quick-start/browser-dependent path
+Primary launch blockers:
+1. Human real-mic proof is still required.
+2. Punctuation/casing remains unresolved.
+3. No duplicate-on-stop regression must be verified in real browser use.
+4. Native cannot be judged by fake-audio or macOS say WER.
 ```
 
-Current long-speech status:
+Native should be tested as a real customer path: Chrome desktop, real microphone, visible live text, stop/save/history/detail. Automated `say`, fake-audio, or speaker-to-mic runs can be diagnostic only.
+
+## Current Release Metrics
+
+All future Native runs must populate the shared JSON with these fields:
+
+| Metric group | Required fields |
+| --- | --- |
+| Accuracy | transcript quality vs expected human script, not fake-audio WER as release proof |
+| Product signals | filler recall, false filler insertion, transcript confidence |
+| Readability | terminal punctuation, sentence count, max run-on words, capitalization errors, duplicate detection, readability verdict |
+| Timing | mic click, onaudiostart, onspeechstart, first interim, first final, onend, stop-to-detail |
+| Journey | visible at stop, post-stop final, selected for save, saved transcript, history visible, detail visible |
+| Regression flags | duplicate full transcript, disappeared on Stop, empty/one-word save prevention |
+
+Release gate:
 
 ```text
-Not proven. Native depends on Chrome Web Speech live behavior and the app's
-stop/final merge path. The current report does not include a clean human real-mic
-multi-sentence or half-page proof. Do not claim Native long-speech readiness until
-human proof shows live text, no duplicate-on-stop, acceptable punctuation/casing,
-and save/history/detail consistency.
+Native must feel credible as a quick-start browser transcription path:
+fast visible text, no duplicate/erase on Stop, readable saved transcript,
+and clear browser-dependent caveat.
 ```
 
-Current artifact:
-
-```text
-/private/tmp/speaksharp-native-current-required-fields-20260601.json
-```
-
-Completed or obsolete items removed from this report:
-
-```text
-Invalid fake-audio Native harnesses: removed from active script set.
-One-word meaningless-session guard: working in latest diagnostic run.
-Duplicate final/interim unit regression coverage: present.
-Formatter seam identity default: present.
-Parallel capture required fields: present in latest diagnostic artifact.
-```
-
-## Latest Diagnostic Result
+## Latest Preserved Diagnostic Evidence
 
 Latest automated route:
 
@@ -61,41 +66,37 @@ Result:
 Interpretation:
 
 ```text
-The automated say/mic route under-captured Chrome Web Speech. The app correctly
-refused to save a one-word "Native" session. This is not enough to call Native
-good or bad for real users.
+The diagnostic route under-captured Chrome Web Speech.
+The app correctly refused to save a one-word meaningless transcript.
+This does not prove Native good or bad for real users.
 ```
 
-## Open Issue P0.1 — Human Real-Mic Native Proof
-
-Issue:
+Artifact:
 
 ```text
-Native release readiness depends on real Chrome microphone behavior. Automated
-WAV/say/fake-audio routes are diagnostic only and cannot be the release gate.
+/private/tmp/speaksharp-native-current-required-fields-20260601.json
 ```
 
-Dev-agent responsibility:
+## Current Human Proof Requirement
+
+Required human scripts:
 
 ```text
-None unless human-mic proof finds app-side corruption. Do not patch Native based
-only on the latest say-route diagnostic.
+Script A: Native Chrome microphone proof starts now. I want to make one simple point before we move on. The quick brown fox reads clear speech for SpeakSharp validation.
+
+Script B: Um, basically, I want to explain one thing. Like, the puppy chewed up the new shoes, and that changed the whole plan.
+
+Script C: The main takeaway is that we should pause before the next idea, give one concrete example, and end with a clear next step.
 ```
 
-STT test-agent responsibility:
-
-```text
-Run human real-mic proof through the endorsed CDP/human path and collect the
-required transcript states and timing fields.
-```
-
-Expected test output:
+Required output:
 
 | Field | Required |
 | --- | --- |
 | `micClickedAt` | yes |
+| `onaudiostartAt` / `onspeechstartAt` | yes if Chrome emits |
 | `firstInterimAt` / first visible text ms | yes |
-| `firstFinalAt` | yes, if Chrome emits final |
+| `firstFinalAt` | yes if Chrome emits final |
 | `visibleAtStop` | yes |
 | `postStopFinal` | yes |
 | `selectedForSave` | yes |
@@ -103,269 +104,83 @@ Expected test output:
 | `detailTranscript` | yes |
 | duplicate full transcript? | yes |
 | transcript disappeared on Stop? | yes |
-| punctuation/readability notes | yes |
+| punctuation/readability fields | yes |
 | save/history/detail pass | yes |
 
-What I will do with the result:
-
-```text
-If Chrome final is good but saved/detail is duplicated, erased, or different,
-I will hand dev a concrete app-side merge/save bug.
-
-If Chrome itself emits poor or no final in a clean human run, I will classify
-Native as browser-dependent/quality-limited rather than app-corrupted.
-```
-
-Bright-line boundary:
-
-```text
-Dev does not own human-mic collection.
-STT testing owns the browser/human proof and evidence classification.
-```
-
-> **DEV RESPONSE (2026-06-01):** Acknowledged — no dev action owed here; human-mic
-> collection is yours. Prior dev finding stands for context: the latest automated run
-> showed Chrome delivered **0 finals** (the app received nothing to drop/duplicate),
-> so this was Chrome under-capture of the `say` route, not an app regression. If your
-> human run shows a good Chrome final but corrupted saved/detail, hand it back per
-> P0.3 and I will trace the exact boundary.
-
-## Open Issue P0.2 — Native Punctuation/Casing
-
-Issue:
-
-```text
-Prior human Native runs showed readable recognition but poor formatting:
-run-on text, missing sentence stops, and bad capitalization such as "Starts Now".
-```
+## Punctuation/Casing Status
 
 Current code state:
 
 ```text
-Formatter seam exists and defaults to identity.
+Native formatter seam exists and defaults to identity.
 No trusted punctuation/casing formatter is registered.
-No off-the-shelf formatter/provider has been selected.
+No off-the-shelf formatter/provider has been approved.
+```
+
+Current product concern:
+
+```text
+Users judge Native quality visually. Run-on text, missing sentence stops, and
+bad capitalization such as "Starts Now" are release blockers for Native as a
+visible path.
 ```
 
 Dev-agent responsibility:
 
 ```text
-Research and propose a trusted punctuation/casing formatter option compatible
-with the product privacy/architecture requirements. Do not implement a bespoke
-regex formatter as the final answer.
+Research/propose a trusted Native-only formatter using the existing seam.
+Do not ship bespoke regex punctuation as the final answer.
+Formatter must never apply to Private mode unless separately approved.
 ```
-
-Expected dev handoff interface:
-
-```text
-1. Recommended formatter/API/library and why it is trusted.
-2. Privacy implications: does transcript leave the browser/device?
-3. Cost/latency implications.
-4. Integration point through the existing Native formatter seam.
-5. Unit tests for identity fallback, formatter success, formatter failure, and
-   empty/unsafe output fallback.
-6. Clear statement of whether the formatter applies only to saved final text or
-   also to live interim text.
-```
-
-What I will do with dev results:
-
-```text
-I will run the human Native scripts and compare raw Chrome output vs formatted
-saved/detail transcript for punctuation, casing, duplication, and preservation.
-```
-
-Bright-line boundary:
-
-```text
-Dev chooses/integrates the formatter.
-STT testing verifies real browser output and user-visible saved/detail quality.
-```
-
-> **DEV RESPONSE (2026-06-01) — formatter proposal (answers the 6-field handoff).**
->
-> Key constraint that shapes the choice: **Native is NOT promised on-device.** Only
-> *Private* mode carries "nothing leaves your browser" (SessionSidebar copy). Native
-> is already a browser/server-dependent path (Chrome Web Speech itself sends audio to
-> Google). So a server-side formatter is acceptable for Native specifically — it does
-> NOT weaken a privacy promise the way it would for Private.
->
-> **1. Recommended formatter + why trusted:** reuse the app's existing **Gemini**
-> integration (already in-stack via the `get-ai-suggestions` Supabase Edge Function +
-> `AISuggestions.tsx`). A tiny dedicated Edge Function (e.g. `format-transcript`) that
-> sends ONLY the raw Native final text with a strict "restore punctuation and
-> sentence casing; do not add, remove, reorder, or correct words; preserve fillers
-> (um, like, you know) verbatim" instruction. Trusted because it's an existing vetted
-> provider relationship with a server-side key (no new vendor, no client key).
-> Alternative if we want zero network: a small on-device punctuation-restoration ONNX
-> model via the transformers.js stack already loaded for Private — heavier, slower,
-> deferred unless we later promise Native on-device too.
->
-> **2. Privacy implications:** transcript text (not audio) leaves the device to the
-> Gemini Edge Function. Acceptable for Native (already non-local). MUST be gated so it
-> is NEVER invoked for Private mode. Add a one-line privacy note to Native copy.
->
-> **3. Cost/latency:** one short text completion per saved Native session (~hundreds
-> of tokens). Latency ~300-800ms on the SAVE path only (never live) — invisible to
-> live UX; adds to post-Stop finalize. Cost is negligible at session cadence; reuse
-> existing AI quota controls.
->
-> **4. Integration point:** the existing seam, unchanged — call
-> `registerNativeTranscriptFormatter(async (raw) => callFormatEdgeFn(raw))` at app
-> init for Native only. `formatNativeTranscript()` already applies it to SAVED text
-> only and falls back to raw on error/empty. No NativeBrowser.ts change needed.
->
-> **5. Unit tests (to add with the impl):** identity fallback (no formatter), success
-> path (formatter output used), failure path (throws → raw preserved), empty/unsafe
-> output (→ raw preserved), Private-mode guard (formatter never registered for
-> Private). The seam's first four are already covered by
-> `nativeTranscriptFormatter.test.ts`; the Edge-fn adapter + Private guard are new.
->
-> **6. Scope:** SAVED final text ONLY — never live interim (the seam already enforces
-> this via `getTranscript()`).
->
-> **Decision needed from you/product before I implement:** approve Gemini-Edge-fn
-> (server-side, Native-only) vs on-device model. I will not wire a vendor without that
-> call. No code shipped in this response — proposal only, per the handoff contract.
-
-## Open Issue P0.3 — Stop/Finalization Merge Human Verification
-
-Issue:
-
-```text
-A prior human run showed Chrome produced a good final transcript, then SpeakSharp
-duplicated stale interim text on Stop. Unit regression coverage exists, but human
-proof after the latest changes is still required.
-```
-
-Dev-agent responsibility:
-
-```text
-No new code unless the next human proof reproduces duplication or save mismatch.
-Keep existing unit tests for duplicate-final/interim merge behavior.
-```
-
-> **DEV RESPONSE (2026-06-01):** Agreed — holding, no code. The duplicate-final/interim
-> merge unit coverage is in place and passing (`NativeBrowser.test.ts`: final+identical
-> interim → no append; final+case/punct variant → no append; one-word interim → not
-> saved). I will write the boundary-localized fix only if your human proof reproduces
-> duplication or save mismatch.
 
 STT test-agent responsibility:
 
 ```text
-In the next human proof, explicitly capture:
-visibleAtStop, postStopFinal, selectedForSave, savedTranscript, detailTranscript,
-and duplicate flag.
+Collect raw Chrome output and saved/detail output so formatting can be judged.
+If formatter is later implemented, compare raw vs formatted for punctuation,
+casing, filler preservation, duplicate prevention, and word preservation.
 ```
 
-Expected handoff if it fails:
+## Dev/Test Boundary
+
+Dev-agent responsibility:
 
 ```text
-I will provide the exact trace event sequence showing where the duplicate or
-mismatch entered: Chrome result, service event, controller merge, store update,
-save candidate, or detail read.
+No Native code changes unless human real-mic proof shows an app-side bug:
+good Chrome final -> corrupted saved/detail, duplicate append, erased transcript,
+or failed persistence.
 ```
 
-Scope limit if Native dev work becomes necessary:
+STT test-agent responsibility:
 
 ```text
-Do not ask dev to improve Native Harvard WER broadly.
-Native automated Harvard/say/fake-audio routes are diagnostic only.
-If dev work is needed, it must be tied to one failed human-mic script and one
-specific app boundary.
+Run Native human proof only after the current Private and Cloud evidence steps.
+Fill the shared JSON release matrix with timing, readability, and journey fields.
+Classify Native as green, caveated, hidden, or backlog.
 ```
 
-Example acceptable dev deliverable after a human-mic app-side failure:
+## Timing Budget To Verify
+
+| Metric | Target | Hard limit | Why it matters |
+| --- | ---: | ---: | --- |
+| Mic click to first visible text | <=2s | <=4s | Native is expected to feel live. |
+| Stop to final selected | <=2s | <=5s | Web Speech should not feel frozen after Stop. |
+| Stop to detail visible | <=8s | <=12s | Full journey polish. |
+| Duplicate full transcript | false | false | Launch-blocking if true. |
+
+## Next Required Run
+
+Run only after the first four current-hour STT steps:
+
+1. Native human real-mic proof using Scripts A-C.
+2. Capture all transcript states and timing fields.
+3. Update JSON/MD matrix.
+4. Classify Native as green, caveated, hidden, or backlog.
+
+Pass condition:
 
 ```text
-Root cause found:
-Chrome emitted a good final transcript for Script B, but NativeBrowser appended
-the pending interim after final because the normalized overlap guard did not
-handle punctuation/casing differences in the final event.
-
-Code changed:
-- NativeBrowser.ts: pending-interim append guard updated.
-
-Unit/no-browser proof:
-- final + same pending interim -> no append.
-- final + punctuation/casing variant pending interim -> no append.
-- no final + meaningful interim -> promote interim.
-- one-word/junk interim -> do not save.
-
-Expected browser-observable change:
-On the same human Script B, saved/detail transcript should contain the speech once,
-not duplicated.
-
-Files changed:
-<list files + commit SHA>
+Native can be visible as quick-start/browser-dependent only if human proof shows
+fast live text, readable enough saved transcript, no duplicate/erase on Stop,
+and save/history/detail pass.
 ```
-
-Example unacceptable dev deliverable:
-
-```text
-"Adjusted Native recognition settings."
-```
-
-Why unacceptable:
-
-```text
-It does not identify whether the failure was Chrome output, service normalization,
-controller merge, store state, save candidate, or detail read. It also gives STT
-testing no specific human script or transcript-state expectation to verify.
-```
-
-## Native Launch Blockers
-
-| Blocker | Owner | Launch Impact |
-| --- | --- | --- |
-| Human real-mic proof missing | STT test agent | Cannot classify Native as viable quick-start. |
-| Punctuation/casing unresolved | Dev proposal/integration, STT verify | Native may look amateurish even if recognition is accurate. |
-| Duplicate/stop merge needs human proof | STT test agent first; dev only if reproduced | Saved transcript trust risk. |
-
-## DEV → TEST AGENT (2026-06-01, append-only) — Native role under the long-form reframe
-
-Per the long-form reframe (see the Private STT report's `DEV → TEST AGENT` block): the
-proposed engine portfolio is Cloud = full-speech, Private = privacy/short practice,
-**Native = zero-setup quick try**. Under that framing Native does NOT need to be
-proven on page-length speeches — it needs the human real-mic quick-start proof + the
-punctuation/casing decision already tracked above. Flagging so Native is not held to a
-long-form bar it is not intended to meet. Confirm if you agree with that scoping.
-
-## STT TEST AGENT UPDATE (2026-06-02) — Native as customer-expectation baseline
-
-User release bar:
-
-```text
-We are chasing speed and accuracy for Native and Private. We must do no worse
-than what customers are used to and expect as normal.
-```
-
-Current Native status:
-
-| Area | Latest position |
-| --- | --- |
-| Vendor-published WER target | No stable Chrome Web Speech WER table found for our scripts/devices. Native is a browser/platform service, not a fixed model package with public benchmark curves. |
-| Practical customer baseline | Real Chrome human-mic behavior: text should appear while speaking, converge quickly, preserve stop/save/history/detail, and not duplicate. |
-| Product role | Zero-setup quick-start and customer-expectation comparator for Private responsiveness. |
-| Current blocker | Human real-mic proof is still required after latest changes; punctuation/casing remains unresolved without approved formatter integration. |
-
-How Native should be compared to Private:
-
-| Dimension | Native customer expectation | Private launch requirement |
-| --- | --- | --- |
-| First feedback | Live text or obvious browser listening state while speaking | Must show local progress immediately; draft text must be labeled while unstable |
-| Final quality | Good enough real Chrome transcript for normal user speech | Must meet or beat Native on the same speech, or clearly justify Private as slower but more private/accurate |
-| Formatting | Normal users expect casing and punctuation to look credible | Private final text already looks better on some scripts; Native needs formatter decision |
-| Long speech | Browser Web Speech may work, but route is vendor/browser dependent | Private must prove long-form with `return_timestamps:true` and acceptable timing, or defer long-form to Cloud |
-
-Current Native launch classification:
-
-```text
-Not green. Native remains the customer-expectation reference for "normal live STT",
-but it still lacks fresh human real-mic proof and formatting/casing closure.
-```
-
-Source checked for Native API baseline:
-
-- MDN Web Speech API: https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API

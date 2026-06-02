@@ -405,7 +405,7 @@ export class TransformersJSEngine extends STTEngine {
             const options: Record<string, unknown> = {
                 chunk_length_s: PRIV_STT.WHISPER_WINDOW_SECONDS,
                 stride_length_s: audioLengthSeconds < PRIV_STT.WHISPER_WINDOW_SECONDS ? 0 : PRIV_STT.WHISPER_STRIDE_SECONDS,
-                return_timestamps: false,
+                return_timestamps: true,
             };
             if (!isEnglishOnly) {
                 options.task = 'transcribe';
