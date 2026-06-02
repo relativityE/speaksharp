@@ -77,6 +77,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
         : isListening
             ? (hasInterimTranscript || hasTranscript ? 'drafting' : 'listening')
             : (hasTranscript ? 'final' : 'idle');
+    const isPrivateDrafting = sttMode === 'private' && uiState === 'drafting';
     const showPrivateFeedback = sttMode === 'private' && isListening;
     const privateStatus = hasTranscript || hasInterimTranscript ? 'Live text' : 'Private local';
     const visibleTranscript = [transcript.trim(), displayInterimTranscript.trim()].filter(Boolean).join(' ').trim();
@@ -204,7 +205,17 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         <p className="text-sm font-semibold text-foreground/75 animate-pulse">Listening...</p>
                     )
                 ) : hasTranscript || hasInterimTranscript ? (
-                    <div className="text-foreground text-lg leading-relaxed">
+                    <div
+                        className={`text-foreground text-lg leading-relaxed ${isPrivateDrafting ? 'rounded-md border border-dashed border-primary/30 bg-primary/5 p-3 text-foreground/80' : ''}`}
+                        data-transcript-draft={isPrivateDrafting ? 'true' : undefined}
+                        aria-label={isPrivateDrafting ? 'Draft transcript, still being recognized' : undefined}
+                    >
+                        {isPrivateDrafting && (
+                            <span className="mb-2 inline-flex rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                                Draft
+                            </span>
+                        )}
+                        {isPrivateDrafting && <br />}
                         {tokens.map((token) => {
                             if (token.type === 'error') {
                                 return (
@@ -226,7 +237,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             }
                             return <span key={token.id}>{token.transcript}</span>;
                         })}
-                        {hasInterimTranscript && (
+                        {isListening && hasInterimTranscript && (
                             <span
                                 className="italic text-foreground/60"
                                 data-transcript-draft="true"

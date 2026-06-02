@@ -162,6 +162,7 @@ describe('LiveTranscriptPanel', () => {
             <LiveTranscriptPanel
                 transcript="committed words"
                 interimTranscript="draft words"
+                sttMode="private"
                 isListening={true}
             />
         );
@@ -172,6 +173,57 @@ describe('LiveTranscriptPanel', () => {
         expect(draftLine).toHaveTextContent('draft words');
         // Container reports the discrete UI state.
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'drafting');
+    });
+
+    it('marks committed Private live text as draft while recording even without interim text', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript="day like"
+                interimTranscript=""
+                sttMode="private"
+                isListening={true}
+            />
+        );
+
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'drafting');
+        const draftRegions = screen.getAllByLabelText('Draft transcript, still being recognized');
+        expect(draftRegions.some((region) => region.getAttribute('data-transcript-draft') === 'true')).toBe(true);
+        expect(screen.getByText('Draft')).toBeInTheDocument();
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('day like');
+    });
+
+    it('does not mark non-Private committed live text as draft', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript="native committed text"
+                interimTranscript=""
+                sttMode="native"
+                isListening={true}
+            />
+        );
+
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'drafting');
+        expect(screen.queryByText('Draft')).not.toBeInTheDocument();
+        expect(screen.queryByLabelText('Draft transcript, still being recognized')).not.toBeInTheDocument();
+    });
+
+    it('does not leak stale interim draft text after Private final state', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript="private final text"
+                interimTranscript="stale draft text"
+                sttMode="private"
+                isListening={false}
+                isFinalizing={false}
+            />
+        );
+
+        const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+        expect(transcriptContainer).toHaveAttribute('data-transcript-state', 'final');
+        expect(transcriptContainer).toHaveTextContent('private final text');
+        expect(transcriptContainer).not.toHaveTextContent('stale draft text');
+        expect(screen.queryByText('Draft')).not.toBeInTheDocument();
+        expect(screen.queryByLabelText('Draft transcript, still being recognized')).not.toBeInTheDocument();
     });
 
     it('shows "Processing speech locally…" and finalizing state during whole-utterance decode', () => {

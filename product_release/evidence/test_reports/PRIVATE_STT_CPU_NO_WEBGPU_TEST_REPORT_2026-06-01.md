@@ -593,6 +593,68 @@ Private h1_6 focused proof with the same selectors:
 - saved/detail transcript equals selected final.
 ```
 
+### 2026-06-01 Follow-Up — Draft Label Patched, Blank-Screen Latency Still Blocks
+
+Dev/test patch status:
+
+```text
+Trust-state UI patch implemented:
+- Private committed live transcript text is marked Draft while recording.
+- Stale interim text no longer renders after final state.
+- Non-Private committed live text is not marked Draft.
+- LiveTranscriptPanel component coverage: 16/16 passing.
+```
+
+Remaining browser/product blocker:
+
+```text
+The latest focused browser run still had no useful draft text before Stop.
+The user observed roughly 30 seconds of blank/placeholder transcript for a simple sentence.
+This is not sustainable for longer speeches.
+```
+
+Why this matters:
+
+```text
+The Draft badge only protects trust after text exists.
+It does not solve the more severe "nothing useful appears while I am speaking" failure.
+For a half-page speech, waiting for final decode creates a frozen or broken-feeling product.
+```
+
+Current highest-priority Private UX ask:
+
+```text
+Private must provide immediate, honest progress feedback before transcript text exists.
+At minimum:
+- Within 1s of mic start: Listening locally / audio activity visible.
+- While speech is detected but no transcript yet: Processing speech locally / transcribing locally.
+- If no draft text appears after N seconds: keep visible progress state and avoid blank placeholder.
+- When draft text appears: mark it Draft.
+- After Stop: Processing speech locally until final selected.
+```
+
+Open technical question for dev:
+
+```text
+Can Private emit earlier low-confidence draft text from rolling windows, or is CPU decode
+latency too high for live draft on this runtime?
+
+If it cannot emit reliable text quickly, the UI needs a stronger non-text progress state
+for long-form practice rather than pretending the live transcript is live.
+```
+
+Test-agent acceptance for the next browser proof:
+
+```text
+For Private h1_6 and one longer script:
+- first user-visible feedback <= 1s
+- first meaningful draft text timestamp captured, if any
+- no blank/placeholder-only transcript period over 5s without progress messaging
+- Draft label visible for any live transcript text while recording
+- finalizing banner visible after Stop
+- final transcript replaces draft and saves to history/detail
+```
+
 ## Open Issue P1 — Full Private Corpus After P0 Fixes
 
 Issue:
