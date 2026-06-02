@@ -1,6 +1,6 @@
 # Cloud STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T16:23:40Z  
+**Updated:** 2026-06-02T19:32:58Z  
 **Scope:** AssemblyAI Cloud STT, credentialed A/B, filler/readability/tail proof, app journey  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -110,36 +110,39 @@ Required output per row:
 Artifact:
 
 ```text
-/private/tmp/assemblyai-ab-26830845676/assemblyai-streaming-ab-proof.json
+/private/tmp/controlled-stt-26842655423-all/assemblyai-streaming-ab-proof/assemblyai-streaming-ab-proof.json
 ```
 
 Workflow:
 
 ```text
-https://github.com/relativityE/speaksharp/actions/runs/26830845676
+https://github.com/relativityE/speaksharp/actions/runs/26842655423
 ```
 
 Workflow note:
 
 ```text
-The workflow concluded failure because its older ceiling-regression gate failed
-after the A/B step. The AssemblyAI streaming A/B step itself completed and
-uploaded the artifact, so this A/B evidence is usable.
+Current-head rerun on 68368415 completed the AssemblyAI streaming A/B step and
+uploaded the artifact. The overall workflow concluded failure because the older
+cloud ceiling gate failed afterward. The A/B artifact is usable for provider
+request/session validity, but it is not green evidence.
 ```
 
 | Variant | Valid rows | Invalid rows | Accuracy on valid rows | Filler recall | Current read |
 | --- | ---: | ---: | ---: | ---: | --- |
 | baseline | 5 | 5 | 95.56% | 90% | Strong partial evidence; h1_6-h1_10 invalid. |
 | keyterms | 0 | 10 | n/a | n/a | Invalid empty/no-termination sessions. |
-| prompt | 0 | 10 | n/a | n/a | Invalid empty/no-termination sessions. |
+| prompt | 5 | 5 | 100% | 100% | Strong partial evidence; still invalid for half the rows. |
 | prompt_keyterms | 0 | 10 | n/a | n/a | Invalid empty/no-termination sessions. |
 
 Current read:
 
 ```text
-Cloud baseline remains the strongest path on valid rows, but Cloud is not green.
-Prompt/keyterms variants currently fail as invalid sessions. This is a concrete
-provider/request-construction issue for dev review, not a broad Cloud rewrite.
+Cloud baseline and prompt variants are strong on valid rows, but Cloud is not
+green. Baseline and prompt both lose half the rows to invalid empty/no-
+termination sessions. Keyterms and prompt_keyterms remain fully invalid. This is
+a concrete provider/request-construction/session-pacing issue for dev review,
+not a broad Cloud rewrite.
 ```
 
 What "invalid" means:
@@ -165,9 +168,9 @@ firstMessageRaw, messageCount, invalidSession, and invalidReason.
 
 Please answer these before STT testing reruns Cloud A/B:
 
-1. **Invalid variants:** Why do `keyterms`, `prompt`, and `prompt_keyterms` produce `empty_no_termination` for all 10 rows in `/private/tmp/assemblyai-ab-26830845676/assemblyai-streaming-ab-proof.json`?
+1. **Invalid variants:** Why do `keyterms` and `prompt_keyterms` produce `empty_no_termination` for all 10 rows in `/private/tmp/controlled-stt-26842655423-all/assemblyai-streaming-ab-proof/assemblyai-streaming-ab-proof.json`?
 2. **Request construction:** Are the prompt/keyterms parameters being sent in the correct AssemblyAI Universal Streaming v3 format? If not, provide the exact code fix and expected URL/body shape.
-3. **Baseline partial invalids:** Why does baseline succeed for `h1_1-h1_5` but return invalid empty/no-termination for `h1_6-h1_10` in the same credentialed run?
+3. **Partial invalids:** Why do baseline and prompt each produce only 5 valid rows and 5 invalid empty/no-termination rows in the same credentialed run?
 4. **A/B subset control:** Can the A/B script accept a fixture subset env var so testing can rerun only `h1_1,h1_6,h1_8` plus conversational scripts without burning a full 40-row run every time?
 5. **Expected dev deliverable:** Please return a commit SHA plus a small no-network/unit proof that the four variants build the correct provider request. STT testing will rerun the credentialed provider proof after that.
 
@@ -271,9 +274,9 @@ fair test — it failed on concurrency, not on its parameter shape.
    needs u3-rt-pro). keyterms = error 1008 (concurrency); its construction is still unverified because
    it never connected.
 2. **Correct v3 request shape:** (a) `prompt` is only valid with `speech_model=u3-rt-pro`. (b)
-   `keyterms_prompt` must be **repeated query params** (`&keyterms_prompt=foo&keyterms_prompt=bar`),
-   not a single `JSON.stringify(array)` value (the prior code used JSON.stringify — likely also wrong,
-   now fixed pre-emptively). Both encoded in the new pure builder `scripts/lib/assemblyaiAbUrl.ts`.
+   **Superseded by the later 2026-06-02 provider rerun and local code update below:** the current
+   expected `keyterms_prompt` shape is a single JSON-array-string query param, not repeated params.
+   The newer run showed the server rejected repeated/bare values as `Invalid JSON array`.
 3. **Why baseline succeeds h1_1–h1_5 then invalid h1_6–h1_10:** error 1008, too many concurrent
    sessions — sessions weren't draining between rows. Fixed (see below).
 4. **Fixture subset env var:** already exists — `ASSEMBLYAI_STREAMING_AB_FIXTURES=h1_1,h1_6,h1_8`
@@ -283,17 +286,74 @@ fair test — it failed on concurrency, not on its parameter shape.
 ### Fix shipped (experiment script only; production untouched)
 
 - `scripts/lib/assemblyaiAbUrl.ts` (new, pure/side-effect-free): `prompt` variants escalate to
-  `u3-rt-pro`; `keyterms_prompt` sent as repeated params; empty terms dropped.
+  `u3-rt-pro`; **superseded by the later local update below:** `keyterms_prompt` should be a single
+  JSON-array-string param; empty terms are dropped before JSON encoding.
 - `scripts/assemblyai-streaming-ab-proof.mts`: `buildUrl` now delegates to that builder; on
   `Termination` it waits for the **actual WS close** before resolving, plus a `SETTLE_MS`
   (default 1500ms, env `ASSEMBLYAI_STREAMING_AB_SETTLE_MS`) delay between rows so the session pool
   drains — fixes error 1008.
 - `tests/cloud/assemblyaiAbUrl.test.ts` (new): **7/7 passing**, no network. Asserts per-variant
-  params (baseline/keyterms/prompt/prompt_keyterms), that keyterms are repeated params, that prompt
-  variants use u3-rt-pro, and a regression guard that keyterms_prompt is never a JSON-array blob.
+  params (baseline/keyterms/prompt/prompt_keyterms), prompt variants use u3-rt-pro, and the current
+  expected keyterms shape is a valid JSON array string.
 - Verified offline: `npx vitest run tests/cloud/assemblyaiAbUrl.test.ts` = 7 passed; script
   smoke-runs without an API key (parses, builds, fails gracefully, no network).
-- Commit SHA: _to be filled when committed_ (holding for your go-ahead per the engine/Cloud gate).
+- Commit SHA claimed in current history: `5e81bd3b`.
+
+### TEST AGENT UPDATE (2026-06-02T19:32:58Z) — current-head rerun still fails the A/B gate
+
+I reran `Controlled STT Benchmarks` on current head `68368415`, after the claimed Cloud A/B fix
+commit. The rerun artifact is:
+
+```text
+/private/tmp/controlled-stt-26842655423-all/assemblyai-streaming-ab-proof/assemblyai-streaming-ab-proof.json
+```
+
+Current-head summary:
+
+| Variant | Valid rows | Invalid rows | Accuracy on valid rows | Filler recall | Blocking payload |
+| --- | ---: | ---: | ---: | ---: | --- |
+| baseline | 5 | 5 | 95.56% | 90% | invalid rows still hit `1008 Too many concurrent sessions` |
+| keyterms | 0 | 10 | n/a | n/a | still hits `3006 Invalid keyterms_prompt: Invalid JSON array` |
+| prompt | 5 | 5 | 100% | 100% | valid rows use `u3-rt-pro`; invalid rows still hit `1008 Too many concurrent sessions` |
+| prompt_keyterms | 0 | 10 | n/a | n/a | still hits `3006 Invalid keyterms_prompt: Invalid JSON array` |
+
+This means the current workflow was still exercising a path that sent the wrong
+`keyterms_prompt` shape for the provider. A later local dev update now treats the provider error as
+evidence that `keyterms_prompt` must be a JSON-array-string param. That local update also adds 1008
+retry/backoff handling. The next credentialed rerun should validate those two changes together.
+
+### TEST AGENT UPDATE (2026-06-02T20:00Z) — local Cloud A/B fix observed, not credentialed yet
+
+Local uncommitted code now changes the Cloud A/B proof path as follows:
+
+```text
+scripts/lib/assemblyaiAbUrl.ts
+  keyterms_prompt => JSON.stringify(cleanedTerms) as a single query param
+
+scripts/assemblyai-streaming-ab-proof.mts
+  SETTLE_MS default 2000
+  retries 1008 "Too many concurrent sessions" rows up to 4 times
+  retry backoff default 12000 ms
+
+tests/cloud/assemblyaiAbUrl.test.ts
+  updated expected shape to JSON-array-string
+```
+
+No-network validation run:
+
+```text
+pnpm exec vitest run tests/cloud/assemblyaiAbUrl.test.ts
+7/7 passed on 2026-06-02
+```
+
+Current test-agent read:
+
+```text
+This is plausible and directly addresses the two current Cloud A/B blockers,
+but it is not credentialed evidence yet. The next run should use the cheap
+subset first: baseline,keyterms on h1_1,h1_6,h1_8. If that passes, add prompt
+variants only after approving the u3-rt-pro cost impact.
+```
 
 ### Important product flag before you re-run
 

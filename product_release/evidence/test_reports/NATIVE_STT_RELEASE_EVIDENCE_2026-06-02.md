@@ -1,6 +1,6 @@
 # Native STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T16:23:40Z  
+**Updated:** 2026-06-02T20:08:00Z  
 **Scope:** Chrome Web Speech Native STT, human real-mic proof, punctuation/readability, stop/save integrity  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -8,23 +8,23 @@
 
 ```text
 Native STT: NOT GREEN YET
-Current product status: backlog until current-cycle human proof runs
+Current product status: backlog / failed current human proof
 Primary launch blockers:
-1. Human real-mic proof is still required.
-2. Punctuation/casing remains unresolved.
-3. No duplicate-on-stop regression must be verified in real browser use.
+1. Human real-mic proof ran and failed product readiness.
+2. Stop/save selected `Listening...` even though Chrome produced usable transcript text.
+3. Punctuation/casing remains unresolved.
 4. Native cannot be judged by fake-audio or macOS say WER.
 ```
 
 Current classification:
 
 ```text
-Native = backlog for the current release matrix until human Chrome mic proof runs.
+Native = backlog / failed current proof until stop-save and readability are fixed and rerun.
 ```
 
 Native should be tested as a real customer path: Chrome desktop, real microphone, visible live text, stop/save/history/detail. Automated `say`, fake-audio, or speaker-to-mic runs can be diagnostic only.
 
-Why Native data was not collected with the other STTs on 2026-06-02:
+Why Native data was initially not collected with the other STTs on 2026-06-02:
 
 ```text
 Native Web Speech cannot be validly tested through the injected-mic route used
@@ -383,8 +383,10 @@ for all three engines — import the reader for the engine under test:
   Cloud stop-timeout work. Until then it returns nulls (safe).
 Mapping is documented in the file header; 11 unit tests in `tests/private/sttTiming.test.ts`.
 
-### C. Cloud A/B request-construction fix — ON MAIN (recap)
-Commit `5e81bd3b`: prompt→`u3-rt-pro`, keyterms as repeated params, session settle delay for 1008.
+### C. Cloud A/B request-construction fix — ON MAIN / local follow-up (recap)
+Commit `5e81bd3b` introduced prompt→`u3-rt-pro` and session-settle handling. A later local follow-up,
+documented in the Cloud report, changes keyterms to a single JSON-array-string param and adds 1008
+retry/backoff handling. Treat the Cloud report as controlling for current A/B rerun instructions.
 Rerun cheap first: `ASSEMBLYAI_STREAMING_AB_VARIANTS=baseline,keyterms ASSEMBLYAI_STREAMING_AB_FIXTURES=h1_1,h1_6,h1_8`.
 
 ### D. Stop/save `Listening...` bug — root cause traced, but I have QUESTIONS before fixing
