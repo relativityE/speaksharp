@@ -34,6 +34,7 @@
  */
 
 import logger from '../../../lib/logger';
+import { redactTranscript } from '../../../lib/logRedaction';
 import { sanitizeTranscriptText } from '../transcriptSanitizer';
 import { createPrivateSTT, EngineType } from '../engines';
 import { IPrivateSTT } from '../../../contracts/IPrivateSTT';
@@ -1510,7 +1511,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           }
         }
 
-        logger.info({ sId: this.serviceId, rId: this.instanceId, newText: textToEmit, latencyMs: (performance.now() - tStart).toFixed(2) }, '[PrivateWhisper] ✨ Transcription success');
+        logger.info({ sId: this.serviceId, rId: this.instanceId, newText: redactTranscript(textToEmit), latencyMs: (performance.now() - tStart).toFixed(2) }, '[PrivateWhisper] ✨ Transcription success');
         this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${textToEmit}` : textToEmit;
         this.bestVisibleProvisionalTranscript = '';
         this.liveProvisionalTranscript = '';

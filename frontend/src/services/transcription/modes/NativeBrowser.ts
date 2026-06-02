@@ -1,4 +1,5 @@
 import logger from '../../../lib/logger';
+import { redactTranscript } from '../../../lib/logRedaction';
 import { ITranscriptionEngine, TranscriptionModeOptions, Transcript, Result } from './types';
 import { TranscriptionError } from '../errors';
 import { IPrivateSTTEngine, EngineType } from '../../../contracts/IPrivateSTTEngine';
@@ -525,7 +526,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
             eId: this.instanceId,
             finalTranscript,
           });
-          logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, finalTranscript }, '[NativeBrowser] Final transcript received');
+          logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, finalTranscript: redactTranscript(finalTranscript) }, '[NativeBrowser] Final transcript received');
         }
         if (interimTranscript) {
           pushNativeTrace('interim_candidate', {
@@ -534,7 +535,7 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
             eId: this.instanceId,
             interimTranscript,
           });
-          logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, interimTranscript }, '[NativeBrowser] Interim transcript received');
+          logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId, interimTranscript: redactTranscript(interimTranscript) }, '[NativeBrowser] Interim transcript received');
         }
 
         if (this.onTranscriptUpdate) {
