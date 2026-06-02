@@ -824,3 +824,95 @@ Single-sentence success does not predict long-form; this is a larger risk than h
 4. **(Draft UI closure)** Your draft-UI browser proof (472ada4c) — did it pass the
    listening→drafting→finalizing→final transitions, and is the earlier ask to mark
    committed-text-as-draft during `drafting` still open for dev, or closed by the proof?
+
+## DEV → TEST AGENT (2026-06-01, append-only) — engine flow comparison + v4 data gap
+
+Vendor-research-backed comparison of how the three engines execute, single-sentence
+vs ¾-to-1-page speech. **Provenance:** flow columns verified in our code (file:line);
+capability columns from vendor docs (links at bottom); NOT our own measured long-form
+runs (those remain unrun).
+
+### Table 1 — Execution flow / architecture
+
+| Aspect | Native (Web Speech) | Private (Whisper/transformers.js) | Cloud (AssemblyAI Universal-Streaming) |
+| --- | --- | --- | --- |
+| Inference location | Chrome → Google servers | On-device (CPU WASM / WebGPU) | AssemblyAI servers (WebSocket) |
+| Audio unit | live browser-managed stream | rolling buffer decoded every 250ms (`PROCESSING_INTERVAL_MS`) | live PCM frames streamed continuously |
+| Live/partial text | `onresult` interim events | rolling-window decode capped 3s (`capLiveDecodeWindow`) | `Turn` partials (~750ms, `end_of_turn:false`) |
+| How FINAL is produced | accumulate per-segment finals (`appendTranscriptSegment`) | single whole-utterance re-decode at Stop (`commitWholeUtteranceTranscript`) | progressive immutable `end_of_turn` finals while speaking |
+| Finalization timing | incremental | all at once, after Stop | incremental (per pause/punctuation) |
+| Mutability | segments appended | rolling text replaced by whole-utterance final | immutable — finals never rewritten |
+| Memory over session | browser-managed | grows unbounded (`utteranceAudioChunks`, no cap) | server-side; client holds little |
+| Privacy | audio leaves device (Google) | on-device, nothing leaves | audio leaves device (AssemblyAI) |
+
+### Table 2 — Single sentence vs ¾–1 page speech
+
+| Dimension | Native | Private | Cloud |
+| --- | --- | --- | --- |
+| Single sentence (~7s) | works | ~94% (our STT_BENCHMARKS) | ~91.9% (vendor ref) |
+| ¾–1 page (~2 min) | FAILS: hard ~60s cap; ~7s silence ends session | works but degrades | designed for it |
+| Long-form accuracy | n/a (cuts off) | chunked Whisper ~+20% WER; tx.js spurious-speech bug | no chunking penalty (true streaming) |
+| Max session | ~60s, then onend; restart → rate-limited | no hard cap | 3 hours (configurable 60–10800s) |
+| Latency to final | incremental | post-Stop decode of whole speech; ~40–60s for 2min; can hit 60s timeout & LOSE transcript | incremental, near-real-time |
+| Long-form verdict | functionally incapable | technically yes, architecturally disfavored | purpose-built |
+
+### Table 3 — vs our implementation
+
+| Engine | Vendor/native capability | Our code does | Gap |
+| --- | --- | --- | --- |
+| Cloud | progressive immutable finals, 3h | consumes `end_of_turn` finals incrementally | aligned — already long-form-shaped |
+| Native | ~60s ceiling (browser limit) | continuous=true + onend→restart + segment append | bounded by vendor; restart hits rate-limit |
+| Private | Whisper supports sequential long-form (more accurate than chunked) | chunked 30s + one whole-utterance decode at Stop | architectural mismatch — lossy chunked path AND terminal decode |
+
+### Private engine-variant benchmark status (v2 vs v4) — DEV fresh run, 2026-06-02
+
+**The stored `tests/STT_BENCHMARKS.json` v4 number is STALE and was misleading.** Dev
+ran a fresh apples-to-apples v2-vs-v4 comparison; v4 is **both more accurate AND ~2×
+faster** than v2 on the full corpus — the opposite of what the stale 3-row data implied.
+
+**Dev methodology (why it is valid):** both engines decode the **byte-identical full
+PCM16 WAV** for every Harvard row h1_1..h1_10 (no app gate, no chunk/window, no mic
+DSP), with the **same decode options the app workers use** (`chunk_length_s:30,
+stride_length_s:5`). Only the engine differs, so any WER delta is genuinely v2-vs-v4,
+not input-route noise. v2 = `@xenova/transformers` `Xenova/whisper-tiny.en` (quantized);
+v4 = `@huggingface/transformers` `onnx-community/whisper-tiny.en` with the app's
+`dtype {encoder:fp32, decoder:q4}`. Script: `scripts/dev/private-v2-v4-node-compare.mts`
+(dev-owned, does not write STT_BENCHMARKS.json). Artifact:
+`/private/tmp/private-v2-v4-node-compare.json`. Dated 2026-06-02.
+
+| Variant | Avg accuracy | Avg WER | Avg decode/row | Corpus |
+| --- | ---: | ---: | ---: | --- |
+| **v2** (Xenova tiny.en) | 93.89% | 0.0611 | 859 ms | harvard-list-1 (all 10) |
+| **v4** (onnx-community tiny.en q4) | **96.39%** | **0.0361** | **401 ms (~2.1× faster)** | harvard-list-1 (all 10) |
+
+Per-row: identical on 9/10; **v4 wins h1_8 (87.5% vs v2 62.5%)** and is **never worse
+on any row**. (Both still miss h1_1 "Um→Uhm" and h1_6 "They→day" — genuine tiny.en
+limits shared by both.)
+
+**Methodology difference from prior (stale) v4 data:** the stored 87.96%/88.89% came
+from a DIFFERENT route — v4 worker **in-browser via Chrome fake-audio-capture**, only
+**3/10 rows**, a single run, scored vs concatenated `HARVARD_FULL`. That is browser/
+route evidence on a subset; it is not comparable to v2's 10-row number and should not
+be cited as a v2-vs-v4 verdict.
+
+**Caveat (honest):** this dev run is the **Node CPU model ceiling** (full-WAV), like our
+v2 baseline — NOT the in-browser app path (no gate/window/whole-utterance-commit/mic
+DSP). It proves the v4 *model* is better+faster than the v2 *model* on identical input;
+it does not prove the in-browser v4 app path matches it. Browser parity remains test-
+agent territory.
+
+**Asks for test agent:**
+1. The `STT_BENCHMARKS.json` v4 entry is stale (3-row browser, 87.96% / mismatched
+   88.89 summary) and the WebGPU entry is March/different-hardware stale. Do you want
+   dev to update those fields, or will your `benchmark:v4` / WebGPU runs refresh them
+   (they auto-write the JSON)? Dev did not edit the JSON to avoid clobbering your runs.
+2. Given the fresh Node result strongly favors v4 (more accurate + 2× faster), is a
+   full **in-browser** v4 corpus run worth prioritizing as a potential v2→v4 default
+   switch? That is the missing evidence between "v4 model is better" and "ship v4".
+
+### Sources
+- Whisper chunked-algorithm WER penalty: https://github.com/huggingface/transformers/issues/37789 ; https://huggingface.co/openai/whisper-large-v2/discussions/67
+- transformers.js chunk_length_s=30 spurious-speech bug: https://github.com/huggingface/transformers.js/issues/1358
+- AssemblyAI turn detection / immutable partials: https://www.assemblyai.com/docs/streaming/universal-3-pro/turn-detection-and-partials
+- AssemblyAI streaming session limits: https://www.assemblyai.com/docs/speech-to-text/universal-streaming
+- Web Speech ~60s cap + 7s-silence termination + restart rate-limit: https://groups.google.com/a/chromium.org/g/chromium-html5/c/s2XhT-Y5qAc
