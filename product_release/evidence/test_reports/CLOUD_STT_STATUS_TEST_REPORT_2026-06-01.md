@@ -8,6 +8,15 @@ Evidence type: prior app corpus + provider A/B artifact with invalid-session han
 Primary blockers: valid prompt/keyterms A/B, filler recall proof, current app trace proof
 ```
 
+Current long-speech status:
+
+```text
+Not yet proven. Cloud is the best candidate for long-form live transcription
+because AssemblyAI streams provider-side results, but this report does not yet
+contain a 5-7 sentence or half-page tail-preservation proof with current trace
+fields. Do not claim long-speech Cloud readiness until that proof exists.
+```
+
 Current artifacts:
 
 ```text
