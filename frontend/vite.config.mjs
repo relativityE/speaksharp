@@ -20,6 +20,32 @@ export default defineConfig(({ mode }) => {
     contents.toString().replace(/\n?\/\/# sourceMappingURL=.*$/gm, '');
   console.log(`[Vite] Mode: ${mode}`);
 
+  // EXPERIMENT TOGGLE (off by default) — scoped cross-origin-isolation proof.
+  // Cross-origin isolation enables SharedArrayBuffer -> multi-thread WASM, which may
+  // make the Private Whisper decode materially faster (the dominant cost in the
+  // post-Stop finalize wait). That speedup is the PROVEN lever; any accuracy gain
+  // (from being able to relax the final-decode audio bound) is a SECOND-ORDER
+  // hypothesis that must be measured, not assumed.
+  //
+  // COEP `credentialless` (not the removed `require-corp`) CAN enable isolation and
+  // MAY reduce third-party breakage, but it does NOT guarantee third-party
+  // compatibility. Official Stripe docs still state Stripe.js does NOT support
+  // cross-origin isolated sites. So this stays OFF BY DEFAULT and must pass a scoped
+  // isolation proof before any production header change:
+  //   - window.crossOriginIsolated === true, SharedArrayBuffer available, wasmThreadCount > 1
+  //   - smoke-test Supabase auth/profile, Sentry, PostHog, model assets, fonts, the
+  //     hosted Stripe checkout redirect, and confirm NO Stripe.js loads in the isolated doc
+  //   - benchmark current vs isolated decodeMs/RTF/WER on the Private fixtures
+  // Default OFF keeps the test-agent baseline proofs against `main` byte-for-byte
+  // unchanged. Enable the experiment with: STT_CROSS_ORIGIN_ISOLATED=1
+  const isolationFlag = String(env.STT_CROSS_ORIGIN_ISOLATED || process.env.STT_CROSS_ORIGIN_ISOLATED || '').toLowerCase();
+  const crossOriginIsolationHeaders = ['1', 'true', 'credentialless'].includes(isolationFlag)
+    ? { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'credentialless' }
+    : {};
+  if (Object.keys(crossOriginIsolationHeaders).length > 0) {
+    console.log('[Vite] EXPERIMENT: cross-origin isolation ENABLED (COEP credentialless). Verify Stripe/third-party + crossOriginIsolated before any production use.');
+  }
+
   const assetFileName = (assetInfo) => {
     const sourceName = assetInfo.names?.[0] ?? assetInfo.name ?? '';
     const ext = sourceName.endsWith('.ts') ? 'js' : '[ext]';
@@ -79,7 +105,8 @@ export default defineConfig(({ mode }) => {
           'docs/PRD.md'
         ]
       },
-      headers: {} // COOP/COEP removed to prevent blocking Stripe.js in E2E
+      // Empty by default (no isolation). Opt-in via STT_CROSS_ORIGIN_ISOLATED=1.
+      headers: { ...crossOriginIsolationHeaders }
     },
     preview: {
       host: '127.0.0.1',
@@ -89,7 +116,9 @@ export default defineConfig(({ mode }) => {
         // Local release review must never reuse stale bundles while we are
         // validating visual fixes from vite preview.
         'Cache-Control': 'no-store, max-age=0',
-      } // COOP/COEP removed to prevent blocking Stripe.js in E2E
+        // Empty by default; opt-in multi-thread WASM via STT_CROSS_ORIGIN_ISOLATED=1.
+        ...crossOriginIsolationHeaders,
+      }
     },
     build: {
       target: 'esnext',
