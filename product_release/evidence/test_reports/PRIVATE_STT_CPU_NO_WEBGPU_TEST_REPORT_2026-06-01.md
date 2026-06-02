@@ -351,6 +351,44 @@ trace, but a WAV-level replay would further confirm (b) vs pure nondeterminism. 
 enable it, future repeat runs should set the private trace flag so
 `__PRIVATE_UTTERANCE_AUDIO_CHUNKS__` captures the final-decode WAV.
 
+### 2026-06-01 DEV — refined finding from emitted-candidate trace (corrects the fix design)
+
+Deeper read of the same artifact's emitted candidates sharpens (and partly corrects)
+the framing above. At commit time:
+
+- `currentTranscript` = "" (rolling path never promoted a final)
+- `bestVisibleProvisionalTranscript` / visibleAtStop = "I think something else."
+- The good text WAS emitted as a provisional mid-stream:
+  `"day. Bye. They like told wild tales to frighten him."`
+  ...but a LATER provisional ("I think something else.", from a low-energy chunk)
+  **overwrote** it. `bestVisibleProvisional` tracks the *latest accepted* provisional,
+  not the *best/longest stable* one.
+
+So there are **two real app-side defects**, both confirmed:
+
+1. **Buffer bloat (Fix A):** the silence-tail cap uses `SILENCE_RMS_THRESHOLD`
+   (0.01) to decide "speech-like", so the h1_6 tail chunks (rms 0.018-0.09,
+   "indistinct chatter") count as speech, reset the tail counter, and append
+   unbounded → committed buffer 10.751s vs ~7s speech. Fix: gate the tail-cap reset
+   on the speech-start threshold (real speech), not the silence floor.
+
+2. **Best-candidate not retained (Fix B):** the good provisional was shown then
+   clobbered by a worse later one. Fix: track the best STABLE provisional (longest
+   locally-agreed text), and at commit select among {whole-utterance final,
+   best-stable provisional, visibleAtStop} by support score — NOT latest/longest, and
+   NOT always-rolling (whole-utterance still wins when it agrees with / cleanly
+   extends the stable provisional, preserving the h1_8/h1_10 "final fixes rolling"
+   behavior).
+
+Net correction to the prior block: it is not simply "app discarded a better candidate
+at commit" — the better candidate was lost UPSTREAM (overwritten in provisional
+tracking) AND the final buffer was bloated. Both must be fixed; Fix B alone would not
+recover h1_6 because the good text is not in the current candidate set until provisional
+tracking keeps the best-stable one.
+
+Guardrail held: changes are app-side, unit-tested on h1_2/h1_6/h1_8/h1_10, no model/
+mic-default/Cloud changes. Implementation to follow in a separate commit.
+
 ## Open Issue P0.2 — Interim Text / Live UX Stall
 
 Issue:
