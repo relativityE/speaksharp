@@ -6,8 +6,10 @@
  *  - `prompt` is REJECTED by `universal-streaming-english` with error 3006:
  *    "prompt is only supported with the 'u3-rt-pro' speech_model". So prompt
  *    variants MUST switch the speech model to u3-rt-pro (a pricier tier).
- *  - `keyterms_prompt` must be sent as REPEATED query params, not a single
- *    JSON.stringify(array) value (the prior script used JSON.stringify).
+ *  - `keyterms_prompt` must be a single JSON-ARRAY-STRING query param. The
+ *    credentialed run 26842655423 proved the server validates it as JSON:
+ *    repeated bare-word params yield error 3006 "Invalid 'keyterms_prompt':
+ *    Value error, Invalid JSON array". So we send JSON.stringify(array).
  *  - The remaining failures were error 1008 "Too many concurrent sessions"
  *    (a session-pacing problem in the harness, handled in the run loop, not here).
  *
@@ -57,12 +59,11 @@ export function buildAbStreamingUrl(options: AbUrlOptions): string {
     token,
   });
 
-  // keyterms_prompt: REPEATED query params (one per term), NOT a JSON array string.
+  // keyterms_prompt: a single JSON-ARRAY-STRING param (server validates it as JSON;
+  // repeated bare-word params -> error 3006 "Invalid JSON array", per run 26842655423).
   if (usesKeyterms(variant)) {
-    for (const term of keyterms) {
-      const trimmed = term.trim();
-      if (trimmed) params.append('keyterms_prompt', trimmed);
-    }
+    const cleaned = keyterms.map((t) => t.trim()).filter(Boolean);
+    if (cleaned.length > 0) params.set('keyterms_prompt', JSON.stringify(cleaned));
   }
 
   // prompt: only valid alongside the u3-rt-pro model (enforced by speechModelForVariant).

@@ -33,13 +33,20 @@ const ENCODING = 'pcm_s16le';
 const SPEECH_MODEL = 'universal-streaming-english';
 const CHUNK_MS = Number(process.env.ASSEMBLYAI_STREAMING_AB_CHUNK_MS || 50);
 const SOCKET_TIMEOUT_MS = Number(process.env.ASSEMBLYAI_STREAMING_AB_TIMEOUT_MS || 30_000);
-// Settle delay between sessions. The credentialed run hit error 1008 "Too many
-// concurrent sessions" because the server had not released the prior streaming
-// slot when the next connected. We now (a) wait for the actual WS close before
-// resolving and (b) pause between rows so the account session pool drains.
-const SETTLE_MS = Number(process.env.ASSEMBLYAI_STREAMING_AB_SETTLE_MS || 1_500);
+// Concurrency handling for error 1008 "Too many concurrent sessions". The
+// credentialed run 26842655423 proved the account holds streaming slots active
+// well beyond a short settle (baseline/prompt died after exactly ~5 rows even
+// though rows are sequential and we wait for WS close). So in addition to the
+// settle delay we RETRY 1008 rows with a longer backoff, letting earlier sessions
+// time out and free slots before giving up and marking the row invalid.
+const SETTLE_MS = Number(process.env.ASSEMBLYAI_STREAMING_AB_SETTLE_MS || 2_000);
+const MAX_1008_RETRIES = Number(process.env.ASSEMBLYAI_STREAMING_AB_1008_RETRIES || 4);
+const RETRY_BACKOFF_MS = Number(process.env.ASSEMBLYAI_STREAMING_AB_RETRY_BACKOFF_MS || 12_000);
 const apiKey = process.env.ASSEMBLYAI_API_KEY;
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const isConcurrencyLimited = (r: { closeCode: number | null; firstMessageRaw: string | null }): boolean =>
+  r.closeCode === 1008 || /error_code"\s*:\s*1008|Too many concurrent sessions/i.test(r.firstMessageRaw || '');
 
 const FILLER_TERMS = [
   'um',
@@ -346,7 +353,15 @@ const evidence = {
 for (const variant of VARIANTS) {
   for (const fixture of fixtures) {
     try {
-      const result = await transcribeStreaming(variant, fixture.id);
+      // Retry 1008 (concurrency) rows with backoff so the session-slot pool drains.
+      let result = await transcribeStreaming(variant, fixture.id);
+      let concurrencyRetries = 0;
+      while (isConcurrencyLimited(result) && concurrencyRetries < MAX_1008_RETRIES) {
+        concurrencyRetries += 1;
+        console.error(`ASSEMBLYAI_STREAMING_AB_RETRY ${JSON.stringify({ variant, fixture: fixture.id, attempt: concurrencyRetries, reason: '1008_concurrency', backoffMs: RETRY_BACKOFF_MS })}`);
+        await sleep(RETRY_BACKOFF_MS);
+        result = await transcribeStreaming(variant, fixture.id);
+      }
       const { invalid, reason: invalidReason } = classifyInvalidSession(result);
       const wer = calculateWordErrorRate(fixture.transcript, result.transcript);
       const row = {
@@ -369,6 +384,7 @@ for (const variant of VARIANTS) {
         firstMessageRaw: result.firstMessageRaw,
         invalidSession: invalid,
         invalidReason,
+        concurrencyRetries,
       };
       evidence.results.push(row);
       console.log(`ASSEMBLYAI_STREAMING_AB_ROW ${JSON.stringify(row)}`);

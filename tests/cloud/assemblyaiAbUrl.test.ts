@@ -12,7 +12,8 @@ import {
  * Universal Streaming v3 actually accepts — encoding the fixes proven by the
  * credentialed run 26830845676:
  *   - prompt only on u3-rt-pro (else error 3006)
- *   - keyterms_prompt as REPEATED params (not a JSON.stringify array)
+ *   - keyterms_prompt as a single JSON-ARRAY-STRING param. Run 26842655423 proved
+ *     the server validates it as JSON: bare/repeated values -> 3006 "Invalid JSON array".
  */
 const base = {
   token: 'TEST_TOKEN',
@@ -35,10 +36,12 @@ describe('assemblyai A/B streaming URL builder', () => {
     expect(p.getAll('keyterms_prompt')).toHaveLength(0);
   });
 
-  it('keyterms: baseline model, keyterms as REPEATED params, no prompt', () => {
+  it('keyterms: baseline model, keyterms as a single JSON-array-string param, no prompt', () => {
     const p = paramsOf('keyterms');
     expect(p.get('speech_model')).toBe(AB_DEFAULT_SPEECH_MODEL);
-    expect(p.getAll('keyterms_prompt')).toEqual(['speaksharp', 'filler', 'um']);
+    // Single param whose value parses as a JSON array (what the server validates).
+    expect(p.getAll('keyterms_prompt')).toHaveLength(1);
+    expect(JSON.parse(p.get('keyterms_prompt')!)).toEqual(['speaksharp', 'filler', 'um']);
     expect(p.has('prompt')).toBe(false);
   });
 
@@ -49,18 +52,18 @@ describe('assemblyai A/B streaming URL builder', () => {
     expect(p.getAll('keyterms_prompt')).toHaveLength(0);
   });
 
-  it('prompt_keyterms: u3-rt-pro, prompt AND repeated keyterms', () => {
+  it('prompt_keyterms: u3-rt-pro, prompt AND a single JSON-array keyterms param', () => {
     const p = paramsOf('prompt_keyterms');
     expect(p.get('speech_model')).toBe(AB_PROMPT_SPEECH_MODEL);
     expect(p.get('prompt')).toBe(base.prompt);
-    expect(p.getAll('keyterms_prompt')).toEqual(['speaksharp', 'filler', 'um']);
+    expect(JSON.parse(p.get('keyterms_prompt')!)).toEqual(['speaksharp', 'filler', 'um']);
   });
 
-  it('regression: keyterms_prompt is never a JSON.stringify array blob', () => {
-    const raw = buildAbStreamingUrl({ ...base, variant: 'prompt_keyterms' });
-    // The original bug encoded keyterms as '["speaksharp","filler","um"]'.
-    expect(raw).not.toContain(encodeURIComponent('["'));
-    expect(raw).not.toContain('%5B%22'); // url-encoded [" — the JSON-array signature
+  it('keyterms_prompt value is a valid JSON array (server rejects non-JSON: error 3006)', () => {
+    const p = paramsOf('prompt_keyterms');
+    const value = p.get('keyterms_prompt')!;
+    expect(() => JSON.parse(value)).not.toThrow();
+    expect(Array.isArray(JSON.parse(value))).toBe(true);
   });
 
   it('speechModelForVariant: only prompt variants escalate the model', () => {
@@ -70,10 +73,10 @@ describe('assemblyai A/B streaming URL builder', () => {
     expect(speechModelForVariant('prompt_keyterms')).toBe(AB_PROMPT_SPEECH_MODEL);
   });
 
-  it('empty/whitespace keyterms are dropped, not sent as blank params', () => {
+  it('empty/whitespace keyterms are dropped from the JSON array', () => {
     const p = new URL(
       buildAbStreamingUrl({ ...base, variant: 'keyterms', keyterms: ['  ', 'real', ''] }),
     ).searchParams;
-    expect(p.getAll('keyterms_prompt')).toEqual(['real']);
+    expect(JSON.parse(p.get('keyterms_prompt')!)).toEqual(['real']);
   });
 });
