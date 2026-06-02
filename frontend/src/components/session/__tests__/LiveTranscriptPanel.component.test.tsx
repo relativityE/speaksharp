@@ -154,4 +154,58 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('Listening...');
         expect(screen.queryByText('Processing locally...')).not.toBeInTheDocument();
     });
+
+    // --- Interim/draft + finalizing UI states (test-agent acceptance criteria) ---
+
+    it('marks provisional text as draft and distinguishes it from final', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript="committed words"
+                interimTranscript="draft words"
+                isListening={true}
+            />
+        );
+        // Draft preview line is explicitly labeled and flagged for browser assertion.
+        const draftLine = screen.getByTestId('live-transcript-current-line');
+        expect(draftLine).toHaveAttribute('data-transcript-draft', 'true');
+        expect(draftLine).toHaveTextContent('Draft');
+        expect(draftLine).toHaveTextContent('draft words');
+        // Container reports the discrete UI state.
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'drafting');
+    });
+
+    it('shows "Processing speech locally…" and finalizing state during whole-utterance decode', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript="rough draft so far"
+                interimTranscript="rough draft so far"
+                isListening={false}
+                isFinalizing={true}
+                sttMode="private"
+            />
+        );
+        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing speech locally');
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'finalizing');
+    });
+
+    it('reports final state (no draft) once listening stops with committed text', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript="the final committed transcript"
+                interimTranscript=""
+                isListening={false}
+                isFinalizing={false}
+            />
+        );
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'final');
+        expect(screen.queryByTestId('live-transcript-finalizing')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('live-transcript-current-line')).not.toBeInTheDocument();
+    });
+
+    it('reports listening state before any text', () => {
+        render(
+            <LiveTranscriptPanel transcript="" interimTranscript="" isListening={true} sttMode="native" />
+        );
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'listening');
+    });
 });

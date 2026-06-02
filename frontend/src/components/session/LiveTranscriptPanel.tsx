@@ -16,7 +16,16 @@ interface LiveTranscriptPanelProps {
     userWords?: string[];
     className?: string;
     history?: Array<{ mode: string; text: string }>;
+    /**
+     * True while the engine is running the whole-utterance final decode after Stop.
+     * Drives the "Processing speech locally…" state so the user is not staring at
+     * stale/low-confidence draft text during multi-second CPU finalization.
+     */
+    isFinalizing?: boolean;
 }
+
+/** Discrete UI state for the live transcript, exposed via data-transcript-state. */
+type LiveTranscriptUiState = 'listening' | 'drafting' | 'finalizing' | 'final' | 'idle';
 
 const WaveformMeter: React.FC<{ level: number; isProcessing: boolean }> = ({ level, isProcessing }) => {
     const visibleLevel = Math.max(0.08, Math.min(level, 1));
@@ -53,6 +62,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     userWords = [],
     className = "",
     history = [],
+    isFinalizing = false,
 }) => {
     const tokens = parseTranscriptForHighlighting(transcript, userWords);
     const hasTranscript = transcript.trim() !== '';
@@ -60,6 +70,13 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
         transcript.trim() === interimTranscript.trim() ? '' : interimTranscript;
     const hasInterimTranscript = displayInterimTranscript.trim() !== '';
     const livePreviewText = displayInterimTranscript.trim();
+
+    // Discrete UI state for styling + browser-test assertions.
+    const uiState: LiveTranscriptUiState = isFinalizing
+        ? 'finalizing'
+        : isListening
+            ? (hasInterimTranscript || hasTranscript ? 'drafting' : 'listening')
+            : (hasTranscript ? 'final' : 'idle');
     const showPrivateFeedback = sttMode === 'private' && isListening;
     const privateStatus = hasTranscript || hasInterimTranscript ? 'Live text' : 'Private local';
     const visibleTranscript = [transcript.trim(), displayInterimTranscript.trim()].filter(Boolean).join(' ').trim();
@@ -107,15 +124,32 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                 className={`live-transcript-scroll flex-1 overflow-y-auto p-3 pr-5 ${SESSION_INSET_SURFACE_CLASS} leading-relaxed transition-all min-h-[160px]`}
                 data-testid={TEST_IDS.TRANSCRIPT_CONTAINER}
                 data-scrollable-transcript="true"
+                data-transcript-state={uiState}
                 aria-live="polite"
                 aria-label="Live transcript of your speech"
                 role="log"
             >
+                {/* Finalizing banner: post-Stop whole-utterance decode in progress.
+                    Keeps the user informed during multi-second CPU finalization so
+                    stale draft text is never mistaken for the saved result. */}
+                {isFinalizing && (
+                    <div
+                        className="sticky top-0 z-20 mb-3 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-medium text-primary"
+                        data-testid="live-transcript-finalizing"
+                    >
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-primary" aria-hidden="true" />
+                        Processing speech locally…
+                    </div>
+                )}
+
                 {isListening && livePreviewText && (
                     <div
-                        className="sticky top-0 z-10 mb-3 rounded-md border border-primary/20 bg-background/95 px-3 py-2 text-sm font-semibold leading-relaxed text-foreground shadow-sm backdrop-blur"
+                        className="sticky top-0 z-10 mb-3 rounded-md border border-dashed border-primary/30 bg-background/95 px-3 py-2 text-sm font-medium italic leading-relaxed text-foreground/70 shadow-sm backdrop-blur"
                         data-testid="live-transcript-current-line"
+                        data-transcript-draft="true"
+                        aria-label="Draft transcript, still being recognized"
                     >
+                        <span className="mr-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase not-italic tracking-wide text-primary">Draft</span>
                         {livePreviewText}
                     </div>
                 )}
@@ -193,7 +227,11 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             return <span key={token.id}>{token.transcript}</span>;
                         })}
                         {hasInterimTranscript && (
-                            <span className="text-foreground/70">
+                            <span
+                                className="italic text-foreground/60"
+                                data-transcript-draft="true"
+                                aria-label="Draft transcript, still being recognized"
+                            >
                                 {hasTranscript ? ' ' : ''}
                                 {displayInterimTranscript}
                             </span>

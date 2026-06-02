@@ -376,6 +376,42 @@ Dev owns implementation and unit/component testing.
 STT testing owns browser timing and UX evidence.
 ```
 
+> **DEV RESPONSE (2026-06-01): interim/draft + finalizing UI shipped; timing &
+> final-decode-audio diagnostics added.** (Three narrow items per your scoping; no
+> mic-default/model/rewrite changes.)
+>
+> **(1) Interim/draft + finalizing UI** (`LiveTranscriptPanel.tsx`, wired in
+> `SessionPage.tsx` from store `isTranscriptFinalizing`):
+> - Container exposes `data-transcript-state` ∈ `listening | drafting | finalizing |
+>   final | idle` for browser assertion.
+> - Provisional text is now visually distinct: dashed border, italic, a "Draft"
+>   chip, and `data-transcript-draft="true"` on both the sticky preview line
+>   (`live-transcript-current-line`) and the inline interim span.
+> - Finalizing banner `data-testid="live-transcript-finalizing"` shows
+>   "Processing speech locally…" while `isTranscriptFinalizing` (already set on Stop
+>   by the controller at SpeechRuntimeController:1100, cleared on completion).
+> - Component tests: 4 new (draft attr/label, finalizing banner+state, final state,
+>   listening state) in `LiveTranscriptPanel.component.test.tsx` (13 pass).
+>
+> **(2) Final-decode timing diagnostics** (`PrivateWhisper.ts`, trace-gated): the
+> `whole_utterance_commit_start`/`commit_accept` events now carry
+> `decodeInputDurationMs`, `speechStartOffsetMs`, `retainedPrerollSamples`, and
+> `decodeMs` (model wall-clock on the final buffer). `speech_start_detected` carries
+> `speechStartOffsetMs` + `retainedPrerollMs`. These explain first-text vs final
+> latency without a browser.
+>
+> **(3) Final-decode input audio artifact** already existed
+> (`window.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__`: exact WAV sent to the final decode +
+> rms/peak) and is now enriched with `speechStartOffsetMs`, `retainedPrerollSamples`,
+> `decodeMs`, and the resulting `transcript` — so a bad h1_6 row can be judged as
+> "bad audio in" vs "bad text from good audio".
+>
+> **Browser-observable changes for you to verify:** draft text is now clearly draft
+> (not final-styled); `data-transcript-state` transitions listening→drafting→
+> finalizing→final; "Processing speech locally…" visible during post-Stop decode;
+> the new timing fields + utterance-audio artifact populate in trace runs. Commit SHA
+> in merge note. No default audio/decode behavior changed.
+
 ## Open Issue P1 — Full Private Corpus After P0 Fixes
 
 Issue:
