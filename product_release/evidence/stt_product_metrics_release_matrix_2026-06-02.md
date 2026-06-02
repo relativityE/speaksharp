@@ -1,7 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-02T22:12:00Z  
+**Last updated:** 2026-06-02T23:30:00Z  
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
@@ -67,8 +67,43 @@ Current example:
 | --- | --- | --- | --- |
 | Private v4 browser proof | setup | `setup.model_provider` | Private/Vault setup did not finish; Start stayed disabled. |
 | Private v2 browser proof | timing, accuracy | `proof.timing.first_text`, `proof.accuracy.fillers` / final quality | Current-head run `26852510533`: setup/model ready passed and authoritative `saveCandidate` saved 60 words, but first live text gate saw only 2 words before timeout and final transcript accuracy was only 37.93%. |
-| Cloud A/B keyterms | accuracy | `proof.accuracy.fillers` | Current-head run `26850691978`: requests/session validity closed; keyterms still hurts h1_6 accuracy. |
+| Cloud A/B keyterms | accuracy | `proof.accuracy.fillers` | Current-head run `26852918607`: requests/session validity closed; keyterms still hurts h1_6 accuracy. |
 | Native human proof | accuracy, journey | `proof.accuracy.readability`, `proof.journey.stop_save_detail` | Chrome produced words, but readability and stop/save/detail failed. |
+
+### Latest Current-Head Cloud App Journey Proof: 2026-06-02T23:07Z
+
+Run:
+
+```text
+Live Release Matrix: 26853283325
+Cloud live artifact job: 79190255334
+Commit: c043af72
+Artifact: /private/tmp/live-cloud-artifact-26853283325/
+Artifact ID: 7371932386
+```
+
+Result:
+
+```text
+PASS_WITH_METRIC_GAPS
+```
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Provider final event | pass | Cloud provider emitted `eventType: final`. |
+| Provider termination after Stop | pass | Cloud provider emitted `eventType: terminated`. |
+| Save decision | pass | `[CLOUD_SAVE_DECISION] willSave: true`, transcript length 363, duration 26.996s. |
+| Saved session metrics | pass | final transcript length 363, word count 67, filler count 6, WPM 149. |
+| App journey | pass | Playwright passed: transcribe, save, analytics history. |
+
+Interpretation:
+
+```text
+Cloud app journey is passing and Cloud remains the strongest 24-hour quality
+path. This run does not yet close exact timing/readability/tail metrics because
+the live test did not export __CLOUD_STT_TIMELINE__, WER/readability, or scripted
+tail comparison against ground truth.
+```
 
 ### Latest Current-Head Private Browser Proof: 2026-06-02T22:46Z
 

@@ -1,6 +1,6 @@
 # Cloud STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T21:05:00Z  
+**Updated:** 2026-06-02T23:30:00Z  
 **Scope:** AssemblyAI Cloud STT, credentialed A/B, filler/readability/tail proof, app journey  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -15,11 +15,11 @@ Two-step status:
 Primary launch blockers:
 1. Credentialed A/B now runs valid baseline/keyterms sessions on the cheap subset, but keyterms is not shippable because it improves filler recall while hurting h1_6 accuracy.
 2. Baseline is the safest current Cloud candidate, but must still be proven on the broader release matrix.
-3. Current app trace proof must still confirm live -> stop -> save -> history/detail.
-4. Long-speech tail and readability proof must still be captured.
+3. Current app journey proof now passes live -> stop -> save -> analytics history/detail smoke.
+4. Long-speech tail/readability and exact `__CLOUD_STT_TIMELINE__` extraction still need to be captured.
 ```
 
-Cloud is currently the strongest STT candidate, but it must not be treated as complete until the credentialed provider and app-path proof are refreshed with the current release metric schema.
+Cloud is currently the strongest STT candidate, but it must not be treated as fully complete until the app-path proof exports exact timeline/readability fields with the current release metric schema.
 
 ## Current Release Metrics
 
@@ -546,6 +546,51 @@ Open Cloud items:
 | Keyterms as default | Blocked by h1_6 accuracy regression | Dev/product |
 | Washington/long-speech Cloud tail/readability | Not captured by this A/B artifact | Test |
 | App journey/tail with `__CLOUD_STT_TIMELINE__` | Still open; requires Cloud app proof, not provider-only A/B | Test |
+
+## TEST AGENT UPDATE — Cloud live app journey proof
+
+**Collected:** 2026-06-02T23:05Z to 2026-06-02T23:07Z  
+**Workflow:** `live-release-matrix.yml` / `live-cloud-artifact`  
+**Run:** `26853283325`  
+**Job:** `79190255334`  
+**Commit:** `c043af72`  
+**Artifact:** `/private/tmp/live-cloud-artifact-26853283325/`  
+**Artifact ID:** `7371932386`
+
+Result:
+
+```text
+PASS: Pro Cloud live STT can transcribe, stop, save, and show analytics history.
+```
+
+Evidence extracted from the GitHub job log:
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Provider final event | pass | `[CloudAssemblyAI] provider event received`, `eventType: final` |
+| Provider termination after Stop | pass | `[CloudAssemblyAI] provider event received`, `eventType: terminated`; `Session terminated by provider.` |
+| Stop selected strategy transcript | pass | `strategyTranscriptLength: 363`, `currentTranscriptLength: 227` |
+| Service returned transcript | pass | `duration: 26.994`, `transcriptLength: 363` |
+| Save decision | pass | `[CLOUD_SAVE_DECISION] willSave: true`, `transcriptLength: 363`, `duration: 26.996`, `mode: cloud` |
+| Completed session | pass | `finalTranscriptLength: 363`, `wordCount: 67`, `fillerCount: 6`, `wpm: 149` |
+| History/detail journey | pass | Playwright test passed: `Pro Cloud live STT can transcribe, save, and show analytics history` |
+
+Current read:
+
+```text
+Cloud app journey proof is now passing. This strengthens Cloud as the 24-hour
+quality path. It is still not a full release metric closure because the current
+live test does not export exact `__CLOUD_STT_TIMELINE__` fields, WER/readability,
+or a scripted tail comparison against ground truth.
+```
+
+Remaining Cloud proof gap:
+
+| Gap | Why it matters | Next action |
+| --- | --- | --- |
+| Exact timeline extraction | Needed for first progress, first final, stop-to-termination, and bottleneck attribution | Update/read the live test to emit `readCloudStreamTiming(window.__CLOUD_STT_TIMELINE__)` |
+| Long-script ground truth | Needed to prove tail preservation and readability on speech-length content | Run Cloud baseline on `washington_01` or equivalent scripted long speech |
+| Readability/punctuation table | Needed for sales-quality transcript trust | Score terminal punctuation, sentence count, max run-on words, capitalization, duplicate detection |
 
 ## TEST AGENT UPDATE — superseded narrow Cloud A/B validity proof
 

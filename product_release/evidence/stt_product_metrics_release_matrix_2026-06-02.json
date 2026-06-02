@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-02T22:12:00Z",
+  "lastUpdated": "2026-06-02T23:30:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -1714,6 +1714,52 @@
         "contaminationFlag": null
       },
       "timingNote": "Corrected 2026-06-02: artifact contains a second auto-start after stop; timing uses the stopped session boundary and nativeAudioReady for first-session audio start. recordingStateAt was not retained for the stopped session in the available trace."
+    },
+    {
+      "id": "cloud_live_app_journey_26853283325",
+      "candidate": "Cloud AssemblyAI baseline app path",
+      "fixture": "live_cloud_artifact_script",
+      "evidenceType": "browser-proof",
+      "workflowRun": 26853283325,
+      "job": 79190255334,
+      "commit": "c043af72",
+      "artifact": "/private/tmp/live-cloud-artifact-26853283325/",
+      "artifactId": 7371932386,
+      "collectedAt": "2026-06-02T23:05:00Z",
+      "finishedAt": "2026-06-02T23:07:19Z",
+      "classification": "PASS_WITH_METRIC_GAPS",
+      "accuracyPct": null,
+      "wer": null,
+      "fillerRecallPct": null,
+      "falseFillerInsertions": null,
+      "readability": {
+        "terminalPunctuationPresent": "NOT_CAPTURED_CURRENT_RUN",
+        "sentenceCount": "NOT_CAPTURED_CURRENT_RUN",
+        "maxRunOnWords": "NOT_CAPTURED_CURRENT_RUN",
+        "capitalizationErrors": "NOT_CAPTURED_CURRENT_RUN",
+        "duplicateSentenceDetected": "NOT_CAPTURED_CURRENT_RUN",
+        "readabilityVerdict": "NOT_CAPTURED_CURRENT_RUN"
+      },
+      "timing": {
+        "openToFirstPartialMs": "NOT_EXPORTED_CURRENT_RUN",
+        "openToFirstFinalMs": "NOT_EXPORTED_CURRENT_RUN",
+        "stopToTerminationMs": "NOT_EXPORTED_CURRENT_RUN",
+        "durationSeconds": 26.996
+      },
+      "journey": {
+        "providerFinalEvent": true,
+        "providerTerminationEvent": true,
+        "willSave": true,
+        "resultTranscriptLength": 363,
+        "finalTranscriptLength": 363,
+        "wordCount": 67,
+        "fillerCount": 6,
+        "wpm": 149,
+        "historyVisible": true,
+        "detailOrAnalyticsVisible": true,
+        "playwrightPassed": true
+      },
+      "caveat": "Cloud app journey proof passed, but this run did not export exact __CLOUD_STT_TIMELINE__, WER/readability, or scripted tail comparison against ground truth."
     }
   ],
   "timingContract": {
@@ -1764,12 +1810,12 @@
       "stopToDetailVisibleMs": "Total post-stop user wait."
     }
   },
-  "classificationUpdatedAt": "2026-06-02T23:10:00Z",
+  "classificationUpdatedAt": "2026-06-02T23:30:00Z",
   "classifications": {
     "cloud": {
       "status": "caveated_closest",
-      "reason": "Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. washington_01 did not appear in the A/B artifact, so long-speech/app-tail proof remains open.",
-      "next": "Launch/position Cloud baseline as quality path if app-tail proof passes. Dev/product should change, narrow, or disable keyterms before defaulting it. Test should run Cloud app journey/tail proof with __CLOUD_STT_TIMELINE__."
+      "reason": "Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. Live Cloud app journey proof run 26853283325 passed stop/save/history-detail smoke with provider final+termination and a 363-character saved result.",
+      "next": "Launch/position Cloud baseline as quality path if remaining timeline/readability proof passes. Dev/product should change, narrow, or disable keyterms before defaulting it. Test should run Cloud long-script/tail proof that exports __CLOUD_STT_TIMELINE__, WER/readability, and scripted tail comparison."
     },
     "private": {
       "status": "caveated",
@@ -1782,5 +1828,5 @@
       "next": "Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-02T23:10:00Z"
+  "lastUpdatedAt": "2026-06-02T23:30:00Z"
 }
