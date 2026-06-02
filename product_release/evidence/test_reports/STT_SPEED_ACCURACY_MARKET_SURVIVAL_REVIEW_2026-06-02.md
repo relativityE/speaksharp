@@ -39,46 +39,48 @@ line:
 | Step | Name | What must be true |
 | --- | --- | --- |
 | 1 | Setup | Account/tier, build mode, STT mode, model/provider/runtime, mic/input route, and instrumentation are correct. |
-| 2 | Execution | Accuracy, timing, readability, filler metrics, and save/history/detail meet the product gate. |
+| 2 | Proof | Runtime, timing, accuracy, and journey metrics meet the product gate. |
 
 If Step 1 fails, the run is `INVALID_SETUP` and must not be interpreted as an
-STT quality result. If Step 2 fails, the run is `EXECUTION_FAIL` and must name
-the first broken product metric. Each bucket has enumerated substeps; reports
-must name the exact failed substep, not just "setup" or "execution." This
+STT quality result. If Step 2 fails, the run is `PROOF_FAIL` and must name
+the first broken product phase/gate. Reports must use the exact gate names,
+not vague labels such as "setup failed" or "execution failed." This
 replaces layered preflight/proof language for release triage.
 
-Setup substeps:
+Setup gates:
 
-| Code | Substep |
+| Gate | Meaning |
 | --- | --- |
-| `SETUP_1_ENV` | Build mode, app URL, secrets, test/live mode |
-| `SETUP_2_AUTH_TIER` | Sign-in and effective Free/Pro entitlement |
-| `SETUP_3_MODE` | Intended STT mode selected and machine-readable |
-| `SETUP_4_MODEL_READY` | Model/provider/runtime ready before scoring |
-| `SETUP_5_INPUT_ROUTE` | Mic/audio route and constraints valid |
-| `SETUP_6_INSTRUMENTATION` | Logs, timing fields, transcript states, artifact writers populated |
+| `setup.build_env` | Build mode, app URL, secrets, test/live mode |
+| `setup.auth_tier` | Sign-in and effective Free/Pro entitlement |
+| `setup.stt_mode` | Intended STT mode selected and machine-readable |
+| `setup.model_provider` | Model/provider ready or explicitly downloading |
+| `setup.runtime_telemetry` | Runtime/provider/device/thread/fallback telemetry populated |
+| `setup.mic_input` | Mic/audio route and constraints valid |
+| `setup.artifact_schema` | Logs, timing fields, transcript states, artifact writers populated |
 
-Execution substeps:
+Proof phases and gates:
 
-| Code | Substep |
+| Phase | Gate |
 | --- | --- |
-| `EXEC_1_START_PROGRESS` | User sees recording/listening/processing quickly |
-| `EXEC_2_FIRST_TEXT` | First usable text appears within mode budget |
-| `EXEC_3_FINAL_COMPLETENESS` | Final transcript preserves beginning, middle, tail, expected length |
-| `EXEC_4_ACCURACY_FILLERS` | Accuracy, filler recall, false filler insertion meet baseline |
-| `EXEC_5_READABILITY` | Punctuation, casing, sentence boundaries, no run-on/duplication |
-| `EXEC_6_STOP_SAVE_DETAIL` | Stop selects intended transcript; saved/history/detail match |
-| `EXEC_7_TIMING_BUDGET` | Finalization and detail visibility meet timing budget |
+| runtime | `proof.runtime.provider_selected` |
+| timing | `proof.timing.first_progress` |
+| timing | `proof.timing.first_text` |
+| timing | `proof.timing.finalization_wait` |
+| accuracy | `proof.accuracy.final_completeness` |
+| accuracy | `proof.accuracy.fillers` |
+| accuracy | `proof.accuracy.readability` |
+| journey | `proof.journey.stop_save_detail` |
 
 Current application of the rule:
 
-| STT | Step 1 Setup | Step 2 Execution | Current action |
+| STT | Step 1 Setup | Step 2 Proof | Current action |
 | --- | --- | --- | --- |
 | Cloud baseline | Passing with real credentials | Strong candidate; baseline safer than keyterms | Close Cloud baseline proof first |
-| Cloud keyterms | Passing after request/session fix | `EXEC_4_ACCURACY_FILLERS`: filler improves, h1_6 accuracy regresses | Dev must fix/narrow/disable keyterms |
-| Private v2 browser | Passing far enough to record | `EXEC_3_FINAL_COMPLETENESS`: 8/87 words captured | Debug under-capture |
-| Private v4 browser | `SETUP_4_MODEL_READY`: Vault setup/readiness did not finish | Not scoreable | Fix setup/readiness before STT claims |
-| Native human mic | Passing real-human input route | `EXEC_5_READABILITY` and `EXEC_6_STOP_SAVE_DETAIL` | Fix formatting/stop-save, then rerun |
+| Cloud keyterms | Passing after request/session fix | accuracy phase, `proof.accuracy.fillers`: filler improves, h1_6 accuracy regresses | Dev must fix/narrow/disable keyterms |
+| Private v2 browser | Passing far enough to record | accuracy phase, `proof.accuracy.final_completeness`: 8/87 words captured | Debug under-capture |
+| Private v4 browser | setup phase, `setup.model_provider`: Vault setup/readiness did not finish | Not scoreable | Fix setup/readiness before STT claims |
+| Native human mic | Passing real-human input route | accuracy + journey phases, `proof.accuracy.readability` and `proof.journey.stop_save_detail` | Fix formatting/stop-save, then rerun |
 
 ## Canonical Reviewer Path To Release
 

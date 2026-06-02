@@ -10,8 +10,8 @@
 Private STT: NOT GREEN YET
 Current product status: caveated local/private path
 Two-step status:
-- Private v4 browser proof: SETUP failure at `SETUP_4_MODEL_READY`. Vault setup/readiness did not finish; Start stayed disabled.
-- Private v2 browser proof: EXECUTION failure at `EXEC_3_FINAL_COMPLETENESS`. Recording started, but only 8 words were captured against 87 expected.
+- Private v4 browser proof: setup failure at `setup.model_provider`. Vault setup/readiness did not finish; Start stayed disabled.
+- Private v2 browser proof: proof failure in accuracy phase at `proof.accuracy.final_completeness`. Recording started, but only 8 words were captured against 87 expected.
 Primary launch blockers:
 1. v4 browser app proof is still missing; current browser proof is v2 only.
 2. Physical/human mic route was unavailable in this environment because afplay failed.

@@ -24,49 +24,51 @@ Optimization is the north star. Every STT proof now has only two gates:
 | Step | Name | Question | If it fails |
 | --- | --- | --- | --- |
 | 1 | Setup | Can the user/harness reach the intended STT engine with the right account, mode, model/provider, runtime, mic/input route, and instrumentation? | Mark `INVALID_SETUP`. Do not score accuracy, timing, or release quality. |
-| 2 | Execution | Once setup is proven, does the STT path meet accuracy, speed, readability, filler, and save/history/detail expectations versus its baseline? | Mark `EXECUTION_FAIL` with the first broken execution metric. |
+| 2 | Proof | Once setup is proven, does the STT path meet runtime, timing, accuracy, and journey expectations versus its baseline? | Mark `PROOF_FAIL` with the first broken proof phase and gate. |
 
 Rules:
 
 ```text
 No setup proof, no STT scoring.
-No execution proof, no release claim.
-Every failure must be classified as either SETUP or EXECUTION.
-Every SETUP failure must name the exact failed setup substep.
-Every EXECUTION failure must name the exact failed execution substep.
+No proof, no release claim.
+Every failure must identify one error phase: setup, runtime, timing, accuracy, or journey.
+Every setup failure must name the exact setup gate.
+Every proof failure must name the exact proof phase and gate.
 ```
 
-### Setup Substeps
+### Setup Gates
 
-| Code | Substep | Pass condition |
+| Gate | Pass condition | Typical breadcrumbs |
 | --- | --- | --- |
-| `SETUP_1_ENV` | Build and environment | Correct build mode, app URL, secrets, and test/live mode are proven. |
-| `SETUP_2_AUTH_TIER` | Auth and entitlement | User is signed in and effective Free/Pro tier matches the STT path. |
-| `SETUP_3_MODE` | STT mode selected | Intended STT mode is visible and machine-readable. |
-| `SETUP_4_MODEL_READY` | Model/provider/runtime ready | Private model/provider/runtime or Cloud/Native provider is ready before scoring. |
-| `SETUP_5_INPUT_ROUTE` | Mic/audio route | Requested mic constraints or human-mic/input route are captured and valid. |
-| `SETUP_6_INSTRUMENTATION` | Evidence hooks | Required logs, timing fields, transcript states, and artifact writers are populated. |
+| `setup.build_env` | Correct build mode, app URL, secrets, and test/live mode are proven. | `BUILD_ENV_READY`, `APP_URL_READY`, `SECRETS_PRESENT` |
+| `setup.auth_tier` | User is signed in and effective Free/Pro tier matches the STT path. | `AUTH_FORM_VISIBLE`, `LOGIN_SUCCESS`, `TIER_CONFIRMED` |
+| `setup.stt_mode` | Intended STT mode is visible and machine-readable. | `MODE_SELECTED`, `MODE_VISIBLE`, `MODE_DEBUG_VALUE` |
+| `setup.model_provider` | Intended model/provider can be reached and is ready or explicitly downloading. | `SETUP_BUTTON_VISIBLE`, `SETUP_CLICKED`, `MODEL_STATUS`, `PROVIDER_READY` |
+| `setup.runtime_telemetry` | Runtime/provider/device/thread/fallback telemetry is populated before scoring. | `RUNTIME_DEBUG_READY`, `WORKER_TELEMETRY_READY`, `CLOUD_FALLBACK_FALSE` |
+| `setup.mic_input` | Requested mic constraints or human-mic/input route are captured and valid. | `MIC_CONSTRAINTS_CAPTURED`, `AUDIO_ROUTE_VALID`, `HUMAN_MIC_CONFIRMED` |
+| `setup.artifact_schema` | Required logs, timing fields, transcript states, and artifact writers are populated. | `ARTIFACT_WRITER_READY`, `TIMING_FIELDS_READY`, `TRANSCRIPT_STATES_READY` |
 
-### Execution Substeps
+### Proof Phases
 
-| Code | Substep | Pass condition |
+| Phase | Gate | Pass condition | Typical breadcrumbs |
 | --- | --- | --- |
-| `EXEC_1_START_PROGRESS` | Start/progress | User sees recording/listening/processing progress quickly. |
-| `EXEC_2_FIRST_TEXT` | First text/draft | First usable interim/draft/final text appears within the mode budget. |
-| `EXEC_3_FINAL_COMPLETENESS` | Final transcript completeness | Final transcript preserves beginning, middle, tail, and expected length. |
-| `EXEC_4_ACCURACY_FILLERS` | Accuracy and fillers | Accuracy, filler recall, and false filler insertion meet baseline/target. |
-| `EXEC_5_READABILITY` | Punctuation/readability | Terminal punctuation, sentence boundaries, casing, no run-on text, no duplication. |
-| `EXEC_6_STOP_SAVE_DETAIL` | Stop/save/history/detail | Stop selects the intended transcript and saved/history/detail match it. |
-| `EXEC_7_TIMING_BUDGET` | Timing budget | Finalization and detail visibility are within the mode-specific budget. |
+| `runtime` | `proof.runtime.provider_selected` | Correct STT provider/runtime actually handles the run; no unintended fallback. | `ENGINE_READY`, `RUNTIME_SELECTED`, `RECORDING_STARTED` |
+| `timing` | `proof.timing.first_progress` | User sees recording/listening/processing progress quickly. | `FIRST_PROGRESS_MS`, `RECORDING_STATE_AT` |
+| `timing` | `proof.timing.first_text` | First usable interim/draft/final text appears within the mode budget. | `FIRST_TEXT_MS`, `FIRST_DRAFT_VISIBLE_AT` |
+| `timing` | `proof.timing.finalization_wait` | Finalization and detail visibility are within the mode-specific budget. | `STOP_CLICKED`, `FINAL_READY_MS`, `DETAIL_VISIBLE_AT` |
+| `accuracy` | `proof.accuracy.final_completeness` | Final transcript preserves beginning, middle, tail, and expected length. | `FINAL_TRANSCRIPT_WORDS`, `EXPECTED_WORDS`, `TAIL_PRESERVED` |
+| `accuracy` | `proof.accuracy.fillers` | Accuracy, filler recall, and false filler insertion meet baseline/target. | `FILLER_RECALL`, `FALSE_FILLERS`, `WER` |
+| `accuracy` | `proof.accuracy.readability` | Terminal punctuation, sentence boundaries, casing, no run-on text, no duplication. | `PUNCTUATION_QUALITY`, `READABILITY_VERDICT` |
+| `journey` | `proof.journey.stop_save_detail` | Stop selects the intended transcript and saved/history/detail match it. | `STOP_SELECTED_SOURCE`, `SAVED`, `HISTORY_VISIBLE`, `DETAIL_VISIBLE` |
 
 Current example:
 
-| STT | Latest failure bucket | Failed substep | Why |
+| STT | Error phase | Failed gate | Why |
 | --- | --- | --- | --- |
-| Private v4 browser proof | SETUP | `SETUP_4_MODEL_READY` | Private/Vault setup did not finish; Start stayed disabled. |
-| Private v2 browser proof | EXECUTION | `EXEC_3_FINAL_COMPLETENESS` | Setup reached recording, but transcript captured only 8 words against 87 expected. |
-| Cloud A/B keyterms | EXECUTION | `EXEC_4_ACCURACY_FILLERS` | Requests are now valid, but keyterms hurt h1_6 accuracy. |
-| Native human proof | EXECUTION | `EXEC_5_READABILITY`, `EXEC_6_STOP_SAVE_DETAIL` | Chrome produced words, but readability and stop/save/detail failed. |
+| Private v4 browser proof | setup | `setup.model_provider` | Private/Vault setup did not finish; Start stayed disabled. |
+| Private v2 browser proof | accuracy | `proof.accuracy.final_completeness` | Setup reached recording, but transcript captured only 8 words against 87 expected. |
+| Cloud A/B keyterms | accuracy | `proof.accuracy.fillers` | Requests are now valid, but keyterms hurt h1_6 accuracy. |
+| Native human proof | accuracy, journey | `proof.accuracy.readability`, `proof.journey.stop_save_detail` | Chrome produced words, but readability and stop/save/detail failed. |
 
 ## Candidate Set
 
