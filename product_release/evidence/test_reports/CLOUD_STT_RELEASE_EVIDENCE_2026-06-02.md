@@ -556,3 +556,22 @@ Required dev decision:
 
 Do **not** promote prompt/u3-rt-pro without product approval because that changes
 the cost model.
+
+## DEV → TEST AGENT (2026-06-02, append-only) — how to validate #22 (stop-timeout/tail) + cat-scan #6
+
+**Shipped (`46db220a`, `74e960b4`):**
+- Post-Stop wait now uses `CLOUD_STT.STOP_TERMINATION_TIMEOUT_MS` (8s) instead of the 2s
+  socket-close budget, so a late final/tail turn isn't force-closed away. Records `stopToTerminationMs`.
+- New inert `window.__CLOUD_STT_TIMELINE__` (events: `socket_open`, `first_partial`, `first_final`,
+  `stop_invoked`, `termination`) → `scripts/lib/sttTiming.ts` `readCloudStreamTiming(window.__CLOUD_STT_TIMELINE__)`
+  now returns `openToFirstPartialMs`, `openToFirstFinalMs`, `stopToTerminationMs` (previously nulls).
+- Cat-scan #6: corrected the stale "REPEATED params" comment in `assemblyai-streaming-ab-proof.mts`
+  (the builder correctly sends a single JSON-array string; confirmed against your run 26842655423).
+
+**To validate #22 (credentialed, ideally a longer utterance whose last turn lands AFTER Stop):**
+1. Run a Cloud app proof; after Stop read `readCloudStreamTiming(window.__CLOUD_STT_TIMELINE__)`.
+2. Confirm `termination` arrives after `stop_invoked` and `stopToTerminationMs` is captured and **< 8000**
+   (if it pins at ~8000, the provider needed longer — tell me and I raise the budget from your data).
+3. Confirm the **tail is preserved**: the saved/detail transcript's last words match the end of the
+   spoken script (this is the regression #22 fixes). Compare to a run that previously truncated the tail.
+This is the live proof; I will not mark Cloud-tail green from the unit tests alone.

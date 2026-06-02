@@ -521,3 +521,27 @@ quantized model is far smaller. The readiness signaling is correctly wired: the 
    (fp32 → q8/fp16) to shrink the download materially at some accuracy cost. I recommend A for the
    proof now (pre-warm) and a product decision on B for first-run UX.
 I did not change the v4 model config or timeouts — that needs the product accuracy/size call.
+
+## DEV → TEST AGENT (2026-06-02, append-only) — how to validate #21 + cat-scan confirmations
+
+**Cat-scan findings — confirmed/refuted:**
+- **#1 (proof scores too early, reads DOM while `runtimeState=STOPPING`):** CONFIRMED, and it's a
+  **harness sequencing** issue in your `tests/live/benchmark-cpu.live.spec.ts:73` / `benchmark-v4.live.spec.ts:73`.
+  Fix on your side: after Stop, **wait for finalization to finish** before scoring — gate on
+  `data-transcript-state="final"` (not `finalizing`) on the transcript container, OR poll
+  `window.__SPEECH_RUNTIME_DEBUG__().saveCandidate != null`, then read `saveCandidate.selectedForSave`.
+  Do NOT read `transcript-container` text while `Processing speech locally…` is showing.
+- **#2 (v4 warm-up mismatch / init-failed risk):** CONFIRMED as a risk; **fixed (`74e960b4`)** — the v4
+  warm-up is now **non-fatal** (model is loaded before warm-up, so a warm-up hiccup no longer surfaces as
+  init-failed). Note: the primary v4 setup failure is still the ~120 MB cold download vs the 90s budget
+  (pre-warm the cache); this fix removes warm-up as a second failure vector.
+
+**To validate #21 (finalize-status-before-wait, commit `78e0a2ee`):**
+1. Run a Private proof; at Stop confirm the finalizing state appears **immediately** —
+   `data-transcript-state="finalizing"` / `Processing speech locally…` should show with ~0ms gap after
+   Stop, NOT only after the in-flight live decode drains.
+2. Confirm **no stale live partial flashes** after Stop (in-flight live emits are now suppressed; only the
+   whole-utterance final lands).
+3. Read the final from `__SPEECH_RUNTIME_DEBUG__().saveCandidate` once `data-transcript-state="final"`.
+This + fixing #1's sequencing should resolve the "Private under-captures" false classification. I will not
+mark Private green from the unit tests alone — your live timing/finalization run is the proof.
