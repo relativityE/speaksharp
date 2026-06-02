@@ -173,7 +173,7 @@ async function clearPrivateModelStorage(page: Page) {
 }
 
 async function preparePrivateModelIfPrompted(page: Page) {
-  const downloadButton = page.getByTestId('download-model-button');
+  const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
   if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
     await downloadButton.click();
   }
@@ -304,7 +304,7 @@ async function getWarmupEvidence(page: Page): Promise<WarmupEvidence> {
 async function getFirstUseSnapshot(page: Page): Promise<FirstUseSnapshot> {
   return await page.evaluate(() => {
     const root = document.documentElement;
-    const downloadButton = document.querySelector('[data-testid="download-model-button"]');
+    const downloadButton = document.querySelector('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]');
     const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
 
     return {

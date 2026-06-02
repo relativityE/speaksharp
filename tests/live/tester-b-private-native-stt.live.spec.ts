@@ -127,7 +127,7 @@ async function signUp(page: Page, accountEmail: string, accountPassword: string)
 }
 
 async function preparePrivateModelIfPrompted(page: Page) {
-  const downloadButton = page.getByTestId('download-model-button');
+  const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
   if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
     await downloadButton.click();
   }

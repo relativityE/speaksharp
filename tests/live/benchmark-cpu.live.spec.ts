@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, waitForPrivateEngineReady, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, preparePrivateModelIfPrompted, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -55,8 +55,8 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
 
     await selectBenchmarkMode(page, 'private');
 
-    // Ensure the Private engine is fully initialized (WASM downloaded and booted) BEFORE starting.
-    await waitForPrivateEngineReady(page, 180_000);
+    // Ensure the Private engine/model is downloaded and fully initialized BEFORE starting.
+    await preparePrivateModelIfPrompted(page, 180_000);
 
     await page.getByTestId('session-start-stop-button').click();
     await expectBenchmarkRecordingStarted(page, 'private-cpu');

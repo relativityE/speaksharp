@@ -127,7 +127,7 @@ async function clearPrivateModelStorage(page: Page) {
 }
 
 async function preparePrivateModelIfPrompted(page: Page) {
-  const downloadButton = page.getByTestId('download-model-button');
+  const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
   if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
     await downloadButton.click();
   }
@@ -173,7 +173,7 @@ async function getCacheSnapshot(page: Page): Promise<CacheSnapshot> {
       ? (await indexedDB.databases()).map((database) => database.name).filter((name): name is string => Boolean(name))
       : [];
     const root = document.documentElement;
-    const downloadButton = document.querySelector('[data-testid="download-model-button"]');
+    const downloadButton = document.querySelector('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]');
 
     return {
       cacheNames,
