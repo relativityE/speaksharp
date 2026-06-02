@@ -78,8 +78,8 @@ Current application of the rule:
 | --- | --- | --- | --- |
 | Cloud baseline | Passing with real credentials | Strong candidate; baseline safer than keyterms | Close Cloud baseline proof first |
 | Cloud keyterms | Passing after request/session fix | accuracy phase, `proof.accuracy.fillers`: filler improves, h1_6 accuracy regresses | Dev must fix/narrow/disable keyterms |
-| Private v2 browser | Passing far enough to record | accuracy phase, `proof.accuracy.final_completeness`: 8/87 words captured | Debug under-capture |
-| Private v4 browser | setup phase, `setup.model_provider`: Vault setup/readiness did not finish | Not scoreable | Fix setup/readiness before STT claims |
+| Private v2 browser | Passing auth, Pro, setup, provider ready, recording, and saveCandidate | timing + accuracy phases: first visible text gate saw only 2 words before Stop; authoritative final saved 60 words but only 37.93% accuracy | Debug browser-path accuracy/timing. The old 8/87 DOM read is superseded. |
+| Private v4 browser | setup/runtime phase, `setup.model_provider`: v4 worker failed WebGPU adapter/backend acquisition and Start stayed disabled | Not scoreable | Fix CPU fallback or classify WebGPU adapter failure as setup invalid before STT claims |
 | Native human mic | Passing real-human input route | accuracy + journey phases, `proof.accuracy.readability` and `proof.journey.stop_save_detail` | Fix formatting/stop-save, then rerun |
 
 ## Canonical Reviewer Path To Release
@@ -187,7 +187,7 @@ is the fairest customer-expectation comparator.
 | STT | Current state | What moved in the right direction | Remaining blocker |
 | --- | --- | --- | --- |
 | Cloud | Closest to release/brag candidate | Baseline AssemblyAI path is the strongest architecture for long speeches because it streams/finalizes turns | Credentialed A/B, filler recall, tail preservation, and trace-complete app proof are still required |
-| Private | Technically plausible again for long-form after `return_timestamps:true` finding | Save/history/detail and runtime telemetry improved; Washington 65.8s Node fixture shows v4 ties v2 accuracy and is faster | Browser app-path proof still missing for long speech, first-feedback timing, and final convergence |
+| Private | Technically plausible but not release-green | Save/history/detail and runtime telemetry improved; Washington 65.8s Node fixture shows v4 ties v2 accuracy and is faster; latest workflow confirms saveCandidate instrumentation works | Current browser workflow v2 final accuracy is only 37.93% and first useful text is too sparse; v4 setup/runtime fails before transcription |
 | Native | Useful comparator for customer expectation, not yet green | Duplicate-stop class has unit coverage; human run proved Chrome can produce strong transcript | Fresh human real-mic proof and punctuation/casing strategy still open |
 
 ## Evidence Snapshot

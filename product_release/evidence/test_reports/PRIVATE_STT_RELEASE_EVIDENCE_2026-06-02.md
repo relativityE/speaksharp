@@ -439,7 +439,149 @@ is blocked until first-time setup/auth/model-readiness is part of the harness.
 This is the next Private closure task before another accuracy claim.
 ```
 
-## TEST AGENT UPDATE (2026-06-02T21:35Z) — current-head proof now fails fast with exact gates
+## TEST AGENT UPDATE (2026-06-02T22:58Z) — saveCandidate rerun supersedes the 8-word DOM read
+
+After patching the Private browser benchmark harness to read
+`window.__SPEECH_RUNTIME_DEBUG__().saveCandidate.selectedForSave` after Stop,
+I reran the Private browser workflow:
+
+```text
+Controlled STT Benchmarks: 26852510533
+Private Browser Benchmarks job: 79187735332
+Commit: b9c00f27
+Artifact: /private/tmp/private-browser-26852510533/
+```
+
+### What changed
+
+The prior "8 words / `Processing speech locally...So wild tales to frighten
+him.`" classification was a DOM extraction problem, not the authoritative saved
+transcript. The new harness reached the real save candidate.
+
+### Current v2 result
+
+| Gate | Expected | Actual | Result |
+| --- | --- | --- | --- |
+| setup.auth_tier | real/test Pro account signs in | Passed | pass |
+| setup.stt_mode | Private selected | Passed | pass |
+| setup.model_provider | Private model/provider ready | Passed: `SETUP_MODEL_PROVIDER_READY`, `modelStatus=ready`, `serviceState=READY` | pass |
+| proof.runtime.provider_selected | recording starts in Private | Passed: `PROOF_RUNTIME_RECORDING_STARTED_PRIVATE-CPU` | pass |
+| proof.timing.first_text | >5 visible words before Stop | Failed: expected >5, received 2 | fail |
+| proof.journey.stop_save_detail | authoritative save candidate after Stop | Passed: `saveCandidateReason=service_result`, 60 final words | pass |
+| proof.accuracy.final_quality | final transcript near drop-in / release quality | Failed: WER 62.07%, accuracy 37.93% | fail |
+
+Authoritative `saveCandidate`:
+
+```text
+saveCandidateReason: service_result
+finalWordCount: 60
+meaningfulWordCount: 60
+selectedForSaveLength: 319
+resultTranscriptLength: 319
+chunkTranscriptLength: 319
+storeTranscriptLength: 319
+storePartialTranscriptLength: 0
+visibleStoreTranscriptLength: 319
+frozenStopTranscriptLength: 60
+candidateLengths:
+- service_result: 319
+- committed_final: 319
+- visible_snapshot: 60
+- best_meaningful_partial: 60
+- store_visible_snapshot: 319
+```
+
+Selected final:
+
+```text
+The tail smell of old beer, like lingers. Basically, a dash on pepper spoil
+beef too. Well, the one knife was far short on perfect. You know, the marks was
+thrown beside the parked truck. Literally, the twister left no trace on the
+town. A, like, toed wild tail to frighten him. We, um, find joy in the simplest
+things.
+```
+
+Current v2 classification:
+
+```text
+Private v2 setup is fixed enough to run.
+The 8-word under-capture classification is superseded.
+Private v2 is still not release-green because first visible text is too sparse
+and the saved final transcript is only 37.93% accurate in this workflow.
+```
+
+### Current v4 result
+
+| Gate | Expected | Actual | Result |
+| --- | --- | --- | --- |
+| setup.auth_tier | Pro account signs in | Passed | pass |
+| setup.stt_mode | Private selected | Passed | pass |
+| setup.model_provider | v4 model/provider ready within budget | Failed: app entered `INIT_FAILED`; Start stayed disabled | fail |
+| proof.* | transcript proof | Not reached | invalid for accuracy |
+
+Trace console:
+
+```text
+[TransformersJSV4] Failed to initialize engine.
+Error: no available backend found. ERR: [webgpu] Failed to get GPU adapter.
+You may need to enable flag "--enable-unsafe-webgpu" if you are using Chrome.
+```
+
+Current v4 classification:
+
+```text
+Private v4 remains setup/runtime blocked before transcription. Do not score v4
+accuracy from this workflow. Dev should confirm v4 CPU fallback behavior or
+classify this environment as INVALID_SETUP setup.model_provider when WebGPU
+adapter acquisition fails.
+```
+
+### Dev attention needed
+
+1. **Private v2 accuracy:** Explain why current browser workflow final output is
+   37.93% accurate even though setup and saveCandidate selection are working.
+   This is no longer the old DOM-banner extraction issue.
+2. **Private v2 timing/trust:** First visible text gate saw only 2 words before
+   Stop. The UI progress state is present, but useful draft text remains too
+   late/sparse for release trust.
+3. **Private v4 runtime:** Current failure is `webgpu` adapter acquisition /
+   backend selection. Either v4 must fall back to CPU in this environment, or
+   the harness/product must classify it as setup invalid before any STT score.
+
+### New dev experiment to validate: cross-origin isolation / WASM threads
+
+Dev shipped an env-gated experiment toggle in `8a030dd0`:
+
+```text
+STT_CROSS_ORIGIN_ISOLATED=1
+```
+
+The toggle is off by default and does not change baseline behavior. If enabled
+for a scoped preview, it should be treated as a timing experiment only until
+proved:
+
+| Gate | Required proof |
+| --- | --- |
+| isolation | `window.crossOriginIsolated === true` and `SharedArrayBuffer` available |
+| worker threading | Private worker reports `wasmThreadCount > 1` / `wasm-multithread` |
+| third-party smoke | Supabase auth/profile, Sentry/PostHog, model assets/cache, fonts, and hosted Stripe checkout redirect still work; no Stripe.js dependency inside the isolated document |
+| benchmark | compare current vs isolated on `h1_2`, `h1_6`, `h1_8`, `h1_10`, and `washington_01` |
+
+Release interpretation:
+
+```text
+This may improve Private CPU decode/finalization timing. It does not by itself
+fix user trust or accuracy. User trust still requires immediate progress state,
+useful draft timing, accurate final saveCandidate text, and score/analytics
+confidence gating.
+```
+
+## TEST AGENT UPDATE (2026-06-02T21:35Z) — superseded by 22:58Z saveCandidate rerun
+
+**Superseded detail:** this run scored the DOM transcript panel during
+finalization and classified v2 as an 8-word under-capture. The 22:58Z rerun above
+shows the authoritative saved transcript contained 60 final words, so use this
+older section only as evidence that the bounded setup/proof taxonomy works.
 
 After adding setup/proof breadcrumbs and bounded readiness timeouts, I reran the
 Private browser workflow:

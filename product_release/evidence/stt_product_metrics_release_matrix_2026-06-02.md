@@ -66,38 +66,81 @@ Current example:
 | STT | Error phase | Failed gate | Why |
 | --- | --- | --- | --- |
 | Private v4 browser proof | setup | `setup.model_provider` | Private/Vault setup did not finish; Start stayed disabled. |
-| Private v2 browser proof | accuracy | `proof.accuracy.final_completeness` | Setup reached recording, but transcript captured only 8 words against 87 expected. |
+| Private v2 browser proof | timing, accuracy | `proof.timing.first_text`, `proof.accuracy.fillers` / final quality | Current-head run `26852510533`: setup/model ready passed and authoritative `saveCandidate` saved 60 words, but first live text gate saw only 2 words before timeout and final transcript accuracy was only 37.93%. |
 | Cloud A/B keyterms | accuracy | `proof.accuracy.fillers` | Current-head run `26850691978`: requests/session validity closed; keyterms still hurts h1_6 accuracy. |
 | Native human proof | accuracy, journey | `proof.accuracy.readability`, `proof.journey.stop_save_detail` | Chrome produced words, but readability and stop/save/detail failed. |
 
-### Latest Current-Head Private Browser Proof: 2026-06-02T21:29Z
+### Latest Current-Head Private Browser Proof: 2026-06-02T22:46Z
 
 Run:
 
 ```text
-Controlled STT Benchmarks: 26848986617
-Private Browser Benchmarks job: 79176052331
-Commit: bdb14290
-Artifact: /private/tmp/private-browser-26848986617/private-browser-benchmark-artifacts/
+Controlled STT Benchmarks: 26852510533
+Private Browser Benchmarks job: 79187735332
+Commit: b9c00f27
+Artifact: /private/tmp/private-browser-26852510533/
 ```
 
-This run confirms the new bounded setup/proof error taxonomy works. The job
-failed in 3m40s, not the prior 6-7 minute global timeout. It produced exact
-gate errors:
+This rerun used the authoritative Stop/save candidate exposed at
+`window.__SPEECH_RUNTIME_DEBUG__().saveCandidate` instead of scoring
+`transcript-container` text during `STOPPING`.
+
+It changed the Private v2 diagnosis:
+
+```text
+Old contaminated read: 8 words, because the harness read the DOM while
+`Processing speech locally...` was rendered in the transcript panel.
+
+New authoritative read: 60 saved words selected from `service_result`.
+The prior 8-word under-capture classification is superseded.
+```
+
+The rerun still fails release proof:
 
 | Candidate | Step | Expected | Actual | First broken gate | Exit/error code |
 | --- | --- | --- | --- | --- | --- |
-| Private v2 | setup | Auth, Pro tier, Private mode, setup click, provider ready | Passed. `SETUP_MODEL_PROVIDER_READY` at +7.3s; model status `ready`; service `READY`. | none | none |
-| Private v2 | proof | Start, first text, Stop, complete final transcript | Recording started at +7.7s; first draft at +13.7s; Stop at +33.8s; final/visible transcript only `Processing speech locally…So wild tales to frighten him.` | `proof.accuracy.final_completeness` | `PROOF_FAIL proof.accuracy.final_completeness under_capture: transcript has only 8 words against 87 expected` |
-| Private v4 | setup | Auth, Pro tier, Private mode, setup click, provider ready within 90s | Auth/mode/setup button passed; after click, model stayed `loading` then ended `FAILED` / `init-failed`; Start stayed disabled. | `setup.model_provider` | `INVALID_SETUP setup.model_provider TIMEOUT private-engine-ready-timeout after 90000ms` |
+| Private v2 | setup | Auth, Pro tier, Private mode, setup click, provider ready | Passed. `SETUP_MODEL_PROVIDER_READY`; model status `ready`; service `READY`; recording started. | none | none |
+| Private v2 | proof | Show useful early draft, Stop, save complete accurate transcript | First live-text gate failed before Stop: expected >5 visible words, received 2. After Stop, `saveCandidate.selectedForSave` existed with 60 words from `service_result`, but WER was 62.07% / accuracy 37.93%. | `proof.timing.first_text`, then final quality | `expect(received).toBeGreaterThan(expected): Expected > 5, Received 2`; saved final logged as `Private (CPU) Ceiling: WER 62.07% -> Accuracy 37.93%` |
+| Private v4 | setup | Auth, Pro tier, Private mode, setup click, provider ready within 90s | Auth/mode/setup button passed; after click, worker failed WebGPU adapter acquisition and app ended `INIT_FAILED`; Start stayed disabled. | `setup.model_provider` / runtime backend | `INVALID_SETUP setup.model_provider TIMEOUT private-engine-ready-timeout after 90000ms`; console: `no available backend found. ERR: [webgpu] Failed to get GPU adapter` |
 
 Current read:
 
 ```text
-Private v2 is no longer blocked by auth/model setup in this workflow; it reaches
-proof but fails final completeness badly. Private v4 is still blocked before
-transcription by setup/model-provider readiness. These are different blockers
-and must not be collapsed into one "Private failed" bucket.
+Private v2 is no longer blocked by auth/model setup and the 8-word
+under-capture was a harness read bug. However, v2 is still not release-green:
+the user-visible first-text gate failed and the authoritative saved transcript
+was only 37.93% accurate on the full benchmark fixture.
+
+Private v4 is still blocked before transcription by setup/model-provider
+readiness. This run points to WebGPU backend acquisition / fallback handling in
+the v4 worker, not an accuracy result.
+```
+
+Authoritative v2 save candidate:
+
+```text
+saveCandidateReason: service_result
+finalWordCount: 60
+meaningfulWordCount: 60
+selectedForSaveLength: 319
+resultTranscriptLength: 319
+chunkTranscriptLength: 319
+storeTranscriptLength: 319
+storePartialTranscriptLength: 0
+visibleStoreTranscriptLength: 319
+candidateLengths:
+- service_result: 319
+- committed_final: 319
+- visible_snapshot: 60
+- best_meaningful_partial: 60
+- store_visible_snapshot: 319
+
+selectedForSave:
+The tail smell of old beer, like lingers. Basically, a dash on pepper spoil
+beef too. Well, the one knife was far short on perfect. You know, the marks was
+thrown beside the parked truck. Literally, the twister left no trace on the
+town. A, like, toed wild tail to frighten him. We, um, find joy in the simplest
+things.
 ```
 
 ### Latest Current-Head Cloud A/B Proof: 2026-06-02T22:04Z
@@ -290,7 +333,7 @@ BLOCKER = missing value blocks green classification.
 
 | STT | Classification | Why | Next action |
 | --- | --- | --- | --- |
-| Private | Caveated | Current injected browser proof is much improved: `washington_01` 98.95%; guard rows mostly exact; `h1_6` improved to 87.5%. Not green because Washington readability fails max run-on gate, v4 browser proof is not captured, and physical/human mic route was unavailable. | Resolve readability/punctuation; run v4 browser proof if v4 is candidate; rerun physical/human mic when audio output works. |
+| Private | Caveated / not release-green | Earlier injected browser proof was promising (`washington_01` 98.95%; h1 guard rows mostly exact), but latest current-head workflow `26852510533` shows the release path is still not closed: v2 setup passes but first live text is too sparse and authoritative final accuracy is only 37.93%; v4 fails setup before transcription due WebGPU/backend readiness. | Dev: investigate why v2 browser workflow saved a 60-word low-accuracy transcript despite setup success, and ensure v4 falls back or classifies cleanly when WebGPU adapter is unavailable. Test: rerun after fixes using saveCandidate and collect v2/v4 equally. |
 | Cloud | Caveated | Cheap credentialed subset on current code is valid: baseline 96.3% accuracy / 83.33% filler recall; keyterms 91.67% / 100%. Keyterms improves filler recall but hurts h1_6 accuracy, so it is not shippable as default. | DEV FIX: change/narrow/replace keyterms so filler recall improves without h1_6 accuracy loss, or disable keyterms and launch Cloud baseline-only. Then test reruns larger baseline-vs-keyterms proof. |
 | Native | Backlog / failed current proof | Human real-mic proof ran and failed product readiness: Chrome produced words, but selectedForSave became `Listening...`, save/detail failed, readability failed, and filler recall was 66.67%. | Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof. |
 
