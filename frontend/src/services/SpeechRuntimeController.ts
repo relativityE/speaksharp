@@ -303,6 +303,10 @@ export class SpeechRuntimeController {
     private isEmissionsSafe: boolean = false;
     private transcriptEmissionSequence = 0;
     private transcriptLifecycle: TranscriptLifecycleState = createEmptyTranscriptLifecycleState();
+    // Authoritative save-candidate decision from the last Stop (debug-only; surfaced
+    // via window.__SPEECH_RUNTIME_DEBUG__().saveCandidate so proofs read ground truth
+    // instead of scraping status/placeholder banners out of the transcript DOM).
+    private lastSaveCandidateDebug: Record<string, unknown> | null = null;
 
     // Segmented Emission Queue
     private emissionQueue: TranscriptUpdate[] = [];
@@ -349,6 +353,11 @@ export class SpeechRuntimeController {
                 sessionId: this.sessionId,
                 lifecycleVersion: this.lifecycleVersion,
                 transcriptLength: this.getStoreTranscriptLength(),
+                // Authoritative save-candidate decision from the last Stop, so proofs
+                // can distinguish a real empty save from DOM-banner extraction noise.
+                saveCandidate: this.lastSaveCandidateDebug,
+                selectedTranscriptForSave: this.transcriptLifecycle.selectedTranscriptForSave ?? null,
+                selectedTranscriptSource: this.transcriptLifecycle.selectedTranscriptSource ?? null,
             });
 
             // Fix 1 Correction: Programmatic Mode Switch
@@ -1823,6 +1832,27 @@ export class SpeechRuntimeController {
                             fillerCount: getFillerTotal(store.fillerData),
                             userWordsCount: this.userWords.length,
                         }, '[DEBUG-STOP] finalization transcript decision');
+                        // Expose the AUTHORITATIVE save-candidate decision so proof
+                        // harnesses read ground truth instead of scraping the
+                        // transcript-container DOM (which includes status/placeholder
+                        // banners like "Processing speech locally…" / "Listening...").
+                        // Surfaced via window.__SPEECH_RUNTIME_DEBUG__().saveCandidate.
+                        this.lastSaveCandidateDebug = {
+                            sessionId,
+                            saveCandidateReason,
+                            selectedForSave: finalTranscript,
+                            selectedForSaveLength: finalTranscript.length,
+                            finalWordCount: finalTranscript.split(/\s+/).filter(Boolean).length,
+                            meaningfulWordCount,
+                            resultTranscriptLength: resultTranscript.length,
+                            chunkTranscriptLength: chunkTranscript.length,
+                            storeTranscriptLength: storeTranscript.length,
+                            storePartialTranscriptLength: storePartialTranscript.length,
+                            visibleStoreTranscriptLength: visibleStoreTranscript.length,
+                            frozenStopTranscriptLength: frozenStopTranscript.length,
+                            candidateLengths: preparedCandidates.map((c) => ({ source: c.source, length: c.text.length })),
+                            capturedAt: Date.now(),
+                        };
                         if ((service.getMode?.() ?? stopEntryMode) === 'cloud') {
                             logger.warn({
                                 willSave: Boolean(result && sessionId && finalTranscript),
