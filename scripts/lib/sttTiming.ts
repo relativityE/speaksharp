@@ -158,10 +158,9 @@ export function readNativeStopTiming(
 
 /* ========================================================================== *
  * CLOUD — streaming / termination tail
- * Reader is ready; production cloud trace global is PENDING (no __CLOUD_STT_TIMELINE__
- * yet). Lands with fix/cloud-stop-timeout-tail. Event names below are the proposed
- * inert trace contract: socket_open, first_partial, first_final, termination,
- * stop_invoked.
+ * Production cloud trace global `window.__CLOUD_STT_TIMELINE__` is now emitted by
+ * CloudAssemblyAI (events: socket_open, first_partial, first_final, stop_invoked,
+ * termination). Pass that array here.
  * ========================================================================== */
 
 export interface CloudStreamTiming {
