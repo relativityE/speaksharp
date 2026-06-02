@@ -76,6 +76,10 @@ type PrivateInferenceAudioCapture = {
   wavDataUrl: string;
   transcript?: string;
   error?: string;
+  // Optional final-decode diagnostics (whole-utterance captures only).
+  speechStartOffsetMs?: number | null;
+  retainedPrerollSamples?: number;
+  decodeMs?: number;
 };
 
 type PrivateSttTimelineEvent = {
@@ -459,7 +463,10 @@ function capturePrivateInferenceAudio(audio: Float32Array): number | null {
   return window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__.length - 1;
 }
 
-function capturePrivateUtteranceAudio(audio: Float32Array): number | null {
+function capturePrivateUtteranceAudio(
+  audio: Float32Array,
+  diagnostics?: { speechStartOffsetMs?: number | null; retainedPrerollSamples?: number },
+): number | null {
   if (!isPrivateTranscriptTraceEnabled()) return null;
 
   const energy = summarizeAudioEnergy(audio);
@@ -471,6 +478,8 @@ function capturePrivateUtteranceAudio(audio: Float32Array): number | null {
     rms: Number(energy.rms.toFixed(6)),
     peak: Number(energy.peak.toFixed(6)),
     wavDataUrl: encodePcm16WavDataUrl(audio),
+    speechStartOffsetMs: diagnostics?.speechStartOffsetMs ?? null,
+    retainedPrerollSamples: diagnostics?.retainedPrerollSamples,
   });
 
   return window.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__.length - 1;
@@ -557,6 +566,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private utteranceSampleCount: number = 0;
   private utteranceTrailingSilentSamples: number = 0;
   private wholeUtteranceTranscript: string = '';
+  // Timing anchors (diagnostics only) for explaining first-text / final-decode
+  // latency. performance.now() ms; null until set this recording.
+  private streamStartAtMs: number | null = null;
+  private speechStartAtMs: number | null = null;
+  private retainedUtterancePrerollSamplesAtStart: number = 0;
   private speechGateStats: SpeechGateStats = {
     framesSeen: 0,
     speechFramesSeen: 0,
@@ -751,6 +765,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.bestVisibleProvisionalTranscript = '';
     this.liveProvisionalTranscript = '';
     this.firstTranscriptAgreementRounds = 0;
+    this.streamStartAtMs = performance.now();
+    this.speechStartAtMs = null;
+    this.retainedUtterancePrerollSamplesAtStart = 0;
     this.updateHeartbeat();
     pushPrivateTimeline('stream_start', {
       serviceId: this.serviceId,
@@ -809,6 +826,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
         if (this.consecutiveSpeechSamples >= SPEECH_START_MIN_SAMPLES) {
           this.hasDetectedSpeech = true;
+          // Timing diagnostics: when speech crossed the gate, and how much pre-onset
+          // preroll was retained into the buffers at that moment.
+          this.speechStartAtMs = performance.now();
+          this.retainedUtterancePrerollSamplesAtStart = this.prerollSampleCount;
+          const speechStartOffsetMs = this.streamStartAtMs == null
+            ? null
+            : Number((this.speechStartAtMs - this.streamStartAtMs).toFixed(1));
           const speechStartBufferedSamples = this.speechStartAudioChunks.reduce(
             (sum, chunk) => sum + chunk.length,
             0,
@@ -833,6 +857,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             speechStartMinSamples: SPEECH_START_MIN_SAMPLES,
             prerollSamples: SPEECH_START_PREROLL_SAMPLES,
             toleratedQuietSamples: this.speechStartQuietSamples,
+            // Diagnostics: latency from mic-start to speech detection, and the
+            // pre-onset preroll actually retained into the buffers.
+            speechStartOffsetMs,
+            retainedPrerollSamples: this.retainedUtterancePrerollSamplesAtStart,
+            retainedPrerollMs: Number((samplesToSeconds(this.retainedUtterancePrerollSamplesAtStart, PRIVATE_STT_SAMPLE_RATE) * 1000).toFixed(1)),
             speechGateStats: this.getSpeechGateStatsSnapshot(),
           });
 
@@ -1880,6 +1909,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     const audio = concatenateFloat32Arrays(this.utteranceAudioChunks);
     const energy = summarizeAudioEnergy(audio);
+    const speechStartOffsetMs = this.streamStartAtMs == null || this.speechStartAtMs == null
+      ? null
+      : Number((this.speechStartAtMs - this.streamStartAtMs).toFixed(1));
     pushPrivateTimeline('whole_utterance_commit_start', {
       serviceId: this.serviceId,
       runId: this.instanceId,
@@ -1887,15 +1919,25 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       durationSec: Number(samplesToSeconds(audio.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
       rms: Number(energy.rms.toFixed(6)),
       peak: Number(energy.peak.toFixed(6)),
+      // Final-decode timing diagnostics (explains why final lands well after Stop).
+      decodeInputDurationMs: Number((samplesToSeconds(audio.length, PRIVATE_STT_SAMPLE_RATE) * 1000).toFixed(1)),
+      speechStartOffsetMs,
+      retainedPrerollSamples: this.retainedUtterancePrerollSamplesAtStart,
       currentPreview: this.currentTranscript.slice(0, 160),
     });
 
-    const capturedAudioIndex = capturePrivateUtteranceAudio(audio);
+    const capturedAudioIndex = capturePrivateUtteranceAudio(audio, {
+      speechStartOffsetMs,
+      retainedPrerollSamples: this.retainedUtterancePrerollSamplesAtStart,
+    });
+    const decodeStartedAtMs = performance.now();
     const result = await this.privateSTT.transcribe(audio);
+    const decodeMs = Number((performance.now() - decodeStartedAtMs).toFixed(1));
     const rawText = result.isOk ? result.data : '';
     if (capturedAudioIndex !== null) {
       const captured = window.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__?.[capturedAudioIndex];
       if (captured) {
+        captured.decodeMs = decodeMs;
         if (result.isOk) captured.transcript = rawText;
         else captured.error = result.error?.message;
       }
@@ -1933,6 +1975,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       rawPreview: rawText.slice(0, 160),
       preview: transcript.slice(0, 160),
       replacedRollingPreview: replacedRollingTranscript.slice(0, 160),
+      // Final-decode wall-clock: time the model spent on the whole-utterance buffer.
+      decodeMs,
     });
 
     this.onTranscriptUpdate?.({ transcript: { final: transcript } });
