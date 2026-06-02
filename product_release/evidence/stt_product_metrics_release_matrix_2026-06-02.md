@@ -1,7 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-02T16:27:05Z  
+**Last updated:** 2026-06-02T17:42:16Z  
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
@@ -347,4 +347,22 @@ Punctuation/readability pass.
 First progress and finalization timing within budget.
 Transcript confidence high enough for scoring.
 Save/history/detail pass.
+```
+
+### Native Human Real-Mic Proof: 2026-06-02
+
+| Candidate | Evidence | Filler recall | Terminal punctuation | Sentence count | Max run-on words | Capitalization errors | Duplicate | Save/history/detail | Release status |
+| --- | --- | ---: | --- | ---: | ---: | --- | --- | --- | --- |
+| Native | human real Chrome mic | 66.67% (2/3) | true | 2 / expected ~4 | 49 | Starts Now, Next Step | pass | fail: selected `Listening...`, saved=false, detail empty | FAIL / not release-green |
+
+Artifact:
+
+```text
+/private/tmp/speaksharp-native-human-proof-20260602.json
+```
+
+Current read:
+
+```text
+Chrome produced usable words and no full-speech duplication, but Native remains blocked by readability and stop/save selection. visibleAtStop/postStopFinal contained the transcript; postStopTranscript and selectedForSave became "Listening..." and saved marker was false. Timing fields were corrected to the stopped session boundary because the artifact also contains a second auto-start after stop.
 ```

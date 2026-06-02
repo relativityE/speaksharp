@@ -269,3 +269,77 @@ traces — if any is missing in your harness output, name it and I'll confirm th
 Do not mark Native green from `say`/fake-audio/injected routes. Native must be classified from a real
 Chrome human-mic run. The injected route is valid for Private (app controls frames into the local
 worker) but NOT for Web Speech, which owns its own recognition pipeline.
+
+## Native Human Real-Mic Proof — 2026-06-02T17:42:16Z
+
+Artifact:
+
+```text
+/private/tmp/speaksharp-native-human-proof-20260602.json
+```
+
+Script:
+
+```text
+Native Chrome microphone proof starts now. I want to make one simple point before we move on. Um, basically, the puppy like chewed up the new shoes, and that changed the whole plan. The main takeaway is that we should pause before the next idea, give one concrete example, and end with a clear next step.
+```
+
+### Result Summary
+
+| Field | Value |
+| --- | --- |
+| Classification | FAIL / not release-green |
+| Evidence type | Human real Chrome mic |
+| Chrome produced usable text | yes |
+| Visible at Stop | Native microphone proof Starts Now. I want to make one simple point before we move on basically the puppy like chewed up the new shoes and that changed the whole plan the main takeaway is that we should pause before the next idea give one concrete example and end with a clear Next Step. |
+| Post-stop final from Native trace | native microphone proof Starts Now I want to make one simple point before we move on basically the puppy like chewed up the new shoes and that changed the whole plan the main takeaway is that we should pause before the next idea give one concrete example and end with a clear Next Step |
+| Post-stop transcript in page | Listening... |
+| Selected for save | Listening... |
+| Saved marker | fail |
+| History visible | pass |
+| Detail transcript | fail / empty |
+| Duplicate full transcript | pass |
+| Blockers | stop did not settle: page.waitForFunction: Timeout 60000ms exceeded.; Native session did not expose saved-session marker. |
+
+### Product Metrics
+
+| Metric | Value | Verdict |
+| --- | ---: | --- |
+| Expected fillers | 3 | info |
+| Recognized fillers | 2 | fail: missed `um` |
+| Filler recall | 66.67% | fail |
+| False filler insertion | 0 | pass |
+| Terminal punctuation present | true | pass |
+| Sentence count | 2 / expected ~4 | fail |
+| Max run-on words | 49 | fail: target <=45 |
+| Capitalization errors | Starts Now, Next Step | fail |
+| Readability verdict | fail | blocker |
+| Transcript confidence | low | block score confidence |
+
+### Timing And Capture
+
+Important trace note: this artifact contains a second auto-start after the stopped session. The values below use the stopped session boundary (`onStop_enter=53209.2ms`) and `nativeAudioReady=5321ms` for first-session audio start; `recordingStateAt` was not retained for that same session.
+
+| Field | Value |
+| --- | ---: |
+| onaudiostartAt | 5321 ms |
+| onspeechstartAt | not captured |
+| firstInterimAt | 37452.3 ms |
+| firstFinalAt | 49343.5 ms |
+| stopClicked/onStop_enter | 53209.2 ms |
+| onendAt | 53375.9 ms |
+| audioStartToFirstInterim | 32131.3 ms |
+| firstInterimToFirstFinal | 11891.2 ms |
+| firstFinalToStop | 3865.7 ms |
+| stopToOnEnd | 166.7 ms |
+| stopToRecognitionFinished | 166.8 ms |
+| Parallel mic duration | 48.1973125 sec |
+| Parallel RMS / peak | 0.02246 / 0.423943 |
+| Speech window | 21150-42800 ms |
+| Segment count | 25 |
+
+### Required Dev Follow-Up
+
+1. Native trusted formatter is now a P0 if Native remains visible: raw Chrome output has wrong casing (`Starts Now`, `Next Step`) and run-on punctuation. The existing formatter seam is identity unless a formatter is registered.
+2. Investigate stop/save selection: visibleAtStop and postStopFinal contain the transcript, but postStopTranscript/selectedForSave became `Listening...`, saved marker was false, and detail transcript was empty. Determine whether this is product code or harness extraction; it blocks Native green either way.
+3. Preserve duplicate-stop guard: this run did not duplicate the full transcript.
