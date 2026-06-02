@@ -1,5 +1,8 @@
 {
   "date": "2026-06-02",
+  "lastUpdated": "2026-06-02T16:27:05Z",
+  "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
+  "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "scope": [
     "private_v2",
     "private_v4",
@@ -12,7 +15,7 @@
       "reason": "Retired from release-candidate comparison because washington_01 measured materially lower accuracy than v2/v4 while v4 is already the latest stable @huggingface/transformers line."
     }
   ],
-  "releaseGate": "Each visible STT path must match or exceed its corresponding drop-in/customer baseline on product metrics, or be caveated/de-emphasized.",
+  "metricGate": "Each visible STT path must match or exceed its corresponding drop-in/customer baseline on product metrics, or be caveated/de-emphasized. Release interpretation lives in canonicalPathToRelease.",
   "metricContract": {
     "accuracyPct": "Not materially worse than drop-in/customer baseline.",
     "fillerRecallPct": "Expected fillers recognized.",

@@ -1,11 +1,23 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-02T16:23:40Z  
+**Last updated:** 2026-06-02T16:27:05Z  
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
-## Executive Position
+## Purpose
+
+This file is the measurement matrix only. The reviewer path-to-release,
+product positioning, and 24/48-hour release plan have been consolidated into:
+
+```text
+product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md
+```
+
+Use this matrix to inspect metric definitions and measured values. Use the
+market-survival review for release strategy and ownership.
+
+## Candidate Set
 
 v3 is removed from the release-candidate comparison set.
 
@@ -26,9 +38,10 @@ Active STT candidates:
 | Cloud | Keep as quality/full-speech launch candidate |
 | Private v3 | Retired from release-candidate comparison unless new evidence reverses this |
 
-## Release Gate
+## Metric Gate
 
-Release gate:
+The release gate is interpreted in the market-survival review. The measurement
+standard used by this matrix is:
 
 ```text
 Each visible STT path must match or exceed its corresponding drop-in/customer
