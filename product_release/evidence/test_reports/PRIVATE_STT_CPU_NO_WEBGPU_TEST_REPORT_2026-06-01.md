@@ -1261,3 +1261,132 @@ The corrected flag makes Private long-form technically plausible again, but it i
 not release-proven until browser app-path evidence shows complete final text,
 acceptable UX timing, and stable save/history/detail on page-length speech.
 ```
+
+## STT TEST AGENT UPDATE (2026-06-02) — v2/v3/v4 Washington long-form comparison
+
+Purpose:
+
+```text
+Add v3 to the v2/v4 comparison using the same dev-style apples-to-apples method:
+Node CPU, byte-identical full-WAV input, same decode options, only engine/package
+version changes.
+```
+
+Version facts:
+
+| Label | Package | Version | Status |
+| --- | --- | --- | --- |
+| `v2` | `@xenova/transformers` | `2.17.2` | installed legacy line |
+| `v3` | `@huggingface/transformers` | `3.8.1` | isolated temp install under `/private/tmp/speaksharp-transformers-v3` |
+| `v4` | `@huggingface/transformers` | `4.2.0` | installed in repo; npm latest stable |
+
+Latest-version check:
+
+```text
+npm view @huggingface/transformers version/dist-tags returned latest=4.2.0.
+No newer stable than v4.2.0 was found.
+```
+
+Speech fixture:
+
+```text
+Source: George Washington, First Inaugural Address, Yale Avalon Project.
+URL: https://avalon.law.yale.edu/18th_century/wash1.asp
+Audio: synthesized with macOS say, converted to PCM16 16k WAV.
+Duration: 65.810 sec.
+Text length: 191 expected words.
+Artifact: /private/tmp/private-v2-v3-v4-washington-longform.json
+Harness: scripts/dev/private-v2-v3-v4-washington-longform.mts
+Checked-in fixture: tests/fixtures/stt-isomorphic/washington-speeches.ts
+Checked-in audio: tests/fixtures/stt-isomorphic/audio/washington_01.wav
+```
+
+Method notes:
+
+```text
+Each engine ran in a separate Node process to avoid native libvips/sharp collisions
+between v2/v3/v4 package stacks.
+
+Decode options:
+- chunk_length_s=30
+- stride_length_s=5
+- return_timestamps=true
+
+This is model/engine evidence only, not browser app-path proof.
+```
+
+Results:
+
+| Engine | Package version | Accuracy | WER | Decode ms | RTF | Words emitted |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `v2` | `2.17.2` | 98.95% | 0.0105 | 10869 | 0.1652 | 190 |
+| `v3` | `3.8.1` | 93.19% | 0.0681 | 5004 | 0.0760 | 181 |
+| `v4` | `4.2.0` | 98.95% | 0.0105 | 6324 | 0.0961 | 192 |
+
+Interpretation:
+
+```text
+On this novel 65.8s Washington speech, v2 and v4 tie on accuracy, while v4 is
+~1.7x faster than v2 by this rerun's decodeMs/RTF. v3 is faster than v2 but materially less
+accurate than v2/v4 on this fixture.
+
+This supports prioritizing v4 over v3 for further browser app-path proof. It does
+not by itself prove v4 should become default, because browser worker behavior,
+model setup/cache, UI timing, final save, and history/detail still require app proof.
+```
+
+## STT TEST AGENT UPDATE (2026-06-02) — vendor baseline comparison status
+
+User requirement:
+
+```text
+Compare SpeakSharp Private results against vendor-published performance for each
+version at different time spans.
+```
+
+Current finding:
+
+```text
+No vendor-published WER-by-duration table was found for Transformers.js package
+versions v2, v3, and v4. These are JavaScript runtime/package versions, not
+separate vendor-published ASR benchmark products with official short/medium/long
+accuracy curves.
+```
+
+Available vendor/primary baselines:
+
+| Baseline | Published by | What it covers | What it does NOT cover | How SpeakSharp should use it |
+| --- | --- | --- | --- | --- |
+| `openai/whisper-tiny.en` model card | Hugging Face/OpenAI model card | Model-level WER on named public ASR datasets; HF page reports mean WER 12.81, LibriSpeech clean WER 5.66, LibriSpeech other WER 15.45, and RTFx 348.12 | Does not provide browser Transformers.js v2/v3/v4 package curves or SpeakSharp mic/app-path numbers | Use as the public model-quality reference, not as proof our browser implementation matches it |
+| Whisper long-form docs | Hugging Face Transformers docs/model card | Whisper is intrinsically 30s-windowed; longer audio needs chunking/sequential long-form behavior and timestamps/chunk handling | Does not publish app-specific WER by speech duration | Use to classify `return_timestamps:false` long-form truncation as misconfiguration/invalid evidence |
+| `@xenova/transformers` package page | npm | v2 legacy package latest is 2.17.2 | No official WER/RTF by duration | Use only to establish package/version status |
+| `@huggingface/transformers` package page / npm view | npm/Hugging Face | v4.2.0 is the current latest stable checked by `npm view`; v3.8.1 is the latest 3.x line tested in isolation | No official WER/RTF by duration | Use only to establish version currency |
+| Native Web Speech | Browser/platform service | Browser exposes Web Speech recognition through platform/browser service | No stable Chrome vendor WER table for our speech scripts; quality is browser/service/device/environment-dependent | Use real Chrome human-mic proof as the effective Native customer-expectation baseline |
+
+Required internal benchmark matrix to satisfy the spirit of the user requirement:
+
+| Time span | Fixture | v2 required | v3 required | v4 required | Native comparator | Release interpretation |
+| --- | --- | --- | --- | --- | --- | --- |
+| Short | Harvard h1_1-h1_10 | yes | optional | yes | real Chrome/native where feasible | Private must not be worse than drop-in or Native expectation on short practice |
+| Medium | `washington_01` 65.8s | yes | yes | yes | Native human/Chrome script of similar length | Private must retain accuracy and low RTF beyond one Whisper window |
+| Long | 90-120s distinct speech | yes | optional if v3 remains weak | yes | Native human/Chrome only if scoped as long-form candidate | Private must prove no truncation and acceptable post-stop wait |
+| Page-length | 2-4 min speech | v4 if chosen | no unless v3 recovers | v4 browser path | Cloud likely primary comparator | Decide whether Private is a true speech-practice engine or a privacy/short-practice mode |
+
+Current Private conclusion:
+
+```text
+Vendor-published duration-specific package baselines do not exist for v2/v3/v4,
+so SpeakSharp must maintain its own reproducible time-span matrix and compare it
+to:
+1. public Whisper model-card dataset WER/RTF,
+2. HF-documented long-form configuration requirements,
+3. Native Chrome real-mic customer-expectation behavior,
+4. Cloud streaming behavior for full-speech practice.
+```
+
+Sources checked:
+
+- Hugging Face `openai/whisper-tiny.en` model card: https://huggingface.co/openai/whisper-tiny.en
+- Hugging Face Whisper docs/model card long-form section: https://huggingface.co/docs/transformers/model_doc/whisper
+- npm `@xenova/transformers`: https://www.npmjs.com/package/@xenova/transformers
+- npm / `npm view @huggingface/transformers`: latest stable observed as `4.2.0` on 2026-06-02.

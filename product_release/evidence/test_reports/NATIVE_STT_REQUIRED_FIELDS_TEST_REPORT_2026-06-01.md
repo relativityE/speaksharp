@@ -331,3 +331,41 @@ proposed engine portfolio is Cloud = full-speech, Private = privacy/short practi
 proven on page-length speeches — it needs the human real-mic quick-start proof + the
 punctuation/casing decision already tracked above. Flagging so Native is not held to a
 long-form bar it is not intended to meet. Confirm if you agree with that scoping.
+
+## STT TEST AGENT UPDATE (2026-06-02) — Native as customer-expectation baseline
+
+User release bar:
+
+```text
+We are chasing speed and accuracy for Native and Private. We must do no worse
+than what customers are used to and expect as normal.
+```
+
+Current Native status:
+
+| Area | Latest position |
+| --- | --- |
+| Vendor-published WER target | No stable Chrome Web Speech WER table found for our scripts/devices. Native is a browser/platform service, not a fixed model package with public benchmark curves. |
+| Practical customer baseline | Real Chrome human-mic behavior: text should appear while speaking, converge quickly, preserve stop/save/history/detail, and not duplicate. |
+| Product role | Zero-setup quick-start and customer-expectation comparator for Private responsiveness. |
+| Current blocker | Human real-mic proof is still required after latest changes; punctuation/casing remains unresolved without approved formatter integration. |
+
+How Native should be compared to Private:
+
+| Dimension | Native customer expectation | Private launch requirement |
+| --- | --- | --- |
+| First feedback | Live text or obvious browser listening state while speaking | Must show local progress immediately; draft text must be labeled while unstable |
+| Final quality | Good enough real Chrome transcript for normal user speech | Must meet or beat Native on the same speech, or clearly justify Private as slower but more private/accurate |
+| Formatting | Normal users expect casing and punctuation to look credible | Private final text already looks better on some scripts; Native needs formatter decision |
+| Long speech | Browser Web Speech may work, but route is vendor/browser dependent | Private must prove long-form with `return_timestamps:true` and acceptable timing, or defer long-form to Cloud |
+
+Current Native launch classification:
+
+```text
+Not green. Native remains the customer-expectation reference for "normal live STT",
+but it still lacks fresh human real-mic proof and formatting/casing closure.
+```
+
+Source checked for Native API baseline:
+
+- MDN Web Speech API: https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API
