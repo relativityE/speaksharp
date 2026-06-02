@@ -175,23 +175,26 @@
         "candidate": "private_v4_browser",
         "step": "setup",
         "errorPhases": [
-          "setup"
+          "setup",
+          "runtime"
         ],
         "failedGates": [
           "setup.model_provider"
         ],
-        "reason": "Private/Vault setup did not finish; Start stayed disabled."
+        "reason": "Current-head run 26852510533: v4 auth/mode/setup button passed, but worker failed WebGPU adapter/backend acquisition, app entered INIT_FAILED, and Start stayed disabled. No accuracy score is valid."
       },
       {
         "candidate": "private_v2_browser",
         "step": "proof",
         "errorPhases": [
+          "timing",
           "accuracy"
         ],
         "failedGates": [
-          "proof.accuracy.final_completeness"
+          "proof.timing.first_text",
+          "proof.accuracy.final_quality"
         ],
-        "reason": "Setup reached recording, but transcript captured only 8 words against 87 expected."
+        "reason": "Current-head run 26852510533 supersedes the old 8-word DOM read. v2 setup and saveCandidate passed; authoritative saved final had 60 words from service_result, but first visible text gate saw only 2 words before Stop and final accuracy was 37.93%."
       },
       {
         "candidate": "cloud_keyterms",
@@ -1701,7 +1704,7 @@
       "stopToDetailVisibleMs": "Total post-stop user wait."
     }
   },
-  "classificationUpdatedAt": "2026-06-02T15:53:29.893Z",
+  "classificationUpdatedAt": "2026-06-02T23:05:00Z",
   "classifications": {
     "cloud": {
       "status": "caveated",
@@ -1710,8 +1713,8 @@
     },
     "private": {
       "status": "caveated",
-      "reason": "Current injected browser proof is much improved: Washington 65.8s 98.95%, h1 guard rows mostly 100%, h1_6 87.5%. Still not green because Washington readability fails max run-on gate, v4 browser proof is not captured, and physical/human mic route was unavailable in this environment.",
-      "next": "Resolve readability/punctuation for medium speech; run v4 browser proof if v4 is candidate; rerun human/physical mic when audio output works."
+      "reason": "Earlier injected browser proof was promising, but latest current-head workflow 26852510533 is not release-green: v2 setup passes and saveCandidate is authoritative, yet first useful text is too sparse and saved final accuracy is only 37.93%; v4 fails setup/runtime before transcription due WebGPU/backend readiness.",
+      "next": "Dev should investigate v2 browser-path final quality and v4 WebGPU/CPU-fallback setup behavior. Test reruns v2/v4 equally after fixes, using saveCandidate rather than DOM transcript text."
     },
     "native": {
       "status": "backlog_failed_current_proof",
@@ -1719,5 +1722,5 @@
       "next": "Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-02T20:20:00Z"
+  "lastUpdatedAt": "2026-06-02T23:05:00Z"
 }
