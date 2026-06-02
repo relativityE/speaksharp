@@ -50,6 +50,7 @@ const SIGNUP_EMAIL = process.env.STT_SIGNUP_EMAIL || `stt-corpus-${Date.now()}@s
 const SIGNUP_PASSWORD = process.env.STT_SIGNUP_PASSWORD || `SttCorpus${Date.now()}!Aa9`;
 const CLEAR_PRIVATE_CACHE = process.env.STT_CLEAR_PRIVATE_CACHE === 'true';
 const PRIVATE_ENGINE = process.env.STT_PRIVATE_ENGINE || '';
+const PRIVATE_MIC_CONSTRAINTS = (process.env.STT_PRIVATE_MIC_CONSTRAINTS || '').trim();
 const CUSTOM_WORD = (process.env.STT_CUSTOM_WORD || '').trim().toLowerCase();
 const NATIVE_CONTINUOUS = process.env.STT_NATIVE_CONTINUOUS || '';
 const NATIVE_INTERIM_RESULTS = process.env.STT_NATIVE_INTERIM_RESULTS || '';
@@ -667,6 +668,9 @@ async function collectTraceSnapshot(page, mode) {
     privateEngineVariant: currentMode === 'private'
       ? document.body?.getAttribute('data-engine-variant') ?? null
       : undefined,
+    privateMicConstraintsDebug: currentMode === 'private'
+      ? window.__PRIVATE_MIC_CONSTRAINTS_DEBUG__ ?? null
+      : undefined,
     transcriptLifecycleTrace: window.__SS_TRANSCRIPT_TRACE__ ?? [],
     nativeTrace: currentMode === 'native' ? window.__NATIVE_BROWSER_TRACE__ ?? [] : undefined,
     nativeParallelCapture: currentMode === 'native' ? (window.__NATIVE_PARALLEL_CAPTURE__ ?? []).map((capture) => ({
@@ -876,6 +880,9 @@ async function runFixture(page, mode, fixture) {
   if (mode === 'private' && PRIVATE_ENGINE) {
     sessionUrl.searchParams.set('privateEngine', PRIVATE_ENGINE);
   }
+  if (mode === 'private' && PRIVATE_MIC_CONSTRAINTS) {
+    sessionUrl.searchParams.set('privateMicConstraints', PRIVATE_MIC_CONSTRAINTS);
+  }
   if (mode === 'native') {
     if (NATIVE_CONTINUOUS) {
       sessionUrl.searchParams.set('nativeContinuous', NATIVE_CONTINUOUS);
@@ -996,6 +1003,7 @@ async function runFixture(page, mode, fixture) {
     privateTrace: traceSnapshot.privateTrace,
     privateAudioChunks: traceSnapshot.privateAudioChunks,
     privateEngineVariant: traceSnapshot.privateEngineVariant,
+    privateMicConstraintsDebug: traceSnapshot.privateMicConstraintsDebug,
     stopStatusSnapshots,
     transcriptLifecycleTrace: traceSnapshot.transcriptLifecycleTrace,
     transcriptLifecycleSummary,
@@ -1114,6 +1122,7 @@ const evidence = {
   maxWer: MAX_WER,
   clearPrivateCache: CLEAR_PRIVATE_CACHE,
   privateEngine: PRIVATE_ENGINE || 'default',
+  privateMicConstraints: PRIVATE_MIC_CONSTRAINTS || 'default-product',
   nativeConfig: {
     continuous: NATIVE_CONTINUOUS || 'default',
     interimResults: NATIVE_INTERIM_RESULTS || 'default',

@@ -43,6 +43,28 @@ cannot, by itself, explain or close the live app-vs-drop-in gap.
   - If B ≈ C and the live gap disappears → h1_6 was a stale/again-variable run.
 - **Cost:** ~0 (toggle shipped). **Risk:** none (default-off).
 
+### 2026-06-01 update from live h1_6 A/B
+
+The first live A/B did **not** support a simple product-default mic-constraint
+change:
+
+| Variant | Observed h1_6 accuracy | Actual Chrome settings captured |
+|---|---:|---|
+| app raw | 75% once, 25% once | echo cancellation / noise suppression / AGC all `false` |
+| app browser-default DSP | 75% twice | echo cancellation / noise suppression / AGC all `true` |
+
+Interpretation:
+
+```text
+The toggle works and Chrome settings are now captured.
+Raw constraints are not consistently better.
+Browser-default DSP did not regress h1_6 in these repeats.
+Do not change the product default from this data.
+```
+
+If h1_6 remains launch-blocking, the next useful evidence is a multi-repeat live
+A/B plus final-decode input-buffer diagnostics, not a one-line mic-default change.
+
 ## Lever 2 — Cross-origin isolation → WASM multithreading (LATENCY, not accuracy)
 
 - **Effect:** speeds CPU decode (multi-threaded WASM), does NOT change accuracy.
