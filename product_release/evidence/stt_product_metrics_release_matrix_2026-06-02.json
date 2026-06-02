@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-02T23:45:00Z",
+  "lastUpdated": "2026-06-02T23:58:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -1864,6 +1864,81 @@
       },
       "transcriptQuality": "NOT_SCORED_ENTITLEMENT_GATE_ONLY",
       "caveat": "Entitlement/revenue-control proof only; does not score transcript accuracy, readability, timing, or save/detail journey."
+    },
+    {
+      "id": "cloud_live_app_journey_26854235595",
+      "candidate": "Cloud AssemblyAI baseline app path",
+      "fixture": "harvard_benchmark_16k_loop_120s",
+      "evidenceType": "browser-proof",
+      "workflowRun": 26854235595,
+      "job": 79193299190,
+      "commit": "bc6ca5da",
+      "artifact": "/private/tmp/live-cloud-artifact-26854235595/",
+      "artifactId": 7372319140,
+      "collectedAt": "2026-06-02T23:31:00Z",
+      "finishedAt": "2026-06-02T23:33:28Z",
+      "classification": "PASS_WITH_METRIC_GAPS",
+      "accuracyPct": null,
+      "wer": null,
+      "fillerRecallPct": null,
+      "falseFillerInsertions": null,
+      "readability": {
+        "terminalPunctuationPresent": "NOT_CAPTURED_CURRENT_RUN",
+        "sentenceCount": "NOT_CAPTURED_CURRENT_RUN",
+        "maxRunOnWords": "NOT_CAPTURED_CURRENT_RUN",
+        "capitalizationErrors": "NOT_CAPTURED_CURRENT_RUN",
+        "duplicateSentenceDetected": "NOT_CAPTURED_CURRENT_RUN",
+        "readabilityVerdict": "NOT_CAPTURED_CURRENT_RUN"
+      },
+      "timing": {
+        "openToFirstPartialMs": "NOT_EXPORTED_CURRENT_RUN",
+        "openToFirstFinalMs": "NOT_EXPORTED_CURRENT_RUN",
+        "stopToTerminationMs": "NOT_EXPORTED_CURRENT_RUN",
+        "durationSeconds": 27.385
+      },
+      "journey": {
+        "liveTranscriptCharsBeforeStop": 778,
+        "liveTranscriptWordsBeforeStop": 141,
+        "providerFinalEvent": true,
+        "providerTerminationEvent": true,
+        "willSave": true,
+        "resultTranscriptLength": 363,
+        "finalTranscriptLength": 363,
+        "wordCount": 67,
+        "fillerCount": 6,
+        "wpm": 147,
+        "playwrightPassed": true
+      },
+      "caveat": "Repeat Cloud app journey proof passed, but this run still did not export exact __CLOUD_STT_TIMELINE__, WER/readability, or scripted tail comparison against ground truth."
+    },
+    {
+      "id": "private_cache_setup_26854295228",
+      "candidate": "Private v2 CPU setup/cache",
+      "fixture": "first_start_second_start_cache",
+      "evidenceType": "browser-proof",
+      "workflowRun": 26854295228,
+      "job": 79193489334,
+      "commit": "bc6ca5da",
+      "artifact": "/private/tmp/live-private-cache-26854295228/",
+      "collectedAt": "2026-06-02T23:32:00Z",
+      "finishedAt": "2026-06-02T23:34:36Z",
+      "classification": "PASS_SETUP_ONLY",
+      "failedPhase": null,
+      "failedGate": null,
+      "setup": {
+        "firstStartModelStatus": "ready",
+        "firstStartRuntimeState": "READY",
+        "cacheNames": [
+          "transformers-cache"
+        ],
+        "transformerCacheKeyCount": 7,
+        "cachePersisted": true,
+        "secondStartReadyWithoutDownloadPrompt": true,
+        "downloadVisibleSecondStart": false
+      },
+      "accuracyPct": null,
+      "wer": null,
+      "caveat": "Setup/cache proof only. It does not score Private transcript accuracy or v4 readiness. Logs still show sparse first drafts held for speech-like substance."
     }
   ],
   "timingContract": {
@@ -1914,16 +1989,16 @@
       "stopToDetailVisibleMs": "Total post-stop user wait."
     }
   },
-  "classificationUpdatedAt": "2026-06-02T23:45:00Z",
+  "classificationUpdatedAt": "2026-06-02T23:58:00Z",
   "classifications": {
     "cloud": {
       "status": "caveated_closest",
-      "reason": "Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. Live Cloud app journey proof run 26853283325 passed stop/save/history-detail smoke with provider final+termination and a 363-character saved result. Cloud token gate proof run 26853914030 passed: missing auth/free/trial/over-quota do not mint tokens, paid Pro does.",
+      "reason": "Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. Live Cloud app journey proof runs 26853283325 and 26854235595 passed stop/save/history-detail smoke with provider final+termination and 363-character saved results. Cloud token gate proof run 26853914030 passed: missing auth/free/trial/over-quota do not mint tokens, paid Pro does.",
       "next": "Launch/position Cloud baseline as quality path if remaining timeline/readability proof passes. Dev/product should change, narrow, or disable keyterms before defaulting it. Test should run Cloud long-script/tail proof that exports __CLOUD_STT_TIMELINE__, WER/readability, and scripted tail comparison."
     },
     "private": {
       "status": "caveated",
-      "reason": "Current-head workflow 26853628019 is not release-green: v2 setup/saveCandidate/persistence work, but saved final accuracy is only 33.33% with 51 words against an 87-word fixture; v4 fails setup/runtime before transcription with modelStatus init-failed and serviceState INIT_FAILED.",
+      "reason": "Current-head workflow 26853628019 is not release-green: v2 setup/saveCandidate/persistence work, but saved final accuracy is only 33.33% with 51 words against an 87-word fixture; v4 fails setup/runtime before transcription with modelStatus init-failed and serviceState INIT_FAILED. Private cache/setup proof run 26854295228 passed for v2 CPU first-start and same-browser second-start cache.",
       "next": "Dev should run the app-buffer replay diagnostic for v2 and investigate v4 WebGPU/CPU-fallback setup behavior. Test reruns v2/v4 after fixes, using saveCandidate rather than DOM transcript text."
     },
     "native": {
@@ -1932,5 +2007,5 @@
       "next": "Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-02T23:45:00Z"
+  "lastUpdatedAt": "2026-06-02T23:58:00Z"
 }

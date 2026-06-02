@@ -1,6 +1,6 @@
 # Cloud STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T23:45:00Z  
+**Updated:** 2026-06-02T23:58:00Z  
 **Scope:** AssemblyAI Cloud STT, credentialed A/B, filler/readability/tail proof, app journey  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -623,6 +623,42 @@ Current read:
 Cloud remains the strongest 24-hour quality path and its entitlement gate is
 now live-proved. This does not close transcript-quality/readability/tail proof;
 it closes the revenue/control gate for Cloud access.
+```
+
+## TEST AGENT UPDATE — repeat Cloud app journey proof
+
+**Collected:** 2026-06-02T23:31Z to 2026-06-02T23:33Z  
+**Workflow:** `live-release-matrix.yml` / `cloud-artifact`  
+**Run:** `26854235595`  
+**Job:** `79193299190`  
+**Commit:** `bc6ca5da`  
+**Artifact:** `/private/tmp/live-cloud-artifact-26854235595/`  
+**Artifact ID:** `7372319140`
+
+Result:
+
+```text
+PASS_WITH_METRIC_GAPS
+```
+
+| Check | Result |
+| --- | --- |
+| Live transcript appeared | pass: `LIVE_CLOUD_TRANSCRIPT_EVIDENCE` logged 778 chars / 141 words before Stop |
+| Provider final event | pass: provider emitted `eventType: final` |
+| Provider termination event | pass: provider emitted `eventType: terminated` |
+| Stop result | pass: `TranscriptionService.stopTranscription returning result`, duration 27.383s, transcriptLength 363 |
+| Save decision | pass: `[CLOUD_SAVE_DECISION] willSave: true`, transcriptLength 363, duration 27.385s |
+| Saved session metrics | pass: finalTranscriptLength 363, wordCount 67, fillerCount 6, WPM 147 |
+| Playwright journey | pass: `1 passed (44.4s)` |
+
+Current read:
+
+```text
+This repeat proof confirms the Cloud app path can stream, Stop, terminate,
+save, and show analytics history on current main. It still does not close the
+release-grade transcript-quality gate because the spec does not export exact
+WER, readability, scripted tail preservation, or the full __CLOUD_STT_TIMELINE__
+derived timing table.
 ```
 
 ## TEST AGENT UPDATE — superseded narrow Cloud A/B validity proof

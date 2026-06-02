@@ -1,6 +1,6 @@
 # Private STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T23:35:00Z  
+**Updated:** 2026-06-02T23:58:00Z  
 **Scope:** Private v2/v4 local STT, browser app path, drop-in parity, timing, and readability  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -23,6 +23,49 @@ Private has moved from lifecycle failure to targeted quality/timing validation.
 The current browser proof shows that lifecycle/Stop/save are not the primary
 v2 blocker anymore. The blocker is final transcript quality/completeness versus
 drop-in. v4 still cannot be scored because setup/runtime fails before recording.
+
+## TEST AGENT UPDATE — Private cache/setup proof
+
+**Collected:** 2026-06-02T23:32Z to 2026-06-02T23:34Z  
+**Workflow:** `live-release-matrix.yml` / `private-cache`  
+**Run:** `26854295228`  
+**Job:** `79193489334`  
+**Commit:** `bc6ca5da`  
+**Artifact:** `/private/tmp/live-private-cache-26854295228/`
+
+Result:
+
+```text
+PASS: Private v2 setup button/cache path works for first start and same-browser second start.
+```
+
+Evidence:
+
+| Check | Result |
+| --- | --- |
+| Inline setup button handled | pass: helper checks both `download-model-button` and `download-model-button-inline` |
+| First start model ready | pass: `modelStatus:"ready"`, `runtimeState:"READY"` |
+| Cache populated | pass: `cacheNames:["transformers-cache"]`, `transformerCacheKeyCount:7` |
+| Second start avoids download prompt | pass: `downloadVisible:false`, `secondStartReadyWithoutDownloadPrompt:true` |
+| Cache persisted | pass: `cachePersisted:true` |
+| Same-browser second start | pass: Playwright `1 passed (34.5s)` |
+
+Caveat:
+
+```text
+This closes the v2 setup/cache path only. It does not close Private transcript
+accuracy or user-trust timing. The same log still shows short draft behavior:
+chunk inference around 2.0-2.6s, preview only "The Stales" / "the stale" with
+wordCount:2, and "Holding first transcript until it has speech-like substance".
+```
+
+Current interpretation:
+
+```text
+Private first-use setup is no longer the v2 CPU setup/cache blocker. The remaining
+Private release blockers are final transcript accuracy/completeness for v2 and
+v4 setup/runtime init failure before transcription.
+```
 
 ## Current Release Metrics
 
