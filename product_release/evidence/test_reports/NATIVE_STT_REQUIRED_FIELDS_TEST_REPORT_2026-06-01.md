@@ -171,6 +171,16 @@ good Chrome final -> corrupted saved/detail, duplicate append, erased transcript
 or failed persistence.
 ```
 
+## Direct Questions For Dev Agent
+
+Please answer these before or alongside the next Native human proof:
+
+1. **Formatter path:** Do you recommend implementing a Native-only trusted formatter now, or should testing first collect another raw human proof? If now, name the provider/library and exact integration point through the existing formatter seam.
+2. **Privacy copy:** If a Native formatter sends transcript text to a server/API, what user-facing copy should distinguish Native from Private? Private must not imply the same behavior.
+3. **Duplicate-stop guard:** Are the current duplicate final/interim regression tests still passing after the latest STT changes? If yes, point to the test file and assertions so human proof can focus on browser behavior.
+4. **Human proof hooks:** Are all required Native timing fields exposed in logs/traces now (`firstInterimAt`, `firstFinalAt`, `visibleAtStop`, `postStopFinal`, `selectedForSave`, saved/detail)? If not, which fields are missing and should be added before testing?
+5. **Do not request fake-audio proof:** Confirm dev agrees Native fake-audio/say routes are diagnostic only and should not be used to mark Native green.
+
 STT test-agent responsibility:
 
 ```text
