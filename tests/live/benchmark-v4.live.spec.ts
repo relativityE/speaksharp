@@ -9,10 +9,10 @@ import {
     assertNoRegression,
     expectBenchmarkRecordingStarted,
     expectBenchmarkTranscriptOutput,
+    preparePrivateModelIfPrompted,
     readBenchmarks,
     selectBenchmarkMode,
     waitForBenchmarkSession,
-    waitForPrivateEngineReady,
     writeBenchmarks,
 } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
@@ -59,7 +59,7 @@ test('measure Transformers.js v4 worker', async ({ page }) => {
 
     await waitForBenchmarkSession(page);
     await selectBenchmarkMode(page, 'private');
-    await waitForPrivateEngineReady(page, 180_000);
+    await preparePrivateModelIfPrompted(page, 180_000);
 
     await page.getByTestId('session-start-stop-button').click();
     await expectBenchmarkRecordingStarted(page, 'private-v4');

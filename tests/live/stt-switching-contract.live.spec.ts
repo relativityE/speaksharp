@@ -234,7 +234,7 @@ async function assertIdleModeSwitch(page: Page, mode: SttMode, options: { allowD
 }
 
 async function startPrivateSetupIfPrompted(page: Page) {
-  const downloadButton = page.getByTestId('download-model-button');
+  const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
   const visible = await downloadButton.isVisible({ timeout: 5_000 }).catch(() => false);
   if (!visible) {
     const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-setup-not-required');
@@ -263,7 +263,7 @@ async function startPrivateSetupIfPrompted(page: Page) {
 }
 
 async function preparePrivateModelIfNeeded(page: Page) {
-  const downloadButton = page.getByTestId('download-model-button');
+  const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
   const startStopButton = page.getByTestId('session-start-stop-button');
   let downloadClicked = false;
 

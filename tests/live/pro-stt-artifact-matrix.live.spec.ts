@@ -265,7 +265,7 @@ async function assertPdfExport(page: Page, testInfo: TestInfo) {
 }
 
 async function preparePrivateModelIfPrompted(page: Page) {
-  const downloadButton = page.getByTestId('download-model-button');
+  const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
   if (await downloadButton.isVisible({ timeout: 5_000 }).catch(() => false)) {
     await downloadButton.click();
   }

@@ -36,6 +36,14 @@ function compact(text) {
   return String(text ?? '').replace(/\s+/g, ' ').trim();
 }
 
+function isPlaceholderTranscript(text) {
+  return /\b(words appear here|listening|start speaking|no speech was detected|session complete)\b/i.test(compact(text));
+}
+
+function firstMeaningfulTranscript(...values) {
+  return values.map(compact).find((value) => value && !isPlaceholderTranscript(value)) || '';
+}
+
 function normalizeForDuplicateScan(text) {
   return compact(text)
     .toLowerCase()
@@ -309,7 +317,11 @@ try {
     }));
   });
   evidence.parallelCaptureSummary = summarizeParallelCapture(evidence.nativeParallelCapture, evidence.nativeTrace);
-  evidence.selectedForSave = evidence.postStopTranscript || evidence.visibleAtStop || evidence.nativeTraceSummary.lastStoreTranscript || '';
+  evidence.selectedForSave = firstMeaningfulTranscript(
+    evidence.nativeTraceSummary.lastStoreTranscript,
+    evidence.postStopTranscript,
+    evidence.visibleAtStop,
+  );
   evidence.duplicateFullTranscript = Boolean(repeatedFourWordSequence(evidence.selectedForSave));
   evidence.repeatedFourWordSequence = repeatedFourWordSequence(evidence.selectedForSave);
 

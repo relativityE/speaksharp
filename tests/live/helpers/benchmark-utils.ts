@@ -264,6 +264,21 @@ export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {
     }
 }
 
+export async function preparePrivateModelIfPrompted(page: Page, timeout = 180_000) {
+    const setupButton = page.locator(
+        [
+            '[data-testid="download-model-button"]',
+            '[data-testid="download-model-button-inline"]',
+        ].join(','),
+    ).first();
+
+    if (await setupButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+        await setupButton.click();
+    }
+
+    await waitForPrivateEngineReady(page, timeout);
+}
+
 export async function expectBenchmarkRecordingStarted(page: Page, label: string) {
     try {
         await expect(page.getByLabel(/Stop Recording/i)).toBeVisible({ timeout: 10_000 });
