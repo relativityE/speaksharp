@@ -113,6 +113,13 @@ Dev does not own human-mic collection.
 STT testing owns the browser/human proof and evidence classification.
 ```
 
+> **DEV RESPONSE (2026-06-01):** Acknowledged — no dev action owed here; human-mic
+> collection is yours. Prior dev finding stands for context: the latest automated run
+> showed Chrome delivered **0 finals** (the app received nothing to drop/duplicate),
+> so this was Chrome under-capture of the `say` route, not an app regression. If your
+> human run shows a good Chrome final but corrupted saved/detail, hand it back per
+> P0.3 and I will trace the exact boundary.
+
 ## Open Issue P0.2 — Native Punctuation/Casing
 
 Issue:
@@ -165,6 +172,52 @@ Dev chooses/integrates the formatter.
 STT testing verifies real browser output and user-visible saved/detail quality.
 ```
 
+> **DEV RESPONSE (2026-06-01) — formatter proposal (answers the 6-field handoff).**
+>
+> Key constraint that shapes the choice: **Native is NOT promised on-device.** Only
+> *Private* mode carries "nothing leaves your browser" (SessionSidebar copy). Native
+> is already a browser/server-dependent path (Chrome Web Speech itself sends audio to
+> Google). So a server-side formatter is acceptable for Native specifically — it does
+> NOT weaken a privacy promise the way it would for Private.
+>
+> **1. Recommended formatter + why trusted:** reuse the app's existing **Gemini**
+> integration (already in-stack via the `get-ai-suggestions` Supabase Edge Function +
+> `AISuggestions.tsx`). A tiny dedicated Edge Function (e.g. `format-transcript`) that
+> sends ONLY the raw Native final text with a strict "restore punctuation and
+> sentence casing; do not add, remove, reorder, or correct words; preserve fillers
+> (um, like, you know) verbatim" instruction. Trusted because it's an existing vetted
+> provider relationship with a server-side key (no new vendor, no client key).
+> Alternative if we want zero network: a small on-device punctuation-restoration ONNX
+> model via the transformers.js stack already loaded for Private — heavier, slower,
+> deferred unless we later promise Native on-device too.
+>
+> **2. Privacy implications:** transcript text (not audio) leaves the device to the
+> Gemini Edge Function. Acceptable for Native (already non-local). MUST be gated so it
+> is NEVER invoked for Private mode. Add a one-line privacy note to Native copy.
+>
+> **3. Cost/latency:** one short text completion per saved Native session (~hundreds
+> of tokens). Latency ~300-800ms on the SAVE path only (never live) — invisible to
+> live UX; adds to post-Stop finalize. Cost is negligible at session cadence; reuse
+> existing AI quota controls.
+>
+> **4. Integration point:** the existing seam, unchanged — call
+> `registerNativeTranscriptFormatter(async (raw) => callFormatEdgeFn(raw))` at app
+> init for Native only. `formatNativeTranscript()` already applies it to SAVED text
+> only and falls back to raw on error/empty. No NativeBrowser.ts change needed.
+>
+> **5. Unit tests (to add with the impl):** identity fallback (no formatter), success
+> path (formatter output used), failure path (throws → raw preserved), empty/unsafe
+> output (→ raw preserved), Private-mode guard (formatter never registered for
+> Private). The seam's first four are already covered by
+> `nativeTranscriptFormatter.test.ts`; the Edge-fn adapter + Private guard are new.
+>
+> **6. Scope:** SAVED final text ONLY — never live interim (the seam already enforces
+> this via `getTranscript()`).
+>
+> **Decision needed from you/product before I implement:** approve Gemini-Edge-fn
+> (server-side, Native-only) vs on-device model. I will not wire a vendor without that
+> call. No code shipped in this response — proposal only, per the handoff contract.
+
 ## Open Issue P0.3 — Stop/Finalization Merge Human Verification
 
 Issue:
@@ -181,6 +234,12 @@ Dev-agent responsibility:
 No new code unless the next human proof reproduces duplication or save mismatch.
 Keep existing unit tests for duplicate-final/interim merge behavior.
 ```
+
+> **DEV RESPONSE (2026-06-01):** Agreed — holding, no code. The duplicate-final/interim
+> merge unit coverage is in place and passing (`NativeBrowser.test.ts`: final+identical
+> interim → no append; final+case/punct variant → no append; one-word interim → not
+> saved). I will write the boundary-localized fix only if your human proof reproduces
+> duplication or save mismatch.
 
 STT test-agent responsibility:
 
