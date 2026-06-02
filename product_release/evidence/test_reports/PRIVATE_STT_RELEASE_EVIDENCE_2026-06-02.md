@@ -477,3 +477,47 @@ Do not compare v2/v4 accuracy from this workflow yet; v4 never reached proof,
 and v2 produced an under-captured transcript that the harness correctly refuses
 to score.
 ```
+
+## DEV → TEST AGENT (2026-06-02, append-only) — P0 root causes for v2 "under-capture" and v4 setup timeout
+
+### Private v2 "under-capture" (final = "Processing speech locally…So wild tales to frighten him.", 8/87)
+**Most likely DOM-extraction contamination, NOT a real decode under-capture — and now verifiable.**
+`"Processing speech locally…"` is the **finalizing status banner** (`live-transcript-finalizing`),
+which is rendered **inside `TRANSCRIPT_CONTAINER`** (LiveTranscriptPanel.tsx:126 container; 139-142
+banner; 201/205 the "Listening…" placeholders). So scraping `transcript-container.textContent` during
+the finalizing window captures the BANNER + whatever single draft fragment was on screen (here h1_6's
+"wild tales to frighten him") — not the finalized transcript. This is the SAME class as the Native
+`Listening...` artifact.
+
+**Fix shipped (commit `58ce4278`):** the controller now exposes the AUTHORITATIVE save candidate at
+`window.__SPEECH_RUNTIME_DEBUG__().saveCandidate` — `selectedForSave`, `saveCandidateReason`,
+`selectedForSaveLength`, `finalWordCount`, `meaningfulWordCount`, and per-candidate lengths
+(`result/chunk/store/storePartial/visibleStore/frozenStop`), plus `selectedTranscriptForSave`.
+
+**Test-agent next:** read `__SPEECH_RUNTIME_DEBUG__().saveCandidate` AFTER Stop (and prefer it over
+DOM scraping for the saved transcript). Then:
+- if `selectedForSaveLength`/`finalWordCount` is the full ~87 words → it was **DOM-banner extraction**,
+  not under-capture (harness should read the global / exclude the banner). No product decode bug.
+- if it is genuinely ~8 words while `storeTranscriptLength`/`visibleStoreTranscriptLength` are large →
+  that IS a real candidate-selection/decode boundary and I will patch product code with those numbers.
+Please paste the `saveCandidate` object from the next v2 run.
+
+### Private v4 setup timeout (INVALID_SETUP setup.model_provider TIMEOUT private-engine-ready-timeout 90000ms)
+**Root cause: v4's model is ~120 MB cold-download vs a 90s readiness budget — a download-budget issue,
+not a v4 code/accuracy bug.** `PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB = 120` (the `encoder_model:'fp32'`
+dtype is the heavy part; decoder is q4). On the benchmark's cleared cache the 120 MB download does not
+finish within the harness's 90s `data-stt-ready` wait → ready-timeout. v2 readies in ~7s because its
+quantized model is far smaller. The readiness signaling is correctly wired: the app exposes
+`data-model-status`, `data-stt-ready`, and worker `progress` events.
+
+**Resolution (no code-fit-to-test timeout bump):**
+1. **Test-agent / harness:** pre-warm the v4 model cache once before the timed proof (or detect
+   `data-model-status`=downloading / `downloadVisible` and classify as `INVALID_DOWNLOAD_REQUIRED`
+   rather than an STT/accuracy fail — exactly per the reviewer's guidance). v4 accuracy is unmeasured
+   until setup reaches ready.
+2. **Product decision (dev will implement on the call):** the 120 MB `fp32` encoder is heavy for
+   first-load UX. Option A: keep fp32 (best accuracy: v4 96.39% Harvard) and accept a one-time 120 MB
+   download with explicit progress UX + a longer first-load budget. Option B: quantize the encoder
+   (fp32 → q8/fp16) to shrink the download materially at some accuracy cost. I recommend A for the
+   proof now (pre-warm) and a product decision on B for first-run UX.
+I did not change the v4 model config or timeouts — that needs the product accuracy/size call.

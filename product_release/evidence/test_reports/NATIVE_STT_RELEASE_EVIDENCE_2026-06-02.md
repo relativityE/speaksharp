@@ -405,3 +405,37 @@ So it looks like a stop-sequence ORDERING race specific to Native. Before I impl
 whether the SAVE actually selected empty (product bug) or only the harness's post-stop DOM read saw the
 placeholder after a post-save reset (harness extraction). I will ship the correct fix once you answer
 the questions below.
+
+## DEV → TEST AGENT (2026-06-02, append-only) — your 6 answers REVISE the root cause; instrumentation shipped
+
+Thanks for the answers. They change the picture: the Native engine **held the transcript through Stop**
+(`onStop_enter`/`onStop_exit` `currentTranscript length=285`), and `selectedForSave=Listening...` is
+**harness DOM-extraction contamination** — `manual-native-chrome-proof.mjs` reads `postStopTranscript`
+from `transcript-container.textContent`, and `Listening...` is a placeholder rendered **inside** that
+container (LiveTranscriptPanel.tsx:201/205). The second auto-start was ~30s later, so it did NOT clear
+the store before save. So my earlier "currentTranscript wiped by restart" hypothesis is **withdrawn for
+this artifact** — per your read, do not patch product save-ordering from this artifact alone.
+
+**Per your P0.3 ("boundary not clear → add exact trace extraction, don't guess"), I shipped the
+instrumentation you asked for (commit `58ce4278`):** the controller now exposes the AUTHORITATIVE save
+candidate at `window.__SPEECH_RUNTIME_DEBUG__().saveCandidate`:
+`{ saveCandidateReason, selectedForSave, selectedForSaveLength, finalWordCount, meaningfulWordCount,
+resultTranscriptLength, chunkTranscriptLength, storeTranscriptLength, storePartialTranscriptLength,
+visibleStoreTranscriptLength, frozenStopTranscriptLength, candidateLengths[] }` (+ top-level
+`selectedTranscriptForSave` / `selectedTranscriptSource`). This is exactly the save-candidate field set
+you requested, read from a window global after Stop — ground truth, not DOM scraping.
+
+**Test-agent next (one short + one long human run):**
+1. Read `__SPEECH_RUNTIME_DEBUG__().saveCandidate` after Stop instead of treating `transcript-container`
+   text as the saved transcript; also filter the placeholders (`Listening...`,
+   `Start recording and your words will appear here.`, `Processing speech locally…`) in the harness.
+2. If `selectedForSave` is the full text while the DOM shows `Listening...` → **harness extraction bug**
+   (fix the harness; no product change). If `selectedForSave` is empty while
+   `storeTranscriptLength`/`visibleStoreTranscriptLength` are large → that's a real product
+   freeze/candidate-ordering bug and I will patch `freezeTranscriptLifecycleAtStop` / candidate order
+   with those exact numbers.
+
+Confirmed product contract (your Q6): saved transcript should be
+`postStopFinal || committedFinal || visibleAtStop || bestMeaningfulInterim`, never a placeholder.
+Confirmed Q4: user Stop should hard-stop (no post-stop auto-restart) — if the harness's later auto-start
+is product-driven, I'll suppress it once a run shows it firing before save.
