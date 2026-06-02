@@ -24,6 +24,12 @@ interface WindowWithwebkitAudioContext extends Window {
   webkitAudioContext: typeof AudioContext;
   micStream?: MicStream;
   __E2E_BRIDGE_MIC__?: boolean;
+  __PRIVATE_MIC_CONSTRAINTS_DEBUG__?: {
+    mode: 'raw' | 'default';
+    requestedConstraints: boolean | MediaTrackConstraints;
+    actualTrackSettings: Partial<MediaTrackSettings>;
+    capturedAt: string;
+  };
 }
 
 // Product default: raw constraints (DSP off) so the local Whisper decode receives
@@ -118,16 +124,23 @@ export async function createMicStreamImpl(
     try {
       const track = mediaStream.getAudioTracks()[0];
       const settings = track?.getSettings?.() ?? {};
+      const actualTrackSettings = {
+        echoCancellation: (settings as MediaTrackSettings).echoCancellation,
+        noiseSuppression: (settings as MediaTrackSettings).noiseSuppression,
+        autoGainControl: (settings as MediaTrackSettings).autoGainControl,
+        channelCount: (settings as MediaTrackSettings).channelCount,
+        sampleRate: (settings as MediaTrackSettings).sampleRate,
+      };
+      (window as unknown as WindowWithwebkitAudioContext).__PRIVATE_MIC_CONSTRAINTS_DEBUG__ = {
+        mode,
+        requestedConstraints: constraints,
+        actualTrackSettings,
+        capturedAt: new Date().toISOString(),
+      };
       logger.info({
         micConstraintsMode: mode,
         requestedConstraints: constraints,
-        actualTrackSettings: {
-          echoCancellation: (settings as MediaTrackSettings).echoCancellation,
-          noiseSuppression: (settings as MediaTrackSettings).noiseSuppression,
-          autoGainControl: (settings as MediaTrackSettings).autoGainControl,
-          channelCount: (settings as MediaTrackSettings).channelCount,
-          sampleRate: (settings as MediaTrackSettings).sampleRate,
-        },
+        actualTrackSettings,
       }, '[MicStream] getUserMedia constraints applied');
     } catch {
       // Non-fatal: settings introspection is best-effort diagnostics.

@@ -242,6 +242,59 @@ Only STT browser testing can prove h1_6 parity.
 > selector defaults to raw, honors the flag, and unknown values fall back to raw.
 > Commit SHA in the merge note below. No default behavior changed.
 
+### 2026-06-01 Live Mic-Constraint A/B Update
+
+STT testing ran the h1_6 live app A/B after the dev toggle landed and after adding
+evidence capture for both requested constraints and actual Chrome track settings.
+
+Artifacts:
+
+| Artifact | Variant | Accuracy | First text | Stop finalization | Transcript |
+|---|---:|---:|---:|---:|---|
+| `/private/tmp/speaksharp-private-h1_6-raw-20260601202728.json` | raw | 75.0% | 7431ms | 2889ms | `Then, like, told Wild Tales to brighten him.` |
+| `/private/tmp/speaksharp-private-h1_6-default-20260601202910.json` | browser-default DSP | 75.0% | 3841ms | 2960ms | `Day, like, told Wild Tales to frightened him.` |
+| `/private/tmp/speaksharp-private-h1_6-raw-debug-20260601203146.json` | raw | 25.0% | 5355ms | 1829ms | `Day, light, toll quile, tail to brighten him.` |
+| `/private/tmp/speaksharp-private-h1_6-default-debug-20260601203248.json` | browser-default DSP | 75.0% | 3827ms | 3003ms | `Day, light, told Wild Tales to frighten him.` |
+
+Constraint proof from the debug artifacts:
+
+| Variant | Requested by app | Actual Chrome track settings |
+|---|---|---|
+| raw | `{ echoCancellation:false, noiseSuppression:false, autoGainControl:false, channelCount:1 }` | `echoCancellation:false`, `noiseSuppression:false`, `autoGainControl:false`, `channelCount:1`, `sampleRate:48000` |
+| browser-default DSP | `true` | `echoCancellation:true`, `noiseSuppression:true`, `autoGainControl:true`, `channelCount:1`, `sampleRate:48000` |
+
+Test-agent conclusion:
+
+```text
+The toggle and evidence fields work.
+The simple hypothesis "raw mic constraints fix h1_6" is NOT supported.
+The app already defaults to raw, and raw was not consistently better.
+Default/DSP produced 75% twice; raw produced 75% once and 25% once.
+h1_6 remains a repeat-sensitive live-capture/model-path gap, not a proven one-line mic-constraint bug.
+```
+
+Current dev ask:
+
+```text
+Do not change the product mic-constraint default based on this evidence.
+Keep the test-only toggle and constraint debug fields available for repeat testing.
+If dev work is needed next, expose final-decode input-buffer diagnostics:
+- final whole-utterance buffer duration
+- RMS/peak
+- speech window / detected start offset
+- retained preroll samples
+- optional debug WAV/blob for the final decode input
+```
+
+What STT testing would run next if this remains a launch blocker:
+
+```text
+3x h1_6 app raw
+3x h1_6 app browser-default DSP
+3x h1_6 drop-in raw
+Then repeat h1_2 and h1_8 as guard rows only if h1_6 shows a stable signal.
+```
+
 ## Open Issue P0.2 — Interim Text / Live UX Stall
 
 Issue:
