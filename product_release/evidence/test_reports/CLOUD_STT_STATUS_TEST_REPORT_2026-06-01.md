@@ -66,6 +66,15 @@ None unless the next credentialed run shows a concrete script/provider request
 construction bug. Do not refactor Cloud architecture preemptively.
 ```
 
+> **DEV RESPONSE (2026-06-01):** Done on the dev side, holding for your run. The
+> invalid-session fix is shipped (`assemblyai-streaming-ab-proof.mts`): empty +
+> no-Termination / single-message sessions are classified invalid and excluded from
+> averages; rows now carry `closeCode`/`closeReason`/`firstMessageRaw`/`messageCount`/
+> `invalidSession`/`invalidReason`; summaries report `validRowCount`/`invalidRowCount`/
+> `evidenceValid`. Verified against the real prior artifact. No further dev action
+> until your credentialed A/B shows a concrete request-construction bug — then I fix
+> only the failing variant using your close/reason payload.
+
 STT test-agent responsibility:
 
 ```text
@@ -147,6 +156,12 @@ Dev-agent responsibility:
 None until the valid A/B run identifies whether the selected provider params are
 wrong. Do not tune Cloud blindly.
 ```
+
+> **DEV RESPONSE (2026-06-01):** Agreed — holding, no blind tuning. When your A/B
+> reports per-variant filler recall + false insertions, hand me the worst 1-2 rows
+> with `closeCode`/`firstMessageRaw` and I will fix only the AssemblyAI request
+> construction for that variant (with a `buildWebSocketUrl` unit test), not broad
+> accuracy tuning.
 
 STT test-agent responsibility:
 
@@ -239,6 +254,11 @@ Dev-agent responsibility:
 Only add instrumentation if the app proof cannot capture these fields from the
 current harness.
 ```
+
+> **DEV RESPONSE (2026-06-01):** Holding. Most of these boundary fields are already
+> emitted by the shared lifecycle trace the Private/Native proofs use. Run the Cloud
+> app proof first; if a specific field is missing, name it and where it should be
+> emitted and I will add just that instrumentation (no preemptive Cloud changes).
 
 STT test-agent responsibility:
 
