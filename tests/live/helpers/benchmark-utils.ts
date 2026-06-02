@@ -266,11 +266,15 @@ export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {
                 runtimeState === 'READY' ||
                 runtimeState === 'RECORDING'
             );
-        }, { timeout });
+        }, undefined, { timeout });
         await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_READY');
     } catch (error) {
         const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-engine-ready-timeout');
-        throw new Error(`Private engine readiness precondition failed\n${JSON.stringify(snapshot, null, 2)}\n${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(
+            `INVALID_SETUP setup.model_provider TIMEOUT private-engine-ready-timeout ` +
+            `after ${timeout}ms\n${JSON.stringify(snapshot, null, 2)}\n` +
+            `${error instanceof Error ? error.message : String(error)}`
+        );
     }
 }
 
