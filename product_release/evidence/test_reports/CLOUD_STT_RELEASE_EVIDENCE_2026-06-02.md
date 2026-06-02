@@ -1,6 +1,6 @@
 # Cloud STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T19:32:58Z  
+**Updated:** 2026-06-02T20:20:00Z  
 **Scope:** AssemblyAI Cloud STT, credentialed A/B, filler/readability/tail proof, app journey  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -363,3 +363,70 @@ filler recall** on valid rows. My recommendation: re-run baseline + keyterms fir
 shipping model) to see if keyterms alone closes the filler gap; only escalate to prompt/u3-rt-pro if
 keyterms is insufficient and the pricing is approved. The script now lets you do exactly that:
 `ASSEMBLYAI_STREAMING_AB_VARIANTS=baseline,keyterms ASSEMBLYAI_STREAMING_AB_FIXTURES=h1_1,h1_6,h1_8`.
+
+## Latest Cheap Cloud A/B Proof — 2026-06-02T20:14Z
+
+Workflow:
+
+```text
+https://github.com/relativityE/speaksharp/actions/runs/26845298122
+```
+
+Artifact:
+
+```text
+/private/tmp/assemblyai-ab-26845298122/assemblyai-streaming-ab-proof.json
+```
+
+Dispatch inputs:
+
+```text
+run_cloud_ceiling=false
+streaming_ab_variants=baseline,keyterms
+streaming_ab_fixtures=h1_1,h1_6,h1_8
+```
+
+Important workflow note:
+
+```text
+AssemblyAI Ceiling Benchmark job succeeded and uploaded the A/B artifact. The
+overall workflow concluded failure only because the unrelated Private Browser
+Benchmarks job still ran and failed. This Cloud A/B artifact is valid.
+```
+
+### Subset Summary
+
+| Variant | Valid rows | Invalid rows | Average accuracy | Average filler recall | Current read |
+| --- | ---: | ---: | ---: | ---: | --- |
+| baseline | 3 | 0 | 96.3% | 83.33% | Valid, strong accuracy; missed `um` in h1_1. |
+| keyterms | 3 | 0 | 91.67% | 100% | Valid, improved filler recall; worse h1_6 accuracy. |
+
+### Row Results
+
+| Variant | Fixture | Accuracy | Filler recall | Retries | Transcript |
+| --- | --- | ---: | ---: | ---: | --- |
+| baseline | h1_1 | 88.89% | 50% | 0 | `The stale smell of old beer, like, lingers.` |
+| baseline | h1_6 | 100% | 100% | 0 | `They, like, told Wild Tales to frighten him.` |
+| baseline | h1_8 | 100% | 100% | 0 | `The puppy, like, chewed up the new shoes.` |
+| keyterms | h1_1 | 100% | 100% | 0 | `Um, the stale smell of old beer, like, lingers.` |
+| keyterms | h1_6 | 75% | 100% | 0 | `They like told wild tales to frighten him.` |
+| keyterms | h1_8 | 100% | 100% | 0 | `The puppy, like, chewed up the new shoes.` |
+
+Current Cloud conclusion:
+
+```text
+The corrected keyterms request shape is now credentialed-valid on the cheap
+subset. The 1008 concurrency problem did not reproduce on the three-row subset,
+so the retry/backoff path remains unexercised but harmless. Keyterms is not an
+automatic win: it recovered the missing h1_1 filler but lowered h1_6 accuracy.
+Baseline remains the safer current Cloud candidate until a larger A/B proves
+keyterms improves product metrics without material accuracy loss.
+```
+
+Next Cloud run:
+
+```text
+Run a larger baseline vs keyterms proof, still without prompt/u3-rt-pro:
+ASSEMBLYAI_STREAMING_AB_VARIANTS=baseline,keyterms
+ASSEMBLYAI_STREAMING_AB_FIXTURES=h1_1,h1_2,h1_6,h1_8,h1_10,washington_01
+```
