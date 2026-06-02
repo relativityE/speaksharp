@@ -13,6 +13,10 @@ on:
         description: 'Run the legacy AssemblyAI ceiling benchmark before the streaming A/B proof'
         type: boolean
         default: true
+      run_cloud_streaming_ab:
+        description: 'Run the AssemblyAI streaming A/B proof'
+        type: boolean
+        default: true
       run_private_browser:
         description: 'Run Private browser benchmarks in this workflow'
         type: boolean
@@ -58,6 +62,7 @@ jobs:
         run: pnpm benchmark:cloud
 
       - name: Run AssemblyAI streaming prompt/keyterms A/B proof
+        if: inputs.run_cloud_streaming_ab != false
         env:
           ASSEMBLYAI_API_KEY: ${{ secrets.ASSEMBLYAI_API_KEY }}
           ASSEMBLYAI_STREAMING_AB_OUT: /tmp/assemblyai-streaming-ab-proof.json
