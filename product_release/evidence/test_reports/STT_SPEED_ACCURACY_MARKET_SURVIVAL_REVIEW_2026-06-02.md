@@ -548,3 +548,57 @@ Report files are now committed and pushed to `main` (see SHA in my message). **T
 resume editing.** I touched: the 3 release-evidence reports + this survival review (append-only DEV
 blocks), `scripts/assemblyai-streaming-ab-proof.mts`, new `scripts/lib/assemblyaiAbUrl.ts`, new
 `tests/cloud/assemblyaiAbUrl.test.ts`. No `frontend/src` changes.
+
+## DEV → TEST AGENT (2026-06-02, append-only) — Score/Analytics confidence-gating + persistence AUDIT
+
+Answers the reviewer's Score/Analytics questions with code evidence. **No code changed — audit +
+minimal-patch proposal only.**
+
+### Is the SpeakSharp Score persisted at save, or recomputed in Analytics/PDF?
+**NEITHER. It is computed LIVE ONLY** in `LiveCoachingScoreCard.tsx` (a React `useMemo` over
+`calculateSpeakingScore`). Evidence:
+- `PracticeSession` (`frontend/src/types/session.ts`) has **no score field** — it persists raw inputs
+  only: `transcript`, `accuracy`, `clarity_score`, `wpm`, `filler_words`, `pause_metrics`, `engine`.
+- `AnalyticsDashboard.tsx` and `lib/pdfGenerator.ts` do **not** import/call `calculateSpeakingScore`.
+  Analytics renders trends of the persisted RAW metrics; the composite Score is never re-shown post-session.
+
+### Do Session / Analytics / PDF share one score payload?
+**No** — there is no shared composite-score payload, because only the live session computes it.
+Analytics/PDF consume the persisted RAW metrics (clarity / wpm / fillers / accuracy).
+**Implication:** the "shared source of truth" risk is *moot for the composite Score* (it isn't reused).
+BUT STT errors still flow into Analytics via the RAW metrics — `clarity_score`, `wpm`, and filler counts
+are derived from the transcript and ARE persisted + trended. So the STT-quality risk is real for
+Analytics, just through raw metrics rather than the composite Score.
+
+### Does `speakingScore` consume transcript confidence / readability?
+- **transcriptionConfidence:** accepted as input, but defaulted by engine via
+  `inferTranscriptionConfidence` (cloud/private = `high`, native = `medium`); `getConfidence`
+  downgrades to `directional` only when it is `low`. **The live card never passes it** → it always
+  defaults by engine. So a weak transcript on a `high` engine (e.g. a Private under-capture) does
+  **not** lower the displayed confidence.
+- **readability / run-on:** **not consumed at all.**
+
+### Can readability/run-on lower confidence WITHOUT changing the score formula?
+**Yes, cleanly.** The numeric `score` (weights) and the `confidence` state
+(`warming-up`|`directional`|`usable`) + `transcription.confidence` are independent. Minimal patch
+(NO weight/formula change):
+1. Pass a real `transcriptionConfidence` into `LiveCoachingScoreCard` derived from STT signals (engine
+   + measured accuracy/readability/under-capture) instead of letting it default by engine.
+2. Extend `getConfidence` to accept a `readabilityOk` / `captureComplete` signal and downgrade to
+   `directional` (with a "transcript quality limited" note) when readability fails or capture is
+   incomplete — **label/confidence only; the 0–10 score is untouched.**
+
+### Is Transcript Quality prominent in Analytics?
+**No.** It is one of FIVE equal tool groups in `AnalyticsDashboard.tsx`
+(`delivery_control` [default], `message_clarity`, `habit_progress`, `session_proof`,
+`transcript_quality`). Default is `delivery_control`; Transcript Quality is a non-default tab.
+Proposal: auto-elevate/select the Transcript Quality group when recent sessions show low transcript
+confidence.
+
+### Net (and what I recommend, pending your/product call — nothing shipped)
+- Score is live-only/ephemeral → no persist-vs-recompute consistency bug today, but ALSO a saved
+  session carries **no** SpeakSharp Score for history/PDF (a product gap, not a bug).
+- The confidence-gating hook EXISTS but is UNWIRED (engine-defaulted; readability ignored).
+- Recommended: (a) wire `transcriptionConfidence` + readability into the confidence state (minimal
+  patch above), (b) elevate Transcript Quality in Analytics under STT instability, (c) decide whether
+  to persist the composite Score at save so history/Analytics/PDF can show it consistently.
