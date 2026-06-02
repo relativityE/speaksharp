@@ -121,12 +121,26 @@ jobs:
 
       - name: Run Private browser benchmark suite
         env:
+          LIVE_VITE_MODE: test
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
         # Native Web Speech is intentionally excluded: it is browser-dependent
         # convenience STT, not a corpus-grade benchmark engine.
         run: pnpm exec playwright test tests/live/benchmark-cpu.live.spec.ts tests/live/benchmark-v4.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
         timeout-minutes: 30  # 5 trials × 38s + WASM init headroom
+
+      - name: Upload Private browser benchmark artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: private-browser-benchmark-artifacts
+          path: |
+            blob-report/live/
+            playwright-report/
+            test-results/live/
+          retention-days: 14
 
       - name: Open PR with results
         if: success() && inputs.write_results != false
