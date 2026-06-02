@@ -1,6 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
+**Last updated:** 2026-06-02T16:23:40Z  
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 

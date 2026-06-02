@@ -1,6 +1,6 @@
 # Native STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02  
+**Updated:** 2026-06-02T16:23:40Z  
 **Scope:** Chrome Web Speech Native STT, human real-mic proof, punctuation/readability, stop/save integrity  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 

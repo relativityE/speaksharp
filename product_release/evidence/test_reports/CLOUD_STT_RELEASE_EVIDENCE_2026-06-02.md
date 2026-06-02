@@ -1,6 +1,6 @@
 # Cloud STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02  
+**Updated:** 2026-06-02T16:23:40Z  
 **Scope:** AssemblyAI Cloud STT, credentialed A/B, filler/readability/tail proof, app journey  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
