@@ -1,6 +1,6 @@
 # Cloud STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T23:30:00Z  
+**Updated:** 2026-06-02T23:45:00Z  
 **Scope:** AssemblyAI Cloud STT, credentialed A/B, filler/readability/tail proof, app journey  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -591,6 +591,39 @@ Remaining Cloud proof gap:
 | Exact timeline extraction | Needed for first progress, first final, stop-to-termination, and bottleneck attribution | Update/read the live test to emit `readCloudStreamTiming(window.__CLOUD_STT_TIMELINE__)` |
 | Long-script ground truth | Needed to prove tail preservation and readability on speech-length content | Run Cloud baseline on `washington_01` or equivalent scripted long speech |
 | Readability/punctuation table | Needed for sales-quality transcript trust | Score terminal punctuation, sentence count, max run-on words, capitalization, duplicate detection |
+
+## TEST AGENT UPDATE — Cloud token gate proof
+
+**Collected:** 2026-06-02T23:22Z to 2026-06-02T23:23Z  
+**Workflow:** `live-release-matrix.yml` / `cloud-token-gates`  
+**Run:** `26853914030`  
+**Job:** `79192279314`  
+**Commit:** `bc6ca5da`  
+**Artifact ID:** `7372174665`
+
+Result:
+
+```text
+PASS: Cloud token minting is entitlement-gated.
+```
+
+Evidence from job log:
+
+| Scenario | Expected | Actual | Result |
+| --- | --- | --- | --- |
+| Missing auth | deny before provider token | `status:401`, `tokenIssued:false` | pass |
+| Free user | deny Cloud token | `status:403`, `tokenIssued:false` | pass |
+| Active trial | deny Cloud token; trial includes Private only | `status:403`, `tokenIssued:false` | pass |
+| Paid Pro | allow token | `status:200`, `tokenIssued:true` | pass |
+| Over-quota Pro | deny token | `status:429`, `tokenIssued:false` | pass |
+
+Current read:
+
+```text
+Cloud remains the strongest 24-hour quality path and its entitlement gate is
+now live-proved. This does not close transcript-quality/readability/tail proof;
+it closes the revenue/control gate for Cloud access.
+```
 
 ## TEST AGENT UPDATE — superseded narrow Cloud A/B validity proof
 

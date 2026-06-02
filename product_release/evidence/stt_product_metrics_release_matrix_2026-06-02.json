@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-02T23:35:00Z",
+  "lastUpdated": "2026-06-02T23:45:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -1817,6 +1817,53 @@
       "accuracyPct": null,
       "wer": null,
       "caveat": "v4 failed before transcription; do not score accuracy. Browser snapshot reported hasWebGPU=true, but service reached INIT_FAILED and Start stayed disabled."
+    },
+    {
+      "id": "cloud_token_gates_26853914030",
+      "candidate": "Cloud AssemblyAI token gate",
+      "mode": "cloud",
+      "engine": "assemblyai-universal-streaming",
+      "fixture": "entitlement_token_minting",
+      "evidenceType": "live-browser-proof",
+      "route": "GitHub Actions live-release-matrix cloud-token-gates",
+      "workflowRun": 26853914030,
+      "job": 79192279314,
+      "commit": "bc6ca5da",
+      "artifactId": 7372174665,
+      "collectedAt": "2026-06-02T23:22:00Z",
+      "finishedAt": "2026-06-02T23:23:36Z",
+      "classification": "PASS",
+      "failedPhase": null,
+      "failedGate": null,
+      "entitlementGate": {
+        "missingAuth": {
+          "status": 401,
+          "tokenIssued": false,
+          "expected": "reject missing Authorization header"
+        },
+        "free": {
+          "status": 403,
+          "tokenIssued": false,
+          "expected": "reject non-Pro Cloud token minting"
+        },
+        "activeTrial": {
+          "status": 403,
+          "tokenIssued": false,
+          "expected": "reject trial Cloud token minting; trial includes Private only"
+        },
+        "paidPro": {
+          "status": 200,
+          "tokenIssued": true,
+          "expected": "mint token for paid Pro"
+        },
+        "overQuota": {
+          "status": 429,
+          "tokenIssued": false,
+          "expected": "reject over-quota paid Pro"
+        }
+      },
+      "transcriptQuality": "NOT_SCORED_ENTITLEMENT_GATE_ONLY",
+      "caveat": "Entitlement/revenue-control proof only; does not score transcript accuracy, readability, timing, or save/detail journey."
     }
   ],
   "timingContract": {
@@ -1867,11 +1914,11 @@
       "stopToDetailVisibleMs": "Total post-stop user wait."
     }
   },
-  "classificationUpdatedAt": "2026-06-02T23:35:00Z",
+  "classificationUpdatedAt": "2026-06-02T23:45:00Z",
   "classifications": {
     "cloud": {
       "status": "caveated_closest",
-      "reason": "Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. Live Cloud app journey proof run 26853283325 passed stop/save/history-detail smoke with provider final+termination and a 363-character saved result.",
+      "reason": "Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. Live Cloud app journey proof run 26853283325 passed stop/save/history-detail smoke with provider final+termination and a 363-character saved result. Cloud token gate proof run 26853914030 passed: missing auth/free/trial/over-quota do not mint tokens, paid Pro does.",
       "next": "Launch/position Cloud baseline as quality path if remaining timeline/readability proof passes. Dev/product should change, narrow, or disable keyterms before defaulting it. Test should run Cloud long-script/tail proof that exports __CLOUD_STT_TIMELINE__, WER/readability, and scripted tail comparison."
     },
     "private": {
@@ -1885,5 +1932,5 @@
       "next": "Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-02T23:35:00Z"
+  "lastUpdatedAt": "2026-06-02T23:45:00Z"
 }

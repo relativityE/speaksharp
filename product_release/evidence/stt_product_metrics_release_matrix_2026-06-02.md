@@ -1,7 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-02T23:30:00Z  
+**Last updated:** 2026-06-02T23:45:00Z  
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
@@ -103,6 +103,40 @@ Cloud app journey is passing and Cloud remains the strongest 24-hour quality
 path. This run does not yet close exact timing/readability/tail metrics because
 the live test did not export __CLOUD_STT_TIMELINE__, WER/readability, or scripted
 tail comparison against ground truth.
+```
+
+### Latest Current-Head Cloud Token Gate Proof: 2026-06-02T23:23Z
+
+Run:
+
+```text
+Live Release Matrix: 26853914030
+Cloud token gates job: 79192279314
+Commit: bc6ca5da
+Artifact ID: 7372174665
+```
+
+Result:
+
+```text
+PASS
+```
+
+| Scenario | Expected | Actual | Token issued |
+| --- | --- | --- | --- |
+| Missing auth | reject | 401 Missing Authorization header | false |
+| Free account | reject Cloud token minting | 403 Cloud STT is available as a Pro feature. Trial access includes Private STT. | false |
+| Active trial | reject Cloud token minting | 403 Cloud STT is available as a Pro feature. Trial access includes Private STT. | false |
+| Paid Pro | mint Cloud token | 200 | true |
+| Over-quota Pro | reject | 429 Usage limit reached | false |
+
+Interpretation:
+
+```text
+Cloud entitlement/revenue control is live-proved: only paid Pro within quota
+receives an AssemblyAI token. This closes the token gate, not transcript quality.
+Cloud still needs long-script transcript timing/readability/tail proof before a
+full release-green claim.
 ```
 
 ### Latest Current-Head Private Browser Proof: 2026-06-02T23:18Z
