@@ -366,6 +366,32 @@ keyterms is insufficient and the pricing is approved. The script now lets you do
 
 ## Latest Cheap Cloud A/B Proof — 2026-06-02T20:14Z
 
+### DEV BLOCKER / TEST PAIN POINT
+
+```text
+Cloud is close, but I cannot mark it green or choose keyterms until dev explains
+the h1_6 quality regression caused by keyterms.
+
+The blocker is NOT request validity anymore. That improved.
+The blocker is now quality tradeoff:
+- baseline h1_6 = 100% accuracy
+- keyterms h1_6 = 75% accuracy
+- keyterms fixes h1_1 "um", but may degrade ordinary-word accuracy
+
+DEV MUST FIX THIS BEFORE KEYTERMS CAN SHIP:
+1. Change the Cloud keyterms strategy so it recovers fillers without degrading
+   h1_6 ordinary-word accuracy, OR explicitly remove/disable keyterms for launch.
+2. Return a concrete implementation decision:
+   - narrowed keyterm list,
+   - different AssemblyAI option,
+   - keyterms behind experiment flag,
+   - or baseline-only launch.
+3. Provide a rerun request and expected pass condition.
+
+Until this is fixed or explicitly disabled, baseline remains the only safe Cloud
+candidate.
+```
+
 Workflow:
 
 ```text
@@ -398,7 +424,7 @@ Benchmarks job still ran and failed. This Cloud A/B artifact is valid.
 
 | Variant | Valid rows | Invalid rows | Average accuracy | Average filler recall | Current read |
 | --- | ---: | ---: | ---: | ---: | --- |
-| baseline | 3 | 0 | 96.3% | 83.33% | Valid, strong accuracy; missed `um` in h1_1. |
+| baseline | 3 | 0 | 96.3% | 83.33% | Valid, strong accuracy; missed `um` in h1_1. This is not a newly introduced regression; baseline also missed `um` in h1_1 in the prior artifact. |
 | keyterms | 3 | 0 | 91.67% | 100% | Valid, improved filler recall; worse h1_6 accuracy. |
 
 ### Row Results
@@ -420,7 +446,38 @@ subset. The 1008 concurrency problem did not reproduce on the three-row subset,
 so the retry/backoff path remains unexercised but harmless. Keyterms is not an
 automatic win: it recovered the missing h1_1 filler but lowered h1_6 accuracy.
 Baseline remains the safer current Cloud candidate until a larger A/B proves
-keyterms improves product metrics without material accuracy loss.
+keyterms improves product metrics without material accuracy loss. The baseline
+filler average should not be compared directly as 90% -> 83.33%; the newer run
+uses a different three-row subset, and h1_1 was already the known missed-`um`
+row in the older artifact.
+```
+
+### DEV FIX REQUIRED — keyterms is valid but not quality-safe yet
+
+This proof changed the Cloud blocker from request/session validity to product-quality tradeoff:
+
+| Issue | Evidence | Consequence if ignored | Dev expectation |
+| --- | --- | --- | --- |
+| `keyterms` improves filler recall but harms h1_6 accuracy | baseline h1_6 = 100%; keyterms h1_6 = 75%, transcript drops punctuation/casing and scores 25% error | We could ship a setting that makes filler metrics look better while making ordinary words worse | Investigate whether current keyterm list/weighting/request shape is too broad or provider behavior is inherently tradeoff-heavy. Return a smaller-keyterm or no-keyterm recommendation with evidence. |
+| baseline misses `um` in h1_1 | baseline h1_1 filler recall = 50% in both the prior artifact and latest subset; keyterms h1_1 = 100% | SpeakSharp score undercounts fillers on Cloud baseline | Find the least harmful way to recover `um`: narrower keyterms, provider-supported disfluency option if available, or leave baseline and account for confidence in scoring. Do not describe this as a new baseline regression. |
+| prompt/u3-rt-pro remains unapproved | prompt path costs more than current baseline | Could move Cloud cost above product economics | Do not make prompt/u3-rt-pro default without product approval and a cost/quality table. |
+
+Expected dev deliverable:
+
+```text
+1. Fix keyterms quality or disable keyterms for launch.
+
+2. State the exact implementation:
+   a. narrowed to a smaller list,
+   b. replaced by another AssemblyAI-supported disfluency/filler mechanism,
+   c. made optional/experiment-only,
+   d. or removed so Cloud launches baseline-only.
+
+3. If changing keyterms, provide a no-network/unit proof of the exact request
+   shape and a credentialed rerun ask.
+
+4. Do not claim keyterms is better unless it improves filler recall without
+   materially degrading ordinary-word accuracy on h1_6/h1_8 and a clean row.
 ```
 
 Next Cloud run:

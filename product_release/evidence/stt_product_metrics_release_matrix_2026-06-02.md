@@ -168,7 +168,7 @@ BLOCKER = missing value blocks green classification.
 | STT | Classification | Why | Next action |
 | --- | --- | --- | --- |
 | Private | Caveated | Current injected browser proof is much improved: `washington_01` 98.95%; guard rows mostly exact; `h1_6` improved to 87.5%. Not green because Washington readability fails max run-on gate, v4 browser proof is not captured, and physical/human mic route was unavailable. | Resolve readability/punctuation; run v4 browser proof if v4 is candidate; rerun physical/human mic when audio output works. |
-| Cloud | Caveated | Cheap credentialed subset on current code is valid: baseline 96.3% accuracy / 83.33% filler recall; keyterms 91.67% / 100%. Keyterms improves filler recall but hurts h1_6 accuracy, so baseline remains safer until a larger baseline-vs-keyterms proof passes. | Run larger baseline-vs-keyterms proof without prompt/u3-rt-pro; then run app trace proof. |
+| Cloud | Caveated | Cheap credentialed subset on current code is valid: baseline 96.3% accuracy / 83.33% filler recall; keyterms 91.67% / 100%. Keyterms improves filler recall but hurts h1_6 accuracy, so it is not shippable as default. | DEV FIX: change/narrow/replace keyterms so filler recall improves without h1_6 accuracy loss, or disable keyterms and launch Cloud baseline-only. Then test reruns larger baseline-vs-keyterms proof. |
 | Native | Backlog / failed current proof | Human real-mic proof ran and failed product readiness: Chrome produced words, but selectedForSave became `Listening...`, save/detail failed, readability failed, and filler recall was 66.67%. | Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof. |
 
 Clarifications:
@@ -270,31 +270,50 @@ the selected/saved length is 1074.
 
 ### Cloud Credentialed A/B, 2026-06-02
 
-Artifact:
+Older broad artifact:
 
 ```text
 /private/tmp/assemblyai-ab-26830845676/assemblyai-streaming-ab-proof.json
 ```
 
-Workflow:
+Latest targeted artifact:
 
 ```text
-https://github.com/relativityE/speaksharp/actions/runs/26830845676
+/private/tmp/assemblyai-ab-26845298122/assemblyai-streaming-ab-proof.json
 ```
 
-| Variant | Valid rows | Invalid rows | Accuracy on valid rows | Filler recall on valid rows | Readability | Current read |
+Latest targeted workflow:
+
+```text
+https://github.com/relativityE/speaksharp/actions/runs/26845298122
+```
+
+| Variant | Before fix | Latest targeted proof | Current read |
+| --- | --- | --- | --- |
+| baseline | 5/10 valid; 95.56% accuracy / 90% filler recall on valid rows | 3/3 valid; 96.3% accuracy / 83.33% filler recall | Valid and strongest current default; misses `um` in h1_1. |
+| keyterms | 0/10 valid; request/session invalid | 3/3 valid; 91.67% accuracy / 100% filler recall | Request/session fixed; product-quality tradeoff remains. |
+| prompt | 0/10 valid in older run; later partial rows used `u3-rt-pro` | not run in latest cheap proof | Hold pending cost approval. |
+| prompt_keyterms | 0/10 valid in older run | not run in latest cheap proof | Hold pending cost approval and keyterms quality decision. |
+
+Latest row detail:
+
+| Variant | Fixture | Accuracy | Filler recall | Current read |
 | --- | ---: | ---: | ---: | ---: | --- | --- |
-| baseline | 5 | 5 | 95.56% | 90% | pass on valid rows | Strong partial evidence; invalid h1_6-h1_10 blocks green. |
-| keyterms | 0 | 10 | n/a | n/a | fail | Invalid empty/no-termination sessions. |
-| prompt | 0 | 10 | n/a | n/a | fail | Invalid empty/no-termination sessions. |
-| prompt_keyterms | 0 | 10 | n/a | n/a | fail | Invalid empty/no-termination sessions. |
+| baseline | h1_1 | 88.89% | 50% | Misses `um`. |
+| baseline | h1_6 | 100% | 100% | Best h1_6 result. |
+| baseline | h1_8 | 100% | 100% | Exact. |
+| keyterms | h1_1 | 100% | 100% | Recovers `um`. |
+| keyterms | h1_6 | 75% | 100% | Accuracy regression versus baseline. |
+| keyterms | h1_8 | 100% | 100% | Exact. |
 
 Current read:
 
 ```text
-Cloud baseline remains promising, but the credentialed A/B is not green.
-Prompt/keyterms variants currently produce invalid empty/no-termination sessions.
-This is now a concrete Cloud provider/request-construction blocker for dev review.
+Cloud A/B request/session validity is now much better. Keyterms is valid and
+improves filler recall, but it is not quality-safe yet because it lowers h1_6
+accuracy from 100% to 75%. Baseline remains the safer Cloud candidate until dev
+explains or fixes the keyterms tradeoff and a larger baseline-vs-keyterms proof
+passes.
 ```
 
 ## Punctuation Quality Metric
