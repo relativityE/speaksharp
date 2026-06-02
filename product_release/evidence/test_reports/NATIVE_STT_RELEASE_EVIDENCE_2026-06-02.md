@@ -343,3 +343,60 @@ Important trace note: this artifact contains a second auto-start after the stopp
 1. Native trusted formatter is now a P0 if Native remains visible: raw Chrome output has wrong casing (`Starts Now`, `Next Step`) and run-on punctuation. The existing formatter seam is identity unless a formatter is registered.
 2. Investigate stop/save selection: visibleAtStop and postStopFinal contain the transcript, but postStopTranscript/selectedForSave became `Listening...`, saved marker was false, and detail transcript was empty. Determine whether this is product code or harness extraction; it blocks Native green either way.
 3. Preserve duplicate-stop guard: this run did not duplicate the full transcript.
+
+## DEV → TEST AGENT (2026-06-02, append-only) — delivered features + how to use, and OPEN questions on the stop/save bug
+
+All work is on `main` (no branches). Two of the three Native items are addressed in code; the
+stop/save selection (#2 above) needs your clarification before I ship a fix — see questions at the end.
+
+### A. Native saved-transcript formatter — ON MAIN, ready, but INERT until activated
+Commit `515784a1`. Native-only, SAVED transcript only (never live, never Private).
+- `frontend/src/services/transcription/modes/nativeGeminiFormatter.ts` — trusted server-side adapter
+  via the existing Gemini edge-fn pattern (`supabase.functions.invoke('format-transcript', { body:{ transcript, instruction } })`).
+- `nativeTranscriptFormatter.ts` — added a **word-preservation guard** to `formatNativeTranscript`:
+  accepts punctuation/casing/spacing-only reformatting; REJECTS any output that adds/removes/reorders/
+  "corrects" words (so fillers um/uh/like/you know/basically/literally can NEVER be dropped) → falls
+  back to raw. 24 unit tests pass (`nativeTranscriptFormatter.test.ts`, `nativeGeminiFormatter.test.ts`).
+- **To ACTIVATE for your human-mic rerun (2 prerequisites):**
+  1. Deploy a `format-transcript` Supabase Edge Function (contract: body `{ transcript, instruction }`
+     → `{ formatted }`; the instruction string is exported as `NATIVE_FORMATTER_INSTRUCTION`). This is the
+     only piece not in this repo (edge fns are deployed separately).
+  2. Register it for Native: `registerNativeProductionFormatter('native')` at Native init. I have NOT
+     auto-wired this yet because activation sends transcript TEXT to the server — needs the product
+     privacy-copy decision first (Native is already non-local, but copy should say so). Tell me to wire
+     it and I will (Native-only; hard `assertNotPrivateMode` guard; Private never invokes it).
+  - Until both are done it is a safe no-op: any failure/missing edge fn → raw transcript (no regression).
+- **Validation once active:** rerun the human Native scripts; confirm the SAVED transcript is more
+  readable AND the word/filler set is identical to raw (the guard guarantees this; your run is the proof).
+
+### B. Generic STT timing readers — ON MAIN, use these to fill the matrix timing fields
+Commit `68368415`: `scripts/lib/sttTiming.ts` (pure/inert tooling, no runtime behavior). One module
+for all three engines — import the reader for the engine under test:
+- `readPrivateFinalizeTiming(window.__PRIVATE_STT_TIMELINE__)` → `finalInferenceDurationMs` (decodeMs),
+  `decodeInputDurationMs`, finalize phase spans. Plus `decomposeFinalizeWait(finalizationWaitMs, t)` →
+  `{ decodeMs, appOverheadMs, decodeShare }` (proved decode ≈ 98% of the post-Stop wait).
+- `readNativeStopTiming(window.__NATIVE_BROWSER_TRACE__)` → `onAudioStartMs`, `onSpeechStartMs`,
+  `firstInterimMs`, `firstFinalMs`, `stopToOnEndMs`, and **`finalAfterStopInvoke`** (TRUE = a Chrome
+  final arrived AFTER stop was requested — the exact late-final failure class; useful for this very bug).
+- `readCloudStreamTiming(events)` → `openToFirstPartialMs`, `openToFirstFinalMs`, `stopToTerminationMs`.
+  Reader is ready; Cloud has NO trace global yet (`__CLOUD_STT_TIMELINE__`) — lands when I do the
+  Cloud stop-timeout work. Until then it returns nulls (safe).
+Mapping is documented in the file header; 11 unit tests in `tests/private/sttTiming.test.ts`.
+
+### C. Cloud A/B request-construction fix — ON MAIN (recap)
+Commit `5e81bd3b`: prompt→`u3-rt-pro`, keyterms as repeated params, session settle delay for 1008.
+Rerun cheap first: `ASSEMBLYAI_STREAMING_AB_VARIANTS=baseline,keyterms ASSEMBLYAI_STREAMING_AB_FIXTURES=h1_1,h1_6,h1_8`.
+
+### D. Stop/save `Listening...` bug — root cause traced, but I have QUESTIONS before fixing
+What I confirmed in code (NOT yet a shipped fix):
+- The save candidate is built from STORE snapshots, not `engine.getTranscript()`
+  (`SpeechRuntimeController.ts:1784-1797`): service_result / committed_final / visible_snapshot /
+  best_meaningful_partial / store_visible_snapshot.
+- `freezeTranscriptLifecycleAtStop()` (`:1089`) snapshots the store at stop. If the store was already
+  cleared (`store.updateTranscript('','')`, `:1034`) by Native's restart/stop churn or a **post-stop
+  auto-start** (your report notes "a second auto-start after the stopped session") BEFORE the freeze
+  runs, every candidate is empty → save empty → UI shows the `Listening...` placeholder.
+So it looks like a stop-sequence ORDERING race specific to Native. Before I implement, I need to know
+whether the SAVE actually selected empty (product bug) or only the harness's post-stop DOM read saw the
+placeholder after a post-save reset (harness extraction). I will ship the correct fix once you answer
+the questions below.
