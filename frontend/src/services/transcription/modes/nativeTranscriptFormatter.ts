@@ -55,10 +55,45 @@ export function hasNativeTranscriptFormatter(): boolean {
 }
 
 /**
+ * The word sequence of a transcript, ignoring case and punctuation. This is the
+ * unit the word-preservation guard compares: punctuation/casing may change, words
+ * may not.
+ */
+export function transcriptWordSequence(text: string): string[] {
+  return (text ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+}
+
+/**
+ * A formatter output is "word-preserving" iff it changes ONLY punctuation, casing,
+ * and spacing — the exact same word sequence remains. Restoring sentence
+ * boundaries + casing passes; adding, removing, reordering, summarizing, or
+ * "correcting" words FAILS. This is the safety contract: fillers (um, uh, like,
+ * you know, basically, literally) cannot be dropped and the formatter cannot
+ * rewrite the user's words.
+ */
+export function isWordPreserving(raw: string, formatted: string): boolean {
+  const a = transcriptWordSequence(raw);
+  const b = transcriptWordSequence(formatted);
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/**
  * Apply the registered formatter to a saved Native transcript. Identity when no
- * formatter is installed. Never throws and never returns empty for non-empty
- * input: any formatter error falls back to the original text so a formatting
- * failure can never lose or blank a user's transcript.
+ * formatter is installed. NEVER throws and NEVER changes the user's words:
+ *   - no formatter / blank input            -> raw text
+ *   - formatter throws                       -> raw text
+ *   - formatter returns empty                -> raw text
+ *   - formatter changes the word sequence    -> raw text (word-preservation guard)
+ * Only punctuation/casing/spacing-only reformatting is accepted. Applied to SAVED
+ * text only (never live partials).
  */
 export async function formatNativeTranscript(raw: string): Promise<string> {
   const text = raw ?? '';
@@ -67,7 +102,15 @@ export async function formatNativeTranscript(raw: string): Promise<string> {
   try {
     const formatted = await activeFormatter(text);
     const result = (formatted ?? '').trim();
-    return result.length > 0 ? formatted : text;
+    if (result.length === 0) return text;
+    if (!isWordPreserving(text, formatted)) {
+      logger.warn(
+        { rawLength: text.length, formattedLength: result.length },
+        '[NativeTranscriptFormatter] Formatter changed word content; rejecting and returning unformatted transcript',
+      );
+      return text;
+    }
+    return formatted;
   } catch (error) {
     logger.warn({ error }, '[NativeTranscriptFormatter] Formatter failed; returning unformatted transcript');
     return text;
