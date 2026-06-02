@@ -752,3 +752,75 @@ same preview build, then compare against drop-in parity and journey fields.
 | --- | --- | --- |
 | h1_6 app-worse final quality | Dev fix, STT browser verify | Blocks Private as a brag-worthy/local privacy STT. |
 | Late/unstable interim UI | Dev implementation, STT browser verify | Blocks acceptable live UX even when final is eventually good. |
+
+## DEV → TEST AGENT (2026-06-01, append-only) — long-form findings, reframe, and questions
+
+We independently converged on the long-speech risk (your "Long-speech release risk"
+section + this dev analysis, now folded in here so the Private report is the single
+source of truth).
+
+### Dev long-form findings (code-grounded)
+
+Product intent: practice speeches half-a-page to over a page long. All STT validation
+to date used single ~7-second Harvard sentences. The current Private "saved transcript
+= one whole-utterance decode at Stop" architecture was designed for and validated on
+single sentences; at speech length it has four concrete failure modes (two can produce
+a LOST or WRONG final transcript, not just slowness):
+
+| # | Mechanism | Code | Long-form consequence |
+| --- | --- | --- | --- |
+| 1 | Final transcript is ONE decode of the ENTIRE speech, only at Stop | `commitWholeUtteranceTranscript()` called only at `onStop`; `concatenateFloat32Arrays(utteranceAudioChunks)` | 1-2 min speech decoded in a single terminal pass — the regime tiny.en is weakest in; zero test coverage. |
+| 2 | No length cap on the utterance buffer | `utteranceAudioChunks` grows every speech frame (only the 1s trailing-silence tail cap from Fix A) | Unbounded memory (~3.8MB/min raw Float32 at 16kHz, plus rolling/trace buffers); scales linearly, no release. |
+| 3 | Whisper 30s window + 5s stride stitching | worker `chunk_length_s:30, stride_length_s:5` | Page-length speech split into many 30s windows and stitched; tiny.en stitch errors accumulate across boundaries — untested. |
+| 4 | Post-Stop decode is post-hoc and time-capped | decode after Stop; `TRANSCRIPTION_TIMEOUT_MS = 60_000` | CPU RTF ~0.3-0.5x → ~40-60s "Processing speech locally…" for a 2-min speech; a long enough speech HITS the 60s timeout and LOSES the entire final decode. |
+
+Single-sentence success does not predict long-form; this is a larger risk than h1_6.
+
+### Proposed direction (NOT implemented — needs product + test-agent buy-in)
+1. **Measure first.** Run a half-page (~5-8 sentence) and full-page (~1-2 min) script
+   through Private CPU; capture total Stop decode time, whether it hits the 60s
+   timeout, peak memory, and WER/readability vs a drop-in/cloud control. This is the
+   missing evidence; do it before any redesign.
+2. **Segment-and-append finalization** (if measurement confirms): finalize per
+   pause-bounded segment into a growing transcript instead of one terminal decode —
+   bounds memory and per-decode latency, avoids the 60s cliff.
+3. **Cloud is the natural long-form path** (streams + finalizes incrementally). Private
+   may be positioned for shorter practice until segmented finalization exists.
+
+### Open product questions
+- Target max speech length to support on Private CPU specifically?
+- Is long-form a Private requirement, or is Private the "short practice" mode and Cloud
+  the "full speech" mode?
+- Acceptable post-Stop wait for a full-page speech before the saved transcript appears?
+
+### Bigger-picture reframe (for product + test alignment)
+- **Metric:** verbatim WER on 7s sentences is the wrong gate for a speech COACH. The
+  product value is filler recall + readability + pace, which survive imperfect WER.
+  Recommend scoring long-form on those, not WER alone.
+- **Engine portfolio, not 3 clones:** Cloud streams/finalizes incrementally → natural
+  long-form engine. Private = privacy/short-practice. Native = zero-setup quick try.
+  Forcing Private to do 2-min speeches may fight its architecture when Cloud solves it.
+- **Architecture:** long-form wants segment-and-append finalization (commit per pause,
+  append, release audio), not accumulate-and-decode-once.
+
+### Questions for test agent (blocking items first)
+1. **(Blocks Fix A verdict)** Your harness extracts `privateAudioChunks` (rolling
+   `__PRIVATE_INFERENCE_AUDIO_CHUNKS__`) but not `__PRIVATE_UTTERANCE_AUDIO_CHUNKS__`
+   (the whole-utterance final-decode buffer) nor my new trace fields `decodeMs` /
+   `speechStartOffsetMs` / `retainedPrerollSamples` (they live inside
+   `whole_utterance_commit_start` / `_accept` in `privateTrace`). Fix A's pass test is
+   "final decode buffer ≈ speech window, not 10.75s." Can the next h1_6 run surface
+   `whole_utterance_commit_start.durationSec` (or that capture) to a top-level field so
+   Fix A can be browser-verified, not just unit-verified?
+2. **(Process)** We collided editing this report (your f1a20790 net-removed a prior
+   dev-ask block while I had additive edits). Going forward, should dev confine all
+   findings to a reserved `## DEV → TEST AGENT` block at the end of this report
+   (append-only), leaving the rest of the report yours to restructure freely?
+3. **(Long-form measurement)** Will you run the decisive page-length proof — one
+   half-page (~5-8 sentence) and one full-page (~1-2 min) script through Private CPU —
+   capturing total post-Stop decode time, whether it hits the 60s timeout, peak memory,
+   and filler-recall/readability vs a Cloud control? Do you have a representative long
+   script or should dev propose one?
+4. **(Draft UI closure)** Your draft-UI browser proof (472ada4c) — did it pass the
+   listening→drafting→finalizing→final transitions, and is the earlier ask to mark
+   committed-text-as-draft during `drafting` still open for dev, or closed by the proof?

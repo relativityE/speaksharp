@@ -292,3 +292,16 @@ journey checks.
 | Valid prompt/keyterms A/B not run after invalid-session fix | STT test agent | Cannot choose or reject filler-preservation variant. |
 | Filler recall not proven | STT test agent first; dev if provider params fail | Cannot claim SpeakSharp-quality filler coaching for Cloud. |
 | Trace-complete app proof stale/missing | STT test agent first; dev only if instrumentation missing | Cannot compare Cloud to Native/Private under same lifecycle contract. |
+
+## DEV → TEST AGENT (2026-06-01, append-only) — Cloud as the long-form engine
+
+Per the long-form reframe (see the Private STT report's `DEV → TEST AGENT` block):
+Cloud streams and finalizes incrementally, so it is the natural engine for
+half-page-to-full-page speeches, where Private's accumulate-and-decode-once design
+hits a 60s post-Stop timeout cliff.
+
+Question for test agent: when you run the credentialed A/B, can you include at least
+one **long-form** item (a ~1-2 min / page-length script) and report tail preservation
++ filler recall across the whole speech, not just single Harvard sentences? That is
+the proof that would let us position Cloud as the full-speech path. No dev change
+needed unless that run exposes a concrete request/streaming bug.

@@ -322,3 +322,12 @@ testing no specific human script or transcript-state expectation to verify.
 | Human real-mic proof missing | STT test agent | Cannot classify Native as viable quick-start. |
 | Punctuation/casing unresolved | Dev proposal/integration, STT verify | Native may look amateurish even if recognition is accurate. |
 | Duplicate/stop merge needs human proof | STT test agent first; dev only if reproduced | Saved transcript trust risk. |
+
+## DEV → TEST AGENT (2026-06-01, append-only) — Native role under the long-form reframe
+
+Per the long-form reframe (see the Private STT report's `DEV → TEST AGENT` block): the
+proposed engine portfolio is Cloud = full-speech, Private = privacy/short practice,
+**Native = zero-setup quick try**. Under that framing Native does NOT need to be
+proven on page-length speeches — it needs the human real-mic quick-start proof + the
+punctuation/casing decision already tracked above. Flagging so Native is not held to a
+long-form bar it is not intended to meet. Confirm if you agree with that scoping.
