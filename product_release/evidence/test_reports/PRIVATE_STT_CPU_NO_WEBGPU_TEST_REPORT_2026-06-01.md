@@ -310,21 +310,23 @@ What is already complete:
 ```text
 "Processing speech locally..." after Stop is working.
 Post-Stop finalization is faster than before.
+LiveTranscriptPanel component coverage passes: 13/13 tests on 2026-06-01.
 ```
 
-What is not complete:
+Current implementation status:
 
 ```text
-No confidence-aware draft UI exists during recording.
-No visual distinction exists between unstable provisional text and final selected text.
-No policy prevents obviously unstable provisional text from appearing as final-quality copy.
+Confidence-aware draft UI is implemented in LiveTranscriptPanel.
+Provisional text is visually distinguished from final selected text.
+Post-Stop local processing state is visible.
+Browser proof is still required before this can be called product-passing.
 ```
 
 Dev-agent responsibility:
 
 ```text
-Implement the user-facing interim/draft UI behavior. This is product code, not
-browser test code.
+Implementation and component/unit coverage are complete unless browser proof
+finds a product bug.
 ```
 
 Recommended design:
@@ -349,15 +351,10 @@ Acceptance criteria:
 Expected dev handoff interface:
 
 ```text
+Completed by dev response below:
 1. Component/state changes named.
-2. Unit tests or component tests for synthetic event sequences:
-   start -> listening
-   provisional "day" -> drafting
-   provisional changes -> still drafting
-   stop -> finalizing
-   final selected -> final styling/save candidate
-3. Clear selectors/data attributes I can assert in browser proof, if new ones are added.
-4. Commit SHA and expected user-visible behavior.
+2. Unit/component tests for listening, drafting, finalizing, final.
+3. Clear selectors/data attributes available for browser proof.
 ```
 
 What I will do with dev results:
