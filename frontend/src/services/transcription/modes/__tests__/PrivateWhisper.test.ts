@@ -59,7 +59,8 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
     const mockCallbacks = {
         onTranscriptUpdate: vi.fn(),
         onModelLoadProgress: vi.fn(),
-        onReady: vi.fn()
+        onReady: vi.fn(),
+        onStatusChange: vi.fn()
     };
 
     beforeEach(() => {
@@ -1058,9 +1059,17 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         // whole-utterance decode (call 2) which is the saved authority. The forced
         // tail decode is skipped because the whole-utterance commit succeeded.
         expect(mocks.transcribe).toHaveBeenCalledTimes(2);
-        expect(mockCallbacks.onTranscriptUpdate).toHaveBeenCalledWith({
+        // Finalize-status-before-wait fix: once Stop is requested (isStopping=true),
+        // the in-flight live result is NOT emitted to the UI — it would otherwise
+        // paint a stale partial over the "Processing speech locally…" finalizing
+        // state. It still accumulates into currentTranscript (no data loss); the
+        // whole-utterance commit is the only authoritative final emitted.
+        expect(mockCallbacks.onTranscriptUpdate).not.toHaveBeenCalledWith({
             transcript: { partial: 'first stable words continue' },
         });
+        expect(mockCallbacks.onStatusChange).toHaveBeenCalledWith(
+            expect.objectContaining({ type: 'info', message: 'Processing speech locally…' }),
+        );
         expect(mockCallbacks.onTranscriptUpdate).toHaveBeenLastCalledWith({
             transcript: { final: 'first stable words continue with tail' },
         });
