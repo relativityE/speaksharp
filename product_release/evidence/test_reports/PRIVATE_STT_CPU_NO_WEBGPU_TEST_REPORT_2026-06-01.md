@@ -10,13 +10,15 @@
 Private STT: NOT GREEN YET
 Current product status: caveated local/private path
 Primary launch blockers:
-1. Browser proof for washington_01 with return_timestamps:true is pending.
-2. h1 guard rows need rerun after current return_timestamps fixes.
-3. User-visible progress/trust states must be verified during blank/late-draft periods.
-4. Longer-speech behavior must prove segment/timestamp completeness, not just short WER.
+1. v4 browser app proof is still missing; current browser proof is v2 only.
+2. Physical/human mic route was unavailable in this environment because afplay failed.
+3. Washington readability fails the max-run-on gate even though accuracy is strong.
+4. Private must still be compared equally across v2 and v4 before release selection.
 ```
 
-Private has moved from lifecycle failure to targeted quality/timing validation. Save/history/detail passed in the latest focused browser proof, and Cloud fallback was false. That is good, but not enough for release-green because users can still see late or unstable draft text and because browser long-form proof is not complete.
+Private has moved from lifecycle failure to targeted quality/timing validation.
+The 2026-06-02 browser proof shows strong v2 accuracy and timing, but it is not
+the full release matrix because v4 browser proof is not yet captured.
 
 ## Current Release Metrics
 
@@ -70,6 +72,21 @@ Drop-in all-10 run:  /private/tmp/speaksharp-private-dropin-official-all-2026060
 
 ## Latest Current Browser Evidence — 2026-06-02
 
+Collected engine:
+
+```text
+Private v2 / transformers-js only.
+```
+
+Not collected:
+
+```text
+Private v4 browser app data was not collected in this cycle.
+The harness supports privateEngine query selection, but this run used the
+default Private engine. v4 must be run separately with the same fixtures and
+the same metric JSON schema before choosing the Private release candidate.
+```
+
 Route:
 
 ```text
@@ -110,6 +127,16 @@ The 65.8s Washington proof is accurate and complete with return_timestamps:true.
 The remaining Private blockers are punctuation/readability on medium speech,
 confirming v4 browser behavior if v4 is selected as the release candidate, and
 testing human/physical mic when the environment can play audio.
+```
+
+Why this is caveated, not green:
+
+```text
+1. Current browser proof is v2 only; v4 must be measured equally.
+2. The injected-mic route is valid for Private app/browser proof, but it is still
+   not a physical/human microphone proof.
+3. Washington final text is accurate, but readability fails because one sentence-
+   like span is 104 words, above the 45-word release target.
 ```
 
 Current artifacts:
@@ -185,12 +212,18 @@ If final text is late but accurate, the UI must still show progress and label dr
 
 ## Next Required Runs
 
-Ordered current-hour plan:
+Updated required equal-variant plan:
 
-1. Private browser `washington_01` 65.8s with `return_timestamps:true`.
-2. Private h1 guard rows after current fixes.
-3. Update JSON/MD matrix with all accuracy, readability, timing, and journey fields.
-4. Classify Private as green, caveated, hidden, or backlog.
+1. Run Private v2 and v4 on the same fixtures:
+   `h1_1,h1_2,h1_6,h1_8,h1_10,washington_01`.
+2. Use the same route per comparison set:
+   injected-mic if physical playback remains unavailable; physical/human mic
+   when available.
+3. Populate the shared JSON for every row:
+   accuracy, fillers, readability, timing, runtime, cloudFallbackAttempted,
+   progress UI, save/history/detail.
+4. Compare each app result to its matching full-WAV/drop-in ceiling.
+5. Only then classify Private v2/v4 as green, caveated, hidden, or backlog.
 
 Pass condition:
 

@@ -24,6 +24,20 @@ Native = backlog for the current release matrix until human Chrome mic proof run
 
 Native should be tested as a real customer path: Chrome desktop, real microphone, visible live text, stop/save/history/detail. Automated `say`, fake-audio, or speaker-to-mic runs can be diagnostic only.
 
+Why Native data was not collected with the other STTs on 2026-06-02:
+
+```text
+Native Web Speech cannot be validly tested through the injected-mic route used
+for Private. Chrome Web Speech owns its own live microphone/browser recognition
+pipeline and depends on a real Chrome mic session. Fake audio, macOS say, and
+speaker/mic automation have repeatedly produced route contamination or under-
+capture and are not valid release WER proof.
+
+The ordered plan explicitly placed Native after the Private and Cloud evidence
+steps. Since Native requires human real-mic participation, the correct outcome
+for this cycle is backlog/currently uncollected rather than a fake comparable row.
+```
+
 ## Current Release Metrics
 
 All future Native runs must populate the shared JSON with these fields:
@@ -182,6 +196,20 @@ Run only after the first four current-hour STT steps:
 2. Capture all transcript states and timing fields.
 3. Update JSON/MD matrix.
 4. Classify Native as green, caveated, hidden, or backlog.
+
+Equal-variant rerun plan:
+
+```text
+1. Run Native only via human Chrome desktop mic.
+2. Use the same human scripts used for Private/Cloud long-form comparison where
+   feasible, plus the required Native scripts A-C.
+3. Capture first visible text, visible at stop, post-stop final, selected for
+   save, saved transcript, detail transcript, duplicate flag, punctuation,
+   filler recall, false filler insertion, and timing.
+4. Populate the shared JSON with the same product metrics as Private and Cloud.
+5. Compare Native to Private and Cloud as a customer-expectation baseline, not as
+   fake-audio WER.
+```
 
 Pass condition:
 
