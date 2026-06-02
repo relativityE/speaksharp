@@ -438,3 +438,42 @@ Private accuracy looks promising after return_timestamps:true, but release proof
 is blocked until first-time setup/auth/model-readiness is part of the harness.
 This is the next Private closure task before another accuracy claim.
 ```
+
+## TEST AGENT UPDATE (2026-06-02T21:35Z) — current-head proof now fails fast with exact gates
+
+After adding setup/proof breadcrumbs and bounded readiness timeouts, I reran the
+Private browser workflow:
+
+```text
+Controlled STT Benchmarks: 26848986617
+Private Browser Benchmarks job: 79176052331
+Commit: bdb14290
+Artifact: /private/tmp/private-browser-26848986617/private-browser-benchmark-artifacts/
+```
+
+The earlier 6-7 minute opaque timeout is fixed. This run failed in 3m40s with
+specific error codes:
+
+| Candidate | Setup expected | Setup actual | Proof expected | Proof actual | First broken gate |
+| --- | --- | --- | --- | --- | --- |
+| Private v2 | login, Pro, Private selected, setup button clicked, provider ready | Passed. `SETUP_MODEL_PROVIDER_READY` at +7.3s; `modelStatus=ready`; `serviceState=READY`. | Record, show progress, produce complete final transcript against 87-word fixture | Recording started; first draft at +13.7s (`DraftUm, first. I'll smell of old beer like lingo`); Stop at +33.8s; transcript only `Processing speech locally…So wild tales to frighten him.` | `PROOF_FAIL proof.accuracy.final_completeness under_capture: transcript has only 8 words against 87 expected` |
+| Private v4 | login, Pro, Private selected, setup button clicked, provider ready within 90s | Auth/mode/setup button passed; after click model stayed loading then ended `FAILED` / `init-failed`; Start disabled. | Not reached | Not reached | `INVALID_SETUP setup.model_provider TIMEOUT private-engine-ready-timeout after 90000ms` |
+
+Evidence details:
+
+```text
+v2 trace: /private/tmp/private-browser-26848986617/cpu-trace/test.trace
+v4 trace: /private/tmp/private-browser-26848986617/v4-trace/test.trace
+v2 error context: /private/tmp/private-browser-26848986617/private-browser-benchmark-artifacts/test-results/live/live-benchmark-cpu.live-measure-TransformersJS-CPU--live-stt-chromium/error-context.md
+v4 error context: /private/tmp/private-browser-26848986617/private-browser-benchmark-artifacts/test-results/live/live-benchmark-v4.live-measure-Transformers-js-v4-worker-live-stt-chromium/error-context.md
+```
+
+Current classification:
+
+```text
+Private v2: setup passes, proof fails at accuracy/completeness.
+Private v4: setup fails at model/provider readiness before transcription.
+Do not compare v2/v4 accuracy from this workflow yet; v4 never reached proof,
+and v2 produced an under-captured transcript that the harness correctly refuses
+to score.
+```
