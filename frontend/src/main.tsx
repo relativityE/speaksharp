@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './index.css';
 import logger from './lib/logger';
+import { scrubConsoleBreadcrumb } from './lib/logRedaction';
 import { AuthProvider } from './contexts/AuthProvider';
 import posthog from 'posthog-js';
 import { PostHogProvider } from 'posthog-js/react';
@@ -100,7 +101,12 @@ if (!skipSentry) {
       tracesSampleRate: enableSentryTracing ? 0.1 : 0,
       replaysSessionSampleRate: enableSentryReplay ? 0.1 : 0,
       replaysOnErrorSampleRate: enableSentryReplay ? 1.0 : 0,
-      sendDefaultPii: true,
+      // Privacy: never PII by default. Transcript text (esp. Private mode) must not
+      // leave the device via Sentry. sendDefaultPii previously true — disabled.
+      sendDefaultPii: false,
+      // Drop ALL console breadcrumbs so transcript text logged to console can never
+      // be exfiltrated to Sentry on error (defense layer 2; layer 1 is redactTranscript).
+      beforeBreadcrumb: scrubConsoleBreadcrumb,
     });
     logger.info('[Sentry] Initialized successfully (early init)');
   } catch (err) {

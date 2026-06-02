@@ -35,6 +35,7 @@
 
 import { Session } from '@supabase/supabase-js';
 import logger from '../lib/logger';
+import { redactTranscript } from '../lib/logRedaction';
 import { MOCK_SESSION } from '@shared/test-fixtures';
 import { TranscriptionModeOptions, Transcript } from '@/services/transcription/modes/types';
 import { ENV } from '@/config/TestFlags';
@@ -403,7 +404,7 @@ export const setupSpeechRecognitionMock = () => {
         e2eWindow.dispatchMockTranscript = (transcript: string, isFinal: boolean = false) => {
             const instance = e2eWindow.__activeSpeechRecognition;
             if (instance && instance.onresult) {
-                logger.info({ transcript, isFinal }, '[E2E Bridge] Dispatching mock transcript');
+                logger.info({ transcript: redactTranscript(transcript), isFinal }, '[E2E Bridge] Dispatching mock transcript');
 
                 // Construct event matching SpeechRecognitionEvent structure
                 const alternative = { transcript: transcript, confidence: 1 };
