@@ -9,6 +9,18 @@ on:
         description: 'Write results to tests/STT_BENCHMARKS.json and open a PR'
         type: boolean
         default: true
+      run_cloud_ceiling:
+        description: 'Run the legacy AssemblyAI ceiling benchmark before the streaming A/B proof'
+        type: boolean
+        default: true
+      streaming_ab_variants:
+        description: 'Comma-separated AssemblyAI streaming A/B variants'
+        type: string
+        default: 'baseline,keyterms,prompt,prompt_keyterms'
+      streaming_ab_fixtures:
+        description: 'Comma-separated AssemblyAI streaming A/B fixture ids'
+        type: string
+        default: ''
 
 jobs:
   benchmark-cloud:
@@ -35,6 +47,7 @@ jobs:
       - name: Run cloud STT ceiling benchmark
         id: cloud-ceiling
         continue-on-error: true
+        if: inputs.run_cloud_ceiling != false
         env:
           ASSEMBLYAI_API_KEY: ${{ secrets.ASSEMBLYAI_API_KEY }}
           RUN_BENCHMARKS: 'true'
@@ -44,6 +57,8 @@ jobs:
         env:
           ASSEMBLYAI_API_KEY: ${{ secrets.ASSEMBLYAI_API_KEY }}
           ASSEMBLYAI_STREAMING_AB_OUT: /tmp/assemblyai-streaming-ab-proof.json
+          ASSEMBLYAI_STREAMING_AB_VARIANTS: ${{ inputs.streaming_ab_variants }}
+          ASSEMBLYAI_STREAMING_AB_FIXTURES: ${{ inputs.streaming_ab_fixtures }}
         run: pnpm benchmark:cloud:streaming-ab
 
       - name: Upload AssemblyAI streaming A/B proof
@@ -67,7 +82,7 @@ jobs:
           add-paths: tests/STT_BENCHMARKS.json
 
       - name: Fail if cloud ceiling benchmark regressed
-        if: steps.cloud-ceiling.outcome != 'success'
+        if: inputs.run_cloud_ceiling != false && steps.cloud-ceiling.outcome != 'success'
         run: |
           echo "Cloud ceiling benchmark failed; streaming A/B artifact was still collected for review."
           exit 1
