@@ -295,6 +295,62 @@ What STT testing would run next if this remains a launch blocker:
 Then repeat h1_2 and h1_8 as guard rows only if h1_6 shows a stable signal.
 ```
 
+### 2026-06-01 DEV — app-buffer replay finding (first bad boundary identified)
+
+Ran the approved Inversion-2 analysis on the debug artifact
+`speaksharp-private-h1_6-default-debug-20260601203248.json` (no live run needed —
+the artifact carries per-chunk transcripts and the full private trace).
+
+**First bad boundary = candidate selection / whole-utterance re-decode — NOT audio
+prep, NOT mic constraints, NOT model incapability.**
+
+Evidence (same recording, all in one artifact):
+
+| Stage | Text | Note |
+|---|---|---|
+| Truth | They, like, told wild tales to frighten him | — |
+| App **rolling chunk 1** | "**They like told wild tales** to frighten" | model already decoded the hard words CORRECTLY mid-stream |
+| App **whole-utterance commit** (the saved authority) | "**Day, light**, told Wild Tales to frighten him" | re-decode of a 10.75s buffer produced WORSE text |
+| `stopSelectedSource` | `service_result` (= the whole-utterance commit) | app threw away the correct rolling result |
+| Drop-in (full WAV) | "Day, like, told Wild Tales to frightened him" | 75% |
+
+Two mechanisms, both pointing at the final-decode buffer (not the audio in):
+
+1. **The app had the right answer and discarded it.** Rolling chunk 1 contained
+   "They like told wild tales"; the whole-utterance commit overwrote it with a worse
+   decode and committed that unconditionally.
+2. **The committed buffer is tail-bloated.** `whole_utterance_silence_tail_capped`
+   fired at 4.327s, but `whole_utterance_commit_start` shows the committed buffer was
+   **10.751s** — ~6.4s of low-energy/"indistinct chatter" tail still entered the
+   buffer (the cap is not actually bounding it; low-energy frames above the RMS check
+   keep appending). Decoding a 10.75s tail-contaminated blob underperforms the
+   drop-in's cleaner full-WAV and the app's own rolling chunk.
+
+This also explains the test agent's variance (raw 75%↔25%, two different default-DSP
+transcripts): the whole-utterance re-decode of a long, partly-low-energy buffer is
+**repeat-sensitive**, while the per-chunk decodes were stable and sometimes correct.
+
+**Corrected root-cause framing:** the whole-utterance-commit architecture (built on
+the premise "one full decode == drop-in parity") does NOT strictly dominate the
+rolling decodes. On h1_6 it is the regression.
+
+**Proposed fixes (dev, pending approval — not yet implemented):**
+- (a) **Bound the final-decode buffer to the speech window** — actually enforce the
+  silence-tail cap so post-speech low-energy chatter is excluded (the committed
+  buffer should have been ~4-7s, not 10.75s).
+- (b) **Stop committing the whole-utterance decode blindly.** Choose the saved
+  transcript between the whole-utterance decode and the best stable rolling result
+  (e.g. prefer the rolling text when the whole-utterance decode disagrees and is not
+  clearly better). This recovers the "They like told wild tales" the app already had.
+- Both are app-side, unit-testable, and do not touch the model or mic defaults.
+
+**Caveat:** this replay used the captured rolling chunks + trace, not a re-decode of
+the exact whole-utterance WAV (that capture only fires under the trace flag and was
+empty in these runs). The conclusion stands from the chunk transcripts + commit
+trace, but a WAV-level replay would further confirm (b) vs pure nondeterminism. To
+enable it, future repeat runs should set the private trace flag so
+`__PRIVATE_UTTERANCE_AUDIO_CHUNKS__` captures the final-decode WAV.
+
 ## Open Issue P0.2 — Interim Text / Live UX Stall
 
 Issue:
