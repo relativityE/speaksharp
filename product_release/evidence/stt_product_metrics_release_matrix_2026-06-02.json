@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-02T16:27:05Z",
+  "lastUpdated": "2026-06-02T17:42:16Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "scope": [
@@ -212,48 +212,6 @@
         "stopToFinalInferenceStartMs": "NOT_CAPTURED_CURRENT_RUN",
         "finalInferenceDurationMs": "NOT_CAPTURED_CURRENT_RUN",
         "finalInferenceEndToSaveMs": "NOT_CAPTURED_CURRENT_RUN",
-        "stopToDetailVisibleMs": "NOT_CAPTURED_CURRENT_RUN"
-      }
-    },
-    {
-      "candidate": "native",
-      "fixture": "human_real_mic_required",
-      "evidenceType": "NOT_CAPTURED_CURRENT_RUN",
-      "accuracyPct": "NOT_CAPTURED_CURRENT_RUN",
-      "fillerRecallPct": "NOT_CAPTURED_CURRENT_RUN",
-      "falseFillerInsertions": "NOT_CAPTURED_CURRENT_RUN",
-      "terminalPunctuationPresent": "NOT_CAPTURED_CURRENT_RUN",
-      "sentenceCount": "NOT_CAPTURED_CURRENT_RUN",
-      "maxRunOnWords": "NOT_CAPTURED_CURRENT_RUN",
-      "capitalizationErrors": "NOT_CAPTURED_CURRENT_RUN",
-      "duplicateSentenceDetected": "NOT_CAPTURED_CURRENT_RUN",
-      "readabilityVerdict": "NOT_CAPTURED_CURRENT_RUN",
-      "firstProgressMs": "NOT_CAPTURED_CURRENT_RUN",
-      "firstDraftMs": "NOT_CAPTURED_CURRENT_RUN",
-      "finalizationWaitMs": "NOT_CAPTURED_CURRENT_RUN",
-      "transcriptConfidence": "not_captured",
-      "saveHistoryDetail": "NOT_CAPTURED_CURRENT_RUN",
-      "releaseStatus": "blocker_human_real_mic_required",
-      "timing": {
-        "micClickedAt": "NOT_CAPTURED_CURRENT_RUN",
-        "recordingStateAt": "NOT_CAPTURED_CURRENT_RUN",
-        "stopClickedAt": "NOT_CAPTURED_CURRENT_RUN",
-        "selectedForSaveAt": "NOT_CAPTURED_CURRENT_RUN",
-        "savedAt": "NOT_CAPTURED_CURRENT_RUN",
-        "detailVisibleAt": "NOT_CAPTURED_CURRENT_RUN",
-        "onaudiostartAt": "NOT_CAPTURED_CURRENT_RUN",
-        "onspeechstartAt": "NOT_CAPTURED_CURRENT_RUN",
-        "firstInterimAt": "NOT_CAPTURED_CURRENT_RUN",
-        "firstFinalAt": "NOT_CAPTURED_CURRENT_RUN",
-        "onendAt": "NOT_CAPTURED_CURRENT_RUN"
-      },
-      "derivedTiming": {
-        "micToAudioStartMs": "NOT_CAPTURED_CURRENT_RUN",
-        "audioStartToSpeechStartMs": "NOT_CAPTURED_CURRENT_RUN",
-        "speechStartToFirstInterimMs": "NOT_CAPTURED_CURRENT_RUN",
-        "firstFinalToSelectedForSaveMs": "NOT_CAPTURED_CURRENT_RUN",
-        "stopToOnEndMs": "NOT_CAPTURED_CURRENT_RUN",
-        "onEndToSavedMs": "NOT_CAPTURED_CURRENT_RUN",
         "stopToDetailVisibleMs": "NOT_CAPTURED_CURRENT_RUN"
       }
     },
@@ -1292,6 +1250,99 @@
         }
       ],
       "releaseRead": "invalid variant; provider/session bug blocks use"
+    },
+    {
+      "candidate": "native",
+      "fixture": "human_real_mic_script_2026_06_02",
+      "evidenceType": "HUMAN_REAL_MIC_BROWSER_PROOF",
+      "artifactPath": "/private/tmp/speaksharp-native-human-proof-20260602.json",
+      "startedAt": "2026-06-02T17:39:39.616Z",
+      "completedAt": "2026-06-02T17:42:16.708Z",
+      "pass": false,
+      "classification": "fail_release_blocker",
+      "accuracyPct": "NOT_SCORED_WER_REAL_MIC",
+      "expectedFillers": 3,
+      "recognizedFillers": 2,
+      "fillerBreakdown": {
+        "um": {
+          "expected": 1,
+          "recognized": 0
+        },
+        "like": {
+          "expected": 1,
+          "recognized": 1
+        },
+        "basically": {
+          "expected": 1,
+          "recognized": 1
+        }
+      },
+      "fillerRecallPct": 66.67,
+      "falseFillerInsertions": 0,
+      "terminalPunctuationPresent": true,
+      "sentenceCount": 2,
+      "expectedSentenceCount": 4,
+      "maxRunOnWords": 49,
+      "capitalizationErrors": [
+        "Starts Now",
+        "Next Step"
+      ],
+      "duplicateSentenceDetected": false,
+      "readabilityVerdict": "fail",
+      "transcriptConfidence": "low",
+      "saveHistoryDetail": "fail_save_marker_false_selected_placeholder",
+      "visibleAtStop": "Native microphone proof Starts Now. I want to make one simple point before we move on basically the puppy like chewed up the new shoes and that changed the whole plan the main takeaway is that we should pause before the next idea give one concrete example and end with a clear Next Step.",
+      "postStopFinal": "native microphone proof Starts Now I want to make one simple point before we move on basically the puppy like chewed up the new shoes and that changed the whole plan the main takeaway is that we should pause before the next idea give one concrete example and end with a clear Next Step",
+      "postStopTranscript": "Listening...",
+      "selectedForSave": "Listening...",
+      "saved": false,
+      "historyVisible": true,
+      "analyticsVisible": true,
+      "blockers": [
+        "stop did not settle: page.waitForFunction: Timeout 60000ms exceeded.",
+        "Native session did not expose saved-session marker."
+      ],
+      "releaseStatus": "not_green_human_mic_failed_readability_and_stop_save_selection",
+      "timing": {
+        "recordingStateAt": "NOT_CAPTURED_FOR_STOPPED_SESSION_TRACE_RESET_GAP",
+        "onaudiostartAt": 5321,
+        "onspeechstartAt": null,
+        "firstInterimAt": 37452.3,
+        "firstFinalAt": 49343.5,
+        "stopClickedAt": 53209.2,
+        "onendAt": 53375.9,
+        "selectedForSaveAt": "NOT_CAPTURED_EXPLICIT_TIMESTAMP",
+        "savedAt": null,
+        "detailVisibleAt": "ANALYTICS_VISIBLE_BUT_DETAIL_TRANSCRIPT_EMPTY"
+      },
+      "derivedTiming": {
+        "audioStartToSpeechStartMs": "NOT_CAPTURED_CURRENT_RUN",
+        "audioStartToFirstInterimMs": 32131.3,
+        "speechStartToFirstInterimMs": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInterimToFirstFinalMs": 11891.2,
+        "firstFinalToStopMs": 3865.7,
+        "stopToOnEndMs": 166.7,
+        "stopToRecognitionFinishedMs": 166.8
+      },
+      "parallelCapture": {
+        "durationSec": 48.1973125,
+        "sampleRate": 16000,
+        "rms": 0.02246,
+        "peak": 0.423943,
+        "samples": 771157,
+        "wavBytesApprox": 2056502,
+        "speechStartMs": 21150,
+        "speechEndMs": 42800,
+        "speechDurationMs": 6650,
+        "segmentCount": 25,
+        "speechSegments": 25,
+        "speechWindow": {
+          "startMs": 21150,
+          "endMs": 42800
+        },
+        "contaminationFlag": null
+      },
+      "timingNote": "Corrected 2026-06-02: artifact contains a second auto-start after stop; timing uses the stopped session boundary and nativeAudioReady for first-session audio start. recordingStateAt was not retained for the stopped session in the available trace."
     }
   ],
   "timingContract": {
