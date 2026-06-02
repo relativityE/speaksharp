@@ -143,44 +143,52 @@ town. A, like, toed wild tail to frighten him. We, um, find joy in the simplest
 things.
 ```
 
-### Latest Current-Head Cloud A/B Proof: 2026-06-02T22:04Z
+### Latest Current-Head Cloud A/B Proof: 2026-06-02T23:00Z
 
 Run:
 
 ```text
-Controlled STT Benchmarks: 26850691978
-Commit: 5669c1be
-Artifact: /private/tmp/speaksharp-cloud-ab-26850691978/assemblyai-streaming-ab-proof.json
+Controlled STT Benchmarks: 26852918607
+Commit: b63768aa
+Artifact: /private/tmp/speaksharp-cloud-ab-26852918607/assemblyai-streaming-ab-proof.json
 Variants: baseline,keyterms
-Fixtures: h1_1,h1_6,h1_8
+Requested fixtures: h1_1,h1_2,h1_6,h1_8,h1_10,washington_01
+Scored fixtures: h1_1,h1_2,h1_6,h1_8,h1_10
 ```
 
-This run closes the Cloud A/B request/session validity action item. Both
-variants produced valid sessions on the narrow current-head subset.
+This run closes the Cloud A/B request/session validity action item for the h1
+subset. Both variants produced valid sessions. `washington_01` did not appear
+in the artifact, so Cloud long-speech/app-tail proof remains open.
 
 | Candidate | Step | Expected | Actual | First broken gate | Exit/error code |
 | --- | --- | --- | --- | --- | --- |
-| Cloud baseline | proof | Valid AssemblyAI streaming sessions with strong accuracy and filler evidence | 3/3 valid, 96.3% average accuracy, 83.33% filler recall | none | none |
-| Cloud keyterms | proof | Improve filler recall without material ordinary-word accuracy loss | 3/3 valid, 91.67% average accuracy, 100% filler recall; h1_6 dropped to 75% | `proof.accuracy.fillers` | quality tradeoff, not request failure |
+| Cloud baseline | proof | Valid AssemblyAI streaming sessions with strong accuracy and filler evidence | 5/5 valid, 97.78% average accuracy, 90% filler recall | none | none |
+| Cloud keyterms | proof | Improve filler recall without material ordinary-word accuracy loss | 5/5 valid, 95% average accuracy, 100% filler recall; h1_6 dropped to 75% | `proof.accuracy.fillers` | quality tradeoff, not request failure |
 
 Per-row detail:
 
 | Variant | Fixture | Accuracy | Filler recall | Retries | Transcript |
 | --- | --- | ---: | ---: | ---: | --- |
 | baseline | h1_1 | 88.89% | 50% | 0 | `The stale smell of old beer, like, lingers.` |
+| baseline | h1_2 | 100% | 100% | 0 | `Basically, a dash of pepper spoils beef stew.` |
 | baseline | h1_6 | 100% | 100% | 0 | `They, like, told Wild Tales to frighten him.` |
 | baseline | h1_8 | 100% | 100% | 0 | `The puppy, like, chewed up the new shoes.` |
+| baseline | h1_10 | 100% | 100% | 0 | `Basically, the quick brown fox jumps over the lazy dog.` |
 | keyterms | h1_1 | 100% | 100% | 0 | `Um, the stale smell of old beer, like, lingers.` |
+| keyterms | h1_2 | 100% | 100% | 2 | `Basically, a dash of pepper spoils beef stew.` |
 | keyterms | h1_6 | 75% | 100% | 0 | `They like told wild tales to frighten him.` |
 | keyterms | h1_8 | 100% | 100% | 0 | `The puppy, like, chewed up the new shoes.` |
+| keyterms | h1_10 | 100% | 100% | 0 | `Basically, the quick brown fox jumps over the lazy dog.` |
 
 Current read:
 
 ```text
 Cloud baseline remains the safest Cloud release candidate. The Cloud A/B
-plumbing is no longer the blocker: request shape, session validity, and
-artifact capture worked on current main. Keyterms remains blocked only because
-it trades better filler recall for worse h1_6 transcript accuracy.
+plumbing is no longer the blocker for the h1 subset: request shape, session
+validity, and artifact capture worked on current main. Keyterms remains blocked
+because it trades better filler recall for worse h1_6 transcript accuracy.
+Long-speech/app-tail proof is still open because `washington_01` was not emitted
+by this provider-only A/B artifact.
 ```
 
 ## Candidate Set
@@ -334,7 +342,7 @@ BLOCKER = missing value blocks green classification.
 | STT | Classification | Why | Next action |
 | --- | --- | --- | --- |
 | Private | Caveated / not release-green | Earlier injected browser proof was promising (`washington_01` 98.95%; h1 guard rows mostly exact), but latest current-head workflow `26852510533` shows the release path is still not closed: v2 setup passes but first live text is too sparse and authoritative final accuracy is only 37.93%; v4 fails setup before transcription due WebGPU/backend readiness. | Dev: investigate why v2 browser workflow saved a 60-word low-accuracy transcript despite setup success, and ensure v4 falls back or classifies cleanly when WebGPU adapter is unavailable. Test: rerun after fixes using saveCandidate and collect v2/v4 equally. |
-| Cloud | Caveated | Cheap credentialed subset on current code is valid: baseline 96.3% accuracy / 83.33% filler recall; keyterms 91.67% / 100%. Keyterms improves filler recall but hurts h1_6 accuracy, so it is not shippable as default. | DEV FIX: change/narrow/replace keyterms so filler recall improves without h1_6 accuracy loss, or disable keyterms and launch Cloud baseline-only. Then test reruns larger baseline-vs-keyterms proof. |
+| Cloud | Caveated / closest | Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. Long-speech/app-tail proof remains open. | Launch/position Cloud baseline as quality path if app-tail proof passes. DEV/PRODUCT: change/narrow/disable keyterms before defaulting it. TEST: run Cloud app journey/tail proof with `__CLOUD_STT_TIMELINE__`. |
 | Native | Backlog / failed current proof | Human real-mic proof ran and failed product readiness: Chrome produced words, but selectedForSave became `Listening...`, save/detail failed, readability failed, and filler recall was 66.67%. | Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof. |
 
 Clarifications:
@@ -442,22 +450,36 @@ Older broad artifact:
 /private/tmp/assemblyai-ab-26830845676/assemblyai-streaming-ab-proof.json
 ```
 
-Latest targeted artifact:
+Latest larger targeted artifact:
 
 ```text
-/private/tmp/assemblyai-ab-26845298122/assemblyai-streaming-ab-proof.json
+/private/tmp/speaksharp-cloud-ab-26852918607/assemblyai-streaming-ab-proof.json
 ```
 
-Latest targeted workflow:
+Latest larger targeted workflow:
 
 ```text
-https://github.com/relativityE/speaksharp/actions/runs/26845298122
+https://github.com/relativityE/speaksharp/actions/runs/26852918607
+```
+
+Dispatch:
+
+```text
+streaming_ab_variants=baseline,keyterms
+streaming_ab_fixtures=h1_1,h1_2,h1_6,h1_8,h1_10,washington_01
+```
+
+Artifact caveat:
+
+```text
+The artifact emitted h1_1,h1_2,h1_6,h1_8,h1_10 only. washington_01 did not
+appear in the scored results, so Cloud long-speech/tail proof remains open.
 ```
 
 | Variant | Before fix | Latest targeted proof | Current read |
 | --- | --- | --- | --- |
-| baseline | 5/10 valid; 95.56% accuracy / 90% filler recall on valid rows | 3/3 valid; 96.3% accuracy / 83.33% filler recall | Valid and strongest current default; misses `um` in h1_1. |
-| keyterms | 0/10 valid; request/session invalid | 3/3 valid; 91.67% accuracy / 100% filler recall | Request/session fixed; product-quality tradeoff remains. |
+| baseline | 5/10 valid; 95.56% accuracy / 90% filler recall on valid rows | 5/5 valid; 97.78% accuracy / 90% filler recall | Valid and strongest current default; misses `um` in h1_1. |
+| keyterms | 0/10 valid; request/session invalid | 5/5 valid; 95% accuracy / 100% filler recall | Request/session fixed; product-quality tradeoff remains. |
 | prompt | 0/10 valid in older run; later partial rows used `u3-rt-pro` | not run in latest cheap proof | Hold pending cost approval. |
 | prompt_keyterms | 0/10 valid in older run | not run in latest cheap proof | Hold pending cost approval and keyterms quality decision. |
 
@@ -466,20 +488,24 @@ Latest row detail:
 | Variant | Fixture | Accuracy | Filler recall | Current read |
 | --- | ---: | ---: | ---: | ---: | --- | --- |
 | baseline | h1_1 | 88.89% | 50% | Misses `um`. |
+| baseline | h1_2 | 100% | 100% | Exact. |
 | baseline | h1_6 | 100% | 100% | Best h1_6 result. |
 | baseline | h1_8 | 100% | 100% | Exact. |
+| baseline | h1_10 | 100% | 100% | Exact. |
 | keyterms | h1_1 | 100% | 100% | Recovers `um`. |
+| keyterms | h1_2 | 100% | 100% | Exact; required 2 concurrency retries. |
 | keyterms | h1_6 | 75% | 100% | Accuracy regression versus baseline. |
 | keyterms | h1_8 | 100% | 100% | Exact. |
+| keyterms | h1_10 | 100% | 100% | Exact. |
 
 Current read:
 
 ```text
-Cloud A/B request/session validity is now much better. Keyterms is valid and
-improves filler recall, but it is not quality-safe yet because it lowers h1_6
-accuracy from 100% to 75%. Baseline remains the safer Cloud candidate until dev
-explains or fixes the keyterms tradeoff and a larger baseline-vs-keyterms proof
-passes.
+Cloud A/B request/session validity is closed for the h1 subset. Keyterms is
+valid and improves filler recall, but it is not quality-safe yet because it
+lowers h1_6 accuracy from 100% to 75%. Baseline remains the safer Cloud
+candidate. Cloud long-speech/app-tail proof still needs a separate app run with
+`__CLOUD_STT_TIMELINE__`.
 ```
 
 ## Punctuation Quality Metric
