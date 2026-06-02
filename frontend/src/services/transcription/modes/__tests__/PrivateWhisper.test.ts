@@ -766,6 +766,70 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         });
     });
 
+    it('FIX A: low-energy post-speech chatter past the tail cap is excluded from the whole-utterance buffer', async () => {
+        // h1_6 root cause: the tail-cap reset used the silence floor (0.01), so
+        // low/mid-energy "chatter" (rms 0.02-0.09) kept resetting the cap and the
+        // final-decode buffer grew unbounded. The reset bar is now the partial-speech
+        // threshold (FIRST_TRANSCRIPT_PARTIAL_MIN_RMS) — chatter accrues toward the
+        // bounded tail and is dropped past UTTERANCE_SILENCE_TAIL_SAMPLES.
+        await privateWhisper.init();
+        const engine = privateWhisper as unknown as {
+            utteranceSampleCount: number;
+            appendFrameToUtteranceAudio: (
+                frame: Float32Array,
+                energy: { rms: number; peak: number },
+            ) => void;
+        };
+
+        const FRAME = 1024;
+        const realSpeech = { rms: PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS + 0.02, peak: 0.4 };
+        // "chatter": above the silence floor (0.01) but below the partial-speech bar.
+        const chatter = { rms: SESSION_PAUSE.SILENCE_RMS_THRESHOLD + 0.01, peak: 0.1 };
+
+        // 5 frames of real speech are always retained.
+        for (let i = 0; i < 5; i += 1) {
+            engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.3), realSpeech);
+        }
+        const afterSpeech = engine.utteranceSampleCount;
+        expect(afterSpeech).toBe(5 * FRAME);
+
+        // Now feed far more chatter than the tail allowance; only the bounded tail
+        // should be retained, NOT all of it (the old bug retained all of it).
+        const tailAllowanceFrames = Math.ceil(PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES / FRAME);
+        const chatterFrames = tailAllowanceFrames + 20;
+        for (let i = 0; i < chatterFrames; i += 1) {
+            engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.03), chatter);
+        }
+
+        const retainedChatter = engine.utteranceSampleCount - afterSpeech;
+        // Bounded: retained chatter must not exceed the tail allowance + one frame.
+        expect(retainedChatter).toBeLessThanOrEqual(PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES + FRAME);
+        // And must be far below the total chatter fed (proves it did not grow unbounded).
+        expect(retainedChatter).toBeLessThan(chatterFrames * FRAME);
+    });
+
+    it('FIX A: a real-speech frame after chatter resets the tail allowance (quiet-but-real endings preserved)', async () => {
+        await privateWhisper.init();
+        const engine = privateWhisper as unknown as {
+            utteranceSampleCount: number;
+            appendFrameToUtteranceAudio: (
+                frame: Float32Array,
+                energy: { rms: number; peak: number },
+            ) => void;
+        };
+        const FRAME = 1024;
+        const realSpeech = { rms: PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS + 0.05, peak: 0.5 };
+        const chatter = { rms: SESSION_PAUSE.SILENCE_RMS_THRESHOLD + 0.005, peak: 0.05 };
+
+        engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.4), realSpeech);
+        // some chatter (within allowance), then real speech again, then more speech
+        engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.02), chatter);
+        engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.4), realSpeech);
+        engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.4), realSpeech);
+        // All real-speech frames + the one tolerated chatter frame are retained.
+        expect(engine.utteranceSampleCount).toBe(4 * FRAME);
+    });
+
     it('REGRESSION: whole-utterance stop decode rejects only pure hallucination after cleanup', async () => {
         await privateWhisper.init();
         const engine = privateWhisper as unknown as {

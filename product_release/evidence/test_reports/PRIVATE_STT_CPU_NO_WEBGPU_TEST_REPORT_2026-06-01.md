@@ -389,6 +389,51 @@ tracking keeps the best-stable one.
 Guardrail held: changes are app-side, unit-tested on h1_2/h1_6/h1_8/h1_10, no model/
 mic-default/Cloud changes. Implementation to follow in a separate commit.
 
+### 2026-06-01 DEV — Fix A SHIPPED; Fix B DEFERRED (2nd-opinion approved)
+
+Per second-opinion review, shipped **Fix A only** and deferred broad Fix B candidate
+scoring.
+
+**Fix A (shipped, commit SHA in merge note):** `appendFrameToUtteranceAudio` now
+resets the trailing-tail counter using the partial-speech bar
+(`FIRST_TRANSCRIPT_PARTIAL_MIN_RMS` = 0.04, an existing product threshold) instead of
+the silence floor (0.01). Low/mid-energy post-speech "chatter" no longer resets the
+cap, so the whole-utterance buffer is bounded to speech + the existing 1s tail
+allowance. This directly targets the h1_6 buffer bloat (committed 10.751s for ~7s of
+speech). Genuinely quiet-but-real endings (≥ the partial bar) still reset the cap and
+are preserved.
+
+Unit proof (no browser): two new PrivateWhisper tests — (1) chatter past the tail cap
+is excluded (buffer bounded, not unbounded); (2) a real-speech frame after chatter
+resets the allowance so quiet-but-real endings are kept. Full transcription suite
+336/336; build green. No model / mic-default / Cloud change.
+
+**Fix B (DEFERRED):** evidence weakened the original premise — both h1_6 candidates
+carry garbage (final "Day, light…"; best provisional "day. Bye. They like told wild
+tales…"), they share high overlap, and tiny.en exposes no confidence score. A broad
+whole-final-vs-rolling selector would risk overfitting and regressing h1_8/h1_10. Per
+review, do NOT build it yet.
+
+**Requested test-agent next step (the measure gate):** re-run focused
+h1_2 / h1_6 / h1_8 / h1_10 + drop-in after Fix A and report:
+
+| Field | Why |
+| --- | --- |
+| final decode buffer duration | confirm bounded (~speech window + ≤1s, not 10.75s) |
+| speech window duration | reference |
+| tail included after cap | confirm chatter excluded |
+| rolling best provisional | candidate visibility |
+| whole-utterance final | the committed decode |
+| selected transcript + WER | did h1_6 improve? did h1_8/h1_10 hold? |
+| filler recall + save/history/detail | product gates |
+
+Decision rule after re-measure:
+- If Fix A moves h1_6 toward drop-in and no guard row regresses → likely done; Fix B
+  unnecessary.
+- If a gap remains → implement only **Fix B-2a** (preserve a `bestStableProvisional`
+  so a low-overlap later junk provisional cannot overwrite a longer stable one) — NOT
+  the broad scoring selector — then re-measure again.
+
 ## Open Issue P0.2 — Interim Text / Live UX Stall
 
 Issue:
