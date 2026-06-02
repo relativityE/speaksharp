@@ -1,7 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-02T21:05:00Z  
+**Last updated:** 2026-06-02T21:35:00Z  
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
@@ -69,6 +69,36 @@ Current example:
 | Private v2 browser proof | accuracy | `proof.accuracy.final_completeness` | Setup reached recording, but transcript captured only 8 words against 87 expected. |
 | Cloud A/B keyterms | accuracy | `proof.accuracy.fillers` | Requests are now valid, but keyterms hurt h1_6 accuracy. |
 | Native human proof | accuracy, journey | `proof.accuracy.readability`, `proof.journey.stop_save_detail` | Chrome produced words, but readability and stop/save/detail failed. |
+
+### Latest Current-Head Private Browser Proof: 2026-06-02T21:29Z
+
+Run:
+
+```text
+Controlled STT Benchmarks: 26848986617
+Private Browser Benchmarks job: 79176052331
+Commit: bdb14290
+Artifact: /private/tmp/private-browser-26848986617/private-browser-benchmark-artifacts/
+```
+
+This run confirms the new bounded setup/proof error taxonomy works. The job
+failed in 3m40s, not the prior 6-7 minute global timeout. It produced exact
+gate errors:
+
+| Candidate | Step | Expected | Actual | First broken gate | Exit/error code |
+| --- | --- | --- | --- | --- | --- |
+| Private v2 | setup | Auth, Pro tier, Private mode, setup click, provider ready | Passed. `SETUP_MODEL_PROVIDER_READY` at +7.3s; model status `ready`; service `READY`. | none | none |
+| Private v2 | proof | Start, first text, Stop, complete final transcript | Recording started at +7.7s; first draft at +13.7s; Stop at +33.8s; final/visible transcript only `Processing speech locally…So wild tales to frighten him.` | `proof.accuracy.final_completeness` | `PROOF_FAIL proof.accuracy.final_completeness under_capture: transcript has only 8 words against 87 expected` |
+| Private v4 | setup | Auth, Pro tier, Private mode, setup click, provider ready within 90s | Auth/mode/setup button passed; after click, model stayed `loading` then ended `FAILED` / `init-failed`; Start stayed disabled. | `setup.model_provider` | `INVALID_SETUP setup.model_provider TIMEOUT private-engine-ready-timeout after 90000ms` |
+
+Current read:
+
+```text
+Private v2 is no longer blocked by auth/model setup in this workflow; it reaches
+proof but fails final completeness badly. Private v4 is still blocked before
+transcription by setup/model-provider readiness. These are different blockers
+and must not be collapsed into one "Private failed" bucket.
+```
 
 ## Candidate Set
 
