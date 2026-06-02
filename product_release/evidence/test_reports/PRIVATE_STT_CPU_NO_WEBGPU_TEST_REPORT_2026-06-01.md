@@ -909,6 +909,21 @@ agent territory.
 2. Given the fresh Node result strongly favors v4 (more accurate + 2× faster), is a
    full **in-browser** v4 corpus run worth prioritizing as a potential v2→v4 default
    switch? That is the missing evidence between "v4 model is better" and "ship v4".
+3. **Methodology adoption:** do you want to adopt this dev Node full-WAV method
+   (`scripts/dev/private-v2-v4-node-compare.mts`) as the standard *engine-model*
+   comparison going forward (v2/v4/future), keeping your in-browser fake-audio runs
+   for *app-path* parity? It is fully described above — both engines, byte-identical
+   full-WAV input, all 10 rows, identical decode options, only the engine varies. If
+   yes, dev can hand it to you or fold it into the benchmark suite.
+
+### Dated provenance (stale vs fresh)
+
+| Data | Date taken | Method | Rows | Status |
+| --- | --- | --- | ---: | --- |
+| `STT_BENCHMARKS.json` v4 (87.96% / 88.89%) | 2026-05-25 | in-browser `local-chromium-worker`, Chrome fake-audio-capture | 3/10 | **STALE — do not cite** |
+| `STT_BENCHMARKS.json` Private WebGPU (93.00%) | 2026-03-16 | local hardware, different machine | — | **STALE** |
+| `STT_BENCHMARKS.json` v2 CPU (93.89%) | 2026-05-23 | Node CPU full-WAV | 10 | current |
+| Dev v2 vs v4 (this section) | **2026-06-02** | Node CPU full-WAV, identical input both engines | 10 | **fresh; supersedes the stale v4 number for the *model* comparison** |
 
 ### Sources
 - Whisper chunked-algorithm WER penalty: https://github.com/huggingface/transformers/issues/37789 ; https://huggingface.co/openai/whisper-large-v2/discussions/67
