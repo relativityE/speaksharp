@@ -554,6 +554,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private hasDetectedSpeech: boolean = false;
   private retryAudioBuffer: Float32Array | null = null;
   private isProcessing: boolean = false;
+  // True from the moment Stop is requested until finalization completes. While set,
+  // in-flight LIVE decodes must not emit (their stale partials would otherwise paint
+  // over the "Processing speech locally…" finalizing state). The whole-utterance
+  // commit emit is exempt — it is the authoritative final.
+  private isStopping: boolean = false;
   private processingInterval: NodeJS.Timeout | null = null;
   private pauseDetector: PauseDetector;
   private lastTranscriptEmitAtMs: number = 0;
@@ -591,6 +596,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private emitProvisionalPartial(text: string, reason: string): void {
     const partial = text.trim();
     if (!partial || !this.onTranscriptUpdate) return;
+    // After Stop, do not paint stale live partials over the finalizing state.
+    if (this.isStopping) return;
     if (isUnsafePrivateTranscriptCandidate(partial)) {
       pushPrivateTimeline('first_transcript_provisional_partial_rejected', {
         serviceId: this.serviceId,
@@ -765,6 +772,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.bestVisibleProvisionalTranscript = '';
     this.liveProvisionalTranscript = '';
     this.firstTranscriptAgreementRounds = 0;
+    this.isStopping = false;
     this.streamStartAtMs = performance.now();
     this.speechStartAtMs = null;
     this.retainedUtterancePrerollSamplesAtStart = 0;
@@ -1506,7 +1514,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${textToEmit}` : textToEmit;
         this.bestVisibleProvisionalTranscript = '';
         this.liveProvisionalTranscript = '';
-        if (this.onTranscriptUpdate) {
+        // Suppress in-flight live finals once Stop is requested; the whole-utterance
+        // commit is the authoritative final from here on.
+        if (this.onTranscriptUpdate && !this.isStopping) {
           pushPrivateTimeline('transcript_callback_emit', {
             serviceId: this.serviceId,
             runId: this.instanceId,
@@ -1599,15 +1609,14 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
     this.cleanupFrameListener();
 
-    const waitStartedAt = performance.now();
-    while (this.isProcessing && performance.now() - waitStartedAt < TRANSCRIPTION_TIMEOUT_MS) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-
     // Path C (UX honesty): the whole-utterance stop-commit re-decodes the full
-    // utterance and can take several seconds on CPU. Surface an explicit
-    // "processing speech" state so the post-Stop wait reads as intentional work
-    // rather than a frozen UI. Only signal when there is actually audio to decode.
+    // utterance and can take several seconds on CPU. Surface the explicit
+    // "processing speech" state IMMEDIATELY at Stop — BEFORE waiting for any
+    // in-flight live decode to drain — so the user is not staring at stale/blank
+    // text for the duration of that wait. Mark the engine stopping so in-flight
+    // live emits are suppressed (see emitProvisionalPartial / live-final guard).
+    // Only signal when there is actually audio to decode.
+    this.isStopping = true;
     const hasUtteranceToFinalize =
       this.utteranceSampleCount >= MIN_TRANSCRIPTION_SAMPLES || this.audioChunks.length > 0;
     if (hasUtteranceToFinalize) {
@@ -1616,6 +1625,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         message: 'Processing speech locally…',
         detail: 'Finalizing your private transcript on this device.',
       });
+    }
+
+    const waitStartedAt = performance.now();
+    while (this.isProcessing && performance.now() - waitStartedAt < TRANSCRIPTION_TIMEOUT_MS) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
 
     try {
