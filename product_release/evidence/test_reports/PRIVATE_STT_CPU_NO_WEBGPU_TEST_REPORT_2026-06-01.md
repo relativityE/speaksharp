@@ -1077,3 +1077,61 @@ Whole utterance:
 - savedText
 - WER / readability / filler recall
 ```
+
+## DEV → TEST AGENT (2026-06-02, append-only) — long-form endurance limit (v2 vs v4)
+
+Measures the product's real workload (½-to-full-page speeches) instead of 7s
+sentences. ACCURACY first, SPEED second. **Dev Node CPU full-WAV, NOT release proof,
+NOT the in-browser app path.** Script: `scripts/dev/private-longform-endurance.mts`;
+artifact `/private/tmp/private-longform-endurance.json`; dated 2026-06-02.
+
+**Method + its confound (stated up front):** length was reached by concatenating the
+10 Harvard sentences N× (1×/2×/3×/4×/6× ≈ 30/59/89/118/177s) through the same decode
+options as the app workers (`chunk_length_s:30, stride:5`). Whisper de-duplicates
+repeated content, so raw WER over-counts un-repeated passes as deletions. We therefore
+**cannot cleanly measure novel-speech drift** with these assets — we lack distinct
+~2-min audio. BUT the `producedWords` signal (how much transcript the model emits
+before stopping) cuts through the confound and is itself the finding.
+
+### Performance vs duration (plottable)
+
+| Duration | Windows | v2 acc | v4 acc | v2 RTF | v4 RTF | v2 words emitted | v4 words emitted |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| ~30s | 1 | 91.95% | 94.25% | 0.126 | 0.027 | 87/87 | 87/87 |
+| ~59s | 2 | 75.29% | 74.14% | 0.094 | 0.028 | 145/174 | 145/174 |
+| ~89s | 3 | 60.92% | 63.60% | 0.082 | 0.024 | 174/261 | 174/261 |
+| ~118s | 4 | 53.16% | 37.64% | 0.067 | 0.020 | 203/348 | 144/348 |
+| ~177s | 6 | 39.08% | 25.67% | 0.053 | 0.018 | 231/522 | 146/522 |
+
+(accuracy column partly confounded by repetition; treat the SHAPE + words-emitted as
+the real signal, not the absolute %)
+
+### Findings
+
+1. **Hard usable limit ≈ 30s (one Whisper window).** At 1 window both engines are
+   strong (v2 92%, v4 94%). By 2 windows (~59s) both fall to ~75% and keep dropping.
+   A ½-page speech (~60s) is already marginal; a full page (~120s+) is unusable.
+2. **Failure mode is TRUNCATION, not hallucination/looping.** Transcript heads/tails
+   are correct; the middle is dropped. `producedWords` plateaus then regresses (v4
+   emits FEWER words at 118s than at 89s). The model gives up on long audio rather
+   than degrading word-by-word.
+3. **v4 does NOT solve long-form; it is worse at length.** v4 wins short (faster +
+   slightly more accurate) but collapses harder past ~3 windows (37.6% vs v2 53.2% at
+   118s; emits 144 vs 203 words). So v4 is a clear win for short practice, not speeches.
+4. **Speed is not the long-form blocker.** v4 RTF ~0.02 (3-5× faster than v2) at every
+   length. Completeness/accuracy is the wall, not decode time.
+
+### What this means
+The "decode the whole speech in one pass at Stop with chunk_length_s:30" architecture
+does not scale to speeches on EITHER engine. The long-form answer is architectural —
+**segment-and-append finalization** (decode each ~sentence/pause-bounded chunk so every
+decode stays in the high-accuracy ≤30s regime) and/or **Cloud** (streams that way by
+design). A faster/better model in the wrong-shaped pipeline still fails the page-length
+case.
+
+### Honest rigor gap + ask for test agent
+To measure TRUE long-form drift (vs this truncation finding) we need **distinct ~1-2
+min speech audio** (a real page-length script), not repeated sentences. Do you have, or
+can you generate, such a fixture? That is the missing asset to convert "limit ≈ 30s,
+truncation" into a validated novel-speech curve. Until then this is directional, not a
+release benchmark.
