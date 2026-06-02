@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-02T23:30:00Z",
+  "lastUpdated": "2026-06-02T23:35:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -1760,6 +1760,63 @@
         "playwrightPassed": true
       },
       "caveat": "Cloud app journey proof passed, but this run did not export exact __CLOUD_STT_TIMELINE__, WER/readability, or scripted tail comparison against ground truth."
+    },
+    {
+      "id": "private_current_head_browser_26853628019_v2_cpu",
+      "candidate": "Private v2 browser app",
+      "fixture": "harvard_benchmark_87_word_fixture",
+      "evidenceType": "browser-proof",
+      "workflowRun": 26853628019,
+      "job": 79191366613,
+      "commit": "2a6fe37a",
+      "artifact": "/private/tmp/private-browser-26853628019/",
+      "artifactId": 7372094146,
+      "collectedAt": "2026-06-02T23:14:28Z",
+      "finishedAt": "2026-06-02T23:18:12Z",
+      "classification": "PROOF_FAIL",
+      "failedPhase": "accuracy",
+      "failedGate": "proof.accuracy.final_completeness",
+      "accuracyPct": 33.33,
+      "wer": 0.6667,
+      "expectedWordCount": 87,
+      "finalWordCount": 51,
+      "saveCandidateReason": "service_result",
+      "selectedForSaveLength": 269,
+      "resultTranscriptLength": 268,
+      "chunkTranscriptLength": 269,
+      "storeTranscriptLength": 269,
+      "storePartialTranscriptLength": 0,
+      "visibleStoreTranscriptLength": 269,
+      "frozenStopTranscriptLength": 22,
+      "selectedForSave": "The tail smell of old beer, like lingers, basically, a dash of pepper spoils beef to, well, the one knife was far short on perfect, you know, the marks was thrown beside the parked truck, literally, the twister left no trace on the town, a, like, toed wild tail to fry.",
+      "journey": {
+        "setupReady": true,
+        "saveCandidatePresent": true,
+        "sessionSaved": true
+      },
+      "caveat": "This supersedes the earlier 8-word DOM/banner artifact. The product path now saves an authoritative transcript, but it is materially worse than the v2 drop-in/full-WAV baseline."
+    },
+    {
+      "id": "private_current_head_browser_26853628019_v4",
+      "candidate": "Private v4 browser app",
+      "fixture": "harvard_benchmark_87_word_fixture",
+      "evidenceType": "browser-proof",
+      "workflowRun": 26853628019,
+      "job": 79191366613,
+      "commit": "2a6fe37a",
+      "artifact": "/private/tmp/private-browser-26853628019/",
+      "artifactId": 7372094146,
+      "collectedAt": "2026-06-02T23:14:28Z",
+      "finishedAt": "2026-06-02T23:18:12Z",
+      "classification": "INVALID_SETUP",
+      "failedPhase": "setup",
+      "failedGate": "setup.model_provider",
+      "modelStatus": "init-failed",
+      "serviceState": "INIT_FAILED",
+      "startButtonDisabled": true,
+      "accuracyPct": null,
+      "wer": null,
+      "caveat": "v4 failed before transcription; do not score accuracy. Browser snapshot reported hasWebGPU=true, but service reached INIT_FAILED and Start stayed disabled."
     }
   ],
   "timingContract": {
@@ -1810,7 +1867,7 @@
       "stopToDetailVisibleMs": "Total post-stop user wait."
     }
   },
-  "classificationUpdatedAt": "2026-06-02T23:30:00Z",
+  "classificationUpdatedAt": "2026-06-02T23:35:00Z",
   "classifications": {
     "cloud": {
       "status": "caveated_closest",
@@ -1819,8 +1876,8 @@
     },
     "private": {
       "status": "caveated",
-      "reason": "Earlier injected browser proof was promising, but latest current-head workflow 26852510533 is not release-green: v2 setup passes and saveCandidate is authoritative, yet first useful text is too sparse and saved final accuracy is only 37.93%; v4 fails setup/runtime before transcription due WebGPU/backend readiness.",
-      "next": "Dev should investigate v2 browser-path final quality and v4 WebGPU/CPU-fallback setup behavior. Test reruns v2/v4 equally after fixes, using saveCandidate rather than DOM transcript text."
+      "reason": "Current-head workflow 26853628019 is not release-green: v2 setup/saveCandidate/persistence work, but saved final accuracy is only 33.33% with 51 words against an 87-word fixture; v4 fails setup/runtime before transcription with modelStatus init-failed and serviceState INIT_FAILED.",
+      "next": "Dev should run the app-buffer replay diagnostic for v2 and investigate v4 WebGPU/CPU-fallback setup behavior. Test reruns v2/v4 after fixes, using saveCandidate rather than DOM transcript text."
     },
     "native": {
       "status": "backlog_failed_current_proof",
@@ -1828,5 +1885,5 @@
       "next": "Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-02T23:30:00Z"
+  "lastUpdatedAt": "2026-06-02T23:35:00Z"
 }

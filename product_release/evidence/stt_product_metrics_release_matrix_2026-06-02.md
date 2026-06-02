@@ -65,8 +65,8 @@ Current example:
 
 | STT | Error phase | Failed gate | Why |
 | --- | --- | --- | --- |
-| Private v4 browser proof | setup | `setup.model_provider` | Private/Vault setup did not finish; Start stayed disabled. |
-| Private v2 browser proof | timing, accuracy | `proof.timing.first_text`, `proof.accuracy.fillers` / final quality | Current-head run `26852510533`: setup/model ready passed and authoritative `saveCandidate` saved 60 words, but first live text gate saw only 2 words before timeout and final transcript accuracy was only 37.93%. |
+| Private v4 browser proof | setup | `setup.model_provider` | Current-head run `26853628019`: setup/runtime ends `INIT_FAILED`; Start disabled before transcription. |
+| Private v2 browser proof | accuracy | `proof.accuracy.final_completeness` | Current-head run `26853628019`: setup/model ready passed and authoritative `saveCandidate` saved 51 words, but WER is 66.67% / accuracy 33.33% against the 87-word fixture. |
 | Cloud A/B keyterms | accuracy | `proof.accuracy.fillers` | Current-head run `26852918607`: requests/session validity closed; keyterms still hurts h1_6 accuracy. |
 | Native human proof | accuracy, journey | `proof.accuracy.readability`, `proof.journey.stop_save_detail` | Chrome produced words, but readability and stop/save/detail failed. |
 
@@ -103,6 +103,38 @@ Cloud app journey is passing and Cloud remains the strongest 24-hour quality
 path. This run does not yet close exact timing/readability/tail metrics because
 the live test did not export __CLOUD_STT_TIMELINE__, WER/readability, or scripted
 tail comparison against ground truth.
+```
+
+### Latest Current-Head Private Browser Proof: 2026-06-02T23:18Z
+
+Run:
+
+```text
+Controlled STT Benchmarks: 26853628019
+Private Browser Benchmarks job: 79191366613
+Commit: 2a6fe37a
+Artifact: /private/tmp/private-browser-26853628019/
+Artifact ID: 7372094146
+```
+
+| Candidate | Setup | Proof | Current classification |
+| --- | --- | --- | --- |
+| Private v2 / CPU | pass: Pro, Private, model ready, saved session | fail: WER 66.67%, accuracy 33.33%, saveCandidate finalWordCount 51 / expected 87 | not green; real app/browser accuracy/tail blocker |
+| Private v4 | fail: `modelStatus=init-failed`, `serviceState=INIT_FAILED`, Start disabled | not reached | invalid setup/runtime; do not score accuracy |
+
+Private v2 selected transcript:
+
+```text
+The tail smell of old beer, like lingers, basically, a dash of pepper spoils beef to, well, the one knife was far short on perfect, you know, the marks was thrown beside the parked truck, literally, the twister left no trace on the town, a, like, toed wild tail to fry.
+```
+
+Interpretation:
+
+```text
+The 8-word DOM/banner artifact is superseded. Current Private v2 can save an
+authoritative transcript, but the transcript is materially worse than the v2
+drop-in/full-WAV baseline. Dev needs the app-buffer replay diagnostic to decide
+whether this is audio prep/windowing, runtime/config, or candidate selection.
 ```
 
 ### Latest Current-Head Private Browser Proof: 2026-06-02T22:46Z
