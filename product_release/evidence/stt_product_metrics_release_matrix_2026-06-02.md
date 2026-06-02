@@ -62,6 +62,80 @@ Drop-in/customer baselines:
 | Transcript confidence | high/medium/low | Prevents overconfident score/analytics from weak STT |
 | Save/history/detail | pass required | Proves the product journey |
 
+## Timing Bottleneck Contract
+
+Every browser/app run must include the timing fields below. Without them, we
+cannot tell whether lag came from microphone startup, VAD, buffering, worker
+queue, model inference, store/UI update, final decode, save, or detail loading.
+
+### Shared Timing Fields
+
+| Field | Meaning |
+| --- | --- |
+| `micClickedAt` | User clicked mic/start recording |
+| `recordingStateAt` | App entered recording/listening state |
+| `stopClickedAt` | User clicked Stop |
+| `selectedForSaveAt` | Controller/service selected transcript for persistence |
+| `savedAt` | Session persisted |
+| `detailVisibleAt` | Saved session detail became visible |
+
+### Private Timing Fields
+
+| Field | Meaning |
+| --- | --- |
+| `speechDetectedAt` | Private VAD/speech-start gate detected speech |
+| `firstAudioChunkQueuedAt` | First usable audio chunk queued to worker |
+| `firstInferenceStartAt` | Worker started first draft/provisional inference |
+| `firstInferenceEndAt` | Worker completed first draft/provisional inference |
+| `firstDraftVisibleAt` | UI displayed first Private draft text |
+| `finalInferenceStartAt` | Worker started final whole-utterance inference |
+| `finalInferenceEndAt` | Worker completed final whole-utterance inference |
+
+### Native Timing Fields
+
+| Field | Meaning |
+| --- | --- |
+| `onaudiostartAt` | Chrome Web Speech audio pipeline started |
+| `onspeechstartAt` | Chrome Web Speech detected speech |
+| `firstInterimAt` | First Chrome interim text event |
+| `firstFinalAt` | First Chrome final text event |
+| `onendAt` | Chrome Web Speech recognition ended |
+
+### Cloud Timing Fields
+
+| Field | Meaning |
+| --- | --- |
+| `socketOpenAt` | Cloud streaming socket opened |
+| `firstProviderMessageAt` | First provider message received |
+| `firstPartialAt` | First partial/interim transcript received |
+| `firstFinalAt` | First final/turn transcript received |
+| `terminationAt` | Provider termination/end-of-turn/final session message received |
+
+### Derived Timing Metrics
+
+| Metric | Meaning |
+| --- | --- |
+| `micToSpeechDetectedMs` | Capture/VAD delay for Private, or mic-to-speechstart for Native |
+| `speechDetectedToFirstInferenceStartMs` | Private buffering/queue delay |
+| `firstInferenceDurationMs` | Private first draft model time |
+| `inferenceEndToDraftVisibleMs` | Store/UI delay after draft inference |
+| `stopToFinalInferenceStartMs` | Pre-finalization delay after Stop |
+| `finalInferenceDurationMs` | Private final model decode time |
+| `finalInferenceEndToSaveMs` | App/backend save delay after final decode |
+| `micToFirstInterimMs` | Native/Cloud first text latency from mic start |
+| `firstFinalToSelectedForSaveMs` | App selection delay after provider/browser final |
+| `stopToOnEndMs` | Native recognition shutdown/finalization delay |
+| `providerOpenToFirstPartialMs` | Cloud streaming partial latency |
+| `providerOpenToFirstFinalMs` | Cloud streaming final latency |
+| `stopToDetailVisibleMs` | Total post-stop user wait |
+
+Current status:
+
+```text
+The timing fields are now part of the MD/JSON metric contract, but current
+values are NOT_CAPTURED_CURRENT_RUN until the next browser/human app proofs run.
+```
+
 ## Current Values
 
 Legend:

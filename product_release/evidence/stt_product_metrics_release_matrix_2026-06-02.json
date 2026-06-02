@@ -1,6 +1,11 @@
 {
   "date": "2026-06-02",
-  "scope": ["private_v2", "private_v4", "native", "cloud"],
+  "scope": [
+    "private_v2",
+    "private_v4",
+    "native",
+    "cloud"
+  ],
   "retiredCandidates": [
     {
       "id": "private_v3",
@@ -43,7 +48,32 @@
       "finalizationWaitMs": "NOT_CAPTURED_CURRENT_RUN",
       "transcriptConfidence": "not_captured",
       "saveHistoryDetail": "NOT_CAPTURED_CURRENT_RUN",
-      "releaseStatus": "not_browser_green"
+      "releaseStatus": "not_browser_green",
+      "timing": {
+        "micClickedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "recordingStateAt": "NOT_CAPTURED_CURRENT_RUN",
+        "stopClickedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "selectedForSaveAt": "NOT_CAPTURED_CURRENT_RUN",
+        "savedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "detailVisibleAt": "NOT_CAPTURED_CURRENT_RUN",
+        "speechDetectedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstAudioChunkQueuedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInferenceStartAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInferenceEndAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstDraftVisibleAt": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceStartAt": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceEndAt": "NOT_CAPTURED_CURRENT_RUN"
+      },
+      "derivedTiming": {
+        "micToSpeechDetectedMs": "NOT_CAPTURED_CURRENT_RUN",
+        "speechDetectedToFirstInferenceStartMs": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInferenceDurationMs": "NOT_CAPTURED_CURRENT_RUN",
+        "inferenceEndToDraftVisibleMs": "NOT_CAPTURED_CURRENT_RUN",
+        "stopToFinalInferenceStartMs": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceDurationMs": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceEndToSaveMs": "NOT_CAPTURED_CURRENT_RUN",
+        "stopToDetailVisibleMs": "NOT_CAPTURED_CURRENT_RUN"
+      }
     },
     {
       "candidate": "private_v4",
@@ -63,7 +93,32 @@
       "finalizationWaitMs": "NOT_CAPTURED_CURRENT_RUN",
       "transcriptConfidence": "not_captured",
       "saveHistoryDetail": "NOT_CAPTURED_CURRENT_RUN",
-      "releaseStatus": "best_private_candidate_needs_browser_proof"
+      "releaseStatus": "best_private_candidate_needs_browser_proof",
+      "timing": {
+        "micClickedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "recordingStateAt": "NOT_CAPTURED_CURRENT_RUN",
+        "stopClickedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "selectedForSaveAt": "NOT_CAPTURED_CURRENT_RUN",
+        "savedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "detailVisibleAt": "NOT_CAPTURED_CURRENT_RUN",
+        "speechDetectedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstAudioChunkQueuedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInferenceStartAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInferenceEndAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstDraftVisibleAt": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceStartAt": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceEndAt": "NOT_CAPTURED_CURRENT_RUN"
+      },
+      "derivedTiming": {
+        "micToSpeechDetectedMs": "NOT_CAPTURED_CURRENT_RUN",
+        "speechDetectedToFirstInferenceStartMs": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInferenceDurationMs": "NOT_CAPTURED_CURRENT_RUN",
+        "inferenceEndToDraftVisibleMs": "NOT_CAPTURED_CURRENT_RUN",
+        "stopToFinalInferenceStartMs": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceDurationMs": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceEndToSaveMs": "NOT_CAPTURED_CURRENT_RUN",
+        "stopToDetailVisibleMs": "NOT_CAPTURED_CURRENT_RUN"
+      }
     },
     {
       "candidate": "private_v2",
@@ -84,7 +139,32 @@
       "finalizationWaitMs": "NOT_CAPTURED_CURRENT_RUN",
       "transcriptConfidence": "not_captured",
       "saveHistoryDetail": "NOT_CAPTURED_CURRENT_RUN",
-      "releaseStatus": "accuracy_strong_readability_fails"
+      "releaseStatus": "accuracy_strong_readability_fails",
+      "timing": {
+        "micClickedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "recordingStateAt": "NOT_CAPTURED_CURRENT_RUN",
+        "stopClickedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "selectedForSaveAt": "NOT_CAPTURED_CURRENT_RUN",
+        "savedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "detailVisibleAt": "NOT_CAPTURED_CURRENT_RUN",
+        "speechDetectedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstAudioChunkQueuedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInferenceStartAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInferenceEndAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstDraftVisibleAt": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceStartAt": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceEndAt": "NOT_CAPTURED_CURRENT_RUN"
+      },
+      "derivedTiming": {
+        "micToSpeechDetectedMs": "NOT_CAPTURED_CURRENT_RUN",
+        "speechDetectedToFirstInferenceStartMs": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInferenceDurationMs": "NOT_CAPTURED_CURRENT_RUN",
+        "inferenceEndToDraftVisibleMs": "NOT_CAPTURED_CURRENT_RUN",
+        "stopToFinalInferenceStartMs": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceDurationMs": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceEndToSaveMs": "NOT_CAPTURED_CURRENT_RUN",
+        "stopToDetailVisibleMs": "NOT_CAPTURED_CURRENT_RUN"
+      }
     },
     {
       "candidate": "private_v4",
@@ -105,7 +185,32 @@
       "finalizationWaitMs": "NOT_CAPTURED_CURRENT_RUN",
       "transcriptConfidence": "not_captured",
       "saveHistoryDetail": "NOT_CAPTURED_CURRENT_RUN",
-      "releaseStatus": "accuracy_strong_faster_than_v2_readability_fails"
+      "releaseStatus": "accuracy_strong_faster_than_v2_readability_fails",
+      "timing": {
+        "micClickedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "recordingStateAt": "NOT_CAPTURED_CURRENT_RUN",
+        "stopClickedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "selectedForSaveAt": "NOT_CAPTURED_CURRENT_RUN",
+        "savedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "detailVisibleAt": "NOT_CAPTURED_CURRENT_RUN",
+        "speechDetectedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstAudioChunkQueuedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInferenceStartAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInferenceEndAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstDraftVisibleAt": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceStartAt": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceEndAt": "NOT_CAPTURED_CURRENT_RUN"
+      },
+      "derivedTiming": {
+        "micToSpeechDetectedMs": "NOT_CAPTURED_CURRENT_RUN",
+        "speechDetectedToFirstInferenceStartMs": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInferenceDurationMs": "NOT_CAPTURED_CURRENT_RUN",
+        "inferenceEndToDraftVisibleMs": "NOT_CAPTURED_CURRENT_RUN",
+        "stopToFinalInferenceStartMs": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceDurationMs": "NOT_CAPTURED_CURRENT_RUN",
+        "finalInferenceEndToSaveMs": "NOT_CAPTURED_CURRENT_RUN",
+        "stopToDetailVisibleMs": "NOT_CAPTURED_CURRENT_RUN"
+      }
     },
     {
       "candidate": "native",
@@ -125,7 +230,29 @@
       "finalizationWaitMs": "NOT_CAPTURED_CURRENT_RUN",
       "transcriptConfidence": "not_captured",
       "saveHistoryDetail": "NOT_CAPTURED_CURRENT_RUN",
-      "releaseStatus": "blocker_human_real_mic_required"
+      "releaseStatus": "blocker_human_real_mic_required",
+      "timing": {
+        "micClickedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "recordingStateAt": "NOT_CAPTURED_CURRENT_RUN",
+        "stopClickedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "selectedForSaveAt": "NOT_CAPTURED_CURRENT_RUN",
+        "savedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "detailVisibleAt": "NOT_CAPTURED_CURRENT_RUN",
+        "onaudiostartAt": "NOT_CAPTURED_CURRENT_RUN",
+        "onspeechstartAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstInterimAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstFinalAt": "NOT_CAPTURED_CURRENT_RUN",
+        "onendAt": "NOT_CAPTURED_CURRENT_RUN"
+      },
+      "derivedTiming": {
+        "micToAudioStartMs": "NOT_CAPTURED_CURRENT_RUN",
+        "audioStartToSpeechStartMs": "NOT_CAPTURED_CURRENT_RUN",
+        "speechStartToFirstInterimMs": "NOT_CAPTURED_CURRENT_RUN",
+        "firstFinalToSelectedForSaveMs": "NOT_CAPTURED_CURRENT_RUN",
+        "stopToOnEndMs": "NOT_CAPTURED_CURRENT_RUN",
+        "onEndToSavedMs": "NOT_CAPTURED_CURRENT_RUN",
+        "stopToDetailVisibleMs": "NOT_CAPTURED_CURRENT_RUN"
+      }
     },
     {
       "candidate": "cloud",
@@ -146,7 +273,77 @@
       "finalizationWaitMs": "NOT_CAPTURED_CURRENT_RUN",
       "transcriptConfidence": "not_captured",
       "saveHistoryDetail": "prior_proof_exists_current_trace_needed",
-      "releaseStatus": "strongest_path_not_closed"
+      "releaseStatus": "strongest_path_not_closed",
+      "timing": {
+        "micClickedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "recordingStateAt": "NOT_CAPTURED_CURRENT_RUN",
+        "stopClickedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "selectedForSaveAt": "NOT_CAPTURED_CURRENT_RUN",
+        "savedAt": "NOT_CAPTURED_CURRENT_RUN",
+        "detailVisibleAt": "NOT_CAPTURED_CURRENT_RUN",
+        "socketOpenAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstProviderMessageAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstPartialAt": "NOT_CAPTURED_CURRENT_RUN",
+        "firstFinalAt": "NOT_CAPTURED_CURRENT_RUN",
+        "terminationAt": "NOT_CAPTURED_CURRENT_RUN"
+      },
+      "derivedTiming": {
+        "micToSocketOpenMs": "NOT_CAPTURED_CURRENT_RUN",
+        "providerOpenToFirstPartialMs": "NOT_CAPTURED_CURRENT_RUN",
+        "providerOpenToFirstFinalMs": "NOT_CAPTURED_CURRENT_RUN",
+        "stopToTerminationMs": "NOT_CAPTURED_CURRENT_RUN",
+        "finalToSelectedForSaveMs": "NOT_CAPTURED_CURRENT_RUN",
+        "terminationToSavedMs": "NOT_CAPTURED_CURRENT_RUN",
+        "stopToDetailVisibleMs": "NOT_CAPTURED_CURRENT_RUN"
+      }
     }
-  ]
+  ],
+  "timingContract": {
+    "shared": {
+      "micClickedAt": "User clicked mic/start recording.",
+      "recordingStateAt": "App entered recording/listening state.",
+      "stopClickedAt": "User clicked Stop.",
+      "selectedForSaveAt": "Controller/service selected transcript for persistence.",
+      "savedAt": "Session persisted.",
+      "detailVisibleAt": "Saved session detail became visible."
+    },
+    "private": {
+      "speechDetectedAt": "Private VAD/speech-start gate detected speech.",
+      "firstAudioChunkQueuedAt": "First usable audio chunk queued to worker.",
+      "firstInferenceStartAt": "Worker started first draft/provisional inference.",
+      "firstInferenceEndAt": "Worker completed first draft/provisional inference.",
+      "firstDraftVisibleAt": "UI displayed first Private draft text.",
+      "finalInferenceStartAt": "Worker started final whole-utterance inference.",
+      "finalInferenceEndAt": "Worker completed final whole-utterance inference."
+    },
+    "native": {
+      "onaudiostartAt": "Chrome Web Speech audio pipeline started.",
+      "onspeechstartAt": "Chrome Web Speech detected speech.",
+      "firstInterimAt": "First Chrome interim text event.",
+      "firstFinalAt": "First Chrome final text event.",
+      "onendAt": "Chrome Web Speech recognition ended."
+    },
+    "cloud": {
+      "socketOpenAt": "Cloud streaming socket opened.",
+      "firstProviderMessageAt": "First provider message received.",
+      "firstPartialAt": "First partial/interim transcript received.",
+      "firstFinalAt": "First final/turn transcript received.",
+      "terminationAt": "Provider termination/end-of-turn/final session message received."
+    },
+    "derived": {
+      "micToSpeechDetectedMs": "Capture/VAD delay for Private, or mic-to-speechstart for Native.",
+      "speechDetectedToFirstInferenceStartMs": "Private buffering/queue delay.",
+      "firstInferenceDurationMs": "Private first draft model time.",
+      "inferenceEndToDraftVisibleMs": "Store/UI delay after draft inference.",
+      "stopToFinalInferenceStartMs": "Pre-finalization delay after Stop.",
+      "finalInferenceDurationMs": "Private final model decode time.",
+      "finalInferenceEndToSaveMs": "App/backend save delay after final decode.",
+      "micToFirstInterimMs": "Native/Cloud first text latency from mic start.",
+      "firstFinalToSelectedForSaveMs": "App selection delay after provider/browser final.",
+      "stopToOnEndMs": "Native recognition shutdown/finalization delay.",
+      "providerOpenToFirstPartialMs": "Cloud streaming partial latency.",
+      "providerOpenToFirstFinalMs": "Cloud streaming final latency.",
+      "stopToDetailVisibleMs": "Total post-stop user wait."
+    }
+  }
 }
