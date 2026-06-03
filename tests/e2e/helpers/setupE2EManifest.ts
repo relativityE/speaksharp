@@ -19,6 +19,7 @@ export interface SSE2EManifest {
   getFSMState?: () => string;
   startRecording?: () => void;
   stopRecording?: () => void;
+  lastTranscript?: string;
   runtimeEventLog?: Array<{ event: string; instanceId: string; timestamp: number }>;
   pushEvent?: (event: string, instanceId: string) => void;
   _activeCallbacks?: {
@@ -77,6 +78,7 @@ export interface E2EWindow {
   __e2eBridgeReady__?: boolean;
   __MOCK_PROFILE__?: Record<string, unknown> & { subscription_status: string };
   __TRANSCRIPTION_SERVICE__?: ControllerBridge;
+  supabase?: unknown;
   localStorage: Storage;
   location: Location;
   setInterval: (handler: TimerHandler, timeout?: number, ...args: unknown[]) => number;
@@ -95,9 +97,10 @@ export async function setupE2EManifest(
     storage?: Record<string, string>;
     userType?: 'free' | 'basic' | 'pro';
     mockProfile?: Record<string, unknown>;
+    emptySessions?: boolean;
   }
 ) {
-  const { storage = {}, userType = 'free', mockProfile, ...manifest } = config;
+  const { storage = {}, userType = 'free', mockProfile, emptySessions = false, ...manifest } = config;
   
   // 🛡️ Fix 5: Analytics Mock (Mandated Stabilization)
   // Decouples telemetry from UI readiness to prevent network-induced flakiness
@@ -111,7 +114,7 @@ export async function setupE2EManifest(
     globalThis.__name = __name;
   `);
 
-  await page.addInitScript(({ m, s, ut, mp }: { m: unknown; s: Record<string, string>; ut: string; mp?: Record<string, unknown> }) => {
+  await page.addInitScript(({ m, s, ut, mp, es }: { m: unknown; s: Record<string, string>; ut: string; mp?: Record<string, unknown>; es?: boolean }) => {
     // Playwright serializes this callback into the browser. Some TS/esbuild
     // transforms preserve function names by emitting __name(...) calls inside
     // the serialized body, but the helper itself is otherwise outside that
@@ -151,6 +154,255 @@ export async function setupE2EManifest(
       }
     });
 
+    const authSession = (() => {
+      for (const value of Object.values(localBrowserStorage)) {
+        try {
+          const parsed = JSON.parse(value);
+          if (parsed?.access_token && parsed?.user?.id) return parsed;
+        } catch {
+          // Keep scanning; unrelated storage values may be present.
+        }
+      }
+      return null;
+    })();
+
+    const e2eProfile = {
+      id: authSession?.user?.id || '__E2E_GUEST_USER__',
+      subscription_status: ut === 'pro' ? 'pro' : ut === 'basic' ? 'basic' : 'free',
+      stripe_subscription_id: ut === 'pro' ? 'sub_e2e_paid_pro' : null,
+      subscription_id: ut === 'pro' ? 'sub_e2e_paid_pro' : null,
+      usage_seconds: 0,
+      usage_reset_date: new Date(Date.now() + 86400000).toISOString(),
+      created_at: new Date().toISOString(),
+      ...(mp || {}),
+    };
+
+    const nowIso = () => new Date().toISOString();
+    const makeSession = (overrides: Record<string, unknown> = {}) => ({
+      id: `session-${Math.random().toString(36).slice(2)}`,
+      user_id: e2eProfile.id,
+      title: 'Test Session',
+      duration: 300,
+      total_words: 150,
+      transcript: 'the birch canoe slid on the smooth planks',
+      filler_words: { um: { count: 2 }, uh: { count: 3 } },
+      accuracy: 0.92,
+      clarity_score: 88,
+      wpm: 145,
+      engine: 'private',
+      status: 'completed',
+      created_at: nowIso(),
+      updated_at: nowIso(),
+      ai_suggestions: {
+        summary: 'Strong practice session.',
+        suggestions: [{ title: 'Keep it clear', description: 'Continue speaking with concise structure.' }],
+      },
+      pause_metrics: null,
+      ...overrides,
+    });
+
+    const e2eDbStorageKey = '__SS_E2E_SESSION_DB__';
+    const defaultSessions = es ? [] : Array.from({ length: 5 }, (_, index) => makeSession({
+        id: `session-${index + 1}`,
+        title: `Practice Session ${index + 1}`,
+        created_at: new Date(Date.now() - index * 86400000).toISOString(),
+      }));
+    const loadPersistedSessions = () => {
+      try {
+        const raw = window.sessionStorage.getItem(e2eDbStorageKey);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed?.sessions) ? parsed.sessions : null;
+      } catch {
+        return null;
+      }
+    };
+    const persistSessions = () => {
+      try {
+        window.sessionStorage.setItem(e2eDbStorageKey, JSON.stringify({ sessions: sessionState.sessions }));
+      } catch {
+        // Non-fatal in E2E; the in-memory state still works until the next full navigation.
+      }
+    };
+    const sessionState = {
+      sessions: loadPersistedSessions() ?? defaultSessions,
+    };
+    persistSessions();
+
+    const queryResultFor = (
+      table: string,
+      single: boolean = false,
+      filters: Array<{ column: string; value: unknown }> = [],
+      options: { count?: string; head?: boolean; range?: [number, number] } = {}
+    ) => {
+      if (table === 'user_profiles') {
+        return Promise.resolve({ data: single ? e2eProfile : [e2eProfile], error: null, count: 1 });
+      }
+      if (table === 'sessions') {
+        let rows = [...sessionState.sessions];
+        for (const filter of filters) {
+          rows = rows.filter((row) => String((row as Record<string, unknown>)[filter.column]) === String(filter.value));
+        }
+        rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+        const count = rows.length;
+        if (options.range) {
+          const [from, to] = options.range;
+          rows = rows.slice(from, to + 1);
+        }
+        if (single) {
+          const row = rows[0] ?? null;
+          return Promise.resolve({
+            data: row,
+            error: row ? null : { code: 'PGRST116', message: 'No rows returned' },
+            count,
+          });
+        }
+        return Promise.resolve({ data: options.head ? null : rows, error: null, count });
+      }
+      return Promise.resolve({ data: single ? null : [], error: null, count: 0 });
+    };
+
+    const makeQueryBuilder = (table: string) => {
+      const filters: Array<{ column: string; value: unknown }> = [];
+      const options: { count?: string; head?: boolean; range?: [number, number] } = {};
+      let pendingMutation: { type: 'update' | 'insert' | 'delete'; payload?: Record<string, unknown> | Record<string, unknown>[] } | null = null;
+      const commitMutation = () => {
+        if (table !== 'sessions' || !pendingMutation) return null;
+        if (pendingMutation.type === 'insert') {
+          const payloads = Array.isArray(pendingMutation.payload) ? pendingMutation.payload : [pendingMutation.payload || {}];
+          const inserted = payloads.map((payload) => makeSession(payload as Record<string, unknown>));
+          sessionState.sessions.unshift(...inserted);
+          persistSessions();
+          return { data: inserted, error: null, count: inserted.length };
+        }
+        const matching = sessionState.sessions.filter((row) =>
+          filters.every((filter) => String((row as Record<string, unknown>)[filter.column]) === String(filter.value))
+        );
+        if (pendingMutation.type === 'update') {
+          for (const row of matching) Object.assign(row, pendingMutation.payload || {}, { updated_at: nowIso() });
+          persistSessions();
+          return { data: matching, error: null, count: matching.length };
+        }
+        if (pendingMutation.type === 'delete') {
+          sessionState.sessions = sessionState.sessions.filter((row) => !matching.includes(row));
+          persistSessions();
+          return { data: matching, error: null, count: matching.length };
+        }
+        return null;
+      };
+      const builder = {
+        select: (_columns?: string, selectOptions?: { count?: string; head?: boolean }) => {
+          options.count = selectOptions?.count;
+          options.head = selectOptions?.head;
+          return builder;
+        },
+        eq: (column: string, value: unknown) => {
+          filters.push({ column, value });
+          return builder;
+        },
+        or: () => builder,
+        order: () => builder,
+        range: (from: number, to: number) => {
+          options.range = [from, to];
+          return builder;
+        },
+        limit: (count: number) => {
+          options.range = [0, Math.max(0, count - 1)];
+          return builder;
+        },
+        update: (payload: Record<string, unknown>) => {
+          pendingMutation = { type: 'update', payload };
+          return builder;
+        },
+        insert: (payload: Record<string, unknown> | Record<string, unknown>[]) => {
+          pendingMutation = { type: 'insert', payload };
+          return builder;
+        },
+        delete: () => {
+          pendingMutation = { type: 'delete' };
+          return builder;
+        },
+        single: () => {
+          const mutationResult = commitMutation();
+          if (mutationResult) return Promise.resolve({ ...mutationResult, data: Array.isArray(mutationResult.data) ? mutationResult.data[0] ?? null : mutationResult.data });
+          return queryResultFor(table, true, filters, options);
+        },
+        then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+          Promise.resolve(commitMutation() ?? queryResultFor(table, false, filters, options)).then(resolve, reject),
+      };
+      return builder;
+    };
+
+    win.supabase = {
+      auth: {
+        getSession: async () => ({ data: { session: authSession }, error: null }),
+        getUser: async () => ({ data: { user: authSession?.user ?? null }, error: null }),
+        onAuthStateChange: (callback: (event: string, session: unknown) => void) => {
+          setTimeout(() => callback('INITIAL_SESSION', authSession), 0);
+          return { data: { subscription: { unsubscribe: () => undefined } } };
+        },
+        signOut: async () => ({ error: null }),
+      },
+      from: (table: string) => makeQueryBuilder(table),
+      rpc: async (fn: string, args?: Record<string, unknown>) => {
+        if (fn === 'create_session_and_update_usage') {
+          const sessionData = (args?.p_session_data || {}) as Record<string, unknown>;
+          const newSession = makeSession({
+            ...sessionData,
+            engine: (args?.p_engine_type as string) || sessionData.engine || 'native',
+            idempotency_key: args?.p_idempotency_key,
+            engine_version: args?.p_engine_version,
+            model_name: args?.p_model_name,
+            device_type: args?.p_device_type,
+          });
+          sessionState.sessions.unshift(newSession);
+          persistSessions();
+          return { data: { new_session: newSession, usage_exceeded: false }, error: null };
+        }
+        if (fn === 'complete_session') {
+          const sessionId = args?.p_session_id;
+          const session = sessionState.sessions.find((row) => row.id === sessionId);
+          if (session) {
+            Object.assign(session, {
+              status: args?.p_status || 'completed',
+              transcript: args?.p_final_transcript ?? session.transcript,
+              duration: args?.p_final_duration ?? session.duration,
+              updated_at: nowIso(),
+            });
+            persistSessions();
+          }
+          return { data: { success: true, final_status: args?.p_status || 'completed' }, error: null };
+        }
+        if (fn === 'heartbeat_session') {
+          return { data: { success: true }, error: null };
+        }
+        if (fn === 'get_analytics_summary') {
+          return {
+            data: {
+              overallStats: {
+                totalSessions: sessionState.sessions.length,
+                totalPracticeTime: Math.round(sessionState.sessions.reduce((sum, row) => sum + Number(row.duration || 0), 0) / 60),
+                averageSessionLength: sessionState.sessions.length
+                  ? Math.round(sessionState.sessions.reduce((sum, row) => sum + Number(row.duration || 0), 0) / sessionState.sessions.length)
+                  : 0,
+                averageWPM: 145,
+                avgFillerWordsPerMin: '1.0',
+                avgAccuracy: '92.0',
+                chartData: [],
+              },
+              fillerWordTrends: {},
+              topFillerWords: [],
+              accuracyData: [],
+              weeklySessionsCount: sessionState.sessions.length,
+              weeklyActivity: [],
+            },
+            error: null,
+          };
+        }
+        return { data: { success: true }, error: null };
+      },
+    };
+
     win.__SS_E2E_ENGINE_CACHE__ = win.__SS_E2E_ENGINE_CACHE__ || {};
 
     const minimalStubFactory = (mode: string) => (opts?: { 
@@ -166,6 +418,7 @@ export async function setupE2EManifest(
       win.__SS_E2E_ENGINE_CACHE__ = cache;
       if (cache[mode]) return cache[mode];
 
+      let emittedTranscript = '';
       const instance = {
         instanceId: `mock-${Math.random().toString(36).slice(2)}`,
         checkAvailability: async () => ({ isAvailable: true }),
@@ -182,9 +435,15 @@ export async function setupE2EManifest(
         terminate: async () => {},
         getEngineType: () => mode,
         getLastHeartbeatTimestamp: () => Date.now(),
-        getTranscript: async () => '[E2E_MOCK]',
-        transcribe: async () => ({ isOk: true, value: '[E2E_MOCK]', data: '[E2E_MOCK]' }),
+        getTranscript: async () => emittedTranscript || win.__SS_E2E__?.lastTranscript || '[E2E_MOCK]',
+        transcribe: async () => {
+          const value = emittedTranscript || win.__SS_E2E__?.lastTranscript || '[E2E_MOCK]';
+          return { isOk: true, value, data: value };
+        },
         emitTranscript: (text: string, isFinal: boolean = true) => {
+          if (isFinal) {
+            emittedTranscript = text;
+          }
           if (opts?.onTranscriptUpdate) {
             opts.onTranscriptUpdate({
               transcript: isFinal ? { final: text } : { partial: text },
@@ -227,6 +486,9 @@ export async function setupE2EManifest(
     win.__SS_E2E_BRIDGE__ = {
       emitTranscript: (text: string, isFinal: boolean = true) => {
         const controller = win.__TRANSCRIPTION_SERVICE__;
+        if (isFinal && win.__SS_E2E__) {
+          win.__SS_E2E__.lastTranscript = text;
+        }
         const update = {
           transcript: isFinal ? { final: text } : { partial: text },
           isFinal,
@@ -272,5 +534,5 @@ export async function setupE2EManifest(
       }
     };
     stampDuration();
-  }, { m: manifest, s: storage, ut: userType, mp: mockProfile });
+  }, { m: manifest, s: storage, ut: userType, mp: mockProfile, es: emptySessions });
 }

@@ -431,6 +431,7 @@ export async function programmaticLoginWithRoutes(
     debug: !!debug,
     userType,
     mockProfile,
+    emptySessions,
     storage: authStorage
   });
 

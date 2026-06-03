@@ -100,6 +100,11 @@ test.describe('Primary User Journey Matrix', () => {
       await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText(/simulating multiple lines/i);
       await expect(page.getByTestId('filler-words-list')).toBeVisible({ timeout: 15000 });
 
+      // The product intentionally refuses to persist sub-5-second sessions.
+      // Keep this proof aligned with the user-facing save contract instead of
+      // expecting persistence from an invalidly short recording.
+      await page.waitForTimeout(5200);
+
       // 6. Stop Recording
       await startButton.click();
       await expect(page.getByLabel(/Start Recording/i)).toBeVisible({ timeout: 10000 });

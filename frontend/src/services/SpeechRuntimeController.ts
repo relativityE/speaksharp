@@ -1794,6 +1794,7 @@ export class SpeechRuntimeController {
                             .trim();
                         const frozenStopTranscript = store.frozenTranscriptAtStop?.trim() || '';
                         const resultTranscript = result.transcript?.trim() || '';
+                        const modeForFinalization = service.getMode?.() ?? stopEntryMode;
                         const candidates: Array<{ source: TranscriptLifecycleSource; text: string }> = [
                             { source: 'service_result', text: resultTranscript },
                             { source: 'committed_final', text: this.transcriptLifecycle.committedFinal || chunkTranscript || storeTranscript },
@@ -1804,7 +1805,12 @@ export class SpeechRuntimeController {
                         const preparedCandidates = candidates
                             .map(candidate => ({ ...candidate, text: candidate.text.trim() }))
                             .filter(candidate => Boolean(candidate.text));
+                        const candidatePassesSaveQuality = (text: string): boolean => {
+                            if (!hasMeaningfulTranscriptText(text)) return false;
+                            return modeForFinalization !== 'native' || getNativeSaveQualityFailureReason(text) === null;
+                        };
                         const selectedCandidate =
+                            preparedCandidates.find(candidate => candidatePassesSaveQuality(candidate.text)) ??
                             preparedCandidates.find(candidate => hasMeaningfulTranscriptText(candidate.text)) ??
                             preparedCandidates[0] ??
                             { source: 'empty' as const, text: '' };
@@ -1885,7 +1891,6 @@ export class SpeechRuntimeController {
                             preview: finalTranscript.slice(0, 80),
                         });
 
-                        const modeForFinalization = service.getMode?.() ?? stopEntryMode;
                         const nativeSaveQualityFailureReason = modeForFinalization === 'native'
                             ? getNativeSaveQualityFailureReason(meaningfulTranscript)
                             : null;

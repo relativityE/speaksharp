@@ -110,6 +110,18 @@ const AuthenticatedAnalyticsView: React.FC = () => {
         }
     }, [loading, isProfileLoading, setReady]);
 
+    useEffect(() => {
+        if (sessionId) return;
+        const sessionJustPersisted =
+            typeof document !== 'undefined'
+            && document.documentElement.getAttribute('data-session-persisted') === 'true';
+        if (!sessionJustPersisted) return;
+
+        void queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+        void queryClient.invalidateQueries({ queryKey: ['sessionCount'] });
+        void queryClient.invalidateQueries({ queryKey: ['analyticsSummary'] });
+    }, [queryClient, sessionId]);
+
     const handleUpgrade = async (source: ConversionSource = 'analytics_overview_banner') => {
         if (upgradeLoading) return;
         setUpgradeLoading(true);
