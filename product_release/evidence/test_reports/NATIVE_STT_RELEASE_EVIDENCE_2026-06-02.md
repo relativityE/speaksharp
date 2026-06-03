@@ -675,6 +675,13 @@ Current state:
 | `GEMINI_API_KEY` Supabase secret | **Explicit but still environment-gated** | The workflow syncs `GEMINI_API_KEY` when the GitHub secret is present and warns if it is absent. If absent, the function returns `GEMINI_KEY_MISSING` and Native formatting falls back to raw. |
 | Native formatter proof | **Still pending browser proof** | Rerun human Native with `__NATIVE_FORMATTER_LAST__`; require `attempted:true`, non-null provider metadata, `wordPreserving:true`, readability improvement, and save/detail match. |
 
+Deployment evidence:
+
+| Run | Result | Meaning |
+| --- | --- | --- |
+| GitHub Actions `Deploy Supabase` push run `26886493370` | **Passed** | `format-transcript` was deployed through the shared edge-function workflow. |
+| GitHub Actions `Deploy Supabase` manual `secrets` run `26886531839` | **Passed** | Supabase secrets were synchronized, including `GEMINI_API_KEY` when present in GitHub Secrets. |
+
 Do not classify Native punctuation/readability fixed until the deployed-function rerun proves the formatter
 accepted the transcript and improved the punctuation/readability metrics without changing words or fillers.
 
