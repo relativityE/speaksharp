@@ -773,3 +773,38 @@ Current read:
 ```text
 Chrome produced usable words and no full-speech duplication, but Native remains blocked by readability and stop/save selection. visibleAtStop/postStopFinal contained the transcript; postStopTranscript and selectedForSave became "Listening..." and saved marker was false. Timing fields were corrected to the stopped session boundary because the artifact also contains a second auto-start after stop.
 ```
+
+## Current-Head Private Browser Proof: 2026-06-02T21:45-05:00
+
+Controlling artifact:
+
+```text
+GitHub run: 26858116484
+Commit under test: e8477232740d05d1232db041435cbb675519ef98
+Artifact: /private/tmp/speaksharp-private-browser-26858116484/
+```
+
+This proof ran after the benchmark harness was corrected to wait for the full
+34.5s Harvard benchmark fixture before clicking Stop.
+
+| Candidate | Setup | Runtime/proof phase | Accuracy | Filler recall | Timing | Journey | Release read |
+| --- | --- | --- | ---: | ---: | --- | --- | --- |
+| Private v2 | pass | accuracy | 72.41% | 90% | final decode `7969.7ms`; final input `36.587s` | saved/persisted | Not parity-green; real full-duration accuracy blocker. |
+| Private v4 | pass to recording | runtime | n/a | n/a | audio reaches inference 28 times | no save candidate | Runtime/no-output failure; not an accuracy result. |
+
+Private v2 selected transcript:
+
+```text
+The tail smell of old beer, like lingers. Basically, a dash of pepper spoils beef to... Well, the one knife was far short on perfect. You know, the marks was thrown beside the parked truck. Literally, the twister left no trace on the town. A, like, toed wild tail to frighten him. We, um, find joy in the simplest things. The puppet, like, tune up the new shoes. A smooth road you know, make striving clement, basically, the cool.
+```
+
+Current classification:
+
+```text
+Private v2 is no longer blocked by setup, DOM extraction, or early-stop proof
+contamination. It now fails the accuracy/parity gate on a full-duration browser
+proof.
+
+Private v4 is no longer blocked first by setup/mic. It receives non-silent audio
+and repeatedly starts inference, but emits no usable transcript/saveCandidate.
+```
