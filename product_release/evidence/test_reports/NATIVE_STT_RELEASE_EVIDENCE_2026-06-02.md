@@ -1060,3 +1060,40 @@ per-user daily cap (mirror `get-ai-suggestions` 20/day) via a `consume_formatter
 Small, contained change. (The #32 local Private formatter is $0/on-device; the same local model could
 later replace the API path for Native too if cost matters — Native is Cloud-adjacent, so the API path was
 the accepted call.)
+
+---
+
+## TEST/FIX UPDATE (2026-06-03T18:15Z) — mock browser smoke now reaches STT journey
+
+This section supersedes the earlier `2026-06-03T17:14Z` visible-ready setup
+failure. At `6855f598`, `pnpm rc:ux:smoke` failed before Native STT behavior.
+At `c167d3b0`, the setup blocker is fixed.
+
+Commands/results:
+
+| Command | Result | Evidence type |
+| --- | --- | --- |
+| `pnpm quality` | **PASS** | unit/build hygiene |
+| `CI=true pnpm exec playwright test tests/e2e/primary-journey.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=test-results/playwright-primary-journey-sessiondb` | **PASS:** 8/8 | harness-proof |
+| `pnpm rc:ux:smoke` | **PASS:** 14/14 | harness-proof |
+
+Native-specific bug findings fixed by this update:
+
+| Finding | Result |
+| --- | --- |
+| Mock Native finalization could select `[E2E_MOCK]`, which failed the meaningful-save guard and prevented persistence. | Fixed by wiring the E2E bridge's final transcript into the mock engine's `getTranscript()` / `transcribe()` result. |
+| Primary journey could save in-app but analytics did not reflect the new session after navigation. | Fixed by persisting the E2E mock session DB through full navigation and refetching history/summary when a session was just persisted. |
+| Candidate selection could pick a meaningful but Native-quality-failing candidate before a cleaner one. | Improved by preferring candidates that pass Native save-quality checks before falling back to merely meaningful text. |
+
+Native release interpretation:
+
+```text
+The mock browser smoke path is green again and can exercise the Native save /
+analytics journey. This does NOT close Native human readiness. Native still needs
+the real Chrome mic rerun for:
+- __NATIVE_FORMATTER_LAST__ non-null when formatting is expected
+- raw vs formatted vs ground truth comparison
+- words/fillers unchanged by formatter
+- trust-state banner perceptibility while interim text changes
+- save/history/detail equality from the real saved row
+```

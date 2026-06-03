@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-03T02:33:00Z",
+  "lastUpdated": "2026-06-03T18:15:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -2584,7 +2584,7 @@
       "stopToDetailVisibleMs": "Total post-stop user wait."
     }
   },
-  "classificationUpdatedAt": "2026-06-03T17:23:00Z",
+  "classificationUpdatedAt": "2026-06-03T18:15:00Z",
   "classifications": {
     "cloud": {
       "status": "caveated_closest",
@@ -2602,5 +2602,75 @@
       "next": "Fix trust-state labeling for Native interim/committed live text, increase/full-export Native trace for release proofs, decide/activate Native formatter if Native remains visible, verify detail extraction, then rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-03T17:23:00Z"
+  "lastUpdatedAt": "2026-06-03T18:15:00Z",
+  "latestBrowserUxSmoke": {
+    "updatedAt": "2026-06-03T18:15:00Z",
+    "commit": "c167d3b0",
+    "status": "pass_harness_proof",
+    "commands": [
+      {
+        "command": "pnpm quality",
+        "result": "PASS"
+      },
+      {
+        "command": "CI=true pnpm exec playwright test tests/e2e/primary-journey.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=test-results/playwright-primary-journey-sessiondb",
+        "result": "PASS 8/8"
+      },
+      {
+        "command": "pnpm rc:ux:smoke",
+        "result": "PASS 14/14"
+      }
+    ],
+    "bugsFixed": [
+      {
+        "id": "setup_auth_runtime_mock",
+        "finding": "Browser smoke could not boot because runtime mock auth/Supabase was missing.",
+        "result": "Fixed with centralized E2E Supabase/auth mock client."
+      },
+      {
+        "id": "mock_stt_save_candidate",
+        "finding": "Mock STT finalization selected [E2E_MOCK] instead of the transcript emitted by the proof bridge.",
+        "result": "Fixed by preserving bridge final transcript and returning it from the mock engine."
+      },
+      {
+        "id": "analytics_session_persistence",
+        "finding": "Analytics stayed at seeded 5 sessions after save/navigation.",
+        "result": "Fixed by persisting E2E mock session DB in sessionStorage and refetching after data-session-persisted=true."
+      },
+      {
+        "id": "minimum_duration_contract",
+        "finding": "Primary journey attempted to prove persistence from an invalid sub-5-second session.",
+        "result": "Fixed by waiting past the product minimum-duration save gate."
+      }
+    ],
+    "interpretation": "Harness/browser smoke setup is fixed and can exercise mock STT save/navigation/analytics. This is not real Private/Native/Cloud STT parity proof."
+  },
+  "currentOpenProofs": {
+    "private": [
+      "Real browser/human proof that live transcript accumulates while recording.",
+      "Draft/Processing/Final trust-state proof during stall/long speech.",
+      "Save/history/detail equality against authoritative saveCandidate.",
+      "v2/v4 parity against drop-in where applicable.",
+      "Local punctuation/readability path remains product work."
+    ],
+    "native": [
+      "Human Chrome mic proof with __NATIVE_FORMATTER_LAST__.",
+      "Raw vs formatted vs ground truth comparison.",
+      "Words/fillers unchanged by formatter.",
+      "Trust banner perceptibility while interim text changes.",
+      "Save/history/detail equality from the real saved row."
+    ],
+    "cloud": [
+      "Baseline remains safe candidate; keyterms backlog.",
+      "Credentialed long-script/tail proof with __CLOUD_STT_TIMELINE__ remains lower priority than Private/Native."
+    ]
+  },
+  "reviewFindingsStatus": {
+    "updatedAt": "2026-06-03T18:15:00Z",
+    "f3": "Fixed on main via origin/main 24d719e3 / bcc7ce29; sanitizer strips asterisk metadata of any length.",
+    "f5": "Fixed on main via origin/main 24d719e3 / aa32f2ab; provisional selection is quality-guarded instead of length-biased.",
+    "f1": "Refuted; default mic mode is raw, proof artifact should still record __PRIVATE_MIC_CONSTRAINTS_DEBUG__.mode.",
+    "f4": "Mostly refuted; proof artifact should still assert no low-energy hallucinated tail appended.",
+    "f2": "Still hypothesis; needs A/B proof before pipeline/windowing changes."
+  }
 }
