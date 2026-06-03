@@ -138,16 +138,33 @@ const inferTranscriptionConfidence = (
     return 'medium';
 };
 
+/**
+ * Longest run of words with no sentence-ending punctuation — a transcript-quality
+ * proxy. A wall-of-text run-on (common when STT under-punctuates) signals the
+ * transcript is not clean enough to present a precise score with full confidence.
+ */
+export const maxRunOnWords = (transcript: string): number => {
+    const spans = (transcript || '').split(/[.!?]+/);
+    return spans.reduce((max, span) => {
+        const words = span.trim().split(/\s+/).filter(Boolean).length;
+        return words > max ? words : max;
+    }, 0);
+};
+
 const getConfidence = (
     wordCount: number,
     elapsedSeconds: number,
-    transcriptionConfidence: 'low' | 'medium' | 'high'
+    transcriptionConfidence: 'low' | 'medium' | 'high',
+    readabilityWeak: boolean
 ): SpeakingScoreResult['confidence'] => {
     if (wordCount < SPEAKSHARP_CONFIDENCE_THRESHOLDS.MIN_WORDS_FOR_DIRECTIONAL) return 'warming-up';
     if (
         wordCount < SPEAKSHARP_CONFIDENCE_THRESHOLDS.MIN_WORDS_FOR_USABLE ||
         elapsedSeconds < SPEAKSHARP_CONFIDENCE_THRESHOLDS.MIN_SECONDS_FOR_USABLE ||
-        transcriptionConfidence === 'low'
+        transcriptionConfidence === 'low' ||
+        // Weak transcript quality (run-on / under-punctuated) → never present as a
+        // precise/usable score. Label only — the 0-10 score math is unchanged.
+        readabilityWeak
     ) {
         return 'directional';
     }
@@ -234,7 +251,11 @@ export const calculateSpeakingScore = ({
     }
 
     const label = getScoreLabel(score);
-    const confidence = getConfidence(wordCount, elapsedSeconds, transcriptionConfidence);
+    // Transcript-quality gate (label/confidence only — does NOT change the score):
+    // a >45-word run-on means the transcript is under-punctuated/unreliable, so the
+    // score is presented as directional rather than precise.
+    const readabilityWeak = maxRunOnWords(transcript) > 45;
+    const confidence = getConfidence(wordCount, elapsedSeconds, transcriptionConfidence, readabilityWeak);
     const headline = confidence === 'warming-up'
         ? 'Speak a little more to get a useful score.'
         : confidence === 'directional'

@@ -20,6 +20,7 @@ import { MicStream } from '@/services/transcription/utils/types';
 
 import { ENV } from '@/config/TestFlags';
 import logger from '@/lib/logger';
+import { redactTranscript } from '@/lib/logRedaction';
 import { STTEngine } from '@/contracts/STTEngine';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, samplesToSeconds } from '../sttConstants';
 import workerUrl from './transformers-js.worker.ts?worker&url';
@@ -58,7 +59,7 @@ function summarizeRawResult(result: unknown): UnknownRecord {
             kind: 'string',
             length: result.length,
             trimLength: result.trim().length,
-            preview: result.slice(0, 120),
+            preview: redactTranscript(result),
         };
     }
 
@@ -81,7 +82,7 @@ function summarizeRawResult(result: unknown): UnknownRecord {
                 type: 'string',
                 length: value.length,
                 trimLength: value.trim().length,
-                preview: value.slice(0, 120),
+                preview: redactTranscript(value),
             };
         } else if (Array.isArray(value)) {
             summary[key] = { type: 'array', length: value.length };
@@ -388,7 +389,7 @@ export class TransformersJSEngine extends STTEngine {
                         raw_result: {
                             kind: 'worker-result',
                             resultShape: response.resultShape,
-                            preview: response.transcript.slice(0, 120),
+                            preview: redactTranscript(response.transcript),
                         },
                     }, '[PRIVATE_DIAG] transformers_worker_result_shape');
                 }

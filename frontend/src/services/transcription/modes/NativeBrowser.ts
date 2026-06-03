@@ -573,8 +573,8 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
               sId: this.serviceId,
               rId: this.runId,
               eId: this.instanceId,
-              finalTranscript: finalForEmission,
-              currentTranscript: this.currentTranscript,
+              finalTranscript: redactTranscript(finalForEmission),
+              currentTranscript: redactTranscript(this.currentTranscript),
             });
             this.onTranscriptUpdate({ 
                 transcript: { final: finalForEmission }

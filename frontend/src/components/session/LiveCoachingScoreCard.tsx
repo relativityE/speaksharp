@@ -48,7 +48,10 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
     }), [clarityScore, elapsedSeconds, engine, fillerCount, pauseMetrics, transcript, wordCount, wpm]);
 
     const scorePercent = Math.max(0, Math.min(100, result.score * 10));
-    const showNumericScore = result.confidence !== 'warming-up';
+    // Only present a precise numeric score at 'usable' confidence. 'directional'
+    // (short session, low transcript confidence, or weak readability) shows the
+    // qualitative state instead, so a weak transcript never looks like a precise grade.
+    const showNumericScore = result.confidence === 'usable';
     const confidenceLabel = result.confidence === 'usable'
         ? 'Usable signal'
         : result.confidence === 'directional'

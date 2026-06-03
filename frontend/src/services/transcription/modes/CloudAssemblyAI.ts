@@ -7,6 +7,7 @@ import { ENV } from '../../../config/TestFlags';
 import { TranscriptionError } from '../errors';
 import { CLOUD_STT } from '../sttConstants';
 import logger from '../../../lib/logger';
+import { redactTranscript } from '../../../lib/logRedaction';
 import type { MicStream } from '../utils/types';
 import {
   AssemblyAICloudProvider,
@@ -20,8 +21,8 @@ import type {
 // Internal connection state tracking
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
-const traceTextSample = (text: string | undefined): string | undefined =>
-  text?.replace(/\s+/g, ' ').trim().slice(0, 120);
+const traceTextSample = (text: string | undefined) =>
+  text ? redactTranscript(text) : undefined;
 
 /**
  * Inert browser-side cloud lifecycle trace for timing decomposition. Mirrors the

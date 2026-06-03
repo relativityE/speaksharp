@@ -1,4 +1,5 @@
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_V4, samplesToSeconds } from '../sttConstants';
+import { detectWebGPUSupport } from '../utils/webgpuSupport';
 
 type Pipeline = Awaited<ReturnType<typeof import('@huggingface/transformers')['pipeline']>>;
 
@@ -27,12 +28,18 @@ function post(response: WorkerResponse): void {
     self.postMessage(response);
 }
 
-function getPreferredDevice(): string | undefined {
+async function getPreferredDevice(): Promise<string | undefined> {
     if (PRIV_STT_V4.DEVICE) {
         return PRIV_STT_V4.DEVICE;
     }
 
-    return typeof navigator !== 'undefined' && 'gpu' in navigator ? 'webgpu' : undefined;
+    // WebGPU only when a REAL adapter is acquired. `'gpu' in navigator` is mere
+    // presence, not capability: adapter-less / headless Chrome exposes navigator.gpu
+    // but requestAdapter() returns null, and choosing 'webgpu' there leaves the
+    // pipeline unable to initialize — which (with the model download + init timeout)
+    // strands the engine with Start disabled and NO CPU fallback. Validate the
+    // adapter; otherwise fall straight to CPU/wasm so the engine always becomes ready.
+    return (await detectWebGPUSupport()).supported ? 'webgpu' : undefined;
 }
 
 function getAsrOptions(audioLengthSeconds: number): Record<string, unknown> {
@@ -59,7 +66,7 @@ async function createPipeline(progress_callback: (data: unknown) => void): Promi
     env.useBrowserCache = true;
     env.logLevel = LogLevel.ERROR;
 
-    const preferredDevice = getPreferredDevice();
+    const preferredDevice = await getPreferredDevice();
     const options: Record<string, unknown> = {
         dtype: PRIV_STT_V4.DTYPE,
         progress_callback,
