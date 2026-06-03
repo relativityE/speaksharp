@@ -31,6 +31,16 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
     const setReady = useReadinessStore((state) => state.setReady);
     const loggedProfileErrorRef = React.useRef(false);
 
+    // #C1 onboarding: a brand-new user can have a valid session BEFORE their
+    // user_profiles row finishes provisioning (create-user lag). useUserProfile then
+    // resolves to null (NOT an error), which previously fell straight into the scary
+    // "Profile Sync Failed" screen. We instead poll a bounded number of times and only
+    // surface the error if the row never appears.
+    const PROFILE_PROVISION_MAX_ATTEMPTS = 5;
+    const PROFILE_PROVISION_RETRY_MS = 1500;
+    const provisioningAttemptsRef = React.useRef(0);
+    const [provisioningExhausted, setProvisioningExhausted] = React.useState(false);
+
     // Signal Profile Readiness for E2E stability
     React.useEffect(() => {
         if (profile) {
@@ -65,6 +75,35 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
         });
         logger.error({ error: profileError, userId: session?.user?.id }, '[ProfileGuard] Profile fetch failed after retries');
     }, [profileError, session?.user?.id]);
+
+    // #C1: bounded auto-retry while the profile row is still provisioning (valid
+    // session, no error, null profile). Resets when the profile arrives or a real
+    // error occurs; after MAX attempts we fall through to the error screen.
+    React.useEffect(() => {
+        const missingButNoError = !!session && !profileLoading && !profileError && !profile;
+        if (!missingButNoError) {
+            if (profile || profileError) {
+                provisioningAttemptsRef.current = 0;
+                if (provisioningExhausted) setProvisioningExhausted(false);
+            }
+            return;
+        }
+        if (provisioningAttemptsRef.current >= PROFILE_PROVISION_MAX_ATTEMPTS) {
+            if (!provisioningExhausted) {
+                logger.warn(
+                    { userId: session?.user?.id, attempts: provisioningAttemptsRef.current },
+                    '[ProfileGuard] Profile row still missing after provisioning retries; showing error',
+                );
+                setProvisioningExhausted(true);
+            }
+            return;
+        }
+        const timer = setTimeout(() => {
+            provisioningAttemptsRef.current += 1;
+            void refetch();
+        }, PROFILE_PROVISION_RETRY_MS);
+        return () => clearTimeout(timer);
+    }, [session, profileLoading, profileError, profile, refetch, provisioningExhausted]);
 
     // 🧪 Ensure ProfileContext integrity for E2E System Probes
     // Provides a synthetic guest profile to satisfy the "Guaranteed Context" 
@@ -132,7 +171,23 @@ export const ProfileGuard: React.FC<ProfileGuardProps> = ({ children }) => {
         );
     }
 
-    // 4. Critical Profile Fetch Error
+    // 4a. New user: valid session but the profile row is still provisioning (no error).
+    // Friendly wait + bounded auto-retry instead of a scary "Profile Sync Failed".
+    if (!profile && !profileError && !provisioningExhausted) {
+        return (
+            <div className="min-h-screen flex flex-col items-center justify-center bg-background p-6" data-testid="profile-provisioning">
+                <div className="relative">
+                    <div className="absolute inset-0 blur-xl bg-primary/20 rounded-full animate-pulse" />
+                    <Loader2 className="h-12 w-12 animate-spin text-primary relative z-10" />
+                </div>
+                <h2 className="mt-8 text-xl font-bold text-foreground">Setting up your account</h2>
+                <p className="mt-2 text-sm text-muted-foreground">This only takes a moment for new accounts…</p>
+            </div>
+        );
+    }
+
+    // 4. Critical Profile Fetch Error (genuine fetch failure, or profile still missing
+    // after provisioning retries).
     if (profileError || !profile) {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-background p-6" data-testid="app-error">
