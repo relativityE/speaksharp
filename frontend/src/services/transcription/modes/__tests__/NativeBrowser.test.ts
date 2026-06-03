@@ -808,6 +808,83 @@ describe('NativeBrowser Transcription Mode', () => {
       expect(mockRecognition.stop).toHaveBeenCalledTimes(1);
     });
 
+    it('REGRESSION: drops post-stop final results so a stray recognition cycle cannot contaminate the transcript', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const committed = Object.assign([{ transcript: 'the quick brown fox', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [committed], resultIndex: 0 } as unknown as MockSpeechEvent);
+      expect(await nativeBrowser.getTranscript()).toBe('the quick brown fox');
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      const updatesAfterStop = onTranscriptUpdate.mock.calls.length;
+
+      // A stray second recognition cycle fires a final after the user pressed Stop
+      // (the real-world "Hey Dad" contamination). The handler is still bound, so the
+      // hard-stop guard must drop it rather than append it to the completed transcript.
+      const postStopFinal = Object.assign([{ transcript: 'Hey Dad', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [postStopFinal], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate.mock.calls.length).toBe(updatesAfterStop);
+      expect(await nativeBrowser.getTranscript()).toBe('the quick brown fox');
+    });
+
+    it('REGRESSION: drops post-stop interim results (no trailing partials after Stop)', async () => {
+      await nativeBrowser.init();
+      const startPromise = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await startPromise;
+
+      const committed = Object.assign([{ transcript: 'release validation transcript', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [committed], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      const updatesAfterStop = onTranscriptUpdate.mock.calls.length;
+
+      const postStopInterim = Object.assign([{ transcript: 'hey dad are you there', confidence: 0.8, isFinal: false }], { isFinal: false });
+      mockRecognition.onresult?.({ results: [postStopInterim], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      expect(onTranscriptUpdate.mock.calls.length).toBe(updatesAfterStop);
+      expect(await nativeBrowser.getTranscript()).toBe('release validation transcript');
+    });
+
+    it('REGRESSION: re-accepts results after a fresh start following a prior stop', async () => {
+      await nativeBrowser.init();
+      const firstStart = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await firstStart;
+
+      const first = Object.assign([{ transcript: 'first session', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [first], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      const stopPromise = nativeBrowser.stop();
+      mockRecognition.onend?.({} as Event);
+      await stopPromise;
+
+      // Dropped while stopped.
+      const stray = Object.assign([{ transcript: 'stray', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [stray], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      // New session clears the guard so results flow again.
+      const secondStart = nativeBrowser.start();
+      mockRecognition.onstart?.({} as Event);
+      await secondStart;
+
+      const second = Object.assign([{ transcript: 'second session', confidence: 0.9, isFinal: true }], { isFinal: true });
+      mockRecognition.onresult?.({ results: [second], resultIndex: 0 } as unknown as MockSpeechEvent);
+
+      expect(await nativeBrowser.getTranscript()).toContain('second session');
+      expect(await nativeBrowser.getTranscript()).not.toContain('stray');
+    });
+
     it('contract: recoverable no-speech errors are traced without surfacing a fatal error', async () => {
       await nativeBrowser.init();
       const startPromise = nativeBrowser.start();

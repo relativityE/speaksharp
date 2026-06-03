@@ -262,6 +262,13 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
   private isSupported: boolean = true;
   private isListening: boolean = false;
   private isRestarting: boolean = false;
+  /**
+   * True after an explicit user Stop. Hard-stops the transcript: any subsequent
+   * onresult (the stopping cycle's final flush OR a stray second recognition cycle,
+   * e.g. "Hey Dad" spoken after Stop) is dropped, never appended to the completed
+   * session. Reset on the next onStart.
+   */
+  private stopRequested: boolean = false;
   public onTranscriptUpdate?: (update: { transcript: Transcript }) => void;
   public onReady?: () => void;
   public onError?: (error: TranscriptionError) => void;
@@ -495,6 +502,19 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
     this.recognition.onresult = (event: SpeechRecognitionEvent) => {
       try {
+        // Hard-stop guard: after an explicit user Stop, the transcript is frozen.
+        // Drop the stopping cycle's trailing final flush AND any stray second
+        // recognition cycle (e.g. "Hey Dad" spoken after Stop) so nothing can
+        // append to the completed session. Reset on the next onStart.
+        if (this.stopRequested) {
+          pushNativeTrace('onresult_dropped_after_stop', {
+            sId: this.serviceId,
+            rId: this.runId,
+            eId: this.instanceId,
+            cycleId: this.recognitionCycleId,
+          });
+          return;
+        }
         this.updateHeartbeat();
         const strategy = this.browserStrategy ?? resolveNativeBrowserStrategy({
           hasSpeechRecognition: true,
@@ -805,7 +825,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
       isListening: this.isListening,
     });
     logger.info({ sId: this.serviceId, rId: this.runId, eId: this.instanceId }, '[NativeBrowser] start called');
-    
+
+    // New recording session: clear the explicit-stop guard so onresult is accepted again.
+    this.stopRequested = false;
+
     // E2E Test Bridge (Strict Zero)
     const win = window as unknown as Record<string, unknown>;
 
@@ -965,6 +988,10 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
 
   protected async onStop(): Promise<void> {
     if (this.isTerminated) return;
+    // Freeze the transcript the instant Stop is requested, before awaiting the
+    // browser's recognition.stop(). onresult fires synchronously off the recognizer,
+    // so this flag must be set ahead of any await to reject post-stop results.
+    this.stopRequested = true;
     pushNativeTrace('onStop_enter', {
       sId: this.serviceId,
       rId: this.runId,
