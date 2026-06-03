@@ -181,4 +181,87 @@ describe('calculateSpeakingScore', () => {
 
         expect(calculateSpeakingScore(input)).toEqual(calculateSpeakingScore(input));
     });
+
+    describe('transcript-quality confidence gating (#31)', () => {
+        // A clean, well-punctuated, long-enough sample that is "usable" on a trusted engine.
+        const cleanUsableTranscript = Array.from({ length: 6 }, () => Array(15).fill('word').join(' ')).join('. ') + '.';
+        const cleanInput = {
+            transcript: cleanUsableTranscript,
+            wordCount: 90,
+            wpm: 140,
+            clarityScore: 92,
+            fillerCount: 0,
+            elapsedSeconds: 45,
+            pauseMetrics: basePauseMetrics,
+        };
+
+        it('caps Native at directional (filler recall not trusted) without changing the score', () => {
+            const cloud = calculateSpeakingScore({ ...cleanInput, engine: 'cloud' });
+            const native = calculateSpeakingScore({ ...cleanInput, engine: 'native' });
+
+            // Same words/timing -> identical score math, different presentation confidence.
+            expect(cloud.confidence).toBe('usable');
+            expect(native.confidence).toBe('directional');
+            expect(native.score).toBe(cloud.score);
+            expect(native.score).toBeGreaterThan(0);
+
+            expect(native.qualitySignals.fillerRecallUncertain).toBe(true);
+            expect(native.qualitySignals.trusted).toBe(false);
+            expect(native.qualityNote).toMatch(/filler/i);
+        });
+
+        it('keeps Cloud and Private usable and not filler-recall-flagged on a clean sample', () => {
+            const cloud = calculateSpeakingScore({ ...cleanInput, engine: 'cloud' });
+            const priv = calculateSpeakingScore({ ...cleanInput, engine: 'private' });
+
+            for (const result of [cloud, priv]) {
+                expect(result.confidence).toBe('usable');
+                expect(result.qualitySignals.fillerRecallUncertain).toBe(false);
+                expect(result.qualitySignals.trusted).toBe(true);
+                expect(result.qualityNote).toBeNull();
+            }
+        });
+
+        it('unknown engine stays usable on a clean sample with no quality caveat', () => {
+            const result = calculateSpeakingScore(cleanInput);
+            expect(result.confidence).toBe('usable');
+            expect(result.qualitySignals.fillerRecallUncertain).toBe(false);
+            expect(result.qualityNote).toBeNull();
+        });
+
+        it('exposes run-on readability as the quality reason and adds a note', () => {
+            const result = calculateSpeakingScore({
+                ...cleanInput,
+                transcript: Array(90).fill('word').join(' '), // single 90-word run-on
+            });
+            expect(result.qualitySignals.readabilityWeak).toBe(true);
+            expect(result.qualitySignals.maxRunOnWords).toBe(90);
+            expect(result.confidence).toBe('directional');
+            expect(result.qualityNote).toMatch(/runs on|sentence breaks/i);
+        });
+
+        it('exposes low transcription confidence as the quality reason and adds a note', () => {
+            const result = calculateSpeakingScore({
+                ...cleanInput,
+                transcriptionConfidence: 'low',
+            });
+            expect(result.qualitySignals.trusted).toBe(false);
+            expect(result.confidence).toBe('directional');
+            expect(result.qualityNote).toMatch(/confidence is low/i);
+        });
+
+        it('does not emit a quality note while still warming up (too few words)', () => {
+            const result = calculateSpeakingScore({
+                transcript: 'um uh basically',
+                wpm: 120,
+                clarityScore: 80,
+                fillerCount: 2,
+                elapsedSeconds: 5,
+                pauseMetrics: basePauseMetrics,
+                engine: 'native',
+            });
+            expect(result.confidence).toBe('warming-up');
+            expect(result.qualityNote).toBeNull();
+        });
+    });
 });
