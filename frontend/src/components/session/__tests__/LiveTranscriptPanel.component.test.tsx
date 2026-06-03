@@ -207,6 +207,39 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'drafting');
     });
 
+    it('exposes trust-state proof hooks without scraping transcript text', () => {
+        window.__SS_TRUST_TRACE__ = [];
+        window.__SS_TRUST_STATE__ = undefined;
+
+        render(
+            <LiveTranscriptPanel
+                transcript="committed words"
+                interimTranscript="draft words"
+                sttMode="native"
+                isListening={true}
+            />
+        );
+
+        const panel = screen.getByTestId(TEST_IDS.TRANSCRIPT_PANEL);
+        expect(panel).toHaveAttribute('data-draft-banner-visible', 'true');
+        expect(panel).toHaveAttribute('data-processing-visible', 'false');
+        expect(panel).toHaveAttribute('data-final-state-visible', 'false');
+        expect(panel).toHaveAttribute('data-listening-visible', 'false');
+        expect(window.__SS_TRUST_STATE__).toEqual(
+            expect.objectContaining({
+                uiState: 'drafting',
+                draftBannerVisible: true,
+                processingVisible: false,
+                finalStateVisible: false,
+                listeningVisible: false,
+                sttMode: 'native',
+                at: expect.any(Number),
+                t: expect.any(Number),
+            })
+        );
+        expect(window.__SS_TRUST_TRACE__).toContainEqual(expect.objectContaining({ uiState: 'drafting' }));
+    });
+
     it('marks committed Private live text as draft while recording even without interim text', () => {
         render(
             <LiveTranscriptPanel

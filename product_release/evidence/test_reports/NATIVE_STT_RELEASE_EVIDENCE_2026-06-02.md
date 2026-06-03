@@ -821,8 +821,11 @@ priority for both of us.
    case (`fallbackToRaw===true` + `errorCode`, saved === raw).
 3. **Detail/empty (#29):** dev will patch save/detail ONLY if your corrected
    `manual-native-chrome-proof.mjs` detail extraction proves app divergence (saved row vs detail DOM).
-4. **Trust hooks (#33):** tell me if you want `draftBannerVisible/processingVisible/finalStateVisible`
-   + timestamps exposed as data-attributes, or you read DOM yourself.
+4. **Trust hooks (#33):** implemented in the pending merge set. The panel now exposes
+   `data-draft-banner-visible`, `data-processing-visible`,
+   `data-final-state-visible`, `data-listening-visible`, and timestamped
+   `window.__SS_TRUST_STATE__` / `window.__SS_TRUST_TRACE__` snapshots so the
+   rerun can prove trust-state visibility without scraping transcript copy.
 
 ### DEV will NOT touch (your lane): manual Native proof extraction/scoring, expected-script matching,
 the live trace harness, or Native engine timing/behavior. Ping me here for any product boundary you isolate.
@@ -860,7 +863,38 @@ pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=fals
 ```
 
 Native still requires browser proof. The rerun must show the Draft banner is visible from mic-on, the
-interim text is not duplicated/jumpy, the formatter telemetry is captured, and save/history/detail match.
+interim text is not duplicated/jumpy, the trust-state hooks above match the visible UI, formatter
+telemetry is captured, and save/history/detail match.
+
+---
+
+## TEST/RELEASE UPDATE (2026-06-03T16:35Z) — Native trust-state proof hooks implemented
+
+The #33 Native trust-hook request is no longer waiting on a product decision. The live transcript
+panel now publishes explicit trust-state proof signals:
+
+```text
+data-draft-banner-visible
+data-processing-visible
+data-final-state-visible
+data-listening-visible
+window.__SS_TRUST_STATE__
+window.__SS_TRUST_TRACE__
+```
+
+Validation:
+
+```text
+pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+  frontend/src/components/session/__tests__/LiveTranscriptPanel.component.test.tsx
+
+20 tests passed.
+```
+
+Use these hooks for the next Native human proof. The browser proof still owns the release verdict:
+Draft must be visible from mic-on through non-final transcript, Processing/Final states must line up
+with the transcript lifecycle, and transcript WER/readability must use transcript-only text rather
+than status/banner copy.
 
 ---
 
