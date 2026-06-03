@@ -167,7 +167,23 @@ export function isWordPreserving(raw: string, formatted: string): boolean {
  */
 export async function formatNativeTranscript(raw: string): Promise<string> {
   const text = raw ?? '';
-  if (!activeFormatter || !text.trim()) return text;
+  if (!text.trim()) return text;
+
+  // No formatter wired: publish telemetry so __NATIVE_FORMATTER_LAST__ is never
+  // silently null. A null reading previously hid the real bug (formatter never
+  // registered on the production path); attempted:false + NO_FORMATTER makes
+  // "not registered" distinguishable from "ran and fell back".
+  if (!activeFormatter) {
+    publishTelemetry({
+      ...EMPTY_TELEMETRY,
+      attempted: false,
+      fallbackToRaw: true,
+      errorCode: 'NO_FORMATTER',
+      inputChars: text.length,
+      at: Date.now(),
+    });
+    return text;
+  }
 
   // Reset the side-channel; the adapter fills provider fields during the call.
   pendingProviderMeta = null;
