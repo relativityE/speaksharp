@@ -158,6 +158,20 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
             data-final-state-visible={uiState === 'final' ? 'true' : 'false'}
             data-listening-visible={uiState === 'listening' ? 'true' : 'false'}
         >
+            {/*
+              Clean transcript surface for tests: ONLY the committed user transcript —
+              no Draft/Processing/Listening/helper copy, no interim text. Scraping the
+              visible container mixes those in (the `basically3um2like2…` contamination);
+              read this instead. Visually hidden; never affects layout/UX.
+            */}
+            <span
+                data-testid="transcript-text-only"
+                data-transcript-text-only={transcript.trim()}
+                className="sr-only"
+                aria-hidden="true"
+            >
+                {transcript.trim()}
+            </span>
             <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                     <div className="w-1 h-5 bg-primary rounded"></div>
