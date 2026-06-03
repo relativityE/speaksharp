@@ -275,14 +275,34 @@ export function syncEngineReady(ready: boolean): void {
 /**
  * Invariant I4: Session Persistence Contract
  * Signals when a session has been successfully saved to the database.
+ *
+ * `details.sessionId` makes the marker identity-bearing: a manual/live proof can
+ * read the exact persisted session id, navigate to /analytics/:id, and cross-check
+ * the saved detail transcript — instead of guessing which row was just written.
  */
-export function syncSessionPersisted(persisted: boolean): void {
+export function syncSessionPersisted(
+  persisted: boolean,
+  details?: { sessionId?: string | null; mode?: string | null },
+): void {
   if (typeof document === 'undefined') return;
-  console.info(`[FORENSIC] syncSessionPersisted: ${persisted}`);
+  const sessionId = details?.sessionId ?? null;
+  console.info(`[FORENSIC] syncSessionPersisted: ${persisted}${sessionId ? ` (${sessionId})` : ''}`);
+  const root = document.documentElement;
   if (persisted) {
-    document.documentElement.setAttribute('data-session-persisted', 'true');
+    root.setAttribute('data-session-persisted', 'true');
+    if (sessionId) {
+      root.setAttribute('data-session-persisted-id', sessionId);
+      (window as Window & { __SS_LAST_PERSISTED_SESSION__?: Record<string, unknown> }).__SS_LAST_PERSISTED_SESSION__ = {
+        id: sessionId,
+        mode: details?.mode ?? null,
+        at: Date.now(),
+      };
+    }
   } else {
-    document.documentElement.removeAttribute('data-session-persisted');
+    // New recording (or reset): clear so a stale id can't be mistaken for the
+    // session in flight. The window hook keeps the last-known value by design.
+    root.removeAttribute('data-session-persisted');
+    root.removeAttribute('data-session-persisted-id');
   }
 }
 

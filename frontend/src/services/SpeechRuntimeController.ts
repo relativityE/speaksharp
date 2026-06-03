@@ -701,12 +701,15 @@ export class SpeechRuntimeController {
         return this.state;
     }
 
-    private updateSessionPersisted(persisted: boolean): void {
+    private updateSessionPersisted(
+        persisted: boolean,
+        details?: { sessionId?: string | null; mode?: string | null },
+    ): void {
         useSessionStore.getState().setSessionSaved(persisted);
         if (useSessionStore.getState().sessionSaved !== persisted) {
             useSessionStore.setState({ sessionSaved: persisted });
         }
-        syncSessionPersisted(persisted);
+        syncSessionPersisted(persisted, details);
     }
 
     /**
@@ -1682,6 +1685,10 @@ export class SpeechRuntimeController {
 
                 let result = null;
                 let guardedStopStatus: SttStatus | null = null;
+                // Identity-bearing persisted-session marker (blocker #5): captured on
+                // successful completion so the post-READY persistence write can carry
+                // the exact session id + mode for proofs (data-session-persisted-id).
+                let persistedSessionMarker: { sessionId: string; mode: string | null } | null = null;
                 logger.info({ wasRecording, state: this.state, sessionId: this.sessionId }, '[DEBUG-STOP] state-check');
                 if (wasRecording) {
                     let sessionId = this.sessionId;
@@ -2027,7 +2034,10 @@ export class SpeechRuntimeController {
                             }
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
                             sessionCompleted = true;
-                            this.updateSessionPersisted(true);
+                            persistedSessionMarker = sessionId
+                                ? { sessionId, mode: modeForFinalization ?? stopEntryMode }
+                                : null;
+                            this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                             useSessionStore.getState().setSessionSaved(true);
                             if (token.cancelled) {
                                 logger.warn({
@@ -2090,7 +2100,7 @@ export class SpeechRuntimeController {
                             }
 
                             logger.info('[DEBUG-STOP] calling updateSessionPersisted(true)');
-                            this.updateSessionPersisted(true);
+                            this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                             useSessionStore.getState().setSessionSaved(true);
                         }
                     }
@@ -2106,7 +2116,7 @@ export class SpeechRuntimeController {
                 logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
                 if (sessionCompleted) {
-                    this.updateSessionPersisted(true);
+                    this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                     useSessionStore.getState().setSessionSaved(true);
                 }
                 if (guardedStopStatus) {
