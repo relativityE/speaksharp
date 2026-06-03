@@ -439,3 +439,156 @@ Confirmed product contract (your Q6): saved transcript should be
 `postStopFinal || committedFinal || visibleAtStop || bestMeaningfulInterim`, never a placeholder.
 Confirmed Q4: user Stop should hard-stop (no post-stop auto-restart) — if the harness's later auto-start
 is product-driven, I'll suppress it once a run shows it firing before save.
+
+## TEST AGENT UPDATE (2026-06-03T05:41Z) — human real-mic rerun: save improved, trust/readability failed
+
+Artifact:
+
+```text
+/private/tmp/speaksharp-native-human-proof-20260603T054003Z.json
+```
+
+Code under test:
+
+```text
+Public app: https://speaksharp-public.vercel.app
+Evidence collection branch: fix/speaksharp-score-transcript-quality / 9fab5d01
+```
+
+Script read by human:
+
+```text
+Native Chrome microphone proof starts now. I want to make one simple point before we move on. Um, basically, the puppy like chewed up the new shoes, and that changed the whole plan. The main takeaway is that we should pause before the next idea, give one concrete example, and end with a clear next step.
+```
+
+### Result Summary
+
+| Field | Value |
+| --- | --- |
+| Classification | FAIL / not release-green |
+| Evidence type | Human real Chrome mic |
+| Chrome produced usable words | yes |
+| Save candidate present | yes |
+| Save candidate source | `service_result` |
+| Saved/session marker | pass |
+| History visible | pass |
+| Detail transcript extracted | fail / empty in artifact |
+| Duplicate full transcript | pass / false |
+| Main blockers | first visible text very late, missed filler, punctuation/casing/run-on readability, detail transcript extraction |
+
+Selected for save:
+
+```text
+Native Chrome microphone proof Starts Now I want to make one simple point before we move on basically the puppy like chewed up new shoes and that changed the whole plane the whole plan the main takeaway is that we should pause before the next idea give one concrete example and end with.
+```
+
+### Product Metrics
+
+| Metric | Value | Verdict |
+| --- | ---: | --- |
+| Expected words | 56 | info |
+| Selected words | 53 | info |
+| WER | 16.07% | fail for Native parity |
+| Accuracy | 83.93% | fail for launch-quality Native |
+| Expected fillers | 3 (`um`, `basically`, `like`) | info |
+| Recognized fillers | 2 (`basically`, `like`) | fail: missed `um` |
+| Filler recall | 66.67% | fail |
+| False filler insertion | 0 | pass |
+| Terminal punctuation present | true | pass |
+| Sentence count | 1 / expected ~4 | fail |
+| Max run-on words | 53 | fail: target <=45, preferred <=35 |
+| Capitalization errors | `Starts Now` | fail |
+| Duplicate full transcript | false | pass |
+| Transcript confidence | low | block precise score confidence |
+
+### Timing And Capture
+
+| Field | Value |
+| --- | ---: |
+| `onaudiostartAt` | 4171.3 ms |
+| First result | 42392.9 ms |
+| Audio-start to first result | 38221.6 ms |
+| First final | 42392.9 ms |
+| Last final | 57811.6 ms |
+| Stop/onStop_enter | 57588.1 ms |
+| onend | 57814.3 ms |
+| stopToOnEnd | 226.2 ms |
+| Parallel mic duration | 53.626625 sec |
+| Parallel RMS / peak | 0.013835 / 0.366958 |
+| Speech window | 27250-53050 ms |
+| Segment count | 22 |
+
+### User-Observed Trust-State Failure
+
+The user clarified after the run that they were finding the script after the mic
+started. Therefore `audioStartToFirstResultMs` is inflated and should not be
+used alone as proof that Chrome took 38s to respond after speech began.
+
+The product failure is still real, but it is sharper:
+
+```text
+Native interim text jumped/revised while the trust disclaimer was not stable or
+perceptible enough.
+```
+
+For Native, the trust-state indicator must appear as soon as the mic is on and
+remain anchored until final text is accepted. It should not be inserted into the
+changing transcript stream in a way that causes layout jump or makes the label
+feel intermittent. For longer speeches, the future target is section-level trust
+state: finalized prior sections render normally, while the active/current section
+keeps the Draft label until it is final.
+
+The current artifact cannot fully reconstruct the start of this behavior because
+`__NATIVE_BROWSER_TRACE__` capped at 500 events and the first retained raw result
+already had `cycleResultCount: 36`. The retained trace still proves the interim
+hypothesis revised rapidly, including:
+
+| Relative to first retained raw result | Chrome result state |
+| ---: | --- |
+| 2.64s | interim: `... chewed up the` |
+| 2.71s | interim: `... chewed up new` |
+| 2.91s | interim: `... chewed up the new` |
+| 6.47s | final committed with `... changed the whole plane` |
+| 15.42s | final committed with `the whole plan ... end with` |
+
+Release-proof requirement update:
+
+```text
+Capture full Native result/store/UI trace for human proofs, and verify a stable
+Draft trust indicator is visible from mic-on through final acceptance.
+```
+
+### What changed versus the prior human Native run
+
+| Area | Prior 2026-06-02 result | Current 2026-06-03 result | Read |
+| --- | --- | --- | --- |
+| `selectedForSave` | `Listening...` / contaminated | authoritative `service_result` text, 53 words | improved |
+| Save marker | fail | pass | improved |
+| History visible | pass | pass | stable |
+| Detail transcript | empty/fail | empty in artifact | still open |
+| Duplicate full transcript | false | false | stable/pass |
+| Readability | fail | fail | still blocker |
+| Filler recall | 66.67% | 66.67% | unchanged/fail |
+| First visible text | ~32.1s after audio start | ~38.2s after audio start | still unacceptable |
+
+### Current Native Decision
+
+```text
+Native is not product-ready as a visible release path.
+The old "Listening..." save-candidate contamination appears improved in this run,
+but the user-trust problem remains severe: live text arrives far too late, final
+text misses `um`, casing/punctuation/readability fail, and detail transcript
+extraction did not prove the saved transcript.
+```
+
+### Required Next Work
+
+1. If Native remains visible, activate/ship the trusted Native-only formatter
+   path or hide/caveat Native until punctuation/casing is acceptable.
+2. Investigate why real Chrome Native first result appears only after ~38s in
+   this proof; users expect live text in the transcript area.
+3. Fix/verify detail transcript extraction so saved/detail can be compared to
+   `saveCandidate.selectedForSave`.
+4. Rerun the same human script after changes and require:
+   live text during speech, filler recall >= 90%, readability pass, no duplicate,
+   save/history/detail match, and no placeholder/status text persisted.
