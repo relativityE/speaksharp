@@ -2257,3 +2257,61 @@ browser/human proof for:
 - v2/v4 parity against drop-in where applicable
 - local punctuation/readability path
 ```
+
+---
+
+## TEST UPDATE (2026-06-03T19:57Z) — deployed Private injected-audio reached execution but failed quality/UI extraction
+
+Run:
+
+```text
+BASE_URL=https://speaksharp-public.vercel.app
+CI=true
+pnpm exec playwright test tests/live/tester-b-private-native-stt.live.spec.ts \
+  --config=playwright.deployed-live.config.ts \
+  --project=deployed-live-chromium \
+  --grep "Private STT" \
+  --reporter=line \
+  --output=/private/tmp/speaksharp-private-injected-escalated-20260603155713
+```
+
+Result:
+
+```text
+FAIL — proof.accuracy + proof.journey.filler_ui_schema
+```
+
+Evidence:
+
+```text
+/private/tmp/speaksharp-private-injected-escalated-20260603155713/live-tester-b-private-nati-a0965-1-audio-and-detects-fillers-deployed-live-chromium/trace.zip
+/private/tmp/speaksharp-private-injected-escalated-20260603155713/live-tester-b-private-nati-a0965-1-audio-and-detects-fillers-deployed-live-chromium/error-context.md
+/private/tmp/speaksharp-private-injected-escalated-20260603155713/live-tester-b-private-nati-a0965-1-audio-and-detects-fillers-deployed-live-chromium/test-failed-1.png
+```
+
+What worked:
+
+| Gate | Evidence |
+| --- | --- |
+| `setup.build_env` | Deployed URL reachable: `https://speaksharp-public.vercel.app`. |
+| `setup.auth_tier` | Fresh signup succeeded; `PRO` badge visible. |
+| `setup.stt_mode` | Private selected; `modeSelectState="private"`. |
+| `setup.model_provider` | Fresh cache showed `modelStatus="download-required"` and visible setup CTA; harness clicked setup; model loaded; `PrivateWhisper` reported `Model ready! Using CPU mode.` |
+| `proof.runtime.provider_selected` | `engine="transformers-js"`, no cloud fallback observed in logs. |
+| `proof.journey.save_candidate` | Save candidate populated: `selectedForSaveLength=106`, `finalWordCount=15`, `saveCandidateReason="service_result"`, `sessionPersisted="true"`. |
+
+What failed:
+
+| Gate | Evidence | Release meaning |
+| --- | --- | --- |
+| `proof.accuracy.final_text` | Truth: `Um. Basically, we should literally like, wait.` Final selected text: `Basically, we should literally like, "Wait, um, basically, we should literally like, wait, um, basically."` | Private duplicated/repeated the short fixture and did not preserve the expected concise utterance. This is not parity-green. |
+| `proof.timing.first_draft_trust` | Live transcript contained trust-copy text concatenated into transcript DOM: `Draft transcriptText may change before the final transcript is saved.Basically...` | Harness should read authoritative transcript/debug fields instead of raw DOM for text scoring; product should still ensure visible trust copy is separated from transcript semantics. |
+| `proof.journey.filler_ui_schema` | Filler UI text was `basically3um2like2literally2uh0...`; the proof could not parse individual filler words from DOM text. | The filler list should expose machine-readable row/test ids or aria labels for each filler/count. Without that, release artifacts can mis-score filler recall even when the UI visually shows counts. |
+
+Dev/test ask:
+
+| Item | Ask |
+| --- | --- |
+| Private short-utterance duplication | DEV: inspect why the saved final repeated `basically / um / like` in a short injected fixture. Candidate boundary: chunk overlap/append or final decode selection. TEST: rerun after fix and compare selectedForSave directly to truth, not raw transcript-container DOM. |
+| Trust copy contaminates transcript DOM scoring | DEV/TEST: keep trust copy visually present, but expose a transcript-only selector or debug field for scoring; do not force tests to scrape the full panel text. |
+| Filler UI schema | DEV: add stable per-filler rows/test ids/aria labels with word and count. TEST: parse those instead of concatenated panel text. |

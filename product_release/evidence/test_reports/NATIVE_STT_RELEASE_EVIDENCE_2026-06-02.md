@@ -1202,3 +1202,60 @@ a 502, and the analytics/detail transcript does not match the authoritative
 saved transcript. Native remains a conversion-funnel candidate only after those
 two blockers are fixed and rerun.
 ```
+
+---
+
+## TEST UPDATE (2026-06-03T19:56Z) — deployed Native injected-audio flow fails before transcript
+
+This is **diagnostic harness-proof only**, not release proof for Native Web Speech.
+It is still useful because it exercises the deployed app with real auth and the
+real NativeBrowser path until the first broken boundary.
+
+Run:
+
+```text
+BASE_URL=https://speaksharp-public.vercel.app
+CI=true
+pnpm exec playwright test tests/live/tester-b-private-native-stt.live.spec.ts \
+  --config=playwright.deployed-live.config.ts \
+  --project=deployed-live-chromium \
+  --grep "Native Browser STT" \
+  --reporter=line \
+  --output=/private/tmp/speaksharp-native-injected-escalated-20260603155554
+```
+
+Result:
+
+```text
+FAIL — proof.runtime.recording_start
+```
+
+Evidence:
+
+```text
+/private/tmp/speaksharp-native-injected-escalated-20260603155554/live-tester-b-private-nati-69a02-1-audio-and-detects-fillers-deployed-live-chromium/trace.zip
+/private/tmp/speaksharp-native-injected-escalated-20260603155554/live-tester-b-private-nati-69a02-1-audio-and-detects-fillers-deployed-live-chromium/error-context.md
+/private/tmp/speaksharp-native-injected-escalated-20260603155554/live-tester-b-private-nati-69a02-1-audio-and-detects-fillers-deployed-live-chromium/test-failed-1.png
+```
+
+What worked:
+
+| Gate | Evidence |
+| --- | --- |
+| `setup.build_env` | Deployed URL reachable: `https://speaksharp-public.vercel.app`. |
+| `setup.auth_tier` | Fresh signup succeeded; `PRO` badge visible. |
+| `setup.stt_mode` | Native selected; `modeSelectState="native"`. |
+| `setup.runtime_telemetry` | Runtime debug present; `serviceMode="native"`, `serviceState="READY"`. |
+
+First broken boundary:
+
+| Gate | Evidence |
+| --- | --- |
+| `proof.runtime.recording_start` | After Start click, `NativeBrowser` logged `SpeechRecognition start timed out before onstart` at `timeoutMs:3000`; `TranscriptionService` moved to `FAILED_VISIBLE`; Start button stayed `data-recording="false"` for 60s. |
+
+Dev/test ask:
+
+| Item | Ask |
+| --- | --- |
+| Native start timeout | DEV: decide whether `NativeBrowser` needs a longer/diagnostic start timeout, better retry, or browser-specific handling for Chrome fake-audio/headless startup. TEST: rerun after any change and keep classifying injected-audio as diagnostic only. |
+| User experience | A user seeing this path gets `Recording could not start. Check microphone permission and try again.` If this reproduces in headed/human Chrome, it is funnel-breaking. |

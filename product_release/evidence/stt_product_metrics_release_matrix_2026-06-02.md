@@ -1201,3 +1201,24 @@ but it fails open/falls back to raw, and detail transcript equality still fails.
 | Native/Cloud no longer claim local processing | **Fixed in code and component tests:** only Private uses `Processing speech locally…`, `Listening locally…`, or `Finalizing local transcript…`. | Prevents a false privacy/local-processing claim in Native and Cloud. |
 | Focused user-facing browser regression proof | **PASS:** 9/9 | Browser proof still passes with mode-aware trust copy. |
 | Full `pnpm rc:ux:smoke` after copy fix | **SUCCESS WITH FLAKES:** 10 passed, 4 flaky after retries | This is not a clean first-try release smoke. The representative flake was navigation to `/analytics` aborting/frame-detaching in `tests/e2e/helpers.ts:164`; keep as a browser-proof reliability watch item. |
+
+## Deployed Injected-Audio Diagnostic Proofs: 2026-06-03T19:57Z
+
+These are **diagnostic harness-proof**, not Native release proof. They are useful
+because they target the deployed app with real auth and surface first broken
+boundaries.
+
+| Engine | Setup result | Proof result | First broken gate | Artifact |
+| --- | --- | --- | --- | --- |
+| Native | pass: deployed URL, fresh signup, PRO, Native selected, runtime READY | **FAIL** before transcript | `proof.runtime.recording_start`: `SpeechRecognition start timed out before onstart` at 3000ms; app entered `FAILED_VISIBLE` | `/private/tmp/speaksharp-native-injected-escalated-20260603155554/.../trace.zip` |
+| Private | pass: deployed URL, fresh signup, PRO, Private selected, setup CTA clicked, model loaded, CPU runtime | **FAIL** after save | `proof.accuracy.final_text`: short fixture duplicated/repeated; `proof.journey.filler_ui_schema`: filler DOM text concatenated word/counts | `/private/tmp/speaksharp-private-injected-escalated-20260603155713/.../trace.zip` |
+
+Current release read:
+
+```text
+Private and Native both still need fixes before product-readiness:
+- Native diagnostic injected path can fail to start Web Speech before onstart.
+- Native real human path already showed formatter 502 and detail transcript mismatch.
+- Private diagnostic path can save a repeated short utterance and has testability issues
+  where trust copy/filler counts contaminate raw DOM scoring.
+```
