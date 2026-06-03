@@ -1,6 +1,6 @@
 # Private STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-03T13:05:00Z  
+**Updated:** 2026-06-03T13:10:00Z  
 **Scope:** Private v2/v4 local STT, browser app path, drop-in parity, timing, and readability  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -82,6 +82,63 @@ For 24h: rely on raw Whisper final + confidence/readability caveat.
 For 48h+: evaluate one browser-compatible ONNX punctuation model behind explicit
 user setup consent. Acceptance requires readability improvement without word or
 filler changes, no network transcript egress, and acceptable added download size.
+```
+
+## TEST AGENT UPDATE (2026-06-03T13:10Z) — current-head exact h1_6 buffer proof
+
+**Workflow:** `Controlled STT Benchmarks`  
+**Run:** `26886768603`  
+**Commit:** `186944e2`  
+**Artifact:** `/private/tmp/speaksharp-run-26886768603/private-exact-app-buffer-proof/speaksharp-private-h1_6-exact-buffer-current.json`
+
+This run used the one-row exact app-buffer proof only. It failed the workflow
+gate because the proof returned `journeyPass:false`, so the full v2/v4 browser
+benchmark suite did not run in this workflow. A separate full-suite workflow was
+dispatched with `run_private_exact_buffer=false`.
+
+Key h1_6 result:
+
+| Field | Value |
+| --- | --- |
+| Engine | `transformers-js` / `wasm-singlethread` |
+| Fixture | `h1_6` |
+| Selected/save transcript | `Like, told Wild Tales to frighten him.` |
+| Selected/save accuracy | **87.5%** (`WER=0.125`) |
+| First draft text | 3092ms |
+| Stop finalization | 3958ms |
+| Processing state after Stop | true |
+| Save source | `service_result` |
+| Saved transcript length | 38 |
+| History visible | true |
+| Detail visible | false |
+| Cloud fallback attempted | false |
+| Mic constraints | requested raw (`echoCancellation:false`, `noiseSuppression:false`, `autoGainControl:false`, `channelCount:1`) |
+| Actual track settings | `sampleRate:16000`, `channelCount:2` |
+
+Important interpretation:
+
+```text
+This artifact is not a release-green proof, but it is a positive h1_6 signal:
+the authoritative selected/save transcript is 87.5% accurate on the exact
+buffer path, not the earlier 37.5%-62% failure range.
+```
+
+Remaining proof defects from this artifact:
+
+| Defect | Evidence | Consequence |
+| --- | --- | --- |
+| Visible-at-stop WER is contaminated by UI banner text | `visibleAtStopTranscript` begins `Draft transcriptText may change...` and scores `WER=1.375` | Harness/reporting must strip trust banners before calculating visible transcript WER. Do not treat visible-at-stop WER from this artifact as STT quality. |
+| Detail journey is incomplete | `historyVisible:true`, `detailVisible:false`, `journeyPass:false` | Private journey remains not green until detail route shows the selected/save transcript. |
+| Setup clicked model download in synthetic CI run | Readiness phases show `downloadVisible:true`, then `private_model_download_click` | Valid for automated synthetic proof, but **not** valid as human proof. Human proof must keep `PRIVATE_SETUP_USER_CONSENT_REQUIRED=true` and require the tester to click setup. |
+| React render loop warning occurred during setup | Console error: `Maximum update depth exceeded` | Needs dev inspection if it reproduces; it can create setup churn and should not be ignored. |
+
+Current classification from this artifact:
+
+```text
+Private v2 h1_6 exact-buffer accuracy: promising.
+Private v2 release proof: still pending full browser suite + detail journey.
+Private user-trust metrics: Draft/Processing states appeared, but visible text
+metrics must strip UI banners before scoring transcript accuracy.
 ```
 
 ## TEST AGENT UPDATE — Full-fixture wait fix
