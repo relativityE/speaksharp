@@ -18,6 +18,46 @@ This file tracks known issues, tech debt, and deferred cleanup that should not i
 | P1 | Should fix before broader release or if it blocks validation. | Fix after active P0s are stable. |
 | P2 | Workflow, maintainability, polish, or velocity debt. | Schedule after release gates are green. |
 
+## Current Product Release Readiness Posture (2026-06-03)
+
+Reviewer/product framing is now explicit:
+
+```text
+Native and Private are the trust-building front door.
+Cloud is the paid quality accelerator, not the first-impression crutch.
+```
+
+The product should ship only if at least one non-Cloud path is trust-preserving.
+Native and Private do not need to equal Cloud, but any visible path must avoid
+embarrassing first-run behavior: blank panels, unstable trust labels, duplicate
+or truncated transcript text, unreadable punctuation/casing, or overconfident
+Score/Analytics from weak transcripts.
+
+| STT | Business role | Product promise | Release requirement |
+|---|---|---|---|
+| Native | Free/Basic front door and conversion funnel | Zero-setup, browser-dependent quick start | Human Chrome mic proof must show fast visible feedback, no duplicate/erase on Stop, useful saved transcript, readable/caveated formatting, and save/history/detail pass. If it fails, de-emphasize Native instead of making it the first CTA. |
+| Private | Strategic privacy/local differentiator | Runs in the browser without uploading audio for STT | Must preserve setup/download consent, show progress and trust states, keep cumulative visible transcript, and not materially degrade the same-engine/drop-in final path. If slower, it must be honestly caveated as local/private. |
+| Cloud | Pro quality accelerator | Best quality path for longer sessions, exports, AI coaching, and polished reports | Baseline only is the launch candidate. Cloud keyterms/prompt variants are backlog/custom-word experiments unless explicitly reopened. |
+| Score/Analytics | Trust interpretation layer | Converts transcript/session signals into coaching and trends | Score must stay directional/confidence-gated when transcript quality is weak. Analytics must make Transcript Quality prominent enough to distinguish speaking issues from STT capture issues. |
+
+Current 24-hour gates:
+
+| Gate | Owner | Pass condition |
+|---|---|---|
+| Native front-door proof | Test/release with human mic; dev only if artifact proves product bug | Clean/filler/realistic scripts captured with first visible text, visible-at-stop, post-stop final, `selectedForSave`, saved/history/detail, duplication flag, formatter telemetry, and readability. |
+| Private trust proof | Test/release; dev fixes concrete boundaries | Setup consent honored; live text cumulative; Draft/Processing locally/Final states correct; no duplication/truncation in `saveCandidate`; short/medium scripts at or near drop-in parity. |
+| Cloud baseline proof | Test/release; dev only for provider/request/tail bug | Baseline app path preserves tail, passes save/history/detail, has strong readability/filler metrics, and exports `__CLOUD_STT_TIMELINE__`. No default keyterms work. |
+| Score/Analytics trust | Dev + test | Weak transcript quality lowers confidence/copy, not necessarily the numeric formula; Analytics exposes Transcript Quality as a first-class guardrail. |
+
+Current 48-hour wider-use gates:
+
+| Gate | Exit criterion |
+|---|---|
+| Native visible | Three-script human Chrome mic proof passes or Native is de-emphasized/hidden behind caveat. |
+| Private credible | Browser proof on guard rows plus medium/long script shows cumulative UX, final transcript completeness, and no worse-than-drop-in app behavior; punctuation/readability is either acceptable or clearly caveated. |
+| Cloud paid path | Baseline long-form/tail/save/detail proof passes; keyterms remains backlog unless a future custom-word experiment proves no ordinary-word regression. |
+| Score/Analytics | Transcript Quality is visible enough that users understand when feedback reflects capture quality rather than speaking quality. |
+
 ## June 3 Active Coordination
 
 This table is the current division of labor between the test/release agent and
