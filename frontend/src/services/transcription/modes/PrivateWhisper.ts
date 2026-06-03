@@ -417,7 +417,13 @@ function getRetryRetentionMinRms(): number {
   );
 }
 
-function shouldPreferVisibleProvisional(provisional: string, finalCandidate: string): boolean {
+// Minimum fraction of the final's words that must be preserved in a longer
+// provisional before we prefer it for length. Below this the provisional has
+// DIVERGED from the final (a likely hallucination / corruption rather than a clean
+// extension), so length alone must not win. (Review F5.)
+export const MIN_FINAL_PRESERVED_TO_PREFER_PROVISIONAL = 0.7;
+
+export function shouldPreferVisibleProvisional(provisional: string, finalCandidate: string): boolean {
   const provisionalText = provisional.trim();
   const finalText = finalCandidate.trim();
   if (!provisionalText || !finalText) return false;
@@ -431,6 +437,16 @@ function shouldPreferVisibleProvisional(provisional: string, finalCandidate: str
   const provisionalNormalized = normalizeTranscriptForGate(provisionalText);
   const finalNormalized = normalizeTranscriptForGate(finalText);
   if (!provisionalNormalized || provisionalNormalized === finalNormalized) return false;
+
+  // QUALITY GUARD (review F5): preferring a longer provisional purely by length can
+  // select a longer hallucinated/corrupted candidate over a clean shorter one. Only
+  // prefer the longer provisional if it genuinely EXTENDS the final — i.e. the final's
+  // content is substantially preserved in it (wordOverlapRatio = fraction of the
+  // final's words present in the provisional). A divergent rewrite is rejected.
+  const finalPreservedInProvisional = wordOverlapRatio(provisionalText, finalText);
+  if (finalPreservedInProvisional < MIN_FINAL_PRESERVED_TO_PREFER_PROVISIONAL) {
+    return false;
+  }
 
   return (
     provisionalWords.length > finalWords.length ||

@@ -41,7 +41,10 @@ vi.mock('../../engines/PrivateSTT', () => {
   return { PrivateSTT: MockPrivateSTT, createPrivateSTT: vi.fn(() => new MockPrivateSTT()) };
 });
 
-import PrivateWhisperDefault, { mergeLiveProvisionalTranscript } from '../PrivateWhisper';
+import PrivateWhisperDefault, {
+  mergeLiveProvisionalTranscript,
+  shouldPreferVisibleProvisional,
+} from '../PrivateWhisper';
 
 const wordCount = (s: string): number => s.trim().split(/\s+/).filter(Boolean).length;
 
@@ -103,5 +106,26 @@ describe('mergeLiveProvisionalTranscript — no-shrink invariant', () => {
   it('handles empty inputs without throwing', () => {
     expect(mergeLiveProvisionalTranscript('', 'hello world')).toBe('hello world');
     expect(mergeLiveProvisionalTranscript('hello world', '')).toBe('hello world');
+  });
+});
+
+describe('shouldPreferVisibleProvisional — quality guard (review F5)', () => {
+  const FINAL = 'i want to make one simple point';
+
+  it('prefers a longer provisional that genuinely EXTENDS the final', () => {
+    const provisional = 'i want to make one simple point before we move on';
+    expect(shouldPreferVisibleProvisional(provisional, FINAL)).toBe(true);
+  });
+
+  it('does NOT prefer a longer but DIVERGENT provisional (likely hallucination)', () => {
+    // Longer than FINAL, but shares none of the final's words -> diverged. Length
+    // alone must not win, or we'd show a longer hallucination over a clean final.
+    const divergent = 'the weather today is quite nice and sunny outside again';
+    expect(wordCount(divergent)).toBeGreaterThan(wordCount(FINAL));
+    expect(shouldPreferVisibleProvisional(divergent, FINAL)).toBe(false);
+  });
+
+  it('does not prefer when the provisional equals the final', () => {
+    expect(shouldPreferVisibleProvisional(FINAL, FINAL)).toBe(false);
   });
 });
