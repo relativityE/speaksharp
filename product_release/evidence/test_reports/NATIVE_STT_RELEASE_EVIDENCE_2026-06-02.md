@@ -583,12 +583,21 @@ extraction did not prove the saved transcript.
 
 ### Required Next Work
 
-1. If Native remains visible, activate/ship the trusted Native-only formatter
-   path or hide/caveat Native until punctuation/casing is acceptable.
-2. Investigate why real Chrome Native first result appears only after ~38s in
-   this proof; users expect live text in the transcript area.
-3. Fix/verify detail transcript extraction so saved/detail can be compared to
-   `saveCandidate.selectedForSave`.
-4. Rerun the same human script after changes and require:
-   live text during speech, filler recall >= 90%, readability pass, no duplicate,
-   save/history/detail match, and no placeholder/status text persisted.
+| Issue / unsatisfactory item | Evidence | Consequence if not fixed | Status | Owner / next handoff |
+| --- | --- | --- | --- | --- |
+| Native trust disclaimer felt unstable while interim text jumped | User observed jumpy interim text; retained trace shows rapid revisions (`... chewed up the` -> `... chewed up new` -> `... chewed up the new`) | Users can mistake unstable interim text for authoritative transcript, or the disclaimer itself can make the panel feel jumpy | **Fixed in code, pending browser proof**: `main` commit `908be139` adds a stable mic-on Draft transcript banner for all recording modes and removes the moving inline Draft chip | Test agent reruns Native human proof and confirms banner is visible from mic-on through final acceptance |
+| Full timestamped Native context was lost | `__NATIVE_BROWSER_TRACE__` capped at 500 events; first retained raw result already had `cycleResultCount: 36` | We cannot reconstruct first-text timing or the earliest interim churn; dev/test may chase the wrong timing boundary | **Fixed in code, pending browser proof**: Native trace cap raised to 5,000 events after this run | Test agent reruns and verifies first retained raw result is cycle 1 or that the full result sequence is exported |
+| Detail transcript empty in artifact | Current run: saved=true and historyVisible=true, but `detailTranscript` empty | Cannot prove saved/detail transcript matches `saveCandidate.selectedForSave`; journey gate remains incomplete | **Open** | Test agent should read authoritative `saveCandidate`, saved row text, and detail DOM separately; dev only patches if those diverge in app state |
+| Punctuation/readability failed | Sentence count 1 vs expected ~4; max run-on 53; random cap `Starts Now`; terminal punctuation alone passed | First visual impression is poor; users may distrust transcript and coaching even if words are mostly present | **Open / product decision + dev activation** | If Native remains visible, activate approved Native-only formatter through existing seam; preserve words/fillers and never run for Private |
+| Filler recall only 66.67% | Expected `um`, `basically`, `like`; recognized only `basically`, `like` | SpeakSharp score/filler coaching can undercount user fillers | **Open / likely Native limitation until repeated proof** | Rerun with full trace; do not use formatter to invent missing fillers |
+| Native word accuracy not launch-quality | 83.93% accuracy; wrong/missing words: missed `um`, dropped `the`, `plane` then `plan`, missing final phrase | Native cannot be promoted as quality path; keep caveated quick-start only if visible | **Open** | Compare another short human proof after trust UI/formatter; if still below target, Native remains caveated/backlog |
+| Raw mic-on to first result looked huge | 38.2s after `onaudiostart`, but user clarified silence was from finding the script | Timing interpretation can be wrong if setup silence is mixed with speech latency | **Open measurement fix, not product conclusion** | Rerun with explicit "start speaking now" marker and full trace; judge speech-start to first visible text, not mic-on to first text |
+| Long-speech trust model remains whole-panel | Current fix stabilizes one whole-panel Draft banner during recording | For half-page speeches, a whole transcript marked Draft can feel unstable; section-level finalization is better | **Backlog / not 24h P0** | Dev/design: segment-level trust state (`finalSegments[]`, active draft segment) after release proof stabilizes |
+
+Rerun the same human script after low-hanging fixes and require:
+
+```text
+stable Draft banner from mic-on, full timestamped trace, live text during speech,
+filler recall >= 90%, readability pass, no duplicate, save/history/detail match,
+and no placeholder/status text persisted.
+```
