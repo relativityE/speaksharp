@@ -1308,3 +1308,25 @@ unexpected second recognition/capture cycle, and post-stop speech ("Hey Dad.")
 entered the postStopTranscript. Native must hard-stop on explicit Stop and must
 not append any post-stop recognition results to the completed transcript.
 ```
+
+
+---
+
+## TEST UPDATE (2026-06-03T21:12Z) — Native formatter model changed; rerun required, prior timeout still controls until proven
+
+New dev state observed on main:
+
+```text
+HEAD includes d6bf8e44 — default formatter model changed to gemini-3.5-flash.
+Earlier 504 evidence used the older hanging preview/default path and remains the controlling failure until rerun.
+```
+
+Current Native status:
+
+| Item | Current read | Required next proof |
+| --- | --- | --- |
+| Formatter model | Dev switched default to `gemini-3.5-flash`, matching current Gemini model docs better than deprecated `gemini-2.0-flash` or hanging `gemini-3-flash-preview`. | Rerun real-mic Native save and capture `window.__NATIVE_FORMATTER_LAST__`: `attempted`, `accepted`, `latencyMs`, `errorCode`, `providerStatusEnum`, `fallbackToRaw`, raw text, formatted text, and ground truth. |
+| Formatter latency | Prior proof timed out at ~15.9s. | Native funnel target should be fast enough to feel immediate after Stop. A 28s diagnostic timeout can expose provider status, but release UX should not wait that long for punctuation. |
+| Stop lifecycle | Prior proof appended post-stop speech (`Hey Dad.`) after explicit Stop. | Rerun must verify no speech after Stop enters visible text, `saveCandidate`, history, or detail. |
+| Trust state | Prior proof lost persistent trust banner while finalizing/non-final. | Rerun must capture `__SS_TRUST_TRACE__` and visible generic copy from mic-on through final acceptance. Native must never say `locally`. |
+| Detail transcript | Prior proof had `detailTranscript=""` while `saveCandidate` was full. | Rerun must capture detail text and saved-row source; product/harness boundary must be identified if still empty. |

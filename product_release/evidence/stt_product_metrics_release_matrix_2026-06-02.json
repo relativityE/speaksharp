@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-03T20:05:00Z",
+  "lastUpdated": "2026-06-03T21:18:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -2593,16 +2593,16 @@
     },
     "private": {
       "status": "caveated_not_release_green",
-      "reason": "Current replay evidence on commit 89006629 shows v2 source fixture decodes at 94.25% with return_timestamps:true, but the exact browser-captured final WAV buffer from run 26858549345 decodes at only 62.07% offline through the same Node/drop-in v2 path. The v2 bad result therefore follows the browser input/audio buffer, not DOM extraction, saveCandidate selection, or basic worker options. v4 reaches recording and starts inference but repeatedly fails with `invalid data location: undefined for input \"a\"`, producing no transcript/saveCandidate.",
-      "next": "Dev/test should first validate or fix the v2 browser audio input/capture route: fake-audio route, WebRTC/DSP constraints, resampling, gain/clipping, and final-buffer assembly. Separately fix v4 browser worker runtime/backend no-output before scoring v4 accuracy. Test reruns after either fix using saveCandidate and exact captured WAV replay."
+      "reason": "Latest deployed Private proof reached setup/runtime/saveCandidate but selectedForSave repeated a short filler utterance. This follows the authoritative service_result/saveCandidate, not only raw DOM trust-copy contamination. Prior long-form/parity concerns remain open.",
+      "next": "Dev fixes duplication/repetition boundary; test updates filler extraction to clean row selectors and reruns Private proof with saveCandidate, trust states, setup consent, and detail equality."
     },
     "native": {
       "status": "backlog_failed_current_proof",
-      "reason": "Real Chrome mic proof on 2026-06-03 against the live app exercised the real NativeBrowser path. Trust banner hooks were visible at mic-on and while drafting, and authoritative saveCandidate was full (selectedForSaveLength=336, finalWordCount=58). Native still failed product readiness because the Gemini formatter attempted but returned FORMATTER_ERROR/fallbackToRaw after a 502, raw readability remained poor, and analytics/detail transcript extraction was empty despite save/history success.",
-      "next": "Fix live Native formatter backend/error specificity and detail transcript equality, then rerun human Chrome mic proof. Trust copy must stay mode-aware: only Private may say local/locally; Native and Cloud use generic processing/finalizing copy."
+      "reason": "Native real-mic proof captured full saveCandidate but formatter timed out/fell back to raw, Stop allowed post-stop speech contamination, trust state was not persistent through finalizing, and detail transcript was empty. Dev has changed formatter default to gemini-3.5-flash, but rerun is required.",
+      "next": "Rerun human Native after formatter deploy/default change; verify latency/accepted/fallback fields, hard-stop behavior, trust trace, and detail equality."
     }
   },
-  "lastUpdatedAt": "2026-06-03T20:05:00Z",
+  "lastUpdatedAt": "2026-06-03T21:18:00Z",
   "latestBrowserUxSmoke": {
     "updatedAt": "2026-06-03T18:15:00Z",
     "commit": "c167d3b0",
@@ -2647,23 +2647,30 @@
   },
   "currentOpenProofs": {
     "private": [
-      "Real browser/human proof that live transcript accumulates while recording.",
+      "Fix/retest Private short-utterance duplication: authoritative service_result/saveCandidate repeats the short filler fixture.",
+      "Update Private filler extraction to clean [data-filler-word]/[data-filler-count] rows, then rerun filler recall assertions.",
+      "Human proof must preserve setup/download consent: no model download before explicit user click.",
       "Draft/Processing/Final trust-state proof during stall/long speech.",
       "Save/history/detail equality against authoritative saveCandidate.",
       "v2/v4 parity against drop-in where applicable.",
       "Local punctuation/readability path remains product work."
     ],
     "native": [
-      "Fix/retest Native formatter: real Chrome mic proof now has __NATIVE_FORMATTER_LAST__.attempted=true but errorCode=FORMATTER_ERROR and fallbackToRaw=true.",
-      "Raw vs formatted vs ground truth comparison after formatter succeeds.",
-      "Words/fillers unchanged by formatter.",
-      "Save/history/detail equality from the real saved row; latest proof had detailTranscript empty.",
-      "Mode-aware trust copy proof after local/locally copy was removed for Native/Cloud."
+      "Rerun Native real-mic formatter after d6bf8e44 gemini-3.5-flash default; capture __NATIVE_FORMATTER_LAST__ raw/formatted/ground-truth fields.",
+      "Fix/retest explicit Stop hard-stop: no post-stop speech may enter visible text, saveCandidate, history, or detail.",
+      "Trust state must remain visible/non-final from mic-on until final acceptance; Native copy must never say locally.",
+      "Detail transcript equality from the real saved row; latest proof had detailTranscript empty.",
+      "Reliable persisted-session marker or DB/detail proof."
     ],
     "cloud": [
       "Cloud A/baseline is the only launch/default path. Stop standard-filler keyterms testing.",
       "Keyterms/prompt variants are backlog/custom-word experiments only.",
       "Credentialed long-script/tail proof with __CLOUD_STT_TIMELINE__ remains lower priority than Private/Native."
+    ],
+    "analytics": [
+      "Transcript Quality theme needs first-class punctuation/readability/transcript-confidence cards aligned to session score caveat.",
+      "Goal save failure in E2E/mock path needs fix or real-path proof.",
+      "Custom filler word should be visible as an active tracked term after add, before speech."
     ]
   },
   "reviewFindingsStatus": {
@@ -2729,7 +2736,7 @@
     ]
   },
   "latestNativeHumanProof": {
-    "updatedAt": "2026-06-03T20:47:20.894Z",
+    "updatedAt": "2026-06-03T21:12:00Z",
     "artifact": "/private/tmp/native-human-rerun-20260603.json",
     "baseUrl": "https://speaksharp-public.vercel.app",
     "status": "fail_product_readiness",
@@ -2758,10 +2765,16 @@
       "Native trust banner was not persistent while transcript was non-final/finalizing.",
       "Detail transcript was empty even though saveCandidate/history had transcript.",
       "Saved-session marker was false while history and analytics were visible, so persisted-session proof needs a reliable marker or DB/detail verification."
-    ]
+    ],
+    "formatterCurrentHead": {
+      "head": "d6bf8e44",
+      "defaultModel": "gemini-3.5-flash",
+      "status": "rerun_required",
+      "note": "Prior 504 FORMATTER_PROVIDER_TIMEOUT evidence remains controlling until a real-mic Native proof validates the new model default."
+    }
   },
   "latestDeployedInjectedDiagnostics": {
-    "updatedAt": "2026-06-03T19:57:00Z",
+    "updatedAt": "2026-06-03T21:10:00Z",
     "baseUrl": "https://speaksharp-public.vercel.app",
     "classification": "diagnostic_harness_proof_not_release_proof",
     "native": {
@@ -2781,25 +2794,106 @@
       "devAsk": "Investigate NativeBrowser start timeout/retry/diagnostic behavior. If this reproduces in headed human Chrome, it is funnel-breaking."
     },
     "private": {
-      "status": "fail_after_save",
-      "artifactDir": "/private/tmp/speaksharp-private-injected-escalated-20260603155713",
+      "status": "fail_after_save_authoritative_result_repeated",
+      "artifactDir": "/private/tmp/speaksharp-private-rerun-20260603165439",
       "firstBrokenGate": "proof.accuracy.final_text",
-      "secondaryBrokenGate": "proof.journey.filler_ui_schema",
+      "secondaryBrokenGate": "proof.journey.filler_extraction_stale_selector",
       "evidence": {
         "setupBuildEnv": "pass",
         "authTier": "pass",
         "sttMode": "private",
-        "modelStatusInitial": "download-required",
-        "modelLoaded": true,
+        "setupClicked": true,
         "runtime": "transformers-js CPU",
         "truth": "Um. Basically, we should literally like, wait.",
         "selectedForSave": "Basically, we should literally like, \"Wait, um, basically, we should literally like, wait, um, basically.\"",
         "selectedForSaveLength": 106,
         "finalWordCount": 15,
+        "fillerCount": 5,
         "saveCandidateReason": "service_result",
-        "fillerTextRaw": "basically3um2like2literally2uh0ah0You Know0so0actually0oh0I Mean0Kind Of0Sort Of0"
+        "frozenStopTranscriptLength": 59,
+        "candidateLengths": {
+          "service_result": 106,
+          "committed_final": 106,
+          "visible_snapshot": 59,
+          "best_meaningful_partial": 59,
+          "store_visible_snapshot": 106
+        },
+        "staleFillerTextRaw": "basically3um2like2literally2uh0ah0You Know0so0actually0oh0I Mean0Kind Of0"
       },
-      "devAsk": "Investigate short-utterance repetition/duplication and expose transcript-only/filler-row selectors so tests do not score trust copy or concatenated word/count DOM text."
+      "devAsk": "Fix Private final duplication/repetition in authoritative service_result/saveCandidate. Test should update filler extraction to [data-filler-word]/[data-filler-count]."
     }
-  }
+  },
+  "latestAnalyticsConversionSweep": {
+    "updatedAt": "2026-06-03T21:15:00Z",
+    "analyticsThemes": {
+      "status": "pass_rendering_partial_product_gap",
+      "artifact": "/private/tmp/speaksharp-analytics-focus-probe-2-20260603165836",
+      "themesRendered": [
+        "Delivery Control",
+        "Message Clarity",
+        "Habit Progress",
+        "Session Proof",
+        "Transcript Quality"
+      ],
+      "finding": "Transcript Quality renders but lacks first-class punctuation/readability/transcript-confidence cards; it mostly reuses generic stat cards plus STT chart."
+    },
+    "analyticsTruth": {
+      "status": "pass_with_empty_state_failure_elsewhere",
+      "artifact": "/private/tmp/speaksharp-analytics-themes-20260603165551",
+      "result": "12 passed, 1 failed; session-to-analytics truth path passed, zero-data empty-state fixture failed because mock was not empty."
+    },
+    "scoreUnitCoverage": {
+      "status": "pass",
+      "result": "54 passed across AnalyticsDashboard, AnalyticsPage, STTAccuracyVsBenchmark, speakingScore, LiveCoachingScoreCard",
+      "finding": "Score value unchanged; confidence/copy downgrade weak transcript quality."
+    },
+    "broadUxFunnel": {
+      "status": "fail_two_bugs",
+      "artifact": "/private/tmp/speaksharp-ux-funnel-20260603170206",
+      "result": "20 passed, 2 failed, 1 did not run",
+      "failures": [
+        {
+          "id": "goal_save_mock_or_service_compatibility",
+          "evidence": "Saving goals showed A background task failed: i.from(...).upsert is not a function.",
+          "ask": "Reconcile goalsService.upsert().select().single() with E2E/mock Supabase path or prove real Supabase path separately."
+        },
+        {
+          "id": "custom_filler_word_visibility",
+          "evidence": "After adding AntigravityUI, main Filler Words card still listed only default tracked words.",
+          "ask": "Include user-defined filler words in visible tracked-word card with count 0, or show clear active-tracking confirmation outside popover."
+        }
+      ]
+    },
+    "liveConversion": {
+      "auth": "pass: /private/tmp/speaksharp-live-auth-rerun",
+      "stripeReadiness": "pass: direct function returned checkout.stripe.com URL in /private/tmp/speaksharp-live-conversion-rerun",
+      "analyticsUpgradeClick": "pass: temp real-auth probe sent plan=pro and conversionSource=analytics_overview_banner; existing mocked upgrade spec failure is harness contamination because mock client lacks supabase.functions.invoke"
+    }
+  },
+  "productUxBacklog": [
+    {
+      "id": "analytics-transcript-quality-theme-first-class-metrics",
+      "addedAt": "2026-06-03T21:15:00Z",
+      "severity": "P1",
+      "owner": "DEV/PRODUCT",
+      "evidence": "Transcript Quality theme renders but lacks punctuation/readability/transcript-confidence stat cards.",
+      "ask": "Add first-class transcript quality metrics to Analytics and align them with session SpeakSharp Score confidence caveat."
+    },
+    {
+      "id": "custom-filler-visible-active-term",
+      "addedAt": "2026-06-03T21:15:00Z",
+      "severity": "P1",
+      "owner": "DEV",
+      "evidence": "Custom filler word AntigravityUI added successfully in popover but did not appear in main Filler Words card before speech.",
+      "ask": "Show user-defined filler words as tracked rows with count 0 or provide visible active-tracking confirmation."
+    },
+    {
+      "id": "goals-save-e2e-upsert-compatibility",
+      "addedAt": "2026-06-03T21:15:00Z",
+      "severity": "P2",
+      "owner": "DEV/TEST",
+      "evidence": "Goal save browser test produced background-task toast: i.from(...).upsert is not a function.",
+      "ask": "Fix E2E/mock Supabase compatibility or prove real Supabase goal save separately."
+    }
+  ]
 }
