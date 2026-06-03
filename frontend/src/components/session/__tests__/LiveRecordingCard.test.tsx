@@ -119,7 +119,8 @@ describe('LiveRecordingCard', () => {
         expect(screen.getByTestId(TEST_IDS.STT_MODE_PRIVATE)).toHaveAttribute('title', expect.stringMatching(/All audio processing remains local/i));
     });
 
-    it('does not place Private setup inside the recording card when the model is missing', () => {
+    it('shows explicit Private setup inside the recording card when the model is missing', () => {
+        const onDownloadModel = vi.fn();
         render(
             <LiveRecordingCard
                 {...defaultProps}
@@ -128,8 +129,15 @@ describe('LiveRecordingCard', () => {
                 canUseCloudStt={false}
                 sttStatusType="download-required"
                 isButtonDisabled={true}
+                onDownloadModel={onDownloadModel}
             />
         );
+
+        const inlineSetupButton = screen.getByTestId('download-model-button-inline');
+        expect(inlineSetupButton).toBeDefined();
+        expect(inlineSetupButton.textContent).toMatch(/Set Up/i);
+        fireEvent.click(inlineSetupButton);
+        expect(onDownloadModel).toHaveBeenCalledTimes(1);
 
         expect(screen.queryByTestId('private-setup-panel')).toBeNull();
         expect(screen.queryByTestId('download-model-button')).toBeNull();

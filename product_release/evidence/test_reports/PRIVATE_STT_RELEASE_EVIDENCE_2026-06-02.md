@@ -1758,3 +1758,31 @@ Bugs and fixes require the **other agent's confirmation** before being treated a
 
 #### DEV BUG CANDIDATES — awaiting TEST confirm (none blocking; product-behavior-affecting only)
 _(none yet — sweep in progress; obvious fixes land directly, candidates will be listed here)_
+
+---
+
+## TEST/RELEASE UPDATE (2026-06-03T15:20Z) — Private setup consent UI contract verified
+
+The product-side mic-window setup action is present and wired:
+
+```text
+SessionPage -> LiveRecordingCard.onDownloadModel -> speechRuntimeController.initiateModelDownload('private')
+```
+
+Focused coverage now requires `LiveRecordingCard` to show the inline
+`download-model-button-inline` / `Set Up` action when Private needs model setup
+and to call the supplied setup handler on click.
+
+Validation:
+
+```text
+pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+  frontend/src/components/session/__tests__/LiveRecordingCard.test.tsx
+
+13 tests passed.
+```
+
+This does **not** close the human setup proof. The next Private human proof must
+still run with `PRIVATE_SETUP_USER_CONSENT_REQUIRED=true` and must stop when setup
+is visible so the user explicitly clicks setup/download. Do not auto-click model
+setup in human proof.
