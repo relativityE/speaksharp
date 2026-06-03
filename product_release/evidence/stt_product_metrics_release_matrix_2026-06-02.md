@@ -1194,6 +1194,35 @@ Native remains not release-green. Real path now proves the formatter is attempte
 but it fails open/falls back to raw, and detail transcript equality still fails.
 ```
 
+## Native Real Mic Rerun: 2026-06-03T20:47Z
+
+Artifact:
+
+```text
+/private/tmp/native-human-rerun-20260603.json
+```
+
+This is the current controlling Native human proof.
+
+| Check | Result | Release read |
+| --- | --- | --- |
+| Real Chrome mic path | **Ran:** live app, headed Chrome, no fake audio flags; `recordingStarted=true`, `transcriptVisible=true` | Valid release-style input path. |
+| Native formatter | **Fail:** `__NATIVE_FORMATTER_LAST__.attempted=true`, `errorCode=FORMATTER_PROVIDER_TIMEOUT`, `latencyMs=15872`, `fallbackToRaw=true` | Newer evidence supersedes the generic 502: formatter is wired but times out after ~15.9s, so Native still ships raw run-on text. |
+| Stop lifecycle | **Fail:** Stop did not settle within 60s; `postStopTranscript` appended `Hey Dad.` after the intended script | Native must hard-stop after explicit Stop and ignore post-stop recognition results. |
+| Trust state | **Fail:** Draft banner visible at mic-on, but not persistent while finalizing/non-final; generic `Processing transcript…` was shown | Native needs a clear non-final/finalizing trust state until final acceptance. Copy must not claim local processing. |
+| Save candidate | **Pass:** `selectedForSaveLength=343`, `finalWordCount=59`, `saveCandidateReason=service_result` | Candidate selection carried the full script in this run; not the old placeholder-collapse failure. |
+| Detail transcript | **Fail:** `detailTranscript=""`, `detailTranscriptMatchesSelected=false` | Detail equality remains failed or extraction is still wrong. |
+| Saved marker | **Fail/caveat:** `saved=false` while `historyVisible=true` and `analyticsVisible=true` | Need a reliable persisted-session marker or DB/detail proof. |
+
+Current Native classification:
+
+```text
+Native remains not release-green. The latest human proof confirms the real path
+can capture a full save candidate, but punctuation/readability still fails
+because the formatter times out; explicit Stop can still leak post-stop speech
+into the transcript; detail transcript equality is still broken.
+```
+
 ### Mode-Aware Trust Copy Verification: 2026-06-03T19:46Z
 
 | Check | Result | Release read |
