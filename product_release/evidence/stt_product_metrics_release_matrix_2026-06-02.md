@@ -1,7 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-03T01:00:00Z  
+**Last updated:** 2026-06-03T02:22:00Z  
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
@@ -531,7 +531,7 @@ BLOCKER = missing value blocks green classification.
 
 | STT | Classification | Why | Next action |
 | --- | --- | --- | --- |
-| Private | Caveated / not release-green | Latest current-head workflow `26857164917` shows v2 setup/Stop/saveCandidate/persistence work, but final quality/completeness still fails: 59 saved words against an 87-word proof, ending `We, um, find joy in the simp.` v4 improved from setup init-failed to ready/recording, but still fails proof timing because no useful transcript appears within 30s and `saveCandidate` remains null. | Dev/test: treat v2 as a real quality/completeness blocker, not DOM contamination. Investigate v4 first-text/timing path now that setup reaches recording. Test reruns after fixes using saveCandidate and current timing evidence. |
+| Private | Caveated / not release-green | Latest current-head workflow `26857597752` shows v2 setup/Stop/saveCandidate/final whole-utterance decode work, but final quality/completeness still fails: 61 saved words against an 87-word proof. v4 improved from setup init-failed to ready/recording and receives non-silent audio, but every v4 inference fails with `invalid data location: undefined for input "a"`. | Dev/test: treat v2 as a real quality/completeness blocker, not DOM contamination. Treat v4 as backend/config/runtime failure, not setup or mic failure. Rerun after v4 config fix and v2 quality fix using uploaded evidence JSON. |
 | Cloud | Caveated / closest | Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. Long-speech/app-tail proof remains open. | Launch/position Cloud baseline as quality path if app-tail proof passes. DEV/PRODUCT: change/narrow/disable keyterms before defaulting it. TEST: run Cloud app journey/tail proof with `__CLOUD_STT_TIMELINE__`. |
 | Native | Backlog / failed current proof | Human real-mic proof ran and failed product readiness: Chrome produced words, but selectedForSave became `Listening...`, save/detail failed, readability failed, and filler recall was 66.67%. | Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof. |
 
@@ -539,8 +539,9 @@ Clarifications:
 
 ```text
 Private browser evidence collected on 2026-06-03 covers both v2 and v4.
-v2 reaches saveCandidate but fails final quality/completeness. v4 reaches
-ready/recording but fails first useful transcript timing before scoring.
+v2 reaches saveCandidate and final whole-utterance decode but fails final
+quality/completeness. v4 reaches ready/recording and receives non-silent audio
+but fails every decode with `invalid data location: undefined for input "a"`.
 
 Cloud "invalid" means no usable provider transcript session, not bad WER.
 Those rows are excluded from quality averages and block green classification.
