@@ -50,7 +50,12 @@ export function useGoals() {
             safeLocalStorageSet(GOALS_STORAGE_KEY, JSON.stringify(newGoals));
 
             if (user) {
-                return await goalsService.upsert(user.id, newGoals);
+                try {
+                    return await goalsService.upsert(user.id, newGoals);
+                } catch (err) {
+                    logger.info({ err }, '[useGoals] Remote goal sync failed; keeping local goals');
+                    return newGoals;
+                }
             }
             return newGoals;
         },

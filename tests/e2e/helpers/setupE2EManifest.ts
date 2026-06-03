@@ -230,6 +230,13 @@ export async function setupE2EManifest(
       // `emptyUserPage` and hides the actual empty-state UX.
       sessions: es ? defaultSessions : (loadPersistedSessions() ?? defaultSessions),
     };
+    let userGoals = {
+      user_id: e2eProfile.id,
+      weekly_goal: 5,
+      clarity_goal: 90,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    };
     persistSessions();
 
     const queryResultFor = (
@@ -240,6 +247,9 @@ export async function setupE2EManifest(
     ) => {
       if (table === 'user_profiles') {
         return Promise.resolve({ data: single ? e2eProfile : [e2eProfile], error: null, count: 1 });
+      }
+      if (table === 'user_goals') {
+        return Promise.resolve({ data: single ? userGoals : [userGoals], error: null, count: 1 });
       }
       if (table === 'sessions') {
         let rows = [...sessionState.sessions];
@@ -268,9 +278,15 @@ export async function setupE2EManifest(
     const makeQueryBuilder = (table: string) => {
       const filters: Array<{ column: string; value: unknown }> = [];
       const options: { count?: string; head?: boolean; range?: [number, number] } = {};
-      let pendingMutation: { type: 'update' | 'insert' | 'delete'; payload?: Record<string, unknown> | Record<string, unknown>[] } | null = null;
+      let pendingMutation: { type: 'update' | 'insert' | 'upsert' | 'delete'; payload?: Record<string, unknown> | Record<string, unknown>[] } | null = null;
       const commitMutation = () => {
-        if (table !== 'sessions' || !pendingMutation) return null;
+        if (!pendingMutation) return null;
+        if (table === 'user_goals' && pendingMutation.type === 'upsert') {
+          const payload = Array.isArray(pendingMutation.payload) ? pendingMutation.payload[0] ?? {} : pendingMutation.payload ?? {};
+          userGoals = { ...userGoals, ...payload, user_id: String(payload.user_id || userGoals.user_id), updated_at: nowIso() };
+          return { data: [userGoals], error: null, count: 1 };
+        }
+        if (table !== 'sessions') return null;
         if (pendingMutation.type === 'insert') {
           const payloads = Array.isArray(pendingMutation.payload) ? pendingMutation.payload : [pendingMutation.payload || {}];
           const inserted = payloads.map((payload) => makeSession(payload as Record<string, unknown>));
@@ -319,6 +335,10 @@ export async function setupE2EManifest(
         },
         insert: (payload: Record<string, unknown> | Record<string, unknown>[]) => {
           pendingMutation = { type: 'insert', payload };
+          return builder;
+        },
+        upsert: (payload: Record<string, unknown> | Record<string, unknown>[]) => {
+          pendingMutation = { type: 'upsert', payload };
           return builder;
         },
         delete: () => {
