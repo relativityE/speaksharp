@@ -296,8 +296,8 @@ export const SIGNAL_CONTRACT = [
     owner: 'frontend/src/services/transcription/modes/PrivateWhisper.ts',
     writers: ['PrivateWhisper.publishPrivateTiming()'],
     readers: ['Private STT quality-push proofs'],
-    intent: 'Always-on Private STT timing summary: { timeToFirstProvisionalMs, timeToFirstFinalMs, finalizeDecodeMs, utteranceSeconds, peakBufferedSeconds, anchor, updatedAtMs }. timeToFirst* are relative to speech-start (fallback stream-start). Diagnostics only; never gates behavior.',
-    waitGuidance: 'Read after Stop for the full picture (finalizeDecodeMs is set during the stop-commit). For before/after first-text comparisons, read timeToFirstProvisionalMs during recording. Not trace-gated — available without enabling __PRIVATE_TRANSCRIPT_TRACE__.',
+    intent: 'Always-on Private STT timing summary: { timeToFirstProvisionalMs, timeToFirstFinalMs, finalizeWaitMs, finalizeDecodeMs, utteranceSeconds, peakBufferedSeconds, anchor, updatedAtMs }. timeToFirst* are relative to speech-start (fallback stream-start). finalizeWaitMs = Stop->decode-start pre-decode overhead (drain of in-flight live decode + cleanup); finalizeDecodeMs = the whole-utterance decode itself. Diagnostics only; never gates behavior.',
+    waitGuidance: 'Read after Stop for the full picture (finalizeWaitMs + finalizeDecodeMs are set during the stop-commit; their sum is the user-visible post-Stop wait). Cross-check finalizeWaitMs against the stop_predecode_breakdown timeline event { wasProcessingAtStop, drainWaitMs }. Not trace-gated.',
     replacement: null,
   },
   {
