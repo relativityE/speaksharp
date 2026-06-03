@@ -1126,12 +1126,14 @@ describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Sli
         const s = buildPrivateTimingSummary({
             streamStartAtMs: null, speechStartAtMs: null,
             firstProvisionalAtMs: null, firstFinalAtMs: null, finalizeDecodeMs: null,
+            finalizeWaitMs: null,
             utteranceSampleCount: 0, peakBufferedSamples: 0, nowMs: 1234,
         });
         expect(s.anchor).toBeNull();
         expect(s.timeToFirstProvisionalMs).toBeNull();
         expect(s.timeToFirstFinalMs).toBeNull();
         expect(s.finalizeDecodeMs).toBeNull();
+        expect(s.finalizeWaitMs).toBeNull();
         expect(s.utteranceSeconds).toBe(0);
         expect(s.peakBufferedSeconds).toBe(0);
         expect(s.updatedAtMs).toBe(1234);
@@ -1141,12 +1143,14 @@ describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Sli
         const s = buildPrivateTimingSummary({
             streamStartAtMs: 1000, speechStartAtMs: 1500,
             firstProvisionalAtMs: 2500, firstFinalAtMs: 4500, finalizeDecodeMs: 800,
+            finalizeWaitMs: 9962,
             utteranceSampleCount: SR, peakBufferedSamples: 3 * SR, nowMs: 9000,
         });
         expect(s.anchor).toBe('speech');
         expect(s.timeToFirstProvisionalMs).toBe(1000); // 2500 - 1500
         expect(s.timeToFirstFinalMs).toBe(3000);        // 4500 - 1500
         expect(s.finalizeDecodeMs).toBe(800);
+        expect(s.finalizeWaitMs).toBe(9962); // pre-decode overhead passthrough
         expect(s.utteranceSeconds).toBe(1);
         expect(s.peakBufferedSeconds).toBe(3);
     });
@@ -1155,6 +1159,7 @@ describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Sli
         const s = buildPrivateTimingSummary({
             streamStartAtMs: 1000, speechStartAtMs: null,
             firstProvisionalAtMs: 2000, firstFinalAtMs: null, finalizeDecodeMs: null,
+            finalizeWaitMs: null,
             utteranceSampleCount: 0, peakBufferedSamples: 0, nowMs: 5000,
         });
         expect(s.anchor).toBe('stream');
@@ -1166,6 +1171,7 @@ describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Sli
         const s = buildPrivateTimingSummary({
             streamStartAtMs: 1000, speechStartAtMs: 2000,
             firstProvisionalAtMs: 1500, firstFinalAtMs: null, finalizeDecodeMs: null,
+            finalizeWaitMs: null,
             utteranceSampleCount: 0, peakBufferedSamples: 0, nowMs: 3000,
         });
         expect(s.timeToFirstProvisionalMs).toBe(0); // 1500 < 2000 anchor -> clamped
