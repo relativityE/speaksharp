@@ -140,3 +140,21 @@ product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json
 | P1 | (Independent review F2, DEV-partially-confirmed) Private `utteranceAudioChunks` resets at utterance/reset boundaries; there is **no sliding-window overlap across utterances**, unlike drop-in harnesses that feed overlapping/preceding context. Plausible cause of boundary phoneme mutation (e.g. "chewed up"→"tune up") and a likely facet of the open v2 app-vs-drop-in parity gap. | Open (dev task #37). Hypothesis, NOT a confirmed defect — needs A/B proof before any pipeline change. | Test vision: A/B same audio through (a) app per-utterance path vs (b) overlapping sliding-window drop-in; compare WER + boundary-word accuracy at utterance starts. Only patch if overlap measurably closes the parity gap. |
 | P2 | (Independent review F3, DEV-confirmed, low severity) `transcriptSanitizer.sanitizeTranscriptText` uses `/\*[^*]{1,40}\*/g`; asterisk-metadata tags >40 chars or with nested `*` escape and can reach UI/DB. | Open (dev task #38). | Raise/remove the cap or multi-pass strip; unit-test tag lengths (10/40/41/80) + nesting; assert no `*…*` metadata reaches saved/detail transcript. |
 | — | (Independent review F1 & F4 — REVIEWED, REFUTED by DEV, no action) F1 "audio DSP distortion by default": FALSE — product default is `RAW_AUDIO_CONSTRAINTS` (echo/noise/AGC **off**); DSP-on is a **test-only** opt-in (`?privateMicConstraints=default`), surfaced in `__PRIVATE_MIC_CONSTRAINTS_DEBUG__.mode`. F4 "stop-tail silence bypass → hallucination": MOSTLY FALSE — low-energy forced tail is **dropped before inference** (`PrivateWhisper.ts:1162`), tiny/unsupported tails dropped (1471/1490), and the forced tail is fallback-only behind the whole-utterance commit (1678). | Closed (no defect). | TEST may confirm via proof artifacts: `__PRIVATE_MIC_CONSTRAINTS_DEBUG__.mode === 'raw'` in default runs; no low-energy tail decode in the Private timeline. |
+
+## DEV OWNERSHIP — Accuracy / Efficiency / Performance workstream (owner: dev-agent / claude)
+
+Claiming the A/E/P STT optimization workstream. **Owner: dev-agent (claude).** Items I am taking:
+
+| Item | Domain | Status (owner: dev-agent) |
+| --- | --- | --- |
+| **F2 / #37** Private cross-utterance audio overlap (no sliding-window context across utterances → boundary phoneme mutation, e.g. "chewed up"→"tune up") | **Accuracy** | 🔧 IN PROGRESS — building app-vs-drop-in windowing A/B harness; change pipeline only if overlap measurably closes the v2 parity gap |
+| **F5 / #36** provisional length-bias selecting hallucinations | **Accuracy** | ✅ DONE (merged `24d719e3`) |
+| **F3 / #38** asterisk sanitizer length cap | **Accuracy/cleanliness** | ✅ DONE (merged `24d719e3`) |
+| **Private v2 app-vs-drop-in parity** (browser `63.22%` < drop-in) | **Accuracy** | DEV fixes the exact boundary once TEST's clean capture isolates it (resampler already exonerated by DEV) |
+| **Private v4 runtime** (`invalid data location: undefined for input "a"`) | **Accuracy + Efficiency** (unlocks faster v4 path) | ⏸️ ON HOLD per owner — WIP on branch `fix/v4-runtime-q8-decoder`; resume on signal |
+| **Native formatter cost/volume guard / #35** | **Efficiency/cost** | DEV — queued (real per-user quota before free-scale) |
+| **Private post-Stop finalize latency** | **Performance** | ✅ already reduced (status-before-wait + bounded final-decode window); reverify after #37 |
+| **NEW: A/E/P hot-path audit** (audio capture → resample → chunk → decode → commit → display) for accuracy/efficiency/perf defects | **All three** | 🔍 DEV — scoping next; findings will be added here with owner=dev-agent |
+
+TEST has overall jurisdiction to confirm app behavior; DEV (claude) owns the code fixes above and will
+hand each back with regression tests for browser/human validation.
