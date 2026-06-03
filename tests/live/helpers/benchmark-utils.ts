@@ -288,6 +288,14 @@ export async function preparePrivateModelIfPrompted(page: Page, timeout = 180_00
 
     if (await setupButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
         await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_VISIBLE');
+        if (process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true') {
+            const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-setup-user-consent-required');
+            throw new Error(
+                `INVALID_SETUP setup.model_provider USER_CONSENT_REQUIRED private-setup-download-visible\n` +
+                `Private model setup requires an explicit user click; the proof harness must not auto-download.\n` +
+                `${JSON.stringify(snapshot, null, 2)}`
+            );
+        }
         await setupButton.click();
         await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_BUTTON_CLICKED');
     } else {

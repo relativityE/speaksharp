@@ -1481,3 +1481,18 @@ Required rerun:
 3. Confirm each final sentence appends to prior visible final text.
 4. Confirm Stop/save/history/detail contain the whole speech.
 5. Recompute accuracy, filler recall, readability, and timing from the new JSON.
+
+Proof-harness guard now available for the rerun:
+
+```text
+PRIVATE_SETUP_USER_CONSENT_REQUIRED=true
+```
+
+When that flag is set, the live proof helpers must fail fast with:
+
+```text
+INVALID_SETUP setup.model_provider USER_CONSENT_REQUIRED private-setup-download-visible
+```
+
+instead of clicking the Private setup/download button. This keeps first-time
+human proof honest: if setup is visible, the user must explicitly click it.
