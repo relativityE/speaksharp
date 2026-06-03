@@ -327,6 +327,50 @@ describe('AnalyticsDashboard', () => {
         );
     });
 
+    it('renders the saved Native transcript in the session detail view and exposes it for proofs', () => {
+        renderComponent({
+            sessionId: 'native-session',
+            sessionHistory: [
+                {
+                    id: 'native-session',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 6,
+                    engine: 'native',
+                    transcript: 'native browser microphone proof works',
+                },
+            ],
+        });
+
+        const detail = screen.getByTestId('session-detail-transcript');
+        expect(detail).toHaveTextContent('native browser microphone proof works');
+        expect(detail).toHaveAttribute('data-session-detail-transcript', 'native browser microphone proof works');
+    });
+
+    it('REGRESSION: a whitespace-only placeholder transcript shows the empty fallback, not a blank panel', () => {
+        // A session that started (placeholder `transcript: " "`) but was never finalized
+        // must not render a silent blank panel that looks like a lost transcript.
+        renderComponent({
+            sessionId: 'placeholder-session',
+            sessionHistory: [
+                {
+                    id: 'placeholder-session',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 5,
+                    total_words: 0,
+                    engine: 'native',
+                    transcript: ' ',
+                },
+            ],
+        });
+
+        const detail = screen.getByTestId('session-detail-transcript');
+        expect(detail).toHaveTextContent('No transcript available for this session.');
+        expect(detail).toHaveAttribute('data-session-detail-transcript', '');
+    });
+
     it('shows PDF export in saved session detail without script upload controls', () => {
         renderComponent({
             sessionId: 'free-session',
