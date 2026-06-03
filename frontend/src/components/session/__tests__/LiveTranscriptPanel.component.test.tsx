@@ -384,4 +384,51 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'listening');
         expect(screen.getByTestId('live-transcript-trust-banner')).toHaveTextContent('Draft transcript');
     });
+
+    it('REGRESSION: Native keeps a trust indicator visible at every step mic-on -> final (no gap, generic copy)', () => {
+        // Blocker #3 requirement (a): the trust/finalizing banner must stay visible
+        // across the whole Native journey. The production stop ordering sets
+        // isFinalizing=true (freeze) BEFORE isListening flips false (STOPPING), so the
+        // finalizing banner takes over from the draft banner without a blank frame.
+        const assertTrustIndicatorPresent = () => {
+            const draft = screen.queryByTestId('live-transcript-trust-banner');
+            const finalizing = screen.queryByTestId('live-transcript-finalizing');
+            // Exactly one trust surface is visible at each pre-final step.
+            expect(Boolean(draft) || Boolean(finalizing)).toBe(true);
+            const text = (draft?.textContent ?? '') + (finalizing?.textContent ?? '');
+            // Native must never use Private's on-device copy.
+            expect(text.toLowerCase()).not.toContain('locally');
+            expect(text.toLowerCase()).not.toContain('local transcript');
+        };
+
+        // 1. mic-on, no text yet (listening)
+        const { rerender } = render(
+            <LiveTranscriptPanel transcript="" interimTranscript="" isListening={true} isFinalizing={false} sttMode="native" />
+        );
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'listening');
+        assertTrustIndicatorPresent();
+
+        // 2. mic-on, drafting text
+        rerender(
+            <LiveTranscriptPanel transcript="native words so far" interimTranscript="more words" isListening={true} isFinalizing={false} sttMode="native" />
+        );
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'drafting');
+        assertTrustIndicatorPresent();
+
+        // 3. stop -> finalizing (freeze sets isFinalizing before STOPPING clears isListening)
+        rerender(
+            <LiveTranscriptPanel transcript="native words so far" interimTranscript="" isListening={false} isFinalizing={true} sttMode="native" />
+        );
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'finalizing');
+        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing transcript…');
+        assertTrustIndicatorPresent();
+
+        // 4. final (journey end): committed transcript, no banner
+        rerender(
+            <LiveTranscriptPanel transcript="native words so far" interimTranscript="" isListening={false} isFinalizing={false} sttMode="native" />
+        );
+        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'final');
+        expect(screen.queryByTestId('live-transcript-finalizing')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('live-transcript-trust-banner')).not.toBeInTheDocument();
+    });
 });
