@@ -6,6 +6,30 @@ import PrivateWhisper from './modes/PrivateWhisper';
 import logger from '../../lib/logger';
 import { getDefaultProviderEntry } from './providers/sttProviderConfig';
 import type { PrivateSttProvider, SttMode, SttProviderEntry } from './providers/types';
+import { registerNativeProductionFormatter } from './modes/nativeGeminiFormatter';
+import { registerNativeTranscriptFormatter } from './modes/nativeTranscriptFormatter';
+
+/**
+ * Activate (or clear) the API-backed saved-transcript formatter for the active
+ * production engine. The formatter is Native ONLY:
+ *   - native  -> register the Gemini `format-transcript` adapter
+ *   - cloud   -> clear (Cloud has provider punctuation; must not depend on it)
+ *   - private -> clear (Private formatting must stay local; never API)
+ * Never throws — a formatter wiring failure must not block engine construction.
+ * The seam itself falls back to the raw transcript if the backend is absent.
+ */
+function configureNativeFormatter(mode: SttMode): void {
+  try {
+    if (mode === 'native') {
+      registerNativeProductionFormatter('native');
+    } else {
+      // Defensive: ensure no Native formatter lingers for cloud/private.
+      registerNativeTranscriptFormatter(null);
+    }
+  } catch (error) {
+    logger.warn({ error, mode }, '[EngineFactory] Native formatter activation skipped');
+  }
+}
 
 /**
  * EngineFactory:
@@ -37,6 +61,9 @@ export class EngineFactory {
     const providerId = provider.id;
     const registryKey = EngineFactory.assertProviderAvailable(mode as SttMode, provider);
     logger.info({ mode, provider: providerId, registryKey }, '[EngineFactory] Constructing production engine');
+
+    // Native-only: wire (or clear) the API-backed saved-transcript formatter.
+    configureNativeFormatter(mode as SttMode);
 
     switch (mode) {
       case 'native':

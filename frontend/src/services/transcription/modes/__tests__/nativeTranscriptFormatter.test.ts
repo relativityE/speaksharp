@@ -5,6 +5,8 @@ vi.unmock('../nativeTranscriptFormatter');
 import {
   formatNativeTranscript,
   registerNativeTranscriptFormatter,
+  reportNativeFormatterProviderMeta,
+  getNativeFormatterTelemetry,
   hasNativeTranscriptFormatter,
   isWordPreserving,
   transcriptWordSequence,
@@ -107,5 +109,60 @@ describe('nativeTranscriptFormatter', () => {
 
   it('transcriptWordSequence strips punctuation/case', () => {
     expect(transcriptWordSequence('Um, the Puppy—chewed it!')).toEqual(['um', 'the', 'puppy', 'chewed', 'it']);
+  });
+
+  describe('proof telemetry (__NATIVE_FORMATTER_LAST__)', () => {
+    it('records an ACCEPTED attempt with provider meta + wordPreserving=true, fallbackToRaw=false', async () => {
+      registerNativeTranscriptFormatter((raw) => {
+        // adapter reports provider-side metadata during the call
+        reportNativeFormatterProviderMeta({
+          provider: 'gemini',
+          functionName: 'format-transcript',
+          formatterVersion: 'format-transcript@1.0.0',
+          requestId: 'req-123',
+          latencyMs: 42,
+          inputChars: raw.length,
+          outputChars: raw.length + 2,
+          serverWordPreserving: true,
+        });
+        return `${raw}.`;
+      });
+      const out = await formatNativeTranscript('hello world');
+      expect(out).toBe('hello world.');
+      const t = getNativeFormatterTelemetry();
+      expect(t.attempted).toBe(true);
+      expect(t.provider).toBe('gemini');
+      expect(t.functionName).toBe('format-transcript');
+      expect(t.requestId).toBe('req-123');
+      expect(t.serverWordPreserving).toBe(true);
+      expect(t.wordPreserving).toBe(true);
+      expect(t.fallbackToRaw).toBe(false);
+      expect(t.latencyMs).toBe(42);
+    });
+
+    it('records a FALLBACK attempt (word change) with fallbackToRaw=true + errorCode', async () => {
+      registerNativeTranscriptFormatter((raw) => `${raw} extra`);
+      const out = await formatNativeTranscript('keep these words');
+      expect(out).toBe('keep these words');
+      const t = getNativeFormatterTelemetry();
+      expect(t.attempted).toBe(true);
+      expect(t.fallbackToRaw).toBe(true);
+      expect(t.wordPreserving).toBe(false);
+      expect(t.errorCode).toBe('CLIENT_WORDS_CHANGED');
+    });
+
+    it('records a FALLBACK attempt (formatter throws) carrying the thrown code', async () => {
+      registerNativeTranscriptFormatter(() => {
+        const e = new Error('boom') as Error & { code?: string };
+        e.code = 'FORMATTER_PROVIDER_ERROR';
+        throw e;
+      });
+      const out = await formatNativeTranscript('hello world');
+      expect(out).toBe('hello world');
+      const t = getNativeFormatterTelemetry();
+      expect(t.attempted).toBe(true);
+      expect(t.fallbackToRaw).toBe(true);
+      expect(t.errorCode).toBe('FORMATTER_PROVIDER_ERROR');
+    });
   });
 });
