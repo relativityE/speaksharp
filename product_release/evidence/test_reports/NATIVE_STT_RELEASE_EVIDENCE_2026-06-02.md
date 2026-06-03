@@ -1010,3 +1010,28 @@ PASS: lint, typecheck, eslint-disable hygiene
 Native browser proof remains open because `pnpm rc:ux:smoke` still needs a valid
 auth/test-harness setup path before it can reach mic-on and prove formatter/trust
 behavior.
+
+---
+
+## ⚠️ DEV NOTE — Native formatter (Gemini) COST RISK (2026-06-03, actionable before free-scale)
+
+The Native readability formatter calls a **paid Gemini API** (`gemini-3-flash-preview`) via the
+deployed `format-transcript` Supabase Edge Function. Cost shape (verified in code):
+- **1 API call per saved Native session** — runs in `NativeBrowser.getTranscript()` at Stop/Save only
+  (NOT live, not per chunk). Native-only (Private hard-rejected; Cloud not activated).
+- **Bounded per call:** hard `MAX_TRANSCRIPT_CHARS = 8000` cap, checked *before* the Gemini call, so a
+  longer transcript returns `413` and falls back to raw with **no** API call. Max ~4k flash tokens/call
+  (~tenth of a cent; verify current Google pricing). So "1 page" = 1 call; "~3 pages" = 1 max-size call;
+  "20 pages in one session" = 0 calls (over cap → raw).
+- **Cost scales with the NUMBER of saved Native sessions, not page count within a session.**
+
+**The real risk (degrade-open quota):** `index.ts` calls `consume_formatter_quota` (p_limit 200) but if
+that RPC is absent it **allows + proceeds** (`quota_degraded_open`). Native is the **free funnel**, so
+formatting is currently **effectively unbounded per user** — fine at low volume, abuse-able/unbudgeted at
+scale.
+
+**Recommendation (tracked as dev task #35):** before Native ships to real free traffic, add a real
+per-user daily cap (mirror `get-ai-suggestions` 20/day) via a `consume_formatter_quota` RPC + migration.
+Small, contained change. (The #32 local Private formatter is $0/on-device; the same local model could
+later replace the API path for Native too if cost matters — Native is Cloud-adjacent, so the API path was
+the accepted call.)
