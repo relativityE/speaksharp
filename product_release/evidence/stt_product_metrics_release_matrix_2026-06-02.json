@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-03T21:25:00Z",
+  "lastUpdated": "2026-06-03T21:28:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -2593,8 +2593,8 @@
     },
     "private": {
       "status": "caveated_not_release_green",
-      "reason": "Latest deployed Private proof reached setup/runtime/saveCandidate but selectedForSave repeated a short filler utterance. This follows the authoritative service_result/saveCandidate, not only raw DOM trust-copy contamination. Prior long-form/parity concerns remain open.",
-      "next": "Dev fixes duplication/repetition boundary; test updates filler extraction to clean row selectors and reruns Private proof with saveCandidate, trust states, setup consent, and detail equality."
+      "reason": "Current-main deployed Private proof reached setup, recording, stop, and saveCandidate, but the authoritative service_result/saveCandidate repeats the short filler fixture. This is a product/path bug, not just raw DOM trust-copy contamination.",
+      "next": "Dev fixes service_result/finalization duplication; test updates filler extraction to clean row selectors and reruns Private proof with saveCandidate, trust states, setup consent, and detail equality."
     },
     "native": {
       "status": "backlog_failed_current_proof",
@@ -2602,7 +2602,7 @@
       "next": "Rerun human Native after formatter deploy/default change; verify latency/accepted/fallback fields, hard-stop behavior, trust trace, and detail equality."
     }
   },
-  "lastUpdatedAt": "2026-06-03T21:25:00Z",
+  "lastUpdatedAt": "2026-06-03T21:28:00Z",
   "latestBrowserUxSmoke": {
     "updatedAt": "2026-06-03T18:15:00Z",
     "commit": "c167d3b0",
@@ -2647,7 +2647,7 @@
   },
   "currentOpenProofs": {
     "private": [
-      "Fix/retest Private short-utterance duplication: authoritative service_result/saveCandidate repeats the short filler fixture.",
+      "Fix Private short-utterance duplication in authoritative service_result/saveCandidate; current-main proof reached save and selected repeated text.",
       "Update Private filler extraction to clean [data-filler-word]/[data-filler-count] rows, then rerun filler recall assertions.",
       "Human proof must preserve setup/download consent: no model download before explicit user click.",
       "Draft/Processing/Final trust-state proof during stall/long speech.",
@@ -2918,5 +2918,35 @@
         "ask": "Show user-defined filler words in the main tracked-word card with count 0, or provide a visible active-tracking confirmation outside the popover."
       }
     ]
+  },
+  "latestPrivateCurrentMainProof": {
+    "updatedAt": "2026-06-03T21:28:00Z",
+    "commit": "4013f6f0",
+    "artifact": "/private/tmp/speaksharp-main-current-private-proof",
+    "status": "fail_authoritative_service_result_repeated",
+    "setupReached": true,
+    "recordingReached": true,
+    "stopReached": true,
+    "sessionPersisted": true,
+    "truth": "Um. Basically, we should literally like, wait.",
+    "selectedForSave": "Basically, we should literally like, \"Wait, um, basically, we should literally like, wait, um, basically.\"",
+    "saveCandidate": {
+      "saveCandidateReason": "service_result",
+      "selectedForSaveLength": 106,
+      "finalWordCount": 15,
+      "resultTranscriptLength": 106,
+      "chunkTranscriptLength": 106,
+      "storeTranscriptLength": 106,
+      "visibleStoreTranscriptLength": 106,
+      "frozenStopTranscriptLength": 66,
+      "candidateLengths": {
+        "service_result": 106,
+        "committed_final": 106,
+        "visible_snapshot": 66,
+        "best_meaningful_partial": 66,
+        "store_visible_snapshot": 106
+      }
+    },
+    "devAsk": "Fix Private duplication in service_result/saveCandidate. This is not only DOM contamination. Test should update filler extraction to data-filler-word/data-filler-count."
   }
 }
