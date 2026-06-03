@@ -1,6 +1,6 @@
 # Private STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-03T02:22:00Z  
+**Updated:** 2026-06-03T02:33:00Z  
 **Scope:** Private v2/v4 local STT, browser app path, drop-in parity, timing, and readability  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -10,10 +10,10 @@
 Private STT: NOT GREEN YET
 Current product status: caveated local/private path
 Two-step status:
-- Private v2 browser proof: setup/saveCandidate/final whole-utterance decode now work, but proof fails in accuracy/completeness: latest evidence saved 61 words against the 87-word fixture.
+- Private v2 browser proof: setup/saveCandidate/final whole-utterance decode now work. The latest 61-word failure is now classified as an invalid early-stop proof because the harness stopped a 34.5s fixture before the full audio completed.
 - Private v4 browser proof: setup/model/provider now reaches ready + recording after the warm-up hard-fail fix, but proof fails before scoring because every v4 inference returns `invalid data location: undefined for input "a"`.
 Primary launch blockers:
-1. Private v2 app/browser path materially underperforms its drop-in/full-WAV baseline.
+1. Private v2 app/browser path must be rerun after the full-fixture wait fix before judging parity.
 2. Private v4 reaches recording and receives non-silent audio, but the v4 backend inference fails on every chunk.
 3. Private user-trust UX remains weak if useful draft text is late/sparse and the final transcript is wrong.
 4. Washington/readability and long-form proof remain required before broad use.
@@ -21,9 +21,34 @@ Primary launch blockers:
 
 Private has moved from lifecycle failure to targeted quality/timing validation.
 The current browser proof shows that lifecycle/Stop/save are not the primary
-v2 blocker anymore. The blocker is final transcript quality/completeness versus
-drop-in/full-WAV expectations. v4 setup/runtime improved, but v4 still cannot
-be scored because its backend decode path errors before producing any text.
+v2 blocker anymore. The previous 61-word result is superseded as an invalid
+early-stop proof: the benchmark waited for first text, then only 20s more,
+which can stop the 34.5s injected audio around 23-27s. v4 setup/runtime
+improved, but v4 still cannot be scored because its backend decode path errors
+before producing any text.
+
+## TEST AGENT UPDATE — Full-fixture wait fix
+
+**Fixed in:** `0e4be547`  
+
+The Private CPU/v4 and Native benchmark specs now wait for the full 34.5s
+Harvard fixture plus a 2s margin before Stop. The prior proof timing was:
+
+```text
+wait for first text -> wait fixed 20s -> Stop
+```
+
+That was wrong because first text can appear around 3s, so the test could Stop
+around 23s while scoring against the full 87-word reference. This matches the
+latest v2 evidence: the captured final whole-utterance buffer was only 27.328s
+and produced 61 words. Treat the 61-word v2 result as `INVALID_PROOF_EARLY_STOP`
+until rerun on `0e4be547` or later.
+
+Required rerun:
+
+```text
+Controlled STT Benchmarks / private-browser-benchmark on commit 0e4be547 or later.
+```
 
 ## Latest Current Browser Evidence With Timeline Artifact — 2026-06-03T01:16Z
 
