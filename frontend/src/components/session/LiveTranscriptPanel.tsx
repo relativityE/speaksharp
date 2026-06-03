@@ -5,6 +5,15 @@ import { SESSION_INSET_SURFACE_CLASS, SESSION_SURFACE_CLASS } from './sessionSur
 
 import { parseTranscriptForHighlighting } from '@/utils/highlightUtils';
 
+declare global {
+    interface Window {
+        /** #33 Native trust-disclaimer proof: latest trust-state snapshot. */
+        __SS_TRUST_STATE__?: Record<string, unknown>;
+        /** #33: append-only trace of trust-state snapshots (bounded). */
+        __SS_TRUST_TRACE__?: Array<Record<string, unknown>>;
+    }
+}
+
 interface LiveTranscriptPanelProps {
     transcript: string;
     interimTranscript?: string;
@@ -69,7 +78,6 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     const displayInterimTranscript =
         transcript.trim() === interimTranscript.trim() ? '' : interimTranscript;
     const hasInterimTranscript = displayInterimTranscript.trim() !== '';
-    const livePreviewText = displayInterimTranscript.trim();
 
     // Discrete UI state for styling + browser-test assertions.
     const uiState: LiveTranscriptUiState = isFinalizing
@@ -104,10 +112,41 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
         }
     }, [visibleTranscript]);
 
+    // #33 Native trust-disclaimer proof hooks: publish a timestamped trust-state
+    // snapshot (+ append-only trace) so the harness can prove WHEN each trust state
+    // became visible without DOM polling. Test-only telemetry; no behavior change.
+    React.useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const w = window as Window & {
+            __SS_TRUST_STATE__?: Record<string, unknown>;
+            __SS_TRUST_TRACE__?: Array<Record<string, unknown>>;
+        };
+        const snapshot = {
+            uiState,
+            draftBannerVisible: showDraftTrustBanner,
+            processingVisible: isFinalizing,
+            finalStateVisible: uiState === 'final',
+            listeningVisible: uiState === 'listening',
+            sttMode: sttMode ?? null,
+            at: Date.now(),
+            t: Number(performance.now().toFixed(1)),
+        };
+        w.__SS_TRUST_STATE__ = snapshot;
+        w.__SS_TRUST_TRACE__ = w.__SS_TRUST_TRACE__ ?? [];
+        w.__SS_TRUST_TRACE__.push(snapshot);
+        if (w.__SS_TRUST_TRACE__.length > 500) w.__SS_TRUST_TRACE__.shift();
+    }, [uiState, showDraftTrustBanner, isFinalizing, sttMode]);
+
     return (
         <div
             className={`${SESSION_SURFACE_CLASS} p-4 flex flex-col ${className}`}
             data-testid={TEST_IDS.TRANSCRIPT_PANEL}
+            // #33 Native trust-disclaimer proof hooks: explicit booleans so the test
+            // harness can assert each trust state without scraping nested DOM.
+            data-draft-banner-visible={showDraftTrustBanner ? 'true' : 'false'}
+            data-processing-visible={isFinalizing ? 'true' : 'false'}
+            data-final-state-visible={uiState === 'final' ? 'true' : 'false'}
+            data-listening-visible={uiState === 'listening' ? 'true' : 'false'}
         >
             <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
