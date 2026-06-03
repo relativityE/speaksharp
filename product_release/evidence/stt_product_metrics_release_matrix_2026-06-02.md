@@ -1251,3 +1251,28 @@ Private and Native both still need fixes before product-readiness:
 - Private diagnostic path can save a repeated short utterance and has testability issues
   where trust copy/filler counts contaminate raw DOM scoring.
 ```
+
+
+---
+
+## Latest UX / Analytics / Conversion Sweep: 2026-06-03T21:15Z
+
+Commands and artifacts:
+
+| Area | Command / artifact | Result | Release read |
+| --- | --- | --- | --- |
+| Analytics theme smoke | `tests/e2e/analytics-suite.e2e.spec.ts` + `tests/e2e/analytics-truth.e2e.spec.ts`; artifact `/private/tmp/speaksharp-analytics-themes-20260603165551` | **12 passed, 1 failed** | Session→analytics truth path passed; zero-data empty-state test failed because the mock was not actually empty (mock/test fixture issue or isolation leak). |
+| Analytics theme outputs | Temp focused probe, artifact `/private/tmp/speaksharp-analytics-focus-probe-2-20260603165836` | **PASS** | Delivery Control, Message Clarity, Habit Progress, Session Proof, and Transcript Quality all render. Transcript Quality is underpowered: it lacks first-class punctuation/readability/confidence cards and mostly reuses generic stat cards plus STT chart. |
+| Analytics/Score unit coverage | Focused Vitest: AnalyticsDashboard, AnalyticsPage, STTAccuracyVsBenchmark, speakingScore, LiveCoachingScoreCard | **54 passed** | Score confidence-gating logic is unit-green; score value is unchanged while confidence/copy downgrade weak transcripts. |
+| Broad UX/funnel browser sweep | `tests/e2e/user-facing-regressions.e2e.spec.ts tests/e2e/primary-journey.e2e.spec.ts tests/e2e/user-features.e2e.spec.ts tests/e2e/user-filler-words.e2e.spec.ts tests/e2e/goal-setting.e2e.spec.ts tests/e2e/error-states.e2e.spec.ts`; artifact `/private/tmp/speaksharp-ux-funnel-20260603170206` | **20 passed, 2 failed, 1 did not run** | Failures: goal save raised background error `i.from(...).upsert is not a function`; custom filler word was accepted but did not appear in the main tracked-word card. |
+| Live auth | `tests/live/auth.live.spec.ts` with `VITE_USE_LIVE_DB=true`; artifact `/private/tmp/speaksharp-live-auth-rerun` | **PASS** | Real deployed sign-in establishes a session. |
+| Stripe readiness | `tests/live/stripe-checkout-readiness.live.spec.ts`; artifact `/private/tmp/speaksharp-live-conversion-rerun` | **PASS** | Direct edge function returned `checkout.stripe.com` URL. |
+| Analytics upgrade click | Temporary real-auth probe under `/private/tmp` | **PASS** | Deployed Analytics button sent one `stripe-checkout` request with `plan=pro` and `conversionSource=analytics_overview_banner`. Existing `upgrade.live.spec.ts` failed because its mocked client lacked `supabase.functions.invoke`; classify that as harness contamination, not product. |
+
+Current non-STT UX backlog from this sweep:
+
+| Bug | Evidence | Owner / ask |
+| --- | --- | --- |
+| Goal save E2E failure | Browser toast: `A background task failed — i.from(...).upsert is not a function` when saving custom goals. | DEV/TEST: reconcile goal service `.upsert().select().single()` with the E2E/mock Supabase path, then rerun goal-setting. If real Supabase path is already covered separately, mark this as harness/mock compatibility. |
+| Custom filler word visibility | After adding `AntigravityUI`, the main Filler Words card still listed only defaults; no visible custom tracked word appeared before speech. | DEV: include user-defined filler words in the visible tracked-word card with count 0, or provide a clear active-tracking confirmation outside the popover. TEST reruns custom filler add/remove and detection. |
+| Transcript Quality analytics theme too weak | Theme renders, but lacks punctuation/readability/confidence stat cards. | DEV/Product: add first-class transcript quality metrics to Analytics; TEST verifies they align with session page quality signals. |
