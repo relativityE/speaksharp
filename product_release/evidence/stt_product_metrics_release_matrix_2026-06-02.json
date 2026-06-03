@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-02T23:58:00Z",
+  "lastUpdated": "2026-06-03T00:55:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -184,17 +184,17 @@
         "reason": "Current-head run 26852510533: v4 auth/mode/setup button passed, but worker failed WebGPU adapter/backend acquisition, app entered INIT_FAILED, and Start stayed disabled. No accuracy score is valid."
       },
       {
-        "candidate": "private_v2_browser",
+        "candidate": "private_v2_exact_buffer_h1_6",
         "step": "proof",
         "errorPhases": [
-          "timing",
-          "accuracy"
+          "accuracy",
+          "runtime"
         ],
         "failedGates": [
-          "proof.timing.first_text",
-          "proof.accuracy.final_quality"
+          "proof.accuracy.final_quality",
+          "setup.runtime_telemetry"
         ],
-        "reason": "Current-head run 26852510533 supersedes the old 8-word DOM read. v2 setup and saveCandidate passed; authoritative saved final had 60 words from service_result, but first visible text gate saw only 2 words before Stop and final accuracy was 37.93%."
+        "reason": "Current exact-buffer run 26856163962: setup/model ready passed and exact final audio buffer was captured. Browser app saved h1_6 at 75% accuracy, while offline replay of the exact app whole-utterance buffer scored 87.5%. Audio prep/windowing is not the primary boundary for this row; remaining boundary is browser runtime/candidate selection, cleanup/sanitization, or result routing. Runtime telemetry fields were null and must be fixed before release proof."
       },
       {
         "candidate": "cloud_keyterms",
@@ -1939,6 +1939,73 @@
       "accuracyPct": null,
       "wer": null,
       "caveat": "Setup/cache proof only. It does not score Private transcript accuracy or v4 readiness. Logs still show sparse first drafts held for speech-like substance."
+    },
+    {
+      "id": "private_exact_buffer_h1_6_26856163962_v2_cpu",
+      "candidate": "Private v2 browser app exact-buffer",
+      "fixture": "h1_6",
+      "evidenceType": "browser-proof-plus-offline-replay",
+      "workflowRun": 26856163962,
+      "branch": "fix/release-bug-burndown",
+      "commit": "2baca21d",
+      "artifactId": 7373035634,
+      "appArtifact": "/private/tmp/speaksharp-exact-buffer-26856163962/speaksharp-private-h1_6-exact-buffer-current.json",
+      "replayArtifact": "/private/tmp/speaksharp-private-app-buffer-replay-h1_6-exact-26856163962.json",
+      "privateEngine": "transformers-js",
+      "webgpuDisabledForRun": true,
+      "setup": {
+        "auth": "existing Pro account",
+        "modelStatusBefore": "download-required",
+        "modelStatusAfter": "ready",
+        "transformerCacheKeyCountAfter": 7,
+        "injectedMicAudio": true,
+        "exactAudioCaptured": true
+      },
+      "truth": "They, like, told wild tales to frighten him.",
+      "appSavedTranscript": "A. Like. Told Wild Tales to frightened him.",
+      "appSavedAccuracyPct": 75,
+      "appSavedErrorPct": 25,
+      "appSavedWer": 0.25,
+      "exactAppBufferOfflineTranscript": "A. Like, told Wild Tales to frighten him.",
+      "exactAppBufferOfflineAccuracyPct": 87.5,
+      "exactAppBufferOfflineErrorPct": 12.5,
+      "exactAppBufferOfflineWer": 0.125,
+      "browserDropInTranscript": "Day, like, told Wild Tales to frightened him.",
+      "firstBadBoundary": "word 1: expected \"they\", got \"a\"",
+      "rootCauseClassification": "not_audio_prep_windowing_primary; inspect browser runtime/candidate selection, cleanup/sanitization, result routing",
+      "timing": {
+        "firstTextMs": 3091,
+        "firstText": "DraftA. Like.",
+        "modelSetupMs": 3751,
+        "startToRecordingMs": 390,
+        "stopToFinalMsApprox": 4307.5,
+        "recordingStartToFinalMsApprox": 12490
+      },
+      "audioEvidence": {
+        "utteranceDurationSec": 4.032,
+        "utteranceSamples": 64512,
+        "sampleRate": 16000,
+        "rms": 0.124116,
+        "peak": 0.730975,
+        "speechStartOffsetMs": 134.7,
+        "wavDataUrlBytes": 172114
+      },
+      "runtimeTelemetry": {
+        "privateRuntime": null,
+        "privateProvider": null,
+        "privateCloudFallbackAttempted": null,
+        "privateWebgpuAvailable": null,
+        "privateCrossOriginIsolated": null,
+        "privateWasmThreadCount": null,
+        "status": "missing_required_fields"
+      },
+      "releaseStatus": "not_green_boundary_narrowed",
+      "devAttention": [
+        "Explain why browser app saved transcript is worse than exact app-buffer offline decode from the same audio.",
+        "Compare browser worker decode options/runtime to replay decoder options.",
+        "Restore runtime telemetry fields in scored manual artifacts.",
+        "Keep exact audio capture opt-in only because it contains user audio."
+      ]
     }
   ],
   "timingContract": {

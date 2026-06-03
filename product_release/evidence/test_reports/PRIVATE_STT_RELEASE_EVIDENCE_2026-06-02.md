@@ -799,9 +799,79 @@ I did not change the v4 model config or timeouts — that needs the product accu
 This + fixing #1's sequencing should resolve the "Private under-captures" false classification. I will not
 mark Private green from the unit tests alone — your live timing/finalization run is the proof.
 
-## TEST AGENT UPDATE (2026-06-02T20:15-05:00) — app-buffer replay remains blocked by stripped audio; opt-in capture added
+## TEST AGENT UPDATE (2026-06-02T20:50-05:00 / 2026-06-03T00:50Z) — h1_6 exact-buffer replay completed
 
-This is the current state after reviewing the `26853628019` Private browser
+This section supersedes the earlier "exact buffer missing" blocker below.
+The exact-buffer artifact now exists and the replay diagnostic ran.
+
+Run:
+
+```text
+Controlled STT Benchmarks: 26856163962
+Branch: fix/release-bug-burndown
+Commit: 2baca21d
+Artifact ID: 7373035634
+App artifact: /private/tmp/speaksharp-exact-buffer-26856163962/speaksharp-private-h1_6-exact-buffer-current.json
+Replay artifact: /private/tmp/speaksharp-private-app-buffer-replay-h1_6-exact-26856163962.json
+```
+
+Setup/proof result:
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Real Pro/private setup | pass | setup clicked mic-window `Set Up`; `modelStatus=ready`; transformer cache 7 keys |
+| Exact final decode buffer captured | pass | `privateUtteranceAudioChunks[0].wavDataUrl` present; duration 4.032s; RMS 0.124116; peak 0.730975; speechStartOffsetMs 134.7 |
+| Browser app saved transcript | fail | `A. Like. Told Wild Tales to frightened him.`; 75% accuracy / 25% error |
+| Exact app-buffer offline decode | better, not perfect | `A. Like, told Wild Tales to frighten him.`; 87.5% accuracy / 12.5% error |
+| Browser drop-in comparator | imperfect | `Day, like, told Wild Tales to frightened him.` |
+| Runtime telemetry in artifact | fail / missing evidence | `privateRuntime`, `privateProvider`, `privateCloudFallbackAttempted`, `privateWasmThreadCount` were null |
+
+Comparison:
+
+| Fixture | Truth | App saved/live | Exact app-buffer offline decode | Browser drop-in | First bad boundary |
+| --- | --- | --- | --- | --- | --- |
+| `h1_6` | `They, like, told wild tales to frighten him.` | `A. Like. Told Wild Tales to frightened him.` | `A. Like, told Wild Tales to frighten him.` | `Day, like, told Wild Tales to frightened him.` | word 1: expected `they`, got `a` |
+
+Current interpretation:
+
+```text
+The exact app audio buffer is not catastrophically truncated. It decodes
+offline to 87.5%, so the older catastrophic h1_6 under-capture story is not
+reproduced by this current exact-buffer proof.
+
+The browser app still saves a worse 75% transcript from the same utterance.
+That narrows the next dev boundary to browser runtime/candidate selection,
+post-decode cleanup/sanitization, or result routing. It does not currently point
+to audio prep/windowing/gating as the primary h1_6 failure.
+```
+
+Immediate dev attention:
+
+1. Explain why the browser app saved `frightened` while exact app-buffer offline
+   decode produced `frighten` from the same captured whole-utterance audio.
+2. Confirm whether browser worker decode options/runtime differ from the replay
+   decoder options.
+3. Restore runtime telemetry in the manual artifact: `privateRuntime`,
+   `privateProvider`, `privateCloudFallbackAttempted=false`, WebGPU availability,
+   cross-origin isolation, and WASM thread count must not be null in scored runs.
+4. Keep exact audio capture opt-in only; it contains user audio and must not be
+   included in normal release artifacts.
+
+Release read:
+
+```text
+Private h1_6 is improved/narrowed but not parity-green. The app path is no
+longer failing from obvious buffer truncation on this row, but the browser
+saved transcript still underperforms the exact-buffer offline decode and the
+runtime telemetry gap prevents a clean release proof.
+```
+
+## TEST AGENT UPDATE (2026-06-02T20:15-05:00) — superseded: app-buffer replay was previously blocked by stripped audio; opt-in capture added
+
+**Superseded by the 20:50-05:00 exact-buffer replay above.** This older section
+is retained only to explain why the opt-in audio capture was added.
+
+This was the state after reviewing the `26853628019` Private browser
 artifact and local replay tooling.
 
 ### What was tried
