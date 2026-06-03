@@ -764,3 +764,35 @@ Stale deploy/open-ask notes removed from this section. Current Cloud status only
 | User conclusion | Keep Cloud A/baseline. Do not ship default keyterms for standard fillers; custom filler words may need separate, hierarchical treatment later. | Product/dev design later if custom fillers need boosting. |
 | Tail/timing instrumentation | `window.__CLOUD_STT_TIMELINE__` and `stopToTerminationMs` exist for proof. | TEST captures only if running Cloud app-path proof. |
 | Gemini formatter | Backend deploy/secrets are not the known blocker, but Cloud formatter activation should not disturb the baseline path. | DEV only activates after product approval and baseline proof remains green. |
+
+### Test-Agent Verification Of Current Supporting Features (2026-06-03T17:37Z)
+
+Automated edge/backend checks run on `main` after report handoff merge `38243a14`:
+
+```text
+pnpm test:edge
+
+11 files / 70 steps passed.
+```
+
+Relevant Cloud/formatter results:
+
+```text
+assemblyai-token:
+- Pro users receive temporary token
+- Free/trial users are denied Cloud STT token
+- over-quota and usage-check failure fail closed
+
+format-transcript:
+- engine=cloud-compatible backend path is covered by the shared non-private formatter contract
+- private formatting is hard-rejected
+- word/filler preservation and transcript-log redaction pass
+```
+
+Current interpretation:
+
+```text
+Cloud baseline remains the safe candidate. Keyterms remains backlog/experiment. Do not enable Cloud
+Gemini formatting by default unless product approves and a baseline-vs-formatted browser proof shows
+no regression.
+```
