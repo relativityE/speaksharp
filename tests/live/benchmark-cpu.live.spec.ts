@@ -4,7 +4,7 @@
 import { test } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, preparePrivateModelIfPrompted, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, logBenchmarkPhase, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, preparePrivateModelIfPrompted, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, logBenchmarkPhase, waitForBenchmarkSaveCandidate, attachPrivateBenchmarkEvidence } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -16,6 +16,10 @@ test.use({
             `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_AUDIO}`,
         ]
     }
+});
+
+test.afterEach(async ({ page }, testInfo) => {
+    await attachPrivateBenchmarkEvidence(page, testInfo, 'private-cpu');
 });
 
 test('measure TransformersJS (CPU)', async ({ page }) => {

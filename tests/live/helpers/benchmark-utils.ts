@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { expect, Page } from '@playwright/test';
+import { expect, Page, TestInfo } from '@playwright/test';
 
 type BenchmarkPreconditionSnapshot = {
     label: string;
@@ -335,6 +335,52 @@ type BenchmarkSaveCandidate = {
     frozenStopTranscriptLength?: number;
     candidateLengths?: Array<{ source: string; length: number }>;
 };
+
+export async function attachPrivateBenchmarkEvidence(
+    page: Page,
+    testInfo: TestInfo,
+    label: string,
+): Promise<void> {
+    const evidence = await page.evaluate((evidenceLabel) => {
+        const root = document.documentElement;
+        const debugWindow = window as Window & {
+            __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown>;
+            __PRIVATE_STT_TIMELINE__?: unknown[];
+            __PRIVATE_TRANSCRIPT_TRACE__?: unknown[];
+        };
+        const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
+
+        return {
+            label: evidenceLabel,
+            capturedAt: new Date().toISOString(),
+            url: window.location.href,
+            root: {
+                appReady: root.getAttribute('data-app-ready'),
+                runtimeState: root.getAttribute('data-runtime-state'),
+                sttReady: root.getAttribute('data-stt-ready'),
+                modelStatus: root.getAttribute('data-model-status'),
+                sessionPersisted: root.getAttribute('data-session-persisted'),
+                transcriptState: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
+            },
+            transcriptText: transcriptContainer?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+            runtime: typeof debugWindow.__SPEECH_RUNTIME_DEBUG__ === 'function'
+                ? debugWindow.__SPEECH_RUNTIME_DEBUG__()
+                : null,
+            privateTimeline: debugWindow.__PRIVATE_STT_TIMELINE__ ?? [],
+            privateTranscriptTrace: debugWindow.__PRIVATE_TRANSCRIPT_TRACE__ ?? [],
+        };
+    }, label).catch((error) => ({
+        label,
+        capturedAt: new Date().toISOString(),
+        error: error instanceof Error ? error.message : String(error),
+        url: page.url(),
+    }));
+
+    await testInfo.attach(`${label}-private-benchmark-evidence.json`, {
+        body: Buffer.from(JSON.stringify(evidence, null, 2)),
+        contentType: 'application/json',
+    });
+}
 
 export async function waitForBenchmarkSaveCandidate(
     page: Page,
