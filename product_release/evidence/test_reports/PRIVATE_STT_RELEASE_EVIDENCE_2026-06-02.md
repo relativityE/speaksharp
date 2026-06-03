@@ -1244,3 +1244,122 @@ Release read:
 Private remains caveated/not release-green. v2 can run and save, but misses the
 accuracy/parity gate. v4 is not usable until the browser runtime emits text.
 ```
+
+## Current Controlling Replay Evidence: 2026-06-03T03:25Z
+
+GitHub run:
+
+```text
+26858549345
+```
+
+Commit under test:
+
+```text
+89006629
+```
+
+Artifacts:
+
+```text
+/private/tmp/speaksharp-private-browser-26858549345/test-results/live/live-benchmark-cpu.live-measure-TransformersJS-CPU--live-stt-chromium/private-cpu-private-benchmark-evidence.json
+/private/tmp/private-v2-browser-final-buffer-26858549345.wav
+```
+
+This run includes the exact final whole-utterance WAV buffer that the browser
+app sent to the v2 Private worker. That removes the prior ambiguity about
+whether the failure was worker runtime, save-candidate selection, cleanup, or
+audio input.
+
+### v2 App-Buffer Replay Result
+
+| Decode input | Decoder | `return_timestamps` | Accuracy | Error | Words | Result |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| Source fixture `tests/fixtures/harvard_benchmark_16k.wav` | Node v2 / `Xenova/whisper-tiny.en` | `true` | 94.25% | 5.75% | 87 | Good ceiling / near drop-in |
+| Source fixture `tests/fixtures/harvard_benchmark_16k.wav` | Node v2 / `Xenova/whisper-tiny.en` | `false` | 37.93% | 62.07% | 35 | Invalid for >30s; tail-only behavior |
+| Exact browser final WAV buffer from run `26858549345` | Node v2 / `Xenova/whisper-tiny.en` | `true` | 62.07% | 37.93% | 79 | Bad; reproduces product-path degradation offline |
+| Exact browser final WAV buffer from run `26858549345` | Node v2 / `Xenova/whisper-tiny.en` | `false` | 44.83% | 55.17% | 77 | Bad; still not the source-ceiling result |
+
+Exact browser buffer metadata:
+
+| Field | Value |
+| --- | --- |
+| Samples | `586496` |
+| Duration | `36.656s` |
+| RMS | `0.091232` |
+| Peak | `0.992647` |
+| Speech start offset | `105.5ms` |
+| Retained preroll samples | `469` |
+| Browser final decode time | `8239.8ms` |
+| Browser selected word count | `80` |
+
+Browser selected transcript:
+
+```text
+The scales fell on road here, like lingers. Basically, a dash on pepper spoils me too. Well, the one knife was far short on perfect. You know, the marks was thrown beside the parked truck. Literally, the twister left no trace on the town. A, like, toed wild tails to frighten him. We, uh, find joy in the simplest things. The puppet, like, tune up the new shoes. As move road, you know, make striving clement. Basically, the quid, the.
+```
+
+Exact-buffer offline replay with `return_timestamps:true`:
+
+```text
+The scales fell on road here, like lingers. Basically, a dash on pepper spoils me too. Well, the one knife was far short on perfect. You know, the marks was thrown beside the parked truck. Literally, the twister left no trace on the town. A, like, toed wild tails to frighten him. We, uh, find joy in the simplest things. The puppet, like, tune up the new shoes. A smooth road you know, make striving clement, basically, the quid.
+```
+
+### Updated v2 Diagnosis
+
+```text
+Private v2 is not fixed for release parity.
+
+The worker/config/save-candidate path is no longer the first bad boundary for
+this benchmark: the exact browser-captured final WAV buffer decodes badly when
+replayed offline through the Node/drop-in v2 decoder. The same decoder and
+options decode the original source fixture at 94.25%.
+
+First bad boundary: browser input/capture/audio-buffer route for this proof.
+```
+
+Consequences:
+
+| If fixed | If not fixed |
+| --- | --- |
+| v2 can become a credible caveated Private baseline for short/medium local use, with save/journey already mostly working. | v2 must remain caveated/secondary and cannot be claimed drop-in parity; the current browser benchmark is either exposing real input degradation or is invalid as a release accuracy proof. |
+
+Immediate dev/test ask:
+
+1. Compare the exact browser final WAV against the source fixture: duration,
+   waveform, silence, gain, clipping, resampling, browser fake-mic route, and
+   any WebRTC/DSP constraints.
+2. Decide whether this is a benchmark route defect or a product real-mic
+   defect. Do not claim v2 accuracy parity from this fake-audio browser proof
+   until the captured WAV is validated.
+3. Keep `return_timestamps:true` for >30s Private decoding. It is necessary for
+   long-form assembly, but it does not fix the degraded browser buffer.
+
+### Updated v4 Diagnosis
+
+The same workflow still shows v4 reaching recording/inference, but every
+browser worker inference result fails with:
+
+```text
+invalid data location: undefined for input "a"
+```
+
+Local Node smoke with `@huggingface/transformers@4.2.0` and the same mixed dtype
+shape (`encoder_model: fp32`, `decoder_model_merged: q4`) loads and returns text,
+so the current v4 blocker is browser runtime/backend/config specific rather than
+"v4 model cannot run at all."
+
+Consequences:
+
+| If fixed | If not fixed |
+| --- | --- |
+| v4 remains the best Private candidate to prove because Node/full-WAV evidence is stronger than v2 and faster on the Washington long script. | v4 must be hidden/disabled for release; it is not an accuracy candidate until the browser worker emits text/saveCandidate. |
+
+Immediate dev ask:
+
+1. Reproduce the browser worker `invalid data location: undefined for input "a"`
+   failure outside the full benchmark if possible.
+2. Compare v4 browser runtime/backend settings to the passing Node smoke:
+   device/backend, ORT/WASM config, dtype shape, input tensor allocation, and
+   package/model asset versions.
+3. Do not score v4 WER until saveCandidate exists.
