@@ -225,7 +225,10 @@ export async function setupE2EManifest(
       }
     };
     const sessionState = {
-      sessions: loadPersistedSessions() ?? defaultSessions,
+      // Empty-session proofs must be a hard empty state. Reusing persisted
+      // sessionStorage here lets earlier seeded analytics flows contaminate
+      // `emptyUserPage` and hides the actual empty-state UX.
+      sessions: es ? defaultSessions : (loadPersistedSessions() ?? defaultSessions),
     };
     persistSessions();
 
