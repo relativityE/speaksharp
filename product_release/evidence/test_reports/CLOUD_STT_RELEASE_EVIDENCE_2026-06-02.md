@@ -1,6 +1,6 @@
 # Cloud STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-03T14:05:00Z
+**Updated:** 2026-06-03T18:15:00Z
 **Scope:** AssemblyAI Cloud STT, credentialed A/B, filler/readability/tail proof, app journey  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -881,4 +881,31 @@ Cloud impact:
 No new Cloud transcript result was collected from this smoke rerun. Cloud
 baseline remains the safest existing Cloud candidate, but app-path browser proof
 still needs the setup/auth harness corrected before it can add release evidence.
+```
+
+---
+
+## TEST/FIX UPDATE (2026-06-03T18:15Z) — setup blocker cleared for future app-path proof
+
+This section supersedes the earlier `2026-06-03T17:14Z` visible-ready setup
+failure. At `c167d3b0`, the browser smoke harness can boot the app and complete
+the mock STT journey.
+
+Commands/results:
+
+| Command | Result | Evidence type |
+| --- | --- | --- |
+| `pnpm quality` | **PASS** | unit/build hygiene |
+| `CI=true pnpm exec playwright test tests/e2e/primary-journey.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=test-results/playwright-primary-journey-sessiondb` | **PASS:** 8/8 | harness-proof |
+| `pnpm rc:ux:smoke` | **PASS:** 14/14 | harness-proof |
+
+Cloud release interpretation:
+
+```text
+This does not add a new AssemblyAI credentialed transcript result. It does
+remove the app-boot/setup blocker that previously prevented browser UX smoke
+from running. Cloud baseline remains the safe candidate; keyterms remains
+backlog/experiment because it improves filler recall at the cost of accuracy.
+Future Cloud app-path proof can now focus on baseline tail, save/history/detail,
+readability, and __CLOUD_STT_TIMELINE__ rather than setup/auth failure.
 ```

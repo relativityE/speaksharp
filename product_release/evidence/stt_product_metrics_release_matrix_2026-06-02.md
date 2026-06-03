@@ -1,7 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-03T02:33:00Z  
+**Last updated:** 2026-06-03T18:15:00Z
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
@@ -1125,4 +1125,26 @@ Release read:
 Private live cumulative text is code/unit green but not browser/user-experience
 green until a real browser proof reaches mic-on and confirms visible transcript
 accumulation, trust banners, Stop finalization, and save/history/detail.
+
+## Browser UX Smoke Setup Fix: 2026-06-03T18:15Z
+
+This update supersedes the 17:14Z visible-ready/mock-auth blocker. Commit
+`c167d3b0` fixes the E2E runtime Supabase/auth mock, mock STT transcript handoff,
+mock session persistence across navigation, and primary journey minimum-duration
+proof timing.
+
+| Check | Result | Release read |
+| --- | --- | --- |
+| `pnpm quality` | **PASS** | Lint/type/build hygiene remains green. |
+| Focused primary journey | **PASS:** 8/8 | Mock STT save + analytics journey is no longer blocked. |
+| `pnpm rc:ux:smoke` | **PASS:** 14/14 | Browser UX smoke setup blocker is closed. |
+
+Controlling interpretation:
+
+```text
+The release smoke harness is now usable again. This is harness-proof, not
+drop-in parity proof. Private/Native still require human/browser STT proofs for
+real transcript quality, trust states, formatter behavior, and save/history/detail
+against real engine output.
+```
 ```
