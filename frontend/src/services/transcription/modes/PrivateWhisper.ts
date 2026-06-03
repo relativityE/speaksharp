@@ -302,7 +302,23 @@ function appendTranscriptWithoutDuplicate(base: string, segment: string): string
   return [baseWords.join(' '), segmentWords.slice(overlap).join(' ')].filter(Boolean).join(' ').trim();
 }
 
-function mergeLiveProvisionalTranscript(previous: string, next: string): string {
+function containsContiguousWordSequence(text: string, sequence: string[]): boolean {
+  if (sequence.length === 0) return true;
+
+  const words = getTranscriptWords(text);
+  if (words.length < sequence.length) return false;
+
+  for (let index = 0; index <= words.length - sequence.length; index += 1) {
+    const slice = words.slice(index, index + sequence.length);
+    if (slice.every((word, offset) => word === sequence[offset])) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function mergeLiveProvisionalTranscript(previous: string, next: string): string {
   const previousWords = getTranscriptWords(previous);
   const nextWords = getTranscriptWords(next);
   if (previousWords.length === 0) return next.trim();
@@ -313,17 +329,38 @@ function mergeLiveProvisionalTranscript(previous: string, next: string): string 
   const isLikelyShortTailSegment = previousWords.length >= 3 && nextWords.length <= 3;
   const isLikelyRevision = previousWords.length > 3 && overlap <= 0.25;
 
+  let merged: string;
   if (isLikelyShortTailSegment) {
-    return appendTranscriptWithoutDuplicate(previous, next);
-  }
-  if (isLikelyRevision) {
-    return next.trim();
-  }
-  if (isLikelyShortOpeningSegment || overlap > 0) {
-    return appendTranscriptWithoutDuplicate(previous, next);
+    merged = appendTranscriptWithoutDuplicate(previous, next);
+  } else if (isLikelyRevision) {
+    merged = next.trim();
+  } else if (isLikelyShortOpeningSegment || overlap > 0) {
+    merged = appendTranscriptWithoutDuplicate(previous, next);
+  } else {
+    merged = next.trim();
   }
 
-  return next.trim();
+  // NO-SHRINK INVARIANT (Private live cumulative transcript fix):
+  // The live provisional must never drop words already shown to the user mid-
+  // recording. When the rolling-decode window slides to genuinely NEW speech, the
+  // overlap is low and the heuristics above would REPLACE (return `next`), making
+  // the visible transcript shrink to just the latest window — the user then sees
+  // only one sentence that "resets" as they keep speaking (the full text only
+  // appears at Stop). If the chosen merge would lose accumulated words, append the
+  // new content instead so the draft only ever grows. This affects the LIVE PARTIAL
+  // display ONLY; the authoritative final/saveCandidate is a separate whole-utterance
+  // decode and is unaffected.
+  const shouldPreserveAccumulatedDraft = previousWords.length > PRIV_STT.FIRST_TRANSCRIPT_MIN_WORDS;
+  if (
+    shouldPreserveAccumulatedDraft &&
+    (
+      getTranscriptWords(merged).length < previousWords.length ||
+      !containsContiguousWordSequence(merged, previousWords)
+    )
+  ) {
+    return appendTranscriptWithoutDuplicate(previous, next);
+  }
+  return merged;
 }
 
 function isUnsupportedPostTranscriptCandidate(candidate: string, currentTranscript: string): boolean {
