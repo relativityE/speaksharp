@@ -59,6 +59,7 @@ const USE_FAKE_AUDIO_CAPTURE = process.env.STT_USE_FAKE_AUDIO_CAPTURE === 'true'
 const FAKE_AUDIO_FILE = process.env.STT_FAKE_AUDIO_FILE || '';
 const INJECT_MIC_AUDIO = process.env.STT_INJECT_MIC_AUDIO === 'true';
 const DISABLE_WEBGPU = process.env.STT_DISABLE_WEBGPU === 'true';
+const INCLUDE_AUDIO_DATA_URL = process.env.STT_INCLUDE_AUDIO_DATA_URL === 'true';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
@@ -762,7 +763,7 @@ async function observeStopStatus(page, startedAt, maxMs = 10_000) {
 }
 
 async function collectTraceSnapshot(page, mode) {
-  return page.evaluate((currentMode) => ({
+  return page.evaluate(({ currentMode, includeAudioDataUrl }) => ({
     phases: window.__STT_CORPUS_PHASES__ ?? [],
     speechRuntimeDebug: typeof window.__SPEECH_RUNTIME_DEBUG__ === 'function'
       ? window.__SPEECH_RUNTIME_DEBUG__()
@@ -797,6 +798,7 @@ async function collectTraceSnapshot(page, mode) {
       segmentCount: capture.segmentCount,
       speechSegments: capture.speechSegments,
       wavDataUrlBytes: capture.wavDataUrl?.length ?? 0,
+      ...(includeAudioDataUrl ? { wavDataUrl: capture.wavDataUrl ?? null } : {}),
     })) : undefined,
     privateTrace: currentMode === 'private' ? window.__PRIVATE_STT_TIMELINE__ ?? [] : undefined,
     privateAudioChunks: currentMode === 'private' ? (window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ ?? []).map((chunk) => ({
@@ -807,6 +809,18 @@ async function collectTraceSnapshot(page, mode) {
       transcript: chunk.transcript,
       rejectedReason: chunk.rejectedReason,
       wavDataUrlBytes: chunk.wavDataUrl?.length ?? 0,
+      ...(includeAudioDataUrl ? { wavDataUrl: chunk.wavDataUrl ?? null } : {}),
+    })) : undefined,
+    privateUtteranceAudioChunks: currentMode === 'private' ? (window.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__ ?? []).map((chunk) => ({
+      createdAt: chunk.createdAt,
+      samples: chunk.samples,
+      durationSec: chunk.durationSec,
+      rms: chunk.rms,
+      peak: chunk.peak,
+      speechStartOffsetMs: chunk.speechStartOffsetMs,
+      retainedPrerollSamples: chunk.retainedPrerollSamples,
+      wavDataUrlBytes: chunk.wavDataUrl?.length ?? 0,
+      ...(includeAudioDataUrl ? { wavDataUrl: chunk.wavDataUrl ?? null } : {}),
     })) : undefined,
     transcriptUiState: (() => {
       const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
@@ -817,7 +831,7 @@ async function collectTraceSnapshot(page, mode) {
         draftText: document.querySelector('[data-testid="live-transcript-current-line"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
       };
     })(),
-  }), mode).catch(() => ({}));
+  }), { currentMode: mode, includeAudioDataUrl: INCLUDE_AUDIO_DATA_URL }).catch(() => ({}));
 }
 
 async function collectPrivateRuntimeSnapshot(page) {
@@ -1029,6 +1043,7 @@ async function runFixture(page, mode, fixture) {
     window.__NATIVE_PARALLEL_CAPTURE_TRACE__ = true;
     window.__NATIVE_PARALLEL_CAPTURE__ = [];
     window.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ = [];
+    window.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__ = [];
   });
   await markPhase(page, 'ready_to_start', { mode, fixture: fixture.id });
   const customWordEvidence = CUSTOM_WORD ? await ensureCustomWordThroughUi(page, CUSTOM_WORD) : undefined;
@@ -1123,6 +1138,7 @@ async function runFixture(page, mode, fixture) {
     nativeParallelCapture: traceSnapshot.nativeParallelCapture,
     privateTrace: traceSnapshot.privateTrace,
     privateAudioChunks: traceSnapshot.privateAudioChunks,
+    privateUtteranceAudioChunks: traceSnapshot.privateUtteranceAudioChunks,
     privateEngineVariant: traceSnapshot.privateEngineVariant,
     privateMicConstraintsDebug: traceSnapshot.privateMicConstraintsDebug,
     transcriptUiState: traceSnapshot.transcriptUiState,

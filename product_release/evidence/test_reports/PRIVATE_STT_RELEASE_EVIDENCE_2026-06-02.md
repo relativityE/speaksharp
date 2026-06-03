@@ -798,3 +798,93 @@ I did not change the v4 model config or timeouts — that needs the product accu
 3. Read the final from `__SPEECH_RUNTIME_DEBUG__().saveCandidate` once `data-transcript-state="final"`.
 This + fixing #1's sequencing should resolve the "Private under-captures" false classification. I will not
 mark Private green from the unit tests alone — your live timing/finalization run is the proof.
+
+## TEST AGENT UPDATE (2026-06-02T20:15-05:00) — app-buffer replay remains blocked by stripped audio; opt-in capture added
+
+This is the current state after reviewing the `26853628019` Private browser
+artifact and local replay tooling.
+
+### What was tried
+
+Command run against the best available h1_6 debug artifact:
+
+```bash
+pnpm exec tsx scripts/dev/private-app-buffer-replay.mts \
+  --fixtures h1_6 \
+  --app-artifact /private/tmp/speaksharp-private-h1_6-default-debug-20260601203248.json \
+  --dropin-artifact /private/tmp/speaksharp-private-dropin-official-all-20260601175117.json \
+  --out /private/tmp/speaksharp-private-app-buffer-replay-h1_6-noexact-current.json
+```
+
+Result:
+
+| Fixture | App saved/live result | App-buffer offline decode | Browser drop-in result | Classification |
+| --- | --- | --- | --- | --- |
+| `h1_6` | `Day, light, told Wild Tales to frighten him.` | unavailable | `Day, like, told Wild Tales to frightened him.` | `artifact/config mismatch` |
+
+### Why the replay could not close root cause yet
+
+Existing artifacts do not contain the exact `wavDataUrl` buffer used by the
+final whole-utterance decode. They contain only byte counts such as
+`wavDataUrlBytes`. The failing current-head workflow artifact under
+`/private/tmp/private-browser-26853628019/` contains Playwright trace/video/error
+context files, but no JSON result row with replayable audio.
+
+So the current artifacts can prove that the saved transcript was bad, but cannot
+decide whether the first bad boundary is:
+
+| Boundary | Can current artifacts prove it? | Why |
+| --- | --- | --- |
+| audio prep/windowing/gating | no | exact app WAV buffer missing |
+| runtime nondeterminism | no | exact buffer cannot be replayed through Node/drop-in |
+| candidate selection | partial | `saveCandidate` proves selected text, but not whether decode input was already degraded |
+| cleanup/sanitization | partial | selected text is visible, but raw app-buffer decode is unavailable |
+
+### Fix added to unblock the next run
+
+`manual-stt-corpus-proof.mjs` now supports an explicit diagnostic opt-in:
+
+```bash
+STT_INCLUDE_AUDIO_DATA_URL=true
+```
+
+When set, Private artifacts include:
+
+- `privateAudioChunks[].wavDataUrl` for rolling inference chunks
+- `privateUtteranceAudioChunks[].wavDataUrl` for the final whole-utterance decode buffer
+- existing `wavDataUrlBytes` fields remain for normal privacy-preserving runs
+
+Default remains privacy-preserving: no raw audio data URL is included unless
+`STT_INCLUDE_AUDIO_DATA_URL=true` is set.
+
+### Required next rerun to close the h1_6 boundary
+
+Run a single-row Private proof with exact audio capture enabled:
+
+```bash
+STT_MODES=private \
+STT_FIXTURES=h1_6 \
+STT_INJECT_MIC_AUDIO=true \
+STT_PRIVATE_ENGINE=transformers-js \
+STT_INCLUDE_AUDIO_DATA_URL=true \
+STT_CORPUS_OUT=/private/tmp/speaksharp-private-h1_6-exact-buffer-current.json \
+pnpm exec tsx scripts/manual-stt-corpus-proof.mjs
+```
+
+Then run:
+
+```bash
+pnpm exec tsx scripts/dev/private-app-buffer-replay.mts \
+  --fixtures h1_6 \
+  --app-artifact /private/tmp/speaksharp-private-h1_6-exact-buffer-current.json \
+  --dropin-artifact /private/tmp/speaksharp-private-dropin-official-all-20260601175117.json \
+  --out /private/tmp/speaksharp-private-app-buffer-replay-h1_6-exact-current.json
+```
+
+Decision table for the rerun:
+
+| Replay result | Root-cause classification | Next dev action |
+| --- | --- | --- |
+| offline decode matches app bad transcript | app audio prep/windowing/gating | inspect final whole-utterance buffer duration, speechStartOffsetMs, RMS/peak, VAD tail cap |
+| offline decode matches drop-in/good transcript | runtime/candidate-selection | inspect browser worker options, selected candidate, sanitizer, and result routing |
+| offline decode differs from both | artifact/export/config mismatch | inspect exported WAV and decoder configuration before patching product code |
