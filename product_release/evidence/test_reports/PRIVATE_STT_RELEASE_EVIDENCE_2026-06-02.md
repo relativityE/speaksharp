@@ -1140,3 +1140,107 @@ Decision table for the rerun:
 | offline decode matches app bad transcript | app audio prep/windowing/gating | inspect final whole-utterance buffer duration, speechStartOffsetMs, RMS/peak, VAD tail cap |
 | offline decode matches drop-in/good transcript | runtime/candidate-selection | inspect browser worker options, selected candidate, sanitizer, and result routing |
 | offline decode differs from both | artifact/export/config mismatch | inspect exported WAV and decoder configuration before patching product code |
+
+## TEST AGENT UPDATE (2026-06-02T21:45-05:00) — current-head Private browser proof after full-fixture wait fix
+
+Controlling artifact:
+
+```text
+GitHub run: 26858116484
+Commit under test: e8477232740d05d1232db041435cbb675519ef98
+Artifact: /private/tmp/speaksharp-private-browser-26858116484/
+```
+
+### What changed before this proof
+
+The previous Private v2 proof was invalid because the harness stopped after
+`first text + 20s`, while the benchmark fixture is about `34.5s` long. That
+meant the app could capture only about `27s` of audio but still be scored
+against the full 87-word Harvard reference.
+
+The current proof ran after commit `0e4be547`, which waits for the full
+benchmark audio window before Stop. This removes the early-stop confound.
+
+### Private v2 result
+
+| Field | Value |
+| --- | --- |
+| Setup | pass |
+| Runtime | `READY` |
+| Model status | `idle` after final |
+| Transcript state | `final` |
+| Session persisted | `true` |
+| Final decode input duration | `36.587s` |
+| Speech start offset | `99.6ms` |
+| Final decode time | `7969.7ms` |
+| Selected source | `service_result` |
+| Selected length | `430 chars` |
+| Selected word count | `79` |
+| Reference word count | `87` |
+| Accuracy | `72.41%` |
+| Error | `27.59%` |
+| Filler recall | `90%` |
+| Readability | pass |
+| Save/history/detail | save marker pass in artifact |
+
+Selected transcript:
+
+```text
+The tail smell of old beer, like lingers. Basically, a dash of pepper spoils beef to... Well, the one knife was far short on perfect. You know, the marks was thrown beside the parked truck. Literally, the twister left no trace on the town. A, like, toed wild tail to frighten him. We, um, find joy in the simplest things. The puppet, like, tune up the new shoes. A smooth road you know, make striving clement, basically, the cool.
+```
+
+Current classification:
+
+```text
+Private v2 setup/save/harness sequencing is fixed enough to expose a real
+accuracy/parity failure. This is no longer DOM extraction contamination and no
+longer early-stop proof contamination. The app captured full-duration audio and
+saved from the authoritative saveCandidate, but the final transcript is still
+well below release parity.
+```
+
+### Private v4 result
+
+| Field | Value |
+| --- | --- |
+| Setup | pass enough to start recording |
+| Runtime state | `RECORDING` |
+| Model status | `ready` |
+| Transcript state | `listening` |
+| Save candidate | `null` |
+| First audio chunk | present: `1.021s`, RMS `0.084193`, peak `0.707008` |
+| `process_audio_ready` events | `28` |
+| `model_inference_start` events | `28` |
+| `model_inference_result` events | `27` |
+| UI transcript | `Listening locally…` |
+| Product classification | runtime/no-output failure |
+
+Current classification:
+
+```text
+Private v4 is not blocked by mic setup in this artifact: audio reaches the
+inference path repeatedly. It remains blocked because the browser worker never
+produces usable transcript text or a save candidate. Treat v4 as runtime/config
+failure, not an accuracy result.
+```
+
+### Dev attention requested
+
+1. **Private v2:** Investigate why the browser app final decode of a full
+   `36.587s` benchmark buffer produces only `72.41%` accuracy when the Node
+   full-WAV ceiling for v2 is much higher. First suspect boundaries:
+   browser worker decode options, runtime/config mismatch, audio buffer
+   contents versus source fixture, and result cleanup/sanitization.
+2. **Private v4:** Investigate the browser worker runtime/no-output path. The
+   setup and mic path are no longer the first blocker; audio enters inference
+   repeatedly, but no usable transcript is emitted and `saveCandidate` remains
+   null.
+3. Keep `saveCandidate` as the scored transcript source. Do not regress to DOM
+   `transcript-container` reads, because those include user-facing status copy.
+
+Release read:
+
+```text
+Private remains caveated/not release-green. v2 can run and save, but misses the
+accuracy/parity gate. v4 is not usable until the browser runtime emits text.
+```

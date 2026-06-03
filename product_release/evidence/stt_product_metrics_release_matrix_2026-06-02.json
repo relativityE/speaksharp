@@ -2099,6 +2099,67 @@
         "finding": "v4 now reaches ready/recording, but no useful transcript appears within the first-text timing budget."
       },
       "releaseStatus": "not_green"
+    },
+    {
+      "id": "private_browser_current_head_26858116484_v2",
+      "candidate": "private_v2",
+      "fixture": "harvard_benchmark_87_word_fixture",
+      "evidenceType": "github-actions-browser-proof",
+      "workflowRun": 26858116484,
+      "commit": "e8477232740d05d1232db041435cbb675519ef98",
+      "artifact": "/private/tmp/speaksharp-private-browser-26858116484/test-results/live/live-benchmark-cpu.live-measure-TransformersJS-CPU--live-stt-chromium/private-cpu-private-benchmark-evidence.json",
+      "collectedAt": "2026-06-03T01:30:03Z",
+      "setupStatus": "pass",
+      "proofPhase": "accuracy",
+      "runtimeState": "READY",
+      "modelStatus": "idle",
+      "transcriptState": "final",
+      "sessionPersisted": true,
+      "selectedSource": "service_result",
+      "selectedForSaveLength": 430,
+      "selectedWordCount": 79,
+      "referenceWordCount": 87,
+      "accuracyPct": 72.41,
+      "errorPct": 27.59,
+      "fillerRecallPct": 90,
+      "terminalPunctuationPresent": true,
+      "sentenceCount": 11,
+      "maxRunOnWords": 11,
+      "capitalizationErrors": 0,
+      "duplicateSentenceDetected": false,
+      "readabilityVerdict": "pass",
+      "finalDecodeInputDurationSec": 36.587,
+      "speechStartOffsetMs": 99.6,
+      "finalDecodeMs": 7969.7,
+      "saveHistoryDetail": "save_marker_pass_artifact",
+      "releaseStatus": "not_release_green_accuracy_parity_fail",
+      "selectedForSave": "The tail smell of old beer, like lingers. Basically, a dash of pepper spoils beef to... Well, the one knife was far short on perfect. You know, the marks was thrown beside the parked truck. Literally, the twister left no trace on the town. A, like, toed wild tail to frighten him. We, um, find joy in the simplest things. The puppet, like, tune up the new shoes. A smooth road you know, make striving clement, basically, the cool.",
+      "currentRead": "Full-duration browser proof after early-stop harness fix. Setup/saveCandidate path works, but v2 final quality is below parity."
+    },
+    {
+      "id": "private_browser_current_head_26858116484_v4",
+      "candidate": "private_v4",
+      "fixture": "harvard_benchmark_87_word_fixture",
+      "evidenceType": "github-actions-browser-proof",
+      "workflowRun": 26858116484,
+      "commit": "e8477232740d05d1232db041435cbb675519ef98",
+      "artifact": "/private/tmp/speaksharp-private-browser-26858116484/test-results/live/live-benchmark-v4.live-measure-Transformers-js-v4-worker-live-stt-chromium/private-v4-private-benchmark-evidence.json",
+      "collectedAt": "2026-06-03T01:30:03Z",
+      "setupStatus": "pass_to_recording",
+      "proofPhase": "runtime",
+      "runtimeState": "RECORDING",
+      "modelStatus": "ready",
+      "transcriptState": "listening",
+      "saveCandidate": null,
+      "processAudioReadyEvents": 28,
+      "modelInferenceStartEvents": 28,
+      "modelInferenceResultEvents": 27,
+      "firstAudioDurationSec": 1.021,
+      "firstAudioRms": 0.084193,
+      "firstAudioPeak": 0.707008,
+      "uiTranscript": "Listening locally…",
+      "releaseStatus": "not_release_green_runtime_no_output",
+      "currentRead": "Setup/mic reaches recording and non-silent audio enters inference repeatedly, but v4 emits no usable transcript/saveCandidate. This is runtime/config failure, not accuracy proof."
     }
   ],
   "timingContract": {
@@ -2149,7 +2210,7 @@
       "stopToDetailVisibleMs": "Total post-stop user wait."
     }
   },
-  "classificationUpdatedAt": "2026-06-03T01:08:00Z",
+  "classificationUpdatedAt": "2026-06-03T02:55:00Z",
   "classifications": {
     "cloud": {
       "status": "caveated_closest",
@@ -2158,8 +2219,8 @@
     },
     "private": {
       "status": "caveated_not_release_green",
-      "reason": "Latest current-head workflow 26857164917 on commit 98a881e9 shows Private v2 setup/Stop/saveCandidate/persistence work, but final quality/completeness still fails: selectedForSave is 309 chars / 59 words against the 87-word proof and truncates the tail at \"We, um, find joy in the simp.\" Private v4 improved from setup init-failed to ready/recording after the warm-up hard-fail fix, but still fails proof timing because no useful transcript appears within 30s and saveCandidate remains null.",
-      "next": "Dev/test should treat v2 as a real browser-path quality/completeness blocker, not DOM contamination. Investigate v4 first-text/timing path now that setup reaches recording. Rerun v2/v4 after fixes with saveCandidate and timing evidence."
+      "reason": "Current-head workflow 26858116484 on commit e8477232 fixed the early-stop proof confound and shows Private v2 capturing a full 36.587s benchmark buffer, saving from authoritative saveCandidate, and persisting. The final transcript is still only 72.41% accurate / 79 of 87 words, so v2 fails parity as a real browser-path accuracy issue. Private v4 reaches recording with non-silent audio entering inference 28 times, but emits no usable transcript/saveCandidate, so v4 is a runtime/no-output failure rather than an accuracy result.",
+      "next": "Dev should investigate v2 browser worker/runtime/audio-buffer/cleanup differences versus the Node/drop-in ceiling, and separately fix v4 browser worker runtime/no-output. Test reruns after either fix using saveCandidate only."
     },
     "native": {
       "status": "backlog_failed_current_proof",
@@ -2167,5 +2228,5 @@
       "next": "Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-03T01:08:00Z"
+  "lastUpdatedAt": "2026-06-03T02:55:00Z"
 }
