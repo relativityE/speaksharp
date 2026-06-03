@@ -21,6 +21,10 @@ on:
         description: 'Run Private browser benchmarks in this workflow'
         type: boolean
         default: true
+      run_private_exact_buffer:
+        description: 'Run one-row Private app-buffer capture proof for replay diagnostics'
+        type: boolean
+        default: false
       streaming_ab_variants:
         description: 'Comma-separated AssemblyAI streaming A/B variants'
         type: string
@@ -119,6 +123,44 @@ jobs:
           sudo apt-get install -y espeak-ng ffmpeg
           bash scripts/generate-fixtures.sh
 
+      - name: Run Private exact app-buffer capture proof
+        if: github.event_name == 'workflow_dispatch' && inputs.run_private_exact_buffer == true
+        env:
+          BASE_URL: http://127.0.0.1:5173
+          LIVE_VITE_MODE: test
+          VITE_USE_LIVE_DB: 'true'
+          VITE_SKIP_MSW: 'true'
+          VITE_AUTH_MODE: real
+          VITE_USE_MOCK_AUTH: 'false'
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
+          PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          STT_MODES: private
+          STT_FIXTURES: h1_6
+          STT_INJECT_MIC_AUDIO: 'true'
+          STT_PRIVATE_ENGINE: transformers-js
+          STT_INCLUDE_AUDIO_DATA_URL: 'true'
+          STT_DISABLE_WEBGPU: 'true'
+          STT_POST_PLAYBACK_WAIT_MS: '5000'
+          STT_CORPUS_OUT: /tmp/speaksharp-private-h1_6-exact-buffer-current.json
+          HEADLESS: 'true'
+        run: |
+          cd frontend
+          pnpm vite --port 5173 --mode test --logLevel error &
+          server_pid=$!
+          cd ..
+          for i in {1..60}; do
+            if curl -fsS "$BASE_URL" >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          pnpm exec tsx scripts/manual-stt-corpus-proof.mjs
+          kill "$server_pid" || true
+
       - name: Run Private browser benchmark suite
         env:
           LIVE_VITE_MODE: test
@@ -136,6 +178,15 @@ jobs:
         # convenience STT, not a corpus-grade benchmark engine.
         run: pnpm exec playwright test tests/live/benchmark-cpu.live.spec.ts tests/live/benchmark-v4.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
         timeout-minutes: 30  # 5 trials × 38s + WASM init headroom
+
+      - name: Upload Private exact app-buffer capture proof
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.run_private_exact_buffer == true
+        uses: actions/upload-artifact@v6
+        with:
+          name: private-exact-app-buffer-proof
+          path: /tmp/speaksharp-private-h1_6-exact-buffer-current.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload Private browser benchmark artifacts
         if: always()
