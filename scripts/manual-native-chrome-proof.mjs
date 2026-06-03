@@ -190,9 +190,9 @@ async function selectMode(page, mode) {
 
 async function speakSentence(page) {
   if (MANUAL_SPEAK_MS > 0) {
-    console.log(`READY_TO_SPEAK ${JSON.stringify({ sentence: SPOKEN_SENTENCE, durationMs: MANUAL_SPEAK_MS })}`);
+    console.log(`READY_TO_SPEAK ${JSON.stringify({ sentence: EXPECTED_SCRIPT, chunks: SPOKEN_CHUNKS, durationMs: MANUAL_SPEAK_MS })}`);
     await page.waitForTimeout(MANUAL_SPEAK_MS);
-    return { attempted: true, source: 'human-mic', sentence: SPOKEN_SENTENCE, durationMs: MANUAL_SPEAK_MS };
+    return { attempted: true, source: 'human-mic', sentence: EXPECTED_SCRIPT, chunks: SPOKEN_CHUNKS, durationMs: MANUAL_SPEAK_MS };
   }
 
   if (USE_FAKE_AUDIO_CAPTURE) {
@@ -346,7 +346,8 @@ try {
   evidence.transcriptSample = transcriptText.slice(0, 500);
   evidence.transcriptLength = transcriptText.length;
   evidence.transcriptVisible = transcriptText.length >= 12 && !/\b(listening|words appear here|start speaking)\b/i.test(transcriptText);
-  evidence.transcriptMatchesScript = /\b(native|chrome|microphone|speech|speaksharp|proof|quick|brown|release|validation)\b/i.test(transcriptText);
+  evidence.visibleAtStopExpectedEvidence = transcriptEvidenceInBody(transcriptText, EXPECTED_SCRIPT);
+  evidence.transcriptMatchesScript = evidence.visibleAtStopExpectedEvidence.containsAtLeastHalfUniqueTranscriptWords;
 
   await startButton.click();
   await page.waitForFunction(() => document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') === 'false', null, { timeout: 60_000 }).catch((error) => {
