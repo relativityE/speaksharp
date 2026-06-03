@@ -73,6 +73,7 @@ async function dumpPage(page) {
     body: document.body?.innerText ?? '',
     transcriptContainer: document.querySelector('[data-testid="transcript-container"]')?.textContent ?? '',
     liveCurrentLine: document.querySelector('[data-testid="live-transcript-current-line"]')?.textContent ?? '',
+    saveCandidate: window.__SPEECH_RUNTIME_DEBUG__?.().saveCandidate ?? null,
     trace: window.__SS_TRANSCRIPT_TRACE__ || [],
     nativeTrace: window.__NATIVE_BROWSER_TRACE__ || [],
     parallelCapture: window.__NATIVE_PARALLEL_CAPTURE__ || [],
