@@ -2042,7 +2042,63 @@
         "status": "populated"
       },
       "releaseStatus": "guard_pass_not_full_suite_green",
-      "caveat": "Single-row exact-buffer guard only. Full Private v2/v4 browser suite rerun 26856683929 is pending."
+      "caveat": "Single-row exact-buffer guard only. Full Private v2/v4 browser suite rerun 26857164917 failed release proof."
+    },
+    {
+      "id": "private_current_head_browser_26857164917_v2",
+      "candidate": "Private v2 browser app",
+      "evidenceType": "browser-proof",
+      "workflowRun": 26857164917,
+      "branch": "fix/release-bug-burndown",
+      "commit": "98a881e9",
+      "collectedAt": "2026-06-03T00:56:54Z",
+      "setup": {
+        "authTier": "pass",
+        "sttMode": "pass_private",
+        "modelProvider": "pass_ready",
+        "runtimeRecording": "pass",
+        "sessionPersisted": true
+      },
+      "proof": {
+        "phase": "accuracy",
+        "status": "fail",
+        "failureCode": "PROOF_FAIL proof.accuracy.final_completeness",
+        "saveCandidateReason": "service_result",
+        "selectedForSaveLength": 309,
+        "finalWordCount": 59,
+        "expectedWordCount": 87,
+        "selectedForSave": "The tail smell of old beer, like lingers. Basically, a dash of pepper spoils beef too. Well, the one knife was far short on perfect. You know, the marks was thrown beside the parked truck. Literally, the twister left no trace on the town. A, like, toed wild tail to frighten him. We, um, find joy in the simp.",
+        "finding": "Setup and journey work; final transcript is incomplete and low-quality versus the 87-word proof."
+      },
+      "releaseStatus": "not_green"
+    },
+    {
+      "id": "private_current_head_browser_26857164917_v4",
+      "candidate": "Private v4 browser app",
+      "evidenceType": "browser-proof",
+      "workflowRun": 26857164917,
+      "branch": "fix/release-bug-burndown",
+      "commit": "98a881e9",
+      "collectedAt": "2026-06-03T00:56:54Z",
+      "setup": {
+        "authTier": "pass",
+        "sttMode": "pass_private",
+        "modelProvider": "pass_ready",
+        "runtimeRecording": "pass",
+        "priorInitFailedImproved": true
+      },
+      "proof": {
+        "phase": "timing",
+        "status": "fail",
+        "failureCode": "PROOF_FAIL proof.timing.first_text",
+        "observedUi": "Listening locally…",
+        "saveCandidate": null,
+        "timeoutMs": 30000,
+        "expectedUsefulWordsGreaterThan": 5,
+        "observedWords": 2,
+        "finding": "v4 now reaches ready/recording, but no useful transcript appears within the first-text timing budget."
+      },
+      "releaseStatus": "not_green"
     }
   ],
   "timingContract": {
@@ -2093,7 +2149,7 @@
       "stopToDetailVisibleMs": "Total post-stop user wait."
     }
   },
-  "classificationUpdatedAt": "2026-06-02T23:58:00Z",
+  "classificationUpdatedAt": "2026-06-03T01:08:00Z",
   "classifications": {
     "cloud": {
       "status": "caveated_closest",
@@ -2101,9 +2157,9 @@
       "next": "Launch/position Cloud baseline as quality path if remaining timeline/readability proof passes. Dev/product should change, narrow, or disable keyterms before defaulting it. Test should run Cloud long-script/tail proof that exports __CLOUD_STT_TIMELINE__, WER/readability, and scripted tail comparison."
     },
     "private": {
-      "status": "caveated",
-      "reason": "Current-head workflow 26853628019 is not release-green: v2 setup/saveCandidate/persistence work, but saved final accuracy is only 33.33% with 51 words against an 87-word fixture; v4 fails setup/runtime before transcription with modelStatus init-failed and serviceState INIT_FAILED. Private cache/setup proof run 26854295228 passed for v2 CPU first-start and same-browser second-start cache.",
-      "next": "Dev should run the app-buffer replay diagnostic for v2 and investigate v4 WebGPU/CPU-fallback setup behavior. Test reruns v2/v4 after fixes, using saveCandidate rather than DOM transcript text."
+      "status": "caveated_not_release_green",
+      "reason": "Latest current-head workflow 26857164917 on commit 98a881e9 shows Private v2 setup/Stop/saveCandidate/persistence work, but final quality/completeness still fails: selectedForSave is 309 chars / 59 words against the 87-word proof and truncates the tail at \"We, um, find joy in the simp.\" Private v4 improved from setup init-failed to ready/recording after the warm-up hard-fail fix, but still fails proof timing because no useful transcript appears within 30s and saveCandidate remains null.",
+      "next": "Dev/test should treat v2 as a real browser-path quality/completeness blocker, not DOM contamination. Investigate v4 first-text/timing path now that setup reaches recording. Rerun v2/v4 after fixes with saveCandidate and timing evidence."
     },
     "native": {
       "status": "backlog_failed_current_proof",
@@ -2111,5 +2167,5 @@
       "next": "Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-02T23:58:00Z"
+  "lastUpdatedAt": "2026-06-03T01:08:00Z"
 }

@@ -1,6 +1,6 @@
 # Private STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T23:58:00Z  
+**Updated:** 2026-06-03T01:08:00Z  
 **Scope:** Private v2/v4 local STT, browser app path, drop-in parity, timing, and readability  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -10,11 +10,11 @@
 Private STT: NOT GREEN YET
 Current product status: caveated local/private path
 Two-step status:
-- Private v4 browser proof: setup/runtime failure at `setup.model_provider`; service reaches `INIT_FAILED` before transcription.
-- Private v2 browser proof: setup/saveCandidate/persistence now work, but proof fails in accuracy phase: 51 saved words, WER 66.67%, accuracy 33.33% against the 87-word fixture.
+- Private v2 browser proof: setup/saveCandidate/persistence now work, but proof fails in accuracy/completeness: 59 saved words against the 87-word fixture, with tail truncation (`We, um, find joy in the simp.`).
+- Private v4 browser proof: setup/model/provider now reaches ready + recording after the warm-up hard-fail fix, but proof fails before scoring because no useful transcript appears within 30s (`Listening locally…`, saveCandidate null).
 Primary launch blockers:
 1. Private v2 app/browser path materially underperforms its drop-in/full-WAV baseline.
-2. Private v4 does not reach proof in this browser workflow; it fails setup/runtime before transcription.
+2. Private v4 reaches recording but does not produce useful live text within the current timing budget.
 3. Private user-trust UX remains weak if useful draft text is late/sparse and the final transcript is wrong.
 4. Washington/readability and long-form proof remain required before broad use.
 ```
@@ -22,7 +22,53 @@ Primary launch blockers:
 Private has moved from lifecycle failure to targeted quality/timing validation.
 The current browser proof shows that lifecycle/Stop/save are not the primary
 v2 blocker anymore. The blocker is final transcript quality/completeness versus
-drop-in. v4 still cannot be scored because setup/runtime fails before recording.
+drop-in. v4 setup/runtime improved, but v4 still cannot be scored because it
+does not produce useful transcript text before the first-text timeout.
+
+## Latest Current Browser Evidence — 2026-06-03T00:56Z
+
+**Workflow:** `Controlled STT Benchmarks`  
+**Run:** `26857164917`  
+**Commit:** `98a881e9409e576c6be43e537c87565281e408a9`  
+**Artifact:** `/private/tmp/speaksharp-private-browser-26857164917/private-browser-benchmark-artifacts/`
+
+| Engine | Setup | Proof result | Current classification |
+| --- | --- | --- | --- |
+| Private v2 / CPU | Pass: auth, Pro, Private mode, inline setup button, model ready, recording, Stop, saveCandidate, session persisted | Fail: selectedForSave is 309 chars / 59 words against the 87-word proof; tail truncates at `We, um, find joy in the simp.` | `PROOF_FAIL proof.accuracy.final_completeness`; setup/journey fixed, final quality not fixed |
+| Private v4 | Improved: setup/model/provider now reaches `modelStatus=ready`, `runtimeState=RECORDING`, and the UI shows `Recording active` | Fail before scoring: after 30s the transcript still did not exceed 5 useful words; UI remained `Listening locally…`; `saveCandidate:null` | `PROOF_FAIL proof.timing.first_text`; previous init-failed bug improved, useful-text timing not fixed |
+
+Important v2 saveCandidate fields:
+
+```json
+{
+  "saveCandidateReason": "service_result",
+  "selectedForSaveLength": 309,
+  "finalWordCount": 59,
+  "meaningfulWordCount": 59,
+  "resultTranscriptLength": 309,
+  "chunkTranscriptLength": 309,
+  "storeTranscriptLength": 309,
+  "visibleStoreTranscriptLength": 309,
+  "frozenStopTranscriptLength": 28
+}
+```
+
+v2 selected transcript:
+
+```text
+The tail smell of old beer, like lingers. Basically, a dash of pepper spoils beef too. Well, the one knife was far short on perfect. You know, the marks was thrown beside the parked truck. Literally, the twister left no trace on the town. A, like, toed wild tail to frighten him. We, um, find joy in the simp.
+```
+
+Current read:
+
+```text
+Private v2 setup, Stop, saveCandidate, and persistence are functioning. The
+remaining v2 blocker is transcript completeness/quality, not DOM extraction.
+
+Private v4 setup/runtime improved from init-failed to ready/recording after the
+warm-up hard-fail fix, but v4 is still not release-usable because it provides no
+useful transcript in the current 30s first-text window.
+```
 
 ## TEST AGENT UPDATE — Private cache/setup proof
 

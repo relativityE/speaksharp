@@ -531,15 +531,16 @@ BLOCKER = missing value blocks green classification.
 
 | STT | Classification | Why | Next action |
 | --- | --- | --- | --- |
-| Private | Caveated / not release-green | Earlier injected browser proof was promising (`washington_01` 98.95%; h1 guard rows mostly exact), but latest current-head workflow `26852510533` shows the release path is still not closed: v2 setup passes but first live text is too sparse and authoritative final accuracy is only 37.93%; v4 fails setup before transcription due WebGPU/backend readiness. | Dev: investigate why v2 browser workflow saved a 60-word low-accuracy transcript despite setup success, and ensure v4 falls back or classifies cleanly when WebGPU adapter is unavailable. Test: rerun after fixes using saveCandidate and collect v2/v4 equally. |
+| Private | Caveated / not release-green | Latest current-head workflow `26857164917` shows v2 setup/Stop/saveCandidate/persistence work, but final quality/completeness still fails: 59 saved words against an 87-word proof, ending `We, um, find joy in the simp.` v4 improved from setup init-failed to ready/recording, but still fails proof timing because no useful transcript appears within 30s and `saveCandidate` remains null. | Dev/test: treat v2 as a real quality/completeness blocker, not DOM contamination. Investigate v4 first-text/timing path now that setup reaches recording. Test reruns after fixes using saveCandidate and current timing evidence. |
 | Cloud | Caveated / closest | Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. Long-speech/app-tail proof remains open. | Launch/position Cloud baseline as quality path if app-tail proof passes. DEV/PRODUCT: change/narrow/disable keyterms before defaulting it. TEST: run Cloud app journey/tail proof with `__CLOUD_STT_TIMELINE__`. |
 | Native | Backlog / failed current proof | Human real-mic proof ran and failed product readiness: Chrome produced words, but selectedForSave became `Listening...`, save/detail failed, readability failed, and filler recall was 66.67%. | Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof. |
 
 Clarifications:
 
 ```text
-Private browser evidence collected on 2026-06-02 is v2 / transformers-js only.
-v4 still needs the same browser fixture set before Private engine selection.
+Private browser evidence collected on 2026-06-03 covers both v2 and v4.
+v2 reaches saveCandidate but fails final quality/completeness. v4 reaches
+ready/recording but fails first useful transcript timing before scoring.
 
 Cloud "invalid" means no usable provider transcript session, not bad WER.
 Those rows are excluded from quality averages and block green classification.
