@@ -1821,3 +1821,34 @@ pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=fals
 This is a UI/trust fix only. It does not change STT decoding, WER, formatter behavior, saveCandidate,
 or history/detail. The next Private proof must still measure first progress, finalization wait,
 readability, save/history/detail, and app-vs-drop-in parity.
+
+---
+
+## DEV FINDING — Private LOCAL punctuation feasibility (#32) — for TEST confirm (2026-06-03)
+
+Dev built an objective feasibility rig (commit `c8f0528b`):
+`scripts/private-local-punctuation-feasibility.mts` (`npx tsx ...`). It scores any candidate
+local formatter against YOUR documented acceptance criteria (readability improves + words
+unchanged + fillers preserved + no network). Result on representative human-proof run-ons:
+
+| Candidate | run-on fixtures | words | fillers | sentences | max run-on | verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| identity (raw Whisper final) | native-scriptB, private | ok | ok | 1 → 1 | 45/40 (unchanged) | **FAIL readability** |
+| localHeuristic (no-network, word-preserving) | native-scriptB, private | ok | ok | 1 → 7 | 45→18, 40→15 | **PASS** |
+
+**Conclusion (dev):** raw Whisper final cannot carry Private readability — a local formatter is
+required. A strictly word-preserving, NO-network heuristic clears the gate today without touching
+words/fillers, so it is the measurable LOWER BOUND (and a possible **caveated stopgap**) a real
+browser-local ONNX model must beat. Per owner ("no bespoke regex as the final answer"), the heuristic
+is NOT shipped — it is a measurement baseline.
+
+**Recommended path (needs product + TEST confirm before any ship):**
+1. 24h: keep Private readability caveated; do NOT auto-download anything.
+2. 48h+: integrate ONE browser-local ONNX punctuation model (PunctCapSeg / bert-restore-punctuation)
+   in the Whisper worker, behind an EXPLICIT "Enable punctuation" setup consent, zero network after a
+   one-time consented download. Acceptance = pass the same 4 checks AND beat the heuristic, with
+   `privateFormatterNetworkCalls === 0`.
+
+**TEST asks:** (a) confirm these acceptance checks match your release gate; (b) is a word-preserving
+local heuristic acceptable as an interim caveated stopgap, or do we hold for the ONNX model only?
+(c) which fixtures do you want added to the rig (Washington / your h1_* set) so this gates real proofs?
