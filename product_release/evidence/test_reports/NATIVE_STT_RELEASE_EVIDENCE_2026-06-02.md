@@ -798,37 +798,30 @@ save/history/detail match + no duplicate/placeholder selected for save.
 
 ---
 
-## DEV → TEST — NATIVE FUNNEL DECONFLICTION (2026-06-03, dev agent, append-only)
+## CURRENT NATIVE RELEASE HANDOFF (2026-06-03T16:55Z)
 
-Master division-of-labor lives in `PRIVATE_STT_RELEASE_EVIDENCE_2026-06-02.md`. Native-specific
-deconfliction below. **Native is the conversion funnel — it must feel great**, so this is high
-priority for both of us.
+Stale deploy/pending-merge notes removed from this section. Current Native status only:
 
-### Dev has SHIPPED (on main `e6e98678`) — ready for your rerun to exercise:
-- Gemini `format-transcript` backend + **Native-only activation** (EngineFactory registers it for
-  `native`, clears it for cloud/private) + word-preservation guard (server + client).
-- Browser proof hook: **`window.__NATIVE_FORMATTER_LAST__`** =
-  `{ attempted, provider, functionName, formatterVersion, requestId, latencyMs, inputChars,
-  outputChars, serverWordPreserving, wordPreserving, errorCode, fallbackToRaw }`.
+| Item | Current status | Owner / next action |
+| --- | --- | --- |
+| Native formatter backend | `format-transcript` deploy/Gemini secret are no longer the known blocker. | TEST must verify the browser actually attempts formatting. |
+| Formatter telemetry | Latest local human proof still showed `window.__NATIVE_FORMATTER_LAST__ === null`, so the formatter did **not** prove it ran. | DEV investigate registration/invocation path if this reproduces; TEST rerun should capture telemetry. |
+| Raw Native readability | Latest raw Native transcript had strong-ish words but poor readability: one long sentence, random cap `Starts Now`, missed `um`. | Formatter path must improve readability without changing words/fillers. |
+| Trust-state hooks | Main exposes `data-draft-banner-visible`, `data-processing-visible`, `data-final-state-visible`, `data-listening-visible`, `window.__SS_TRUST_STATE__`, and `window.__SS_TRUST_TRACE__`. | TEST confirms visible Draft from mic-on and stable through non-final text. |
+| Detail transcript | Latest human artifacts have shown empty detail extraction/state at least once. | TEST must read saved row, detail DOM, and `saveCandidate` separately; DEV patches only if app state diverges. |
+| Native release role | Conversion funnel / quick-start only until formatter + detail + trust proof pass. | Do not promote Native as quality path yet. |
 
-### TEST — please drive this Native rerun sequence:
-1. **DEPLOY DEPENDENCY (blocking):** confirm who deploys `format-transcript` + sets `GEMINI_API_KEY`.
-   Until deployed, formatter is inert (invoke fails → raw saved transcript, no regression) and
-   readability will still fail — so this MUST be deployed before judging Native readability.
-2. After deploy, rerun Script A/B/C and capture `__NATIVE_FORMATTER_LAST__`. Prove:
-   readability improved (raw vs accepted formatted), `wordPreserving===true`,
-   filler-recall unchanged (formatter must NOT invent/drop fillers), and a forced **fallback**
-   case (`fallbackToRaw===true` + `errorCode`, saved === raw).
-3. **Detail/empty (#29):** dev will patch save/detail ONLY if your corrected
-   `manual-native-chrome-proof.mjs` detail extraction proves app divergence (saved row vs detail DOM).
-4. **Trust hooks (#33):** implemented in the pending merge set. The panel now exposes
-   `data-draft-banner-visible`, `data-processing-visible`,
-   `data-final-state-visible`, `data-listening-visible`, and timestamped
-   `window.__SS_TRUST_STATE__` / `window.__SS_TRUST_TRACE__` snapshots so the
-   rerun can prove trust-state visibility without scraping transcript copy.
+### Current Native Human Test Findings
 
-### DEV will NOT touch (your lane): manual Native proof extraction/scoring, expected-script matching,
-the live trace harness, or Native engine timing/behavior. Ping me here for any product boundary you isolate.
+| Finding | Evidence | Status / owner |
+| --- | --- | --- |
+| Native raw word accuracy was usable but not sufficient by itself | `/private/tmp/speaksharp-native-human-41dc1997.json`: 56 expected words / 56 output words, 94.64% accuracy, 5.36% WER. | Positive funnel signal; not release-green because readability/formatter/detail failed. |
+| Punctuation/readability failed | Raw transcript was effectively one long sentence with random cap `Starts Now`; sentence count 1 vs expected ~4; max run-on 56. | **DEV/product formatter path required**; TEST rerun must compare raw vs formatted vs ground truth. |
+| Formatter did not prove it ran | Latest local human proof had `window.__NATIVE_FORMATTER_LAST__ === null`. | **DEV investigate if reproduced**: registration/invocation/telemetry path may not be firing in local/browser run. |
+| Filler recall missed `um` | Expected fillers: `um`, `basically`, `like`; recognized only `basically`, `like` in the raw Native output. | Product metric blocker; formatter must not remove or invent fillers. |
+| Detail transcript empty or not extracted | Latest proof reported saved/history true but detail transcript empty/not extracted. | TEST must separate harness extraction from product state; DEV patches if app detail diverges from saved transcript. |
+| Trust hooks were present, but perceptibility still needs proof | Proof captured draft/trust state fields; user experience still needs confirmation that banner is visible and stable while interim text changes. | TEST rerun with screenshots/trace; DEV adjusts UI only if banner is not perceptible. |
+| Native artifact schema must use the full expected script | Prior artifact issue: `spokenSentence` was not always the full script read, which can corrupt WER/readability comparison. | TEST harness fix/discipline: store `expectedScript` separately and score against that. |
 
 ---
 
@@ -895,19 +888,3 @@ Use these hooks for the next Native human proof. The browser proof still owns th
 Draft must be visible from mic-on through non-final transcript, Processing/Final states must line up
 with the transcript lifecycle, and transcript WER/readability must use transcript-only text rather
 than status/banner copy.
-
----
-
-## ✅ DEPLOY BLOCKER RESOLVED (2026-06-03, dev) — Native formatter is LIVE; readability rerun can proceed
-The earlier "DEPLOY DEPENDENCY (blocking)" is cleared. `format-transcript` is **deployed to production**:
-the `deploy-supabase-migrations.yml` workflow auto-deploys it on every push to main (`deploy-edge-functions`
-job, condition `github.event_name == 'push'`). Confirmed in run `26893924083` (15:09Z today):
-`Deployed Functions on project ***: format-transcript`. `GEMINI_API_KEY` is present in GitHub Secrets
-(2026-05-27) and is the same key `get-ai-suggestions` uses in production → the Supabase function secret is
-configured (not `GEMINI_KEY_MISSING`).
-
-**→ TEST can now run the Native readability rerun against the live formatter.** Capture
-`window.__NATIVE_FORMATTER_LAST__` and prove: readability improved (raw vs accepted formatted),
-`wordPreserving===true`, fillers unchanged, and a forced fallback (`fallbackToRaw===true` + `errorCode`,
-saved === raw). If you want 100% secret certainty, dev can force a one-time secrets sync
-(`workflow_dispatch operation=secrets`) on your go.
