@@ -1,13 +1,28 @@
 import { useState, useEffect } from 'react';
 import { useUsageLimit, type UsageLimitCheck } from './useUsageLimit';
+import { safeLocalStorageGetJSON, safeLocalStorageSet } from '@/lib/safeStorage';
+
+const STREAK_STORAGE_KEY = 'speaksharp-streak';
+
+interface StoredStreak {
+    currentStreak: number;
+    lastPracticeDate: string;
+}
+
+const readStoredStreak = (): StoredStreak => {
+    const stored = safeLocalStorageGetJSON<Partial<StoredStreak>>(STREAK_STORAGE_KEY, {});
+    return {
+        currentStreak: typeof stored?.currentStreak === 'number' ? stored.currentStreak : 0,
+        lastPracticeDate: typeof stored?.lastPracticeDate === 'string' ? stored.lastPracticeDate : '',
+    };
+};
 
 export function useStreak() {
     const e2eDeps = (typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>).__E2E_DEPS__ : null) as { fetchUsageLimit?: () => Promise<UsageLimitCheck> } | null;
     const { data: usageLimit } = useUsageLimit(e2eDeps || undefined);
-    const [localStreak, setLocalStreak] = useState(() => {
-        const saved = localStorage.getItem('speaksharp-streak');
-        return saved ? JSON.parse(saved).currentStreak : 0;
-    });
+    // Safe parse: a corrupted/legacy streak value must never throw in this render-path
+    // initializer — a throw here white-screens the whole app shell.
+    const [localStreak, setLocalStreak] = useState(() => readStoredStreak().currentStreak);
 
     useEffect(() => {
         if (usageLimit?.streak_count !== undefined) {
@@ -16,11 +31,10 @@ export function useStreak() {
     }, [usageLimit?.streak_count]);
 
     const updateStreak = () => {
-        const saved = localStorage.getItem('speaksharp-streak');
         const now = new Date();
         const today = now.toISOString().split('T')[0];
 
-        const current = saved ? JSON.parse(saved) : { currentStreak: 0, lastPracticeDate: '' };
+        const current = readStoredStreak();
         let newStreak = current.currentStreak;
         let isNewDay = false;
 
@@ -37,7 +51,7 @@ export function useStreak() {
             }
 
             const updated = { currentStreak: newStreak, lastPracticeDate: today };
-            localStorage.setItem('speaksharp-streak', JSON.stringify(updated));
+            safeLocalStorageSet(STREAK_STORAGE_KEY, JSON.stringify(updated));
             setLocalStreak(newStreak);
         }
 
