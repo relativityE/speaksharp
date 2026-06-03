@@ -272,6 +272,42 @@ describe('TranscriptionService', () => {
         });
     });
 
+    it('REGRESSION: accumulates sentence-sized final updates instead of replacing prior finals', async () => {
+        const { sttRegistry } = await import('../STTRegistry');
+
+        class MockEngine extends STTEngine {
+            public override readonly type = 'transformers-js' as EngineType;
+            public async checkAvailability() { return { isAvailable: true }; }
+            protected async onInit() { return Result.ok(undefined); }
+            protected async onStart() {}
+            protected async onStop() {}
+            protected async onPause() {}
+            protected async onResume() {}
+            protected async onDestroy() {}
+            async transcribe() { return Result.ok('test'); }
+            public override getEngineType() { return 'whisper-turbo' as EngineType; }
+
+            public triggerTranscript(data: { transcript: { final?: string; partial?: string } }) {
+                (this.options as TranscriptionModeOptions)?.onTranscriptUpdate?.(data);
+            }
+        }
+
+        const mockEngine = new MockEngine({} as unknown as TranscriptionModeOptions);
+        sttRegistry.registerStatic('mock', mockEngine);
+
+        await service.startTranscription();
+
+        mockEngine.triggerTranscript({ transcript: { final: 'private local microphone proof starts now' } });
+        mockEngine.triggerTranscript({ transcript: { final: 'I want to make one simple point before we move on' } });
+        mockEngine.triggerTranscript({ transcript: { final: 'with a clear next step' } });
+
+        expect(mockOnTranscriptUpdate).toHaveBeenLastCalledWith({
+            transcript: {
+                final: 'private local microphone proof starts now I want to make one simple point before we move on with a clear next step',
+            },
+        });
+    });
+
     it('REGRESSION: splits combined Web Speech final+interim into final commit then visible partial', async () => {
         const { sttRegistry } = await import('../STTRegistry');
 

@@ -2353,6 +2353,52 @@
       "runtimeError": "invalid data location: undefined for input \"a\"",
       "releaseStatus": "not_release_green_runtime_no_output",
       "currentRead": "v4 reaches recording and starts inference, but browser backend inference fails repeatedly and emits no transcript/saveCandidate. Do not score v4 accuracy until this runtime/backend error is fixed."
+    },
+    {
+      "id": "private_v2_human_real_mic_post_setup_20260603T0605Z",
+      "candidate": "private_v2",
+      "fixture": "native_private_human_comparison_script",
+      "evidenceType": "human-real-mic-post-setup-caveated",
+      "artifact": "/private/tmp/speaksharp-private-v2-human-proof-2026-06-03T060231313Z.json",
+      "collectedAt": "2026-06-03T06:05:40.562Z",
+      "setupStatus": "caveated_setup_auto_clicked_download",
+      "setupFailureGate": "setup.model_provider_consent",
+      "setupCaveat": "Harness clicked the Private setup/download control automatically. Do not use this artifact as first-time setup/download consent proof.",
+      "selectedForSaveLength": 296,
+      "finalWordCount": 55,
+      "expectedWords": 56,
+      "accuracyPct": 91.07,
+      "errorPct": 8.93,
+      "fillerRecallPct": 66.67,
+      "expectedFillers": 3,
+      "recognizedFillers": 2,
+      "missedFillers": [
+        "um"
+      ],
+      "falseFillerInsertions": 0,
+      "terminalPunctuationPresent": true,
+      "sentenceCount": 2,
+      "expectedSentenceCountApprox": 4,
+      "maxRunOnWords": 49,
+      "readabilityVerdict": "fail_run_on_sentence_boundaries_and_word_errors",
+      "saved": true,
+      "historyVisible": false,
+      "detailContainsSelected": false,
+      "firstTrustBannerMs": 15,
+      "firstMeaningfulTextMs": 15,
+      "saveCandidateReason": "service_result",
+      "saveCandidateLengths": {
+        "resultTranscriptLength": 295,
+        "chunkTranscriptLength": 296,
+        "storeTranscriptLength": 296,
+        "storePartialTranscriptLength": 0,
+        "visibleStoreTranscriptLength": 296,
+        "frozenStopTranscriptLength": 23
+      },
+      "observedUserIssue": "Visible final text appeared to replace prior finals; user saw only \"With a clear next step.\" after Stop even though saveCandidate retained the full transcript.",
+      "fixStatus": "service_final_segment_accumulation_implemented_needs_browser_proof",
+      "releaseStatus": "caveated_not_release_green",
+      "currentRead": "Private v2 human real-mic quality is materially better than the Native human run, but it is not green: setup consent was invalidated by auto-click, filler recall missed um, readability failed, and history/detail failed in the artifact."
     }
   ],
   "timingContract": {

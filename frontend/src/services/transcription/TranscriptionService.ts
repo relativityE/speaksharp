@@ -69,6 +69,55 @@ const pushTranscriptLifecycleTrace = (stage: string, payload: Record<string, unk
   }
 };
 
+const normalizeTranscriptForMerge = (text: string): string =>
+  text
+    .toLowerCase()
+    .replace(/[^\w\s']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const appendTranscriptSegment = (base: string, segment: string): string => {
+  const baseText = base.replace(/\s+/g, ' ').trim();
+  const segmentText = segment.replace(/\s+/g, ' ').trim();
+  if (!baseText) return segmentText;
+  if (!segmentText) return baseText;
+
+  const baseWords = baseText.split(/\s+/);
+  const segmentWords = segmentText.split(/\s+/);
+  const normalizedBaseWords = normalizeTranscriptForMerge(baseText).split(/\s+/).filter(Boolean);
+  const normalizedSegmentWords = normalizeTranscriptForMerge(segmentText).split(/\s+/).filter(Boolean);
+
+  let overlap = 0;
+  const maxOverlap = Math.min(normalizedBaseWords.length, normalizedSegmentWords.length);
+  for (let size = 1; size <= maxOverlap; size += 1) {
+    const baseTail = normalizedBaseWords.slice(-size).join(' ');
+    const segmentHead = normalizedSegmentWords.slice(0, size).join(' ');
+    if (baseTail === segmentHead) overlap = size;
+  }
+
+  return [baseWords.join(' '), segmentWords.slice(overlap).join(' ')].filter(Boolean).join(' ').trim();
+};
+
+const mergeFinalTranscriptUpdate = (currentTranscript: string, nextFinal: string): string => {
+  const currentText = currentTranscript.trim();
+  const nextText = nextFinal.trim();
+  if (!currentText) return nextText;
+  if (!nextText) return currentText;
+
+  const currentNormalized = normalizeTranscriptForMerge(currentText);
+  const nextNormalized = normalizeTranscriptForMerge(nextText);
+
+  if (currentNormalized === nextNormalized || currentNormalized.endsWith(nextNormalized)) {
+    return currentText;
+  }
+
+  if (nextNormalized.startsWith(currentNormalized)) {
+    return nextText;
+  }
+
+  return appendTranscriptSegment(currentText, nextText);
+};
+
 /**
  * @deprecated Use SpeechRuntimeController as the sole manager of service instances.
  * This is preserved only for the Controller's internal initialization.
@@ -1605,7 +1654,7 @@ export default class TranscriptionService {
     }
 
     if (transcript.final) {
-      this.currentTranscript = transcript.final;
+      this.currentTranscript = mergeFinalTranscriptUpdate(this.currentTranscript, transcript.final);
       this.partialTranscript = '';
       this.options.onTranscriptUpdate?.({
         transcript: { final: this.currentTranscript }

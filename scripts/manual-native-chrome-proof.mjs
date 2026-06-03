@@ -20,6 +20,9 @@ const SPOKEN_SENTENCE = process.env.NATIVE_PROOF_SPOKEN_SENTENCE || 'Native Chro
 const SPOKEN_CHUNKS = process.env.NATIVE_PROOF_SPOKEN_CHUNKS
   ? JSON.parse(process.env.NATIVE_PROOF_SPOKEN_CHUNKS)
   : null;
+const EXPECTED_SCRIPT = Array.isArray(SPOKEN_CHUNKS) && SPOKEN_CHUNKS.length > 0
+  ? SPOKEN_CHUNKS.map((chunk) => String(chunk)).join(' ')
+  : SPOKEN_SENTENCE;
 const AUDIO_FILE = process.env.NATIVE_PROOF_AUDIO_FILE ? path.resolve(process.env.NATIVE_PROOF_AUDIO_FILE) : '';
 const USE_FAKE_AUDIO_CAPTURE = process.env.NATIVE_PROOF_FAKE_AUDIO_CAPTURE === 'true';
 const SESSION_QUERY = process.env.NATIVE_PROOF_SESSION_QUERY || '';
@@ -209,7 +212,9 @@ const evidence = {
     : 'real browser getUserMedia, no fake audio flags',
   audioFile: AUDIO_FILE || null,
   fakeAudioCapture: USE_FAKE_AUDIO_CAPTURE,
-  spokenSentence: SPOKEN_SENTENCE,
+  expectedScript: EXPECTED_SCRIPT,
+  spokenSentence: EXPECTED_SCRIPT,
+  spokenChunks: Array.isArray(SPOKEN_CHUNKS) ? SPOKEN_CHUNKS.map((chunk) => String(chunk)) : null,
   startedAt: new Date().toISOString(),
   login: false,
   signup: false,
