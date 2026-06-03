@@ -857,3 +857,28 @@ PASS: lint, typecheck, disable-directive hygiene
 
 Cloud app-path proof remains lower priority than Private/Native, but any future
 browser proof still needs the auth/test-harness setup path fixed first.
+
+### Current Main Browser UX Smoke Rerun: 2026-06-03T17:14Z
+
+```text
+main: 6855f598
+command: pnpm rc:ux:smoke
+result: FAIL — 5 infra-probe tests failed; 9 did not run
+```
+
+The build step passed. Browser UX proof failed before any Cloud app-path STT
+execution:
+
+```text
+waited for: html[data-app-visible-ready="true"]
+root error: Mock auth is not available from the runtime app. Use the centralized
+E2E test harness or create real test users through the test-user workflow.
+```
+
+Cloud impact:
+
+```text
+No new Cloud transcript result was collected from this smoke rerun. Cloud
+baseline remains the safest existing Cloud candidate, but app-path browser proof
+still needs the setup/auth harness corrected before it can add release evidence.
+```

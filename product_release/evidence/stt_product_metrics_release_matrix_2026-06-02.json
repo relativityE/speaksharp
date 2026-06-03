@@ -2472,6 +2472,43 @@
       },
       "releaseStatus": "automated_support_green_but_browser_user_experience_not_green",
       "currentRead": "Candidate eff03d2d has strong automated support for STT/trust/formatter/score code. Lint blockers found during the sweep were fixed by e50e005f and pnpm quality passed. Browser UX proof remains blocked by auth/test-harness setup before STT behavior can be observed. Do not mark Private cumulative live text, Native formatter invocation, or trust-state UX release-green from this sweep."
+    },
+    {
+      "id": "current_main_browser_ux_smoke_6855f598_20260603T1714Z",
+      "candidate": "current_main_browser_ux_smoke",
+      "fixture": "browser_ux_smoke",
+      "evidenceType": "local-browser-smoke",
+      "branch": "main",
+      "commit": "6855f598",
+      "collectedAt": "2026-06-03T17:14Z",
+      "command": "pnpm rc:ux:smoke",
+      "build": {
+        "status": "pass"
+      },
+      "playwright": {
+        "status": "fail_before_stt_proof",
+        "failedTests": 5,
+        "notRunTests": 9,
+        "firstBrokenGate": "setup.auth_tier/app_visible_ready",
+        "blockedOnSelector": "html[data-app-visible-ready=\"true\"]",
+        "rootBrowserError": "Mock auth is not available from the runtime app. Use the centralized E2E test harness or create real test users through the test-user workflow.",
+        "failedTestNames": [
+          "app boots without runtime errors",
+          "FSM transitions correctly",
+          "mock transcription flows through system",
+          "no STT_ENGINE_MISSING errors",
+          "Forensic Audit: negotiator identity guard is active"
+        ],
+        "artifactPaths": [
+          "test-results/playwright-ux-smoke/infra.probe.e2e-Core-Syste-03a92-oots-without-runtime-errors-infra-probe/trace.zip",
+          "test-results/playwright-ux-smoke/infra.probe.e2e-Core-Syste-4d265-c-FSM-transitions-correctly-infra-probe/trace.zip",
+          "test-results/playwright-ux-smoke/infra.probe.e2e-Core-Syste-8f02e-iption-flows-through-system-infra-probe/trace.zip",
+          "test-results/playwright-ux-smoke/infra.probe.e2e-Core-Syste-1ab0d-o-STT-ENGINE-MISSING-errors-infra-probe/trace.zip",
+          "test-results/playwright-ux-smoke/infra.probe.e2e-Core-Syste-0dbb6-or-identity-guard-is-active-infra-probe/trace.zip"
+        ]
+      },
+      "releaseStatus": "browser_user_experience_not_green_setup_blocked",
+      "currentRead": "Current main builds and quality is green, but browser UX smoke is still blocked before STT execution by the runtime mock-auth hard gate. This is not a Private, Native, or Cloud transcript accuracy result. It prevents browser proof of Private cumulative text, Native formatter/trust hooks, and Cloud app-path UX until the setup/auth harness path is fixed."
     }
   ],
   "timingContract": {
@@ -2522,7 +2559,7 @@
       "stopToDetailVisibleMs": "Total post-stop user wait."
     }
   },
-  "classificationUpdatedAt": "2026-06-03T17:06:00Z",
+  "classificationUpdatedAt": "2026-06-03T17:14:00Z",
   "classifications": {
     "cloud": {
       "status": "caveated_closest",
@@ -2540,5 +2577,5 @@
       "next": "Fix trust-state labeling for Native interim/committed live text, increase/full-export Native trace for release proofs, decide/activate Native formatter if Native remains visible, verify detail extraction, then rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-03T17:06:00Z"
+  "lastUpdatedAt": "2026-06-03T17:14:00Z"
 }

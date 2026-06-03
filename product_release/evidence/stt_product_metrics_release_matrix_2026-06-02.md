@@ -1053,3 +1053,51 @@ Current remaining blocker from this sweep:
 Browser UX smoke still needs the auth/test-harness setup fixed so the app reaches
 html[data-app-visible-ready="true"] and can prove real user-facing STT behavior.
 ```
+
+### Current Main Browser UX Smoke Rerun: 2026-06-03T17:14Z
+
+Commit under test:
+
+```text
+main: 6855f598
+command: pnpm rc:ux:smoke
+```
+
+Result:
+
+| Check | Result |
+| --- | --- |
+| Build step | **Pass** |
+| Playwright browser UX smoke | **Fail:** 5 infra-probe tests failed; 9 tests did not run |
+| First broken gate | `setup.auth_tier` / app visible-ready |
+| Selector waited | `html[data-app-visible-ready="true"]` |
+| Root browser error | `Mock auth is not available from the runtime app. Use the centralized E2E test harness or create real test users through the test-user workflow.` |
+
+Failed tests:
+
+```text
+tests/e2e/infra.probe.e2e.spec.ts:
+- app boots without runtime errors
+- FSM transitions correctly
+- mock transcription flows through system
+- no STT_ENGINE_MISSING errors
+- Forensic Audit: negotiator identity guard is active
+```
+
+Representative artifacts:
+
+```text
+test-results/playwright-ux-smoke/infra.probe.e2e-Core-Syste-03a92-oots-without-runtime-errors-infra-probe/trace.zip
+test-results/playwright-ux-smoke/infra.probe.e2e-Core-Syste-4d265-c-FSM-transitions-correctly-infra-probe/trace.zip
+test-results/playwright-ux-smoke/infra.probe.e2e-Core-Syste-8f02e-iption-flows-through-system-infra-probe/trace.zip
+test-results/playwright-ux-smoke/infra.probe.e2e-Core-Syste-1ab0d-o-STT-ENGINE-MISSING-errors-infra-probe/trace.zip
+test-results/playwright-ux-smoke/infra.probe.e2e-Core-Syste-0dbb6-or-identity-guard-is-active-infra-probe/trace.zip
+```
+
+Current release interpretation:
+
+```text
+Quality is green on current main, but browser user-experience proof is still blocked
+before STT execution. This is not a Private/Native/Cloud transcript result; it is a
+test setup/app boot gate that must be fixed before browser UX claims are valid.
+```
