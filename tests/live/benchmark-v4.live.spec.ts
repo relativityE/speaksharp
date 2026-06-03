@@ -16,6 +16,7 @@ import {
     waitForBenchmarkSaveCandidate,
     waitForBenchmarkSession,
     writeBenchmarks,
+    attachPrivateBenchmarkEvidence,
 } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
@@ -28,6 +29,10 @@ test.use({
             `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_AUDIO}`,
         ]
     }
+});
+
+test.afterEach(async ({ page }, testInfo) => {
+    await attachPrivateBenchmarkEvidence(page, testInfo, 'private-v4');
 });
 
 test('measure Transformers.js v4 worker', async ({ page }) => {
