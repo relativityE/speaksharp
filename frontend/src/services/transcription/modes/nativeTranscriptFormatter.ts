@@ -58,6 +58,8 @@ export interface NativeFormatterTelemetry {
   /** Client-side seam guard result (final authority on acceptance). */
   wordPreserving: boolean | null;
   errorCode: string | null;
+  /** Upstream provider HTTP status (e.g. Gemini's) on a provider error — diagnoses a 502. */
+  providerStatus: number | null;
   fallbackToRaw: boolean;
   at: number;
 }
@@ -74,6 +76,7 @@ const EMPTY_TELEMETRY: NativeFormatterTelemetry = {
   serverWordPreserving: null,
   wordPreserving: null,
   errorCode: null,
+  providerStatus: null,
   fallbackToRaw: false,
   at: 0,
 };
@@ -204,7 +207,10 @@ export async function formatNativeTranscript(raw: string): Promise<string> {
       outputChars: meta.outputChars ?? outputChars,
       serverWordPreserving: meta.serverWordPreserving ?? null,
       wordPreserving: outcome.wordPreserving,
-      errorCode: outcome.errorCode ?? meta.errorCode ?? null,
+      // Prefer the adapter's SPECIFIC code (meta.errorCode, e.g. FORMATTER_PROVIDER_ERROR)
+      // over a generic catch default, so a 502 isn't collapsed to plain FORMATTER_ERROR.
+      errorCode: outcome.errorCode ?? meta.errorCode ?? (outcome.fallbackToRaw ? 'FORMATTER_ERROR' : null),
+      providerStatus: meta.providerStatus ?? null,
       fallbackToRaw: outcome.fallbackToRaw,
       at: startedAt,
     });
@@ -230,7 +236,9 @@ export async function formatNativeTranscript(raw: string): Promise<string> {
   } catch (error) {
     logger.warn({ error }, '[NativeTranscriptFormatter] Formatter failed; returning unformatted transcript');
     finalize(
-      { fallbackToRaw: true, wordPreserving: null, errorCode: (error as { code?: string })?.code ?? 'FORMATTER_ERROR' },
+      // No hardcoded code here: a Supabase FunctionsHttpError carries no `.code`, so
+      // let the adapter's reported meta.errorCode (the SPECIFIC edge-fn code) win.
+      { fallbackToRaw: true, wordPreserving: null, errorCode: (error as { code?: string })?.code },
       null,
     );
     return text;

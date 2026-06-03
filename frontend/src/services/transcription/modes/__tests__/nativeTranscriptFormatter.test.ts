@@ -175,5 +175,23 @@ describe('nativeTranscriptFormatter', () => {
       expect(t.fallbackToRaw).toBe(true);
       expect(t.errorCode).toBe('FORMATTER_PROVIDER_ERROR');
     });
+
+    it('surfaces the adapter-reported specific code + providerStatus (no collapse to generic)', async () => {
+      // Mirrors the real 502: the adapter reports the specific edge-fn code +
+      // Gemini status, then throws a FunctionsHttpError that has NO `.code`. The
+      // specific code + providerStatus must survive to telemetry, not collapse to
+      // a generic FORMATTER_ERROR (review of the 2026-06-03 Native proof).
+      registerNativeTranscriptFormatter((raw) => {
+        reportNativeFormatterProviderMeta({ errorCode: 'FORMATTER_PROVIDER_ERROR', providerStatus: 502 });
+        if (raw) throw new Error('format-transcript returned 502'); // no .code
+        return raw;
+      });
+      const out = await formatNativeTranscript('hello world');
+      expect(out).toBe('hello world');
+      const t = getNativeFormatterTelemetry();
+      expect(t.errorCode).toBe('FORMATTER_PROVIDER_ERROR');
+      expect(t.providerStatus).toBe(502);
+      expect(t.fallbackToRaw).toBe(true);
+    });
   });
 });
