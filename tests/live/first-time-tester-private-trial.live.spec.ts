@@ -175,6 +175,14 @@ async function clearPrivateModelStorage(page: Page) {
 async function preparePrivateModelIfPrompted(page: Page) {
   const downloadButton = page.locator('[data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
   if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    if (process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true') {
+      const snapshot = await collectBenchmarkPreconditionSnapshot(page, 'private-setup-user-consent-required');
+      throw new Error(
+        `INVALID_SETUP setup.model_provider USER_CONSENT_REQUIRED private-setup-download-visible\n` +
+        `Private model setup requires an explicit user click; this human proof must not auto-download.\n` +
+        `${JSON.stringify(snapshot, null, 2)}`
+      );
+    }
     await downloadButton.click();
   }
 
