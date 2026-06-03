@@ -1714,6 +1714,136 @@
       "timingNote": "Corrected 2026-06-02: artifact contains a second auto-start after stop; timing uses the stopped session boundary and nativeAudioReady for first-session audio start. recordingStateAt was not retained for the stopped session in the available trace."
     },
     {
+      "candidate": "native",
+      "fixture": "human_real_mic_script_2026_06_03",
+      "evidenceType": "HUMAN_REAL_MIC_BROWSER_PROOF",
+      "artifactPath": "/private/tmp/speaksharp-native-human-proof-20260603T054003Z.json",
+      "completedAt": "2026-06-03T05:41:17.882Z",
+      "pass": false,
+      "classification": "fail_release_blocker",
+      "accuracyPct": 83.93,
+      "werPct": 16.07,
+      "expectedWords": 56,
+      "selectedWords": 53,
+      "expectedFillers": 3,
+      "recognizedFillers": 2,
+      "fillerBreakdown": {
+        "um": {
+          "expected": 1,
+          "recognized": 0
+        },
+        "like": {
+          "expected": 1,
+          "recognized": 1
+        },
+        "basically": {
+          "expected": 1,
+          "recognized": 1
+        }
+      },
+      "fillerRecallPct": 66.67,
+      "falseFillerInsertions": 0,
+      "terminalPunctuationPresent": true,
+      "sentenceCount": 1,
+      "expectedSentenceCount": 4,
+      "maxRunOnWords": 53,
+      "capitalizationErrors": [
+        "Starts Now"
+      ],
+      "duplicateSentenceDetected": false,
+      "duplicateFullTranscript": false,
+      "readabilityVerdict": "fail",
+      "transcriptConfidence": "low",
+      "saveHistoryDetail": "partial_pass_save_and_history_but_detail_transcript_empty",
+      "visibleAtStop": "DraftThe whole plan the main takeaway is that we should pause before the next idea give one concrete example and endNative Chrome microphone proof. Starts Now. I want to make one simple point before we move on basically the puppy like chewed up new shoes and that changed the whole plane. The whole plan the main takeaway is that we should pause before the next idea give one concrete example and end The whole plan the main takeaway is that we should pause before the next idea give one concrete example and end",
+      "postStopTranscript": "Native Chrome microphone proof. Starts Now. I want to make one simple point before we move on basically the puppy like chewed up new shoes and that changed the whole plane. The whole plan the main takeaway is that we should pause before the next idea give one concrete example and end with.",
+      "selectedForSave": "Native Chrome microphone proof Starts Now I want to make one simple point before we move on basically the puppy like chewed up new shoes and that changed the whole plane the whole plan the main takeaway is that we should pause before the next idea give one concrete example and end with.",
+      "saveCandidateReason": "service_result",
+      "saveCandidateLengths": {
+        "selectedForSaveLength": 287,
+        "finalWordCount": 53,
+        "meaningfulWordCount": 53,
+        "resultTranscriptLength": 286,
+        "chunkTranscriptLength": 290,
+        "storeTranscriptLength": 290,
+        "storePartialTranscriptLength": 0,
+        "visibleStoreTranscriptLength": 290,
+        "frozenStopTranscriptLength": 284
+      },
+      "saved": true,
+      "historyVisible": true,
+      "analyticsVisible": true,
+      "detailTranscriptEmpty": true,
+      "timing": {
+        "onaudiostartAt": 4171.3,
+        "firstResultAt": 42392.9,
+        "firstFinalAt": 42392.9,
+        "lastFinalAt": 57811.6,
+        "stopClickedAt": 57588.1,
+        "onendAt": 57814.3,
+        "stopToOnEndMs": 226.2
+      },
+      "derivedTiming": {
+        "audioStartToFirstResultMs": 38221.6,
+        "speechStartToFirstResultMsEstimate": 15142.9,
+        "speechStartEstimateSource": "parallelCaptureSummary.speechStartMs; human said silence was spent finding the script, so audioStartToFirstResult is inflated. Estimate is useful but not authoritative because parallel capture reported only 7.1s of speech for a longer read.",
+        "firstResultToFinalCommitMs": 15419.7
+      },
+      "parallelCapture": {
+        "durationSec": 53.626625,
+        "sampleRate": 16000,
+        "rms": 0.013835,
+        "peak": 0.366958,
+        "samples": 858026,
+        "wavBytesApprox": 2288150,
+        "speechStartMs": 27250,
+        "speechEndMs": 53050,
+        "speechDurationMs": 7100,
+        "segmentCount": 22,
+        "speechSegments": 22,
+        "speechWindow": {
+          "startMs": 27250,
+          "endMs": 53050
+        },
+        "contaminationFlag": null
+      },
+      "timestampedInterimContext": {
+        "traceEventCapHit": true,
+        "firstRetainedCycleResultCount": 36,
+        "missingEarliestResultEvents": 35,
+        "finding": "The retained trace proves interim text revised rapidly, but it does not preserve the first 35 Chrome result events. Native release proofs need a larger/full trace export.",
+        "examples": [
+          {
+            "relativeToFirstRetainedResultSec": 2.64,
+            "interim": "I want to make one simple point before we move on basically the puppy like chewed up the"
+          },
+          {
+            "relativeToFirstRetainedResultSec": 2.71,
+            "interim": "I want to make one simple point before we move on basically the puppy like chewed up new"
+          },
+          {
+            "relativeToFirstRetainedResultSec": 2.91,
+            "interim": "I want to make one simple point before we move on basically the puppy like chewed up the new"
+          },
+          {
+            "relativeToFirstRetainedResultSec": 6.47,
+            "final": "native Chrome microphone proof Starts Now I want to make one simple point before we move on basically the puppy like chewed up new shoes and that changed the whole plane"
+          },
+          {
+            "relativeToFirstRetainedResultSec": 15.42,
+            "final": "the whole plan the main takeaway is that we should pause before the next idea give one concrete example and end with"
+          }
+        ]
+      },
+      "blockers": [
+        "Native interim/committed live text was not clearly labeled with a persistent trust-state disclaimer while it revised.",
+        "Trace cap dropped the earliest 35 Chrome result events, so the artifact cannot fully reconstruct first-text context.",
+        "Readability failed: one run-on sentence, random capitalization, missed filler um, and phrase correction plane/plan remained in saved text.",
+        "Detail transcript extraction was empty in the artifact even though save/history passed."
+      ],
+      "releaseStatus": "not_green_human_mic_failed_trust_ui_readability_and_detail_extraction"
+    },
+    {
       "id": "cloud_live_app_journey_26853283325",
       "candidate": "Cloud AssemblyAI baseline app path",
       "fixture": "live_cloud_artifact_script",
@@ -2273,7 +2403,7 @@
       "stopToDetailVisibleMs": "Total post-stop user wait."
     }
   },
-  "classificationUpdatedAt": "2026-06-03T02:55:00Z",
+  "classificationUpdatedAt": "2026-06-03T06:20:00Z",
   "classifications": {
     "cloud": {
       "status": "caveated_closest",
@@ -2287,9 +2417,9 @@
     },
     "native": {
       "status": "backlog_failed_current_proof",
-      "reason": "Human real-mic proof ran and failed product readiness: Chrome produced words, but selectedForSave became Listening..., save/detail failed, readability failed, and filler recall was 66.67%.",
-      "next": "Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof."
+      "reason": "Human real-mic rerun on 2026-06-03 improved authoritative save selection: selectedForSave came from service_result, save passed, history was visible, and full-speech duplication did not recur. Native still failed product readiness: user-visible interim/final text was not clearly trust-labeled while revising, earliest trace events were lost to the 500-event cap, filler recall was 66.67%, readability/punctuation/casing failed, and detail transcript extraction was empty.",
+      "next": "Fix trust-state labeling for Native interim/committed live text, increase/full-export Native trace for release proofs, decide/activate Native formatter if Native remains visible, verify detail extraction, then rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-03T02:55:00Z"
+  "lastUpdatedAt": "2026-06-03T06:20:00Z"
 }

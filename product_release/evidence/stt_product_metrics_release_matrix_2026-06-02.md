@@ -533,7 +533,7 @@ BLOCKER = missing value blocks green classification.
 | --- | --- | --- | --- |
 | Private | Caveated / not release-green | Latest workflow `26857597752` shows v2 setup/Stop/saveCandidate/final whole-utterance decode work, but the 61-word result is now classified `INVALID_PROOF_EARLY_STOP`: the harness stopped the 34.5s fixture before full completion. v4 improved from setup init-failed to ready/recording and receives non-silent audio, but every v4 inference fails with `invalid data location: undefined for input "a"`. | Rerun v2 on `0e4be547` or later to judge parity. Treat v4 as backend/config/runtime failure, not setup or mic failure. |
 | Cloud | Caveated / closest | Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. Long-speech/app-tail proof remains open. | Launch/position Cloud baseline as quality path if app-tail proof passes. DEV/PRODUCT: change/narrow/disable keyterms before defaulting it. TEST: run Cloud app journey/tail proof with `__CLOUD_STT_TIMELINE__`. |
-| Native | Backlog / failed current proof | Human real-mic proof ran and failed product readiness: Chrome produced words, but selectedForSave became `Listening...`, save/detail failed, readability failed, and filler recall was 66.67%. | Dev must fix/clarify stop-save selection; product must decide Native formatter activation/copy; rerun human Chrome mic proof. |
+| Native | Backlog / failed current proof | Latest human real-mic rerun improved save selection: authoritative `saveCandidate` selected 53 words from `service_result`, session saved, history visible, and no full duplicate. It still failed product readiness: user observed jumpy interim text/trust-state behavior, raw first result arrived ~38.2s after audio start but that number is inflated by human setup silence, filler recall remained 66.67%, readability/punctuation/casing failed, and detail transcript extraction was empty in the artifact. | Fix stable Native trust-state labeling from mic-on through final acceptance, fix/activate Native readability strategy, verify detail transcript extraction, then rerun human Chrome mic proof. |
 
 Clarifications:
 
@@ -551,8 +551,11 @@ The cheap credentialed subset confirms baseline/keyterms are both valid on
 `h1_1,h1_6,h1_8`. Keyterms improves filler recall but currently lowers h1_6
 accuracy, so it is not selected yet.
 
-Native human real-mic proof is now collected and failed. Injected mic/fake/say
-routes remain invalid release proof for Native Web Speech.
+Native human real-mic proof is now collected and failed twice. The current
+controlling run no longer points to `Listening...` as the authoritative save
+candidate, but it still fails live-text timing, filler, readability, and detail
+proof. Injected mic/fake/say routes remain invalid release proof for Native Web
+Speech.
 ```
 
 ### Short Corpus: Harvard h1_1-h1_10
@@ -772,6 +775,36 @@ Current read:
 
 ```text
 Chrome produced usable words and no full-speech duplication, but Native remains blocked by readability and stop/save selection. visibleAtStop/postStopFinal contained the transcript; postStopTranscript and selectedForSave became "Listening..." and saved marker was false. Timing fields were corrected to the stopped session boundary because the artifact also contains a second auto-start after stop.
+```
+
+### Native Human Real-Mic Rerun: 2026-06-03T05:41Z
+
+| Candidate | Evidence | Accuracy | Filler recall | Terminal punctuation | Sentence count | Max run-on words | Capitalization errors | Duplicate | Save/history/detail | First result | Release status |
+| --- | --- | ---: | ---: | --- | ---: | ---: | --- | --- | --- | ---: | --- |
+| Native | human real Chrome mic | 83.93% | 66.67% (2/3) | true | 1 / expected ~4 | 53 | Starts Now | pass | saveCandidate/session/history pass; detail transcript empty in artifact | raw 38221.6 ms after audio start; inflated by setup silence | FAIL / not release-green |
+
+Artifact:
+
+```text
+/private/tmp/speaksharp-native-human-proof-20260603T054003Z.json
+```
+
+Authoritative selected transcript:
+
+```text
+Native Chrome microphone proof Starts Now I want to make one simple point before we move on basically the puppy like chewed up new shoes and that changed the whole plane the whole plan the main takeaway is that we should pause before the next idea give one concrete example and end with.
+```
+
+Current read:
+
+```text
+The old `Listening...` selectedForSave failure is superseded for this run:
+`saveCandidate.saveCandidateReason=service_result`, selected length 287, final
+word count 53, and session saved. The raw mic-on to first-result timing is
+inflated because the user was finding the script after starting the mic. Native
+still remains not release-green because the user observed jumpy interim text and
+the trust-state disclaimer was not stable/perceptible enough, `um` is missed,
+sentence boundaries/casing are bad, and detail transcript proof is empty.
 ```
 
 ## Current-Head Private Browser Proof: 2026-06-02T21:45-05:00
