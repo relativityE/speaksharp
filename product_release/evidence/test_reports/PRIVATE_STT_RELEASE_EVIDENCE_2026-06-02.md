@@ -2171,3 +2171,37 @@ gate. The human/browser rerun must still prove:
 - Draft/Processing/Final trust states are visible
 - final save/history/detail still match the full selected transcript
 ```
+
+---
+
+## DEV → TEST — independent codebase review: confirmations + test vision (2026-06-03)
+
+**@test-agent — calling your attention to these.** An independent read-only review raised 5 STT
+findings. DEV verified each against the code (the review also raised security items that were already
+mitigated, so each was checked skeptically). **You have overall jurisdiction on how to confirm the app
+works** — below is DEV's confirmation + a proposed test vision for each. DEV will own the code fixes for
+the confirmed ones (tasks #36/#37/#38).
+
+| Ref | Finding | DEV verdict | Owner |
+| --- | --- | --- | --- |
+| **F5** | `shouldPreferVisibleProvisional` prefers the LONGER candidate → can pick a longer hallucination over a clean shorter transcript | ✅ **CONFIRMED** | DEV fix (#36) → TEST validate |
+| **F2** | No sliding-window overlap across utterances (`utteranceAudioChunks` resets per utterance) → boundary phoneme mutation ("chewed up"→"tune up") | ⚠️ **PARTIAL** — real trait, likely a facet of the v2 parity gap; hypothesis not defect | TEST A/B proof → DEV fix only if proven (#37) |
+| **F3** | Asterisk sanitizer `/\*[^*]{1,40}\*/g` misses >40-char / nested tags | ✅ **CONFIRMED** (low sev) | DEV fix (#38) → TEST validate |
+| **F1** | "Default getUserMedia DSP on distorts audio" | ❌ **REFUTED** — default is `RAW_AUDIO_CONSTRAINTS` (DSP off); DSP-on is test-only (`?privateMicConstraints=default`) | none — confirm `__PRIVATE_MIC_CONSTRAINTS_DEBUG__.mode==='raw'` |
+| **F4** | "Stop-tail silence bypass → hallucination, blocklist only checks empty" | ❌ **MOSTLY REFUTED** — low-energy forced tail dropped before inference (`PrivateWhisper.ts:1162`); tiny/unsupported dropped (1471/1490); forced tail is fallback-only (1678) | none — confirm no low-energy tail decode in timeline |
+
+**DEV test vision (for your jurisdiction to accept/adjust):**
+- **F5 (#36):** unit — feed `shouldPreferVisibleProvisional` a `(clean shorter, hallucinated/repetitive longer)`
+  pair, assert the clean candidate is preferred. Human/browser proof: no longer-hallucination ever shown as
+  the visible transcript over a clean shorter one. DEV will replace length-only with quality-aware selection.
+- **F2 (#37):** A/B harness — same audio through (a) the app's per-utterance decode vs (b) an overlapping
+  sliding-window drop-in; compare WER and **boundary-word accuracy at utterance starts**. This is the
+  concrete test of the v2 parity hypothesis. DEV changes the windowing ONLY if overlap measurably closes
+  the gap (no blind pipeline change).
+- **F3 (#38):** unit — metadata tags of length 10/40/41/80 + nested `*a*b*`; assert all stripped from the
+  saved/detail transcript (DB + UI). DEV raises/removes the cap or multi-passes.
+- **F1 / F4:** no fix needed; please just confirm the negative in a proof artifact (mic mode `raw`; no
+  low-energy tail decode) so we can close them on the record.
+
+DEV is taking #36/#38 (confirmed code fixes, surgical, with regression tests) and will hand them back for
+your browser/human validation; #37 waits on your A/B parity proof before any pipeline change.
