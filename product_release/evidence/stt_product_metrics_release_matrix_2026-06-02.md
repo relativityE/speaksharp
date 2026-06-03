@@ -942,3 +942,23 @@ sentence-sized final updates now accumulate; full-transcript provider updates
 can still replace when they truly contain the previous final as a prefix.
 Needs browser proof.
 ```
+
+## Latest Human Private v2 UX Regression: 2026-06-03T16:55Z
+
+Artifact:
+
+```text
+/private/tmp/speaksharp-private-human-41dc1997-rerun.json
+```
+
+| STT | Setup | Proof result | Blocking issue | Owner |
+| --- | --- | --- | --- | --- |
+| Private v2 human mic | setup consent observed: user saw/clicked `Set Up`; no auto-download proof violation in this run | final selected transcript strong: 94.64% accuracy, 5.36% WER, 100% filler recall, readability pass | **live visible text before Stop showed only the latest/tail sentence** (`Confirmed the score explains. transcript quality.`) instead of cumulative transcript text | dev fix, then test rerun |
+
+Release impact:
+
+```text
+Private v2 cannot be marked user-trust green until live recording shows cumulative transcript progress.
+The final saved text is good, but the in-progress experience makes longer speeches feel like earlier
+sentences are being removed.
+```
