@@ -376,8 +376,12 @@ export async function attachPrivateBenchmarkEvidence(
         url: page.url(),
     }));
 
+    const evidenceJson = JSON.stringify(evidence, null, 2);
+    const evidencePath = testInfo.outputPath(`${label}-private-benchmark-evidence.json`);
+    fs.writeFileSync(evidencePath, evidenceJson);
+
     await testInfo.attach(`${label}-private-benchmark-evidence.json`, {
-        body: Buffer.from(JSON.stringify(evidence, null, 2)),
+        path: evidencePath,
         contentType: 'application/json',
     });
 }
