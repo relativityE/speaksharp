@@ -97,6 +97,25 @@ describe('useGoals', () => {
         expect(goalsService.upsert).toHaveBeenCalledWith('user-123', newGoals);
     });
 
+    it('keeps local goal updates when remote sync fails', async () => {
+        const user = { id: 'user-123' };
+        (useAuthProvider as Mock).mockReturnValue({ user });
+        const { result } = renderHook(() => useGoals(), { wrapper });
+
+        const newGoals = { weeklyGoal: 10, clarityGoal: 95 };
+        (goalsService.upsert as Mock).mockRejectedValue(new Error('upsert unavailable'));
+
+        await act(async () => {
+            await expect(result.current.setGoals(newGoals)).resolves.toEqual(newGoals);
+        });
+
+        await waitFor(() => {
+            expect(result.current.goals).toEqual(newGoals);
+            expect(JSON.parse(localStorage.getItem('speaksharp:user-goals')!)).toEqual(newGoals);
+        });
+        expect(goalsService.upsert).toHaveBeenCalledWith('user-123', newGoals);
+    });
+
     it('resets goals to defaults', async () => {
         localStorage.setItem('speaksharp:user-goals', JSON.stringify({ weeklyGoal: 20, clarityGoal: 50 }));
         const { result } = renderHook(() => useGoals(), { wrapper });
