@@ -20,6 +20,9 @@ import {
 } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
+const HARVARD_BENCHMARK_AUDIO_MS = 34_600;
+const AUDIO_COMPLETION_MARGIN_MS = 2_000;
+
 test.use({
     launchOptions: {
         args: [
@@ -72,10 +75,12 @@ test('measure Transformers.js v4 worker', async ({ page }) => {
     await preparePrivateModelIfPrompted(page, 90_000);
 
     await page.getByTestId('session-start-stop-button').click();
+    const recordingStartedAt = Date.now();
     await expectBenchmarkRecordingStarted(page, 'private-v4');
     await expectBenchmarkTranscriptOutput(page, 'private-v4', 30_000);
 
-    await page.waitForTimeout(20_000);
+    const elapsedSinceStartMs = Date.now() - recordingStartedAt;
+    await page.waitForTimeout(Math.max(0, HARVARD_BENCHMARK_AUDIO_MS + AUDIO_COMPLETION_MARGIN_MS - elapsedSinceStartMs));
 
     await page.getByTestId('session-start-stop-button').click();
     await logBenchmarkPhase(page, 'PROOF_JOURNEY_STOP_CLICKED_PRIVATE_V4');

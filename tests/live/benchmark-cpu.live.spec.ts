@@ -7,6 +7,9 @@ import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
 import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, preparePrivateModelIfPrompted, expectBenchmarkRecordingStarted, expectBenchmarkTranscriptOutput, logBenchmarkPhase, waitForBenchmarkSaveCandidate, attachPrivateBenchmarkEvidence } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
 
+const HARVARD_BENCHMARK_AUDIO_MS = 34_600;
+const AUDIO_COMPLETION_MARGIN_MS = 2_000;
+
 test.use({
     launchOptions: {
         args: [
@@ -66,14 +69,18 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
     await preparePrivateModelIfPrompted(page, 90_000);
 
     await page.getByTestId('session-start-stop-button').click();
+    const recordingStartedAt = Date.now();
     await expectBenchmarkRecordingStarted(page, 'private-cpu');
 
     // Fast-fail: assert the engine is producing output during the recording window
     // We use word count because transcript-container shows placeholder text ("Listening...")
     await expectBenchmarkTranscriptOutput(page, 'private-cpu', 20_000);
 
-    // Wait for the remainder of the audio fixture (35s total - 15s elapsed avg)
-    await page.waitForTimeout(20_000);
+    // Wait for the full injected fixture before scoring completeness. The prior
+    // "first text + 20s" timing stopped early when first text appeared quickly,
+    // producing false 60-ish-word under-capture artifacts against the 87-word truth.
+    const elapsedSinceStartMs = Date.now() - recordingStartedAt;
+    await page.waitForTimeout(Math.max(0, HARVARD_BENCHMARK_AUDIO_MS + AUDIO_COMPLETION_MARGIN_MS - elapsedSinceStartMs));
 
     // Stop and collect transcript
     await page.getByTestId('session-start-stop-button').click();

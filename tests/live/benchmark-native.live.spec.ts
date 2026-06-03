@@ -5,13 +5,16 @@ import { test, expect } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
 import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, expectBenchmarkRecordingStarted, collectBenchmarkPreconditionSnapshot, expectBenchmarkTranscriptOutput, assertNativeSpeechRecognitionIsReal, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
-import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
+import { HARVARD_BENCHMARK_AUDIO } from './helpers/audio-fixtures';
+
+const HARVARD_BENCHMARK_AUDIO_MS = 34_600;
+const AUDIO_COMPLETION_MARGIN_MS = 2_000;
 
 test.use({
     launchOptions: {
         args: [
             ...AUDIO_ARGS,
-            `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_LONG_AUDIO}`,
+            `--use-file-for-fake-audio-capture=${HARVARD_BENCHMARK_AUDIO}`,
         ]
     }
 });
@@ -55,13 +58,15 @@ test('measure Native STT', async ({ page }) => {
         console.log(`NATIVE_BENCHMARK_PREFLIGHT ${JSON.stringify(await collectBenchmarkPreconditionSnapshot(page, `native-trial-${trial}-before-start`))}`);
 
         await page.getByTestId('session-start-stop-button').click();
+        const recordingStartedAt = Date.now();
         await expectBenchmarkRecordingStarted(page, `native-trial-${trial}`);
 
         // Fast-fail: assert the engine is producing output during the recording window
         // We use word count because transcript-container shows placeholder text ("Listening...")
         await expectBenchmarkTranscriptOutput(page, `native-trial-${trial}`, 15_000);
 
-        await page.waitForTimeout(22_000);
+        const elapsedSinceStartMs = Date.now() - recordingStartedAt;
+        await page.waitForTimeout(Math.max(0, HARVARD_BENCHMARK_AUDIO_MS + AUDIO_COMPLETION_MARGIN_MS - elapsedSinceStartMs));
 
         await page.getByTestId('session-start-stop-button').click();
         const saveCandidate = await waitForBenchmarkSaveCandidate(page, `native-trial-${trial}`);
