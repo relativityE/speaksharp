@@ -1,7 +1,7 @@
 /**
  * Benchmark: Native (WebSpeechAPI)
  */
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
 import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, expectBenchmarkRecordingStarted, collectBenchmarkPreconditionSnapshot, expectBenchmarkTranscriptOutput, assertNativeSpeechRecognitionIsReal, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
