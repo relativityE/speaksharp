@@ -36,12 +36,19 @@ import { corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 
 // --- Configuration ----------------------------------------------------------
 const PROVIDER = 'gemini';
-const FORMATTER_MODEL = 'gemini-3-flash-preview';
+// Model is env-overridable so the provider model can be swapped via a Supabase
+// secret WITHOUT a code redeploy (e.g. if `gemini-3-flash-preview` is invalid/slow,
+// set FORMATTER_MODEL=gemini-2.0-flash). Default preserves current behavior.
+const FORMATTER_MODEL = Deno.env.get('FORMATTER_MODEL') || 'gemini-3-flash-preview';
 const GEMINI_API_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/${FORMATTER_MODEL}:generateContent`;
 export const FORMATTER_VERSION = 'format-transcript@1.0.0';
 const MAX_TRANSCRIPT_CHARS = 8000;
-const PROVIDER_TIMEOUT_MS = 15_000;
+// Raised from 15s and env-overridable. A flash model on a short transcript should
+// return in 1-3s; the 2026-06 Native proof saw ~15.9s -> 504 (request aborted, which
+// HIDES providerStatus). A higher cap lets a slow-but-working call complete OR surface
+// the real Gemini status (providerStatus/providerStatusEnum) instead of a blind timeout.
+const PROVIDER_TIMEOUT_MS = Number(Deno.env.get('FORMATTER_TIMEOUT_MS')) || 28_000;
 
 /**
  * Default formatting instruction. MUST stay in sync with the frontend adapter's
