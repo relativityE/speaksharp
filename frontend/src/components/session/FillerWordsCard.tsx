@@ -48,7 +48,13 @@ export const FillerWordsCard: React.FC<FillerWordsCardProps> = ({
                         const isZero = data.count === 0;
                         const wordColor = getWordColor(word.toLowerCase());
                         return (
-                            <div key={word} className={`flex min-h-[48px] flex-col items-center justify-center rounded-md px-1.5 py-1 text-center ${isZero ? 'bg-muted/40' : 'bg-white border border-[hsl(var(--border-strong))]'}`} data-testid="filler-badge">
+                            <div
+                                key={word}
+                                className={`flex min-h-[48px] flex-col items-center justify-center rounded-md px-1.5 py-1 text-center ${isZero ? 'bg-muted/40' : 'bg-white border border-[hsl(var(--border-strong))]'}`}
+                                data-testid={`filler-row-${word.toLowerCase()}`}
+                                data-filler-word={word.toLowerCase()}
+                                data-filler-count={data.count}
+                            >
                                 <span
                                     className={`max-w-full truncate text-sm leading-tight ${isZero ? 'font-extrabold text-foreground/85' : 'font-black'}`}
                                     style={{
