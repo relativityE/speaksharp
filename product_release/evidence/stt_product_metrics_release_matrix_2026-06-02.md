@@ -895,3 +895,50 @@ fixed, v4 is still the strongest Private candidate based on Node/full-WAV
 evidence. If not fixed, v4 must be hidden/disabled for release regardless of its
 promising Node numbers.
 ```
+
+## Private v2 Human Mic Proof: 2026-06-03T06:05Z
+
+Artifact:
+
+```text
+/private/tmp/speaksharp-private-v2-human-proof-2026-06-03T060231313Z.json
+```
+
+Classification:
+
+```text
+CAVEATED_POST_SETUP_PROOF
+```
+
+This is not valid first-time setup/download proof because the harness clicked
+the Private setup/download button automatically. The run is still useful as a
+post-setup Private v2 human real-mic quality signal.
+
+| Candidate | Evidence | Accuracy | WER | Filler recall | False fillers | Sentence count | Max run-on | Save/history/detail | Release implication |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| Private v2 | human real mic, post-setup caveat | 91.07% | 8.93% | 66.67% | 0 | 2 / expected ~4 | 49 | saved true; history/detail failed in artifact | Better than Native human on accuracy, still caveated. |
+| Native Chrome | human real mic | 83.93% | 16.07% | 66.67% | 0 | 1 / expected ~4 | 53 | save/history pass; detail empty | Not release-green; readability/punctuation failed. |
+
+Private selected transcript:
+
+```text
+Private local microphone proof starts now. I want to make one simple point before we move on Basically the puppy like chewed up the new shoes that changed the whole plane plan The main ticker ways that we should pause before the next idea give one concrete example and end with a clear next step.
+```
+
+New live-final assembly issue:
+
+```text
+User observed the visible transcript ending as only: "With a clear next step."
+The JSON saveCandidate retained the full transcript, so this artifact does not
+prove saved-data loss. It does prove a user-trust failure: sentence-sized final
+updates were visible as replacements instead of accumulated final text.
+```
+
+Fix status:
+
+```text
+Implemented in TranscriptionService and covered by focused unit regression:
+sentence-sized final updates now accumulate; full-transcript provider updates
+can still replace when they truly contain the previous final as a prefix.
+Needs browser proof.
+```

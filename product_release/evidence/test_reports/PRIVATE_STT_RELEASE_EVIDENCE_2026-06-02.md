@@ -1363,3 +1363,121 @@ Immediate dev ask:
    device/backend, ORT/WASM config, dtype shape, input tensor allocation, and
    package/model asset versions.
 3. Do not score v4 WER until saveCandidate exists.
+
+## TEST AGENT UPDATE: Private v2 Human Mic Proof (2026-06-03T06:05Z)
+
+Artifact:
+
+```text
+/private/tmp/speaksharp-private-v2-human-proof-2026-06-03T060231313Z.json
+```
+
+This run is **not valid first-time setup/download proof**. The harness clicked
+the mic-window setup/download control automatically, which violates the product
+trust rule that a user must explicitly choose Private model setup. Treat this
+artifact only as a **post-setup Private v2 human real-mic transcript proof**.
+
+Setup consequence:
+
+```text
+The next Private human proof must stop when the setup/download button is visible,
+tell the user to click it, and record that explicit click. Do not auto-download
+the model for a user.
+```
+
+### Old vs New Private Human JSON
+
+| Field | Old run `055924777Z` | New run `060231313Z` |
+| --- | --- | --- |
+| Setup result | invalid | caveated post-setup proof |
+| First blocker | `Could not select private; state=native` | setup/download was auto-clicked by harness |
+| `selectedForSave` | empty | full transcript, `296` chars |
+| `saveCandidateReason` | `null` | `service_result` |
+| Final words | n/a | `55` / expected `56` |
+| Accuracy | n/a | `91.07%` |
+| WER | n/a | `8.93%` |
+| Filler recall | n/a | `66.67%` (`basically`, `like`; missed `um`) |
+| False filler insertions | n/a | `0` |
+| Terminal punctuation | n/a | present |
+| Sentence count | n/a | `2`, expected about `4` |
+| Max run-on words | n/a | `49` |
+| Save/history/detail | n/a | saved true; history/detail failed in artifact |
+
+Selected transcript:
+
+```text
+Private local microphone proof starts now. I want to make one simple point before we move on Basically the puppy like chewed up the new shoes that changed the whole plane plan The main ticker ways that we should pause before the next idea give one concrete example and end with a clear next step.
+```
+
+Authoritative save-candidate numbers:
+
+| Field | Value |
+| --- | ---: |
+| `selectedForSaveLength` | `296` |
+| `finalWordCount` | `55` |
+| `meaningfulWordCount` | `55` |
+| `resultTranscriptLength` | `295` |
+| `chunkTranscriptLength` | `296` |
+| `storeTranscriptLength` | `296` |
+| `storePartialTranscriptLength` | `0` |
+| `visibleStoreTranscriptLength` | `296` |
+| `frozenStopTranscriptLength` | `23` |
+
+### Comparison Against Native Human Run
+
+| Candidate | Evidence | Accuracy | WER | Filler recall | Sentence count | Max run-on | Save/history/detail | Release read |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| Private v2 | human real mic, post-setup caveat | `91.07%` | `8.93%` | `66.67%` | `2 / ~4` | `49` | saved true; history/detail failed in artifact | Better transcript quality than Native, but still caveated. |
+| Native Chrome | human real mic | `83.93%` | `16.07%` | `66.67%` | `1 / ~4` | `53` | save/history pass; detail empty in artifact | Worse readability/accuracy; still not release-green. |
+
+Current read:
+
+```text
+Private v2 human real-mic quality is materially better than the Native human
+run on the same style of script, but it is not release-green. It missed `um`,
+has weak sentence boundaries/run-on text, contains recognition errors
+(`plane plan`, `ticker ways`), and failed history/detail in the artifact. The setup
+consent path is invalid because the harness auto-clicked model setup.
+```
+
+### Newly Observed Live Final-Overwrite Bug
+
+User-visible symptom after Stop:
+
+```text
+With a clear next step.
+```
+
+The JSON shows the authoritative `saveCandidate` retained the full transcript,
+so this is not proven as saved-data loss in this artifact. It is still a P0 user
+trust bug: each finalized sentence/chunk appeared to overwrite the previous
+visible final text during the live session, leaving only the latest segment on
+screen.
+
+Implemented fix pending browser proof:
+
+```text
+TranscriptionService now accumulates sentence-sized final updates instead of
+replacing prior final text. If a provider sends a true full-transcript prefix,
+the service still uses the fuller replacement. If it sends a new final segment,
+the service appends it with overlap de-duplication.
+```
+
+Verification so far:
+
+```text
+pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+  frontend/src/services/transcription/__tests__/TranscriptionService.test.ts \
+  frontend/src/services/__tests__/SpeechRuntimeController.test.ts
+
+33 tests passed.
+```
+
+Required rerun:
+
+1. Fresh Private v2 human proof where the user explicitly clicks setup/download
+   if needed.
+2. Confirm the stable Draft trust banner appears at mic-on.
+3. Confirm each final sentence appends to prior visible final text.
+4. Confirm Stop/save/history/detail contain the whole speech.
+5. Recompute accuracy, filler recall, readability, and timing from the new JSON.

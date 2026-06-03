@@ -1,7 +1,7 @@
 **Owner:** [unassigned]
 **Last Reviewed:** 2026-05-26
 **Version:** v0.1
-**Last Updated:** 2026-06-01
+**Last Updated:** 2026-06-03
 
 # Release Backlog
 
@@ -64,6 +64,32 @@ This file tracks known issues, tech debt, and deferred cleanup that should not i
 | P2 | Session UI polish | Session page still has post-release polish opportunities around exact hierarchy density, mobile screenshots, and final visual tuning beyond the controlled-tester flow. | The page can be improved, but current controlled desktop tester gates are no longer blocked by Session layout/status. | Schedule after controlled-tester release. Keep any follow-up visual work separate from STT lifecycle changes and validate with screenshots. |
 | P2 | Manual mic proof environment | Agent-run Chrome CDP evidence is not the same as a normal human speaking into a physical mic. | Public-launch claims should not overstate CDP proof as `manual-real-mic`. | Keep evidence labels explicit. Reserve `manual-real-mic` for a visible Chrome pass using a human-spoken phrase and normal browser mic settings. |
 | P2 | Manual validation tooling | During the Free/Pro live walkthrough, the Codex in-app browser became wedged on `/session`; navigation away and creating a clean tab timed out at `about:blank`. A later dedicated Chrome CDP session on port `9222` allowed Free and Pro UI operation, but it still needs clear evidence labeling because Chrome was launched with mic permission auto-allow and speech stimulus came from macOS `say`. | Tool choice can change the apparent STT result, and mislabeled evidence can create false confidence or false blockers. | Prefer the dedicated Chrome CDP session for agent-operated live UI checks. Label evidence as `Chrome CDP live UI`, include account source, media setup, and artifact paths. Reserve `manual-real-mic` for a visible Chrome pass using a human-spoken phrase and normal browser mic settings. |
+
+## June 3 STT Human-Test Backlog
+
+Latest source of truth:
+
+```text
+product_release/evidence/test_reports/PRIVATE_STT_RELEASE_EVIDENCE_2026-06-02.md
+product_release/evidence/test_reports/NATIVE_STT_RELEASE_EVIDENCE_2026-06-02.md
+product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.md
+product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json
+```
+
+| Priority | Finding | Engine | Evidence | Status / owner |
+|---|---|---|---|---|
+| P0 | Private setup/download consent was violated by harness auto-click. | Private | Human proof `2026-06-03T06:05Z`: harness clicked the mic-window setup/download control; user did not explicitly approve model setup. | **Open.** Next human proof must stop at visible setup/download and require the user to click. Do not auto-download for user-facing consent proof. |
+| P0 | Private mode unavailable when credentials/tier are wrong. | Private | Human proof `2026-06-03T06:00Z`: `Could not select private; state=native`. | **Open setup gate.** Trial/Pro entitlement must be preflighted before STT proof; invalid setup must not be scored. |
+| P0 | Private detail/history journey failed in the human artifact. | Private | Human proof `2026-06-03T06:05Z`: `saved=true`, `historyVisible=false`, `detailContainsSelected=false`; analytics/detail body was stuck on `Readying your experience / Synchronizing your preferences`. | **Open.** First boundary is analytics/profile/detail readiness after save. Determine whether this is product profile readiness, test account/profile setup, or harness wait/extraction. Release proof fails until history/detail match `saveCandidate.selectedForSave`. |
+| P0 | Visible final text replaced prior visible text during Private human proof. | Private | User observed only `"With a clear next step."` after Stop while JSON `saveCandidate` retained the full transcript. | **Fixed in code, pending browser proof.** `TranscriptionService` now accumulates sentence-sized final updates and preserves true full-transcript replacement. Rerun required. |
+| P1 | Private human real-mic accuracy is promising but not green. | Private | Human proof `2026-06-03T06:05Z`: 91.07% accuracy / 8.93% WER, but setup consent, readability, filler recall, and journey failed. | **Caveated.** Keep as post-setup quality signal only; do not call release-green. |
+| P1 | Filler `um` was missed in both human STT proofs. | Private + Native | Private and Native human proofs each recognized `basically` and `like`, but missed `um` (66.67% filler recall). | **Open product metric blocker.** Score/coaching confidence must account for missed fillers; do not overstate filler coaching from these transcripts. |
+| P1 | Private readability/run-on failed. | Private | Human proof `2026-06-03T06:05Z`: 2 sentences vs expected about 4, max run-on 49, recognition errors `plane plan` and `ticker ways`. | **Open.** Needs punctuation/readability path and score-confidence gating; retest after final-append fix. |
+| P1 | Native artifact expected-script field was wrong. | Native | Native proof artifact `spokenSentence` contained a short/default sentence instead of the full script the user read. | **Fixed in harness, pending rerun.** `scripts/manual-native-chrome-proof.mjs` now emits `expectedScript`, `spokenChunks`, and legacy `spokenSentence` as the full expected text. |
+| P1 | Native trust disclaimer was not sufficiently stable/perceptible. | Native | User saw jumpy Native interim text and unclear trust state. | **Fixed in code, pending browser proof.** Stable mic-on Draft banner is shipped; rerun must confirm visibility through final acceptance. |
+| P1 | Native punctuation/casing/readability failed. | Native | Native human proof: `Starts Now`, 1 sentence vs expected about 4, max run-on 53. | **Open.** Native formatter/product decision still required if Native remains visible. |
+| P1 | Native detail transcript was empty. | Native | Native human proof: `saved=true`, `historyVisible=true`, `detailTranscript=""`. | **Open journey gate.** Rerun must read `saveCandidate`, saved row text, and detail DOM separately; dev patches only if app state diverges. |
+| P1 | Native trace lost early result events. | Native | Native proof trace capped at 500 events; first retained raw result already had `cycleResultCount: 36`. | **Fixed in code, pending browser proof.** Trace cap raised to 5,000; rerun must prove early events are retained. |
 
 ## May 30 Manual STT Live-Test Ledger
 
