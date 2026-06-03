@@ -138,7 +138,13 @@ async function init(id: number, isE2E: boolean): Promise<void> {
         model: PRIV_STT_V4.MODEL_ID,
         device: loaded.device,
     });
-    await warmUp(id);
+    try {
+        await warmUp(id);
+    } catch {
+        // Warm-up is an optimization, not a readiness gate. If the model loaded
+        // successfully, let the engine start and surface any real decode errors
+        // during transcription instead of stranding Private v4 in init-failed.
+    }
     post({ id, type: 'ready' });
 }
 
