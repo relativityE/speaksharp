@@ -31,10 +31,41 @@ export interface UseUserProfileOptions {
   retry?: UseQueryOptions['retry'];
   /** Override retry delay (default: exponential backoff up to 30s) */
   retryDelay?: UseQueryOptions['retryDelay'];
+  /** Override the per-attempt fetch timeout (default 12s). 0 disables it. */
+  fetchTimeoutMs?: number;
+}
+
+/**
+ * Bound a fetch so a hung request (network stall, post-decode contention) becomes
+ * a *rejection* instead of pending forever. Without this, a never-settling profile
+ * fetch wedges ProfileGuard on the "Readying your experience" screen indefinitely
+ * (React Query's `retry` only fires on rejection), blocking the whole app —
+ * including the analytics/detail journey after a session save (#28).
+ */
+export class ProfileFetchTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Profile fetch timed out after ${timeoutMs}ms`);
+    this.name = 'ProfileFetchTimeoutError';
+  }
+}
+
+const DEFAULT_PROFILE_FETCH_TIMEOUT_MS = 12_000;
+
+function withFetchTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  if (!timeoutMs || timeoutMs <= 0) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new ProfileFetchTimeoutError(timeoutMs)), timeoutMs);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
 }
 
 export const useUserProfile = (options: UseUserProfileOptions = {}) => {
   const { session } = useAuthProvider();
+
+  const fetchTimeoutMs = options.fetchTimeoutMs ?? DEFAULT_PROFILE_FETCH_TIMEOUT_MS;
 
   // Production defaults: 3 retries with exponential backoff
   const retryConfig = options.retry ?? 3;
@@ -51,8 +82,9 @@ export const useUserProfile = (options: UseUserProfileOptions = {}) => {
       const startTime = Date.now();
 
       try {
-        // P2-6 FIX: Use domain service instead of direct Supabase call
-        const profile = await profileService.getById(session.user.id);
+        // P2-6 FIX: Use domain service instead of direct Supabase call.
+        // Bounded so a hung fetch can't wedge ProfileGuard on the loading screen (#28).
+        const profile = await withFetchTimeout(profileService.getById(session.user.id), fetchTimeoutMs);
         const duration = Date.now() - startTime;
 
         logger.info({ userId: session.user.id, durationMs: duration }, '[useUserProfile] Profile fetched successfully');

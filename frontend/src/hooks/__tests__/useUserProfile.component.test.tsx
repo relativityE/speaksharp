@@ -1,5 +1,5 @@
 import { renderHook, waitFor } from '@testing-library/react';
-import { useUserProfile } from '../useUserProfile';
+import { useUserProfile, ProfileFetchTimeoutError } from '../useUserProfile';
 import { useAuthProvider } from '../../contexts/AuthProvider';
 import { profileService } from '../../services/domainServices';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -67,6 +67,38 @@ describe('useUserProfile', () => {
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
         expect(result.current.data).toEqual(mockProfile);
         expect(profileService.getById).toHaveBeenCalledWith('test-user-id');
+    });
+
+    it('REGRESSION(#28): rejects with ProfileFetchTimeoutError when the fetch hangs, so ProfileGuard cannot wedge on "Readying your experience"', async () => {
+        const mockUser = { id: 'test-user-id' };
+        (useAuthProvider as unknown as Mock).mockReturnValue({ session: { user: mockUser } });
+        // Never settles — simulates a hung Supabase profile fetch (the infinite-spinner cause).
+        (profileService.getById as unknown as Mock).mockReturnValue(new Promise(() => {}));
+
+        const { result } = renderHook(
+            () => useUserProfile({ retry: false, fetchTimeoutMs: 50 }),
+            { wrapper },
+        );
+
+        await waitFor(() => expect(result.current.isError).toBe(true));
+        expect(result.current.error).toBeInstanceOf(ProfileFetchTimeoutError);
+        expect(result.current.isLoading).toBe(false);
+        expect(result.current.data).toBeUndefined();
+    });
+
+    it('does not time out a fast successful fetch (no false positives)', async () => {
+        const mockUser = { id: 'test-user-id' };
+        const mockProfile = { id: 'test-user-id', subscription_status: 'pro' };
+        (useAuthProvider as unknown as Mock).mockReturnValue({ session: { user: mockUser } });
+        (profileService.getById as unknown as Mock).mockResolvedValue(mockProfile);
+
+        const { result } = renderHook(
+            () => useUserProfile({ fetchTimeoutMs: 1000 }),
+            { wrapper },
+        );
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+        expect(result.current.data).toEqual(mockProfile);
     });
 
     it('should handle errors gracefully with injectable retry disabled', async () => {
