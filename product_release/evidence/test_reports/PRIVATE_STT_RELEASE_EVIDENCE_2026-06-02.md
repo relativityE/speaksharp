@@ -2071,12 +2071,25 @@ Draft, Processing, Final, save/history/detail, or cumulative live text.
 
 Required next action:
 
-1. Fix the lint blockers.
-2. Fix the browser smoke setup path: use centralized E2E harness or real test
+1. Fix the browser smoke setup path: use centralized E2E harness or real test
    users so the app reaches `data-app-visible-ready="true"`.
-3. Rerun Private v2 human/browser proof on the merged SHA:
+2. Rerun Private v2 human/browser proof on the merged SHA:
    - setup consent explicit
    - draft/trust banner visible from mic-on
    - live transcript cumulative before Stop
    - Stop final selected transcript full/readable
    - save/history/detail match
+
+### Lint Blocker Closed: 2026-06-03T17:06Z
+
+Commit `48826d73` clears the lint blockers above. Verification:
+
+```text
+pnpm quality
+
+PASS: lint, typecheck, eslint-disable hygiene
+```
+
+Private browser proof remains open because `pnpm rc:ux:smoke` still needs a valid
+auth/test-harness setup path before it can reach mic-on and prove cumulative live
+text.

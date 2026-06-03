@@ -1032,8 +1032,24 @@ state banners, or score confidence behavior in a real browser.
 
 Dev/test action required:
 
-1. Fix the lint blockers above.
-2. Decide whether `rc:ux:smoke` should run through the centralized E2E test harness
+1. Decide whether `rc:ux:smoke` should run through the centralized E2E test harness
    or real test users, then make the app reach `data-app-visible-ready="true"`.
-3. Rerun browser UX smoke and targeted Private/Native proofs on the merged SHA.
-4. Only then classify the candidate as user-trust green.
+2. Rerun browser UX smoke and targeted Private/Native proofs on the merged SHA.
+3. Only then classify the candidate as user-trust green.
+
+### Lint Blocker Closed: 2026-06-03T17:06Z
+
+Commit `48826d73` clears the lint blockers above. Verification:
+
+```text
+pnpm quality
+
+PASS: lint, typecheck, eslint-disable hygiene
+```
+
+Current remaining blocker from this sweep:
+
+```text
+Browser UX smoke still needs the auth/test-harness setup fixed so the app reaches
+html[data-app-visible-ready="true"] and can prove real user-facing STT behavior.
+```

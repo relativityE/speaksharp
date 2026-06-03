@@ -840,8 +840,20 @@ before app visible-ready.
 
 Required next action:
 
-1. Fix lint blockers shared in the matrix.
-2. Fix the browser smoke setup path.
-3. If Cloud app-path proof is rerun later, capture `window.__CLOUD_STT_TIMELINE__`,
+1. Fix the browser smoke setup path.
+2. If Cloud app-path proof is rerun later, capture `window.__CLOUD_STT_TIMELINE__`,
    stop-to-termination timing, tail preservation, save/history/detail, readability,
    and baseline-vs-formatted output before enabling Gemini formatting by default.
+
+### Lint Blocker Closed: 2026-06-03T17:06Z
+
+Commit `48826d73` clears the lint blockers shared in the matrix. Verification:
+
+```text
+pnpm quality
+
+PASS: lint, typecheck, eslint-disable hygiene
+```
+
+Cloud app-path proof remains lower priority than Private/Native, but any future
+browser proof still needs the auth/test-harness setup path fixed first.
