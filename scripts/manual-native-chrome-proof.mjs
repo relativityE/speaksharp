@@ -356,6 +356,7 @@ try {
   evidence.postStopTranscript = compact(await page.getByTestId('transcript-container').textContent().catch(() => ''));
   evidence.saved = await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false);
   evidence.saveCandidate = await readAuthoritativeSaveCandidate(page);
+  evidence.nativeFormatterLast = await page.evaluate(() => window.__NATIVE_FORMATTER_LAST__ || null).catch(() => null);
   evidence.nativeTrace = await page.evaluate(() => window.__NATIVE_BROWSER_TRACE__ || []);
   evidence.nativeTraceSummary = extractNativeTraceSummary(evidence.nativeTrace);
   evidence.nativeParallelCapture = await page.evaluate(() => {
