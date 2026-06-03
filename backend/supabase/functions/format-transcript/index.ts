@@ -291,13 +291,23 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
     });
     providerStatus = geminiResponse.status;
     if (!geminiResponse.ok) {
-      // Drain body for status only; do not log transcript-bearing content.
-      await geminiResponse.text().catch(() => '');
-      logEvent('error', { requestId, userIdHash, code: 'FORMATTER_PROVIDER_ERROR', providerStatus, transcriptHash });
+      // Extract ONLY Gemini's error STATUS ENUM (e.g. NOT_FOUND / RESOURCE_EXHAUSTED /
+      // PERMISSION_DENIED / INVALID_ARGUMENT) — it diagnoses the 502 root cause and can
+      // never contain transcript text. Never log the free-text body.
+      let providerStatusEnum: string | undefined;
+      try {
+        const errBody = await geminiResponse.text();
+        const parsed = JSON.parse(errBody) as { error?: { status?: unknown } };
+        if (typeof parsed?.error?.status === 'string') providerStatusEnum = parsed.error.status;
+      } catch {
+        /* non-JSON error body — status code alone still diagnoses */
+      }
+      logEvent('error', { requestId, userIdHash, code: 'FORMATTER_PROVIDER_ERROR', providerStatus, providerStatusEnum, transcriptHash });
       return errorResponse('FORMATTER_PROVIDER_ERROR', 'Formatter provider error.', responseHeaders, {
         provider: PROVIDER,
         model: FORMATTER_MODEL,
         providerStatus,
+        providerStatusEnum,
         requestId,
       });
     }

@@ -47,23 +47,29 @@ interface FormatTranscriptMetadata {
 }
 
 /**
- * Best-effort extraction of the stable error `code` from a Supabase
- * FunctionsHttpError (its `.context` is the raw Response with our { error, code }
- * body). Never throws; returns null if unavailable.
+ * Best-effort extraction of the stable error `code` AND upstream `providerStatus`
+ * from a Supabase FunctionsHttpError (its `.context` is the raw Response with our
+ * { error, code, metadata:{ providerStatus } } body). Never throws. Surfacing the
+ * SPECIFIC code (e.g. FORMATTER_PROVIDER_ERROR) + the Gemini HTTP status is what
+ * lets a proof diagnose a 502 instead of a collapsed generic FORMATTER_ERROR.
  */
-async function extractEdgeErrorCode(error: unknown): Promise<string | null> {
+async function extractEdgeError(error: unknown): Promise<{ code: string | null; providerStatus: number | null }> {
   try {
     const ctx = (error as { context?: unknown })?.context;
     if (ctx && typeof (ctx as Response).clone === 'function') {
-      const body = await (ctx as Response).clone().json().catch(() => null);
-      if (body && typeof (body as { code?: string }).code === 'string') {
-        return (body as { code: string }).code;
-      }
+      const body = await (ctx as Response).clone().json().catch(() => null) as
+        | { code?: unknown; metadata?: { providerStatus?: unknown } }
+        | null;
+      const code = typeof body?.code === 'string' ? body.code : null;
+      const providerStatus = typeof body?.metadata?.providerStatus === 'number'
+        ? body.metadata.providerStatus
+        : null;
+      return { code, providerStatus };
     }
   } catch {
     /* ignore — telemetry is best-effort */
   }
-  return null;
+  return { code: null, providerStatus: null };
 }
 
 /**
@@ -104,8 +110,11 @@ export function createGeminiNativeFormatter(): NativeTranscriptFormatter {
       body: { transcript: text, instruction: NATIVE_FORMATTER_INSTRUCTION, engine: 'native' },
     });
     if (error) {
-      const code = await extractEdgeErrorCode(error);
-      reportNativeFormatterProviderMeta({ errorCode: code ?? 'FUNCTION_HTTP_ERROR' });
+      const { code, providerStatus } = await extractEdgeError(error);
+      reportNativeFormatterProviderMeta({
+        errorCode: code ?? 'FUNCTION_HTTP_ERROR',
+        providerStatus,
+      });
       throw error; // bubble to formatNativeTranscript -> falls back to raw
     }
     if (data && typeof (data as { error?: string }).error === 'string') {
