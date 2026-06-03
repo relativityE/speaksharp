@@ -1,7 +1,7 @@
 # STT Speed, Accuracy, And Market Survival Review
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-02T21:05:00Z  
+**Last updated:** 2026-06-03T22:15:00Z  
 **Owner:** STT test/release agent  
 **Audience:** dev agent, product reviewer, test agent, launch decision maker  
 **Status:** Current snapshot and approach request
@@ -19,17 +19,25 @@ No embarrassing duplication, truncation, or late surprise text.
 Analytics and score based on the transcript the user actually trusts.
 ```
 
+Reviewer/product strategy update:
+
+```text
+Cloud cannot be the front-door quality crutch.
+Native and Private must build trust before payment.
+Cloud is the paid quality accelerator for longer, cleaner, deeper practice.
+```
+
 For launch, the bar should be:
 
 | Mode | Market role | Required standard |
 | --- | --- | --- |
-| Cloud | Best quality and full-speech path | Close first. It should be the STT we can brag about if credentialed proof passes. |
-| Private | Privacy-preserving Pro value path | Must be at or near Native customer-expectation speed/quality, and must not degrade the Whisper/drop-in path. |
-| Native | Zero-setup customer expectation baseline | Must work well enough in real Chrome mic to avoid embarrassing first impressions. |
+| Native | Free/Basic front door and conversion funnel | Must work well enough in real Chrome mic to avoid embarrassing first impressions, or it must be de-emphasized/caveated. |
+| Private | Strategic privacy/local differentiator | Must preserve consent, show progress, keep cumulative visible text, and not degrade the same-engine/drop-in final path. If slower, it must be honest about local processing. |
+| Cloud | Paid Pro quality accelerator | Baseline is the quality path for longer sessions, exports, AI coaching, and polished reports. It is not the default crutch for first-run trust. |
 
 The project is no longer blocked by "nothing works." It is blocked by whether
-we can make at least one path feel excellent, and make the others honest about
-their tradeoffs.
+Native or Private can make the first session feel trustworthy enough that Cloud
+can be sold as premium value rather than rescue.
 
 ## Two-Step Operating Model
 
@@ -96,10 +104,10 @@ Current reviewer framing:
 
 | Product path | Release posture | Why |
 | --- | --- | --- |
-| Cloud | Close first; candidate brag path | Best architecture for long/full speeches if credentialed app proof passes |
-| Private | Local/privacy value path; caveated until v2/v4 browser proof and readability close | Current v2 browser proof is much improved, but v4 app proof and punctuation/readability gates remain open |
-| Native | Quick-start/browser-dependent; backlog until current human Chrome mic proof | Fake/say/injected routes are not release proof for Web Speech |
-| Score/Analytics | Confidence-gated | Transcript quality must affect how strongly scores and analysis are presented |
+| Native | Front-door quick-start if human proof passes; de-emphasize if not | Users already expect browser speech to show words quickly; a bad Native first impression hurts conversion before Pro value is understood |
+| Private | Strategic local/privacy core; caveated until browser proof and readability close | Private earns trust without Cloud cost, but must preserve consent, progress feedback, cumulative text, and credible final output |
+| Cloud | Paid Pro quality accelerator; baseline only for launch | Best architecture for long/full speeches, AI coaching, exports, and polished reports if credentialed app proof passes |
+| Score/Analytics | Confidence-gated interpretation layer | Transcript quality must affect how strongly scores and analysis are presented |
 
 Release rule:
 
@@ -115,19 +123,19 @@ Current 24-hour direction:
 
 | Priority | Action | Owner | Release decision unlocked |
 | --- | --- | --- | --- |
-| 1 | Fix/validate Cloud credentialed baseline and A/B invalid sessions | Dev if provider/request bug; test after fix | Whether Cloud can be the quality/full-speech launch anchor |
-| 2 | Run Private v4 browser proof on the same Washington + guard-row matrix as v2 | Test/release; dev only if selector/instrumentation blocks | Whether Private can be promoted beyond caveated local path |
-| 3 | Resolve Private readability/punctuation on long speech | Dev + test | Whether Private final transcript is visually usable enough for users |
-| 4 | Run Native human Chrome mic proof | Test/release with user/human mic | Whether Native is visible quick-start or hidden/backlog |
+| 1 | Run Native human Chrome mic proof on clean/filler/realistic scripts | Test/release with user/human mic | Whether Native is visible quick-start or de-emphasized |
+| 2 | Run Private browser/human proof for setup consent, cumulative live text, trust states, and final/save parity | Test/release; dev fixes concrete boundaries | Whether Private can carry trust as local/privacy path |
+| 3 | Keep Cloud baseline proof current and stop standard-filler keyterms work | Test/release; dev only if baseline provider/request/tail bug appears | Whether Cloud baseline can be sold as Pro quality path |
+| 4 | Resolve or caveat Private/Native punctuation/readability | Dev + test | Whether transcripts are visually usable enough for users |
 | 5 | Gate Score/Analytics by transcript quality fields | Dev + product/reviewer | Whether analysis is safe to show when STT confidence is weak |
 
 Current 48-hour direction:
 
 | Track | Exit criterion |
 | --- | --- |
-| Cloud | Baseline and selected tuning variant produce non-empty transcripts, preserve tail, pass save/history/detail, and show good filler/readability metrics |
-| Private | v2 and v4 browser app proof collected equally; final transcript at or above drop-in/customer baseline or product copy is explicitly caveated |
-| Native | Human Chrome mic proof has live text, no duplicate-on-stop, save/history/detail pass, and acceptable punctuation/casing strategy |
+| Native | Three-script human Chrome mic proof has fast visible feedback, no duplicate/erase on Stop, save/history/detail pass, and acceptable formatting or clear caveat |
+| Private | Browser app proof on guard rows plus medium/long speech shows cumulative UX, final transcript completeness, and no worse-than-drop-in app behavior; punctuation/readability is acceptable or clearly caveated |
+| Cloud | Baseline app proof preserves tail, passes save/history/detail, and shows good readability/filler metrics; keyterms/prompt variants remain backlog unless reopened for custom words |
 | Score/Analytics | Transcript Quality is a first-class guardrail for score confidence and report interpretation |
 
 ## User Request Coverage Checklist
