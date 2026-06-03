@@ -170,7 +170,7 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.queryByText('Start recording and your words will appear here.')).not.toBeInTheDocument();
     });
 
-    it('keeps non-Private modes on the simple listening state with a stable draft notice', () => {
+    it('keeps non-Private modes on truthful generic processing copy with a stable draft notice', () => {
         render(
             <LiveTranscriptPanel
                 transcript=""
@@ -182,9 +182,11 @@ describe('LiveTranscriptPanel', () => {
             />
         );
 
-        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('Listening...');
+        const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+        expect(transcriptContainer).toHaveTextContent('Processing speech…');
         expect(screen.getByTestId('live-transcript-trust-banner')).toHaveTextContent('Draft transcript');
-        expect(screen.queryByText('Processing speech locally…')).not.toBeInTheDocument();
+        expect(transcriptContainer).not.toHaveTextContent('Processing speech locally…');
+        expect(transcriptContainer).not.toHaveTextContent('Listening locally…');
     });
 
     // --- Interim/draft + finalizing UI states (test-agent acceptance criteria) ---
@@ -321,6 +323,44 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing speech locally');
         expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing local transcript…');
         expect(transcriptContainer).not.toHaveTextContent('Start recording and your words will appear here.');
+    });
+
+    it('never uses local-processing copy for Native finalization', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript=""
+                interimTranscript=""
+                isListening={false}
+                isFinalizing={true}
+                sttMode="native"
+            />
+        );
+
+        const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing transcript…');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing transcript…');
+        expect(transcriptContainer).toHaveTextContent('Your final transcript will appear here when processing finishes.');
+        expect(transcriptContainer).not.toHaveTextContent('Processing speech locally…');
+        expect(transcriptContainer).not.toHaveTextContent('Finalizing local transcript…');
+        expect(transcriptContainer).not.toHaveTextContent('local processing');
+    });
+
+    it('never uses local-processing copy for Cloud finalization', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript=""
+                interimTranscript=""
+                isListening={false}
+                isFinalizing={true}
+                sttMode="cloud"
+            />
+        );
+
+        const transcriptContainer = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER);
+        expect(screen.getByTestId('live-transcript-finalizing')).toHaveTextContent('Processing transcript…');
+        expect(screen.getByTestId('live-transcript-finalizing-empty')).toHaveTextContent('Finalizing transcript…');
+        expect(transcriptContainer).not.toHaveTextContent('locally');
+        expect(transcriptContainer).not.toHaveTextContent('local transcript');
     });
 
     it('reports final state (no draft) once listening stops with committed text', () => {

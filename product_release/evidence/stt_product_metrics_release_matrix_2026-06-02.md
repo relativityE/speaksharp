@@ -1125,6 +1125,7 @@ Release read:
 Private live cumulative text is code/unit green but not browser/user-experience
 green until a real browser proof reaches mic-on and confirms visible transcript
 accumulation, trust banners, Stop finalization, and save/history/detail.
+```
 
 ## Browser UX Smoke Setup Fix: 2026-06-03T18:15Z
 
@@ -1167,4 +1168,36 @@ Bug findings from this pass:
 | Browser tests did not assert trust-state hooks or authoritative saveCandidate. | Test coverage gap | Fixed by adding E2E assertions. |
 | Native score test expected a numeric score even though score-confidence gating intentionally keeps Native directional. | Stale test expectation | Fixed: E2E now requires `--` and the filler-recall quality caveat for Native. |
 | Native formatter telemetry is not proven by mock E2E because the mock engine bypasses real NativeBrowser formatter invocation. | Remaining release proof gap | Human Chrome mic proof still required. |
+
+## Native Real Mic Proof Update: 2026-06-03T19:40Z
+
+Artifact:
+
+```text
+/private/tmp/native-chrome-human-one-shot.json
 ```
+
+| Check | Result | Release read |
+| --- | --- | --- |
+| Real Chrome mic path | **Ran:** live app, headed Chrome, no fake audio flags | This closes the "mock injection cannot prove formatter" gap by exercising the real NativeBrowser path. |
+| Trust banner | **Pass:** visible at mic-on and while drafting | Trust hooks are present in the real path. |
+| Mode-aware trust copy | **Fixed in code/tests:** only Private says `locally`; Native/Cloud use generic processing/finalizing copy | Prevents false Native/Cloud privacy claim. |
+| Native formatter | **Fail:** `__NATIVE_FORMATTER_LAST__.attempted=true`, `errorCode=FORMATTER_ERROR`, `fallbackToRaw=true`; browser saw edge-function 502 | Formatter path is invoked but not product-ready. Dev needs live edge-function/root-cause fix and better error specificity. |
+| Save candidate | **Pass:** `selectedForSaveLength=336`, `finalWordCount=58`, `saveCandidateReason=service_result` | Stop/save selection no longer collapses to placeholder/empty in this run. |
+| Detail transcript | **Fail:** `detailTranscript=""`, `detailTranscriptMatchesSelected=false` | Journey still fails; detail/history equality must be fixed or harness extraction proven wrong. |
+| Raw readability | **Caveated:** text present but raw output had poor casing/punctuation and recognition errors (`Starts Now`, `Deep page detailed page`, missed `Um`) | Native needs formatter success before release-green. |
+
+Current Native classification:
+
+```text
+Native remains not release-green. Real path now proves the formatter is attempted,
+but it fails open/falls back to raw, and detail transcript equality still fails.
+```
+
+### Mode-Aware Trust Copy Verification: 2026-06-03T19:46Z
+
+| Check | Result | Release read |
+| --- | --- | --- |
+| Native/Cloud no longer claim local processing | **Fixed in code and component tests:** only Private uses `Processing speech locally…`, `Listening locally…`, or `Finalizing local transcript…`. | Prevents a false privacy/local-processing claim in Native and Cloud. |
+| Focused user-facing browser regression proof | **PASS:** 9/9 | Browser proof still passes with mode-aware trust copy. |
+| Full `pnpm rc:ux:smoke` after copy fix | **SUCCESS WITH FLAKES:** 10 passed, 4 flaky after retries | This is not a clean first-try release smoke. The representative flake was navigation to `/analytics` aborting/frame-detaching in `tests/e2e/helpers.ts:164`; keep as a browser-proof reliability watch item. |
