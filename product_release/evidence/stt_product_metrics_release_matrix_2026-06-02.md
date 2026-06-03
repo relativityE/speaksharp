@@ -1,7 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-02T23:58:00Z  
+**Last updated:** 2026-06-03T00:55:00Z  
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
@@ -66,7 +66,7 @@ Current example:
 | STT | Error phase | Failed gate | Why |
 | --- | --- | --- | --- |
 | Private v4 browser proof | setup | `setup.model_provider` | Current-head run `26853628019`: setup/runtime ends `INIT_FAILED`; Start disabled before transcription. |
-| Private v2 browser proof | accuracy | `proof.accuracy.final_completeness` | Current-head run `26853628019`: setup/model ready passed and authoritative `saveCandidate` saved 51 words, but WER is 66.67% / accuracy 33.33% against the 87-word fixture. |
+| Private v2 exact-buffer h1_6 | accuracy, runtime | `proof.accuracy.final_quality`, `setup.runtime_telemetry` | Current exact-buffer run `26856163962`: app saved h1_6 at 75%, but exact app audio buffer offline-decodes to 87.5%; audio prep/windowing is not the primary boundary for this row. Runtime telemetry fields were null and must be fixed before release proof. |
 | Cloud A/B keyterms | accuracy | `proof.accuracy.fillers` | Current-head run `26852918607`: requests/session validity closed; keyterms still hurts h1_6 accuracy. |
 | Native human proof | accuracy, journey | `proof.accuracy.readability`, `proof.journey.stop_save_detail` | Chrome produced words, but readability and stop/save/detail failed. |
 
@@ -139,7 +139,41 @@ Cloud still needs long-script transcript timing/readability/tail proof before a
 full release-green claim.
 ```
 
-### Latest Current-Head Private Browser Proof: 2026-06-02T23:18Z
+### Latest Current-Head Private Exact-Buffer Proof: 2026-06-03T00:27Z
+
+Run:
+
+```text
+Controlled STT Benchmarks: 26856163962
+Branch: fix/release-bug-burndown
+Commit: 2baca21d
+Artifact ID: 7373035634
+App artifact: /private/tmp/speaksharp-exact-buffer-26856163962/speaksharp-private-h1_6-exact-buffer-current.json
+Replay artifact: /private/tmp/speaksharp-private-app-buffer-replay-h1_6-exact-26856163962.json
+```
+
+| Candidate | Setup | Proof | Current classification |
+| --- | --- | --- | --- |
+| Private v2 / CPU h1_6 browser app | pass: Pro, Private, model download/setup, exact final buffer captured | fail: app saved 75% accuracy; first text at 3091ms; final ready at ~12.49s after recording began / ~4.31s after Stop | not green; app saved output worse than exact-buffer offline decode |
+| Exact app-buffer offline replay | pass: replayable `privateUtteranceAudioChunks[0].wavDataUrl` | 87.5% accuracy from same captured audio | narrows boundary away from audio prep/windowing |
+| Runtime telemetry | fail | `privateRuntime`, `privateProvider`, `privateCloudFallbackAttempted`, `privateWasmThreadCount` were null | evidence blocker |
+
+Comparison:
+
+| Fixture | Truth | App saved/live | Exact app-buffer offline decode | Browser drop-in | Accuracy read |
+| --- | --- | --- | --- | --- | --- |
+| `h1_6` | `They, like, told wild tales to frighten him.` | `A. Like. Told Wild Tales to frightened him.` | `A. Like, told Wild Tales to frighten him.` | `Day, like, told Wild Tales to frightened him.` | app 75%; exact-buffer replay 87.5% |
+
+Interpretation:
+
+```text
+The exact app audio buffer is not catastrophically truncated. Current h1_6
+does not support audio prep/windowing as the primary root cause. The remaining
+gap is browser runtime/candidate selection, cleanup/sanitization, or result
+routing, plus missing runtime telemetry in the artifact.
+```
+
+### Prior Current-Head Private Browser Proof: 2026-06-02T23:18Z
 
 Run:
 
