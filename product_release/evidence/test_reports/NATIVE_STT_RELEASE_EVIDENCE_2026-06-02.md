@@ -989,11 +989,24 @@ path is blocked before mic-on and before `window.__NATIVE_FORMATTER_LAST__` /
 
 Required next action:
 
-1. Fix the lint blockers.
-2. Fix the browser smoke setup path so the app reaches visible-ready.
-3. Rerun Native human/browser proof:
+1. Fix the browser smoke setup path so the app reaches visible-ready.
+2. Rerun Native human/browser proof:
    - Draft/trust banner visible and stable from mic-on while text is non-final
    - formatter telemetry `window.__NATIVE_FORMATTER_LAST__` non-null when formatting is expected
    - formatted vs raw vs ground truth captured
    - words/fillers unchanged by formatter
    - save/history/detail transcript matches the formatted final candidate
+
+### Lint Blocker Closed: 2026-06-03T17:06Z
+
+Commit `48826d73` clears the lint blockers above. Verification:
+
+```text
+pnpm quality
+
+PASS: lint, typecheck, eslint-disable hygiene
+```
+
+Native browser proof remains open because `pnpm rc:ux:smoke` still needs a valid
+auth/test-harness setup path before it can reach mic-on and prove formatter/trust
+behavior.

@@ -2449,7 +2449,7 @@
       },
       "qualityLint": {
         "command": "pnpm quality",
-        "status": "fail",
+        "status": "fixed_after_sweep",
         "errors": [
           "frontend/src/services/transcription/__tests__/SttSafeguards.test.ts:11:10 unused useSessionStore",
           "tests/live/benchmark-native.live.spec.ts:4:16 unused expect"
@@ -2457,7 +2457,10 @@
         "warnings": [
           "backend/supabase/functions/format-transcript/index.ts:229:12 unused _err",
           "backend/supabase/functions/format-transcript/index.ts:244:14 unused _err"
-        ]
+        ],
+        "fixedByCommit": "48826d73",
+        "fixedAt": "2026-06-03T17:06Z",
+        "verification": "pnpm quality passed: lint, typecheck, eslint-disable hygiene"
       },
       "browserUxSmoke": {
         "command": "pnpm rc:ux:smoke",
@@ -2468,7 +2471,7 @@
         "browserError": "Mock auth is not available from the runtime app. Use the centralized E2E test harness or create real test users through the test-user workflow."
       },
       "releaseStatus": "automated_support_green_but_browser_user_experience_not_green",
-      "currentRead": "Candidate eff03d2d has strong automated support for STT/trust/formatter/score code, but browser UX proof is blocked by auth/test-harness setup before STT behavior can be observed. Do not mark Private cumulative live text, Native formatter invocation, or trust-state UX release-green from this sweep."
+      "currentRead": "Candidate eff03d2d has strong automated support for STT/trust/formatter/score code. Lint blockers found during the sweep were fixed by 48826d73 and pnpm quality passed. Browser UX proof remains blocked by auth/test-harness setup before STT behavior can be observed. Do not mark Private cumulative live text, Native formatter invocation, or trust-state UX release-green from this sweep."
     }
   ],
   "timingContract": {
@@ -2519,7 +2522,7 @@
       "stopToDetailVisibleMs": "Total post-stop user wait."
     }
   },
-  "classificationUpdatedAt": "2026-06-03T17:00:00Z",
+  "classificationUpdatedAt": "2026-06-03T17:06:00Z",
   "classifications": {
     "cloud": {
       "status": "caveated_closest",
@@ -2537,5 +2540,5 @@
       "next": "Fix trust-state labeling for Native interim/committed live text, increase/full-export Native trace for release proofs, decide/activate Native formatter if Native remains visible, verify detail extraction, then rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-03T17:00:00Z"
+  "lastUpdatedAt": "2026-06-03T17:06:00Z"
 }
