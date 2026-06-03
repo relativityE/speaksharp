@@ -226,7 +226,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
       return errorResponse('AUTH_REQUIRED', 'Authentication is required.', responseHeaders);
     }
     userIdHash = (await sha256Hex(userId)).slice(0, 16);
-  } catch (_err) {
+  } catch {
     logEvent('error', { requestId, code: 'AUTH_REQUIRED', transcriptHash });
     return errorResponse('AUTH_REQUIRED', 'Authentication is required.', responseHeaders);
   }
@@ -241,7 +241,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
         logEvent('error', { requestId, userIdHash, code: 'QUOTA_EXCEEDED', transcriptHash });
         return errorResponse('QUOTA_EXCEEDED', 'Daily formatting limit reached. Try again later.', responseHeaders);
       }
-    } catch (_err) {
+    } catch {
       // Degrade-open: a missing quota RPC must not block the core formatting path.
       logEvent('info', { requestId, userIdHash, note: 'quota_degraded_open' });
     }

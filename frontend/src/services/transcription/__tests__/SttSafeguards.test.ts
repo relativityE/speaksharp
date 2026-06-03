@@ -8,7 +8,6 @@ import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
 import { EngineType } from '../../../contracts/IPrivateSTTEngine';
 import type { TranscriptionPolicy } from '../TranscriptionPolicy';
-import { useSessionStore } from '@/stores/useSessionStore';
 
 /**
  * @file SttSafeguards.test.ts
