@@ -104,6 +104,15 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                     <p className="mt-1 text-sm font-semibold leading-snug text-foreground/75">
                         {result.headline}
                     </p>
+                    {result.qualityNote && (
+                        <p
+                            className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold leading-snug text-amber-900"
+                            data-testid="live-score-quality-caveat"
+                            role="note"
+                        >
+                            {result.qualityNote}
+                        </p>
+                    )}
                 </div>
 
                 <div className="min-w-[120px] rounded-lg border border-[hsl(var(--border-strong))] bg-white px-4 py-3 text-center surface-shadow">
@@ -179,7 +188,7 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                     </div>
                 </div>
                 <p className="mt-3 border-t border-border pt-3 text-[11px] font-semibold leading-snug text-foreground/60">
-                    *SpeakSharp Score is a directional practice signal; progress over time matters more than one exact number.
+                    *SpeakSharp Score is a directional practice signal; progress over time matters more than one exact number. Transcript quality (readability and how reliably your engine catches filler words) affects how confidently the score is shown.
                 </p>
             </div>
         </section>

@@ -16,6 +16,29 @@ export const SPEAKSHARP_CONFIDENCE_THRESHOLDS = {
     MIN_SECONDS_FOR_USABLE: 30,
 } as const;
 
+/**
+ * Engines empirically shown to under-detect filler words in release human proofs,
+ * so a low/zero filler count cannot be trusted as real filler RECALL. (Chrome Web
+ * Speech / Native measured ~67% filler recall and missed spoken "um" in the
+ * 2026-06 human proofs.) True filler recall needs ground truth we don't have at
+ * runtime, so we use the engine as the proxy: for these engines the score is shown
+ * as directional and filler coaching is caveated rather than presented as precise.
+ * Cloud (AssemblyAI) and Private (Whisper) are not flagged.
+ */
+export const LOW_FILLER_RECALL_ENGINES: ReadonlySet<string> = new Set(['native']);
+
+/** Transcript-quality signals that gate how confidently the score is presented. */
+export interface TranscriptQualitySignals {
+    maxRunOnWords: number;
+    /** Longest run-on exceeds the readable threshold (under-punctuated wall of text). */
+    readabilityWeak: boolean;
+    transcriptionConfidence: 'low' | 'medium' | 'high';
+    /** Engine is a known filler under-detector, so filler recall is not trustworthy. */
+    fillerRecallUncertain: boolean;
+    /** Transcript is clean enough to present a precise/usable score. */
+    trusted: boolean;
+}
+
 export interface SpeakingScoreInput {
     transcript: string;
     wordCount?: number;
@@ -53,6 +76,13 @@ export interface SpeakingScoreResult {
         engine?: string;
         confidence: 'low' | 'medium' | 'high';
     };
+    /** Transcript-quality signals behind the confidence level (for UI copy + tests). */
+    qualitySignals: TranscriptQualitySignals;
+    /**
+     * Plain-language note explaining that transcript quality is holding the score at
+     * a directional read. Null when the transcript is trusted (or still warming up).
+     */
+    qualityNote: string | null;
 }
 
 const clamp = (value: number, min = 0, max = 10): number => Math.max(min, Math.min(max, value));
@@ -154,21 +184,54 @@ export const maxRunOnWords = (transcript: string): number => {
 const getConfidence = (
     wordCount: number,
     elapsedSeconds: number,
-    transcriptionConfidence: 'low' | 'medium' | 'high',
-    readabilityWeak: boolean
+    transcriptQualityTrusted: boolean
 ): SpeakingScoreResult['confidence'] => {
     if (wordCount < SPEAKSHARP_CONFIDENCE_THRESHOLDS.MIN_WORDS_FOR_DIRECTIONAL) return 'warming-up';
     if (
         wordCount < SPEAKSHARP_CONFIDENCE_THRESHOLDS.MIN_WORDS_FOR_USABLE ||
         elapsedSeconds < SPEAKSHARP_CONFIDENCE_THRESHOLDS.MIN_SECONDS_FOR_USABLE ||
-        transcriptionConfidence === 'low' ||
-        // Weak transcript quality (run-on / under-punctuated) → never present as a
-        // precise/usable score. Label only — the 0-10 score math is unchanged.
-        readabilityWeak
+        // A usable/precise score requires a trusted transcript. Weak readability
+        // (run-on / under-punctuated), low transcription confidence, or an engine
+        // with unreliable filler recall all keep the score at a directional read.
+        // Label only — the 0-10 score math is unchanged in every case.
+        !transcriptQualityTrusted
     ) {
         return 'directional';
     }
     return 'usable';
+};
+
+/**
+ * Assess whether the transcript is clean enough to present a precise score, and
+ * produce a plain-language note when it is not. Pure label/copy logic — never
+ * changes the 0-10 score value.
+ */
+const assessTranscriptQuality = (
+    transcript: string,
+    wordCount: number,
+    transcriptionConfidence: 'low' | 'medium' | 'high',
+    engine: SpeakingScoreInput['engine']
+): { signals: TranscriptQualitySignals; qualityNote: string | null } => {
+    const runOn = maxRunOnWords(transcript);
+    const readabilityWeak = runOn > 45;
+    const fillerRecallUncertain = !!engine && LOW_FILLER_RECALL_ENGINES.has(engine);
+    const trusted = !readabilityWeak && transcriptionConfidence !== 'low' && !fillerRecallUncertain;
+
+    let qualityNote: string | null = null;
+    if (!trusted && wordCount >= SPEAKSHARP_CONFIDENCE_THRESHOLDS.MIN_WORDS_FOR_DIRECTIONAL) {
+        if (readabilityWeak) {
+            qualityNote = 'This transcript runs on without clear sentence breaks, so the score is a directional read, not a precise grade.';
+        } else if (transcriptionConfidence === 'low') {
+            qualityNote = 'Transcription confidence is low on this audio, so the score is a directional read, not a precise grade.';
+        } else if (fillerRecallUncertain) {
+            qualityNote = 'This transcription engine can miss filler words like "um", so filler coaching and the score are directional, not exact.';
+        }
+    }
+
+    return {
+        signals: { maxRunOnWords: runOn, readabilityWeak, transcriptionConfidence, fillerRecallUncertain, trusted },
+        qualityNote,
+    };
 };
 
 const uniqueActions = (actions: string[]): string[] => [...new Set(actions)].slice(0, 3);
@@ -251,11 +314,16 @@ export const calculateSpeakingScore = ({
     }
 
     const label = getScoreLabel(score);
-    // Transcript-quality gate (label/confidence only — does NOT change the score):
-    // a >45-word run-on means the transcript is under-punctuated/unreliable, so the
-    // score is presented as directional rather than precise.
-    const readabilityWeak = maxRunOnWords(transcript) > 45;
-    const confidence = getConfidence(wordCount, elapsedSeconds, transcriptionConfidence, readabilityWeak);
+    // Transcript-quality gate (label/confidence + copy only — does NOT change the
+    // score math): run-on/under-punctuated text, low transcription confidence, or an
+    // engine with unreliable filler recall keep the score at a directional read.
+    const { signals: qualitySignals, qualityNote } = assessTranscriptQuality(
+        transcript,
+        wordCount,
+        transcriptionConfidence,
+        engine
+    );
+    const confidence = getConfidence(wordCount, elapsedSeconds, qualitySignals.trusted);
     const headline = confidence === 'warming-up'
         ? 'Speak a little more to get a useful score.'
         : confidence === 'directional'
@@ -281,5 +349,7 @@ export const calculateSpeakingScore = ({
             engine,
             confidence: transcriptionConfidence,
         },
+        qualitySignals,
+        qualityNote,
     };
 };

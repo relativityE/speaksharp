@@ -118,4 +118,77 @@ describe('LiveCoachingScoreCard', () => {
         expect(screen.getByTestId('live-session-score')).not.toHaveTextContent('--');
         expect(screen.getByText('out of 10')).toBeInTheDocument();
     });
+
+    it('always states that transcript quality affects how confidently the score is shown', () => {
+        render(
+            <LiveCoachingScoreCard
+                transcript="Today I want to make one clear point because the team needs a simple plan."
+                wordCount={20}
+                wpm={140}
+                clarityScore={88}
+                fillerCount={1}
+                elapsedSeconds={25}
+                pauseMetrics={{
+                    totalPauses: 2, pausesPerMinute: 4, averagePauseDuration: 0.9,
+                    longestPause: 1.2, silencePercentage: 12, transitionPauses: 2, extendedPauses: 0,
+                }}
+                engine="cloud"
+                isListening
+                experimentAssignment={assignment}
+            />
+        );
+        expect(screen.getByText(/Transcript quality .* affects how confidently the score is shown/i)).toBeInTheDocument();
+    });
+
+    it('shows a transcript-quality caveat for a long Native sample (filler recall not trusted)', () => {
+        const transcript = Array.from({ length: 6 }, () => Array(15).fill('word').join(' ')).join('. ') + '.';
+        render(
+            <LiveCoachingScoreCard
+                transcript={transcript}
+                wordCount={90}
+                wpm={140}
+                clarityScore={90}
+                fillerCount={0}
+                elapsedSeconds={45}
+                pauseMetrics={{
+                    totalPauses: 2, pausesPerMinute: 4, averagePauseDuration: 0.9,
+                    longestPause: 1.2, silencePercentage: 12, transitionPauses: 2, extendedPauses: 0,
+                }}
+                engine="native"
+                isListening
+                experimentAssignment={assignment}
+            />
+        );
+        // Native is capped at directional (no precise number) and shows the filler caveat.
+        expect(screen.getByTestId('live-session-score')).toHaveTextContent('--');
+        expect(screen.getByTestId('live-score-quality-caveat')).toHaveTextContent(/filler/i);
+    });
+
+    it('does not show a transcript-quality caveat for a clean usable Cloud sample', () => {
+        const transcript = [
+            'The point is simple.',
+            'First, practice privately because it builds confidence.',
+            'For example, one focused rehearsal makes the next meeting easier.',
+            'The takeaway is that steady practice improves delivery.',
+        ].join(' ');
+        render(
+            <LiveCoachingScoreCard
+                transcript={transcript}
+                wordCount={90}
+                wpm={140}
+                clarityScore={90}
+                fillerCount={0}
+                elapsedSeconds={45}
+                pauseMetrics={{
+                    totalPauses: 2, pausesPerMinute: 4, averagePauseDuration: 0.9,
+                    longestPause: 1.2, silencePercentage: 12, transitionPauses: 2, extendedPauses: 0,
+                }}
+                engine="cloud"
+                isListening
+                experimentAssignment={assignment}
+            />
+        );
+        expect(screen.queryByTestId('live-score-quality-caveat')).not.toBeInTheDocument();
+        expect(screen.getByText('out of 10')).toBeInTheDocument();
+    });
 });
