@@ -1,6 +1,6 @@
 # Private STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-03T13:55:00Z
+**Updated:** 2026-06-03T18:15:00Z
 **Scope:** Private v2/v4 local STT, browser app path, drop-in parity, timing, and readability  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -2203,5 +2203,57 @@ the confirmed ones (tasks #36/#37/#38).
 - **F1 / F4:** no fix needed; please just confirm the negative in a proof artifact (mic mode `raw`; no
   low-energy tail decode) so we can close them on the record.
 
-DEV is taking #36/#38 (confirmed code fixes, surgical, with regression tests) and will hand them back for
-your browser/human validation; #37 waits on your A/B parity proof before any pipeline change.
+**STATUS (2026-06-03, updated):**
+- **#36 (F5) — ✅ DONE, merged to main `24d719e3`.** `shouldPreferVisibleProvisional` now requires a longer
+  provisional to genuinely extend the final (≥70% of final words preserved) or it is rejected; unit tests
+  added. Handed back for browser/human validation (no longer hallucination shown as visible).
+- **#38 (F3) — ✅ DONE, merged to main `24d719e3`.** `sanitizeTranscriptText` strips asterisk metadata of
+  ANY length (`/\*[^*]+\*/g`); unit tests added. Handed back for validation (no `*…*` metadata in saved/detail).
+- **#37 (F2) — 🔧 DEV IN PROGRESS NOW.** Building the dev-side app-vs-drop-in windowing A/B harness to
+  prove/kill the cross-utterance-overlap parity hypothesis with data before any pipeline change.
+- **F1 / F4 — ❌ refuted** (unchanged; F4 = watch-item "no hallucinated tail appended").
+
+---
+
+## TEST/FIX UPDATE (2026-06-03T18:15Z) — browser UX smoke setup blocker cleared
+
+This section supersedes the earlier `2026-06-03T17:14Z` `html[data-app-visible-ready="true"]`
+mock-auth blocker. That blocker was real at `6855f598`, but it is no longer the
+controlling state after the E2E harness fixes in `c167d3b0`.
+
+Commit under test:
+
+```text
+main local: c167d3b0
+```
+
+Commands/results:
+
+| Command | Result | Evidence type |
+| --- | --- | --- |
+| `pnpm quality` | **PASS** | unit/build hygiene |
+| `CI=true pnpm exec playwright test tests/e2e/primary-journey.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=test-results/playwright-primary-journey-sessiondb` | **PASS:** 8/8 | harness-proof |
+| `pnpm rc:ux:smoke` | **PASS:** 14/14 | harness-proof |
+
+Bug findings fixed by this update:
+
+| Finding | Result |
+| --- | --- |
+| Browser smoke could not boot because runtime mock auth/Supabase was missing. | Fixed by injecting the centralized E2E Supabase/auth mock client. |
+| Native/mock STT persistence selected `[E2E_MOCK]` instead of the transcript emitted by the proof bridge. | Fixed by preserving the last final transcript on the E2E bridge and returning it from the mock engine. |
+| Analytics stayed at the seeded `5Total Sessions` after a saved session. | Fixed by persisting the mock session DB in `sessionStorage` across full page navigation and invalidating session analytics after `data-session-persisted=true`. |
+| Primary journey attempted to prove persistence from an invalid sub-5-second session. | Fixed by aligning the proof with the product save contract and waiting past the minimum-duration gate. |
+
+Private release interpretation:
+
+```text
+The mock browser journey is no longer blocked by setup/auth and now proves that
+the harness can boot, emit transcript text, save, navigate, and refresh analytics.
+This is NOT a Private real-model parity result. Private still needs the real
+browser/human proof for:
+- cumulative visible transcript during recording
+- Draft/Processing/Final trust-state visibility
+- save/history/detail equality with the authoritative saveCandidate
+- v2/v4 parity against drop-in where applicable
+- local punctuation/readability path
+```
