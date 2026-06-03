@@ -2509,6 +2509,31 @@
       },
       "releaseStatus": "browser_user_experience_not_green_setup_blocked",
       "currentRead": "Current main builds and quality is green, but browser UX smoke is still blocked before STT execution by the runtime mock-auth hard gate. This is not a Private, Native, or Cloud transcript accuracy result. It prevents browser proof of Private cumulative text, Native formatter/trust hooks, and Cloud app-path UX until the setup/auth harness path is fixed."
+    },
+    {
+      "id": "private_live_provisional_no_shrink_fix_1af4f73f",
+      "candidate": "private_v2_live_provisional",
+      "fixture": "human-proof-regression-inspired-unit",
+      "evidenceType": "unit-tested",
+      "branch": "main",
+      "commit": "1af4f73f",
+      "collectedAt": "2026-06-03T17:23Z",
+      "bug": "Private live transcript replaced accumulated speech with only the latest/tail rolling-decode window before Stop.",
+      "fix": "Preserve already-visible accumulated live draft text once enough context exists; allow very early unconfirmed openers and unsafe marker candidates to revise/replace.",
+      "verification": {
+        "focusedTests": {
+          "command": "pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false frontend/src/services/transcription/modes/__tests__/PrivateWhisper.test.ts frontend/src/services/transcription/modes/__tests__/mergeLiveProvisionalTranscript.test.ts",
+          "status": "pass",
+          "filesPassed": 2,
+          "testsPassed": 35
+        },
+        "quality": {
+          "command": "pnpm quality",
+          "status": "pass"
+        }
+      },
+      "releaseStatus": "code_unit_green_browser_proof_open",
+      "currentRead": "Private live cumulative text is fixed in code/unit tests, but not browser/user-experience green until a real browser proof reaches mic-on and confirms visible accumulation, trust banners, Stop finalization, and save/history/detail. Current browser smoke is still blocked by mock-auth visible-ready setup."
     }
   ],
   "timingContract": {
@@ -2559,7 +2584,7 @@
       "stopToDetailVisibleMs": "Total post-stop user wait."
     }
   },
-  "classificationUpdatedAt": "2026-06-03T17:14:00Z",
+  "classificationUpdatedAt": "2026-06-03T17:23:00Z",
   "classifications": {
     "cloud": {
       "status": "caveated_closest",
@@ -2577,5 +2602,5 @@
       "next": "Fix trust-state labeling for Native interim/committed live text, increase/full-export Native trace for release proofs, decide/activate Native formatter if Native remains visible, verify detail extraction, then rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-03T17:14:00Z"
+  "lastUpdatedAt": "2026-06-03T17:23:00Z"
 }

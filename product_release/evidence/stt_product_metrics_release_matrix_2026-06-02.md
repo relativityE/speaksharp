@@ -1101,3 +1101,28 @@ Quality is green on current main, but browser user-experience proof is still blo
 before STT execution. This is not a Private/Native/Cloud transcript result; it is a
 test setup/app boot gate that must be fixed before browser UX claims are valid.
 ```
+
+## Private Live Provisional Fix: 2026-06-03T17:23Z
+
+Commit:
+
+```text
+main: 1af4f73f
+```
+
+| Item | Result |
+| --- | --- |
+| Bug addressed | Private live transcript replaced accumulated speech with latest/tail window before Stop. |
+| Code status | **Fixed on main** with accumulated-draft no-shrink guard. |
+| Safety correction | Early unconfirmed openers and unsafe marker candidates can still revise/replace; only accumulated drafts are protected. |
+| Focused verification | **Pass:** `PrivateWhisper.test.ts` + `mergeLiveProvisionalTranscript.test.ts`, 35 tests. |
+| Quality gate | **Pass:** `pnpm quality`. |
+| Browser proof | **Still open:** blocked by mock-auth visible-ready gate in `pnpm rc:ux:smoke`. |
+
+Release read:
+
+```text
+Private live cumulative text is code/unit green but not browser/user-experience
+green until a real browser proof reaches mic-on and confirms visible transcript
+accumulation, trust banners, Stop finalization, and save/history/detail.
+```
