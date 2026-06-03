@@ -341,14 +341,25 @@ export async function attachPrivateBenchmarkEvidence(
     testInfo: TestInfo,
     label: string,
 ): Promise<void> {
-    const evidence = await page.evaluate((evidenceLabel) => {
+    const includeAudioDataUrl = process.env.STT_INCLUDE_AUDIO_DATA_URL === 'true';
+    const evidence = await page.evaluate(({ evidenceLabel, includeAudioDataUrl: shouldIncludeAudioDataUrl }) => {
         const root = document.documentElement;
         const debugWindow = window as Window & {
             __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown>;
             __PRIVATE_STT_TIMELINE__?: unknown[];
             __PRIVATE_TRANSCRIPT_TRACE__?: unknown[];
+            __PRIVATE_INFERENCE_AUDIO_CHUNKS__?: Array<Record<string, unknown> & { wavDataUrl?: string }>;
+            __PRIVATE_UTTERANCE_AUDIO_CHUNKS__?: Array<Record<string, unknown> & { wavDataUrl?: string }>;
         };
         const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
+        const mapAudioChunk = (chunk: Record<string, unknown> & { wavDataUrl?: string }) => {
+            const { wavDataUrl, ...rest } = chunk;
+            return {
+                ...rest,
+                wavDataUrlBytes: typeof wavDataUrl === 'string' ? wavDataUrl.length : 0,
+                ...(shouldIncludeAudioDataUrl ? { wavDataUrl: wavDataUrl ?? null } : {}),
+            };
+        };
 
         return {
             label: evidenceLabel,
@@ -368,8 +379,10 @@ export async function attachPrivateBenchmarkEvidence(
                 : null,
             privateTimeline: debugWindow.__PRIVATE_STT_TIMELINE__ ?? [],
             privateTranscriptTrace: debugWindow.__PRIVATE_TRANSCRIPT_TRACE__ ?? [],
+            privateAudioChunks: (debugWindow.__PRIVATE_INFERENCE_AUDIO_CHUNKS__ ?? []).map(mapAudioChunk),
+            privateUtteranceAudioChunks: (debugWindow.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__ ?? []).map(mapAudioChunk),
         };
-    }, label).catch((error) => ({
+    }, { evidenceLabel: label, includeAudioDataUrl }).catch((error) => ({
         label,
         capturedAt: new Date().toISOString(),
         error: error instanceof Error ? error.message : String(error),
