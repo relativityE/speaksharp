@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ✅ CRITICAL: Unmock for THIS file only (Prevent Over-Mocking)
 vi.unmock('../PrivateWhisper');
 
-import PrivateWhisper from '../PrivateWhisper';
+import PrivateWhisper, { buildPrivateTimingSummary } from '../PrivateWhisper';
 import { Result } from '../types';
 import { MicStream } from '../../utils/types';
 import { PRIV_CLOUD_AUDIO, PRIV_STT, PRIV_STT_DERIVED, SESSION_PAUSE } from '../../sttConstants';
@@ -1116,5 +1116,58 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
 
         await privateWhisper.stop();
         vi.useRealTimers();
+    });
+});
+
+describe('buildPrivateTimingSummary (window.__PRIVATE_TIMING__, Quality-Push Slice 1)', () => {
+    const SR = PRIV_CLOUD_AUDIO.TARGET_SAMPLE_RATE_HZ; // 16000
+
+    it('returns null timings + null anchor before recording starts', () => {
+        const s = buildPrivateTimingSummary({
+            streamStartAtMs: null, speechStartAtMs: null,
+            firstProvisionalAtMs: null, firstFinalAtMs: null, finalizeDecodeMs: null,
+            utteranceSampleCount: 0, peakBufferedSamples: 0, nowMs: 1234,
+        });
+        expect(s.anchor).toBeNull();
+        expect(s.timeToFirstProvisionalMs).toBeNull();
+        expect(s.timeToFirstFinalMs).toBeNull();
+        expect(s.finalizeDecodeMs).toBeNull();
+        expect(s.utteranceSeconds).toBe(0);
+        expect(s.peakBufferedSeconds).toBe(0);
+        expect(s.updatedAtMs).toBe(1234);
+    });
+
+    it('measures timeToFirst* from speech-start when available', () => {
+        const s = buildPrivateTimingSummary({
+            streamStartAtMs: 1000, speechStartAtMs: 1500,
+            firstProvisionalAtMs: 2500, firstFinalAtMs: 4500, finalizeDecodeMs: 800,
+            utteranceSampleCount: SR, peakBufferedSamples: 3 * SR, nowMs: 9000,
+        });
+        expect(s.anchor).toBe('speech');
+        expect(s.timeToFirstProvisionalMs).toBe(1000); // 2500 - 1500
+        expect(s.timeToFirstFinalMs).toBe(3000);        // 4500 - 1500
+        expect(s.finalizeDecodeMs).toBe(800);
+        expect(s.utteranceSeconds).toBe(1);
+        expect(s.peakBufferedSeconds).toBe(3);
+    });
+
+    it('falls back to stream-start anchor when speech-start is unset', () => {
+        const s = buildPrivateTimingSummary({
+            streamStartAtMs: 1000, speechStartAtMs: null,
+            firstProvisionalAtMs: 2000, firstFinalAtMs: null, finalizeDecodeMs: null,
+            utteranceSampleCount: 0, peakBufferedSamples: 0, nowMs: 5000,
+        });
+        expect(s.anchor).toBe('stream');
+        expect(s.timeToFirstProvisionalMs).toBe(1000); // 2000 - 1000
+        expect(s.timeToFirstFinalMs).toBeNull();
+    });
+
+    it('clamps a pre-anchor timestamp to 0 (never negative)', () => {
+        const s = buildPrivateTimingSummary({
+            streamStartAtMs: 1000, speechStartAtMs: 2000,
+            firstProvisionalAtMs: 1500, firstFinalAtMs: null, finalizeDecodeMs: null,
+            utteranceSampleCount: 0, peakBufferedSamples: 0, nowMs: 3000,
+        });
+        expect(s.timeToFirstProvisionalMs).toBe(0); // 1500 < 2000 anchor -> clamped
     });
 });

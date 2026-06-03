@@ -62,7 +62,64 @@ declare global {
     __PRIVATE_INFERENCE_AUDIO_CHUNKS__?: PrivateInferenceAudioCapture[];
     __PRIVATE_UTTERANCE_AUDIO_CHUNKS__?: PrivateInferenceAudioCapture[];
     __PRIVATE_STT_TIMELINE__?: PrivateSttTimelineEvent[];
+    /**
+     * Always-on (not trace-gated) summary of Private STT timing for proof harnesses.
+     * Diagnostics only — never gates product behavior. See PrivateTimingSummary.
+     */
+    __PRIVATE_TIMING__?: PrivateTimingSummary;
   }
+}
+
+/**
+ * Private STT timing summary (#Quality-Push Slice 1). All durations are ms.
+ * `timeToFirst*` are measured from speech start when available, else stream start.
+ * Updated at each milestone and on finalize; read after Stop for the full picture.
+ */
+export interface PrivateTimingSummary {
+  /** ms from speech-start (fallback stream-start) to the first visible draft provisional. */
+  timeToFirstProvisionalMs: number | null;
+  /** ms from speech-start (fallback stream-start) to the first committed (non-draft) text. */
+  timeToFirstFinalMs: number | null;
+  /** ms spent in the whole-utterance stop-commit decode (the saved-transcript authority). */
+  finalizeDecodeMs: number | null;
+  /** Total speech captured for this utterance, seconds. */
+  utteranceSeconds: number;
+  /** Peak live audio buffered at any point, seconds (unbounded-buffer guard). */
+  peakBufferedSeconds: number;
+  /** Anchor used for timeToFirst*: 'speech' | 'stream' | null (not started). */
+  anchor: 'speech' | 'stream' | null;
+  /** performance.now() at last update, for ordering across reads. */
+  updatedAtMs: number;
+}
+
+/**
+ * Pure builder for the Private timing summary (unit-testable without the engine).
+ * `timeToFirst*` are relative to speech-start when available, else stream-start.
+ */
+export function buildPrivateTimingSummary(p: {
+  streamStartAtMs: number | null;
+  speechStartAtMs: number | null;
+  firstProvisionalAtMs: number | null;
+  firstFinalAtMs: number | null;
+  finalizeDecodeMs: number | null;
+  utteranceSampleCount: number;
+  peakBufferedSamples: number;
+  nowMs: number;
+}): PrivateTimingSummary {
+  const anchorMs = p.speechStartAtMs ?? p.streamStartAtMs;
+  const anchor: PrivateTimingSummary['anchor'] =
+    p.speechStartAtMs != null ? 'speech' : p.streamStartAtMs != null ? 'stream' : null;
+  const rel = (t: number | null): number | null =>
+    t != null && anchorMs != null ? Number(Math.max(0, t - anchorMs).toFixed(1)) : null;
+  return {
+    timeToFirstProvisionalMs: rel(p.firstProvisionalAtMs),
+    timeToFirstFinalMs: rel(p.firstFinalAtMs),
+    finalizeDecodeMs: p.finalizeDecodeMs,
+    utteranceSeconds: Number(samplesToSeconds(p.utteranceSampleCount, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+    peakBufferedSeconds: Number(samplesToSeconds(p.peakBufferedSamples, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
+    anchor,
+    updatedAtMs: Number(p.nowMs.toFixed(1)),
+  };
 }
 // Toast removed from here to centralized UI layer
 // import { toast } from '../../../lib/toast';
@@ -629,6 +686,11 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   // latency. performance.now() ms; null until set this recording.
   private streamStartAtMs: number | null = null;
   private speechStartAtMs: number | null = null;
+  // Slice 1 timing telemetry (window.__PRIVATE_TIMING__). Diagnostics only.
+  private firstProvisionalAtMs: number | null = null;
+  private firstFinalAtMs: number | null = null;
+  private finalizeDecodeMs: number | null = null;
+  private peakBufferedSamples: number = 0;
   private retainedUtterancePrerollSamplesAtStart: number = 0;
   private speechGateStats: SpeechGateStats = {
     framesSeen: 0,
@@ -645,6 +707,40 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
   public get type(): EngineType {
     return (this.privateSTT.getEngineType() as EngineType) || 'whisper-turbo';
+  }
+
+  /**
+   * Diagnostics only: recompute + publish window.__PRIVATE_TIMING__ (Slice 1).
+   * Always on (not trace-gated) so any proof can read it; never gates behavior.
+   */
+  private publishPrivateTiming(): void {
+    if (typeof window === 'undefined') return;
+    window.__PRIVATE_TIMING__ = buildPrivateTimingSummary({
+      streamStartAtMs: this.streamStartAtMs,
+      speechStartAtMs: this.speechStartAtMs,
+      firstProvisionalAtMs: this.firstProvisionalAtMs,
+      firstFinalAtMs: this.firstFinalAtMs,
+      finalizeDecodeMs: this.finalizeDecodeMs,
+      utteranceSampleCount: this.utteranceSampleCount,
+      peakBufferedSamples: this.peakBufferedSamples,
+      nowMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
+    });
+  }
+
+  /** Record the first visible draft provisional time once per recording. */
+  private markFirstProvisional(): void {
+    if (this.firstProvisionalAtMs == null) {
+      this.firstProvisionalAtMs = performance.now();
+      this.publishPrivateTiming();
+    }
+  }
+
+  /** Record the first committed (non-draft) transcript time once per recording. */
+  private markFirstFinal(): void {
+    if (this.firstFinalAtMs == null) {
+      this.firstFinalAtMs = performance.now();
+      this.publishPrivateTiming();
+    }
   }
 
   private emitProvisionalPartial(text: string, reason: string): void {
@@ -680,6 +776,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     });
     this.lastTranscriptEmitAtMs = performance.now();
     this.onTranscriptUpdate({ transcript: { partial: visiblePartial } });
+    this.markFirstProvisional();
   }
 
   constructor(options: TranscriptionModeOptions, privateSTT?: IPrivateSTT) {
@@ -830,6 +927,12 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.streamStartAtMs = performance.now();
     this.speechStartAtMs = null;
     this.retainedUtterancePrerollSamplesAtStart = 0;
+    // Reset Slice 1 timing telemetry for the new recording.
+    this.firstProvisionalAtMs = null;
+    this.firstFinalAtMs = null;
+    this.finalizeDecodeMs = null;
+    this.peakBufferedSamples = 0;
+    this.publishPrivateTiming();
     this.updateHeartbeat();
     pushPrivateTimeline('stream_start', {
       serviceId: this.serviceId,
@@ -940,6 +1043,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       } else {
         this.audioChunks.push(clonedFrame);
         this.bufferedSampleCount += clonedFrame.length;
+        if (this.bufferedSampleCount > this.peakBufferedSamples) {
+          this.peakBufferedSamples = this.bufferedSampleCount;
+        }
         this.appendFrameToUtteranceAudio(clonedFrame, energy);
       }
 
@@ -1566,6 +1672,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
 
         logger.info({ sId: this.serviceId, rId: this.instanceId, newText: redactTranscript(textToEmit), latencyMs: (performance.now() - tStart).toFixed(2) }, '[PrivateWhisper] ✨ Transcription success');
         this.currentTranscript = this.currentTranscript ? `${this.currentTranscript} ${textToEmit}` : textToEmit;
+        this.markFirstFinal();
         this.bestVisibleProvisionalTranscript = '';
         this.liveProvisionalTranscript = '';
         // Suppress in-flight live finals once Stop is requested; the whole-utterance
@@ -1698,7 +1805,10 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         runId: this.instanceId,
         utteranceSamples: this.utteranceSampleCount,
       });
+      const finalizeStartedAtMs = performance.now();
       await this.commitWholeUtteranceTranscript();
+      this.finalizeDecodeMs = Number((performance.now() - finalizeStartedAtMs).toFixed(1));
+      this.publishPrivateTiming();
 
       if (!this.wholeUtteranceTranscript.trim()) {
         pushPrivateTimeline('stop_force_tail_fallback', {
@@ -2043,6 +2153,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       return;
     }
 
+    this.markFirstFinal();
     const replacedRollingTranscript = this.currentTranscript;
     this.wholeUtteranceTranscript = transcript;
     this.currentTranscript = transcript;
