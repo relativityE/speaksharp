@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-03T19:57:00Z",
+  "lastUpdated": "2026-06-03T20:05:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -2589,7 +2589,7 @@
     "cloud": {
       "status": "caveated_closest",
       "reason": "Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. Live Cloud app journey proof runs 26853283325 and 26854235595 passed stop/save/history-detail smoke with provider final+termination and 363-character saved results. Cloud token gate proof run 26853914030 passed: missing auth/free/trial/over-quota do not mint tokens, paid Pro does.",
-      "next": "Launch/position Cloud baseline as quality path if remaining timeline/readability proof passes. Dev/product should change, narrow, or disable keyterms before defaulting it. Test should run Cloud long-script/tail proof that exports __CLOUD_STT_TIMELINE__, WER/readability, and scripted tail comparison."
+      "next": "Launch/position Cloud baseline as quality path if remaining timeline/readability proof passes. Stop Cloud keyterms work for standard/default fillers; keyterms/prompt variants are backlog/custom-word experiments only. Test should run Cloud baseline long-script/tail proof that exports __CLOUD_STT_TIMELINE__, WER/readability, and scripted tail comparison."
     },
     "private": {
       "status": "caveated_not_release_green",
@@ -2602,7 +2602,7 @@
       "next": "Fix live Native formatter backend/error specificity and detail transcript equality, then rerun human Chrome mic proof. Trust copy must stay mode-aware: only Private may say local/locally; Native and Cloud use generic processing/finalizing copy."
     }
   },
-  "lastUpdatedAt": "2026-06-03T19:57:00Z",
+  "lastUpdatedAt": "2026-06-03T20:05:00Z",
   "latestBrowserUxSmoke": {
     "updatedAt": "2026-06-03T18:15:00Z",
     "commit": "c167d3b0",
@@ -2661,7 +2661,8 @@
       "Mode-aware trust copy proof after local/locally copy was removed for Native/Cloud."
     ],
     "cloud": [
-      "Baseline remains safe candidate; keyterms backlog.",
+      "Cloud A/baseline is the only launch/default path. Stop standard-filler keyterms testing.",
+      "Keyterms/prompt variants are backlog/custom-word experiments only.",
       "Credentialed long-script/tail proof with __CLOUD_STT_TIMELINE__ remains lower priority than Private/Native."
     ]
   },

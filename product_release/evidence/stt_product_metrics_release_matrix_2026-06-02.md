@@ -532,7 +532,7 @@ BLOCKER = missing value blocks green classification.
 | STT | Classification | Why | Next action |
 | --- | --- | --- | --- |
 | Private | Caveated / not release-green | Latest workflow `26857597752` shows v2 setup/Stop/saveCandidate/final whole-utterance decode work, but the 61-word result is now classified `INVALID_PROOF_EARLY_STOP`: the harness stopped the 34.5s fixture before full completion. v4 improved from setup init-failed to ready/recording and receives non-silent audio, but every v4 inference fails with `invalid data location: undefined for input "a"`. | Rerun v2 on `0e4be547` or later to judge parity. Treat v4 as backend/config/runtime failure, not setup or mic failure. |
-| Cloud | Caveated / closest | Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. Long-speech/app-tail proof remains open. | Launch/position Cloud baseline as quality path if app-tail proof passes. DEV/PRODUCT: change/narrow/disable keyterms before defaulting it. TEST: run Cloud app journey/tail proof with `__CLOUD_STT_TIMELINE__`. |
+| Cloud | Caveated / closest | Larger credentialed h1 subset on current code is valid: baseline 97.78% accuracy / 90% filler recall; keyterms 95% / 100%. Baseline is the safest current Cloud candidate. Keyterms improves filler recall but still hurts h1_6 accuracy, so it is not shippable as default. Long-speech/app-tail proof remains open. | Launch/position Cloud baseline as quality path if app-tail proof passes. **Stop Cloud keyterms work for standard/default fillers** (`uh`, `um`, `like`, `basically`, etc.). Keyterms/prompt variants are backlog/custom-word experiments only. TEST: run Cloud baseline app journey/tail proof with `__CLOUD_STT_TIMELINE__`. |
 | Native | Backlog / failed current proof | Latest human real-mic rerun improved save selection: authoritative `saveCandidate` selected 53 words from `service_result`, session saved, history visible, and no full duplicate. It still failed product readiness: user observed jumpy interim text/trust-state behavior, raw first result arrived ~38.2s after audio start but that number is inflated by human setup silence, filler recall remained 66.67%, readability/punctuation/casing failed, and detail transcript extraction was empty in the artifact. | Fix stable Native trust-state labeling from mic-on through final acceptance, fix/activate Native readability strategy, verify detail transcript extraction, then rerun human Chrome mic proof. |
 
 Clarifications:
@@ -546,10 +546,10 @@ ready/recording and receives non-silent audio but fails every decode with
 
 Cloud "invalid" means no usable provider transcript session, not bad WER.
 Those rows are excluded from quality averages and block green classification.
-Latest local Cloud A/B code treats `keyterms_prompt` as a JSON-array-string.
-The cheap credentialed subset confirms baseline/keyterms are both valid on
-`h1_1,h1_6,h1_8`. Keyterms improves filler recall but currently lowers h1_6
-accuracy, so it is not selected yet.
+The cheap credentialed subset already proved baseline/keyterms request/session
+validity. **Current product recommendation is final for launch: Cloud A =
+baseline only. Stop keyterms testing for standard/default fillers.** Keyterms
+may return only as a custom-word boosting experiment after product approval.
 
 Native human real-mic proof is now collected and failed twice. The current
 controlling run no longer points to `Listening...` as the authoritative save

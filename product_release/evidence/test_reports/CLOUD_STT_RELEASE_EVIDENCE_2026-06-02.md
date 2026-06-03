@@ -1,6 +1,6 @@
 # Cloud STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-03T18:15:00Z
+**Updated:** 2026-06-03T20:05:00Z
 **Scope:** AssemblyAI Cloud STT, credentialed A/B, filler/readability/tail proof, app journey  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -13,10 +13,9 @@ Two-step status:
 - Baseline: SETUP passing; proof strongest current candidate.
 - Keyterms: SETUP passing after request/session fix; proof failure in accuracy phase at `proof.accuracy.fillers` because filler recall improves but h1_6 accuracy regresses.
 Primary launch blockers:
-1. Credentialed A/B now runs valid baseline/keyterms sessions on the cheap subset, but keyterms is not shippable because it improves filler recall while hurting h1_6 accuracy.
-2. Baseline is the safest current Cloud candidate, but must still be proven on the broader release matrix.
-3. Current app journey proof now passes live -> stop -> save -> analytics history/detail smoke.
-4. Long-speech tail/readability and exact `__CLOUD_STT_TIMELINE__` extraction still need to be captured.
+1. Baseline is the safest current Cloud candidate and is the only launch/default Cloud path.
+2. Current app journey proof now passes live -> stop -> save -> analytics history/detail smoke.
+3. Long-speech tail/readability and exact `__CLOUD_STT_TIMELINE__` extraction still need to be captured.
 ```
 
 Cloud is currently the strongest STT candidate, but it must not be treated as fully complete until the app-path proof exports exact timeline/readability fields with the current release metric schema.
@@ -74,6 +73,18 @@ Prior provider A/B:    /private/tmp/assemblyai-ab-26776256219/assemblyai-streami
 
 ## Current Cloud Variant Policy
 
+Final recommendation for current release:
+
+```text
+STOP Cloud keyterms work for standard/default fillers (`uh`, `um`, `like`,
+`basically`, etc.).
+
+Cloud A = baseline only.
+Cloud keyterms/prompt variants are not launch work and should not consume more
+test/dev time unless product explicitly reopens custom-word boosting as a
+separate experiment.
+```
+
 Launch/default Cloud path:
 
 ```text
@@ -93,7 +104,9 @@ Workflow hygiene:
 
 ```text
 Controlled STT Benchmarks now defaults `streaming_ab_variants=baseline`.
-Run keyterms/prompt variants only as explicit experiments.
+Do not run baseline-vs-keyterms again for standard/default filler words.
+Run keyterms/prompt variants only as explicit custom-word experiments after
+product approval.
 ```
 
 Optional experimental A/B, if product reopens keyterms/custom-word boosting:
@@ -101,7 +114,7 @@ Optional experimental A/B, if product reopens keyterms/custom-word boosting:
 | Variant | Purpose |
 | --- | --- |
 | `baseline` | Current default/control |
-| `keyterms` | Keyterm boosting only; not launch-default |
+| `keyterms` | Custom-word boosting experiment only; not launch-default |
 | `prompt` | Disfluency/filler-preservation instruction only; cost approval required |
 | `prompt_keyterms` | Combined behavior candidate; cost approval required |
 
