@@ -1705,7 +1705,8 @@ release classification (test owns those).
 ### Current main state (dev commits)
 - `e6e98678` — format-transcript Gemini formatter backend + Native activation + telemetry (ON MAIN).
 - `0d35d233` — UX bugfix: corrupted-localStorage white-screen crash in useStreak/useGoals (ON MAIN).
-- `ea63f053` — Score confidence-gating (ON BRANCH `fix/score-confidence-quality-gating`, NOT merged — awaiting your merge window).
+- `a231a729` — Score confidence-gating (ON MAIN; test/release still must validate transcript-quality caveats and confidence behavior).
+- Pending merge set — `#33` Native trust hook exposure + `#C1` ProfileGuard provisioning UX.
 
 ### TEST AGENT owns (proof / evidence / harness) — please drive:
 1. **Private v2 human rerun** — explicit setup consent (`PRIVATE_SETUP_USER_CONSENT_REQUIRED=true`),
@@ -1739,10 +1740,10 @@ release classification (test owns those).
 ### OPEN ASKS FOR TEST (blocking) — please answer in your next report append:
 1. **Who deploys `format-transcript` + sets `GEMINI_API_KEY`?** This blocks BOTH Native and Cloud
    formatter proofs. Until deployed it is a safe no-op (invoke fails → raw, no regression).
-2. **Merge window for `ea63f053`** (score-confidence)? It changes the Session score UI; I won't merge
-   during an active Native/Private proof without your go.
-3. **Native trust hooks (#33):** do you read DOM yourself, or want me to expose
-   `draftBannerVisible/processingVisible/finalStateVisible` + timestamps as data-attributes?
+2. **Score confidence proof:** `a231a729` is on main; validate transcript-quality caveats and score
+   confidence behavior on a SHA at or after that commit.
+3. **Native trust hooks (#33):** implemented in this pending merge set. Use the explicit panel
+   attributes plus `window.__SS_TRUST_STATE__` / `window.__SS_TRUST_TRACE__` in the next proof.
 
 ### CROSS-AGENT CONFIRMATION PROTOCOL (owner directive, 2026-06-03)
 Bugs and fixes require the **other agent's confirmation** before being treated as done/green,
@@ -1756,8 +1757,9 @@ Bugs and fixes require the **other agent's confirmation** before being treated a
   render-path `JSON.parse` that white-screens the app — fixed in `0d35d233`). When in doubt, it is NOT
   obvious → route for confirmation.
 
-#### DEV BUG CANDIDATES — awaiting TEST confirm (none blocking; product-behavior-affecting only)
-_(none yet — sweep in progress; obvious fixes land directly, candidates will be listed here)_
+#### DEV BUG CANDIDATES — current unresolved list
+_(none open in this bucket; #C1 is resolved later in this report as a bounded provisioning UX fix,
+with browser proof still required.)_
 
 ---
 
@@ -1894,12 +1896,12 @@ local heuristic acceptable as an interim caveated stopgap, or do we hold for the
 
 ---
 
-## DEV BUG CANDIDATES — awaiting TEST confirm (per confirmation protocol, 2026-06-03)
+## DEV BUG CANDIDATES / RESOLUTIONS (per confirmation protocol, 2026-06-03)
 
-These are NON-obvious product-behavior issues found by dev static review. Dev did NOT patch them —
-they need a TEST repro/confirm before I change behavior (per the cross-agent confirmation protocol).
+These are NON-obvious product-behavior issues found by dev static review. Product behavior changes still
+need TEST/browser confirmation before being called green.
 
-### CANDIDATE #C1 — Onboarding: new user can see "Profile Sync Failed" on first load (P1, onboarding)
+### RESOLUTION #C1 — Onboarding: new user can see "Profile Sync Failed" on first load (P1, onboarding)
 - **Where:** `frontend/src/components/ProfileGuard.tsx:135` — `if (profileError || !profile)` renders the
   red "Profile Sync Failed" error screen (Retry / Sign Out). `frontend/src/hooks/useUserProfile.ts`
   returns `null` (not an error) when the profile row does not exist yet (`getById` → null, logged
@@ -1907,11 +1909,15 @@ they need a TEST repro/confirm before I change behavior (per the cross-agent con
 - **Symptom (hypothesis):** a freshly-signed-up user whose session is valid but whose `user_profiles`
   row is still being provisioned (create-user race / lag) lands on a scary "Profile Sync Failed" error
   instead of a friendly "setting up your account…" state. This is the onboarding-trust priority area.
-- **Why not auto-fixed:** non-obvious — depends on whether a profile row is GUARANTEED to exist by the
-  time a session is active. If guaranteed, this path is only a true error and current copy is fine.
-- **TEST to confirm:** sign up a brand-new account (or simulate `getById` → null with a valid session)
-  and observe first-load UX. If you see "Profile Sync Failed" for a healthy new user, confirm and I'll
-  split "profile missing/provisioning" (friendly, auto-retry) from "profile fetch failed" (error).
+- **Resolution in this merge set:** implemented the friendly provisioning split because the UX failure
+  mode is high-impact and the fix is bounded. A valid session with `profile=null` and no fetch error now
+  shows `data-testid="profile-provisioning"` / `Setting up your account` and auto-retries before falling
+  through to the genuine `Profile Sync Failed` error if the profile row still never appears.
+- **Validation:** focused component coverage added for provisioning, real error, and loaded-profile
+  success states.
+- **TEST to confirm:** sign up a brand-new account (or simulate `getById` -> null with a valid session)
+  and observe first-load UX. Expected: friendly setup progress first; red failure screen only if the
+  profile row remains missing after bounded retries or a real fetch error occurs.
 
 _(Sweep also verified CLEAN, no fix needed: all localStorage/JSON.parse sites guarded except the
 useStreak white-screen already fixed in `0d35d233`; every setInterval has a clearInterval; ProtectedRoute
@@ -1926,7 +1932,39 @@ The master block's blocking open ask "Who deploys `format-transcript` + sets `GE
   confirmed deployed in run `26893924083` (15:09Z, `Deployed Functions on project ***: format-transcript`).
 - **`GEMINI_API_KEY`:** present in GitHub Secrets (2026-05-27); same key `get-ai-suggestions` uses in
   production, so the Supabase function secret is configured.
-- **Remaining open asks unchanged:** (2) merge window for `ea63f053` (score-confidence UI);
-  (3) Native trust-hook exposure (#33); plus DEV FINDING #32 confirms and DEV BUG CANDIDATE #C1 confirm.
+- **Remaining open asks:** validate score confidence on `a231a729+`, validate #33 trust hooks in
+  Native human proof, confirm #C1 provisioning UX in a fresh signup/provisioning smoke, and keep #32
+  Private local punctuation as a release caveat unless product approves a local model setup flow.
 - Optional: dev can force a one-time secrets sync (`workflow_dispatch operation=secrets`) for 100%
   certainty on your go — not believed necessary since `get-ai-suggestions` already uses the key live.
+
+---
+
+## TEST/RELEASE UPDATE (2026-06-03T16:35Z) — #33 trust hooks and #C1 provisioning UX ready to merge
+
+Two user-trust items are in the pending merge set:
+
+| Item | Product change | Test/release proof still required |
+| --- | --- | --- |
+| `#33` Native trust proof hooks | `LiveTranscriptPanel` now exposes `data-draft-banner-visible`, `data-processing-visible`, `data-final-state-visible`, `data-listening-visible`, plus timestamped `window.__SS_TRUST_STATE__` / `window.__SS_TRUST_TRACE__`. | Native human proof must verify Draft from mic-on, Processing/Final lifecycle, and transcript-only metrics with banner copy stripped. |
+| `#C1` Profile provisioning UX | `ProfileGuard` shows `Setting up your account` and retries when a valid signed-in user's profile row is still provisioning, instead of immediately showing `Profile Sync Failed`. | Fresh signup/provisioning smoke must confirm healthy new users do not see the red failure state before bounded retries are exhausted. |
+
+Validation:
+
+```text
+pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+  frontend/src/components/session/__tests__/LiveTranscriptPanel.component.test.tsx \
+  frontend/src/components/__tests__/ProfileGuard.component.test.tsx
+
+23 tests passed.
+```
+
+### ✅ DEV: these are now MERGED to main (2026-06-03)
+The "pending merge set" above is landed on `main`:
+- **Score confidence-gating (#31)** — `a231a729` (cherry-picked from the score branch; branch deleted).
+- **#33 trust hooks** + **#C1 provisioning UX** — `66604cf3` (merge commit; temp branch deleted).
+- tsc + eslint clean; 23 component tests + 20 score tests green.
+
+Net open items for TEST now: (1) Native human proof exercising #33 + the live formatter (deploy already
+resolved), (2) fresh-signup smoke for #C1, (3) score-confidence visual check on `a231a729+`, (4) #32 stays
+a Private readability caveat unless product approves the consented local-model flow. No dev blockers remain.
