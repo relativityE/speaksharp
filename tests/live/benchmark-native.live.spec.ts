@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test';
 import { calculateWordErrorRate } from '../../frontend/src/lib/wer';
 import { HARVARD_FULL } from '../fixtures/stt-isomorphic/harvard-sentences';
-import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, expectBenchmarkRecordingStarted, collectBenchmarkPreconditionSnapshot, expectBenchmarkTranscriptOutput, assertNativeSpeechRecognitionIsReal } from './helpers/benchmark-utils';
+import { readBenchmarks, writeBenchmarks, assertNoRegression, AUDIO_ARGS, selectBenchmarkMode, waitForBenchmarkSession, expectBenchmarkRecordingStarted, collectBenchmarkPreconditionSnapshot, expectBenchmarkTranscriptOutput, assertNativeSpeechRecognitionIsReal, waitForBenchmarkSaveCandidate } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 test.use({
@@ -64,9 +64,9 @@ test('measure Native STT', async ({ page }) => {
         await page.waitForTimeout(22_000);
 
         await page.getByTestId('session-start-stop-button').click();
-        await expect(page.getByTestId('transcript-container')).not.toBeEmpty({ timeout: 15_000 });
+        const saveCandidate = await waitForBenchmarkSaveCandidate(page, `native-trial-${trial}`);
 
-        const text = (await page.getByTestId('transcript-container').textContent() ?? '')
+        const text = (saveCandidate.selectedForSave ?? '')
             .toLowerCase()
             .replace(/[^\w\s]/g, '')
             .trim();

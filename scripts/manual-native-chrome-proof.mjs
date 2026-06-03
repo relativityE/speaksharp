@@ -44,6 +44,11 @@ function firstMeaningfulTranscript(...values) {
   return values.map(compact).find((value) => value && !isPlaceholderTranscript(value)) || '';
 }
 
+async function readAuthoritativeSaveCandidate(page) {
+  return page.evaluate(() => window.__SPEECH_RUNTIME_DEBUG__?.().saveCandidate || null)
+    .catch(() => null);
+}
+
 function normalizeForDuplicateScan(text) {
   return compact(text)
     .toLowerCase()
@@ -302,6 +307,7 @@ try {
   await page.waitForTimeout(3_000);
   evidence.postStopTranscript = compact(await page.getByTestId('transcript-container').textContent().catch(() => ''));
   evidence.saved = await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false);
+  evidence.saveCandidate = await readAuthoritativeSaveCandidate(page);
   evidence.nativeTrace = await page.evaluate(() => window.__NATIVE_BROWSER_TRACE__ || []);
   evidence.nativeTraceSummary = extractNativeTraceSummary(evidence.nativeTrace);
   evidence.nativeParallelCapture = await page.evaluate(() => {
@@ -318,6 +324,7 @@ try {
   });
   evidence.parallelCaptureSummary = summarizeParallelCapture(evidence.nativeParallelCapture, evidence.nativeTrace);
   evidence.selectedForSave = firstMeaningfulTranscript(
+    evidence.saveCandidate?.selectedForSave,
     evidence.nativeTraceSummary.lastStoreTranscript,
     evidence.postStopTranscript,
     evidence.visibleAtStop,
