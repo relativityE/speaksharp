@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures';
-import { navigateToRoute } from '../helpers';
+import { navigateToRoute, programmaticLoginWithRoutes } from '../helpers';
 import logger from '../../../frontend/src/lib/logger';
 
 test('SPA startup diagnostic', async ({ page }) => {
@@ -22,7 +22,11 @@ test('SPA startup diagnostic', async ({ page }) => {
 
   logger.info('Navigating to app...');
 
-  // Use navigateToRoute to satisfy lint, even for diagnostic load
+  // Install the centralized E2E auth + bridge before loading the app.
+  // The runtime intentionally rejects mock auth without this manifest.
+  await programmaticLoginWithRoutes(page, { userType: 'free' });
+
+  // Use navigateToRoute to satisfy lint and exercise the canonical readiness path.
   await navigateToRoute(page, '/');
 
   const html = await page.content();
