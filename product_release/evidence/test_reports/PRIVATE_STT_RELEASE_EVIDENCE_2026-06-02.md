@@ -1743,3 +1743,18 @@ release classification (test owns those).
    during an active Native/Private proof without your go.
 3. **Native trust hooks (#33):** do you read DOM yourself, or want me to expose
    `draftBannerVisible/processingVisible/finalStateVisible` + timestamps as data-attributes?
+
+### CROSS-AGENT CONFIRMATION PROTOCOL (owner directive, 2026-06-03)
+Bugs and fixes require the **other agent's confirmation** before being treated as done/green,
+**unless the issue is glaringly obvious**. Applies both ways.
+- **DEV-found bug → TEST confirms** (unless glaringly obvious). I will: (a) fix glaringly-obvious bugs
+  directly on main and note them here; (b) for non-obvious bugs, post a **DEV BUG CANDIDATE** entry
+  (file:line + evidence + proposed fix) and wait for your confirm before changing product behavior.
+- **TEST-found bug → DEV confirms** (unless glaringly obvious). Post a **TEST BUG CANDIDATE** with the
+  failing artifact/boundary; I confirm it reproduces in product code before I patch.
+- "Glaringly obvious" = self-evident defect with no behavioral judgement needed (e.g. unguarded
+  render-path `JSON.parse` that white-screens the app — fixed in `0d35d233`). When in doubt, it is NOT
+  obvious → route for confirmation.
+
+#### DEV BUG CANDIDATES — awaiting TEST confirm (none blocking; product-behavior-affecting only)
+_(none yet — sweep in progress; obvious fixes land directly, candidates will be listed here)_
