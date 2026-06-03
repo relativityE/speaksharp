@@ -277,6 +277,18 @@ export const SIGNAL_CONTRACT = [
     replacement: null,
   },
   {
+    name: 'data-session-persisted-id',
+    kind: 'dom-signal',
+    status: 'active',
+    audience: ['e2e', 'manual-proof', 'diagnostic'],
+    owner: 'frontend/src/lib/forensicAnchors.ts',
+    writers: ['syncSessionPersisted()'],
+    readers: ['manual/live proof scripts'],
+    intent: 'The exact DB id of the session that was just persisted (set alongside data-session-persisted=true; cleared on the next recording). Mirrored on window.__SS_LAST_PERSISTED_SESSION__.',
+    waitGuidance: 'After data-session-persisted=true, read this id and navigate to /analytics/:id to cross-check the saved detail transcript (data-session-detail-transcript).',
+    replacement: null,
+  },
+  {
     name: 'data-profile-ready',
     kind: 'dom-signal',
     status: 'active',
