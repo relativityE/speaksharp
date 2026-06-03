@@ -693,3 +693,33 @@ detailTranscriptEvidence.matchRatio
 detailTranscriptMatchesSelected
 __NATIVE_FORMATTER_LAST__
 ```
+
+---
+
+## TEST AGENT UPDATE (2026-06-03) — Native trust-state fields added to proof artifact
+
+The next Native human proof now exports explicit trust-state snapshots so the
+user-trust gate can be checked from JSON, not memory or screenshots:
+
+```text
+trustStateAtRecordingStart
+trustStateAtAudioReady
+trustStateAtVisibleStop
+trustStatePostStop
+```
+
+Each snapshot includes:
+
+```text
+transcriptState
+trustBannerVisible
+trustBannerText
+trustBannerMode
+finalizingVisible
+currentLineVisible
+currentLineDraft
+transcriptPreview
+```
+
+The proof fails if the Draft trust banner is not visible at recording start or
+while the transcript is still non-final.

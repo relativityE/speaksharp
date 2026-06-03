@@ -52,6 +52,31 @@ async function readAuthoritativeSaveCandidate(page) {
     .catch(() => null);
 }
 
+async function readTranscriptTrustState(page) {
+  return page.evaluate(() => {
+    const compact = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+    const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
+    const trustBanner = document.querySelector('[data-testid="live-transcript-trust-banner"]');
+    const finalizingBanner = document.querySelector('[data-testid="live-transcript-finalizing"]');
+    const currentLine = document.querySelector('[data-testid="live-transcript-current-line"]');
+
+    return {
+      at: Date.now(),
+      perfMs: Number(performance.now().toFixed(1)),
+      transcriptState: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
+      trustBannerVisible: Boolean(trustBanner),
+      trustBannerText: compact(trustBanner?.textContent),
+      trustBannerMode: trustBanner?.getAttribute('data-transcript-trust') ?? null,
+      finalizingVisible: Boolean(finalizingBanner),
+      finalizingText: compact(finalizingBanner?.textContent),
+      currentLineVisible: Boolean(currentLine),
+      currentLineDraft: currentLine?.getAttribute('data-transcript-draft') ?? null,
+      currentLineText: compact(currentLine?.textContent).slice(0, 240),
+      transcriptPreview: compact(transcriptContainer?.textContent).slice(0, 240),
+    };
+  }).catch(() => null);
+}
+
 function normalizeForDuplicateScan(text) {
   return compact(text)
     .toLowerCase()
@@ -336,12 +361,15 @@ try {
   await startButton.waitFor({ state: 'visible', timeout: 30_000 });
   await page.waitForFunction(() => document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') === 'true', null, { timeout: 45_000 });
   evidence.recordingStarted = true;
+  evidence.trustStateAtRecordingStart = await readTranscriptTrustState(page);
 
   evidence.nativeAudioReady = await waitForNativeAudioReady(page);
+  evidence.trustStateAtAudioReady = await readTranscriptTrustState(page);
   evidence.audioPlayback = await speakSentence(page);
   await page.waitForTimeout(POST_AUDIO_WAIT_MS);
 
   const transcriptText = compact(await page.getByTestId('transcript-container').textContent().catch(() => ''));
+  evidence.trustStateAtVisibleStop = await readTranscriptTrustState(page);
   evidence.visibleAtStop = transcriptText;
   evidence.transcriptSample = transcriptText.slice(0, 500);
   evidence.transcriptLength = transcriptText.length;
@@ -354,6 +382,7 @@ try {
     evidence.blockers.push(`stop did not settle: ${error.message}`);
   });
   await page.waitForTimeout(3_000);
+  evidence.trustStatePostStop = await readTranscriptTrustState(page);
   evidence.postStopTranscript = compact(await page.getByTestId('transcript-container').textContent().catch(() => ''));
   evidence.saved = await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false);
   evidence.saveCandidate = await readAuthoritativeSaveCandidate(page);
@@ -402,6 +431,8 @@ try {
   evidence.finalUrl = page.url();
 
   if (!evidence.transcriptVisible) evidence.blockers.push('No non-placeholder live Native transcript from real Chrome/mic path.');
+  if (!evidence.trustStateAtRecordingStart?.trustBannerVisible) evidence.blockers.push('Native Draft trust banner was not visible at recording start.');
+  if (!evidence.trustStateAtVisibleStop?.trustBannerVisible && evidence.trustStateAtVisibleStop?.transcriptState !== 'final') evidence.blockers.push('Native Draft trust banner was not visible while transcript was still non-final.');
   if (!evidence.saved) evidence.blockers.push('Native session did not expose saved-session marker.');
   if (!evidence.historyVisible) evidence.blockers.push('Native session history item was not visible.');
   if (!evidence.analyticsVisible) evidence.blockers.push('Native analytics detail/context was not visible.');
