@@ -38,6 +38,7 @@ test('measure TransformersJS (CPU)', async ({ page }) => {
         window.REAL_WHISPER_TEST = true;
         window.__FORCE_TRANSFORMERS_JS__ = true;
         window.__STT_LOAD_TIMEOUT__ = 180000;
+        (window as unknown as { __PRIVATE_TRANSCRIPT_TRACE__?: boolean }).__PRIVATE_TRANSCRIPT_TRACE__ = true;
     });
 
     // Real Authentication Flow to ensure real WASM engines are loaded

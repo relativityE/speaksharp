@@ -49,6 +49,7 @@ test('measure Transformers.js v4 worker', async ({ page }) => {
         window.__E2E_CONTEXT__ = true;
         window.REAL_WHISPER_TEST = true;
         window.__STT_LOAD_TIMEOUT__ = 180000;
+        (window as unknown as { __PRIVATE_TRANSCRIPT_TRACE__?: boolean }).__PRIVATE_TRANSCRIPT_TRACE__ = true;
         window.localStorage.setItem('speaksharp.private.engine', 'transformers-js-v4');
     });
 
