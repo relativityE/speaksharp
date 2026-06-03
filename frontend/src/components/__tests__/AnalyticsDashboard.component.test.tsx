@@ -136,32 +136,37 @@ describe('AnalyticsDashboard', () => {
             label: 'Delivery Control',
             outcome: /steadier and more controlled/i,
             statCards: ['stat-card-speaking_pace', 'stat-card-filler_words_per_min', 'stat-card-clarity_score', 'stat-card-total_practice_time'],
+            hasTranscriptQuality: false,
         },
         {
             id: 'message_clarity',
             label: 'Message Clarity',
             outcome: /tighten the opening/i,
             statCards: ['stat-card-clarity_score', 'stat-card-speaking_pace', 'stat-card-avg_session_length', 'stat-card-total_sessions'],
+            hasTranscriptQuality: false,
         },
         {
             id: 'habit_progress',
             label: 'Habit Progress',
             outcome: /speaking habit is improving/i,
             statCards: ['stat-card-total_sessions', 'stat-card-total_practice_time', 'stat-card-avg_session_length', 'stat-card-filler_words_per_min'],
+            hasTranscriptQuality: false,
         },
         {
             id: 'session_proof',
             label: 'Session Proof',
             outcome: /what changed between practice attempts/i,
             statCards: ['stat-card-total_sessions', 'stat-card-speaking_pace', 'stat-card-clarity_score', 'stat-card-filler_words_per_min'],
+            hasTranscriptQuality: false,
         },
         {
             id: 'transcript_quality',
             label: 'Transcript Quality',
             outcome: /delivery or capture quality/i,
             statCards: ['stat-card-clarity_score', 'stat-card-speaking_pace', 'stat-card-avg_session_length', 'stat-card-total_sessions'],
+            hasTranscriptQuality: true,
         },
-    ])('renders the $label analytics focus as a coherent user story', ({ id, label, outcome, statCards }) => {
+    ])('renders the $label analytics focus as a coherent user story', ({ id, label, outcome, statCards, hasTranscriptQuality }) => {
         localStorage.setItem('speaksharp_analytics_tool_group_v1', id);
 
         renderComponent({ sessionHistory: mockSessionHistory });
@@ -175,9 +180,8 @@ describe('AnalyticsDashboard', () => {
             expect(screen.getByTestId(testId)).toBeInTheDocument();
         }
 
-        if (id === 'transcript_quality') {
-            expect(screen.getByTestId('accuracy-comparison')).toBeInTheDocument();
-        }
+        const accuracyComparison = screen.queryByTestId('accuracy-comparison');
+        expect(Boolean(accuracyComparison)).toBe(hasTranscriptQuality);
     });
 
     it('supports a custom toolkit when users want specific tools outside predefined groups', () => {
