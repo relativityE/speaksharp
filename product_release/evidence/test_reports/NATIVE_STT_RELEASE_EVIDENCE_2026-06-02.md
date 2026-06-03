@@ -1259,3 +1259,52 @@ Dev/test ask:
 | --- | --- |
 | Native start timeout | DEV: decide whether `NativeBrowser` needs a longer/diagnostic start timeout, better retry, or browser-specific handling for Chrome fake-audio/headless startup. TEST: rerun after any change and keep classifying injected-audio as diagnostic only. |
 | User experience | A user seeing this path gets `Recording could not start. Check microphone permission and try again.` If this reproduces in headed/human Chrome, it is funnel-breaking. |
+
+---
+
+## TEST UPDATE (2026-06-03T20:47Z) — real-mic Native rerun still fails product readiness
+
+Artifact:
+
+```text
+/private/tmp/native-human-rerun-20260603.json
+```
+
+Result:
+
+```text
+FAIL — Native is not release-green.
+```
+
+What passed:
+
+| Gate | Evidence |
+| --- | --- |
+| Real human mic path | `recordingStarted=true`, `transcriptVisible=true`; no fake-audio flags. |
+| Authoritative save candidate | `saveCandidateReason=service_result`, `selectedForSaveLength=343`, `finalWordCount=59`, `meaningfulWordCount=59`; candidates all carried the full transcript except the short partial. |
+| Formatter attempted | `__NATIVE_FORMATTER_LAST__.attempted=true`, `provider=gemini`, `functionName=format-transcript`. |
+| History / analytics navigation | `historyVisible=true`, `analyticsVisible=true`. |
+
+Current blockers:
+
+| Bug | Evidence | Owner / ask |
+| --- | --- | --- |
+| Native formatter timed out, so punctuation/readability still did not improve | `nativeFormatterLast={ attempted:true, provider:"gemini", latencyMs:15872, errorCode:"FORMATTER_PROVIDER_TIMEOUT", fallbackToRaw:true }`; backend timeout is 15s. This is a **504 timeout**, not the older 502 provider-error class. | DEV: fix formatter latency/reliability. Options to investigate: faster Gemini model, shorter prompt, async/deferred formatting, timeout budget, or provider config. TEST reruns and compares raw vs formatted vs ground truth once fixed. |
+| Stop did not settle and post-stop audio contaminated transcript | Harness timed out waiting for `data-recording=false`; `postStopTranscript` appended `Hey Dad.` after the intended script, and trace shows an unexpected second recognition/capture cycle after Stop. | DEV: suppress Native auto-restart after explicit Stop and prevent post-stop finals/partials from being appended to the completed session. TEST reruns with human mic and verifies no words spoken after Stop enter the saved/visible transcript. |
+| Trust banner was not persistent while transcript was non-final | At recording start the Draft banner was visible; at visible Stop state was `finalizing` with `trustBannerVisible=false` and `finalizingText="Processing transcript…"`. The proof still flagged: `Native Draft trust banner was not visible while transcript was still non-final.` | DEV: ensure Native shows a clear non-final/finalizing trust state from mic-on until final transcript is accepted. Copy must stay generic for Native (`Processing transcript…`), not `Processing locally`. TEST captures `__SS_TRUST_TRACE__` across mic-on → visible text → Stop → final. |
+| Detail transcript empty / mismatch | `detailTranscript=""`, `detailTranscriptMatchesSelected=false`, while `saveCandidate.selectedForSave` had 343 chars. | DEV: isolate whether detail page rendering, route opening, or harness selector is wrong. TEST captures saved row, detail DOM, and saveCandidate on rerun. |
+| Saved-session marker not exposed | `saved=false` despite `historyVisible=true` and `analyticsVisible=true`. | DEV/TEST: decide whether this is a product marker gap or harness extraction issue; expose/read a reliable persisted-session marker so release proof can distinguish actual save failure from marker failure. |
+
+Direct dev note:
+
+```text
+The latest Native human proof changes the formatter bug from generic "502"
+to concrete "504 / FORMATTER_PROVIDER_TIMEOUT" on the real save path. The
+formatter is wired and attempted, but it takes ~15.9s and falls back to raw.
+Native punctuation/readability remains failed until this is fixed.
+
+Please also prioritize the Native Stop lifecycle bug: explicit Stop allowed an
+unexpected second recognition/capture cycle, and post-stop speech ("Hey Dad.")
+entered the postStopTranscript. Native must hard-stop on explicit Stop and must
+not append any post-stop recognition results to the completed transcript.
+```

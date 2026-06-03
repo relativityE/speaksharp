@@ -2729,27 +2729,35 @@
     ]
   },
   "latestNativeHumanProof": {
-    "updatedAt": "2026-06-03T19:40:00Z",
-    "artifact": "/private/tmp/native-chrome-human-one-shot.json",
+    "updatedAt": "2026-06-03T20:47:20.894Z",
+    "artifact": "/private/tmp/native-human-rerun-20260603.json",
     "baseUrl": "https://speaksharp-public.vercel.app",
     "status": "fail_product_readiness",
     "results": {
       "realMic": true,
       "trustBannerAtMicOn": true,
-      "trustBannerWhileDrafting": true,
+      "trustBannerPersistentUntilFinal": false,
       "formatterAttempted": true,
-      "formatterErrorCode": "FORMATTER_ERROR",
+      "formatterErrorCode": "FORMATTER_PROVIDER_TIMEOUT",
+      "formatterLatencyMs": 15872,
       "formatterFallbackToRaw": true,
-      "saveCandidateLength": 336,
-      "finalWordCount": 58,
-      "saved": true,
+      "saveCandidateLength": 343,
+      "finalWordCount": 59,
+      "meaningfulWordCount": 59,
+      "saveCandidateReason": "service_result",
+      "stopSettled": false,
+      "postStopContamination": "postStopTranscript appended 'Hey Dad.' after explicit Stop",
+      "saved": false,
       "historyVisible": true,
+      "analyticsVisible": true,
       "detailTranscriptMatchesSelected": false
     },
     "blockers": [
-      "Native formatter backend returned 502 / FORMATTER_ERROR and fell back to raw.",
+      "Native formatter attempted but timed out after about 15.9s with FORMATTER_PROVIDER_TIMEOUT / fallbackToRaw, so punctuation/readability still did not improve.",
+      "Explicit Stop did not settle; a second recognition/capture cycle appended post-stop speech ('Hey Dad.') to postStopTranscript.",
+      "Native trust banner was not persistent while transcript was non-final/finalizing.",
       "Detail transcript was empty even though saveCandidate/history had transcript.",
-      "Raw Native readability remains poor until formatter succeeds."
+      "Saved-session marker was false while history and analytics were visible, so persisted-session proof needs a reliable marker or DB/detail verification."
     ]
   },
   "latestDeployedInjectedDiagnostics": {
