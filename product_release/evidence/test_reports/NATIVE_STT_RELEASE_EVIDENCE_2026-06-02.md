@@ -999,12 +999,12 @@ Required next action:
 
 ### Lint Blocker Closed: 2026-06-03T17:06Z
 
-Commit `48826d73` clears the lint blockers above. Verification:
+Commit `e50e005f` clears the lint blockers above. Verification:
 
 ```text
 pnpm quality
 
-PASS: lint, typecheck, eslint-disable hygiene
+PASS: lint, typecheck, disable-directive hygiene
 ```
 
 Native browser proof remains open because `pnpm rc:ux:smoke` still needs a valid

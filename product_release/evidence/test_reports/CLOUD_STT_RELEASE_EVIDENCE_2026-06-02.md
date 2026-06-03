@@ -847,12 +847,12 @@ Required next action:
 
 ### Lint Blocker Closed: 2026-06-03T17:06Z
 
-Commit `48826d73` clears the lint blockers shared in the matrix. Verification:
+Commit `e50e005f` clears the lint blockers shared in the matrix. Verification:
 
 ```text
 pnpm quality
 
-PASS: lint, typecheck, eslint-disable hygiene
+PASS: lint, typecheck, disable-directive hygiene
 ```
 
 Cloud app-path proof remains lower priority than Private/Native, but any future

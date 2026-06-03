@@ -2458,9 +2458,9 @@
           "backend/supabase/functions/format-transcript/index.ts:229:12 unused _err",
           "backend/supabase/functions/format-transcript/index.ts:244:14 unused _err"
         ],
-        "fixedByCommit": "48826d73",
+        "fixedByCommit": "e50e005f",
         "fixedAt": "2026-06-03T17:06Z",
-        "verification": "pnpm quality passed: lint, typecheck, eslint-disable hygiene"
+        "verification": "pnpm quality passed: lint, typecheck, disable-directive hygiene"
       },
       "browserUxSmoke": {
         "command": "pnpm rc:ux:smoke",
@@ -2471,7 +2471,7 @@
         "browserError": "Mock auth is not available from the runtime app. Use the centralized E2E test harness or create real test users through the test-user workflow."
       },
       "releaseStatus": "automated_support_green_but_browser_user_experience_not_green",
-      "currentRead": "Candidate eff03d2d has strong automated support for STT/trust/formatter/score code. Lint blockers found during the sweep were fixed by 48826d73 and pnpm quality passed. Browser UX proof remains blocked by auth/test-harness setup before STT behavior can be observed. Do not mark Private cumulative live text, Native formatter invocation, or trust-state UX release-green from this sweep."
+      "currentRead": "Candidate eff03d2d has strong automated support for STT/trust/formatter/score code. Lint blockers found during the sweep were fixed by e50e005f and pnpm quality passed. Browser UX proof remains blocked by auth/test-harness setup before STT behavior can be observed. Do not mark Private cumulative live text, Native formatter invocation, or trust-state UX release-green from this sweep."
     }
   ],
   "timingContract": {
