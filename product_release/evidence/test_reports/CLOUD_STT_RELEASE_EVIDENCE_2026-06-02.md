@@ -753,50 +753,14 @@ Required dev decision:
 Do **not** promote prompt/u3-rt-pro without product approval because that changes
 the cost model.
 
-## DEV → TEST AGENT (2026-06-02, append-only) — how to validate #22 (stop-timeout/tail) + cat-scan #6
+## CURRENT CLOUD RELEASE HANDOFF (2026-06-03T16:55Z)
 
-**Shipped (`46db220a`, `74e960b4`):**
-- Post-Stop wait now uses `CLOUD_STT.STOP_TERMINATION_TIMEOUT_MS` (8s) instead of the 2s
-  socket-close budget, so a late final/tail turn isn't force-closed away. Records `stopToTerminationMs`.
-- New inert `window.__CLOUD_STT_TIMELINE__` (events: `socket_open`, `first_partial`, `first_final`,
-  `stop_invoked`, `termination`) → `scripts/lib/sttTiming.ts` `readCloudStreamTiming(window.__CLOUD_STT_TIMELINE__)`
-  now returns `openToFirstPartialMs`, `openToFirstFinalMs`, `stopToTerminationMs` (previously nulls).
-- Cat-scan #6: corrected the stale "REPEATED params" comment in `assemblyai-streaming-ab-proof.mts`
-  (the builder correctly sends a single JSON-array string; confirmed against your run 26842655423).
+Stale deploy/open-ask notes removed from this section. Current Cloud status only:
 
-**To validate #22 (credentialed, ideally a longer utterance whose last turn lands AFTER Stop):**
-1. Run a Cloud app proof; after Stop read `readCloudStreamTiming(window.__CLOUD_STT_TIMELINE__)`.
-2. Confirm `termination` arrives after `stop_invoked` and `stopToTerminationMs` is captured and **< 8000**
-   (if it pins at ~8000, the provider needed longer — tell me and I raise the budget from your data).
-3. Confirm the **tail is preserved**: the saved/detail transcript's last words match the end of the
-   spoken script (this is the regression #22 fixes). Compare to a run that previously truncated the tail.
-This is the live proof; I will not mark Cloud-tail green from the unit tests alone.
-
----
-
-## DEV → TEST — CLOUD + GEMINI FORMATTER DECONFLICTION (2026-06-03, dev agent, append-only)
-
-Master division-of-labor lives in `PRIVATE_STT_RELEASE_EVIDENCE_2026-06-02.md`. Cloud-specific note.
-
-Product-owner direction: **Cloud uses the Gemini formatter.** The `format-transcript` backend
-(`e6e98678`, on main) already accepts `engine:'cloud'` and applies the same word-preservation guard,
-but Cloud is NOT yet activated in the app (Cloud already has provider punctuation, so it does not
-*depend* on the formatter — it's an optional cleanup pass).
-
-- **DEV will (next, after deploy):** wire optional Cloud activation through the same seam, with the same
-  `wordPreservingServerCheck` guard and telemetry, behind the deploy of `format-transcript`. I will NOT
-  do this until the edge fn + `GEMINI_API_KEY` are deployed and your Cloud baseline is green, so the
-  baseline isn't disturbed.
-- **TEST owns:** Cloud baseline proof (live text, tail < 8000ms, save/history/detail, readability,
-  AI/PDF). Keep keyterms backlog. Do not edit the Cloud timeline trace harness expectations on my behalf.
-- **OPEN ASK (shared blocker):** who deploys `format-transcript` + `GEMINI_API_KEY`? It gates Cloud
-  AND Native formatter activation. Until then, Cloud baseline = provider punctuation only (no regression).
-
-### ✅ RESOLVED (2026-06-03, dev) — deploy blocker is NOT a blocker
-`format-transcript` is **already deployed to production**. The `deploy-supabase-migrations.yml`
-workflow auto-deploys it on every push to main (`deploy-edge-functions` job). Confirmed in run
-`26893924083` (15:09Z): `Deployed Functions on project ***: format-transcript` ("No change found" =
-already live). `GEMINI_API_KEY` exists in GitHub Secrets (set 2026-05-27) and is the same key
-`get-ai-suggestions` already uses in production, so the Supabase function secret is configured.
-→ **Cloud-Gemini activation is not deploy-blocked.** Dev still gates the actual Cloud activation on
-your Cloud baseline going green (so the baseline isn't disturbed).
+| Item | Current status | Owner / next action |
+| --- | --- | --- |
+| Release candidate | **Baseline only** is the current safe Cloud candidate. | TEST can keep Cloud lower priority than Private/Native unless baseline regresses. |
+| Keyterms boost | Request validity is fixed, but keyterms is not a launch candidate: filler recall improved while h1_6 accuracy regressed. | Backlog/experiment only; do not enable by default. |
+| User conclusion | Keep Cloud A/baseline. Do not ship default keyterms for standard fillers; custom filler words may need separate, hierarchical treatment later. | Product/dev design later if custom fillers need boosting. |
+| Tail/timing instrumentation | `window.__CLOUD_STT_TIMELINE__` and `stopToTerminationMs` exist for proof. | TEST captures only if running Cloud app-path proof. |
+| Gemini formatter | Backend deploy/secrets are not the known blocker, but Cloud formatter activation should not disturb the baseline path. | DEV only activates after product approval and baseline proof remains green. |
