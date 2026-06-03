@@ -2117,3 +2117,57 @@ The current main rerun still cannot prove the Private cumulative live transcript
 fix, Draft/Processing/Final trust UI, setup consent, or save/history/detail in a
 browser. The blocker is setup/app boot, not a transcript accuracy result.
 ```
+
+## TEST/FIX UPDATE (2026-06-03T17:23Z) — Private live provisional no-shrink fix merged
+
+Commit:
+
+```text
+main: 1af4f73f
+fix: preserve accumulated live provisional transcript
+```
+
+What changed:
+
+```text
+Private live provisional text now preserves already-visible accumulated draft
+text once enough context has been shown. Sliding-window rolling decodes that
+contain new speech append instead of replacing the live transcript with only the
+latest window. Very early unconfirmed openers and unsafe marker candidates can
+still revise/replace so bad first guesses are not locked in.
+```
+
+Verification:
+
+```text
+pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+  frontend/src/services/transcription/modes/__tests__/PrivateWhisper.test.ts \
+  frontend/src/services/transcription/modes/__tests__/mergeLiveProvisionalTranscript.test.ts
+
+PASS: 2 files / 35 tests
+
+pnpm quality
+
+PASS: lint, typecheck, disable-directive hygiene
+```
+
+Important correction from testing:
+
+```text
+The first no-shrink attempt failed two existing PrivateWhisper safety regressions
+because it preserved unconfirmed opener/unsafe text. The merged fix is narrower:
+it preserves accumulated live draft text after enough context exists, while still
+allowing early unstable text to revise.
+```
+
+Release impact:
+
+```text
+This closes the code/unit side of the "visible transcript replaces prior final
+text before Stop" bug. It does not close browser UX proof because `pnpm
+rc:ux:smoke` still fails before STT execution on the mock-auth visible-ready
+gate. The human/browser rerun must still prove:
+- visible transcript accumulates during recording
+- Draft/Processing/Final trust states are visible
+- final save/history/detail still match the full selected transcript
+```
