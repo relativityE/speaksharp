@@ -1824,6 +1824,45 @@ readability, save/history/detail, and app-vs-drop-in parity.
 
 ---
 
+## TEST/RELEASE UPDATE (2026-06-03T15:45Z) — completed transcript is no longer failed by later metrics-update failure
+
+Code-review bug found in the stop/finalization path:
+
+```text
+completeSession(status:'completed', transcript: finalTranscript) succeeded
+-> updateSession(metrics) failed
+-> old path threw SESSION_METRICS_UPDATE_FAILED
+-> catch path could mark the already completed session failed
+```
+
+Fix on main:
+
+```text
+frontend/src/services/SpeechRuntimeController.ts
+```
+
+The completed transcript now remains completed/persisted when the later rich-metrics update fails.
+The public proof signal stays true:
+
+```text
+html[data-session-persisted="true"]
+```
+
+Validation:
+
+```text
+pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+  frontend/src/services/transcription/__tests__/SttSafeguards.test.ts
+
+11 tests passed.
+```
+
+This closes a data-integrity/user-trust bug. It does **not** close the open Private
+detail/history journey proof: the next browser proof still must show history/detail
+contain `saveCandidate.selectedForSave` on the current SHA.
+
+---
+
 ## DEV FINDING — Private LOCAL punctuation feasibility (#32) — for TEST confirm (2026-06-03)
 
 Dev built an objective feasibility rig (commit `c8f0528b`):

@@ -52,6 +52,7 @@ running.
 | 2026-05-29 | Stripe downgrade action naming | Closed locally. Webhook callers now send `downgrade_to_free`; the new migration preserves legacy `downgrade_to_basic` compatibility while writing the Free baseline. | Local `deno check` and `stripe-webhook/index.test.ts` passed. |
 | 2026-05-30 | Session live coaching path | Closed. The non-live-coaching Session variant is obsolete; `SessionPage` always renders the live coaching rail and docs now treat live coaching as the current path. | Commit `127479bb`; local targeted Vitest 19/19, focused Playwright 20/20 and 12/12 passed. |
 | 2026-05-30 | E2E auth/transcript harness alignment | Closed. E2E now seeds auth storage under the real Supabase project keys, rejects malformed fake sessions, and routes synthetic transcript events through the controller. | Commit `4747247b`; local focused Playwright 20/20 and auth/UI entitlement Vitest 28/28 passed. |
+| 2026-06-03 | Session completion data integrity | Closed. A later rich-metrics update failure no longer downgrades an already completed transcript session to failed/unsaved. | Commit `66b340a4`; targeted Vitest `frontend/src/services/transcription/__tests__/SttSafeguards.test.ts` passed 11/11 and asserts `data-session-persisted="true"` after metrics update failure. |
 
 ## Current Backlog
 
