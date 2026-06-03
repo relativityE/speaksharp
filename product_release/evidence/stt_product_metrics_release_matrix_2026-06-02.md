@@ -808,3 +808,57 @@ proof.
 Private v4 is no longer blocked first by setup/mic. It receives non-silent audio
 and repeatedly starts inference, but emits no usable transcript/saveCandidate.
 ```
+
+## Private Exact-Buffer Replay: 2026-06-03T03:25Z
+
+Controlling artifacts:
+
+```text
+GitHub run: 26858549345
+Commit under test: 89006629
+Browser artifact: /private/tmp/speaksharp-private-browser-26858549345/test-results/live/live-benchmark-cpu.live-measure-TransformersJS-CPU--live-stt-chromium/private-cpu-private-benchmark-evidence.json
+Extracted WAV: /private/tmp/private-v2-browser-final-buffer-26858549345.wav
+```
+
+| Candidate / Input | Decoder | Timing config | Accuracy | Error | Words | Release implication |
+| --- | --- | --- | ---: | ---: | ---: | --- |
+| v2 source fixture full-WAV | Node v2 / `Xenova/whisper-tiny.en` | `return_timestamps:true` | 94.25% | 5.75% | 87 | Model/source ceiling is acceptable. |
+| v2 source fixture full-WAV | Node v2 / `Xenova/whisper-tiny.en` | `return_timestamps:false` | 37.93% | 62.07% | 35 | Invalid for >30s; proves timestamps must stay on. |
+| v2 exact browser final WAV | Node v2 / `Xenova/whisper-tiny.en` | `return_timestamps:true` | 62.07% | 37.93% | 79 | Bad result follows the app/browser captured buffer. |
+| v2 exact browser final WAV | Node v2 / `Xenova/whisper-tiny.en` | `return_timestamps:false` | 44.83% | 55.17% | 77 | Still bad; timestamp flag is not the root fix. |
+
+Private v2 updated boundary:
+
+```text
+The exact audio buffer captured by the browser app is already degraded enough
+that offline Node/drop-in replay reproduces the bad transcript. The same decoder
+and options decode the original source fixture at 94.25%.
+```
+
+Effect of fixing v2:
+
+```text
+Fixing v2 means validating/fixing the browser input audio path: fake-audio route,
+WebRTC/DSP constraints, resampling, clipping/gain, or the app's final buffer
+assembly. If fixed, v2 can become a credible caveated local baseline. If not,
+v2 remains secondary and cannot be claimed parity against its own drop-in/source
+ceiling.
+```
+
+Private v4 updated boundary:
+
+```text
+v4 is not currently an accuracy comparison. The browser worker reaches recording
+and starts inference, but each inference returns:
+
+invalid data location: undefined for input "a"
+```
+
+Effect of fixing v4:
+
+```text
+Fixing v4 means making the browser backend/runtime emit text/saveCandidate. If
+fixed, v4 is still the strongest Private candidate based on Node/full-WAV
+evidence. If not fixed, v4 must be hidden/disabled for release regardless of its
+promising Node numbers.
+```
