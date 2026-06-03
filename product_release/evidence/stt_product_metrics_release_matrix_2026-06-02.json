@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-03T00:55:00Z",
+  "lastUpdated": "2026-06-03T01:00:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -187,14 +187,12 @@
         "candidate": "private_v2_exact_buffer_h1_6",
         "step": "proof",
         "errorPhases": [
-          "accuracy",
-          "runtime"
+          "accuracy"
         ],
         "failedGates": [
-          "proof.accuracy.final_quality",
-          "setup.runtime_telemetry"
+          "proof.accuracy.final_quality"
         ],
-        "reason": "Current exact-buffer run 26856163962: setup/model ready passed and exact final audio buffer was captured. Browser app saved h1_6 at 75% accuracy, while offline replay of the exact app whole-utterance buffer scored 87.5%. Audio prep/windowing is not the primary boundary for this row; remaining boundary is browser runtime/candidate selection, cleanup/sanitization, or result routing. Runtime telemetry fields were null and must be fixed before release proof."
+        "reason": "Current exact-buffer run 26856565454 on commit 171a055c passed the h1_6 guard at 87.5% and populated runtime telemetry: wasm-singlethread, transformers-js, cloudFallbackAttempted=false. Full Private v2/v4 browser release proof is still pending run 26856683929."
       },
       {
         "candidate": "cloud_keyterms",
@@ -1997,7 +1995,7 @@
         "privateWebgpuAvailable": null,
         "privateCrossOriginIsolated": null,
         "privateWasmThreadCount": null,
-        "status": "missing_required_fields"
+        "status": "fixed_in_later_run_26856565454"
       },
       "releaseStatus": "not_green_boundary_narrowed",
       "devAttention": [
@@ -2005,7 +2003,46 @@
         "Compare browser worker decode options/runtime to replay decoder options.",
         "Restore runtime telemetry fields in scored manual artifacts.",
         "Keep exact audio capture opt-in only because it contains user audio."
-      ]
+      ],
+      "supersededBy": "private_exact_buffer_h1_6_26856565454_v2_cpu"
+    },
+    {
+      "id": "private_exact_buffer_h1_6_26856565454_v2_cpu",
+      "candidate": "Private v2 browser app exact-buffer",
+      "fixture": "h1_6",
+      "evidenceType": "browser-proof-exact-buffer",
+      "workflowRun": 26856565454,
+      "branch": "fix/release-bug-burndown",
+      "commit": "171a055c",
+      "artifact": "/private/tmp/speaksharp-exact-buffer-26856565454/private-exact-app-buffer-proof/speaksharp-private-h1_6-exact-buffer-current.json",
+      "privateEngine": "transformers-js",
+      "webgpuDisabledForRun": true,
+      "setup": {
+        "exactAudioCaptured": true,
+        "runnerPass": true,
+        "gatePass": true,
+        "pass": true
+      },
+      "truth": "They, like, told wild tales to frighten him.",
+      "transcript": "A. Like, told Wild Tales to frighten him.",
+      "accuracyPct": 87.5,
+      "errorPct": 12.5,
+      "wer": 0.125,
+      "timing": {
+        "firstTextMs": 3100,
+        "firstText": "DraftA. Like."
+      },
+      "runtimeTelemetry": {
+        "privateRuntime": "wasm-singlethread",
+        "privateProvider": "transformers-js",
+        "privateCloudFallbackAttempted": false,
+        "privateWebgpuAvailable": false,
+        "privateCrossOriginIsolated": false,
+        "privateWasmThreadCount": 1,
+        "status": "populated"
+      },
+      "releaseStatus": "guard_pass_not_full_suite_green",
+      "caveat": "Single-row exact-buffer guard only. Full Private v2/v4 browser suite rerun 26856683929 is pending."
     }
   ],
   "timingContract": {

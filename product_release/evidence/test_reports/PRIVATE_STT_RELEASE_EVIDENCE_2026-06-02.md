@@ -802,7 +802,39 @@ mark Private green from the unit tests alone — your live timing/finalization r
 ## TEST AGENT UPDATE (2026-06-02T20:50-05:00 / 2026-06-03T00:50Z) — h1_6 exact-buffer replay completed
 
 This section supersedes the earlier "exact buffer missing" blocker below.
-The exact-buffer artifact now exists and the replay diagnostic ran.
+The exact-buffer artifact now exists and the replay diagnostic ran. Runtime
+telemetry was then fixed and verified in a second exact-buffer proof.
+
+### Runtime telemetry verification: 2026-06-03T00:41Z
+
+Run:
+
+```text
+Controlled STT Benchmarks: 26856565454
+Branch: fix/release-bug-burndown
+Commit: 171a055c
+Artifact: /private/tmp/speaksharp-exact-buffer-26856565454/private-exact-app-buffer-proof/speaksharp-private-h1_6-exact-buffer-current.json
+```
+
+Result:
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Exact-buffer proof | pass | `runnerPass=true`, `gatePass=true`, `pass=true` |
+| h1_6 app transcript | pass for guard row | `A. Like, told Wild Tales to frighten him.`; 87.5% accuracy |
+| First text | caveat | first visible text at 3100ms: `DraftA. Like.` |
+| Runtime telemetry | pass | `runtime=wasm-singlethread`, `provider=transformers-js`, `webgpuAvailable=false`, `crossOriginIsolated=false`, `wasmThreadCount=1`, `cloudFallbackAttempted=false` |
+| Exact audio | pass | utterance WAV data present |
+
+Interpretation:
+
+```text
+The previous runtime telemetry gap is closed for explicit Private CPU proofs.
+This does not make the full Private browser suite green; it only proves the
+one-row h1_6 exact-buffer guard can now emit the required runtime fields.
+```
+
+### Prior exact-buffer diagnostic: 2026-06-03T00:27Z
 
 Run:
 
@@ -824,7 +856,7 @@ Setup/proof result:
 | Browser app saved transcript | fail | `A. Like. Told Wild Tales to frightened him.`; 75% accuracy / 25% error |
 | Exact app-buffer offline decode | better, not perfect | `A. Like, told Wild Tales to frighten him.`; 87.5% accuracy / 12.5% error |
 | Browser drop-in comparator | imperfect | `Day, like, told Wild Tales to frightened him.` |
-| Runtime telemetry in artifact | fail / missing evidence | `privateRuntime`, `privateProvider`, `privateCloudFallbackAttempted`, `privateWasmThreadCount` were null |
+| Runtime telemetry in artifact | superseded / fixed later | `privateRuntime`, `privateProvider`, `privateCloudFallbackAttempted`, `privateWasmThreadCount` were null in this earlier run; fixed by commit `171a055c` and verified in run `26856565454` |
 
 Comparison:
 
@@ -851,9 +883,8 @@ Immediate dev attention:
    decode produced `frighten` from the same captured whole-utterance audio.
 2. Confirm whether browser worker decode options/runtime differ from the replay
    decoder options.
-3. Restore runtime telemetry in the manual artifact: `privateRuntime`,
-   `privateProvider`, `privateCloudFallbackAttempted=false`, WebGPU availability,
-   cross-origin isolation, and WASM thread count must not be null in scored runs.
+3. Runtime telemetry nulls in explicit CPU proofs are fixed by commit
+   `171a055c`; keep checking these fields in scored runs.
 4. Keep exact audio capture opt-in only; it contains user audio and must not be
    included in normal release artifacts.
 
