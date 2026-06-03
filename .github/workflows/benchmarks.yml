@@ -175,6 +175,10 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           PRO_TEST_EMAIL: ${{ secrets.PRO_TEST_EMAIL }}
           PRO_TEST_PASSWORD: ${{ secrets.PRO_TEST_PASSWORD }}
+          # This job injects checked-in fake-audio fixtures, not human speech.
+          # Include replayable audio so Private browser-vs-Node accuracy gaps can
+          # be classified as audio-buffer vs runtime/config issues.
+          STT_INCLUDE_AUDIO_DATA_URL: 'true'
         # Native Web Speech is intentionally excluded: it is browser-dependent
         # convenience STT, not a corpus-grade benchmark engine.
         run: pnpm exec playwright test tests/live/benchmark-cpu.live.spec.ts tests/live/benchmark-v4.live.spec.ts --config=playwright.live.config.ts --project=live-stt-chromium --reporter=list
