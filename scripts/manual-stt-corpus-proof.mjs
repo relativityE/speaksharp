@@ -68,6 +68,26 @@ function compact(text) {
   return (text || '').replace(/\s+/g, ' ').trim();
 }
 
+const TRANSCRIPT_CONTAINER_SELECTOR = '[data-testid="transcript-container"]';
+const TRANSCRIPT_CHROME_SELECTOR = [
+  '[data-testid="live-transcript-trust-banner"]',
+  '[data-testid="live-transcript-finalizing"]',
+  '[data-testid="live-transcript-finalizing-empty"]',
+].join(',');
+
+function stripTranscriptChrome(text) {
+  return compact(String(text || '')
+    .replace(/\bDraft transcript\b/gi, ' ')
+    .replace(/Text may change before the final transcript is saved\./gi, ' ')
+    .replace(/Processing speech locally(?:…|\.\.\.)?/gi, ' ')
+    .replace(/Finalizing local transcript(?:…|\.\.\.)?/gi, ' ')
+    .replace(/Your final transcript will appear here when local processing finishes\./gi, ' ')
+    .replace(/Listening locally(?:…|\.\.\.)?/gi, ' ')
+    .replace(/\bListening(?:…|\.\.\.)/gi, ' ')
+    .replace(/Start recording and your words will appear here\./gi, ' ')
+    .replace(/No speech was detected[^.]*\./gi, ' '));
+}
+
 async function getPcmWavDurationMs(audioPath) {
   const wav = await readFile(audioPath);
   const channels = wav.readUInt16LE(22);
@@ -616,7 +636,17 @@ async function waitForRecordingGoSignal(page, mode) {
 }
 
 async function readTranscript(page) {
-  return compact(await page.getByTestId('transcript-container').textContent().catch(() => ''));
+  const transcriptOnly = await page.evaluate(({ containerSelector, chromeSelector }) => {
+    const container = document.querySelector(containerSelector);
+    if (!container) return '';
+    const clone = container.cloneNode(true);
+    clone.querySelectorAll(chromeSelector).forEach((node) => node.remove());
+    return clone.textContent ?? '';
+  }, {
+    containerSelector: TRANSCRIPT_CONTAINER_SELECTOR,
+    chromeSelector: TRANSCRIPT_CHROME_SELECTOR,
+  }).catch(() => '');
+  return stripTranscriptChrome(transcriptOnly);
 }
 
 async function readSessionDetailTranscript(page) {
@@ -725,14 +755,38 @@ async function markPhase(page, phase, detail = {}) {
     detail,
   };
   await page.evaluate((entry) => {
+    const compact = (text) => (text || '').replace(/\s+/g, ' ').trim();
+    const stripTranscriptChrome = (text) => compact(String(text || '')
+      .replace(/\bDraft transcript\b/gi, ' ')
+      .replace(/Text may change before the final transcript is saved\./gi, ' ')
+      .replace(/Processing speech locally(?:…|\.\.\.)?/gi, ' ')
+      .replace(/Finalizing local transcript(?:…|\.\.\.)?/gi, ' ')
+      .replace(/Your final transcript will appear here when local processing finishes\./gi, ' ')
+      .replace(/Listening locally(?:…|\.\.\.)?/gi, ' ')
+      .replace(/\bListening(?:…|\.\.\.)/gi, ' ')
+      .replace(/Start recording and your words will appear here\./gi, ' ')
+      .replace(/No speech was detected[^.]*\./gi, ' '));
+    const extractTranscriptOnly = () => {
+      const container = document.querySelector('[data-testid="transcript-container"]');
+      if (!container) return null;
+      const clone = container.cloneNode(true);
+      clone.querySelectorAll([
+        '[data-testid="live-transcript-trust-banner"]',
+        '[data-testid="live-transcript-finalizing"]',
+        '[data-testid="live-transcript-finalizing-empty"]',
+      ].join(',')).forEach((node) => node.remove());
+      return stripTranscriptChrome(clone.textContent ?? '');
+    };
+    const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
     window.__STT_CORPUS_PHASES__ = window.__STT_CORPUS_PHASES__ ?? [];
     const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
     window.__STT_CORPUS_PHASES__.push({
       ...entry,
       perfNow: Number(performance.now().toFixed(1)),
       recording: document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') ?? null,
-      transcript: document.querySelector('[data-testid="transcript-container"]')?.textContent ?? null,
-      transcriptState: document.querySelector('[data-testid="transcript-container"]')?.getAttribute('data-transcript-state') ?? null,
+      rawTranscript: transcriptContainer?.textContent ?? null,
+      transcript: extractTranscriptOnly(),
+      transcriptState: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
       draftVisible: Boolean(document.querySelector('[data-transcript-draft="true"]')),
       finalizingVisible: Boolean(document.querySelector('[data-testid="live-transcript-finalizing"]')),
       draftText: document.querySelector('[data-testid="live-transcript-current-line"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
@@ -745,13 +799,35 @@ async function markPhase(page, phase, detail = {}) {
 
 async function readUiStatusSnapshot(page) {
   return page.evaluate(() => {
+    const compact = (text) => (text || '').replace(/\s+/g, ' ').trim();
+    const stripTranscriptChrome = (text) => compact(String(text || '')
+      .replace(/\bDraft transcript\b/gi, ' ')
+      .replace(/Text may change before the final transcript is saved\./gi, ' ')
+      .replace(/Processing speech locally(?:…|\.\.\.)?/gi, ' ')
+      .replace(/Finalizing local transcript(?:…|\.\.\.)?/gi, ' ')
+      .replace(/Your final transcript will appear here when local processing finishes\./gi, ' ')
+      .replace(/Listening locally(?:…|\.\.\.)?/gi, ' ')
+      .replace(/\bListening(?:…|\.\.\.)/gi, ' ')
+      .replace(/Start recording and your words will appear here\./gi, ' ')
+      .replace(/No speech was detected[^.]*\./gi, ' '));
+    const extractTranscriptOnly = (container) => {
+      if (!container) return null;
+      const clone = container.cloneNode(true);
+      clone.querySelectorAll([
+        '[data-testid="live-transcript-trust-banner"]',
+        '[data-testid="live-transcript-finalizing"]',
+        '[data-testid="live-transcript-finalizing-empty"]',
+      ].join(',')).forEach((node) => node.remove());
+      return stripTranscriptChrome(clone.textContent ?? '');
+    };
     const statusNode = document.querySelector('[data-testid="status-message-text"], [data-testid="stt-status"], [data-testid="session-status"], [data-testid="stt-status-label"]');
     const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
     return {
       perfNow: Number(performance.now().toFixed(1)),
       recording: document.querySelector('[data-testid="session-start-stop-button"]')?.getAttribute('data-recording') ?? null,
       runtimeState: document.documentElement.getAttribute('data-runtime-state'),
-      transcript: transcriptContainer?.textContent ?? null,
+      rawTranscript: transcriptContainer?.textContent ?? null,
+      transcript: extractTranscriptOnly(transcriptContainer),
       transcriptState: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
       draftVisible: Boolean(document.querySelector('[data-transcript-draft="true"]')),
       finalizingVisible: Boolean(document.querySelector('[data-testid="live-transcript-finalizing"]')),
@@ -834,8 +910,31 @@ async function collectTraceSnapshot(page, mode) {
     })) : undefined,
     transcriptUiState: (() => {
       const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
+      const compact = (text) => (text || '').replace(/\s+/g, ' ').trim();
+      const stripTranscriptChrome = (text) => compact(String(text || '')
+        .replace(/\bDraft transcript\b/gi, ' ')
+        .replace(/Text may change before the final transcript is saved\./gi, ' ')
+        .replace(/Processing speech locally(?:…|\.\.\.)?/gi, ' ')
+        .replace(/Finalizing local transcript(?:…|\.\.\.)?/gi, ' ')
+        .replace(/Your final transcript will appear here when local processing finishes\./gi, ' ')
+        .replace(/Listening locally(?:…|\.\.\.)?/gi, ' ')
+        .replace(/\bListening(?:…|\.\.\.)/gi, ' ')
+        .replace(/Start recording and your words will appear here\./gi, ' ')
+        .replace(/No speech was detected[^.]*\./gi, ' '));
+      const extractTranscriptOnly = () => {
+        if (!transcriptContainer) return null;
+        const clone = transcriptContainer.cloneNode(true);
+        clone.querySelectorAll([
+          '[data-testid="live-transcript-trust-banner"]',
+          '[data-testid="live-transcript-finalizing"]',
+          '[data-testid="live-transcript-finalizing-empty"]',
+        ].join(',')).forEach((node) => node.remove());
+        return stripTranscriptChrome(clone.textContent ?? '');
+      };
       return {
         state: transcriptContainer?.getAttribute('data-transcript-state') ?? null,
+        rawTranscript: transcriptContainer?.textContent ?? null,
+        transcript: extractTranscriptOnly(),
         draftVisible: Boolean(document.querySelector('[data-transcript-draft="true"]')),
         finalizingVisible: Boolean(document.querySelector('[data-testid="live-transcript-finalizing"]')),
         draftText: document.querySelector('[data-testid="live-transcript-current-line"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
