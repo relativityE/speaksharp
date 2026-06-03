@@ -1694,58 +1694,8 @@ is not set.
 
 ---
 
-## DEV → TEST — MASTER DIVISION OF LABOR (2026-06-03, dev agent, append-only)
+## CURRENT CROSS-AGENT CONFIRMATION PROTOCOL (2026-06-03)
 
-Product-owner direction this cycle: **Private STT is a core product (best timing +
-accuracy) with LOCAL-only punctuation; Native STT is the conversion funnel and must be
-great; Cloud uses the Gemini formatter; the codebase must be bug-free.** This block
-deconflicts both agents while the owner is offline. Append-only — it does NOT change any
-release classification (test owns those).
-
-### Current main state (dev commits)
-- `e6e98678` — format-transcript Gemini formatter backend + Native activation + telemetry (ON MAIN).
-- `0d35d233` — UX bugfix: corrupted-localStorage white-screen crash in useStreak/useGoals (ON MAIN).
-- `a231a729` — Score confidence-gating (ON MAIN; test/release still must validate transcript-quality caveats and confidence behavior).
-- Pending merge set — `#33` Native trust hook exposure + `#C1` ProfileGuard provisioning UX.
-
-### TEST AGENT owns (proof / evidence / harness) — please drive:
-1. **Private v2 human rerun** — explicit setup consent (`PRIVATE_SETUP_USER_CONSENT_REQUIRED=true`),
-   Draft banner, final-append, save/history/detail, metrics JSON (WER, filler recall, false
-   fillers, readability, timing, confidence).
-2. **Private app-vs-drop-in parity re-capture** — clean artifacts BEFORE asking dev to patch the
-   pipeline. NOTE FROM DEV: the **resampler is already exonerated** (box-average 81.40% ≥ source
-   74.42%, anti-aliased identical). Point the re-capture at the **injected-route artifact** and the
-   rolling-decode / gating / whole-utterance-commit path, not the resampler.
-3. **Native human rerun** — read `window.__NATIVE_FORMATTER_LAST__` (attempted/accepted/fallback),
-   `saveCandidate`, detail transcript, readability/fillers/timing.
-4. **Cloud baseline proof** — tail/save/history/detail/readability; keyterms stays backlog.
-5. **Reports/matrix classification, entitlement/env/SLO/Stripe evidence.**
-
-### DEV AGENT owns (product code / bug-free) — I am driving:
-1. **Bug-burndown on main** (non-STT-engine product code). Active now.
-2. **Local punctuation for Private** (#32) — feasibility harness for a browser-local, NO-network
-   ONNX punctuation model behind explicit setup consent. Builds on your candidate survey above.
-3. **Gemini formatter for Cloud** — `format-transcript` already accepts `engine:'cloud'`; I will wire
-   Cloud activation after the edge fn is deployed.
-4. **Native funnel hardening** — save/detail fix GATED on your rerun proving divergence; first-session
-   responsiveness if proof shows an empty panel.
-5. **Score persistence plan**, privacy/logger (done), AI quota (done).
-
-### DECONFLICTION — hard boundaries while proofs run
-- DEV will NOT touch: live-proof helpers, manual proof scripts, `saveCandidate` source-of-truth rules,
-  release classifications, or **STT engine timing/behavior** (that would invalidate your baseline).
-- TEST please do NOT edit: `format-transcript` backend, score-confidence code, privacy/logger sinks,
-  or the localStorage/bug fixes — ping me via this channel instead.
-
-### OPEN ASKS FOR TEST (blocking) — please answer in your next report append:
-1. **Who deploys `format-transcript` + sets `GEMINI_API_KEY`?** This blocks BOTH Native and Cloud
-   formatter proofs. Until deployed it is a safe no-op (invoke fails → raw, no regression).
-2. **Score confidence proof:** `a231a729` is on main; validate transcript-quality caveats and score
-   confidence behavior on a SHA at or after that commit.
-3. **Native trust hooks (#33):** implemented in this pending merge set. Use the explicit panel
-   attributes plus `window.__SS_TRUST_STATE__` / `window.__SS_TRUST_TRACE__` in the next proof.
-
-### CROSS-AGENT CONFIRMATION PROTOCOL (owner directive, 2026-06-03)
 Bugs and fixes require the **other agent's confirmation** before being treated as done/green,
 **unless the issue is glaringly obvious**. Applies both ways.
 - **DEV-found bug → TEST confirms** (unless glaringly obvious). I will: (a) fix glaringly-obvious bugs
@@ -1757,7 +1707,7 @@ Bugs and fixes require the **other agent's confirmation** before being treated a
   render-path `JSON.parse` that white-screens the app — fixed in `0d35d233`). When in doubt, it is NOT
   obvious → route for confirmation.
 
-#### DEV BUG CANDIDATES — current unresolved list
+### Current unresolved bug-candidate list
 _(none open in this bucket; #C1 is resolved later in this report as a bounded provisioning UX fix,
 with browser proof still required.)_
 
@@ -1896,75 +1846,130 @@ local heuristic acceptable as an interim caveated stopgap, or do we hold for the
 
 ---
 
-## DEV BUG CANDIDATES / RESOLUTIONS (per confirmation protocol, 2026-06-03)
+## CURRENT PRIVATE RELEASE HANDOFF (2026-06-03T16:55Z)
 
-These are NON-obvious product-behavior issues found by dev static review. Product behavior changes still
-need TEST/browser confirmation before being called green.
+Stale coordination removed from this section. Current Private status only:
 
-### RESOLUTION #C1 — Onboarding: new user can see "Profile Sync Failed" on first load (P1, onboarding)
-- **Where:** `frontend/src/components/ProfileGuard.tsx:135` — `if (profileError || !profile)` renders the
-  red "Profile Sync Failed" error screen (Retry / Sign Out). `frontend/src/hooks/useUserProfile.ts`
-  returns `null` (not an error) when the profile row does not exist yet (`getById` → null, logged
-  "No profile found for user").
-- **Symptom (hypothesis):** a freshly-signed-up user whose session is valid but whose `user_profiles`
-  row is still being provisioned (create-user race / lag) lands on a scary "Profile Sync Failed" error
-  instead of a friendly "setting up your account…" state. This is the onboarding-trust priority area.
-- **Resolution in this merge set:** implemented the friendly provisioning split because the UX failure
-  mode is high-impact and the fix is bounded. A valid session with `profile=null` and no fetch error now
-  shows `data-testid="profile-provisioning"` / `Setting up your account` and auto-retries before falling
-  through to the genuine `Profile Sync Failed` error if the profile row still never appears.
-- **Validation:** focused component coverage added for provisioning, real error, and loaded-profile
-  success states.
-- **TEST to confirm:** sign up a brand-new account (or simulate `getById` -> null with a valid session)
-  and observe first-load UX. Expected: friendly setup progress first; red failure screen only if the
-  profile row remains missing after bounded retries or a real fetch error occurs.
-
-_(Sweep also verified CLEAN, no fix needed: all localStorage/JSON.parse sites guarded except the
-useStreak white-screen already fixed in `0d35d233`; every setInterval has a clearInterval; ProtectedRoute
-and LocalErrorBoundary recovery paths are sound.)_
-
----
-
-## ✅ OPEN ASK #1 RESOLVED (2026-06-03, dev) — formatter deploy is NOT a blocker
-The master block's blocking open ask "Who deploys `format-transcript` + sets `GEMINI_API_KEY`?" is
-**resolved**:
-- **Deploy:** automatic via `deploy-supabase-migrations.yml` on every push to main; `format-transcript`
-  confirmed deployed in run `26893924083` (15:09Z, `Deployed Functions on project ***: format-transcript`).
-- **`GEMINI_API_KEY`:** present in GitHub Secrets (2026-05-27); same key `get-ai-suggestions` uses in
-  production, so the Supabase function secret is configured.
-- **Remaining open asks:** validate score confidence on `a231a729+`, validate #33 trust hooks in
-  Native human proof, confirm #C1 provisioning UX in a fresh signup/provisioning smoke, and keep #32
-  Private local punctuation as a release caveat unless product approves a local model setup flow.
-- Optional: dev can force a one-time secrets sync (`workflow_dispatch operation=secrets`) for 100%
-  certainty on your go — not believed necessary since `get-ai-suggestions` already uses the key live.
-
----
-
-## TEST/RELEASE UPDATE (2026-06-03T16:35Z) — #33 trust hooks and #C1 provisioning UX ready to merge
-
-Two user-trust items are in the pending merge set:
-
-| Item | Product change | Test/release proof still required |
+| Item | Current status | Owner / next action |
 | --- | --- | --- |
-| `#33` Native trust proof hooks | `LiveTranscriptPanel` now exposes `data-draft-banner-visible`, `data-processing-visible`, `data-final-state-visible`, `data-listening-visible`, plus timestamped `window.__SS_TRUST_STATE__` / `window.__SS_TRUST_TRACE__`. | Native human proof must verify Draft from mic-on, Processing/Final lifecycle, and transcript-only metrics with banner copy stripped. |
-| `#C1` Profile provisioning UX | `ProfileGuard` shows `Setting up your account` and retries when a valid signed-in user's profile row is still provisioning, instead of immediately showing `Profile Sync Failed`. | Fresh signup/provisioning smoke must confirm healthy new users do not see the red failure state before bounded retries are exhausted. |
+| Setup/download consent | Human run observed explicit `Set Up`; no auto-download before user click in latest proof. | TEST reruns after any Private live-text fix to keep consent green. |
+| Final transcript quality | Latest human Private v2 final was strong: 94.64% accuracy, 5.36% WER, 100% filler recall, readability pass. | Keep as positive quality evidence, but not release-green until live UX is fixed. |
+| Live transcript before Stop | **P0 user-trust bug:** live panel showed only latest/tail sentence before Stop, while final after Stop was full. | DEV fix; TEST rerun same human script. |
+| Detail/history journey | Latest artifact still needs saved/history/detail equality confirmed after the live-text fix. | TEST validates; DEV patches only if app state diverges. |
+| Private punctuation/readability | Final whole-utterance can be readable, but local punctuation remains a product caveat for other runs. | **DEV-owned local implementation track**; no Gemini/server formatter for Private. Minimize friction because another local download can hurt adoption. |
+| Score confidence-gating | Merged to main; transcript quality now affects confidence/caveat copy. | TEST visual check remains useful, not a Private STT blocker. |
 
-Validation:
+### Current Private Human Test Findings
+
+| Finding | Evidence | Status / owner |
+| --- | --- | --- |
+| Explicit setup/download consent behaved correctly | Latest human proof showed `Set Up` before model setup; user clicked it; no proof of auto-download before click. | **Pass in latest proof**; TEST must preserve this in rerun. |
+| Final selected transcript quality is strong | `/private/tmp/speaksharp-private-human-41dc1997-rerun.json`: 94.64% accuracy, 5.36% WER, 100% filler recall, readability pass. | Positive quality signal; not release-green because live UX failed. |
+| Live transcript is not cumulative before Stop | User saw only `Confirmed the score explains. transcript quality.` before Stop; after Stop the full 56-word transcript appeared. | **P0 DEV bug**: append accepted final/draft segments live instead of showing only latest/tail text. |
+| Detail/history journey still needs proof | Latest run needs save/history/detail equality confirmed after the live-text fix. | TEST rerun; DEV patches only if saved row/detail diverges from `saveCandidate`. |
+| Trust labels exist but must be retested with cumulative live text | Draft/final hooks are available, but the current visible transcript behavior still violates trust. | TEST verifies after DEV live-cumulative fix. |
+| Local punctuation remains a Private caveat | Private cannot use server/Gemini formatting. Product direction is to roll our own local solution while avoiding another high-friction download if possible. | **DEV-owned**: design and implement local punctuation/readability path; do not send Private transcript to network formatter. |
+| Manual proof harness timing needs cleanup | The rerun stop timer was process-relative; future timed human proofs should start the countdown at `READY_TO_SPEAK`. | TEST harness hygiene, not product bug. |
+
+### Private Formatter Product Boundary
+
+Product direction:
 
 ```text
-pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
-  frontend/src/components/session/__tests__/LiveTranscriptPanel.component.test.tsx \
-  frontend/src/components/__tests__/ProfileGuard.component.test.tsx
-
-23 tests passed.
+Private formatting must be local. Do not use Gemini, `format-transcript`, or any server formatter for
+Private. Dev owns the local punctuation/readability implementation. The solution must protect the
+local/privacy promise and minimize user friction; another large local model download is risky unless
+there is no lighter viable path.
 ```
 
-### ✅ DEV: these are now MERGED to main (2026-06-03)
-The "pending merge set" above is landed on `main`:
-- **Score confidence-gating (#31)** — `a231a729` (cherry-picked from the score branch; branch deleted).
-- **#33 trust hooks** + **#C1 provisioning UX** — `66604cf3` (merge commit; temp branch deleted).
-- tsc + eslint clean; 23 component tests + 20 score tests green.
+Acceptance requirements for the dev proposal/implementation:
 
-Net open items for TEST now: (1) Native human proof exercising #33 + the live formatter (deploy already
-resolved), (2) fresh-signup smoke for #C1, (3) score-confidence visual check on `a231a729+`, (4) #32 stays
-a Private readability caveat unless product approves the consented local-model flow. No dev blockers remain.
+| Requirement | Why it matters |
+| --- | --- |
+| no network calls for Private formatting | preserves the Private STT privacy promise |
+| word/filler preservation guard | prevents scoring/coaching from being based on altered speech |
+| readability improves vs raw Private output | users need punctuation/casing/sentence boundaries |
+| low-friction setup | Private already has model setup; another heavy download can cause churn |
+| telemetry | expose formatter attempted/accepted/fallback/error/latency and network-call count for TEST proof |
+
+## TEST → DEV P0 HANDOFF (2026-06-03T16:55Z) — Private live text replaces prior final text before Stop
+
+**Attention dev agent:** the latest human Private proof found a user-visible live transcript assembly bug.
+
+Artifact:
+
+```text
+/private/tmp/speaksharp-private-human-41dc1997-rerun.json
+```
+
+Observed by the user during the human Private v2 run:
+
+```text
+Before Stop, the visible transcript showed only:
+"Confirmed the score explains. transcript quality."
+
+After Stop, the final selected/saved transcript contained the whole speech:
+"Um, speak sharp microphone proof starts now. Basically, I want to make one simple point before we move on. Like, the main idea is that every transcript should stay readable, keep prior sentences, and preserve the final words. Next step is to save this session, open the detail page, and confirm the score explains transcript quality."
+```
+
+Expected behavior:
+
+```text
+While recording, Private must display cumulative transcript text as final/draft chunks become available.
+Each accepted final segment should append to the prior visible final text. The user should not see only
+the latest sentence/tail segment until they click Stop.
+```
+
+Actual behavior in the artifact:
+
+| Field | Value |
+| --- | --- |
+| `visibleBeforeStop` | `Confirmed the score explains. transcript quality.` |
+| `saveCandidate.selectedForSave` | full 56-word transcript |
+| accuracy vs full human script | 94.64% |
+| WER | 5.36% |
+| filler recall | 100% |
+| readability final | pass: 4 sentences, max run-on 19, terminal punctuation present |
+| release verdict | **not green** because live transcript UX violates trust expectations |
+
+Why this matters:
+
+```text
+This is not saved-data loss; the final selected transcript is strong. It is a live user-trust bug:
+Private looks like it is replacing the speech with one sentence at a time while recording. For a
+half-page or page-length practice speech, this makes the app feel broken even if Stop later recovers
+the full transcript.
+```
+
+Likely code areas to inspect:
+
+```text
+frontend/src/services/transcription/TranscriptionService.ts
+frontend/src/services/SpeechRuntimeController.ts
+frontend/src/services/transcription/modes/PrivateWhisper.ts
+frontend/src/stores/useSessionStore.ts
+```
+
+Dev ask:
+
+1. Confirm whether Private rolling/final updates reaching the live store are sentence-sized segments or cumulative transcripts.
+2. Fix the live path so accepted Private final text is cumulative before Stop, without breaking the good full final selected at Stop.
+3. Add a regression test for this sequence:
+   - first accepted segment appears in live transcript
+   - later accepted segment appends instead of replacing
+   - before Stop, visible text contains both earlier and later segments
+   - after Stop, `saveCandidate.selectedForSave` remains the full final transcript
+4. Preserve provider-full-transcript replacement behavior for engines that legitimately send the entire prior transcript as a prefix.
+5. Hand back the commit SHA and expected verification hooks so TEST can rerun the same human script.
+
+Test rerun after dev fix:
+
+```text
+Mode: Private v2 human mic
+Script: same 56-word proof script used in `/private/tmp/speaksharp-private-human-41dc1997-rerun.json`
+Pass criteria:
+- setup consent remains explicit (`Set Up` visible; no auto-download before user click)
+- Draft banner visible from mic-on while text is provisional
+- before Stop, visible transcript contains cumulative earlier + later speech, not only latest/tail sentence
+- after Stop, final transcript remains full, readable, and save/history/detail match
+```
