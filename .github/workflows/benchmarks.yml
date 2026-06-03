@@ -102,7 +102,7 @@ jobs:
 
   benchmark-private-browser:
     name: Private Browser Benchmarks (v2 + v4)
-    if: inputs.run_private_browser != false
+    if: inputs.run_private_browser != false || inputs.run_private_exact_buffer == true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -162,6 +162,7 @@ jobs:
           kill "$server_pid" || true
 
       - name: Run Private browser benchmark suite
+        if: inputs.run_private_browser != false
         env:
           LIVE_VITE_MODE: test
           VITE_USE_LIVE_DB: 'true'
@@ -189,7 +190,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Private browser benchmark artifacts
-        if: always()
+        if: always() && inputs.run_private_browser != false
         uses: actions/upload-artifact@v6
         with:
           name: private-browser-benchmark-artifacts
