@@ -9,6 +9,7 @@ import { ENV } from '../../../config/TestFlags';
 import { NATIVE_STT } from '../sttConstants';
 import { NativeBrowserStrategy, resolveNativeBrowserStrategy } from './nativeBrowserStrategies';
 import { formatNativeTranscript } from './nativeTranscriptFormatter';
+import { registerNativeProductionFormatter } from './nativeGeminiFormatter';
 
 declare global {
   interface Window {
@@ -301,6 +302,20 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     this.onError = options.onError;
     this.serviceId = options.serviceId || 'unknown';
     this.runId = options.runId || 'unknown';
+
+    // Activate the trusted Native punctuation/casing formatter on the REAL production
+    // construction path. Production builds engines via STTStrategyFactory (NOT
+    // EngineSelector/EngineFactory, which has no production callers), so the formatter
+    // was never registered and __NATIVE_FORMATTER_LAST__ came back null. Registering
+    // here guarantees a real Native session restores punctuation on the saved
+    // transcript. Production-gated: skip for injected mock engines / E2E.
+    if (!mockEngine && !ENV.isE2E) {
+      try {
+        registerNativeProductionFormatter('native');
+      } catch (err) {
+        logger.warn({ err }, '[NativeBrowser] Native formatter registration skipped');
+      }
+    }
   }
 
   private get modeOptions(): TranscriptionModeOptions | null {

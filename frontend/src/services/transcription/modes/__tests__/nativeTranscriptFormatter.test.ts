@@ -151,6 +151,17 @@ describe('nativeTranscriptFormatter', () => {
       expect(t.errorCode).toBe('CLIENT_WORDS_CHANGED');
     });
 
+    it('publishes attempted:false / NO_FORMATTER when no formatter is registered (never silently null)', async () => {
+      registerNativeTranscriptFormatter(null); // ensure unregistered
+      const out = await formatNativeTranscript('hello world');
+      expect(out).toBe('hello world'); // raw, unchanged
+      const t = getNativeFormatterTelemetry();
+      expect(t.attempted).toBe(false);
+      expect(t.fallbackToRaw).toBe(true);
+      expect(t.errorCode).toBe('NO_FORMATTER');
+      expect(t.inputChars).toBe('hello world'.length);
+    });
+
     it('records a FALLBACK attempt (formatter throws) carrying the thrown code', async () => {
       registerNativeTranscriptFormatter(() => {
         const e = new Error('boom') as Error & { code?: string };
