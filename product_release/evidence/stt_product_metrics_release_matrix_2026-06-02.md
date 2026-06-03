@@ -962,3 +962,11 @@ Private v2 cannot be marked user-trust green until live recording shows cumulati
 The final saved text is good, but the in-progress experience makes longer speeches feel like earlier
 sentences are being removed.
 ```
+
+## Supporting Feature Verification: 2026-06-03T17:37Z
+
+| Area | Command | Result | Release meaning |
+| --- | --- | --- | --- |
+| Trust hooks, score confidence, onboarding, log redaction, Native formatter seam | focused Vitest suite | 8 files / 83 tests passed | Supporting code is unit/component green; browser proof still required. |
+| Edge functions including `format-transcript`, AssemblyAI token, AI suggestions, Stripe | `pnpm test:edge` | 11 files / 70 steps passed | Backend formatter/token contract is green; real browser formatter invocation still must be proven. |
+| Private local punctuation feasibility | `pnpm exec tsx scripts/private-local-punctuation-feasibility.mts` | raw identity fails run-on fixtures; no-network word-preserving heuristic passes | Confirms Private needs local punctuation work; establishes lower bound for dev-owned local implementation. |

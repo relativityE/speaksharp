@@ -823,6 +823,46 @@ Stale deploy/pending-merge notes removed from this section. Current Native statu
 | Trust hooks were present, but perceptibility still needs proof | Proof captured draft/trust state fields; user experience still needs confirmation that banner is visible and stable while interim text changes. | TEST rerun with screenshots/trace; DEV adjusts UI only if banner is not perceptible. |
 | Native artifact schema must use the full expected script | Prior artifact issue: `spokenSentence` was not always the full script read, which can corrupt WER/readability comparison. | TEST harness fix/discipline: store `expectedScript` separately and score against that. |
 
+### Test-Agent Verification Of Current Supporting Features (2026-06-03T17:37Z)
+
+Automated checks run on `main` after report handoff merge `38243a14`:
+
+```text
+pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+  frontend/src/components/session/__tests__/LiveTranscriptPanel.component.test.tsx \
+  frontend/src/components/session/__tests__/LiveCoachingScoreCard.test.tsx \
+  frontend/src/components/__tests__/ProfileGuard.component.test.tsx \
+  frontend/src/hooks/__tests__/useStreak.test.ts \
+  frontend/src/lib/__tests__/logRedaction.test.ts \
+  frontend/src/utils/__tests__/speakingScore.test.ts \
+  frontend/src/services/transcription/modes/__tests__/nativeTranscriptFormatter.test.ts \
+  frontend/src/services/transcription/modes/__tests__/nativeGeminiFormatter.test.ts
+
+83 tests passed.
+```
+
+Edge/backend formatter contract:
+
+```text
+pnpm test:edge
+
+11 files / 70 steps passed.
+format-transcript confirms:
+- engine=private hard-rejects with PRIVATE_FORMATTER_NOT_ALLOWED 403
+- punctuation/casing-only output returns 200
+- filler words are preserved
+- dropped/reordered/changed words return FORMATTER_WORDS_CHANGED
+- formatter logs do not include transcript text
+```
+
+Current interpretation:
+
+```text
+The formatter seam/backend contract is green in automated tests. The open Native browser bug remains:
+the latest human proof had `window.__NATIVE_FORMATTER_LAST__ === null`, so the real Native session
+did not prove formatter invocation. Browser rerun still owns release verdict.
+```
+
 ---
 
 ## TEST/RELEASE UPDATE (2026-06-03T15:30Z) — live interim duplication/jumpiness fixed

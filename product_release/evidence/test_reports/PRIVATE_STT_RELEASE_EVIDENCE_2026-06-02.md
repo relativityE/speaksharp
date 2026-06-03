@@ -1892,6 +1892,42 @@ Acceptance requirements for the dev proposal/implementation:
 | low-friction setup | Private already has model setup; another heavy download can cause churn |
 | telemetry | expose formatter attempted/accepted/fallback/error/latency and network-call count for TEST proof |
 
+### Test-Agent Verification Of Current Supporting Features (2026-06-03T17:37Z)
+
+Automated checks run on `main` after report handoff merge `38243a14`:
+
+```text
+pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+  frontend/src/components/session/__tests__/LiveTranscriptPanel.component.test.tsx \
+  frontend/src/components/session/__tests__/LiveCoachingScoreCard.test.tsx \
+  frontend/src/components/__tests__/ProfileGuard.component.test.tsx \
+  frontend/src/hooks/__tests__/useStreak.test.ts \
+  frontend/src/lib/__tests__/logRedaction.test.ts \
+  frontend/src/utils/__tests__/speakingScore.test.ts \
+  frontend/src/services/transcription/modes/__tests__/nativeTranscriptFormatter.test.ts \
+  frontend/src/services/transcription/modes/__tests__/nativeGeminiFormatter.test.ts
+
+83 tests passed.
+```
+
+Private-local punctuation feasibility:
+
+```text
+pnpm exec tsx scripts/private-local-punctuation-feasibility.mts
+
+identity/raw Whisper: FAIL on run-on fixtures
+localHeuristic/no-network: PASS on run-on fixtures; words+fillers unchanged
+harness self-validation: OK
+```
+
+Current interpretation:
+
+```text
+The supporting confidence, trust-hook, redaction, formatter-seam, and onboarding unit/component
+checks are green. They do not close the Private P0 browser bug above: live transcript must still
+be fixed and rerun so cumulative speech appears before Stop.
+```
+
 ## TEST → DEV P0 HANDOFF (2026-06-03T16:55Z) — Private live text replaces prior final text before Stop
 
 **Attention dev agent:** the latest human Private proof found a user-visible live transcript assembly bug.
