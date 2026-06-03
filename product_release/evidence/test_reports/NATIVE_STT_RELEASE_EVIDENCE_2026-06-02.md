@@ -861,3 +861,19 @@ pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=fals
 
 Native still requires browser proof. The rerun must show the Draft banner is visible from mic-on, the
 interim text is not duplicated/jumpy, the formatter telemetry is captured, and save/history/detail match.
+
+---
+
+## ✅ DEPLOY BLOCKER RESOLVED (2026-06-03, dev) — Native formatter is LIVE; readability rerun can proceed
+The earlier "DEPLOY DEPENDENCY (blocking)" is cleared. `format-transcript` is **deployed to production**:
+the `deploy-supabase-migrations.yml` workflow auto-deploys it on every push to main (`deploy-edge-functions`
+job, condition `github.event_name == 'push'`). Confirmed in run `26893924083` (15:09Z today):
+`Deployed Functions on project ***: format-transcript`. `GEMINI_API_KEY` is present in GitHub Secrets
+(2026-05-27) and is the same key `get-ai-suggestions` uses in production → the Supabase function secret is
+configured (not `GEMINI_KEY_MISSING`).
+
+**→ TEST can now run the Native readability rerun against the live formatter.** Capture
+`window.__NATIVE_FORMATTER_LAST__` and prove: readability improved (raw vs accepted formatted),
+`wordPreserving===true`, fillers unchanged, and a forced fallback (`fallbackToRaw===true` + `errorCode`,
+saved === raw). If you want 100% secret certainty, dev can force a one-time secrets sync
+(`workflow_dispatch operation=secrets`) on your go.

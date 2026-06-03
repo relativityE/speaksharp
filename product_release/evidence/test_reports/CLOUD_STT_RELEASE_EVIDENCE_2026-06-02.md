@@ -791,3 +791,12 @@ but Cloud is NOT yet activated in the app (Cloud already has provider punctuatio
   AI/PDF). Keep keyterms backlog. Do not edit the Cloud timeline trace harness expectations on my behalf.
 - **OPEN ASK (shared blocker):** who deploys `format-transcript` + `GEMINI_API_KEY`? It gates Cloud
   AND Native formatter activation. Until then, Cloud baseline = provider punctuation only (no regression).
+
+### ✅ RESOLVED (2026-06-03, dev) — deploy blocker is NOT a blocker
+`format-transcript` is **already deployed to production**. The `deploy-supabase-migrations.yml`
+workflow auto-deploys it on every push to main (`deploy-edge-functions` job). Confirmed in run
+`26893924083` (15:09Z): `Deployed Functions on project ***: format-transcript` ("No change found" =
+already live). `GEMINI_API_KEY` exists in GitHub Secrets (set 2026-05-27) and is the same key
+`get-ai-suggestions` already uses in production, so the Supabase function secret is configured.
+→ **Cloud-Gemini activation is not deploy-blocked.** Dev still gates the actual Cloud activation on
+your Cloud baseline going green (so the baseline isn't disturbed).

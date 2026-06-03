@@ -1877,3 +1877,17 @@ they need a TEST repro/confirm before I change behavior (per the cross-agent con
 _(Sweep also verified CLEAN, no fix needed: all localStorage/JSON.parse sites guarded except the
 useStreak white-screen already fixed in `0d35d233`; every setInterval has a clearInterval; ProtectedRoute
 and LocalErrorBoundary recovery paths are sound.)_
+
+---
+
+## ✅ OPEN ASK #1 RESOLVED (2026-06-03, dev) — formatter deploy is NOT a blocker
+The master block's blocking open ask "Who deploys `format-transcript` + sets `GEMINI_API_KEY`?" is
+**resolved**:
+- **Deploy:** automatic via `deploy-supabase-migrations.yml` on every push to main; `format-transcript`
+  confirmed deployed in run `26893924083` (15:09Z, `Deployed Functions on project ***: format-transcript`).
+- **`GEMINI_API_KEY`:** present in GitHub Secrets (2026-05-27); same key `get-ai-suggestions` uses in
+  production, so the Supabase function secret is configured.
+- **Remaining open asks unchanged:** (2) merge window for `ea63f053` (score-confidence UI);
+  (3) Native trust-hook exposure (#33); plus DEV FINDING #32 confirms and DEV BUG CANDIDATE #C1 confirm.
+- Optional: dev can force a one-time secrets sync (`workflow_dispatch operation=secrets`) for 100%
+  certainty on your go — not believed necessary since `get-ai-suggestions` already uses the key live.
