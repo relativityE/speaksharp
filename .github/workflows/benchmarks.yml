@@ -26,9 +26,9 @@ on:
         type: boolean
         default: false
       streaming_ab_variants:
-        description: 'Comma-separated AssemblyAI streaming A/B variants'
+        description: 'Comma-separated AssemblyAI streaming variants; baseline is the launch default, keyterms/prompt are optional experiments'
         type: string
-        default: 'baseline,keyterms,prompt,prompt_keyterms'
+        default: 'baseline'
       streaming_ab_fixtures:
         description: 'Comma-separated AssemblyAI streaming A/B fixture ids'
         type: string
