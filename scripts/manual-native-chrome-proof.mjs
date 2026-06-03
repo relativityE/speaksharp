@@ -58,11 +58,54 @@ function normalizeForDuplicateScan(text) {
     .replace(/[^\p{L}\p{N}\s']/gu, '');
 }
 
+function words(text) {
+  return normalizeForDuplicateScan(text).split(/\s+/).filter(Boolean);
+}
+
+function extractSessionDetailTranscript(bodyText) {
+  const body = compact(bodyText);
+  if (!body) return '';
+  const recordedWithIndex = body.indexOf('Recorded with');
+  const suggestionsIndex = body.indexOf('AI-Powered Suggestions');
+  if (recordedWithIndex === -1 || suggestionsIndex === -1 || suggestionsIndex <= recordedWithIndex) {
+    return '';
+  }
+
+  const between = body.slice(recordedWithIndex, suggestionsIndex);
+  const modeMatch = between.match(/Recorded with(.+?)(Native Browser|Private|Cloud|AssemblyAI|Browser|Whisper|web-speech-api|browser\))/i);
+  const afterMode = modeMatch ? between.slice(modeMatch.index + modeMatch[0].length) : between.replace(/^Recorded with\s*/i, '');
+  return compact(afterMode);
+}
+
+async function readSessionDetailTranscript(page) {
+  const byTestId = compact(await page.getByTestId('session-detail-transcript').textContent().catch(() => ''));
+  if (byTestId) return byTestId;
+  const body = compact(await page.locator('body').textContent().catch(() => ''));
+  return extractSessionDetailTranscript(body);
+}
+
+function transcriptEvidenceInBody(bodyText, transcript) {
+  const bodyWords = new Set(words(bodyText));
+  const transcriptWords = words(transcript);
+  const uniqueTranscriptWords = [...new Set(transcriptWords)];
+  const matchedWords = uniqueTranscriptWords.filter((word) => bodyWords.has(word));
+  const matchRatio = uniqueTranscriptWords.length > 0 ? matchedWords.length / uniqueTranscriptWords.length : 0;
+
+  return {
+    bodyLength: compact(bodyText).length,
+    uniqueTranscriptWordCount: uniqueTranscriptWords.length,
+    matchedUniqueTranscriptWordCount: matchedWords.length,
+    matchedUniqueTranscriptWords: matchedWords.slice(0, 20),
+    matchRatio: Number(matchRatio.toFixed(4)),
+    containsAtLeastHalfUniqueTranscriptWords: uniqueTranscriptWords.length > 0 && matchRatio >= 0.5,
+  };
+}
+
 function repeatedFourWordSequence(text) {
-  const words = normalizeForDuplicateScan(text).split(/\s+/).filter(Boolean);
+  const transcriptWords = words(text);
   const seen = new Map();
-  for (let index = 0; index <= words.length - 4; index += 1) {
-    const phrase = words.slice(index, index + 4).join(' ');
+  for (let index = 0; index <= transcriptWords.length - 4; index += 1) {
+    const phrase = transcriptWords.slice(index, index + 4).join(' ');
     const prior = seen.get(phrase);
     if (prior != null && index - prior >= 4) return phrase;
     if (prior == null) seen.set(phrase, index);
@@ -348,10 +391,11 @@ try {
     await page.waitForTimeout(3_000);
   }
   const detailBody = compact(await page.locator('body').textContent());
+  const detailTranscript = await readSessionDetailTranscript(page);
   evidence.detailBodySample = detailBody.slice(0, 1200);
-  evidence.detailTranscript = detailBody.includes(evidence.selectedForSave)
-    ? evidence.selectedForSave
-    : '';
+  evidence.detailTranscript = detailTranscript;
+  evidence.detailTranscriptEvidence = transcriptEvidenceInBody(detailTranscript, evidence.selectedForSave);
+  evidence.detailTranscriptMatchesSelected = evidence.detailTranscriptEvidence.containsAtLeastHalfUniqueTranscriptWords;
   evidence.analyticsVisible = /analytics|words per minute|wpm|clarity|filler|session/i.test(detailBody);
   evidence.finalUrl = page.url();
 
@@ -359,6 +403,7 @@ try {
   if (!evidence.saved) evidence.blockers.push('Native session did not expose saved-session marker.');
   if (!evidence.historyVisible) evidence.blockers.push('Native session history item was not visible.');
   if (!evidence.analyticsVisible) evidence.blockers.push('Native analytics detail/context was not visible.');
+  if (!evidence.detailTranscriptMatchesSelected) evidence.blockers.push('Native detail transcript did not match the authoritative save candidate.');
   if (evidence.duplicateFullTranscript) evidence.blockers.push(`Native selected transcript repeats 4-word sequence: ${evidence.repeatedFourWordSequence}`);
 } catch (error) {
   evidence.blockers.push(error instanceof Error ? error.message : String(error));

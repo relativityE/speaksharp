@@ -660,3 +660,36 @@ word errors or invent/drop fillers — readability only.
 
 Privacy copy distinguishing Native (server formatter, non-local) from Private (local-only) is still the
 open **Native trust disclaimer** UI item — tracked separately; activation here does not add new copy.
+
+---
+
+## TEST AGENT UPDATE (2026-06-03) — Native detail extraction fixed in proof script
+
+The previous Native human artifact reported `detailTranscript=""`. Before
+patching product code, the proof script itself needed correction:
+
+- `scripts/manual-native-chrome-proof.mjs` now reads
+  `data-testid="session-detail-transcript"` directly, matching the corpus proof
+  harness.
+- It falls back to extracting the transcript between `Recorded with` and
+  `AI-Powered Suggestions` only if the test id is absent.
+- It now records `detailTranscriptEvidence` with unique-word match counts and a
+  `detailTranscriptMatchesSelected` boolean instead of requiring the full saved
+  transcript to appear as an exact body substring.
+
+Deconfliction:
+
+```text
+Do not patch Native product save/detail code from the old empty-detail artifact
+until the rerun with this corrected extractor proves app state divergence.
+```
+
+Next Native human proof must include:
+
+```text
+saveCandidate.selectedForSave
+detailTranscript
+detailTranscriptEvidence.matchRatio
+detailTranscriptMatchesSelected
+__NATIVE_FORMATTER_LAST__
+```
