@@ -2315,3 +2315,44 @@ Dev/test ask:
 | Private short-utterance duplication | DEV: inspect why the saved final repeated `basically / um / like` in a short injected fixture. Candidate boundary: chunk overlap/append or final decode selection. TEST: rerun after fix and compare selectedForSave directly to truth, not raw transcript-container DOM. |
 | Trust copy contaminates transcript DOM scoring | DEV/TEST: keep trust copy visually present, but expose a transcript-only selector or debug field for scoring; do not force tests to scrape the full panel text. |
 | Filler UI schema | DEV: add stable per-filler rows/test ids/aria labels with word and count. TEST: parse those instead of concatenated panel text. |
+
+
+---
+
+## TEST UPDATE (2026-06-03T21:10Z) — deployed Private proof after live-cumulative work still fails final-text quality
+
+Run:
+
+```text
+BASE_URL=https://speaksharp-public.vercel.app
+CI=true
+pnpm exec playwright test tests/live/tester-b-private-native-stt.live.spec.ts \
+  --config=playwright.deployed-live.config.ts \
+  --project=deployed-live-chromium \
+  --grep "Private STT" \
+  --reporter=line \
+  --output=/private/tmp/speaksharp-private-rerun-20260603165439
+```
+
+Result:
+
+```text
+FAIL — proof.accuracy.final_text + stale filler extraction assertion
+```
+
+Current controlling evidence:
+
+| Gate | Evidence | Release meaning |
+| --- | --- | --- |
+| setup.build_env/auth_tier/stt_mode | Deployed app, fresh signup, PRO, Private selected, setup/download CTA clicked, CPU runtime reached. | Setup path is runnable in deployed proof. |
+| proof.journey.save_candidate | `saveCandidateReason=service_result`, `selectedForSaveLength=106`, `finalWordCount=15`, `fillerCount=5`. | The bug is in the selected final/service result, not only raw DOM scraping. |
+| proof.accuracy.final_text | Truth: `Um. Basically, we should literally like, wait.`; selected final: `Basically, we should literally like, "Wait, um, basically, we should literally like, wait, um, basically."` | Private still duplicates/repeats a short utterance. It is not parity-green. |
+| proof.journey.filler_ui_schema | Existing live spec still read concatenated `filler-words-list` text and parsed `[]`; visible row text contained counts like `basically3um2like2literally2...`. | TEST must update extraction to the clean row selectors dev exposed: `[data-filler-word]` / `[data-filler-count]`. Product only fails if those clean rows are missing or wrong. |
+
+Direct dev/test handoff:
+
+| Item | Owner | Ask |
+| --- | --- | --- |
+| Private final duplication | DEV | Inspect finalization/merge/candidate selection. This proof shows the authoritative `service_result` is already repeated; do not treat it as trust-copy contamination only. Add a regression that `selectedForSave` for the short filler fixture is concise and not repeated. |
+| Private filler artifact extraction | TEST | Stop parsing the full `filler-words-list` text. Use the clean row data attributes so counts and labels are separable. |
+| Private setup consent | TEST/DEV | Human proof must not auto-click setup; it must prove one clear setup CTA and no model download before explicit user click. |
