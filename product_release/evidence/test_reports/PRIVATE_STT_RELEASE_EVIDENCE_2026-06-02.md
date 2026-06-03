@@ -2093,3 +2093,27 @@ PASS: lint, typecheck, disable-directive hygiene
 Private browser proof remains open because `pnpm rc:ux:smoke` still needs a valid
 auth/test-harness setup path before it can reach mic-on and prove cumulative live
 text.
+
+### Current Main Browser UX Smoke Rerun: 2026-06-03T17:14Z
+
+```text
+main: 6855f598
+command: pnpm rc:ux:smoke
+result: FAIL — 5 infra-probe tests failed; 9 did not run
+```
+
+The build step passed. Browser UX proof failed before Private STT execution:
+
+```text
+waited for: html[data-app-visible-ready="true"]
+root error: Mock auth is not available from the runtime app. Use the centralized
+E2E test harness or create real test users through the test-user workflow.
+```
+
+Private impact:
+
+```text
+The current main rerun still cannot prove the Private cumulative live transcript
+fix, Draft/Processing/Final trust UI, setup consent, or save/history/detail in a
+browser. The blocker is setup/app boot, not a transcript accuracy result.
+```

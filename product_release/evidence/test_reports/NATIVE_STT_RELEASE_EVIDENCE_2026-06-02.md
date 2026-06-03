@@ -1011,6 +1011,31 @@ Native browser proof remains open because `pnpm rc:ux:smoke` still needs a valid
 auth/test-harness setup path before it can reach mic-on and prove formatter/trust
 behavior.
 
+### Current Main Browser UX Smoke Rerun: 2026-06-03T17:14Z
+
+```text
+main: 6855f598
+command: pnpm rc:ux:smoke
+result: FAIL — 5 infra-probe tests failed; 9 did not run
+```
+
+The build step passed. Browser UX proof failed before Native STT execution:
+
+```text
+waited for: html[data-app-visible-ready="true"]
+root error: Mock auth is not available from the runtime app. Use the centralized
+E2E test harness or create real test users through the test-user workflow.
+```
+
+Native impact:
+
+```text
+The current main rerun still cannot prove Native formatter invocation,
+`window.__NATIVE_FORMATTER_LAST__`, trust-state banner stability, or
+save/history/detail in a browser. The blocker is setup/app boot, not a Native
+transcript result.
+```
+
 ---
 
 ## ⚠️ DEV NOTE — Native formatter (Gemini) COST RISK (2026-06-03, actionable before free-scale)
