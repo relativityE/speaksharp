@@ -39,7 +39,11 @@ const PROVIDER = 'gemini';
 // Model is env-overridable so the provider model can be swapped via a Supabase
 // secret WITHOUT a code redeploy (e.g. if `gemini-3-flash-preview` is invalid/slow,
 // set FORMATTER_MODEL=gemini-2.0-flash). Default preserves current behavior.
-const FORMATTER_MODEL = Deno.env.get('FORMATTER_MODEL') || 'gemini-3-flash-preview';
+// Default changed gemini-3-flash-preview -> gemini-2.0-flash: the preview model hung
+// (~15.9s -> 504) on the 2026-06 Native proof. gemini-2.0-flash is a stable GA flash
+// model (fast, 1-3s). Still env-overridable; if this 404s the providerStatusEnum will
+// say NOT_FOUND and we pick another.
+const FORMATTER_MODEL = Deno.env.get('FORMATTER_MODEL') || 'gemini-2.0-flash';
 const GEMINI_API_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/${FORMATTER_MODEL}:generateContent`;
 export const FORMATTER_VERSION = 'format-transcript@1.0.0';
