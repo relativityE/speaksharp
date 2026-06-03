@@ -760,8 +760,13 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                                 <div
                                     className="p-4 bg-muted rounded-lg border border-[hsl(var(--border))] min-h-[150px] max-h-[300px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed"
                                     data-testid="session-detail-transcript"
+                                    // Authoritative, trimmed transcript value for proof harnesses.
+                                    // Empty string here means the saved row carried no real transcript
+                                    // (e.g. the start-time `' '` placeholder of an unfinalized session),
+                                    // disambiguating a genuine product gap from a wrong selector read.
+                                    data-session-detail-transcript={targetSession.transcript?.trim() || ''}
                                 >
-                                    {targetSession.transcript || "No transcript available for this session."}
+                                    {targetSession.transcript?.trim() || "No transcript available for this session."}
                                 </div>
                             </CardContent>
                         </Card>
