@@ -1496,3 +1496,9 @@ INVALID_SETUP setup.model_provider USER_CONSENT_REQUIRED private-setup-download-
 
 instead of clicking the Private setup/download button. This keeps first-time
 human proof honest: if setup is visible, the user must explicitly click it.
+
+2026-06-03 follow-up: the guard now applies across the current Private setup
+proof paths, including the benchmark helpers, first-time trial proof, Pro STT
+artifact matrix, Tester B proof, Private cache proof, STT switching contract,
+and manual corpus proof. Normal automated setup remains available when the flag
+is not set.

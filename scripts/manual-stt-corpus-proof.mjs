@@ -44,6 +44,7 @@ const POST_PLAYBACK_WAIT_MS = Number(process.env.STT_POST_PLAYBACK_WAIT_MS || 10
 const FIRST_TEXT_TIMEOUT_MS = Number(process.env.STT_FIRST_TEXT_TIMEOUT_MS || 20_000);
 const AFPLAY_RETRIES = Number(process.env.STT_AFPLAY_RETRIES || 2);
 const PRIVATE_SETUP_CLICK_DELAY_MS = Number(process.env.STT_PRIVATE_SETUP_CLICK_DELAY_MS || 0);
+const PRIVATE_SETUP_USER_CONSENT_REQUIRED = process.env.PRIVATE_SETUP_USER_CONSENT_REQUIRED === 'true';
 const HEADLESS = process.env.HEADLESS === 'true';
 const MAX_WER = process.env.STT_MAX_WER == null ? null : Number(process.env.STT_MAX_WER);
 const SIGNUP_EMAIL = process.env.STT_SIGNUP_EMAIL || `stt-corpus-${Date.now()}@speaksharp.app`;
@@ -500,6 +501,15 @@ async function preparePrivateModel(page) {
 
   const downloadButton = page.locator('[data-testid="status-download-model-button"], [data-testid="download-model-button"], [data-testid="download-model-button-inline"]').first();
   if (await downloadButton.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    if (PRIVATE_SETUP_USER_CONSENT_REQUIRED) {
+      const readiness = await getPrivateReadinessSnapshot(page);
+      await markPhase(page, 'private_model_download_user_consent_required', readiness);
+      throw new Error(
+        `INVALID_SETUP setup.model_provider USER_CONSENT_REQUIRED private-setup-download-visible\n` +
+        `Private model setup requires an explicit user click; this proof must not auto-download.\n` +
+        `${JSON.stringify(readiness, null, 2)}`
+      );
+    }
     if (PRIVATE_SETUP_CLICK_DELAY_MS > 0) {
       await markPhase(page, 'private_model_download_visible_hold', {
         holdMs: PRIVATE_SETUP_CLICK_DELAY_MS,
