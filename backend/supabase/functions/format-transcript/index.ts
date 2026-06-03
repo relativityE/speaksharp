@@ -52,6 +52,9 @@ const MAX_TRANSCRIPT_CHARS = 8000;
 // HIDES providerStatus). A higher cap lets a slow-but-working call complete OR surface
 // the real Gemini status (providerStatus/providerStatusEnum) instead of a blind timeout.
 const PROVIDER_TIMEOUT_MS = Number(Deno.env.get('FORMATTER_TIMEOUT_MS')) || 28_000;
+// Per-user daily formatter call cap (enforced by the consume_formatter_quota RPC).
+// Env-overridable so ops can tune the cost guard with no code redeploy.
+const FORMATTER_DAILY_LIMIT = Number(Deno.env.get('FORMATTER_DAILY_LIMIT')) || 200;
 
 /**
  * Default formatting instruction. MUST stay in sync with the frontend adapter's
@@ -245,7 +248,7 @@ export async function handler(req: Request, createSupabase: SupabaseClientFactor
   if (typeof (supabaseClient as { rpc?: unknown }).rpc === 'function') {
     try {
       const { data: quota, error: quotaError } = await supabaseClient.rpc('consume_formatter_quota', {
-        p_limit: 200,
+        p_limit: FORMATTER_DAILY_LIMIT,
       });
       if (!quotaError && quota && (quota as { allowed?: boolean }).allowed === false) {
         logEvent('error', { requestId, userIdHash, code: 'QUOTA_EXCEEDED', transcriptHash });

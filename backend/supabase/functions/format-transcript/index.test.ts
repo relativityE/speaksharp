@@ -36,6 +36,24 @@ const authedSupabase: any = () => ({
   },
 });
 
+// Authenticated mock whose consume_formatter_quota RPC returns a fixed verdict.
+// deno-lint-ignore no-explicit-any
+const quotaSupabase = (verdict: { allowed: boolean; remaining?: number }): any => () => ({
+  auth: {
+    getUser: () => Promise.resolve({ data: { user: { id: 'user-123' } }, error: null }),
+  },
+  rpc: (_fn: string, _args: unknown) => Promise.resolve({ data: verdict, error: null }),
+});
+
+// Authenticated mock whose quota RPC throws (e.g. table missing in a partial deploy).
+// deno-lint-ignore no-explicit-any
+const quotaThrowsSupabase: any = () => ({
+  auth: {
+    getUser: () => Promise.resolve({ data: { user: { id: 'user-123' } }, error: null }),
+  },
+  rpc: (_fn: string, _args: unknown) => Promise.reject(new Error('rpc unavailable')),
+});
+
 // --- Request helper ---------------------------------------------------------
 function makeRequest(body: unknown, method = 'POST'): Request {
   return new Request('http://localhost/format-transcript', {
@@ -118,7 +136,7 @@ Deno.test('format-transcript edge function', async (t) => {
     assertEquals(res.status, 200);
     assertEquals(json.formatted, 'Hello world.');
     assertEquals(json.metadata.provider, 'gemini');
-    assertEquals(json.metadata.model, 'gemini-3-flash-preview');
+    assertEquals(json.metadata.model, 'gemini-3.5-flash');
     assertEquals(json.metadata.wordPreservingServerCheck, true);
     assertEquals(json.metadata.inputChars, 11);
     assert(typeof json.metadata.latencyMs === 'number');
@@ -220,6 +238,39 @@ Deno.test('format-transcript edge function', async (t) => {
     const blob = captured.join('\n');
     assert(blob.length > 0, 'expected some structured logs to be captured');
     assert(!blob.includes(SENTINEL), `transcript text leaked into logs:\n${blob}`);
+  });
+
+  // 16. quota enforced: RPC says not allowed -> 429 QUOTA_EXCEEDED (no Gemini call)
+  await t.step('quota exceeded -> QUOTA_EXCEEDED 429', async () => {
+    mockGeminiMode = 'ok';
+    const res = await handler(
+      makeRequest({ transcript: 'hello world' }),
+      quotaSupabase({ allowed: false }),
+    );
+    const json = await res.json();
+    assertEquals(res.status, 429);
+    assertEquals(json.code, 'QUOTA_EXCEEDED');
+  });
+
+  // 17. quota allowed -> proceeds to format (200)
+  await t.step('quota allowed -> 200 success', async () => {
+    mockGeminiText = 'Hello world.';
+    const res = await handler(
+      makeRequest({ transcript: 'hello world' }),
+      quotaSupabase({ allowed: true, remaining: 199 }),
+    );
+    const json = await res.json();
+    assertEquals(res.status, 200);
+    assertEquals(json.formatted, 'Hello world.');
+  });
+
+  // 18. quota RPC failure degrades OPEN (a quota infra hiccup must not block formatting)
+  await t.step('quota RPC throws -> degrade open (200)', async () => {
+    mockGeminiText = 'Hello world.';
+    const res = await handler(makeRequest({ transcript: 'hello world' }), quotaThrowsSupabase);
+    const json = await res.json();
+    assertEquals(res.status, 200);
+    assertEquals(json.formatted, 'Hello world.');
   });
 
   // cleanup
