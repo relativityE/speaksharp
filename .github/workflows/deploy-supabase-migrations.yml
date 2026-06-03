@@ -47,6 +47,7 @@ jobs:
           supabase functions deploy observability-smoke --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy assemblyai-token --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy format-transcript --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID"
 
   deploy-production-db:
@@ -119,6 +120,7 @@ jobs:
           AGENT_SECRET: ${{ secrets.AGENT_SECRET }}
           STRIPE_BASIC_PRICE_ID: ${{ secrets.STRIPE_BASIC_PRICE_ID }}
           STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_PRO_PRICE_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         working-directory: backend/supabase
         run: |
           if [ -z "$AGENT_SECRET" ]; then
@@ -139,6 +141,12 @@ jobs:
             STRIPE_BASIC_PRICE_ID="$STRIPE_BASIC_PRICE_ID" \
             STRIPE_PRO_PRICE_ID="$STRIPE_PRO_PRICE_ID" \
             --project-ref "$SUPABASE_PROJECT_ID"
+          if [ -n "$GEMINI_API_KEY" ]; then
+            supabase secrets set GEMINI_API_KEY="$GEMINI_API_KEY" --project-ref "$SUPABASE_PROJECT_ID"
+            echo "✅ GEMINI_API_KEY synchronized to Supabase"
+          else
+            echo "⚠️ GEMINI_API_KEY is not available in GitHub Secrets; format-transcript will return GEMINI_KEY_MISSING until configured"
+          fi
           echo "✅ AGENT_SECRET, ALLOWED_ORIGIN, and Stripe price IDs synchronized to Supabase"
 
       - name: Deploy Edge Functions
@@ -151,6 +159,7 @@ jobs:
           supabase functions deploy observability-smoke --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy assemblyai-token --project-ref "$SUPABASE_PROJECT_ID" --no-verify-jwt
           supabase functions deploy get-ai-suggestions --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy format-transcript --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy stripe-checkout --project-ref "$SUPABASE_PROJECT_ID"
           echo "✅ Edge Functions deployed successfully"
 

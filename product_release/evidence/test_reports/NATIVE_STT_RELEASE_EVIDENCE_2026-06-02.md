@@ -661,6 +661,23 @@ word errors or invent/drop fillers — readability only.
 Privacy copy distinguishing Native (server formatter, non-local) from Private (local-only) is still the
 open **Native trust disclaimer** UI item — tracked separately; activation here does not add new copy.
 
+## TEST/OPS UPDATE (2026-06-03) — formatter deployment path wired
+
+The formatter was previously code-present but not deployable through the shared Supabase deploy workflow.
+That was a real proof blocker: the Native human rerun could only fall back to raw text if
+`format-transcript` was never deployed.
+
+Current state:
+
+| Gate | Status | Evidence / next proof |
+| --- | --- | --- |
+| `format-transcript` in deploy workflow | **Fixed in workflow** | `.github/workflows/deploy-supabase-migrations.yml` now deploys `format-transcript` in push/manual edge-function deploy paths. |
+| `GEMINI_API_KEY` Supabase secret | **Explicit but still environment-gated** | The workflow syncs `GEMINI_API_KEY` when the GitHub secret is present and warns if it is absent. If absent, the function returns `GEMINI_KEY_MISSING` and Native formatting falls back to raw. |
+| Native formatter proof | **Still pending browser proof** | Rerun human Native with `__NATIVE_FORMATTER_LAST__`; require `attempted:true`, non-null provider metadata, `wordPreserving:true`, readability improvement, and save/detail match. |
+
+Do not classify Native punctuation/readability fixed until the deployed-function rerun proves the formatter
+accepted the transcript and improved the punctuation/readability metrics without changing words or fillers.
+
 ---
 
 ## TEST AGENT UPDATE (2026-06-03) — Native detail extraction fixed in proof script
