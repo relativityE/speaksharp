@@ -85,11 +85,21 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
         : isListening
             ? (hasInterimTranscript || hasTranscript ? 'drafting' : 'listening')
             : (hasTranscript ? 'final' : 'idle');
+    const normalizedSttMode = (sttMode ?? '').toLowerCase();
+    const isPrivateMode = normalizedSttMode === 'private';
     const isDrafting = uiState === 'drafting';
     const showDraftTrustBanner = isListening && !isFinalizing;
-    const showPrivateFeedback = sttMode === 'private' && isListening;
+    const showPrivateFeedback = isPrivateMode && isListening;
     const privateStatus = hasTranscript || hasInterimTranscript ? 'Live text' : 'Private local';
     const visibleTranscript = [transcript.trim(), displayInterimTranscript.trim()].filter(Boolean).join(' ').trim();
+    const finalizingBannerText = isPrivateMode ? 'Processing speech locally…' : 'Processing transcript…';
+    const finalizingEmptyTitle = isPrivateMode ? 'Finalizing local transcript…' : 'Finalizing transcript…';
+    const finalizingEmptyDescription = isPrivateMode
+        ? 'Your final transcript will appear here when local processing finishes.'
+        : 'Your final transcript will appear here when processing finishes.';
+    const listeningEmptyText = isPrivateMode
+        ? (hasSpeechActivity ? 'Processing speech locally…' : 'Listening locally…')
+        : (hasSpeechActivity ? 'Processing speech…' : 'Listening...');
 
     React.useEffect(() => {
         if (typeof window === 'undefined' || !visibleTranscript) return;
@@ -179,7 +189,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         data-testid="live-transcript-finalizing"
                     >
                         <span className="h-2 w-2 animate-pulse rounded-full bg-primary" aria-hidden="true" />
-                        Processing speech locally…
+                        {finalizingBannerText}
                     </div>
                 )}
 
@@ -231,18 +241,18 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
 
                 {/* Current Active Segment */}
                 {isListening && !hasTranscript && !hasInterimTranscript ? (
-                    sttMode === 'private' ? (
+                    isPrivateMode ? (
                         <div className="flex min-h-[120px] flex-col items-center justify-center gap-3 text-center text-foreground/80">
                             <div className={`relative flex h-14 w-14 items-center justify-center rounded-full border border-primary/25 bg-primary/5 ${hasSpeechActivity ? 'shadow-[0_0_0_8px_hsl(var(--primary)/0.08)]' : ''}`}>
                                 {hasSpeechActivity && <span className="absolute inset-0 rounded-full border border-primary/30 animate-ping" />}
                                 <WaveformMeter level={micLevel} isProcessing={hasSpeechActivity} />
                             </div>
                             <p className={hasSpeechActivity ? 'text-primary font-medium' : 'animate-pulse'}>
-                                {hasSpeechActivity ? 'Processing speech locally…' : 'Listening locally…'}
+                                {listeningEmptyText}
                             </p>
                         </div>
                     ) : (
-                        <p className="text-sm font-semibold text-foreground/75 animate-pulse">Listening...</p>
+                        <p className="text-sm font-semibold text-foreground/75 animate-pulse">{listeningEmptyText}</p>
                     )
                 ) : hasTranscript || hasInterimTranscript ? (
                     <div
@@ -288,9 +298,9 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         className="flex min-h-[120px] flex-col items-center justify-center gap-2 text-center text-foreground/80"
                         data-testid="live-transcript-finalizing-empty"
                     >
-                        <p className="text-sm font-semibold text-primary">Finalizing local transcript…</p>
+                        <p className="text-sm font-semibold text-primary">{finalizingEmptyTitle}</p>
                         <p className="max-w-sm text-xs text-foreground/60">
-                            Your final transcript will appear here when local processing finishes.
+                            {finalizingEmptyDescription}
                         </p>
                     </div>
                 ) : (

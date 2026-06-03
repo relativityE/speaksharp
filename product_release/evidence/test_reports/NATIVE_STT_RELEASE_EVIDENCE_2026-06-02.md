@@ -1129,3 +1129,76 @@ Native is not release-green until the real human Chrome mic path proves formatte
 invocation, readability improvement, and save/history/detail with actual browser
 speech recognition.
 ```
+
+---
+
+## TEST UPDATE (2026-06-03T19:40Z) — real Chrome mic Native proof found formatter/detail blockers
+
+Artifact:
+
+```text
+/private/tmp/native-chrome-human-one-shot.json
+```
+
+Run:
+
+```text
+NATIVE_PROOF_MANUAL_SPEAK_MS=45000
+NATIVE_PROOF_POST_AUDIO_WAIT_MS=8000
+BASE_URL=https://speaksharp-public.vercel.app
+node scripts/manual-native-chrome-proof.mjs
+```
+
+Expected script:
+
+```text
+Um, SpeakSharp microphone proof starts now. Basically, I want to make one simple point before we move on. Like, the main idea is that every transcript should stay readable, keep prior sentences, and preserve the final words. The next step is to save this session, open the detail page, and confirm the score explains transcript quality.
+```
+
+### Result
+
+```text
+FAIL — Native is not release-green.
+```
+
+| Check | Actual | Result |
+| --- | --- | --- |
+| Real Native path | Chrome/Web Speech real mic path, no fake audio flags | pass |
+| Trust banner at mic-on | `trustBannerVisible=true`, `trustBannerMode=draft`, state `listening` | pass |
+| Trust banner while transcript was visible | `trustBannerVisible=true`, state `drafting` | pass |
+| Post-stop final state | `transcriptState=final`, draft banner removed | pass |
+| Formatter invocation | `__NATIVE_FORMATTER_LAST__.attempted=true` | pass: real path attempted formatter |
+| Formatter success | `errorCode=FORMATTER_ERROR`, `fallbackToRaw=true`, edge function returned 502 | **fail** |
+| Visible/final transcript | Full-ish transcript present, but raw readability still poor: `Starts Now`, missing `Um`, `Deep page detailed page` | caveated |
+| Authoritative save candidate | `selectedForSaveLength=336`, `finalWordCount=58`, `saveCandidateReason=service_result` | pass |
+| Save/history | `saved=true`, `historyVisible=true`, `analyticsVisible=true` | pass |
+| Detail transcript | `detailTranscript=""`, `detailTranscriptMatchesSelected=false` | **fail** |
+
+### Bugs / dev handoff
+
+| Bug | Evidence | Owner / ask |
+| --- | --- | --- |
+| Native formatter backend failed on real save | `nativeFormatterLast={ attempted:true, provider:"gemini", latencyMs:5017, errorCode:"FORMATTER_ERROR", fallbackToRaw:true }`; browser log showed `format-transcript` returned 502 | DEV: inspect live edge-function logs for this request window and return a specific error code instead of collapsed `FORMATTER_ERROR` if possible. TEST reruns after fix and compares raw vs formatted vs ground truth. |
+| Native detail transcript empty after successful save/history | `selectedForSave` had 336 chars; `detailTranscript=""`; `detailTranscriptMatchesSelected=false` | DEV: confirm whether detail page lacks transcript rendering, route did not open detail, or harness selector is wrong. TEST reruns and separately captures saved row, detail DOM, and `saveCandidate`. |
+| Native trust copy must not claim local processing | User correctly flagged that Native/Cloud are not local STT. | TEST FIXED in UI copy: only Private says `Processing speech locally…` / `Listening locally…`; Native/Cloud use generic processing/finalizing copy. |
+
+### Verification added for trust-copy fix
+
+Commands:
+
+| Command | Result |
+| --- | --- |
+| `pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false frontend/src/components/session/__tests__/LiveTranscriptPanel.component.test.tsx` | **PASS:** 1 file / 22 tests |
+| `pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false frontend/src/components/session/__tests__/LiveTranscriptPanel.component.test.tsx frontend/src/services/transcription/modes/__tests__/nativeTranscriptFormatter.test.ts frontend/src/services/transcription/modes/__tests__/nativeGeminiFormatter.test.ts frontend/src/services/transcription/modes/__tests__/NativeBrowser.test.ts frontend/src/services/transcription/modes/__tests__/PrivateWhisper.test.ts frontend/src/services/transcription/modes/__tests__/mergeLiveProvisionalTranscript.test.ts frontend/src/components/session/__tests__/LiveCoachingScoreCard.test.tsx frontend/src/utils/__tests__/speakingScore.test.ts frontend/src/lib/__tests__/logRedaction.test.ts` | **PASS:** 9 files / 153 tests |
+| `CI=true pnpm exec playwright test tests/e2e/user-facing-regressions.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=/private/tmp/speaksharp-user-facing-native-copy-fix` | **PASS:** 9/9 |
+| `pnpm rc:ux:smoke` | **SUCCESS WITH FLAKES:** 10 passed, 4 flaky after retries. Not a clean first-try browser proof. Representative flake: `page.goto` to `/analytics` aborted/frame detached in `tests/e2e/helpers.ts:164`; trace: `test-results/playwright-ux-smoke/primary-journey.e2e-Primar-5e2b0-urney-for-Free-Tier-Native--full-suite/trace.zip`. |
+
+Current Native read:
+
+```text
+Native trust-state hooks are now browser/component-proven and human-mic observed,
+but Native is still not product-ready: real formatter invocation falls back after
+a 502, and the analytics/detail transcript does not match the authoritative
+saved transcript. Native remains a conversion-funnel candidate only after those
+two blockers are fixed and rerun.
+```

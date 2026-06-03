@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-03T19:25:00Z",
+  "lastUpdated": "2026-06-03T19:46:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -2598,11 +2598,11 @@
     },
     "native": {
       "status": "backlog_failed_current_proof",
-      "reason": "Human real-mic rerun on 2026-06-03 improved authoritative save selection: selectedForSave came from service_result, save passed, history was visible, and full-speech duplication did not recur. Native still failed product readiness: user-visible interim/final text was not clearly trust-labeled while revising, earliest trace events were lost to the 500-event cap, filler recall was 66.67%, readability/punctuation/casing failed, and detail transcript extraction was empty.",
-      "next": "Fix trust-state labeling for Native interim/committed live text, increase/full-export Native trace for release proofs, decide/activate Native formatter if Native remains visible, verify detail extraction, then rerun human Chrome mic proof."
+      "reason": "Real Chrome mic proof on 2026-06-03 against the live app exercised the real NativeBrowser path. Trust banner hooks were visible at mic-on and while drafting, and authoritative saveCandidate was full (selectedForSaveLength=336, finalWordCount=58). Native still failed product readiness because the Gemini formatter attempted but returned FORMATTER_ERROR/fallbackToRaw after a 502, raw readability remained poor, and analytics/detail transcript extraction was empty despite save/history success.",
+      "next": "Fix live Native formatter backend/error specificity and detail transcript equality, then rerun human Chrome mic proof. Trust copy must stay mode-aware: only Private may say local/locally; Native and Cloud use generic processing/finalizing copy."
     }
   },
-  "lastUpdatedAt": "2026-06-03T19:25:00Z",
+  "lastUpdatedAt": "2026-06-03T19:46:00Z",
   "latestBrowserUxSmoke": {
     "updatedAt": "2026-06-03T18:15:00Z",
     "commit": "c167d3b0",
@@ -2654,11 +2654,11 @@
       "Local punctuation/readability path remains product work."
     ],
     "native": [
-      "Human Chrome mic proof with __NATIVE_FORMATTER_LAST__.",
-      "Raw vs formatted vs ground truth comparison.",
+      "Fix/retest Native formatter: real Chrome mic proof now has __NATIVE_FORMATTER_LAST__.attempted=true but errorCode=FORMATTER_ERROR and fallbackToRaw=true.",
+      "Raw vs formatted vs ground truth comparison after formatter succeeds.",
       "Words/fillers unchanged by formatter.",
-      "Trust banner perceptibility while interim text changes.",
-      "Save/history/detail equality from the real saved row."
+      "Save/history/detail equality from the real saved row; latest proof had detailTranscript empty.",
+      "Mode-aware trust copy proof after local/locally copy was removed for Native/Cloud."
     ],
     "cloud": [
       "Baseline remains safe candidate; keyterms backlog.",
@@ -2674,24 +2674,24 @@
     "f2": "Still hypothesis; needs A/B proof before pipeline/windowing changes."
   },
   "latestUserTrustBrowserProof": {
-    "updatedAt": "2026-06-03T19:25:00Z",
-    "status": "pass_harness_proof",
+    "updatedAt": "2026-06-03T19:46:00Z",
+    "status": "pass_with_flaky_release_smoke",
     "commands": [
       {
-        "command": "focused STT/user-trust Vitest suite",
-        "result": "PASS 10 files / 122 tests"
+        "command": "LiveTranscriptPanel mode-aware copy component test",
+        "result": "PASS 1 file / 22 tests"
       },
       {
-        "command": "pnpm test:edge",
-        "result": "PASS 11 files / 70 steps"
+        "command": "focused STT/user-trust Vitest suite after copy fix",
+        "result": "PASS 9 files / 153 tests"
       },
       {
-        "command": "CI=true pnpm exec playwright test tests/e2e/user-facing-regressions.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=/private/tmp/speaksharp-user-facing-trust-hooks-2",
+        "command": "CI=true pnpm exec playwright test tests/e2e/user-facing-regressions.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=/private/tmp/speaksharp-user-facing-native-copy-fix",
         "result": "PASS 9/9"
       },
       {
         "command": "pnpm rc:ux:smoke",
-        "result": "PASS 14/14"
+        "result": "SUCCESS WITH FLAKES: 10 passed, 4 flaky after retries"
       }
     ],
     "findings": [
@@ -2709,10 +2709,46 @@
       },
       {
         "id": "native_formatter_not_proven_by_mock_e2e",
-        "classification": "remaining_human_browser_proof_gap",
-        "status": "open",
-        "detail": "Mock E2E bypasses real NativeBrowser.getTranscript formatter path; real Chrome mic proof must capture __NATIVE_FORMATTER_LAST__."
+        "classification": "human_browser_proof_gap_closed_with_failure",
+        "status": "failed_real_path",
+        "detail": "Mock E2E bypasses real NativeBrowser.getTranscript formatter path. Real Chrome mic proof captured __NATIVE_FORMATTER_LAST__.attempted=true, but the formatter returned FORMATTER_ERROR/fallbackToRaw after a 502."
+      },
+      {
+        "id": "native_cloud_local_copy_false",
+        "classification": "user_trust_copy_bug",
+        "status": "fixed_in_component_and_browser_tests",
+        "detail": "Only Private may claim local processing. LiveTranscriptPanel now uses local/locally copy only for sttMode=private; Native/Cloud use generic processing/finalizing transcript copy. Component tests and focused browser regression proof passed."
+      },
+      {
+        "id": "rc_ux_smoke_flaky_after_copy_fix",
+        "classification": "browser_proof_reliability_watch",
+        "status": "open_watch",
+        "detail": "Post-copy-fix pnpm rc:ux:smoke exited successfully but had 4 flaky tests after retries; representative failure was page.goto to /analytics aborting/frame-detaching in tests/e2e/helpers.ts:164."
       }
+    ]
+  },
+  "latestNativeHumanProof": {
+    "updatedAt": "2026-06-03T19:40:00Z",
+    "artifact": "/private/tmp/native-chrome-human-one-shot.json",
+    "baseUrl": "https://speaksharp-public.vercel.app",
+    "status": "fail_product_readiness",
+    "results": {
+      "realMic": true,
+      "trustBannerAtMicOn": true,
+      "trustBannerWhileDrafting": true,
+      "formatterAttempted": true,
+      "formatterErrorCode": "FORMATTER_ERROR",
+      "formatterFallbackToRaw": true,
+      "saveCandidateLength": 336,
+      "finalWordCount": 58,
+      "saved": true,
+      "historyVisible": true,
+      "detailTranscriptMatchesSelected": false
+    },
+    "blockers": [
+      "Native formatter backend returned 502 / FORMATTER_ERROR and fell back to raw.",
+      "Detail transcript was empty even though saveCandidate/history had transcript.",
+      "Raw Native readability remains poor until formatter succeeds."
     ]
   }
 }
