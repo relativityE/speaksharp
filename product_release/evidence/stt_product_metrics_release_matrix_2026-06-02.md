@@ -1276,3 +1276,37 @@ Current non-STT UX backlog from this sweep:
 | Goal save E2E failure | Browser toast: `A background task failed — i.from(...).upsert is not a function` when saving custom goals. | DEV/TEST: reconcile goal service `.upsert().select().single()` with the E2E/mock Supabase path, then rerun goal-setting. If real Supabase path is already covered separately, mark this as harness/mock compatibility. |
 | Custom filler word visibility | After adding `AntigravityUI`, the main Filler Words card still listed only defaults; no visible custom tracked word appeared before speech. | DEV: include user-defined filler words in the visible tracked-word card with count 0, or provide a clear active-tracking confirmation outside the popover. TEST reruns custom filler add/remove and detection. |
 | Transcript Quality analytics theme too weak | Theme renders, but lacks punctuation/readability/confidence stat cards. | DEV/Product: add first-class transcript quality metrics to Analytics; TEST verifies they align with session page quality signals. |
+
+
+---
+
+## Clean Main UX Rerun: 2026-06-03T21:25Z
+
+Commit under test:
+
+```text
+f5aee22b Merge fix/native-detail-transcript-render: harden detail transcript render (#29)
+```
+
+Command:
+
+```text
+CI=true pnpm exec playwright test tests/e2e/goal-setting.e2e.spec.ts tests/e2e/user-filler-words.e2e.spec.ts \
+  --config=playwright.config.ts \
+  --project=full-suite \
+  --reporter=line \
+  --output=/private/tmp/speaksharp-main-clean-goals-fillers
+```
+
+Result:
+
+```text
+FAIL — 7 passed, 2 failed, 1 did not run
+```
+
+Still-current bugs on committed main:
+
+| Bug | Evidence | Release meaning |
+| --- | --- | --- |
+| Goal save fails in E2E/mock path | `[E2E_FATAL_CONSOLE_ERROR] ... i.from(...).upsert is not a function ... [useGoals] Mutation failed`; dialog stayed open instead of closing. | Goal customization cannot be trusted in the current browser proof path. Either fix the mock/service compatibility or prove the real Supabase goal-save path separately. |
+| Custom filler word not visible as tracked | After adding `AntigravityUI`, the popover success path ran, but the main `filler-words-list` did not show it. | Users cannot verify their custom coaching/filler term is active before speaking. This directly affects filler-recall trust and custom-word product value. |

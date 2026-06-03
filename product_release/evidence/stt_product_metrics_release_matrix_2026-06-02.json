@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-03T21:18:00Z",
+  "lastUpdated": "2026-06-03T21:25:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -2602,7 +2602,7 @@
       "next": "Rerun human Native after formatter deploy/default change; verify latency/accepted/fallback fields, hard-stop behavior, trust trace, and detail equality."
     }
   },
-  "lastUpdatedAt": "2026-06-03T21:18:00Z",
+  "lastUpdatedAt": "2026-06-03T21:25:00Z",
   "latestBrowserUxSmoke": {
     "updatedAt": "2026-06-03T18:15:00Z",
     "commit": "c167d3b0",
@@ -2895,5 +2895,28 @@
       "evidence": "Goal save browser test produced background-task toast: i.from(...).upsert is not a function.",
       "ask": "Fix E2E/mock Supabase compatibility or prove real Supabase goal save separately."
     }
-  ]
+  ],
+  "latestCleanMainUxRerun": {
+    "updatedAt": "2026-06-03T21:25:00Z",
+    "commit": "f5aee22b",
+    "artifact": "/private/tmp/speaksharp-main-clean-goals-fillers",
+    "command": "CI=true pnpm exec playwright test tests/e2e/goal-setting.e2e.spec.ts tests/e2e/user-filler-words.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=/private/tmp/speaksharp-main-clean-goals-fillers",
+    "result": "FAIL — 7 passed, 2 failed, 1 did not run",
+    "stillCurrentBugs": [
+      {
+        "id": "goals-save-upsert-mock-or-service-compatibility",
+        "phase": "journey",
+        "evidence": "[E2E_FATAL_CONSOLE_ERROR] i.from(...).upsert is not a function; [useGoals] Mutation failed; edit-goals-dialog remained visible.",
+        "releaseMeaning": "Goal customization is not proven in current browser proof path.",
+        "ask": "Fix E2E/mock Supabase compatibility for goalsService.upsert().select().single(), or add/prove a real Supabase goal-save path."
+      },
+      {
+        "id": "custom-filler-word-not-visible-as-tracked",
+        "phase": "journey",
+        "evidence": "After adding AntigravityUI, main filler-words-list did not show the custom term.",
+        "releaseMeaning": "Users cannot verify custom filler/coaching words are active before speaking.",
+        "ask": "Show user-defined filler words in the main tracked-word card with count 0, or provide a visible active-tracking confirmation outside the popover."
+      }
+    ]
+  }
 }
