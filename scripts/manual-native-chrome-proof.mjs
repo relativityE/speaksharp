@@ -39,6 +39,34 @@ function compact(text) {
   return String(text ?? '').replace(/\s+/g, ' ').trim();
 }
 
+function stripTranscriptChrome(text) {
+  return compact(String(text ?? '')
+    .replace(/\bDraft transcript\b/gi, ' ')
+    .replace(/Text may change before the final transcript is saved\./gi, ' ')
+    .replace(/Processing speech locally(?:…|\.\.\.)?/gi, ' ')
+    .replace(/Finalizing local transcript(?:…|\.\.\.)?/gi, ' ')
+    .replace(/Your final transcript will appear here when local processing finishes\./gi, ' ')
+    .replace(/Listening locally(?:…|\.\.\.)?/gi, ' ')
+    .replace(/\bListening(?:…|\.\.\.)/gi, ' ')
+    .replace(/Start recording and your words will appear here\./gi, ' ')
+    .replace(/No speech was detected[^.]*\./gi, ' '));
+}
+
+async function readVisibleTranscript(page) {
+  const transcriptOnly = await page.evaluate(() => {
+    const container = document.querySelector('[data-testid="transcript-container"]');
+    if (!container) return '';
+    const clone = container.cloneNode(true);
+    clone.querySelectorAll([
+      '[data-testid="live-transcript-trust-banner"]',
+      '[data-testid="live-transcript-finalizing"]',
+      '[data-testid="live-transcript-finalizing-empty"]',
+    ].join(',')).forEach((node) => node.remove());
+    return clone.textContent ?? '';
+  }).catch(() => '');
+  return stripTranscriptChrome(transcriptOnly);
+}
+
 function isPlaceholderTranscript(text) {
   return /\b(words appear here|listening|start speaking|no speech was detected|session complete)\b/i.test(compact(text));
 }
@@ -55,6 +83,26 @@ async function readAuthoritativeSaveCandidate(page) {
 async function readTranscriptTrustState(page) {
   return page.evaluate(() => {
     const compact = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+    const stripTranscriptChrome = (text) => compact(String(text ?? '')
+      .replace(/\bDraft transcript\b/gi, ' ')
+      .replace(/Text may change before the final transcript is saved\./gi, ' ')
+      .replace(/Processing speech locally(?:…|\.\.\.)?/gi, ' ')
+      .replace(/Finalizing local transcript(?:…|\.\.\.)?/gi, ' ')
+      .replace(/Your final transcript will appear here when local processing finishes\./gi, ' ')
+      .replace(/Listening locally(?:…|\.\.\.)?/gi, ' ')
+      .replace(/\bListening(?:…|\.\.\.)/gi, ' ')
+      .replace(/Start recording and your words will appear here\./gi, ' ')
+      .replace(/No speech was detected[^.]*\./gi, ' '));
+    const transcriptOnly = (container) => {
+      if (!container) return '';
+      const clone = container.cloneNode(true);
+      clone.querySelectorAll([
+        '[data-testid="live-transcript-trust-banner"]',
+        '[data-testid="live-transcript-finalizing"]',
+        '[data-testid="live-transcript-finalizing-empty"]',
+      ].join(',')).forEach((node) => node.remove());
+      return stripTranscriptChrome(clone.textContent ?? '');
+    };
     const transcriptContainer = document.querySelector('[data-testid="transcript-container"]');
     const trustBanner = document.querySelector('[data-testid="live-transcript-trust-banner"]');
     const finalizingBanner = document.querySelector('[data-testid="live-transcript-finalizing"]');
@@ -72,7 +120,8 @@ async function readTranscriptTrustState(page) {
       currentLineVisible: Boolean(currentLine),
       currentLineDraft: currentLine?.getAttribute('data-transcript-draft') ?? null,
       currentLineText: compact(currentLine?.textContent).slice(0, 240),
-      transcriptPreview: compact(transcriptContainer?.textContent).slice(0, 240),
+      rawTranscriptPreview: compact(transcriptContainer?.textContent).slice(0, 240),
+      transcriptPreview: transcriptOnly(transcriptContainer).slice(0, 240),
     };
   }).catch(() => null);
 }
@@ -368,7 +417,7 @@ try {
   evidence.audioPlayback = await speakSentence(page);
   await page.waitForTimeout(POST_AUDIO_WAIT_MS);
 
-  const transcriptText = compact(await page.getByTestId('transcript-container').textContent().catch(() => ''));
+  const transcriptText = await readVisibleTranscript(page);
   evidence.trustStateAtVisibleStop = await readTranscriptTrustState(page);
   evidence.visibleAtStop = transcriptText;
   evidence.transcriptSample = transcriptText.slice(0, 500);
@@ -383,7 +432,7 @@ try {
   });
   await page.waitForTimeout(3_000);
   evidence.trustStatePostStop = await readTranscriptTrustState(page);
-  evidence.postStopTranscript = compact(await page.getByTestId('transcript-container').textContent().catch(() => ''));
+  evidence.postStopTranscript = await readVisibleTranscript(page);
   evidence.saved = await page.locator('html[data-session-persisted="true"]').isVisible().catch(() => false);
   evidence.saveCandidate = await readAuthoritativeSaveCandidate(page);
   evidence.nativeFormatterLast = await page.evaluate(() => window.__NATIVE_FORMATTER_LAST__ || null).catch(() => null);

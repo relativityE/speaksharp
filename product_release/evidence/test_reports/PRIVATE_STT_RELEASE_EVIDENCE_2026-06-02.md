@@ -28,9 +28,9 @@ backend decode path errors before producing any text.
 
 ## TEST AGENT UPDATE (2026-06-03T13:55Z) — current full Private browser suite after exact-buffer gate
 
-**Workflow:** `Controlled STT Benchmarks`
-**Run:** `26886960552`
-**Commit under test:** `186944e2`
+**Workflow:** `Controlled STT Benchmarks`<br>
+**Run:** `26886960552`<br>
+**Commit under test:** `186944e2`<br>
 **Artifact directory:** `/private/tmp/speaksharp-run-26886960552/private-browser-benchmark-artifacts/`
 
 This run was started after the exact h1_6 proof, with the full Private browser
