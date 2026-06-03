@@ -604,7 +604,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         serviceId: this.serviceId,
         runId: this.instanceId,
         textLength: partial.length,
-        preview: partial.slice(0, 160),
+        preview: redactTranscript(partial),
         reason,
       });
       return;
@@ -620,8 +620,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       serviceId: this.serviceId,
       runId: this.instanceId,
       textLength: visiblePartial.length,
-      preview: visiblePartial.slice(0, 160),
-      rawPreview: partial.slice(0, 160),
+      preview: redactTranscript(visiblePartial),
+      rawPreview: redactTranscript(partial),
       reason,
       emittedToUi: true,
     });
@@ -1176,7 +1176,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         ok: result.isOk,
         textLength: result.isOk ? (result.data || '').length : 0,
         trimLength: result.isOk ? (result.data || '').trim().length : 0,
-        preview: result.isOk ? (result.data || '').slice(0, 160) : '',
+        preview: result.isOk ? redactTranscript(result.data || '') : null,
         error: result.isOk ? null : result.error?.message,
       });
       if (isPrivateTranscriptTraceEnabled()) {
@@ -1186,7 +1186,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           ok: result.isOk,
           textLength: result.isOk ? (result.data || '').length : 0,
           trimLength: result.isOk ? (result.data || '').trim().length : 0,
-          preview: result.isOk ? (result.data || '').slice(0, 120) : '',
+          preview: result.isOk ? redactTranscript(result.data || '') : null,
           error: result.isOk ? null : result.error?.message,
         }, '[PRIVATE_TRACE] model_inference_result');
       }
@@ -1214,12 +1214,12 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           pushPrivateTimeline('metadata_tail_drop', {
             serviceId: this.serviceId,
             runId: this.instanceId,
-            preview: newText.slice(0, 160),
+            preview: redactTranscript(newText),
           });
           logger.info({
             sId: this.serviceId,
             rId: this.instanceId,
-            preview: newText.slice(0, 120),
+            preview: redactTranscript(newText),
           }, '[PrivateWhisper] Dropping post-transcript metadata chunk as tail noise');
           return;
         }
@@ -1228,7 +1228,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         pushPrivateTimeline('metadata_pre_transcript_retain', {
           serviceId: this.serviceId,
           runId: this.instanceId,
-          preview: newText.slice(0, 160),
+          preview: redactTranscript(newText),
           metadataRetryCount: this.preTranscriptMetadataRetryCount,
           metadataRetryLimit: PRIV_STT.PRE_TRANSCRIPT_METADATA_RETRY_LIMIT,
         });
@@ -1237,7 +1237,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           pushPrivateTimeline('metadata_pre_transcript_retry_limit_drop', {
             serviceId: this.serviceId,
             runId: this.instanceId,
-            preview: newText.slice(0, 160),
+            preview: redactTranscript(newText),
             metadataRetryCount: this.preTranscriptMetadataRetryCount,
             metadataRetryLimit: PRIV_STT.PRE_TRANSCRIPT_METADATA_RETRY_LIMIT,
             droppedRetrySamples: this.retryAudioBuffer?.length ?? 0,
@@ -1245,7 +1245,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           logger.info({
             sId: this.serviceId,
             rId: this.instanceId,
-            preview: newText.slice(0, 120),
+            preview: redactTranscript(newText),
             retryCount: this.preTranscriptMetadataRetryCount,
           }, '[PrivateWhisper] Dropping repeated pre-transcript metadata context');
           this.clearRetryAudioBuffer();
@@ -1256,7 +1256,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         logger.info({
           sId: this.serviceId,
           rId: this.instanceId,
-          preview: newText.slice(0, 120),
+          preview: redactTranscript(newText),
           retryCount: this.preTranscriptMetadataRetryCount,
         }, '[PrivateWhisper] Retaining non-speech metadata chunk for retry context');
         this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'metadata_pre_transcript');
@@ -1267,7 +1267,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         pushPrivateTimeline('first_transcript_hallucination_retain', {
           serviceId: this.serviceId,
           runId: this.instanceId,
-          preview: newText.slice(0, 160),
+          preview: redactTranscript(newText),
           samples: processedAudio.length,
           durationSec: Number(samplesToSeconds(processedAudio.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
           rms: Number(energy.rms.toFixed(6)),
@@ -1276,7 +1276,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         logger.info({
           sId: this.serviceId,
           rId: this.instanceId,
-          preview: newText.slice(0, 120),
+          preview: redactTranscript(newText),
         }, '[PrivateWhisper] Holding known Whisper hallucination pattern before first transcript');
         this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'known_hallucination_first_transcript');
         return;
@@ -1286,7 +1286,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         pushPrivateTimeline('first_transcript_unsafe_marker_retain', {
           serviceId: this.serviceId,
           runId: this.instanceId,
-          preview: newText.slice(0, 160),
+          preview: redactTranscript(newText),
           samples: processedAudio.length,
           durationSec: Number(samplesToSeconds(processedAudio.length, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
           rms: Number(energy.rms.toFixed(6)),
@@ -1295,7 +1295,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         logger.info({
           sId: this.serviceId,
           rId: this.instanceId,
-          preview: newText.slice(0, 120),
+          preview: redactTranscript(newText),
         }, '[PrivateWhisper] Holding unsafe non-speech marker before first transcript');
         this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'unsafe_marker_first_transcript');
         return;
@@ -1314,7 +1314,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           pushPrivateTimeline('first_transcript_substance_retain', {
             serviceId: this.serviceId,
             runId: this.instanceId,
-            preview: newText.slice(0, 160),
+            preview: redactTranscript(newText),
             wordCount: getTranscriptWords(newText).length,
             minWords: PRIV_STT.FIRST_TRANSCRIPT_MIN_WORDS,
             rms: Number(energy.rms.toFixed(6)),
@@ -1327,7 +1327,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           logger.info({
             sId: this.serviceId,
             rId: this.instanceId,
-            preview: newText.slice(0, 120),
+            preview: redactTranscript(newText),
             wordCount: getTranscriptWords(newText).length,
             rms: Number(energy.rms.toFixed(6)),
             durationSec: Number(processedDurationSec.toFixed(3)),
@@ -1353,9 +1353,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           pushPrivateTimeline('first_transcript_local_agreement_retain', {
             serviceId: this.serviceId,
             runId: this.instanceId,
-            preview: newText.slice(0, 160),
-            previousPreview: previousCandidate?.slice(0, 160) ?? null,
-            stablePrefix: stablePrefix.slice(0, 160),
+            preview: redactTranscript(newText),
+            previousPreview: previousCandidate ? redactTranscript(previousCandidate) : null,
+            stablePrefix: redactTranscript(stablePrefix),
             agreementRounds: this.firstTranscriptAgreementRounds,
             requiredAgreementRounds: PRIV_STT.FIRST_TRANSCRIPT_LOCAL_AGREEMENT_ROUNDS,
             samples: processedAudio.length,
@@ -1364,9 +1364,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           logger.info({
             sId: this.serviceId,
             rId: this.instanceId,
-            preview: newText.slice(0, 120),
-            previousPreview: previousCandidate?.slice(0, 120) ?? null,
-            stablePrefix: stablePrefix.slice(0, 120),
+            preview: redactTranscript(newText),
+            previousPreview: previousCandidate ? redactTranscript(previousCandidate) : null,
+            stablePrefix: redactTranscript(stablePrefix),
           }, '[PrivateWhisper] Holding first transcript until local agreement confirms it');
           if (canEmitPartial) {
             this.emitProvisionalPartial(newText, 'local_agreement_pending');
@@ -1381,8 +1381,8 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             pushPrivateTimeline('first_transcript_local_agreement_prefix_too_short', {
               serviceId: this.serviceId,
               runId: this.instanceId,
-              preview: newText.slice(0, 160),
-              stablePrefix: stablePrefix.slice(0, 160),
+              preview: redactTranscript(newText),
+              stablePrefix: redactTranscript(stablePrefix),
               stablePrefixWordCount,
               minWords: PRIV_STT.FIRST_TRANSCRIPT_MIN_WORDS,
               agreementRounds: this.firstTranscriptAgreementRounds,
@@ -1390,7 +1390,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             logger.info({
               sId: this.serviceId,
               rId: this.instanceId,
-              stablePrefix: stablePrefix.slice(0, 120),
+              stablePrefix: redactTranscript(stablePrefix),
               stablePrefixWordCount,
               minWords: PRIV_STT.FIRST_TRANSCRIPT_MIN_WORDS,
             }, '[PrivateWhisper] Holding first transcript because stable prefix is too short');
@@ -1407,14 +1407,14 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           pushPrivateTimeline('first_transcript_local_agreement_emit_stable_prefix', {
             serviceId: this.serviceId,
             runId: this.instanceId,
-            preview: newText.slice(0, 160),
-            stablePrefix: stablePrefix.slice(0, 160),
+            preview: redactTranscript(newText),
+            stablePrefix: redactTranscript(stablePrefix),
             agreementRounds: this.firstTranscriptAgreementRounds,
           });
           logger.info({
             sId: this.serviceId,
             rId: this.instanceId,
-            stablePrefix: stablePrefix.slice(0, 120),
+            stablePrefix: redactTranscript(stablePrefix),
           }, '[PrivateWhisper] Emitting locally agreed first transcript prefix');
         }
       }
@@ -1425,12 +1425,12 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         pushPrivateTimeline('tiny_force_tail_drop', {
           serviceId: this.serviceId,
           runId: this.instanceId,
-          preview: newText.slice(0, 160),
+          preview: redactTranscript(newText),
         });
         logger.info({
           sId: this.serviceId,
           rId: this.instanceId,
-          preview: newText.slice(0, 120),
+          preview: redactTranscript(newText),
         }, '[PrivateWhisper] Dropping tiny forced final tail fragment');
         return;
       }
@@ -1441,15 +1441,15 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         pushPrivateTimeline('unsafe_force_tail_drop', {
           serviceId: this.serviceId,
           runId: this.instanceId,
-          preview: newText.slice(0, 160),
-          currentPreview: this.currentTranscript.slice(0, 160),
+          preview: redactTranscript(newText),
+          currentPreview: redactTranscript(this.currentTranscript),
           overlapRatio: Number(wordOverlapRatio(this.currentTranscript, newText).toFixed(3)),
         });
         logger.info({
           sId: this.serviceId,
           rId: this.instanceId,
-          preview: newText.slice(0, 120),
-          currentPreview: this.currentTranscript.slice(0, 120),
+          preview: redactTranscript(newText),
+          currentPreview: redactTranscript(this.currentTranscript),
         }, '[PrivateWhisper] Dropping unsupported forced final candidate');
         return;
       }
@@ -1458,12 +1458,12 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         pushPrivateTimeline('tiny_post_transcript_fragment_drop', {
           serviceId: this.serviceId,
           runId: this.instanceId,
-          preview: newText.slice(0, 160),
+          preview: redactTranscript(newText),
         });
         logger.info({
           sId: this.serviceId,
           rId: this.instanceId,
-          preview: newText.slice(0, 120),
+          preview: redactTranscript(newText),
         }, '[PrivateWhisper] Dropping tiny post-transcript fragment');
         return;
       }
@@ -1477,16 +1477,16 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
           pushPrivateTimeline('first_transcript_final_candidate_replaced_by_current_inference', {
             serviceId: this.serviceId,
             runId: this.instanceId,
-            finalPreview: textToEmit.slice(0, 160),
-            inferencePreview: newText.slice(0, 160),
+            finalPreview: redactTranscript(textToEmit),
+            inferencePreview: redactTranscript(newText),
           });
           textToEmit = newText;
         } else if (!this.currentTranscript.trim() && shouldPreferVisibleProvisional(this.bestVisibleProvisionalTranscript, textToEmit)) {
           pushPrivateTimeline('first_transcript_final_candidate_replaced_by_visible_provisional', {
             serviceId: this.serviceId,
             runId: this.instanceId,
-            finalPreview: textToEmit.slice(0, 160),
-            provisionalPreview: this.bestVisibleProvisionalTranscript.slice(0, 160),
+            finalPreview: redactTranscript(textToEmit),
+            provisionalPreview: redactTranscript(this.bestVisibleProvisionalTranscript),
           });
           textToEmit = this.bestVisibleProvisionalTranscript;
         }
@@ -1496,15 +1496,15 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             pushPrivateTimeline('first_transcript_unsafe_final_replaced_by_visible_provisional', {
               serviceId: this.serviceId,
               runId: this.instanceId,
-              finalPreview: textToEmit.slice(0, 160),
-              provisionalPreview: this.bestVisibleProvisionalTranscript.slice(0, 160),
+              finalPreview: redactTranscript(textToEmit),
+              provisionalPreview: redactTranscript(this.bestVisibleProvisionalTranscript),
             });
             textToEmit = this.bestVisibleProvisionalTranscript;
           } else {
             pushPrivateTimeline('first_transcript_unsafe_final_retain', {
               serviceId: this.serviceId,
               runId: this.instanceId,
-              preview: textToEmit.slice(0, 160),
+              preview: redactTranscript(textToEmit),
             });
             this.retainSpeechLikeAudioForRetry(processedAudio, energy, 'unsafe_first_transcript_final');
             return;
@@ -1522,7 +1522,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
             serviceId: this.serviceId,
             runId: this.instanceId,
             textLength: textToEmit.length,
-            preview: textToEmit.slice(0, 160),
+            preview: redactTranscript(textToEmit),
             processLatencyMs: Number((performance.now() - tStart).toFixed(2)),
           });
           this.lastTranscriptEmitAtMs = performance.now();
@@ -1948,7 +1948,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       decodeInputDurationMs: Number((samplesToSeconds(audio.length, PRIVATE_STT_SAMPLE_RATE) * 1000).toFixed(1)),
       speechStartOffsetMs,
       retainedPrerollSamples: this.retainedUtterancePrerollSamplesAtStart,
-      currentPreview: this.currentTranscript.slice(0, 160),
+      currentPreview: redactTranscript(this.currentTranscript),
     });
 
     const capturedAudioIndex = capturePrivateUtteranceAudio(audio, {
@@ -1983,9 +1983,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         serviceId: this.serviceId,
         runId: this.instanceId,
         reason: !transcript ? 'empty' : 'pure_hallucination',
-        rawPreview: rawText.slice(0, 160),
-        preview: transcript.slice(0, 160),
-        currentPreview: this.currentTranscript.slice(0, 160),
+        rawPreview: redactTranscript(rawText),
+        preview: redactTranscript(transcript),
+        currentPreview: redactTranscript(this.currentTranscript),
       });
       return;
     }
@@ -1997,9 +1997,9 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       serviceId: this.serviceId,
       runId: this.instanceId,
       textLength: transcript.length,
-      rawPreview: rawText.slice(0, 160),
-      preview: transcript.slice(0, 160),
-      replacedRollingPreview: replacedRollingTranscript.slice(0, 160),
+      rawPreview: redactTranscript(rawText),
+      preview: redactTranscript(transcript),
+      replacedRollingPreview: redactTranscript(replacedRollingTranscript),
       // Final-decode wall-clock: time the model spent on the whole-utterance buffer.
       decodeMs,
     });

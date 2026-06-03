@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     calculateSpeakingScore,
+    maxRunOnWords,
     SPEAKSHARP_CONFIDENCE_THRESHOLDS,
     SPEAKSHARP_SCORE_MODEL_VERSION,
 } from '../speakingScore';
@@ -72,7 +73,7 @@ describe('calculateSpeakingScore', () => {
 
     it('uses explicit confidence thresholds for short and usable samples', () => {
         const shortTranscript = Array(SPEAKSHARP_CONFIDENCE_THRESHOLDS.MIN_WORDS_FOR_DIRECTIONAL).fill('word').join(' ');
-        const usableTranscript = Array(SPEAKSHARP_CONFIDENCE_THRESHOLDS.MIN_WORDS_FOR_USABLE).fill('word').join(' ');
+        const usableTranscript = Array.from({ length: 5 }, () => Array(15).fill('word').join(' ')).join('. ') + '.';
 
         const directional = calculateSpeakingScore({
             transcript: shortTranscript,
@@ -109,6 +110,40 @@ describe('calculateSpeakingScore', () => {
 
         expect(result.confidence).toBe('directional');
         expect(result.transcription.confidence).toBe('low');
+    });
+
+    it('downgrades run-on transcripts to directional confidence without changing the score math', () => {
+        const cleanTranscript = [
+            'The point is simple.',
+            'First, practice privately because it builds confidence.',
+            'For example, one focused rehearsal makes the next meeting easier.',
+            'The takeaway is that steady practice improves delivery.'
+        ].join(' ');
+        const runOnTranscript = Array(90).fill('word').join(' ');
+
+        const clean = calculateSpeakingScore({
+            transcript: cleanTranscript,
+            wordCount: 90,
+            wpm: 140,
+            clarityScore: 92,
+            fillerCount: 0,
+            elapsedSeconds: 45,
+            pauseMetrics: basePauseMetrics,
+        });
+        const runOn = calculateSpeakingScore({
+            transcript: runOnTranscript,
+            wordCount: 90,
+            wpm: 140,
+            clarityScore: 92,
+            fillerCount: 0,
+            elapsedSeconds: 45,
+            pauseMetrics: basePauseMetrics,
+        });
+
+        expect(maxRunOnWords(runOnTranscript)).toBe(90);
+        expect(clean.confidence).toBe('usable');
+        expect(runOn.confidence).toBe('directional');
+        expect(runOn.score).toBeGreaterThan(0);
     });
 
     it('keeps filler impact in delivery control instead of language clarity', () => {

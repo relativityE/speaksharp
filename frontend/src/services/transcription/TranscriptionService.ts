@@ -8,6 +8,7 @@ import { STTStrategy } from './STTStrategy';
 import { STTStrategyFactory } from './STTStrategyFactory';
 import { STTNegotiator } from './STTNegotiator';
 import logger from '@/lib/logger';
+import { redactTranscript } from '@/lib/logRedaction';
 import { toast } from '@/lib/toast';
 import {
   TranscriptionPolicy,
@@ -353,7 +354,7 @@ export default class TranscriptionService {
           engine: this.mode,
           type: data.transcript.final ? 'final' : 'partial',
           textLength: (data.transcript.final || data.transcript.partial || '').length,
-          preview: (data.transcript.final || data.transcript.partial || '').slice(0, 80),
+          preview: redactTranscript(data.transcript.final || data.transcript.partial),
         });
         if (isPrivateTranscriptTraceEnabled()) {
           logger.info({
@@ -1568,7 +1569,7 @@ export default class TranscriptionService {
       engine: this.mode,
       type: update.transcript.final ? 'final' : 'partial',
       textLength: (update.transcript.final || update.transcript.partial || '').length,
-      preview: (update.transcript.final || update.transcript.partial || '').slice(0, 80),
+      preview: redactTranscript(update.transcript.final || update.transcript.partial),
     });
 
     if (this.fsm.is('TERMINATED') || this.fsm.is('CLEANING_UP') || this.isTerminated) {

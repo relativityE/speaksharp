@@ -55,4 +55,67 @@ describe('LiveCoachingScoreCard', () => {
         expect(screen.getByText(/SpeakSharp Score is a directional practice signal/i)).toBeInTheDocument();
         expect(screen.getByText(/progress over time matters more than one exact number/i)).toBeInTheDocument();
     });
+
+    it('does not show a precise numeric score while the signal is only directional', () => {
+        render(
+            <LiveCoachingScoreCard
+                transcript={Array(90).fill('word').join(' ')}
+                wordCount={90}
+                wpm={140}
+                clarityScore={90}
+                fillerCount={0}
+                elapsedSeconds={45}
+                pauseMetrics={{
+                    totalPauses: 2,
+                    pausesPerMinute: 4,
+                    averagePauseDuration: 0.9,
+                    longestPause: 1.2,
+                    silencePercentage: 12,
+                    transitionPauses: 2,
+                    extendedPauses: 0,
+                }}
+                engine="private"
+                isListening
+                experimentAssignment={assignment}
+            />
+        );
+
+        expect(screen.getByTestId('live-session-score')).toHaveTextContent('--');
+        expect(screen.getAllByText('Early signal').length).toBeGreaterThan(0);
+    });
+
+    it('shows a numeric score only once transcript confidence is usable', () => {
+        const transcript = [
+            'The point is simple.',
+            'First, practice privately because it builds confidence.',
+            'For example, one focused rehearsal makes the next meeting easier.',
+            'The takeaway is that steady practice improves delivery.',
+        ].join(' ');
+
+        render(
+            <LiveCoachingScoreCard
+                transcript={transcript}
+                wordCount={90}
+                wpm={140}
+                clarityScore={90}
+                fillerCount={0}
+                elapsedSeconds={45}
+                pauseMetrics={{
+                    totalPauses: 2,
+                    pausesPerMinute: 4,
+                    averagePauseDuration: 0.9,
+                    longestPause: 1.2,
+                    silencePercentage: 12,
+                    transitionPauses: 2,
+                    extendedPauses: 0,
+                }}
+                engine="private"
+                isListening
+                experimentAssignment={assignment}
+            />
+        );
+
+        expect(screen.getByTestId('live-session-score')).not.toHaveTextContent('--');
+        expect(screen.getByText('out of 10')).toBeInTheDocument();
+    });
 });
