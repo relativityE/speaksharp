@@ -237,6 +237,7 @@ export async function setupE2EManifest(
       created_at: nowIso(),
       updated_at: nowIso(),
     };
+    let userFillerWords: Array<{ id: string; user_id: string; word: string; created_at: string }> = [];
     persistSessions();
 
     const queryResultFor = (
@@ -250,6 +251,12 @@ export async function setupE2EManifest(
       }
       if (table === 'user_goals') {
         return Promise.resolve({ data: single ? userGoals : [userGoals], error: null, count: 1 });
+      }
+      if (table === 'user_filler_words') {
+        const rows = userFillerWords.filter((row) =>
+          filters.every((filter) => String((row as Record<string, unknown>)[filter.column]) === String(filter.value))
+        );
+        return Promise.resolve({ data: single ? rows[0] ?? null : rows, error: null, count: rows.length });
       }
       if (table === 'sessions') {
         let rows = [...sessionState.sessions];
@@ -285,6 +292,26 @@ export async function setupE2EManifest(
           const payload = Array.isArray(pendingMutation.payload) ? pendingMutation.payload[0] ?? {} : pendingMutation.payload ?? {};
           userGoals = { ...userGoals, ...payload, user_id: String(payload.user_id || userGoals.user_id), updated_at: nowIso() };
           return { data: [userGoals], error: null, count: 1 };
+        }
+        if (table === 'user_filler_words') {
+          const matching = userFillerWords.filter((row) =>
+            filters.every((filter) => String((row as Record<string, unknown>)[filter.column]) === String(filter.value))
+          );
+          if (pendingMutation.type === 'insert') {
+            const payloads = Array.isArray(pendingMutation.payload) ? pendingMutation.payload : [pendingMutation.payload || {}];
+            const inserted = payloads.map((payload, index) => ({
+              id: String(payload.id || `user-word-${Date.now()}-${index}`),
+              user_id: String(payload.user_id || e2eProfile.id),
+              word: String(payload.word || '').toLowerCase().trim(),
+              created_at: String(payload.created_at || nowIso()),
+            })).filter((row) => row.word.length > 0);
+            userFillerWords.push(...inserted);
+            return { data: inserted, error: null, count: inserted.length };
+          }
+          if (pendingMutation.type === 'delete') {
+            userFillerWords = userFillerWords.filter((row) => !matching.includes(row));
+            return { data: matching, error: null, count: matching.length };
+          }
         }
         if (table !== 'sessions') return null;
         if (pendingMutation.type === 'insert') {
