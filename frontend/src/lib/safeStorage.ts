@@ -39,6 +39,34 @@ export function safeLocalStorageRemove(key: string): boolean {
         return false;
     }
 }
+/**
+ * Safely read + JSON.parse a localStorage value. Corrupted/legacy values (invalid
+ * JSON, or values failing the optional `validate` guard) are removed and the
+ * `fallback` is returned, so a stale stored value can never throw — especially in
+ * a render-path `useState` initializer where a throw white-screens the component
+ * tree. Never throws.
+ */
+export function safeLocalStorageGetJSON<T>(
+    key: string,
+    fallback: T,
+    validate?: (value: unknown) => boolean,
+): T {
+    const raw = safeLocalStorageGet(key);
+    if (raw == null) return fallback;
+    try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (validate && !validate(parsed)) {
+            safeLocalStorageRemove(key);
+            return fallback;
+        }
+        return parsed as T;
+    } catch (err) {
+        console.warn(`[safeStorage] Corrupted JSON for ${key}; clearing`, err);
+        safeLocalStorageRemove(key);
+        return fallback;
+    }
+}
+
 export function clearAll() {
     if (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).TEST_MODE) {
         window.localStorage.clear();
