@@ -1786,3 +1786,38 @@ This does **not** close the human setup proof. The next Private human proof must
 still run with `PRIVATE_SETUP_USER_CONSENT_REQUIRED=true` and must stop when setup
 is visible so the user explicitly clicks setup/download. Do not auto-click model
 setup in human proof.
+
+---
+
+## TEST/RELEASE UPDATE (2026-06-03T15:30Z) — Private/Native interim text no longer renders twice
+
+The live transcript panel had an obvious trust/UX bug: when the interim hypothesis differed from the
+committed transcript, the same draft text rendered twice — once as the `live-transcript-current-line`
+card and again inline in the transcript body. This can make live text look jumpy or duplicative during
+Private and Native recognition.
+
+Fix on main:
+
+```text
+frontend/src/components/session/LiveTranscriptPanel.tsx
+```
+
+The interim/draft text now renders once, inline, while preserving the existing proof hook:
+
+```text
+data-testid="live-transcript-current-line"
+data-transcript-draft="true"
+```
+
+Validation:
+
+```text
+pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+  frontend/src/components/session/__tests__/LiveTranscriptPanel.component.test.tsx
+
+19 tests passed.
+```
+
+This is a UI/trust fix only. It does not change STT decoding, WER, formatter behavior, saveCandidate,
+or history/detail. The next Private proof must still measure first progress, finalization wait,
+readability, save/history/detail, and app-vs-drop-in parity.

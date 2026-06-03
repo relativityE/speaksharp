@@ -156,17 +156,6 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                     </div>
                 )}
 
-                {isListening && livePreviewText && (
-                    <div
-                        className="mb-3 rounded-md border border-dashed border-primary/25 bg-primary/5 px-3 py-2 text-sm font-medium italic leading-relaxed text-foreground/70"
-                        data-testid="live-transcript-current-line"
-                        data-transcript-draft="true"
-                        aria-label="Draft transcript, still being recognized"
-                    >
-                        {livePreviewText}
-                    </div>
-                )}
-
                 {/* Segmented History (Chapters) */}
                 {history.map((segment, idx) => (
                     <div key={`history-${idx}`} className="mb-6 last:mb-4 group">
@@ -246,6 +235,7 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                         {isListening && hasInterimTranscript && (
                             <span
                                 className="italic text-foreground/60"
+                                data-testid="live-transcript-current-line"
                                 data-transcript-draft="true"
                                 aria-label="Draft transcript, still being recognized"
                             >

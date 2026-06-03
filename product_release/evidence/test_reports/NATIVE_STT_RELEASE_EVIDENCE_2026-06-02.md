@@ -826,3 +826,38 @@ priority for both of us.
 
 ### DEV will NOT touch (your lane): manual Native proof extraction/scoring, expected-script matching,
 the live trace harness, or Native engine timing/behavior. Ping me here for any product boundary you isolate.
+
+---
+
+## TEST/RELEASE UPDATE (2026-06-03T15:30Z) — live interim duplication/jumpiness fixed
+
+Human Native proof reported jumpy interim text and an unclear trust disclaimer. A direct UI inspection
+found one obvious contributor in `LiveTranscriptPanel`: when an interim hypothesis differed from the
+committed transcript, the same interim text rendered twice — once as `live-transcript-current-line` and
+again inline in the transcript body.
+
+Fix on main:
+
+```text
+frontend/src/components/session/LiveTranscriptPanel.tsx
+```
+
+The draft/interim hypothesis now renders once, inline with the transcript, while preserving:
+
+```text
+data-testid="live-transcript-current-line"
+data-transcript-draft="true"
+aria-label="Draft transcript, still being recognized"
+```
+
+Validation:
+
+```text
+pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+  frontend/src/components/session/__tests__/LiveTranscriptPanel.component.test.tsx
+
+19 tests passed.
+```
+
+Native still requires browser proof. The rerun must show the Draft banner is visible from mic-on, the
+interim text is not duplicated/jumpy, the formatter telemetry is captured, and save/history/detail match.
