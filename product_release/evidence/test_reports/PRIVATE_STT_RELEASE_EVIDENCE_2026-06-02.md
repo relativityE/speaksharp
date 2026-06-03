@@ -1,6 +1,6 @@
 # Private STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-03T01:08:00Z  
+**Updated:** 2026-06-03T02:22:00Z  
 **Scope:** Private v2/v4 local STT, browser app path, drop-in parity, timing, and readability  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -10,11 +10,11 @@
 Private STT: NOT GREEN YET
 Current product status: caveated local/private path
 Two-step status:
-- Private v2 browser proof: setup/saveCandidate/persistence now work, but proof fails in accuracy/completeness: 59 saved words against the 87-word fixture, with tail truncation (`We, um, find joy in the simp.`).
-- Private v4 browser proof: setup/model/provider now reaches ready + recording after the warm-up hard-fail fix, but proof fails before scoring because no useful transcript appears within 30s (`Listening locally…`, saveCandidate null).
+- Private v2 browser proof: setup/saveCandidate/final whole-utterance decode now work, but proof fails in accuracy/completeness: latest evidence saved 61 words against the 87-word fixture.
+- Private v4 browser proof: setup/model/provider now reaches ready + recording after the warm-up hard-fail fix, but proof fails before scoring because every v4 inference returns `invalid data location: undefined for input "a"`.
 Primary launch blockers:
 1. Private v2 app/browser path materially underperforms its drop-in/full-WAV baseline.
-2. Private v4 reaches recording but does not produce useful live text within the current timing budget.
+2. Private v4 reaches recording and receives non-silent audio, but the v4 backend inference fails on every chunk.
 3. Private user-trust UX remains weak if useful draft text is late/sparse and the final transcript is wrong.
 4. Washington/readability and long-form proof remain required before broad use.
 ```
@@ -22,8 +22,88 @@ Primary launch blockers:
 Private has moved from lifecycle failure to targeted quality/timing validation.
 The current browser proof shows that lifecycle/Stop/save are not the primary
 v2 blocker anymore. The blocker is final transcript quality/completeness versus
-drop-in. v4 setup/runtime improved, but v4 still cannot be scored because it
-does not produce useful transcript text before the first-text timeout.
+drop-in/full-WAV expectations. v4 setup/runtime improved, but v4 still cannot
+be scored because its backend decode path errors before producing any text.
+
+## Latest Current Browser Evidence With Timeline Artifact — 2026-06-03T01:16Z
+
+**Workflow:** `Controlled STT Benchmarks`  
+**Run:** `26857597752`  
+**Commit:** `f96b24f3c`  
+**Artifact:** `/private/tmp/speaksharp-private-browser-26857597752/private-browser-benchmark-artifacts/`
+
+This run supersedes the prior evidence gap because the benchmark now uploads
+per-engine JSON timeline artifacts.
+
+| Engine | Setup | Proof result | Current classification |
+| --- | --- | --- | --- |
+| Private v2 / CPU | Pass: auth, Pro, Private mode, model ready, recording, final whole-utterance decode, saveCandidate | Fail: selectedForSave is 320 chars / 61 words against the 87-word proof; final whole-utterance decode accepted a 27.328s buffer in 4599.3ms | `PROOF_FAIL proof.accuracy.final_completeness`; setup/journey/timing instrumentation fixed, final quality still not green |
+| Private v4 | Pass: model ready, runtime recording, speech detected, non-silent audio reaches inference 27 times | Fail before scoring: every inference returns `invalid data location: undefined for input "a"`; UI remains `Listening locally…`; `saveCandidate:null` | `PROOF_FAIL proof.runtime.provider_selected`; v4 blocker is backend/config/runtime, not mic input or setup |
+
+Important v2 saveCandidate fields:
+
+```json
+{
+  "saveCandidateReason": "service_result",
+  "selectedForSaveLength": 320,
+  "finalWordCount": 61,
+  "meaningfulWordCount": 61,
+  "resultTranscriptLength": 320,
+  "chunkTranscriptLength": 320,
+  "storeTranscriptLength": 320,
+  "storePartialTranscriptLength": 0,
+  "visibleStoreTranscriptLength": 320,
+  "frozenStopTranscriptLength": 32
+}
+```
+
+v2 final whole-utterance decode telemetry:
+
+```json
+{
+  "durationSec": 27.328,
+  "rms": 0.093679,
+  "peak": 0.992647,
+  "speechStartOffsetMs": 138,
+  "decodeMs": 4599.3,
+  "acceptedWords": 61
+}
+```
+
+v2 selected transcript:
+
+```text
+The tail smell of old beer, like lingers, basically, a dash on pepper spoils beef too. Well, the one knife was far short on perfect. You know, the marks was thrown beside the parked truck. Literally, the twister left no trace on the town. A, like, toed wild tail to fry tond him. We, uh, find joy in the simplest things.
+```
+
+Important v4 runtime/timeline fields:
+
+```json
+{
+  "runtimeState": "RECORDING",
+  "modelStatus": "ready",
+  "transcriptState": "listening",
+  "processAudioReadyCount": 27,
+  "modelInferenceStartCount": 27,
+  "modelInferenceResultCount": 27,
+  "firstInputDurationSec": 1.032,
+  "firstInputRms": 0.083876,
+  "firstInputPeak": 0.708683,
+  "firstError": "invalid data location: undefined for input \"a\""
+}
+```
+
+Current read:
+
+```text
+Private v2 is not fixed for the full browser proof. It is no longer a setup,
+DOM, or missing-telemetry issue; it is a final transcript quality/completeness
+issue on the app/browser path.
+
+Private v4 is now narrowed to a concrete backend/config/runtime error. The app
+gets to ready/recording, detects speech, and sends non-silent chunks into v4
+inference. The v4 engine then errors on every decode before text exists.
+```
 
 ## Latest Current Browser Evidence — 2026-06-03T00:56Z
 
