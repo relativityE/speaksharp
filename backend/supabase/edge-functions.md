@@ -10,6 +10,7 @@ This project includes multiple Edge Functions to handle server-side logic:
 - `assemblyai-token`: Securely issue tokens for AssemblyAI.
 - `check-usage-limit`: Enforce subscription limits.
 - `create-user`: Provision users (detailed below as a primary example).
+- `format-transcript`: Restore punctuation/casing for Native/Cloud saved transcripts with word-preservation and Private hard-rejection.
 - `get-ai-suggestions`: Retrieve AI-generated feedback.
 - `stripe-checkout`: Initiate Stripe checkout sessions.
 - `stripe-webhook`: Handle Stripe webhooks.
