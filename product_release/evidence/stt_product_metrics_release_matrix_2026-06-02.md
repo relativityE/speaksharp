@@ -1,7 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-03T00:55:00Z  
+**Last updated:** 2026-06-03T01:00:00Z  
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
@@ -66,7 +66,7 @@ Current example:
 | STT | Error phase | Failed gate | Why |
 | --- | --- | --- | --- |
 | Private v4 browser proof | setup | `setup.model_provider` | Current-head run `26853628019`: setup/runtime ends `INIT_FAILED`; Start disabled before transcription. |
-| Private v2 exact-buffer h1_6 | accuracy, runtime | `proof.accuracy.final_quality`, `setup.runtime_telemetry` | Current exact-buffer run `26856163962`: app saved h1_6 at 75%, but exact app audio buffer offline-decodes to 87.5%; audio prep/windowing is not the primary boundary for this row. Runtime telemetry fields were null and must be fixed before release proof. |
+| Private v2 exact-buffer h1_6 | proof | `proof.accuracy.final_quality` | Current exact-buffer run `26856565454` on commit `171a055c`: h1_6 guard passed at 87.5% with runtime telemetry populated (`wasm-singlethread`, `transformers-js`, `cloudFallbackAttempted=false`). Full Private suite still needs run `26856683929` result before release classification. |
 | Cloud A/B keyterms | accuracy | `proof.accuracy.fillers` | Current-head run `26852918607`: requests/session validity closed; keyterms still hurts h1_6 accuracy. |
 | Native human proof | accuracy, journey | `proof.accuracy.readability`, `proof.journey.stop_save_detail` | Chrome produced words, but readability and stop/save/detail failed. |
 
@@ -139,7 +139,31 @@ Cloud still needs long-script transcript timing/readability/tail proof before a
 full release-green claim.
 ```
 
-### Latest Current-Head Private Exact-Buffer Proof: 2026-06-03T00:27Z
+### Latest Current-Head Private Exact-Buffer Proof: 2026-06-03T00:41Z
+
+Run:
+
+```text
+Controlled STT Benchmarks: 26856565454
+Branch: fix/release-bug-burndown
+Commit: 171a055c
+Artifact: /private/tmp/speaksharp-exact-buffer-26856565454/private-exact-app-buffer-proof/speaksharp-private-h1_6-exact-buffer-current.json
+```
+
+| Candidate | Setup | Proof | Current classification |
+| --- | --- | --- | --- |
+| Private v2 / CPU h1_6 exact-buffer | pass: Pro, Private, model setup, exact final buffer captured, runtime telemetry populated | pass: 87.5% accuracy; first text 3100ms | guard row passed; not full-suite green |
+| Runtime telemetry | pass | `runtime=wasm-singlethread`, `provider=transformers-js`, `webgpuAvailable=false`, `crossOriginIsolated=false`, `wasmThreadCount=1`, `cloudFallbackAttempted=false` | evidence gate closed for explicit CPU exact-buffer proofs |
+
+Interpretation:
+
+```text
+The runtime telemetry null blocker from the previous exact-buffer artifact is
+closed on commit 171a055c. This only proves h1_6 exact-buffer CPU; the full
+Private v2/v4 browser suite is rerunning as workflow 26856683929.
+```
+
+### Prior Exact-Buffer Diagnostic: 2026-06-03T00:27Z
 
 Run:
 
@@ -156,7 +180,7 @@ Replay artifact: /private/tmp/speaksharp-private-app-buffer-replay-h1_6-exact-26
 | --- | --- | --- | --- |
 | Private v2 / CPU h1_6 browser app | pass: Pro, Private, model download/setup, exact final buffer captured | fail: app saved 75% accuracy; first text at 3091ms; final ready at ~12.49s after recording began / ~4.31s after Stop | not green; app saved output worse than exact-buffer offline decode |
 | Exact app-buffer offline replay | pass: replayable `privateUtteranceAudioChunks[0].wavDataUrl` | 87.5% accuracy from same captured audio | narrows boundary away from audio prep/windowing |
-| Runtime telemetry | fail | `privateRuntime`, `privateProvider`, `privateCloudFallbackAttempted`, `privateWasmThreadCount` were null | evidence blocker |
+| Runtime telemetry | superseded | Runtime fields were null in this earlier artifact; fixed and verified in run `26856565454` | closed for exact-buffer CPU |
 
 Comparison:
 
