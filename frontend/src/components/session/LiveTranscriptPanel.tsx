@@ -77,7 +77,8 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
         : isListening
             ? (hasInterimTranscript || hasTranscript ? 'drafting' : 'listening')
             : (hasTranscript ? 'final' : 'idle');
-    const isPrivateDrafting = sttMode === 'private' && uiState === 'drafting';
+    const isDrafting = uiState === 'drafting';
+    const showDraftTrustBanner = isListening && !isFinalizing;
     const showPrivateFeedback = sttMode === 'private' && isListening;
     const privateStatus = hasTranscript || hasInterimTranscript ? 'Live text' : 'Private local';
     const visibleTranscript = [transcript.trim(), displayInterimTranscript.trim()].filter(Boolean).join(' ').trim();
@@ -143,14 +144,25 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                     </div>
                 )}
 
+                {showDraftTrustBanner && (
+                    <div
+                        className="sticky top-0 z-20 mb-3 rounded-md border border-dashed border-primary/30 bg-background/95 px-3 py-2 text-sm text-foreground/80 shadow-sm backdrop-blur"
+                        data-testid="live-transcript-trust-banner"
+                        data-transcript-trust="draft"
+                        aria-label="Draft transcript notice"
+                    >
+                        <span className="font-semibold text-primary">Draft transcript</span>
+                        <span className="ml-2 text-xs text-foreground/60">Text may change before the final transcript is saved.</span>
+                    </div>
+                )}
+
                 {isListening && livePreviewText && (
                     <div
-                        className="sticky top-0 z-10 mb-3 rounded-md border border-dashed border-primary/30 bg-background/95 px-3 py-2 text-sm font-medium italic leading-relaxed text-foreground/70 shadow-sm backdrop-blur"
+                        className="mb-3 rounded-md border border-dashed border-primary/25 bg-primary/5 px-3 py-2 text-sm font-medium italic leading-relaxed text-foreground/70"
                         data-testid="live-transcript-current-line"
                         data-transcript-draft="true"
                         aria-label="Draft transcript, still being recognized"
                     >
-                        <span className="mr-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase not-italic tracking-wide text-primary">Draft</span>
                         {livePreviewText}
                     </div>
                 )}
@@ -206,16 +218,10 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                     )
                 ) : hasTranscript || hasInterimTranscript ? (
                     <div
-                        className={`text-foreground text-lg leading-relaxed ${isPrivateDrafting ? 'rounded-md border border-dashed border-primary/30 bg-primary/5 p-3 text-foreground/80' : ''}`}
-                        data-transcript-draft={isPrivateDrafting ? 'true' : undefined}
-                        aria-label={isPrivateDrafting ? 'Draft transcript, still being recognized' : undefined}
+                        className={`text-foreground text-lg leading-relaxed ${isDrafting ? 'rounded-md border border-dashed border-primary/30 bg-primary/5 p-3 text-foreground/80' : ''}`}
+                        data-transcript-draft={isDrafting ? 'true' : undefined}
+                        aria-label={isDrafting ? 'Draft transcript, still being recognized' : undefined}
                     >
-                        {isPrivateDrafting && (
-                            <span className="mb-2 inline-flex rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                                Draft
-                            </span>
-                        )}
-                        {isPrivateDrafting && <br />}
                         {tokens.map((token) => {
                             if (token.type === 'error') {
                                 return (

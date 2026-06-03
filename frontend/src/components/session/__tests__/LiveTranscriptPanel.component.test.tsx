@@ -41,6 +41,7 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.queryByText('Listening...')).not.toBeInTheDocument();
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('speaking now');
         expect(screen.getByTestId('live-transcript-current-line')).toHaveTextContent('speaking now');
+        expect(screen.getByTestId('live-transcript-trust-banner')).toHaveTextContent('Draft transcript');
     });
 
     it('renders final and interim text with normal word spacing', () => {
@@ -65,7 +66,8 @@ describe('LiveTranscriptPanel', () => {
             />
         );
 
-        expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).textContent).toBe('a dash of pepper spoils beef stew');
+        const text = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).textContent ?? '';
+        expect(text.match(/a dash of pepper spoils beef stew/g)).toHaveLength(1);
     });
 
     it('does not erase final transcript text when later interim text is empty', () => {
@@ -155,7 +157,7 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.queryByText('Start recording and your words will appear here.')).not.toBeInTheDocument();
     });
 
-    it('keeps non-Private modes on the simple listening state', () => {
+    it('keeps non-Private modes on the simple listening state with a stable draft notice', () => {
         render(
             <LiveTranscriptPanel
                 transcript=""
@@ -168,6 +170,7 @@ describe('LiveTranscriptPanel', () => {
         );
 
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('Listening...');
+        expect(screen.getByTestId('live-transcript-trust-banner')).toHaveTextContent('Draft transcript');
         expect(screen.queryByText('Processing speech locally…')).not.toBeInTheDocument();
     });
 
@@ -185,8 +188,8 @@ describe('LiveTranscriptPanel', () => {
         // Draft preview line is explicitly labeled and flagged for browser assertion.
         const draftLine = screen.getByTestId('live-transcript-current-line');
         expect(draftLine).toHaveAttribute('data-transcript-draft', 'true');
-        expect(draftLine).toHaveTextContent('Draft');
         expect(draftLine).toHaveTextContent('draft words');
+        expect(screen.getByTestId('live-transcript-trust-banner')).toHaveTextContent('Draft transcript');
         // Container reports the discrete UI state.
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'drafting');
     });
@@ -204,11 +207,11 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'drafting');
         const draftRegions = screen.getAllByLabelText('Draft transcript, still being recognized');
         expect(draftRegions.some((region) => region.getAttribute('data-transcript-draft') === 'true')).toBe(true);
-        expect(screen.getByText('Draft')).toBeInTheDocument();
+        expect(screen.getByTestId('live-transcript-trust-banner')).toHaveTextContent('Draft transcript');
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveTextContent('day like');
     });
 
-    it('does not mark non-Private committed live text as draft', () => {
+    it('marks non-Private committed live text as draft while recording', () => {
         render(
             <LiveTranscriptPanel
                 transcript="native committed text"
@@ -219,8 +222,8 @@ describe('LiveTranscriptPanel', () => {
         );
 
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'drafting');
-        expect(screen.queryByText('Draft')).not.toBeInTheDocument();
-        expect(screen.queryByLabelText('Draft transcript, still being recognized')).not.toBeInTheDocument();
+        expect(screen.getByTestId('live-transcript-trust-banner')).toHaveTextContent('Draft transcript');
+        expect(screen.getByLabelText('Draft transcript, still being recognized')).toHaveAttribute('data-transcript-draft', 'true');
     });
 
     it('does not leak stale interim draft text after Private final state', () => {
@@ -238,7 +241,7 @@ describe('LiveTranscriptPanel', () => {
         expect(transcriptContainer).toHaveAttribute('data-transcript-state', 'final');
         expect(transcriptContainer).toHaveTextContent('private final text');
         expect(transcriptContainer).not.toHaveTextContent('stale draft text');
-        expect(screen.queryByText('Draft')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('live-transcript-trust-banner')).not.toBeInTheDocument();
         expect(screen.queryByLabelText('Draft transcript, still being recognized')).not.toBeInTheDocument();
     });
 
@@ -293,5 +296,6 @@ describe('LiveTranscriptPanel', () => {
             <LiveTranscriptPanel transcript="" interimTranscript="" isListening={true} sttMode="native" />
         );
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'listening');
+        expect(screen.getByTestId('live-transcript-trust-banner')).toHaveTextContent('Draft transcript');
     });
 });
