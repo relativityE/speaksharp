@@ -1,6 +1,6 @@
 # Private STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-03T02:33:00Z  
+**Updated:** 2026-06-03T13:05:00Z  
 **Scope:** Private v2/v4 local STT, browser app path, drop-in parity, timing, and readability  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -26,6 +26,63 @@ early-stop proof: the benchmark waited for first text, then only 20s more,
 which can stop the 34.5s injected audio around 23-27s. v4 setup/runtime
 improved, but v4 still cannot be scored because its backend decode path errors
 before producing any text.
+
+## TEST AGENT UPDATE (2026-06-03T13:05Z) — Private local punctuation/readability feasibility
+
+Goal:
+
+```text
+Find a trusted way to improve Private punctuation/readability without sending
+Private transcripts to any cloud/API and without silently downloading another
+model.
+```
+
+Current conclusion:
+
+```text
+No safe 24-hour Private formatter patch is available.
+```
+
+Evidence:
+
+| Candidate | Source / integration | Fit for Private launch | Reason |
+| --- | --- | --- | --- |
+| Existing Whisper final text | Already in Private v2/v4 final decode | **Keep / measure** | It is the only no-new-download local path already in the product. It still failed readability in human proof: 2 sentences vs expected ~4, max run-on 49. |
+| `compromise` package already installed | Existing pnpm dependency | **Reject as formatter** | Prior local check did not infer missing sentence boundaries on the human transcripts; it mostly preserved the same run-on text. It is not a trusted punctuation restoration model. |
+| `punctuation-restore` npm package | Node package using ONNX model `punctuation_fullstop_truecase_english` | **Not browser-ready as-is** | Uses `onnxruntime-node` and auto-downloads model files to `./models`; that violates the no-surprise-download rule and does not directly run in the browser Private path. Source: https://github.com/jparkerweb/punctuation-restore |
+| Hugging Face `felflare/bert-restore-punctuation` | BERT token-classification punctuation/casing model | **Candidate for explicit local-model setup only** | Model card says it predicts punctuation and upper-casing for plain lower-cased text, but the documented path is Python/rpunct. Browser use would require selecting/exporting a compatible model and a user-approved download/cache flow. Source: https://huggingface.co/felflare/bert-restore-punctuation |
+| Hugging Face / `punctuators` ONNX models | `punct_cap_seg_47_language` / related PunctCapSeg ONNX models | **Candidate, not immediate** | Purpose matches punctuation + casing + sentence segmentation, but model card itself says results could be better and it requires ONNX/SPE model download/cache. Source: https://huggingface.co/1-800-BAD-CODE/punct_cap_seg_47_language |
+| Hugging Face Speechbox punctuation restorer | Whisper constrained punctuation restoration | **Not a 24h browser fix** | Official repo is not actively maintained and documented examples are Python/audio-model based, not a drop-in browser text formatter. Source: https://github.com/huggingface/speechbox |
+| Native/Cloud `format-transcript` API | Supabase + Gemini formatter | **Forbidden for Private** | Backend hard-rejects `engine:'private'` with `PRIVATE_FORMATTER_NOT_ALLOWED`; Private transcript text must not leave the browser. |
+
+Release implication:
+
+```text
+Private punctuation/readability remains caveated for 24h unless the raw Whisper
+final already passes readability on rerun. Do not silently add a local formatter
+download. If we pursue Private punctuation, it must be an explicit optional local
+model setup similar to STT model setup, with model size, cache state, latency,
+and word/filler-preservation metrics captured.
+```
+
+Required Private rerun fields:
+
+| Field | Why |
+| --- | --- |
+| `rawFinalTranscript` | Source of truth before any local formatter. |
+| `terminalPunctuationPresent`, `sentenceCount`, `maxRunOnWords`, `capitalizationErrors`, `duplicateSentenceDetected` | Readability release gate. |
+| `formatterAttempted` | Must be `false` until a local/browser-only formatter is explicitly approved. |
+| `privateFormatterNetworkCalls` | Must be `0`; any Private formatter must stay local. |
+| `modelDownloadPromptVisible` / `userClickedSetup` | Required if a future local punctuation model is tested. |
+
+Recommended next step:
+
+```text
+For 24h: rely on raw Whisper final + confidence/readability caveat.
+For 48h+: evaluate one browser-compatible ONNX punctuation model behind explicit
+user setup consent. Acceptance requires readability improvement without word or
+filler changes, no network transcript egress, and acceptable added download size.
+```
 
 ## TEST AGENT UPDATE — Full-fixture wait fix
 
