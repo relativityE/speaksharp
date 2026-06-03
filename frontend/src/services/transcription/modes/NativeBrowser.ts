@@ -36,6 +36,8 @@ type NativeParallelMicCapture = {
   wavDataUrl: string;
 };
 
+const NATIVE_BROWSER_TRACE_LIMIT = 5_000;
+
 function pushNativeTrace(event: string, payload: Record<string, unknown> = {}): void {
   if (typeof window === 'undefined') return;
 
@@ -55,7 +57,7 @@ function pushNativeTrace(event: string, payload: Record<string, unknown> = {}): 
     ...safePayload,
   });
 
-  if (window.__NATIVE_BROWSER_TRACE__.length > 500) {
+  if (window.__NATIVE_BROWSER_TRACE__.length > NATIVE_BROWSER_TRACE_LIMIT) {
     window.__NATIVE_BROWSER_TRACE__.shift();
   }
 }
