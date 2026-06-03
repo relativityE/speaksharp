@@ -272,6 +272,29 @@ describe('PrivateSTT (Routing Logic)', () => {
         expect(pstt.getRuntimePath()?.provider).toBe('transformers-js');
     });
 
+    it('P0.1: publishes structured runtime telemetry for explicit transformers-js override', async () => {
+        if (window.__SS_E2E__) {
+            window.__SS_E2E__.isActive = true;
+            window.__SS_E2E__.engineType = 'real';
+        }
+        delete (window as unknown as Record<string, unknown>).__PRIVATE_STT_RUNTIME_DEBUG__;
+
+        const { PrivateSTT } = await import('../PrivateSTT');
+        pstt = new PrivateSTT({ onTranscriptUpdate: vi.fn(), onReady: vi.fn(), forceEngine: 'transformers-js' } as never);
+        await pstt.init();
+
+        const debugObj = (window as unknown as { __PRIVATE_STT_RUNTIME_DEBUG__?: Record<string, unknown> }).__PRIVATE_STT_RUNTIME_DEBUG__;
+        expect(debugObj).toBeDefined();
+        expect(debugObj?.runtime).toBeDefined();
+        expect(debugObj?.provider).toBe('transformers-js');
+        expect(debugObj?.acceleration).toBe('cpu');
+        expect(typeof debugObj?.crossOriginIsolated).toBe('boolean');
+        expect(typeof debugObj?.wasmThreadCount).toBe('number');
+        expect(debugObj?.cloudFallbackAttempted).toBe(false);
+        expect(debugObj?.selectedAt).toBeDefined();
+        expect(pstt.getRuntimePath()?.provider).toBe('transformers-js');
+    });
+
     it('selects WhisperTurboEngine only with explicit forceEngine override', async () => {
         // Must set engineType='real' so ENV.disableWasm=false, enabling the GPU path
         if (window.__SS_E2E__) {

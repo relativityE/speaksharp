@@ -177,6 +177,15 @@ export class PrivateSTT extends STTEngine implements IPrivateSTTEngine, ITranscr
         // the v4 contract ("failed explicit init does not silently fall back").
         if (overrideEngine) {
             logger.info({ sId: this.serviceId, rId: this.runId, provider: selectedEngine, source: 'override' }, '[PrivateSTT] Initializing explicitly overridden private provider');
+            if (selectedEngine === 'transformers-js') {
+                const decision = await resolvePrivateRuntimePath({
+                    webgpuPromotionAllowed: false,
+                    turboModelCached: false,
+                });
+                this.runtimePath = decision;
+                publishPrivateRuntimeDebug(decision);
+                logger.info({ sId: this.serviceId, rId: this.runId, runtimeDecision: decision, selectedEngine, source: 'override' }, '[PrivateSTT] Published explicit CPU runtime decision');
+            }
             const res = await this.initSelectedEngine(selectedEngine, timeoutMs, isMock);
             return res.isOk ? Result.ok(undefined) : (res as Result<void, Error>);
         }
