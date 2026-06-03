@@ -1,7 +1,7 @@
 # STT Product Metrics Release Matrix
 
 **Date:** 2026-06-02  
-**Last updated:** 2026-06-03T18:15:00Z
+**Last updated:** 2026-06-03T19:25:00Z
 **Scope:** Private v2, Private v4, Native, Cloud  
 **Location:** `product_release/evidence/` because this is temporary release evidence, not a canonical product-release artifact.  
 
@@ -1147,4 +1147,24 @@ drop-in parity proof. Private/Native still require human/browser STT proofs for
 real transcript quality, trust states, formatter behavior, and save/history/detail
 against real engine output.
 ```
+
+## User-Trust Browser Proof Update: 2026-06-03T19:25Z
+
+Additional browser assertions were added after the setup fix so user-trust hooks
+are not merely unit-tested.
+
+| Check | Result | Read |
+| --- | --- | --- |
+| Focused STT/user-trust Vitest suite | **PASS:** 10 files / 122 tests | Native formatter seam, trust panel, score confidence, onboarding, log redaction, and Private provisional merge remain green. |
+| Edge formatter/token contract | **PASS:** 11 files / 70 steps | `format-transcript` preserves words/fillers, rejects Private, and exposes error codes. |
+| Focused browser user-facing regression proof | **PASS:** 9/9 | Browser now asserts Draft trust hook while recording, Final state after Stop, and authoritative `saveCandidate` content. |
+| Full `pnpm rc:ux:smoke` | **PASS:** 14/14 | Release UX smoke remains green after stricter assertions. |
+
+Bug findings from this pass:
+
+| Finding | Classification | Current state |
+| --- | --- | --- |
+| Browser tests did not assert trust-state hooks or authoritative saveCandidate. | Test coverage gap | Fixed by adding E2E assertions. |
+| Native score test expected a numeric score even though score-confidence gating intentionally keeps Native directional. | Stale test expectation | Fixed: E2E now requires `--` and the filler-recall quality caveat for Native. |
+| Native formatter telemetry is not proven by mock E2E because the mock engine bypasses real NativeBrowser formatter invocation. | Remaining release proof gap | Human Chrome mic proof still required. |
 ```

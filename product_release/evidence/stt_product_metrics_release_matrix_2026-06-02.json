@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-03T18:15:00Z",
+  "lastUpdated": "2026-06-03T19:25:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -2602,7 +2602,7 @@
       "next": "Fix trust-state labeling for Native interim/committed live text, increase/full-export Native trace for release proofs, decide/activate Native formatter if Native remains visible, verify detail extraction, then rerun human Chrome mic proof."
     }
   },
-  "lastUpdatedAt": "2026-06-03T18:15:00Z",
+  "lastUpdatedAt": "2026-06-03T19:25:00Z",
   "latestBrowserUxSmoke": {
     "updatedAt": "2026-06-03T18:15:00Z",
     "commit": "c167d3b0",
@@ -2672,5 +2672,47 @@
     "f1": "Refuted; default mic mode is raw, proof artifact should still record __PRIVATE_MIC_CONSTRAINTS_DEBUG__.mode.",
     "f4": "Mostly refuted; proof artifact should still assert no low-energy hallucinated tail appended.",
     "f2": "Still hypothesis; needs A/B proof before pipeline/windowing changes."
+  },
+  "latestUserTrustBrowserProof": {
+    "updatedAt": "2026-06-03T19:25:00Z",
+    "status": "pass_harness_proof",
+    "commands": [
+      {
+        "command": "focused STT/user-trust Vitest suite",
+        "result": "PASS 10 files / 122 tests"
+      },
+      {
+        "command": "pnpm test:edge",
+        "result": "PASS 11 files / 70 steps"
+      },
+      {
+        "command": "CI=true pnpm exec playwright test tests/e2e/user-facing-regressions.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=/private/tmp/speaksharp-user-facing-trust-hooks-2",
+        "result": "PASS 9/9"
+      },
+      {
+        "command": "pnpm rc:ux:smoke",
+        "result": "PASS 14/14"
+      }
+    ],
+    "findings": [
+      {
+        "id": "trust_hooks_not_asserted_in_browser",
+        "classification": "test_coverage_gap",
+        "status": "fixed_in_e2e",
+        "detail": "User-facing regression proof now asserts data-draft-banner-visible, data-final-state-visible, window.__SS_TRUST_STATE__, and authoritative saveCandidate."
+      },
+      {
+        "id": "native_numeric_score_expectation_stale",
+        "classification": "stale_test_expectation",
+        "status": "fixed_in_e2e",
+        "detail": "Native should show -- / Early signal with filler-recall caveat until transcript quality is trusted."
+      },
+      {
+        "id": "native_formatter_not_proven_by_mock_e2e",
+        "classification": "remaining_human_browser_proof_gap",
+        "status": "open",
+        "detail": "Mock E2E bypasses real NativeBrowser.getTranscript formatter path; real Chrome mic proof must capture __NATIVE_FORMATTER_LAST__."
+      }
+    ]
   }
 }
