@@ -289,6 +289,18 @@ export const SIGNAL_CONTRACT = [
     replacement: null,
   },
   {
+    name: '__PRIVATE_TIMING__',
+    kind: 'window-signal',
+    status: 'active',
+    audience: ['manual-proof', 'diagnostic'],
+    owner: 'frontend/src/services/transcription/modes/PrivateWhisper.ts',
+    writers: ['PrivateWhisper.publishPrivateTiming()'],
+    readers: ['Private STT quality-push proofs'],
+    intent: 'Always-on Private STT timing summary: { timeToFirstProvisionalMs, timeToFirstFinalMs, finalizeDecodeMs, utteranceSeconds, peakBufferedSeconds, anchor, updatedAtMs }. timeToFirst* are relative to speech-start (fallback stream-start). Diagnostics only; never gates behavior.',
+    waitGuidance: 'Read after Stop for the full picture (finalizeDecodeMs is set during the stop-commit). For before/after first-text comparisons, read timeToFirstProvisionalMs during recording. Not trace-gated — available without enabling __PRIVATE_TRANSCRIPT_TRACE__.',
+    replacement: null,
+  },
+  {
     name: 'data-profile-ready',
     kind: 'dom-signal',
     status: 'active',
