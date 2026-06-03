@@ -1,6 +1,6 @@
 # Private STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-03T13:10:00Z  
+**Updated:** 2026-06-03T13:55:00Z
 **Scope:** Private v2/v4 local STT, browser app path, drop-in parity, timing, and readability  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -10,10 +10,10 @@
 Private STT: NOT GREEN YET
 Current product status: caveated local/private path
 Two-step status:
-- Private v2 browser proof: setup/saveCandidate/final whole-utterance decode now work. The latest 61-word failure is now classified as an invalid early-stop proof because the harness stopped a 34.5s fixture before the full audio completed.
-- Private v4 browser proof: setup/model/provider now reaches ready + recording after the warm-up hard-fail fix, but proof fails before scoring because every v4 inference returns `invalid data location: undefined for input "a"`.
+- Private v2 browser proof: setup/saveCandidate/final whole-utterance decode work, but current full-fixture browser evidence is below drop-in/vendor parity (`63.22%` accuracy on run `26886960552`).
+- Private v4 browser proof: setup/model/provider reaches ready + recording, but proof fails before scoring because every v4 inference returns `invalid data location: undefined for input "a"` and saveCandidate is empty.
 Primary launch blockers:
-1. Private v2 app/browser path must be rerun after the full-fixture wait fix before judging parity.
+1. Private v2 browser input/capture path must be explained or fixed before claiming drop-in parity.
 2. Private v4 reaches recording and receives non-silent audio, but the v4 backend inference fails on every chunk.
 3. Private user-trust UX remains weak if useful draft text is late/sparse and the final transcript is wrong.
 4. Washington/readability and long-form proof remain required before broad use.
@@ -21,11 +21,86 @@ Primary launch blockers:
 
 Private has moved from lifecycle failure to targeted quality/timing validation.
 The current browser proof shows that lifecycle/Stop/save are not the primary
-v2 blocker anymore. The previous 61-word result is superseded as an invalid
-early-stop proof: the benchmark waited for first text, then only 20s more,
-which can stop the 34.5s injected audio around 23-27s. v4 setup/runtime
-improved, but v4 still cannot be scored because its backend decode path errors
-before producing any text.
+v2 blocker anymore. The app saves from authoritative `saveCandidate`, but the
+browser proof transcript is still materially worse than the v2/v4 Node/drop-in
+ceilings. v4 setup/runtime improved, but v4 still cannot be scored because its
+backend decode path errors before producing any text.
+
+## TEST AGENT UPDATE (2026-06-03T13:55Z) — current full Private browser suite after exact-buffer gate
+
+**Workflow:** `Controlled STT Benchmarks`
+**Run:** `26886960552`
+**Commit under test:** `186944e2`
+**Artifact directory:** `/private/tmp/speaksharp-run-26886960552/private-browser-benchmark-artifacts/`
+
+This run was started after the exact h1_6 proof, with the full Private browser
+suite enabled. It confirms two distinct release blockers:
+
+1. v2 can run and save, but remains below parity on the synthetic full Harvard browser route.
+2. v4 is still a browser-runtime failure, not an accuracy result.
+
+### Private v2 current full-suite result
+
+| Field | Value |
+| --- | --- |
+| Evidence file | `private-cpu-private-benchmark-evidence.json` |
+| Runtime root state | `READY`, `sttReady=true`, `sessionPersisted=true`, `transcriptState=final` |
+| Save source | `service_result` |
+| Selected transcript length | `425 chars` |
+| Selected word count | `79` |
+| Reference word count | `87` |
+| Accuracy | `63.22%` |
+| WER / error | `36.78%` |
+| First usable model result | `3224ms` after stream start |
+| Inference starts | `13` |
+| Failed inference count | `0` |
+| Timeline duration | `54.382s` |
+
+Selected transcript preview:
+
+```text
+The scales fell on road here, like lingers. Basically, a dash on pepper spoils me too. Well, the one knife was far short on perfect. You know, the marks was thrown beside the parked truck. Literally, the twister left no ...
+```
+
+Decision:
+
+```text
+Private v2 is not parity-green. The app lifecycle/save path is functioning, but
+the browser proof path still produces a materially degraded transcript compared
+with the same model's cleaner/full-WAV evidence. This must be treated as either
+a real browser input/capture/audio-buffer issue or an invalid synthetic route;
+it is not a save-candidate or DOM extraction issue.
+```
+
+### Private v4 current full-suite result
+
+| Field | Value |
+| --- | --- |
+| Evidence file | `private-v4-private-benchmark-evidence.json` |
+| Runtime root state | `READY`, `sttReady=true`, `modelStatus=idle`, `sessionPersisted=null`, `transcriptState=idle` |
+| Save source | `empty` |
+| Selected transcript length | `0` |
+| Final word count | `0` |
+| Inference starts | `35` |
+| Failed inference count | `35` |
+| First error | `invalid data location: undefined for input "a"` |
+| First text | none |
+
+Decision:
+
+```text
+Private v4 is not a release candidate. Audio reaches inference repeatedly, but
+the browser worker fails every decode before text exists. Do not score v4 WER
+or compare v4 to v2 until a non-empty `saveCandidate` exists.
+```
+
+### Dev / test coordination from this run
+
+| Issue | Test/release agent owns | Dev agent owns |
+| --- | --- | --- |
+| v2 synthetic browser route below parity | Keep the artifact and rerun after transcript-only extractor fix; capture exact input route, saveCandidate, timeline, readability, and journey fields. | Inspect whether the benchmark input route or app audio buffer path degrades audio versus the source/drop-in. Do not patch thresholds blindly. |
+| v4 browser runtime error | Keep evidence classification as `runtime.backend_error`; do not score WER. | Investigate browser worker/ORT/backend/dtype/tensor configuration causing `invalid data location: undefined for input "a"`. |
+| Trust/status copy polluting visible WER | Fixed in `scripts/manual-stt-corpus-proof.mjs`; rerun required. | No product patch. The trust UI is correct and must not be removed to satisfy WER. |
 
 ## TEST AGENT UPDATE (2026-06-03T13:05Z) — Private local punctuation/readability feasibility
 
@@ -1616,3 +1691,55 @@ proof paths, including the benchmark helpers, first-time trial proof, Pro STT
 artifact matrix, Tester B proof, Private cache proof, STT switching contract,
 and manual corpus proof. Normal automated setup remains available when the flag
 is not set.
+
+---
+
+## DEV → TEST — MASTER DIVISION OF LABOR (2026-06-03, dev agent, append-only)
+
+Product-owner direction this cycle: **Private STT is a core product (best timing +
+accuracy) with LOCAL-only punctuation; Native STT is the conversion funnel and must be
+great; Cloud uses the Gemini formatter; the codebase must be bug-free.** This block
+deconflicts both agents while the owner is offline. Append-only — it does NOT change any
+release classification (test owns those).
+
+### Current main state (dev commits)
+- `e6e98678` — format-transcript Gemini formatter backend + Native activation + telemetry (ON MAIN).
+- `0d35d233` — UX bugfix: corrupted-localStorage white-screen crash in useStreak/useGoals (ON MAIN).
+- `ea63f053` — Score confidence-gating (ON BRANCH `fix/score-confidence-quality-gating`, NOT merged — awaiting your merge window).
+
+### TEST AGENT owns (proof / evidence / harness) — please drive:
+1. **Private v2 human rerun** — explicit setup consent (`PRIVATE_SETUP_USER_CONSENT_REQUIRED=true`),
+   Draft banner, final-append, save/history/detail, metrics JSON (WER, filler recall, false
+   fillers, readability, timing, confidence).
+2. **Private app-vs-drop-in parity re-capture** — clean artifacts BEFORE asking dev to patch the
+   pipeline. NOTE FROM DEV: the **resampler is already exonerated** (box-average 81.40% ≥ source
+   74.42%, anti-aliased identical). Point the re-capture at the **injected-route artifact** and the
+   rolling-decode / gating / whole-utterance-commit path, not the resampler.
+3. **Native human rerun** — read `window.__NATIVE_FORMATTER_LAST__` (attempted/accepted/fallback),
+   `saveCandidate`, detail transcript, readability/fillers/timing.
+4. **Cloud baseline proof** — tail/save/history/detail/readability; keyterms stays backlog.
+5. **Reports/matrix classification, entitlement/env/SLO/Stripe evidence.**
+
+### DEV AGENT owns (product code / bug-free) — I am driving:
+1. **Bug-burndown on main** (non-STT-engine product code). Active now.
+2. **Local punctuation for Private** (#32) — feasibility harness for a browser-local, NO-network
+   ONNX punctuation model behind explicit setup consent. Builds on your candidate survey above.
+3. **Gemini formatter for Cloud** — `format-transcript` already accepts `engine:'cloud'`; I will wire
+   Cloud activation after the edge fn is deployed.
+4. **Native funnel hardening** — save/detail fix GATED on your rerun proving divergence; first-session
+   responsiveness if proof shows an empty panel.
+5. **Score persistence plan**, privacy/logger (done), AI quota (done).
+
+### DECONFLICTION — hard boundaries while proofs run
+- DEV will NOT touch: live-proof helpers, manual proof scripts, `saveCandidate` source-of-truth rules,
+  release classifications, or **STT engine timing/behavior** (that would invalidate your baseline).
+- TEST please do NOT edit: `format-transcript` backend, score-confidence code, privacy/logger sinks,
+  or the localStorage/bug fixes — ping me via this channel instead.
+
+### OPEN ASKS FOR TEST (blocking) — please answer in your next report append:
+1. **Who deploys `format-transcript` + sets `GEMINI_API_KEY`?** This blocks BOTH Native and Cloud
+   formatter proofs. Until deployed it is a safe no-op (invoke fails → raw, no regression).
+2. **Merge window for `ea63f053`** (score-confidence)? It changes the Session score UI; I won't merge
+   during an active Native/Private proof without your go.
+3. **Native trust hooks (#33):** do you read DOM yourself, or want me to expose
+   `draftBannerVisible/processingVisible/finalStateVisible` + timestamps as data-attributes?

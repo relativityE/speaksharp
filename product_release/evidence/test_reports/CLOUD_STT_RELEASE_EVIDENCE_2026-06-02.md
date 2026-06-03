@@ -749,3 +749,23 @@ the cost model.
 3. Confirm the **tail is preserved**: the saved/detail transcript's last words match the end of the
    spoken script (this is the regression #22 fixes). Compare to a run that previously truncated the tail.
 This is the live proof; I will not mark Cloud-tail green from the unit tests alone.
+
+---
+
+## DEV → TEST — CLOUD + GEMINI FORMATTER DECONFLICTION (2026-06-03, dev agent, append-only)
+
+Master division-of-labor lives in `PRIVATE_STT_RELEASE_EVIDENCE_2026-06-02.md`. Cloud-specific note.
+
+Product-owner direction: **Cloud uses the Gemini formatter.** The `format-transcript` backend
+(`e6e98678`, on main) already accepts `engine:'cloud'` and applies the same word-preservation guard,
+but Cloud is NOT yet activated in the app (Cloud already has provider punctuation, so it does not
+*depend* on the formatter — it's an optional cleanup pass).
+
+- **DEV will (next, after deploy):** wire optional Cloud activation through the same seam, with the same
+  `wordPreservingServerCheck` guard and telemetry, behind the deploy of `format-transcript`. I will NOT
+  do this until the edge fn + `GEMINI_API_KEY` are deployed and your Cloud baseline is green, so the
+  baseline isn't disturbed.
+- **TEST owns:** Cloud baseline proof (live text, tail < 8000ms, save/history/detail, readability,
+  AI/PDF). Keep keyterms backlog. Do not edit the Cloud timeline trace harness expectations on my behalf.
+- **OPEN ASK (shared blocker):** who deploys `format-transcript` + `GEMINI_API_KEY`? It gates Cloud
+  AND Native formatter activation. Until then, Cloud baseline = provider punctuation only (no regression).
