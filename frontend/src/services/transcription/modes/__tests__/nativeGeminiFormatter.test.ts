@@ -50,13 +50,13 @@ describe('nativeGeminiFormatter — Private guard', () => {
 });
 
 describe('nativeGeminiFormatter — adapter behavior', () => {
-  it('calls the format-transcript edge fn with transcript + instruction', async () => {
+  it('calls the format-transcript edge fn with transcript + instruction + native engine tag', async () => {
     invokeMock.mockResolvedValue({ data: { formatted: 'Hello, world.' }, error: null });
     const fmt = createGeminiNativeFormatter();
     const out = await fmt('hello world');
     expect(out).toBe('Hello, world.');
     expect(invokeMock).toHaveBeenCalledWith(FORMAT_TRANSCRIPT_EDGE_FUNCTION, {
-      body: { transcript: 'hello world', instruction: NATIVE_FORMATTER_INSTRUCTION },
+      body: { transcript: 'hello world', instruction: NATIVE_FORMATTER_INSTRUCTION, engine: 'native' },
     });
   });
 

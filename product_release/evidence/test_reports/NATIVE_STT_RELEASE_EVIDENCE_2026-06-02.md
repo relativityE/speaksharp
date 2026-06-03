@@ -602,3 +602,61 @@ stable Draft banner from mic-on, full timestamped trace, live text during speech
 filler recall >= 90%, readability pass, no duplicate, save/history/detail match,
 and no placeholder/status text persisted.
 ```
+
+---
+
+## DEV AGENT UPDATE (2026-06-03) — `format-transcript` backend SHIPPED + Native formatter ACTIVATED
+
+Resolves the P0 "Native readability failed (`Starts Now`, 1 sentence, max run-on 53)" item: the
+Native saved-transcript formatter is no longer inert. Backend implemented, activation wired, proof
+telemetry added. Word-preserving by construction (server **and** client guard) so it cannot fix STT
+word errors or invent/drop fillers — readability only.
+
+**1. Backend — `backend/supabase/functions/format-transcript/` (new)**
+- `index.ts` — mirrors `get-ai-suggestions` (Deno, DI `handler(req, createSupabase)`, Gemini
+  `gemini-3-flash-preview`, CORS via `_shared/cors.ts`). Request `{ transcript, instruction?, engine?,
+  sessionId?, runId? }` → `{ formatted, metadata:{ provider, model, inputChars, outputChars, latencyMs,
+  wordPreservingServerCheck, formatterVersion, requestId } }`.
+- **Server-side word-preservation check** (`isWordPreserving`): if Gemini changes ANY word or drops a
+  filler → `422 FORMATTER_WORDS_CHANGED`, altered text is NOT returned.
+- **Privacy hard-reject:** `engine === 'private'` → `403 PRIVATE_FORMATTER_NOT_ALLOWED` (unconditional,
+  before auth). Private transcript text can never be formatted by this backend.
+- **Stable error codes (HTTP):** METHOD_NOT_ALLOWED 405, INVALID_JSON 400, EMPTY_TRANSCRIPT 400,
+  TRANSCRIPT_TOO_LONG 413, PRIVATE_FORMATTER_NOT_ALLOWED 403, AUTH_REQUIRED 401, QUOTA_EXCEEDED 429,
+  GEMINI_KEY_MISSING 500, FORMATTER_PROVIDER_ERROR 502, FORMATTER_PROVIDER_TIMEOUT 504,
+  FORMATTER_EMPTY_OUTPUT 502, FORMATTER_WORDS_CHANGED 422.
+- **No transcript in logs:** structured logs carry only counts/latency/providerStatus/code +
+  `sha256(userId)[:16]`, `requestId`, and `sha256(normalizedTranscript)[:12]` for correlation. A unit
+  test asserts a sentinel transcript word never appears in captured logs. Error responses carry no text.
+- **Tests:** `index.test.ts` — 16 steps green (`pnpm test:edge`: full edge suite 11 files / 70 steps pass;
+  `deno check` clean).
+
+**2. Frontend activation + proof telemetry**
+- `EngineFactory.ts` — production `native` mode now calls `registerNativeProductionFormatter('native')`;
+  `cloud`/`private` clear it. Guarded so wiring can never block engine construction.
+- `nativeGeminiFormatter.ts` — adapter sends `engine:'native'`, surfaces backend metadata + error `code`.
+- `nativeTranscriptFormatter.ts` — exposes **`window.__NATIVE_FORMATTER_LAST__`** (and
+  `getNativeFormatterTelemetry()`):
+  `{ attempted, provider, functionName, formatterVersion, requestId, latencyMs, inputChars, outputChars,
+  serverWordPreserving, wordPreserving, errorCode, fallbackToRaw, at }`.
+- Frontend tests: 27 formatter steps + EngineFactory 9 = green; `tsc` clean.
+
+**TEST: to activate for the human-mic rerun (2 prerequisites, same as before):**
+1. Deploy the `format-transcript` edge function and set `GEMINI_API_KEY` (+ `ALLOWED_ORIGIN`) in the
+   Supabase project. Until deployed, `invoke()` fails → seam returns raw → **no regression**.
+2. Nothing else — activation is automatic in production `native` mode via `EngineFactory`.
+
+**What you can now prove from one Native human rerun (read `__NATIVE_FORMATTER_LAST__`):**
+- readability improved → compare raw saved text vs accepted `formatted` (sentence count / run-on / casing);
+- words/fillers unchanged → `wordPreserving === true` and `serverWordPreserving === true` on accepted;
+- fallback works → kill the function or force a word change; expect `fallbackToRaw === true` +
+  `errorCode` (`FORMATTER_WORDS_CHANGED` / provider error) and the SAVED text equals raw;
+- no Private leak → Private run must show `attempted:false` (seam cleared) and any direct call returns 403;
+- no transcript in logs → backend logs show only the metadata fields above.
+
+**Still NOT solved by this (do not expect the formatter to fix):** missed `um`, `plane`→`plan`,
+`ticker ways`, 83.93% word accuracy — those are STT/model quality and **score-confidence** concerns
+(separate P1), because the word-preservation guard forbids the formatter from changing words.
+
+Privacy copy distinguishing Native (server formatter, non-local) from Private (local-only) is still the
+open **Native trust disclaimer** UI item — tracked separately; activation here does not add new copy.

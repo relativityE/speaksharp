@@ -37,6 +37,76 @@ export type NativeTranscriptFormatter = (raw: string) => Promise<string> | strin
 let activeFormatter: NativeTranscriptFormatter | null = null;
 
 /**
+ * Proof telemetry for the last saved-transcript formatting attempt. Exposed to the
+ * browser (window.__NATIVE_FORMATTER_LAST__) so the test harness can prove:
+ *   - readability improved (inputChars/outputChars, the accepted formatted text)
+ *   - words/fillers unchanged (wordPreserving true on accepted results)
+ *   - fallback works (fallbackToRaw true + errorCode on provider failure)
+ * Contains NO transcript text — only counts, ids, and flags.
+ */
+export interface NativeFormatterTelemetry {
+  attempted: boolean;
+  provider: string | null;
+  functionName: string | null;
+  formatterVersion: string | null;
+  requestId: string | null;
+  latencyMs: number | null;
+  inputChars: number | null;
+  outputChars: number | null;
+  /** Server-side word-preservation check result (from the edge function metadata). */
+  serverWordPreserving: boolean | null;
+  /** Client-side seam guard result (final authority on acceptance). */
+  wordPreserving: boolean | null;
+  errorCode: string | null;
+  fallbackToRaw: boolean;
+  at: number;
+}
+
+const EMPTY_TELEMETRY: NativeFormatterTelemetry = {
+  attempted: false,
+  provider: null,
+  functionName: null,
+  formatterVersion: null,
+  requestId: null,
+  latencyMs: null,
+  inputChars: null,
+  outputChars: null,
+  serverWordPreserving: null,
+  wordPreserving: null,
+  errorCode: null,
+  fallbackToRaw: false,
+  at: 0,
+};
+
+let lastTelemetry: NativeFormatterTelemetry = { ...EMPTY_TELEMETRY };
+// Provider-side fields reported by the active adapter for the in-flight attempt.
+let pendingProviderMeta: Partial<NativeFormatterTelemetry> | null = null;
+
+/**
+ * Called by the formatter adapter (e.g. nativeGeminiFormatter) to report the
+ * provider-side outcome of the in-flight attempt (requestId, latency, char counts,
+ * server word-preservation check, error code). The seam merges this with the final
+ * accept/fallback decision.
+ */
+export function reportNativeFormatterProviderMeta(meta: Partial<NativeFormatterTelemetry>): void {
+  pendingProviderMeta = { ...(pendingProviderMeta ?? {}), ...meta };
+}
+
+/** The telemetry for the most recent saved-transcript formatting attempt. */
+export function getNativeFormatterTelemetry(): NativeFormatterTelemetry {
+  return lastTelemetry;
+}
+
+function publishTelemetry(t: NativeFormatterTelemetry): void {
+  lastTelemetry = t;
+  try {
+    (globalThis as { __NATIVE_FORMATTER_LAST__?: NativeFormatterTelemetry }).__NATIVE_FORMATTER_LAST__ = t;
+  } catch {
+    /* non-browser / locked global — telemetry getter still works */
+  }
+}
+
+/**
  * Install the trusted punctuation/casing restoration formatter. Pass `null` to
  * remove it (revert to identity). Returns the previously-registered formatter so
  * callers/tests can restore prior state.
@@ -99,20 +169,54 @@ export async function formatNativeTranscript(raw: string): Promise<string> {
   const text = raw ?? '';
   if (!activeFormatter || !text.trim()) return text;
 
+  // Reset the side-channel; the adapter fills provider fields during the call.
+  pendingProviderMeta = null;
+  const startedAt = Date.now();
+  const finalize = (
+    outcome: { fallbackToRaw: boolean; wordPreserving: boolean | null; errorCode?: string | null },
+    outputChars: number | null,
+  ): void => {
+    const meta = pendingProviderMeta ?? {};
+    publishTelemetry({
+      attempted: true,
+      provider: meta.provider ?? null,
+      functionName: meta.functionName ?? null,
+      formatterVersion: meta.formatterVersion ?? null,
+      requestId: meta.requestId ?? null,
+      latencyMs: meta.latencyMs ?? Date.now() - startedAt,
+      inputChars: meta.inputChars ?? text.length,
+      outputChars: meta.outputChars ?? outputChars,
+      serverWordPreserving: meta.serverWordPreserving ?? null,
+      wordPreserving: outcome.wordPreserving,
+      errorCode: outcome.errorCode ?? meta.errorCode ?? null,
+      fallbackToRaw: outcome.fallbackToRaw,
+      at: startedAt,
+    });
+  };
+
   try {
     const formatted = await activeFormatter(text);
     const result = (formatted ?? '').trim();
-    if (result.length === 0) return text;
+    if (result.length === 0) {
+      finalize({ fallbackToRaw: true, wordPreserving: null, errorCode: 'EMPTY_RESULT' }, 0);
+      return text;
+    }
     if (!isWordPreserving(text, formatted)) {
       logger.warn(
         { rawLength: text.length, formattedLength: result.length },
         '[NativeTranscriptFormatter] Formatter changed word content; rejecting and returning unformatted transcript',
       );
+      finalize({ fallbackToRaw: true, wordPreserving: false, errorCode: 'CLIENT_WORDS_CHANGED' }, result.length);
       return text;
     }
+    finalize({ fallbackToRaw: false, wordPreserving: true }, formatted.length);
     return formatted;
   } catch (error) {
     logger.warn({ error }, '[NativeTranscriptFormatter] Formatter failed; returning unformatted transcript');
+    finalize(
+      { fallbackToRaw: true, wordPreserving: null, errorCode: (error as { code?: string })?.code ?? 'FORMATTER_ERROR' },
+      null,
+    );
     return text;
   }
 }

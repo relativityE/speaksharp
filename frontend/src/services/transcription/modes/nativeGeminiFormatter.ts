@@ -28,10 +28,43 @@ import { getSupabaseClient } from '../../../lib/supabaseClient';
 import logger from '../../../lib/logger';
 import {
   registerNativeTranscriptFormatter,
+  reportNativeFormatterProviderMeta,
   type NativeTranscriptFormatter,
 } from './nativeTranscriptFormatter';
 
 export const FORMAT_TRANSCRIPT_EDGE_FUNCTION = 'format-transcript';
+
+/** Shape of the metadata block returned by the format-transcript edge function. */
+interface FormatTranscriptMetadata {
+  provider?: string;
+  model?: string;
+  inputChars?: number;
+  outputChars?: number;
+  latencyMs?: number;
+  wordPreservingServerCheck?: boolean;
+  formatterVersion?: string;
+  requestId?: string;
+}
+
+/**
+ * Best-effort extraction of the stable error `code` from a Supabase
+ * FunctionsHttpError (its `.context` is the raw Response with our { error, code }
+ * body). Never throws; returns null if unavailable.
+ */
+async function extractEdgeErrorCode(error: unknown): Promise<string | null> {
+  try {
+    const ctx = (error as { context?: unknown })?.context;
+    if (ctx && typeof (ctx as Response).clone === 'function') {
+      const body = await (ctx as Response).clone().json().catch(() => null);
+      if (body && typeof (body as { code?: string }).code === 'string') {
+        return (body as { code: string }).code;
+      }
+    }
+  } catch {
+    /* ignore — telemetry is best-effort */
+  }
+  return null;
+}
 
 /**
  * The strict instruction the edge function applies. Exported so the (separately
@@ -54,19 +87,48 @@ export function createGeminiNativeFormatter(): NativeTranscriptFormatter {
     const text = raw ?? '';
     if (!text.trim()) return text;
 
+    reportNativeFormatterProviderMeta({
+      provider: 'gemini',
+      functionName: FORMAT_TRANSCRIPT_EDGE_FUNCTION,
+      inputChars: text.length,
+    });
+
     const supabase = getSupabaseClient();
     if (!supabase) {
       logger.warn('[NativeGeminiFormatter] Supabase client unavailable; returning raw transcript');
+      reportNativeFormatterProviderMeta({ errorCode: 'SUPABASE_UNAVAILABLE' });
       return text;
     }
 
     const { data, error } = await supabase.functions.invoke(FORMAT_TRANSCRIPT_EDGE_FUNCTION, {
-      body: { transcript: text, instruction: NATIVE_FORMATTER_INSTRUCTION },
+      body: { transcript: text, instruction: NATIVE_FORMATTER_INSTRUCTION, engine: 'native' },
     });
-    if (error) throw error; // bubble to formatNativeTranscript -> falls back to raw
+    if (error) {
+      const code = await extractEdgeErrorCode(error);
+      reportNativeFormatterProviderMeta({ errorCode: code ?? 'FUNCTION_HTTP_ERROR' });
+      throw error; // bubble to formatNativeTranscript -> falls back to raw
+    }
     if (data && typeof (data as { error?: string }).error === 'string') {
+      reportNativeFormatterProviderMeta({
+        errorCode: (data as { code?: string }).code ?? 'FORMATTER_ERROR',
+      });
       throw new Error((data as { error: string }).error);
     }
+
+    const meta = (data as { metadata?: FormatTranscriptMetadata })?.metadata;
+    if (meta) {
+      reportNativeFormatterProviderMeta({
+        provider: meta.provider ?? 'gemini',
+        formatterVersion: meta.formatterVersion ?? null,
+        requestId: meta.requestId ?? null,
+        latencyMs: typeof meta.latencyMs === 'number' ? meta.latencyMs : null,
+        inputChars: typeof meta.inputChars === 'number' ? meta.inputChars : text.length,
+        outputChars: typeof meta.outputChars === 'number' ? meta.outputChars : null,
+        serverWordPreserving:
+          typeof meta.wordPreservingServerCheck === 'boolean' ? meta.wordPreservingServerCheck : null,
+      });
+    }
+
     const formatted = (data as { formatted?: unknown })?.formatted;
     return typeof formatted === 'string' && formatted.trim().length > 0 ? formatted : text;
   };
