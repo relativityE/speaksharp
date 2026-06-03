@@ -1852,3 +1852,28 @@ is NOT shipped — it is a measurement baseline.
 **TEST asks:** (a) confirm these acceptance checks match your release gate; (b) is a word-preserving
 local heuristic acceptable as an interim caveated stopgap, or do we hold for the ONNX model only?
 (c) which fixtures do you want added to the rig (Washington / your h1_* set) so this gates real proofs?
+
+---
+
+## DEV BUG CANDIDATES — awaiting TEST confirm (per confirmation protocol, 2026-06-03)
+
+These are NON-obvious product-behavior issues found by dev static review. Dev did NOT patch them —
+they need a TEST repro/confirm before I change behavior (per the cross-agent confirmation protocol).
+
+### CANDIDATE #C1 — Onboarding: new user can see "Profile Sync Failed" on first load (P1, onboarding)
+- **Where:** `frontend/src/components/ProfileGuard.tsx:135` — `if (profileError || !profile)` renders the
+  red "Profile Sync Failed" error screen (Retry / Sign Out). `frontend/src/hooks/useUserProfile.ts`
+  returns `null` (not an error) when the profile row does not exist yet (`getById` → null, logged
+  "No profile found for user").
+- **Symptom (hypothesis):** a freshly-signed-up user whose session is valid but whose `user_profiles`
+  row is still being provisioned (create-user race / lag) lands on a scary "Profile Sync Failed" error
+  instead of a friendly "setting up your account…" state. This is the onboarding-trust priority area.
+- **Why not auto-fixed:** non-obvious — depends on whether a profile row is GUARANTEED to exist by the
+  time a session is active. If guaranteed, this path is only a true error and current copy is fine.
+- **TEST to confirm:** sign up a brand-new account (or simulate `getById` → null with a valid session)
+  and observe first-load UX. If you see "Profile Sync Failed" for a healthy new user, confirm and I'll
+  split "profile missing/provisioning" (friendly, auto-retry) from "profile fetch failed" (error).
+
+_(Sweep also verified CLEAN, no fix needed: all localStorage/JSON.parse sites guarded except the
+useStreak white-screen already fixed in `0d35d233`; every setInterval has a clearInterval; ProtectedRoute
+and LocalErrorBoundary recovery paths are sound.)_
