@@ -58,6 +58,43 @@ Current 48-hour wider-use gates:
 | Cloud paid path | Baseline long-form/tail/save/detail proof passes; keyterms remains backlog unless a future custom-word experiment proves no ordinary-word regression. |
 | Score/Analytics | Transcript Quality is visible enough that users understand when feedback reflects capture quality rather than speaking quality. |
 
+## Product UX/UI Reviewer Packet — Journey, Trust, And Analytics Meaning (2026-06-03)
+
+This section captures the review request that should guide the next product UX pass. It is not a separate release status file; it is the working backlog home for reviewer questions and resulting tasks.
+
+### Journey To Review
+
+| Step | Current product intent | What the user should understand | Current evidence / observation | Reviewer question |
+|---|---|---|---|---|
+| Homepage | Convert a visitor from curiosity to a low-friction practice start. | SpeakSharp is a speaking coach, not just a transcript recorder. Free Browser practice starts quickly; Private/Vault and deeper coaching exist when trust/precision matters. | Local visual pass: hero says "Private Practice. Public Impact!"; CTAs are "Start Practice Session" and "See How Feedback Works"; feature cards cover instant practice, deeper coaching, and Vault privacy. | Is the first viewport clear enough that a new visitor knows what they will do next, or should the hero show the actual session workflow more concretely? |
+| Signup | Reduce friction while setting correct plan expectations. | Start free with Browser transcription; trial gives limited Private/Vault access; Cloud is Pro-only. | Local visual pass: signup card states "Start free, with a 60-minute Pro trial"; copy says Browser is free, trial includes Vault Mode, Cloud unavailable for trial. | Does the trial/Cloud/Private distinction feel clear and fair, or does it create too much decision load before the user has practiced? |
+| Session | Make the live practice surface feel active, trustworthy, and coaching-oriented. | The user should know: current STT mode, whether text is draft/final, whether local processing is happening, what the SpeakSharp Score means, and which 2-3 actions to try. | Code path: `SessionPage` renders `LiveRecordingCard`, `LiveTranscriptPanel`, `LiveCoachingScoreCard`, and `FillerWordsCard`. Score card explains structure, pace/fillers/pauses, clarity, audience impact, and transcript-quality confidence. Browser E2E currently passes 38/38 on covered journeys. | Is the right side score/coaching rail motivating without distracting while speaking? Are trust banners strong enough when Native/Private text is jumpy or delayed? |
+| Save/history/detail | Confirm that a practice session became durable evidence. | Saved transcript, metrics, engine metadata, history row, detail transcript, PDF, and AI suggestions should align. | Code path: Analytics detail view exposes `data-session-detail-transcript`, engine metadata, stat cards, PDF export, and AI suggestions. Known STT human-proof reruns still gate Native/Private detail correctness. | After Stop, does the user have an obvious next action, and does the saved detail feel like a coherent report rather than a database record? |
+| Analytics dashboard | Turn many tools into a small number of understandable coaching stories. | Pick a focus: Delivery Control, Message Clarity, Habit Progress, Session Proof, Transcript Quality, or Custom Toolkit. Each focus should explain why its cards/charts are grouped. | Code path: `AnalyticsDashboard` renders visible focus label, purpose, outcome, "Why these tools are here", selected stat cards, selected carousel tools, goals, history, comparison, and PDF actions. Component coverage checks every focus story. | Are focus names and descriptions self-explanatory enough, or should each focus get a tooltip/help affordance and example question? |
+| Score/Analytics connection | Keep Score motivating but not overconfident. | SpeakSharp Score is directional; transcript quality affects score confidence; Analytics should help separate speaking quality from STT capture quality. | Score card has a transcript-quality caveat and hides precise score when confidence is low. Analytics has a Transcript Quality focus with STT Engine Quality as the first tool. | Is Transcript Quality prominent enough when a transcript is weak, or should it surface automatically on low-confidence sessions instead of requiring the user to choose it? |
+
+### Analytics Focus Definitions Shown To Users
+
+| Focus | Current user-facing meaning | Primary concern for review |
+|---|---|---|
+| Delivery Control | Shows whether pace, pauses, and filler habits make the speaker easy to follow. | Does it map cleanly to what users expect from "delivery"? |
+| Message Clarity | Connects transcript quality, clarity, and coaching notes to whether the point lands. | Does "transcript quality" inside this focus confuse message quality with STT quality? |
+| Habit Progress | Turns practice volume and repeated patterns into a habit loop. | Does it feel motivating enough to bring users back? |
+| Session Proof | Prioritizes before/after comparison and reports the user can revisit or share. | Does this satisfy the user's need to prove improvement, or does it need score movement/PDF framing? |
+| Transcript Quality | Separates speaking performance from transcription reliability. | Is this prominent enough for Native/Private caveats, especially when punctuation/readability are weak? |
+| Custom Toolkit | Lets users inspect specific tools outside a predefined group. | Does custom selection preserve interpretation, or does it dump users back into metric soup? |
+
+### Open UX/Product Tasks From This Review
+
+| Priority | Task | Why it matters | Owner / next proof |
+|---|---|---|---|
+| P0/P1 | Verify trust-state UX in real Private and Native sessions. | The product can have good final WER and still feel broken if text appears late, jumps, replaces prior text, or lacks a draft/final disclaimer. | Test/release proof with screenshots/video and `__SS_TRUST_TRACE__`; dev fixes only proven state-machine defects. |
+| P1 | Confirm Analytics Transcript Quality appears when it matters. | Users should not blame their speaking if the problem is STT punctuation, filler recall, or transcript reliability. | Test: create/read weak-transcript session and verify score caveat + Analytics Transcript Quality focus are discoverable. |
+| P1 | Review whether Analytics focus chooser needs tooltips or examples. | The focus model is intended to reduce metric soup; if names are unclear, users will not know which story to choose. | UX/reviewer pass; possible dev task: add compact help copy or hover/tooltips for each focus. |
+| P1 | Validate Session-to-Analytics coherence. | Session page score/actions and Analytics focus results must tell the same story. | Test: save sessions representing filler-heavy, fast, clear, weak-transcript, and short samples; compare Session score evidence with Analytics cards/tools. |
+| P2 | Review homepage "See How Feedback Works" path. | Homepage offers analytics preview, but unauthenticated `/analytics` redirects to sign-in, which may blunt the promise. | Product decision: either keep auth gate or add a non-auth demo/preview route. |
+| P2 | Reassess visual density after STT bugs settle. | Session currently has recording controls, transcript, live score, and fillers; it must stay focused during speech. | Screenshot pass desktop/mobile after latest STT trust-state fixes. |
+
 ## June 3 Active Coordination
 
 This table is the current division of labor between the test/release agent and
