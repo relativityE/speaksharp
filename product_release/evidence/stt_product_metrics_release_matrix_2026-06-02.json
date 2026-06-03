@@ -1,6 +1,6 @@
 {
   "date": "2026-06-02",
-  "lastUpdated": "2026-06-03T19:46:00Z",
+  "lastUpdated": "2026-06-03T19:57:00Z",
   "canonicalPathToRelease": "product_release/evidence/test_reports/STT_SPEED_ACCURACY_MARKET_SURVIVAL_REVIEW_2026-06-02.md",
   "purpose": "Measurement matrix only. Reviewer path-to-release, product positioning, and 24/48-hour plan live in canonicalPathToRelease.",
   "twoStepReleaseWorkflow": {
@@ -2602,7 +2602,7 @@
       "next": "Fix live Native formatter backend/error specificity and detail transcript equality, then rerun human Chrome mic proof. Trust copy must stay mode-aware: only Private may say local/locally; Native and Cloud use generic processing/finalizing copy."
     }
   },
-  "lastUpdatedAt": "2026-06-03T19:46:00Z",
+  "lastUpdatedAt": "2026-06-03T19:57:00Z",
   "latestBrowserUxSmoke": {
     "updatedAt": "2026-06-03T18:15:00Z",
     "commit": "c167d3b0",
@@ -2750,5 +2750,47 @@
       "Detail transcript was empty even though saveCandidate/history had transcript.",
       "Raw Native readability remains poor until formatter succeeds."
     ]
+  },
+  "latestDeployedInjectedDiagnostics": {
+    "updatedAt": "2026-06-03T19:57:00Z",
+    "baseUrl": "https://speaksharp-public.vercel.app",
+    "classification": "diagnostic_harness_proof_not_release_proof",
+    "native": {
+      "status": "fail_before_transcript",
+      "artifactDir": "/private/tmp/speaksharp-native-injected-escalated-20260603155554",
+      "firstBrokenGate": "proof.runtime.recording_start",
+      "evidence": {
+        "setupBuildEnv": "pass",
+        "authTier": "pass",
+        "sttMode": "native",
+        "serviceState": "READY",
+        "error": "SpeechRecognition start timed out before onstart",
+        "timeoutMs": 3000,
+        "finalRuntimeState": "FAILED_VISIBLE",
+        "startButtonRecording": "false"
+      },
+      "devAsk": "Investigate NativeBrowser start timeout/retry/diagnostic behavior. If this reproduces in headed human Chrome, it is funnel-breaking."
+    },
+    "private": {
+      "status": "fail_after_save",
+      "artifactDir": "/private/tmp/speaksharp-private-injected-escalated-20260603155713",
+      "firstBrokenGate": "proof.accuracy.final_text",
+      "secondaryBrokenGate": "proof.journey.filler_ui_schema",
+      "evidence": {
+        "setupBuildEnv": "pass",
+        "authTier": "pass",
+        "sttMode": "private",
+        "modelStatusInitial": "download-required",
+        "modelLoaded": true,
+        "runtime": "transformers-js CPU",
+        "truth": "Um. Basically, we should literally like, wait.",
+        "selectedForSave": "Basically, we should literally like, \"Wait, um, basically, we should literally like, wait, um, basically.\"",
+        "selectedForSaveLength": 106,
+        "finalWordCount": 15,
+        "saveCandidateReason": "service_result",
+        "fillerTextRaw": "basically3um2like2literally2uh0ah0You Know0so0actually0oh0I Mean0Kind Of0Sort Of0"
+      },
+      "devAsk": "Investigate short-utterance repetition/duplication and expose transcript-only/filler-row selectors so tests do not score trust copy or concatenated word/count DOM text."
+    }
   }
 }
