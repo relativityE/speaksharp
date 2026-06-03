@@ -57,6 +57,19 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.getByTestId('live-transcript-current-line')).toHaveTextContent('speaking now');
     });
 
+    it('does not render a differing interim hypothesis twice', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript="Hello world"
+                interimTranscript="speaking now"
+                isListening={true}
+            />
+        );
+
+        const text = screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER).textContent ?? '';
+        expect(text.match(/speaking now/g)).toHaveLength(1);
+    });
+
     it('does not render the same Native interim hypothesis twice when it matches transcript text', () => {
         render(
             <LiveTranscriptPanel
