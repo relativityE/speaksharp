@@ -8,6 +8,7 @@ import { STTEngine } from '../../../contracts/STTEngine';
 import { Result } from '../modes/types';
 import { EngineType } from '../../../contracts/IPrivateSTTEngine';
 import type { TranscriptionPolicy } from '../TranscriptionPolicy';
+import { useSessionStore } from '@/stores/useSessionStore';
 
 /**
  * @file SttSafeguards.test.ts
@@ -369,5 +370,47 @@ describe('STT Safeguards Unit Tests', () => {
             pause_metrics: expect.any(Object),
             clarity_score: expect.any(Number)
         }));
+    });
+
+    it('keeps a completed transcript saved when the later metrics update fails', async () => {
+        storageMocks.saveSession.mockResolvedValue({
+            session: { id: 'sess-123' },
+            usageExceeded: false
+        });
+        storageMocks.updateSession.mockResolvedValue({
+            success: false,
+            error: 'metrics table temporarily unavailable'
+        });
+
+        vi.spyOn(service, 'stopTranscription').mockResolvedValue({
+            success: true,
+            transcript: 'um hello world this transcript should stay saved',
+            stats: {
+                transcript: 'um hello world this transcript should stay saved',
+                total_words: 7,
+                accuracy: 0.95,
+                duration: 6
+            }
+        });
+
+        await controller.startRecording(mockPolicy);
+        controller.confirmSubscriberHandshake();
+        await controller.whenStable();
+        storageMocks.completeSession.mockClear();
+
+        await vi.advanceTimersByTimeAsync(6000);
+        await controller.stopRecording();
+        await controller.whenStable();
+
+        expect(storageMocks.completeSession).toHaveBeenCalledTimes(1);
+        expect(storageMocks.completeSession).toHaveBeenCalledWith('sess-123', expect.objectContaining({
+            status: 'completed',
+            transcript: 'Um hello world this transcript should stay saved.'
+        }));
+        expect(storageMocks.completeSession).not.toHaveBeenCalledWith('sess-123', expect.objectContaining({
+            status: 'failed'
+        }));
+        expect(storageMocks.updateSession).toHaveBeenCalled();
+        expect(document.documentElement.getAttribute('data-session-persisted')).toBe('true');
     });
 });

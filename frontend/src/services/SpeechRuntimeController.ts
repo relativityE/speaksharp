@@ -703,6 +703,9 @@ export class SpeechRuntimeController {
 
     private updateSessionPersisted(persisted: boolean): void {
         useSessionStore.getState().setSessionSaved(persisted);
+        if (useSessionStore.getState().sessionSaved !== persisted) {
+            useSessionStore.setState({ sessionSaved: persisted });
+        }
         syncSessionPersisted(persisted);
     }
 
@@ -1658,6 +1661,7 @@ export class SpeechRuntimeController {
                 this.stopHeartbeat();
                 this.stopWatchdog();
                 const service = this.service;
+                let sessionCompleted = false;
                 if (!service) {
                     if (stopEntryMode === 'cloud') {
                         logger.warn({
@@ -2017,6 +2021,9 @@ export class SpeechRuntimeController {
                                 throw new Error('SESSION_COMPLETION_FAILED');
                             }
                             logger.info({ sessionId }, '[DEBUG-STOP] completeSession completed-status done');
+                            sessionCompleted = true;
+                            this.updateSessionPersisted(true);
+                            useSessionStore.getState().setSessionSaved(true);
                             if (token.cancelled) {
                                 logger.warn({
                                     mode: service.getMode?.() ?? stopEntryMode,
@@ -2048,9 +2055,19 @@ export class SpeechRuntimeController {
                                 accuracy
                             });
                             if (!updateResult.success) {
-                                throw new Error('SESSION_METRICS_UPDATE_FAILED');
+                                logger.warn({
+                                    sessionId,
+                                    error: updateResult.error ?? null,
+                                }, '[DEBUG-STOP] metrics update failed after transcript completion; preserving completed session');
+                                guardedStopStatus = {
+                                    type: 'warning',
+                                    message: 'Session saved.',
+                                    detail: 'Your transcript was saved, but some analysis metrics could not be updated yet.',
+                                };
+                                store.setSTTStatus(guardedStopStatus);
+                            } else {
+                                logger.info('[DEBUG-STOP] updateSession done');
                             }
-                            logger.info('[DEBUG-STOP] updateSession done');
                             clearSessionRecoveryDraft(sessionId);
 
                             this.updateStreakInternal();
@@ -2083,6 +2100,10 @@ export class SpeechRuntimeController {
 
                 logger.info('[DEBUG-STOP] transition READY starting');
                 await this.transition('READY');
+                if (sessionCompleted) {
+                    this.updateSessionPersisted(true);
+                    useSessionStore.getState().setSessionSaved(true);
+                }
                 if (guardedStopStatus) {
                     useSessionStore.getState().setSTTStatus(guardedStopStatus);
                 }
