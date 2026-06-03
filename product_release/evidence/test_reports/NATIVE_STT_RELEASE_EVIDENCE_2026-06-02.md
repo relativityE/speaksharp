@@ -928,3 +928,72 @@ Use these hooks for the next Native human proof. The browser proof still owns th
 Draft must be visible from mic-on through non-final transcript, Processing/Final states must line up
 with the transcript lifecycle, and transcript WER/readability must use transcript-only text rather
 than status/banner copy.
+
+## TEST UPDATE (2026-06-03T17:00Z) — Candidate `eff03d2d` still needs real browser proof
+
+Candidate tested:
+
+```text
+branch: fix/private-live-cumulative-transcript-2
+commit: eff03d2d
+```
+
+Automated support is strong, but the Native user-experience/browser proof is
+still not closed.
+
+Automated results:
+
+| Check | Result | Native read |
+| --- | --- | --- |
+| Focused STT/user-trust suite | **Pass:** 11 files / 146 tests | Covers live transcript panel, Native formatter seams, trust hooks, score confidence, log redaction, controller/service. |
+| Edge/backend formatter contract | **Pass:** 11 files / 70 steps | `format-transcript` contract remains green; Private use is hard-rejected; word/filler preservation guard passes. |
+| Full unit suite | **Pass:** 147 files / 1123 tests passed / 1 todo | Broad non-browser support is green. |
+| Typecheck | **Pass** | No TypeScript blocker found. |
+| Build | **Pass:** `pnpm build:test` | Candidate builds. |
+| Quality/lint | **Fail** | Release hygiene blocker remains. |
+| Browser UX smoke | **Fail before STT proof** | App never reached `html[data-app-visible-ready="true"]`; Native formatter/trust hooks were not browser-proven. |
+
+Quality/lint blockers:
+
+```text
+frontend/src/services/transcription/__tests__/SttSafeguards.test.ts
+  11:10 error 'useSessionStore' is defined but never used
+
+tests/live/benchmark-native.live.spec.ts
+  4:16 error 'expect' is defined but never used
+
+backend/supabase/functions/format-transcript/index.ts
+  229:12 warning '_err' is defined but never used
+  244:14 warning '_err' is defined but never used
+```
+
+Browser UX smoke blocker:
+
+```text
+tests/e2e/infra.probe.e2e.spec.ts failed waiting for:
+html[data-app-visible-ready="true"]
+
+Browser console/root error:
+Mock auth is not available from the runtime app. Use the centralized E2E test
+harness or create real test users through the test-user workflow.
+```
+
+Native release impact:
+
+```text
+Do not mark Native formatter, trust-state banners, or score confidence browser-green
+from this sweep. The automated checks are encouraging, but the user-experience
+path is blocked before mic-on and before `window.__NATIVE_FORMATTER_LAST__` /
+`window.__SS_TRUST_TRACE__` can be verified in a real browser session.
+```
+
+Required next action:
+
+1. Fix the lint blockers.
+2. Fix the browser smoke setup path so the app reaches visible-ready.
+3. Rerun Native human/browser proof:
+   - Draft/trust banner visible and stable from mic-on while text is non-final
+   - formatter telemetry `window.__NATIVE_FORMATTER_LAST__` non-null when formatting is expected
+   - formatted vs raw vs ground truth captured
+   - words/fillers unchanged by formatter
+   - save/history/detail transcript matches the formatted final candidate

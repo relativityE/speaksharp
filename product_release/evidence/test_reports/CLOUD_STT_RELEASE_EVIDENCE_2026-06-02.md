@@ -796,3 +796,52 @@ Cloud baseline remains the safe candidate. Keyterms remains backlog/experiment. 
 Gemini formatting by default unless product approves and a baseline-vs-formatted browser proof shows
 no regression.
 ```
+
+## TEST UPDATE (2026-06-03T17:00Z) — Candidate `eff03d2d` backend green, app-path smoke blocked
+
+Candidate tested:
+
+```text
+branch: fix/private-live-cumulative-transcript-2
+commit: eff03d2d
+```
+
+Cloud-specific automated support remains positive:
+
+| Check | Result | Cloud read |
+| --- | --- | --- |
+| Edge/backend formatter/token contract | **Pass:** 11 files / 70 steps | AssemblyAI token gates and shared non-private formatter contract are green. |
+| Focused STT/user-trust suite | **Pass:** 11 files / 146 tests | Supporting UI/score/trust code remains unit/component green. |
+| Full unit suite | **Pass:** 147 files / 1123 tests passed / 1 todo | Broad non-browser support is green. |
+| Typecheck | **Pass** | No TypeScript blocker found. |
+| Build | **Pass:** `pnpm build:test` | Candidate builds. |
+| Quality/lint | **Fail** | Release hygiene blocker remains. |
+| Browser UX smoke | **Fail before STT proof** | App never reached visible-ready; no Cloud app-path user proof was collected in this sweep. |
+
+Browser UX smoke blocker:
+
+```text
+tests/e2e/infra.probe.e2e.spec.ts failed waiting for:
+html[data-app-visible-ready="true"]
+
+Browser console/root error:
+Mock auth is not available from the runtime app. Use the centralized E2E test
+harness or create real test users through the test-user workflow.
+```
+
+Cloud release impact:
+
+```text
+This does not change the current Cloud product decision: baseline remains the
+safe Cloud candidate and keyterms remains backlog/experiment. The candidate
+sweep did not add app-path Cloud release proof because the smoke harness failed
+before app visible-ready.
+```
+
+Required next action:
+
+1. Fix lint blockers shared in the matrix.
+2. Fix the browser smoke setup path.
+3. If Cloud app-path proof is rerun later, capture `window.__CLOUD_STT_TIMELINE__`,
+   stop-to-termination timing, tail preservation, save/history/detail, readability,
+   and baseline-vs-formatted output before enabling Gemini formatting by default.

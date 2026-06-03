@@ -970,3 +970,70 @@ sentences are being removed.
 | Trust hooks, score confidence, onboarding, log redaction, Native formatter seam | focused Vitest suite | 8 files / 83 tests passed | Supporting code is unit/component green; browser proof still required. |
 | Edge functions including `format-transcript`, AssemblyAI token, AI suggestions, Stripe | `pnpm test:edge` | 11 files / 70 steps passed | Backend formatter/token contract is green; real browser formatter invocation still must be proven. |
 | Private local punctuation feasibility | `pnpm exec tsx scripts/private-local-punctuation-feasibility.mts` | raw identity fails run-on fixtures; no-network word-preserving heuristic passes | Confirms Private needs local punctuation work; establishes lower bound for dev-owned local implementation. |
+
+## Candidate Branch Validation Sweep: 2026-06-03T17:00Z
+
+Candidate under test:
+
+```text
+branch: fix/private-live-cumulative-transcript-2
+commit: eff03d2d
+```
+
+This sweep tested the dev candidate that is intended to help Private live cumulative
+text, Native formatter activation, trust hooks, score confidence, and local
+punctuation support. It is not a main-branch release proof until the branch is
+merged and rerun.
+
+| Area | Command | Result | Release meaning |
+| --- | --- | --- | --- |
+| Focused STT/user-trust unit/component suite | `pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false ...` | **Pass:** 11 files / 146 tests | Strong automated support for transcript panel, score confidence, formatter seams, runtime/controller, PrivateWhisper, redaction, onboarding. |
+| Edge/backend formatter/token contract | `pnpm test:edge` | **Pass:** 11 files / 70 steps | `format-transcript` and AssemblyAI token gates remain contract-green; Private formatter server use is still hard-rejected. |
+| Private local punctuation feasibility | `pnpm exec tsx scripts/private-local-punctuation-feasibility.mts` | **Pass:** harness self-validation | Identity/raw Whisper fails run-on fixtures; local no-network word-preserving formatter lower bound passes. |
+| Full unit suite | `pnpm test:unit` | **Pass:** 147 files / 1123 tests passed / 1 todo | Candidate has broad automated unit support. |
+| Typecheck | `pnpm typecheck` | **Pass** | No TypeScript blocker in this sweep. |
+| Build | `pnpm build:test` | **Pass** | Test build completes; warnings are bundle/onnxruntime eval/chunk-size warnings, not build failures. |
+| Quality/lint | `pnpm quality` | **Fail:** 2 lint errors + 2 warnings | Release hygiene blocker before branch can be called quality-green. |
+| Browser UX smoke | `pnpm rc:ux:smoke` | **Fail:** 5 infra-probe tests failed, 9 not run | Browser user-experience proof is blocked before STT behavior because the app never reaches `html[data-app-visible-ready="true"]`. |
+
+Quality/lint failure details:
+
+```text
+backend/supabase/functions/format-transcript/index.ts
+  229:12 warning '_err' is defined but never used
+  244:14 warning '_err' is defined but never used
+
+frontend/src/services/transcription/__tests__/SttSafeguards.test.ts
+  11:10 error 'useSessionStore' is defined but never used
+
+tests/live/benchmark-native.live.spec.ts
+  4:16 error 'expect' is defined but never used
+```
+
+Browser UX smoke blocker:
+
+```text
+tests/e2e/infra.probe.e2e.spec.ts failed waiting for:
+html[data-app-visible-ready="true"]
+
+Browser console/root error:
+Mock auth is not available from the runtime app. Use the centralized E2E test
+harness or create real test users through the test-user workflow.
+```
+
+Release interpretation:
+
+```text
+The candidate has strong automated support, but it is not browser/user-experience
+green. The smoke harness currently reaches an auth/test-harness mismatch before
+it can verify Private cumulative live text, Native formatter invocation, trust
+state banners, or score confidence behavior in a real browser.
+```
+
+Dev/test action required:
+
+1. Fix the lint blockers above.
+2. Decide whether `rc:ux:smoke` should run through the centralized E2E test harness
+   or real test users, then make the app reach `data-app-visible-ready="true"`.
+3. Rerun browser UX smoke and targeted Private/Native proofs on the merged SHA.
+4. Only then classify the candidate as user-trust green.

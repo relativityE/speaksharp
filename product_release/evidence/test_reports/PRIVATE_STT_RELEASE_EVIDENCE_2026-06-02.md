@@ -2009,3 +2009,74 @@ Pass criteria:
 - before Stop, visible transcript contains cumulative earlier + later speech, not only latest/tail sentence
 - after Stop, final transcript remains full, readable, and save/history/detail match
 ```
+
+## TEST UPDATE (2026-06-03T17:00Z) — Candidate `eff03d2d` automated support is strong, browser UX proof is blocked
+
+Candidate tested:
+
+```text
+branch: fix/private-live-cumulative-transcript-2
+commit: eff03d2d
+```
+
+This candidate is intended to address the Private live-cumulative transcript bug
+above and includes related trust/formatter/score work. Automated checks support
+the branch, but browser user-experience proof did not complete.
+
+Automated results:
+
+| Check | Result | Private read |
+| --- | --- | --- |
+| Focused STT/user-trust suite | **Pass:** 11 files / 146 tests | Unit/component coverage supports transcript panel, score confidence, controller/service, `PrivateWhisper`, log redaction, and formatter seams. |
+| Full unit suite | **Pass:** 147 files / 1123 tests passed / 1 todo | Broad non-browser support is green. |
+| Typecheck | **Pass** | No TS blocker found. |
+| Build | **Pass:** `pnpm build:test` | Candidate builds. |
+| Private local punctuation feasibility | **Pass:** harness self-validation | Raw/identity fails run-on fixtures; no-network word-preserving formatter lower bound passes. |
+| Quality/lint | **Fail** | Release hygiene blocker before candidate can be called quality-green. |
+| Browser UX smoke | **Fail before STT proof** | App never reached `html[data-app-visible-ready="true"]`; Private cumulative live text was not browser-proven. |
+
+Quality/lint blockers:
+
+```text
+frontend/src/services/transcription/__tests__/SttSafeguards.test.ts
+  11:10 error 'useSessionStore' is defined but never used
+
+tests/live/benchmark-native.live.spec.ts
+  4:16 error 'expect' is defined but never used
+
+backend/supabase/functions/format-transcript/index.ts
+  229:12 warning '_err' is defined but never used
+  244:14 warning '_err' is defined but never used
+```
+
+Browser UX smoke blocker:
+
+```text
+tests/e2e/infra.probe.e2e.spec.ts failed waiting for:
+html[data-app-visible-ready="true"]
+
+Browser console/root error:
+Mock auth is not available from the runtime app. Use the centralized E2E test
+harness or create real test users through the test-user workflow.
+```
+
+Private release impact:
+
+```text
+Do not mark the Private live-cumulative transcript fix browser-green from this
+sweep. The branch has useful automated evidence, but the browser proof was
+blocked by auth/test-harness setup before the user could experience recording,
+Draft, Processing, Final, save/history/detail, or cumulative live text.
+```
+
+Required next action:
+
+1. Fix the lint blockers.
+2. Fix the browser smoke setup path: use centralized E2E harness or real test
+   users so the app reaches `data-app-visible-ready="true"`.
+3. Rerun Private v2 human/browser proof on the merged SHA:
+   - setup consent explicit
+   - draft/trust banner visible from mic-on
+   - live transcript cumulative before Stop
+   - Stop final selected transcript full/readable
+   - save/history/detail match
