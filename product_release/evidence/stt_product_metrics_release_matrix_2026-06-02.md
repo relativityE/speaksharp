@@ -1310,3 +1310,56 @@ Still-current bugs on committed main:
 | --- | --- | --- |
 | Goal save fails in E2E/mock path | `[E2E_FATAL_CONSOLE_ERROR] ... i.from(...).upsert is not a function ... [useGoals] Mutation failed`; dialog stayed open instead of closing. | Goal customization cannot be trusted in the current browser proof path. Either fix the mock/service compatibility or prove the real Supabase goal-save path separately. |
 | Custom filler word not visible as tracked | After adding `AntigravityUI`, the popover success path ran, but the main `filler-words-list` did not show it. | Users cannot verify their custom coaching/filler term is active before speaking. This directly affects filler-recall trust and custom-word product value. |
+
+
+---
+
+## Latest Private Current-Main Proof (2026-06-03T21:28Z) — current-main Private duplication proof reached save; not blocked at setup
+
+Commit under test:
+
+```text
+4013f6f0 feat(proof): identity-bearing persisted-session marker (#5)
+```
+
+Run:
+
+```text
+BASE_URL=https://speaksharp-public.vercel.app
+CI=true
+pnpm exec playwright test tests/live/tester-b-private-native-stt.live.spec.ts \
+  --config=playwright.deployed-live.config.ts \
+  --project=deployed-live-chromium \
+  --grep "Private STT" \
+  --reporter=line \
+  --output=/private/tmp/speaksharp-main-current-private-proof
+```
+
+Result:
+
+```text
+FAIL — stale filler assertion, but proof reached setup -> recording -> stop -> saveCandidate.
+```
+
+Dev-answering evidence:
+
+| Question | Answer from proof |
+| --- | --- |
+| Is Private duplication classification blocked at DOWNLOAD_REQUIRED? | **No.** Current-main deployed proof reached model setup, model ready, recording, Stop, and persisted session marker. |
+| Is the repeated transcript only raw DOM contamination? | **No.** The authoritative save candidate selected `service_result`, and `service_result` itself is repeated. |
+| What was selected for save? | `Basically, we should literally like, "Wait, um, basically, we should literally like, wait, um, basically."` |
+| What was truth? | `Um. Basically, we should literally like, wait.` |
+| Key saveCandidate fields | `saveCandidateReason=service_result`, `selectedForSaveLength=106`, `finalWordCount=15`, `resultTranscriptLength=106`, `chunkTranscriptLength=106`, `storeTranscriptLength=106`, `visibleStoreTranscriptLength=106`, `frozenStopTranscriptLength=66`. |
+| Candidate lengths | `service_result=106`, `committed_final=106`, `visible_snapshot=66`, `best_meaningful_partial=66`, `store_visible_snapshot=106`. |
+| Current failure in live spec | The assertion still parses concatenated `filler-words-list` text and receives `[]`; this is stale extraction. Use `[data-filler-word]` / `[data-filler-count]` for filler proof. |
+
+Direct dev ask:
+
+```text
+Private duplication is now classified enough to start product debugging:
+the repeated text is in service_result/saveCandidate, not just UI container text.
+Please inspect the Private finalization/service-result path: whole-utterance final decode,
+chunk/live final merge, and candidate selection. The fix should make selectedForSave for
+conv_01 equal the concise truth without repetition. The test harness should separately
+move filler assertions to the clean row selectors.
+```
