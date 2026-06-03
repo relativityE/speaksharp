@@ -130,6 +130,56 @@ describe('AnalyticsDashboard', () => {
         expect(sessionItems.length).toBeGreaterThan(0);
     });
 
+    it.each([
+        {
+            id: 'delivery_control',
+            label: 'Delivery Control',
+            outcome: /steadier and more controlled/i,
+            statCards: ['stat-card-speaking_pace', 'stat-card-filler_words_per_min', 'stat-card-clarity_score', 'stat-card-total_practice_time'],
+        },
+        {
+            id: 'message_clarity',
+            label: 'Message Clarity',
+            outcome: /tighten the opening/i,
+            statCards: ['stat-card-clarity_score', 'stat-card-speaking_pace', 'stat-card-avg_session_length', 'stat-card-total_sessions'],
+        },
+        {
+            id: 'habit_progress',
+            label: 'Habit Progress',
+            outcome: /speaking habit is improving/i,
+            statCards: ['stat-card-total_sessions', 'stat-card-total_practice_time', 'stat-card-avg_session_length', 'stat-card-filler_words_per_min'],
+        },
+        {
+            id: 'session_proof',
+            label: 'Session Proof',
+            outcome: /what changed between practice attempts/i,
+            statCards: ['stat-card-total_sessions', 'stat-card-speaking_pace', 'stat-card-clarity_score', 'stat-card-filler_words_per_min'],
+        },
+        {
+            id: 'transcript_quality',
+            label: 'Transcript Quality',
+            outcome: /delivery or capture quality/i,
+            statCards: ['stat-card-clarity_score', 'stat-card-speaking_pace', 'stat-card-avg_session_length', 'stat-card-total_sessions'],
+        },
+    ])('renders the $label analytics focus as a coherent user story', ({ id, label, outcome, statCards }) => {
+        localStorage.setItem('speaksharp_analytics_tool_group_v1', id);
+
+        renderComponent({ sessionHistory: mockSessionHistory });
+
+        expect(screen.getByRole('heading', { name: label })).toBeInTheDocument();
+        expect(screen.getByText(outcome)).toBeInTheDocument();
+        expect(screen.getByText(`Evidence for ${label}`)).toBeInTheDocument();
+        expect(screen.getByText(`${label} Tools`)).toBeInTheDocument();
+        expect(screen.getByText(new RegExp(`${label} shows which ingredient to improve`, 'i'))).toBeInTheDocument();
+        for (const testId of statCards) {
+            expect(screen.getByTestId(testId)).toBeInTheDocument();
+        }
+
+        if (id === 'transcript_quality') {
+            expect(screen.getByTestId('accuracy-comparison')).toBeInTheDocument();
+        }
+    });
+
     it('supports a custom toolkit when users want specific tools outside predefined groups', () => {
         localStorage.setItem('speaksharp_analytics_tool_group_v1', 'custom');
         localStorage.setItem('speaksharp_custom_stat_cards_v1', JSON.stringify(['total_sessions', 'clarity_score']));
