@@ -41,7 +41,8 @@ test.describe('User-facing session and analytics regressions', () => {
     await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('tester-facing transcript');
 
     await expect(page.getByTestId('live-coaching-score-card')).toBeVisible();
-    await expect(page.getByTestId('live-session-score')).not.toHaveText('--');
+    await expect(page.getByTestId('live-session-score')).toHaveText('--');
+    await expect(page.getByTestId('live-score-quality-caveat')).toContainText(/miss filler words/i);
     await expect(page.getByTestId('live-score-evidence')).toContainText(/pace, fillers, pauses/i);
     await expect(page.getByTestId('live-coaching-actions')).toContainText(/\w+/);
     await expect(page.getByText(/filler words detected|captured words/i)).toBeVisible();
@@ -54,15 +55,37 @@ test.describe('User-facing session and analytics regressions', () => {
     await selectTranscriptionEngine(page, 'native');
 
     const startButton = page.getByTestId(TEST_IDS.SESSION_START_STOP_BUTTON);
+    const transcriptPanel = page.getByTestId(TEST_IDS.TRANSCRIPT_PANEL);
     await page.waitForSelector('html[data-runtime-state="READY"]', { timeout: 15_000 });
     await startButton.click();
     await simulateTranscription(page, userFacingTranscript, true);
     await expect(page.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toContainText('tester-facing transcript');
+    await expect(transcriptPanel).toHaveAttribute('data-draft-banner-visible', 'true');
+    await expect(transcriptPanel).toHaveAttribute('data-final-state-visible', 'false');
+    const trustStateWhileRecording = await page.evaluate(() => (
+      window as Window & {
+        __SS_TRUST_STATE__?: { uiState?: string; draftBannerVisible?: boolean };
+      }
+    ).__SS_TRUST_STATE__);
+    expect(trustStateWhileRecording).toMatchObject({
+      uiState: 'drafting',
+      draftBannerVisible: true,
+    });
 
     await expect(page.getByTestId(TEST_IDS.FILLER_COUNT_VALUE)).toContainText('2');
     await page.waitForTimeout(5_200);
     await startButton.click();
     await expect(page.locator('html')).toHaveAttribute('data-session-persisted', 'true', { timeout: 15_000 });
+    await expect(transcriptPanel).toHaveAttribute('data-final-state-visible', 'true', { timeout: 15_000 });
+    const saveCandidate = await page.evaluate(() => (
+      window as Window & {
+        __SPEECH_RUNTIME_DEBUG__?: () => {
+          saveCandidate?: { selectedForSave?: string; saveCandidateReason?: string };
+        };
+      }
+    ).__SPEECH_RUNTIME_DEBUG__?.().saveCandidate ?? null);
+    expect(saveCandidate?.selectedForSave).toContain('tester-facing transcript');
+    expect(saveCandidate?.selectedForSave).not.toContain('[E2E_MOCK]');
 
     await page.getByTestId(TEST_IDS.NAV_ANALYTICS_LINK).click();
     await waitForFeature(page, 'analytics');

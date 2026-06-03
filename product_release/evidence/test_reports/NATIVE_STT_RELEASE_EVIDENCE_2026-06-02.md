@@ -1097,3 +1097,35 @@ the real Chrome mic rerun for:
 - trust-state banner perceptibility while interim text changes
 - save/history/detail equality from the real saved row
 ```
+
+---
+
+## TEST UPDATE (2026-06-03T19:25Z) — browser trust hooks and score caveat proof added
+
+New test coverage added in `tests/e2e/user-facing-regressions.e2e.spec.ts`.
+
+Commands/results:
+
+| Command | Result | What it proves |
+| --- | --- | --- |
+| `pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false ...` focused STT/user-trust suite | **PASS:** 10 files / 122 tests | Native formatter seam/telemetry, trust panel, score confidence, onboarding, log redaction, and Private provisional merge are unit/component green. |
+| `pnpm test:edge` | **PASS:** 11 files / 70 steps | `format-transcript` contract is green: Private hard-rejected, word/filler preservation enforced, error codes exposed. |
+| `CI=true pnpm exec playwright test tests/e2e/user-facing-regressions.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=/private/tmp/speaksharp-user-facing-trust-hooks-2` | **PASS:** 9/9 | Browser proof now asserts trust-state data attributes / `__SS_TRUST_STATE__` and authoritative `saveCandidate` instead of relying only on transcript DOM text. |
+| `pnpm rc:ux:smoke` | **PASS:** 14/14 | Full release UX smoke still passes after stricter trust/saveCandidate assertions. |
+
+Bug/test findings from this pass:
+
+| Finding | Classification | Status |
+| --- | --- | --- |
+| Browser E2E did not previously assert `data-draft-banner-visible`, `data-final-state-visible`, `window.__SS_TRUST_STATE__`, or `__SPEECH_RUNTIME_DEBUG__().saveCandidate`. | **Test coverage gap** | **Fixed in E2E:** the user-facing regression proof now checks Draft while recording, Final after Stop, and verifies `saveCandidate.selectedForSave` contains the emitted transcript and not `[E2E_MOCK]`. |
+| Existing E2E expected Native to show a precise numeric score after speech. Current product contract intentionally keeps Native at `--` / `Early signal` because Native filler recall is not trusted. | **Stale test expectation, not product bug** | **Fixed in E2E:** the test now requires `--` plus `live-score-quality-caveat` text about missed filler words. This matches score-confidence gating. |
+| `__NATIVE_FORMATTER_LAST__` cannot be proven by the mock E2E path because injected mock engines bypass the real `NativeBrowser.getTranscript()` formatter path. | **Remaining human/browser proof gap** | **Open:** rerun real Chrome mic Native proof; capture raw vs formatted vs ground truth, `__NATIVE_FORMATTER_LAST__`, fallback case, words/fillers unchanged, save/history/detail. |
+
+Current Native read:
+
+```text
+Native trust/score UI is now better guarded by automated browser proof, but
+Native is not release-green until the real human Chrome mic path proves formatter
+invocation, readability improvement, and save/history/detail with actual browser
+speech recognition.
+```
