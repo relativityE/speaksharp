@@ -1,6 +1,6 @@
 # Cloud STT Test Report — Current Release Evidence
 
-**Updated:** 2026-06-02T23:58:00Z  
+**Updated:** 2026-06-03T14:05:00Z
 **Scope:** AssemblyAI Cloud STT, credentialed A/B, filler/readability/tail proof, app journey  
 **Canonical metric matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -72,16 +72,38 @@ Prior app corpus:      /private/tmp/speaksharp-cloud-harvard10-app.json
 Prior provider A/B:    /private/tmp/assemblyai-ab-26776256219/assemblyai-streaming-ab-proof.json
 ```
 
-## Current A/B Requirement
+## Current Cloud Variant Policy
 
-Credentialed A/B must run these variants:
+Launch/default Cloud path:
+
+```text
+baseline only
+```
+
+Product decision:
+
+```text
+Keep Cloud baseline as the quality path. Do not make keyterms/prompt variants
+default for launch. Keyterms can recover `um` on h1_1, but it regresses h1_6
+ordinary transcript accuracy. Prompt/u3-rt-pro changes cost and is not approved
+as the default path.
+```
+
+Workflow hygiene:
+
+```text
+Controlled STT Benchmarks now defaults `streaming_ab_variants=baseline`.
+Run keyterms/prompt variants only as explicit experiments.
+```
+
+Optional experimental A/B, if product reopens keyterms/custom-word boosting:
 
 | Variant | Purpose |
 | --- | --- |
 | `baseline` | Current default/control |
-| `keyterms` | Keyterm boosting only |
-| `prompt` | Disfluency/filler-preservation instruction only |
-| `prompt_keyterms` | Combined behavior candidate |
+| `keyterms` | Keyterm boosting only; not launch-default |
+| `prompt` | Disfluency/filler-preservation instruction only; cost approval required |
+| `prompt_keyterms` | Combined behavior candidate; cost approval required |
 
 Required subset:
 
