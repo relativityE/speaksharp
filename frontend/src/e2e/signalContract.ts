@@ -296,8 +296,8 @@ export const SIGNAL_CONTRACT = [
     owner: 'frontend/src/services/transcription/modes/PrivateWhisper.ts',
     writers: ['PrivateWhisper.publishPrivateTiming()'],
     readers: ['Private STT quality-push proofs'],
-    intent: 'Always-on Private STT timing summary: { timeToFirstProvisionalMs, timeToFirstFinalMs, finalizeWaitMs, finalizeDecodeMs, utteranceSeconds, peakBufferedSeconds, anchor, updatedAtMs }. timeToFirst* are relative to speech-start (fallback stream-start). finalizeWaitMs = Stop->decode-start pre-decode overhead (drain of in-flight live decode + cleanup); finalizeDecodeMs = the whole-utterance decode itself. Diagnostics only; never gates behavior.',
-    waitGuidance: 'Read after Stop for the full picture (finalizeWaitMs + finalizeDecodeMs are set during the stop-commit; their sum is the user-visible post-Stop wait). Cross-check finalizeWaitMs against the stop_predecode_breakdown timeline event { wasProcessingAtStop, drainWaitMs }. Not trace-gated.',
+    intent: 'Always-on Private STT timing summary: { timeToFirstProvisionalMs, timeToFirstFinalMs, finalizeWaitMs, finalizePrepMs, finalizeDecodeMs, utteranceSeconds, peakBufferedSeconds, anchor, updatedAtMs }. timeToFirst* are relative to speech-start (fallback stream-start). The post-Stop wait splits into THREE branches: finalizeWaitMs = Stop->commit-call (drain in-flight live decode off the single-threaded worker + cleanup); finalizePrepMs = in-commit concat/energy/audio-capture before the model call; finalizeDecodeMs = the model decode itself. Diagnostics only; never gates behavior.',
+    waitGuidance: 'Read after Stop. finalizeWaitMs + finalizePrepMs + finalizeDecodeMs ~= the user-visible post-Stop wait, and which one dominates selects the fix branch (1 drain / 2 prep / 3 decode). Cross-check finalizeWaitMs against the stop_predecode_breakdown timeline event { wasProcessingAtStop, drainWaitMs }. Not trace-gated.',
     replacement: null,
   },
   {

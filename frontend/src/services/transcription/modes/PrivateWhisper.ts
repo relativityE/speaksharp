@@ -80,15 +80,23 @@ export interface PrivateTimingSummary {
   timeToFirstProvisionalMs: number | null;
   /** ms from speech-start (fallback stream-start) to the first committed (non-draft) text. */
   timeToFirstFinalMs: number | null;
-  /** ms spent in the whole-utterance stop-commit decode (the saved-transcript authority). */
+  /**
+   * ms of the whole-utterance MODEL decode only (the privateSTT.transcribe call) —
+   * the saved-transcript authority. Decision-tree branch 3 (decode-bound).
+   */
   finalizeDecodeMs: number | null;
   /**
-   * ms from Stop (onStop entry) to the whole-utterance decode actually starting —
-   * i.e. pre-decode overhead (engine cleanup + waiting for any in-flight live decode
-   * to drain off the single-threaded worker). Distinguishes "stop pipeline overhead"
-   * from raw decode cost.
+   * ms from Stop (onStop entry) to the whole-utterance commit call — engine cleanup
+   * + draining any in-flight live decode off the single-threaded worker.
+   * Decision-tree branch 1 (in-flight live decode blocking Stop).
    */
   finalizeWaitMs: number | null;
+  /**
+   * ms inside commitWholeUtteranceTranscript BEFORE the model call — concatenating
+   * the full utterance buffer, energy scan, and diagnostic audio capture.
+   * Decision-tree branch 2 (finalize preprocessing).
+   */
+  finalizePrepMs: number | null;
   /** Total speech captured for this utterance, seconds. */
   utteranceSeconds: number;
   /** Peak live audio buffered at any point, seconds (unbounded-buffer guard). */
@@ -110,6 +118,7 @@ export function buildPrivateTimingSummary(p: {
   firstFinalAtMs: number | null;
   finalizeDecodeMs: number | null;
   finalizeWaitMs: number | null;
+  finalizePrepMs: number | null;
   utteranceSampleCount: number;
   peakBufferedSamples: number;
   nowMs: number;
@@ -124,6 +133,7 @@ export function buildPrivateTimingSummary(p: {
     timeToFirstFinalMs: rel(p.firstFinalAtMs),
     finalizeDecodeMs: p.finalizeDecodeMs,
     finalizeWaitMs: p.finalizeWaitMs,
+    finalizePrepMs: p.finalizePrepMs,
     utteranceSeconds: Number(samplesToSeconds(p.utteranceSampleCount, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
     peakBufferedSeconds: Number(samplesToSeconds(p.peakBufferedSamples, PRIVATE_STT_SAMPLE_RATE).toFixed(3)),
     anchor,
@@ -700,6 +710,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   private firstFinalAtMs: number | null = null;
   private finalizeDecodeMs: number | null = null;
   private finalizeWaitMs: number | null = null;
+  private finalizePrepMs: number | null = null;
   private stopRequestedAtMs: number | null = null;
   private peakBufferedSamples: number = 0;
   private retainedUtterancePrerollSamplesAtStart: number = 0;
@@ -733,6 +744,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       firstFinalAtMs: this.firstFinalAtMs,
       finalizeDecodeMs: this.finalizeDecodeMs,
       finalizeWaitMs: this.finalizeWaitMs,
+      finalizePrepMs: this.finalizePrepMs,
       utteranceSampleCount: this.utteranceSampleCount,
       peakBufferedSamples: this.peakBufferedSamples,
       nowMs: typeof performance !== 'undefined' ? performance.now() : Date.now(),
@@ -944,6 +956,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
     this.firstFinalAtMs = null;
     this.finalizeDecodeMs = null;
     this.finalizeWaitMs = null;
+    this.finalizePrepMs = null;
     this.stopRequestedAtMs = null;
     this.peakBufferedSamples = 0;
     this.publishPrivateTiming();
@@ -1835,13 +1848,13 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
         utteranceSamples: this.utteranceSampleCount,
       });
       const finalizeStartedAtMs = performance.now();
-      // Pre-decode overhead: Stop entry -> whole-utterance decode actually starting.
+      // Branch 1 (drain + cleanup): Stop entry -> whole-utterance commit call.
       this.finalizeWaitMs = this.stopRequestedAtMs == null
         ? null
         : Number((finalizeStartedAtMs - this.stopRequestedAtMs).toFixed(1));
       this.publishPrivateTiming();
+      // Branch 2 (finalizePrepMs) + branch 3 (finalizeDecodeMs) are set inside the commit.
       await this.commitWholeUtteranceTranscript();
-      this.finalizeDecodeMs = Number((performance.now() - finalizeStartedAtMs).toFixed(1));
       this.publishPrivateTiming();
 
       if (!this.wholeUtteranceTranscript.trim()) {
@@ -2119,6 +2132,7 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
   }
 
   private async commitWholeUtteranceTranscript(): Promise<void> {
+    const commitEnteredAtMs = performance.now();
     if (this.utteranceAudioChunks.length === 0 || this.utteranceSampleCount < MIN_TRANSCRIPTION_SAMPLES) {
       pushPrivateTimeline('whole_utterance_commit_skip', {
         serviceId: this.serviceId,
@@ -2153,8 +2167,14 @@ export default class PrivateWhisper extends STTEngine implements ITranscriptionE
       retainedPrerollSamples: this.retainedUtterancePrerollSamplesAtStart,
     });
     const decodeStartedAtMs = performance.now();
+    // Branch 2: finalize preprocessing (concat + energy + audio capture) before the model call.
+    this.finalizePrepMs = Number((decodeStartedAtMs - commitEnteredAtMs).toFixed(1));
+    this.publishPrivateTiming();
     const result = await this.privateSTT.transcribe(audio);
     const decodeMs = Number((performance.now() - decodeStartedAtMs).toFixed(1));
+    // Branch 3: the model decode itself.
+    this.finalizeDecodeMs = decodeMs;
+    this.publishPrivateTiming();
     const rawText = result.isOk ? result.data : '';
     if (capturedAudioIndex !== null) {
       const captured = window.__PRIVATE_UTTERANCE_AUDIO_CHUNKS__?.[capturedAudioIndex];
