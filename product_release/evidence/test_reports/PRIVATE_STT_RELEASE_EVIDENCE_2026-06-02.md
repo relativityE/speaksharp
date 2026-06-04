@@ -1,6 +1,6 @@
 # Private STT Release Evidence — Current
 
-**Updated:** 2026-06-04T16:25Z
+**Updated:** 2026-06-04T16:53Z
 **Scope:** Private v2 local/browser STT, explicit setup consent, accuracy, trust UI, save/history/detail  
 **Canonical matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -46,8 +46,26 @@ no Cloud fallback
 | **Private setup CTA size copy (#30)** | `82be4993` | Verify first-time Private setup shows the local model download size, not estimated setup time, and still requires explicit user click before download. |
 
 **v4 containment — @test-agent owns the browser proof (one-time, NOT a fix).** Answer only: *does Private v4 produce any non-empty transcript in the real browser app path?* — not "can we fix it / is it better than v2." Capture in the report: resolved `@huggingface/transformers` version in-worker, model download, provider-ready, record start/stop, decode result, exact failure signature (`invalid data location: undefined for input "a"`), whether `saveCandidate` stays empty, and **no silent Cloud fallback / no polluted v2 path**.
-- **DEV dev-half finding (testing-only):** `@huggingface/transformers` is **absent from `frontend/package.json`** (only `@xenova/transformers ^2.17.2`); the v4 worker does `await import('@huggingface/transformers')` → **phantom / unpinned** resolution. Per product, do **not** add it as a release dependency — confirmation is for the containment record only.
+- **DEV dev-half finding (testing-only):** `@huggingface/transformers` is declared at the root package (`^4.2.0`) but not in `frontend/package.json` (which only declares `@xenova/transformers ^2.17.2`). The v4 worker does `await import('@huggingface/transformers')`, so the containment proof should capture the resolved browser-worker version/package path. Per product, do **not** promote v4 as a release dependency unless the browser decode path succeeds.
 - **@test-agent records the classification (your call):** if the decode fails as expected, freeze it verbatim — *"Private v4 browser path: confirmed non-release-candidate. Browser lifecycle reaches model-ready/recording, but decode fails with an ONNX Runtime tensor/data-location error and produces no saved transcript. Keep off by default. Do not include in release A/B. Resume only as Phase 3 runtime/model upgrade work after the dependency is pinned and decode succeeds."*
+
+## Latest Test-Release Result — CI Private Browser Benchmark
+
+Owner: **test-release-agent / Codex**  
+Run: GitHub Actions `Controlled STT Benchmarks` / `26966053435`  
+Tested head: `de0e6f1e`  
+Artifacts: `/private/tmp/private-browser-benchmark-26966053435`
+
+| Engine | Result | Evidence | Release meaning |
+| --- | --- | --- | --- |
+| Private v2 / TransformersJS CPU | **Failed accuracy gate** | Saved `79` words from an `87`-word Harvard fixture, but WER was `51.72%` / accuracy `48.28%` versus the prior browser ceiling `6.11%` WER. `saveCandidateReason=service_result`; `sessionPersisted=true`; fillers counted in UI. | This is not a setup/auth failure. The app path initialized and saved, but transcript quality is far below parity. Keep Private v2 **not release-green** pending the named accuracy/VAD proof lane. |
+| Private v4 worker | **Failed completeness gate** | `saveCandidateReason=empty`; `selectedForSaveLength=0`; `finalWordCount=0`; transcript placeholder remained; no useful text was saved. | Classify v4 as **confirmed browser non-release-candidate** for this cycle. Do not include v4 in release A/B unless a future runtime/model branch proves non-empty browser decode first. |
+
+Notes:
+
+- This run pre-dates the later VAD flag scaffold (`8c7ef391` / `551b1a80`), so it does **not** validate the new flag-off path. It does close the one-time v4 containment question on the pre-VAD browser path.
+- The v2 failure is a quality/parity failure, not a saveCandidate extraction issue: the authoritative save candidate and visible transcript agree on the poor transcript.
+- The first-text phase still included trust/helper copy in the visible container. Use `data-transcript-text-only` and `saveCandidate.selectedForSave` for transcript-only extraction.
 
 ## Latest Test-Release Result — Current-Main Non-Human Validation
 
