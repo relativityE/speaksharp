@@ -1,5 +1,5 @@
 {
-  "lastUpdatedAt": "2026-06-04T13:23:00Z",
+  "lastUpdatedAt": "2026-06-04T13:26:00Z",
   "purpose": "Current STT release status only. Historical/superseded proof chatter intentionally pruned from active reports.",
   "classifications": {
     "cloud": {
@@ -223,6 +223,16 @@
       "save/history/detail equality"
     ]
   },
+  "latestReportBacklogHygiene": {
+    "status": "complete",
+    "owner": "test-release-agent / Codex",
+    "changes": [
+      "Marked all seven test-release tasks with current completion/gating status.",
+      "Pruned stale backlog signals for completed analytics review, Native formatter quota #35, Private provisional quality #36, and sanitizer #38.",
+      "Preserved post-launch live meeting overlay backlog item.",
+      "Kept active STT reports focused on current blockers, owners, artifacts, and proof gates."
+    ]
+  },
   "trustCopyContract": {
     "private": {
       "allowed": ["Listening locally…", "Processing speech locally…", "Finalizing local transcript…", "Draft transcript for visible provisional words", "normal final transcript styling"],
@@ -249,6 +259,7 @@
       "Session-to-Analytics coherence complete under targeted automated proof",
       "Browser UX bug hunt complete under automated proof; rerun after dev lands STT blockers",
       "Cloud baseline local contract complete; credentialed app-path proof still required",
+      "Report/backlog hygiene complete; active files pruned to current release signals",
       "Rerun Native real mic after dev fixes",
       "Rerun Private human proof after dev fixes",
       "Run Cloud baseline current-head proof after higher-priority Native/Private blockers"

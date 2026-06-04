@@ -1,6 +1,6 @@
 # STT Product Metrics Release Matrix — Current
 
-**Updated:** 2026-06-04T13:23Z  
+**Updated:** 2026-06-04T13:26Z
 **Purpose:** One-page current STT release status. Older proof history is intentionally removed from this active matrix; use git history only if a prior artifact must be audited.
 
 ## Current Classification
@@ -61,6 +61,6 @@
 | 4 | Session-to-Analytics coherence pass | Complete: `66/66` targeted Vitest, `9/9` user-facing browser regressions, `13/13` analytics suite/truth |
 | 5 | Browser UX bug hunt | Complete: `19/19` Playwright across primary journey, user features, filler words, goals, and error states; no new automated UX bug found |
 | 6 | Cloud baseline proof | Local contract complete: `44/44`; live app-path proof credential-gated and still required before green |
-| 7 | Report/backlog hygiene | Assigned to test-release-agent / Codex |
+| 7 | Report/backlog hygiene | Complete: stale backlog/report signals pruned; active reports retain current blockers, owners, artifacts, and proof gates |
 
 Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and update the owning evidence file with the merge commit. Do not leave release fixes stranded on long-lived branches.
