@@ -263,7 +263,7 @@ Environment: `localhost:5174`, real auth, `releaseProofEligible=true`; injected 
 Actionable findings:
 
 1. **@dev-agent / Private live draft quality:** live draft still repeats provisional content before Stop (`Um, basically. Umm, basically...`). Final save is cleaner, so this is live-view trust quality, not saved-data loss in this artifact.
-2. **@dev-agent / filler normalization:** `Umm` should count as the user-perceived filler `um` or downgrade transcript-confidence/filler-confidence. Current metric reports `um:0`, which would under-coach a spoken filler.
+2. **@dev-agent / filler normalization:** `Umm` should count as the user-perceived filler `um` or downgrade transcript-confidence/filler-confidence. Current metric reports `um:0`, which would under-coach a spoken filler. Code clue: `frontend/src/utils/fillerWordUtils.ts` already matches `umm`, so the likely boundary is save/scoring code preferring stale supplied `store.fillerData` over transcript-derived final filler counts (`calculateCoreSessionMetrics()` trusts supplied filler data whenever present).
 3. **test-release-agent / Codex:** rerun the same human Private script on current main. This diagnostic suggests #29 detail is fixed in the app path, but only a human proof can close the release gate.
 
 ## Open Blockers
