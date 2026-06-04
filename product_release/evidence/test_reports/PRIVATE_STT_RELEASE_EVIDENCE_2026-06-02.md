@@ -582,3 +582,52 @@ box ≠ linear contrast; block-size invariance; 44.1 kHz non-integer ratio safe)
 ```
 
 **Rollback:** revert `58d9ba7d` (7 files); default-OFF means no rollback needed unless promoted.
+
+## TEST → DEV: STT-P8 preliminary A/B (2026-06-04, owner: test-release-agent / Codex)
+
+**Branch tested:** `test/stt-p8-current-main@a38dd948` = current `main@ef13a20b`
++ cherry-pick `dev/private-resampler-parity@58d9ba7d`.
+
+**Static proof:**
+- `frontend/src/services/transcription/utils/__tests__`: **72/72 pass**.
+- Frontend `tsc --noEmit`: **clean**.
+
+**Harness note:** `scripts/manual-stt-corpus-proof.mjs` was temporarily extended locally to pass
+`STT_PRIVATE_RESAMPLER=box|linear` through `?privateResampler=` and, for h1_6, surface
+`privateResamplerTelemetry` in the result. That proof hook was not merged to `main`.
+
+**Artifacts:**
+- `/private/tmp/stt-p8-box-conv01.json`
+- `/private/tmp/stt-p8-linear-conv01.json`
+- `/private/tmp/stt-p8-box-h1_6.json`
+- `/private/tmp/stt-p8-linear-h1_6.json`
+
+**Environment:** canonical local release proof app, `http://127.0.0.1:5174`, real auth,
+`releaseProofEligible=true`, injected mic WAV route for repeatability.
+
+**Results so far:**
+
+| Fixture | Box accuracy / transcript | Linear accuracy / transcript | Timing signal | Verdict |
+|---|---|---|---|---|
+| `conv_01` | `85.71%`; `Umm, basically, we should literally like, wait.` | `85.71%`; same transcript | First text improved `5879 ms` → `3355 ms`; finalization `3427 ms` → `2690 ms` | No WER lift; no repetition in either artifact. |
+| `h1_6` | `87.5%`; `Day, Like, Told Wild Tales to Frighten Him.` | `87.5%`; `Day. Like, told Wild Tales to frighten him.` | First text roughly flat `3125 ms` → `3073 ms`; finalization improved `4492 ms` → `3392 ms` | No WER lift; journey/detail passed both sides. |
+
+`h1_6` telemetry confirmed the flag path:
+
+```json
+{
+  "box": {"resampleMode":"box","overridden":false},
+  "linear": {"resampleMode":"linear","overridden":true}
+}
+```
+
+**Important caveat:** this preliminary run does **not** prove linear closes the app-vs-drop-in
+accuracy gap. It shows no accuracy regression and some timing improvement on two short fixtures.
+It also did not reproduce the STT-P1D save-candidate repetition in either `conv_01` artifact, so
+it cannot prove or disprove whether linear removes that failure.
+
+**Recommendation:** do not merge the linear resampler as an accuracy fix from this evidence alone.
+Next useful paths are:
+1. Extend P8 A/B to the originally requested human script / harder rows with in-result telemetry.
+2. Let @dev-agent continue unblocking P5/P6 so VAD/model A/B can run.
+3. If P8 remains timing-only, classify it as possible timing polish rather than the P0 accuracy fix.
