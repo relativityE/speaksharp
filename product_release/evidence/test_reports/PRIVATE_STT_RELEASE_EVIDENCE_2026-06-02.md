@@ -75,6 +75,10 @@ second ORT, deliberately avoiding the v4 `invalid data location` duplicate-runti
 If either is missing, `createSileroVad()` returns null → **automatic RMS fallback**
 (telemetry `vadFellBackToRms: true`); the app never breaks.
 
+Test-agent prep update: focused P5 unit/static proof passes (`PrivateWhisper` + `privateVadFlag` =
+49/49; frontend typecheck clean). Browser A/B is still blocked by missing
+`frontend/public/models/silero_vad.onnx`; the current models directory only contains Whisper assets.
+
 **Telemetry to capture (`window.__PRIVATE_VAD_TELEMETRY__`):**
 `vadEnabled`, `vadModel` (`silero-vad`), `vadRuntime` (`onnxruntime-web`),
 `vadRuntimeVersion`, `vadOnsetMs`, `vadMeanSpeechProb`, `vadFellBackToRms`. Plus the usual
@@ -98,6 +102,10 @@ together.
 **Enable (one model per session):** `?privateModel=distil-small.en` or `whisper-base.en`
 (or `window.__PRIVATE_MODEL__ = '...'`). Default/absent/unknown → `whisper-tiny.en`
 (production, byte-identical). No new dependency; the larger model downloads on demand.
+
+Test-agent prep update: focused P6 unit/static proof passes (`privateModelFlag`, `PrivateSTT`,
+`PrivateWhisper` = 63/63; frontend typecheck clean). Branch is behind current main; run browser A/B
+from a current-main test branch/rebase before any release/product decision.
 
 **Candidate matrix (`PRIV_STT_MODELS`):**
 
