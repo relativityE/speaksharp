@@ -1,6 +1,6 @@
 # Native STT Release Evidence — Current
 
-**Updated:** 2026-06-04T13:06Z  
+**Updated:** 2026-06-04T13:26Z
 **Scope:** Chrome Web Speech Native STT, real human mic, formatter, trust UI, save/history/detail  
 **Canonical matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -79,18 +79,15 @@ Native and Cloud must use generic trust language only.
 
 Owner: **test-release-agent / Codex** after `@dev-agent` lands a fix.
 
-Additional **test-release-agent / Codex** owned work that can proceed without taking dev implementation lanes:
+Completed **test-release-agent / Codex** work is recorded in the canonical matrix: formatter plumbing verification, session-to-analytics coherence, browser UX sweep, and report hygiene.
 
-| # | Task |
-| --- | --- |
-| 2 | Native raw-first async formatter plumbing verified by automated tests; browser/human proof still required after dev fixes detail and truecasing quality. |
-| 4 | Session-to-Analytics coherence for Native-derived score/quality signals. |
-| 5 | Browser UX bug hunt covering Native session flow, save/history/detail, conversion funnel, and generic trust copy. |
-| 7 | Keep this report pruned to current artifacts, owners, and proof requirements. |
+Current **test-release-agent / Codex** action after `@dev-agent` lands fixes:
+
+```text
+Rerun the same real Chrome mic proof and capture the fields below.
+```
 
 Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and keep reports/backlog updated with the merge commit. Do not leave release fixes stranded on long-lived branches.
-
-Run the same real Chrome mic proof and capture:
 
 ```text
 __SPEECH_RUNTIME_DEBUG__().saveCandidate
