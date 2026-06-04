@@ -23,6 +23,7 @@ import { validateEngine, STTEngine } from '@/contracts/STTEngine';
 import { FillerCounts } from '@/utils/fillerWordUtils';
 import { calculateCoreSessionMetrics, getFillerTotal } from '@/utils/sessionAnalysis';
 import { updateSession } from '@/lib/storage';
+import { formatNativeSessionInBackground } from '@/services/transcription/nativeAsyncFormatter';
 import { clearSessionRecoveryDraft, saveSessionRecoveryDraft } from '@/services/sessionRecoveryDraft';
 
 declare global {
@@ -2039,6 +2040,25 @@ export class SpeechRuntimeController {
                                 : null;
                             this.updateSessionPersisted(true, persistedSessionMarker ?? undefined);
                             useSessionStore.getState().setSessionSaved(true);
+
+                            // Native RAW-FIRST async formatting: the raw transcript is now saved.
+                            // Punctuation/casing is restored in the BACKGROUND and replaces the saved
+                            // transcript only on word-preserving success — Stop/save/history/detail
+                            // never wait on the network formatter. Private/Cloud are unaffected.
+                            if ((modeForFinalization ?? stopEntryMode) === 'native') {
+                                void formatNativeSessionInBackground({
+                                    sessionId,
+                                    rawTranscript: finalTranscript,
+                                    onUpdated: (formatted) => {
+                                        const liveStore = useSessionStore.getState();
+                                        // Only refresh the display if it still shows this session's raw
+                                        // final (don't clobber a newly started session).
+                                        if (liveStore.transcript.transcript.trim() === finalTranscript.trim()) {
+                                            liveStore.updateTranscript(formatted, '');
+                                        }
+                                    },
+                                });
+                            }
                             if (token.cancelled) {
                                 logger.warn({
                                     mode: service.getMode?.() ?? stopEntryMode,
