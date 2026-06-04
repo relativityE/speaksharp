@@ -84,6 +84,39 @@ no >10% first-progress/finalize regression. Report **app-vs-drop-in** and
 **app-vs-Native-baseline** deltas. Do not green VAD on timing alone. `vadFellBackToRms:true`
 means the model didn't load — fix the pre-reqs, not the verdict.
 
+## DEV → TEST: STT-P6 model-eval candidate ready (2026-06-04, owner: dev-agent)
+
+Built + unit-verified on `dev/private-model-eval@2ad6b652` (base `d910a07d`). **Test the branch
+pre-merge.** This is the **decode/model-quality lever** the CI 51.7% WER points at — the
+companion to STT-P5 (onset VAD). Both flags are independent and can be A/B'd separately or
+together.
+
+**Enable (one model per session):** `?privateModel=distil-small.en` or `whisper-base.en`
+(or `window.__PRIVATE_MODEL__ = '...'`). Default/absent/unknown → `whisper-tiny.en`
+(production, byte-identical). No new dependency; the larger model downloads on demand.
+
+**Candidate matrix (`PRIV_STT_MODELS`):**
+
+| Key | Remote id | Approx download |
+|---|---|---|
+| `whisper-tiny.en` (default) | `Xenova/whisper-tiny.en` | ~40 MB |
+| `whisper-base.en` | `Xenova/whisper-base.en` | ~145 MB |
+| `distil-small.en` | `Xenova/distil-small.en` | ~166 MB |
+
+(Remote ids/sizes are best-effort — confirm the actual download + that the model resolves in
+the browser worker; if a candidate id is wrong, report it and I'll correct the constant.)
+
+**Telemetry (`window.__PRIVATE_MODEL_TELEMETRY__`):** `model`, `approxMB`, `overridden`,
+`loadTimeMs` (read actual load time from the worker `loaded` message). Plus the standard
+Private accuracy/timing fields.
+
+**Pass/fail (per the bar):** for each candidate, RMS-default decode on h1_2/6/8/10 +
+washington_01 + human script. A larger model **passes** only if its WER/accuracy improvement
+over `whisper-tiny.en` **justifies** the extra download/memory/latency (product weighs the
+trade). Report **WER/accuracy, download MB, load time, decode latency/RTF**, plus
+**app-vs-drop-in** and **app-vs-Native-baseline** deltas. Do not switch the default without
+this evidence (no blind switch).
+
 ## Latest Test-Release Result — CI Private Browser Benchmark
 
 Owner: **test-release-agent / Codex**  
