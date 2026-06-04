@@ -1,7 +1,8 @@
 import React from 'react';
 import { render, screen } from '../../../../tests/support/test-utils';
 import { describe, expect, it } from 'vitest';
-import { LiveTranscriptPanel, splitSettledActiveTranscript } from '@/components/session/LiveTranscriptPanel';
+import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
+import { splitSettledActiveTranscript } from '@/components/session/liveTranscriptUtils';
 import { TEST_IDS } from '@/constants/testIds';
 
 describe('LiveTranscriptPanel', () => {

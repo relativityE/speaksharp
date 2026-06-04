@@ -2,6 +2,7 @@ import React from 'react';
 import { Lock, Cloud } from 'lucide-react';
 import { TEST_IDS } from '@/constants/testIds';
 import { SESSION_INSET_SURFACE_CLASS, SESSION_SURFACE_CLASS } from './sessionSurface';
+import { splitSettledActiveTranscript } from './liveTranscriptUtils';
 
 import { parseTranscriptForHighlighting } from '@/utils/highlightUtils';
 
@@ -35,30 +36,6 @@ interface LiveTranscriptPanelProps {
 
 /** Discrete UI state for the live transcript, exposed via data-transcript-state. */
 type LiveTranscriptUiState = 'listening' | 'drafting' | 'finalizing' | 'final' | 'idle';
-
-/**
- * Split live draft text into completed sentences ("settled" — render calm/recognized)
- * and the trailing in-progress sentence ("active" — render as Draft). Live-view only:
- * the SAVED transcript still comes from the whole-utterance final decode, so this never
- * affects saved accuracy (Quality-Push Option 1). When there is no sentence terminator
- * the whole thing is "active" — identical to the prior single-Draft behaviour.
- */
-export function splitSettledActiveTranscript(text: string): { settled: string; active: string } {
-    const trimmed = (text || '').trim();
-    if (!trimmed) return { settled: '', active: '' };
-    // Last sentence-ending punctuation (. ! ?), allowing a trailing closing quote/bracket.
-    const terminator = /[.!?]+["'’”)\]]?/g;
-    let lastEnd = -1;
-    let match: RegExpExecArray | null;
-    while ((match = terminator.exec(trimmed)) !== null) {
-        lastEnd = match.index + match[0].length;
-    }
-    if (lastEnd <= 0) return { settled: '', active: trimmed };
-    return {
-        settled: trimmed.slice(0, lastEnd).trim(),
-        active: trimmed.slice(lastEnd).trim(),
-    };
-}
 
 const WaveformMeter: React.FC<{ level: number; isProcessing: boolean }> = ({ level, isProcessing }) => {
     const visibleLevel = Math.max(0.08, Math.min(level, 1));
