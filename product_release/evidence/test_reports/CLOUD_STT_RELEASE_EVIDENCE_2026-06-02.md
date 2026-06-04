@@ -59,3 +59,5 @@ save/history/detail equality
 ## Dev Boundary
 
 No current Cloud dev work is requested unless the baseline proof fails with provider invalid rows, tail loss, save/detail mismatch, or timing regression.
+
+Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and keep reports/backlog updated with the merge commit. Do not leave release fixes stranded on long-lived branches.
