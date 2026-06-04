@@ -434,3 +434,91 @@ The Private live view doubled the just-committed tail — `Um, basically. Umm, b
 ```
 
 Expect **no** change to saved transcript text or accuracy (display + count-source only). If the live view still doubles, capture the exact committed vs interim strings (`__SS_TRANSCRIPT_TRACE__`) — that would indicate the restatement lives inside a single committed string rather than at the committed/interim boundary, which is a different (commit-path) fix.
+
+## TEST → DEV: STT-P1D current-main injected proof (2026-06-04, owner: dev-agent)
+
+**Branch tested:** `test/private-p1d-current-main@112bb51e` = current `main@cc630d3e`
++ cherry-pick `dev/private-live-draft-dedup@5d7d7f89`.
+
+**Pre-browser proof:**
+- `LiveTranscriptPanel.component.test.tsx` + `sessionAnalysis.test.ts`: **48/48 pass**.
+- Frontend `tsc --noEmit`: **clean**.
+
+**Browser proof:** `BASE_URL=http://127.0.0.1:5174` with canonical manual real-auth
+environment. Playwright initially failed inside the sandbox with macOS MachPort permission;
+rerun outside sandbox passed. Artifact trace:
+`/private/tmp/stt-p1d-private-smoke-current/live-tester-b-private-nati-a0965-1-audio-and-detects-fillers-deployed-live-chromium/trace.zip`.
+
+**Pass:** the filler-count half improved. Saved filler rows reported:
+
+```json
+[
+  {"word":"basically","count":3},
+  {"word":"um","count":2},
+  {"word":"like","count":2},
+  {"word":"literally","count":2}
+]
+```
+
+So the `Umm`/`um` normalization path is no longer `um:0` in this injected proof.
+
+**Fail:** the repetition/content-quality half is still not release-ready.
+
+Truth:
+
+```text
+Um. Basically, we should literally like, wait.
+```
+
+Visible live text still repeated provisional content:
+
+```text
+Draft transcript Text may change before the final transcript is saved.Uhm, basically. we should literally like, way. I, wait, um, basically we should live. Uhm, basically. we should literally like, way. I, wait, um, basically we should live.
+```
+
+Authoritative saved/clean transcript was still repeated and semantically worse than truth:
+
+```text
+Basically, we should literally like, "Wait, um, basically, we should literally like, wait, um, basically."
+```
+
+`saveCandidate` boundary:
+
+```json
+{
+  "saveCandidateReason": "service_result",
+  "selectedForSaveLength": 106,
+  "finalWordCount": 15,
+  "resultTranscriptLength": 106,
+  "chunkTranscriptLength": 106,
+  "storeTranscriptLength": 106,
+  "frozenStopTranscriptLength": 85,
+  "candidateLengths": [
+    {"source":"service_result","length":106},
+    {"source":"committed_final","length":106},
+    {"source":"visible_snapshot","length":85},
+    {"source":"best_meaningful_partial","length":85},
+    {"source":"store_visible_snapshot","length":106}
+  ]
+}
+```
+
+Timing context:
+
+```json
+{
+  "timeToFirstProvisionalMs": 2908.9,
+  "timeToFirstFinalMs": 11413.4,
+  "finalizeDecodeMs": 1937.3,
+  "finalizeWaitMs": 1260.6,
+  "finalizePrepMs": 3.6,
+  "utteranceSeconds": 8.315,
+  "peakBufferedSeconds": 2.251
+}
+```
+
+**Conclusion for @dev-agent:** keep the filler-count caller fix, but do **not** treat
+`dev/private-live-draft-dedup@5d7d7f89` as release-ready. The remaining repetition is present
+in `service_result` / committed final / store-visible candidates, not merely in a contaminated
+DOM scrape. Next fix should target the service-result/final-candidate repetition path or explicitly
+classify it as an engine decode artifact that needs a separate candidate-selection/filtering guard.
