@@ -19,6 +19,7 @@
 | Native | `/private/tmp/speaksharp-native-human-20260604-rerun2.json` | Full capture/save/history/analytics, formatter `853ms`, but detail empty and readability/truecasing failed in the pre-reproof artifact. Current-main re-proof is required. |
 | Native formatter plumbing | automated Vitest + edge tests | Frontend formatter suites `35/35`; edge functions `73/73`. Plumbing verified; quality/detail still not green. |
 | Private | `/private/tmp/speaksharp-private-human-20260604-rerun.json` | Setup consent proven, but 56.36% accuracy, `um` missed, detail empty pre-#29 fix, live progress suspect. Current-main re-proof is required. |
+| Private diagnostic | `/private/tmp/private-corpus-conv01-f9b21005.json` | `localhost:5174` real-auth injected mic run: final/save/detail passed, first text `2826ms`, final `85.71%` accuracy, but live draft repeated provisional text and filler metric missed `Umm` as `um`. Diagnostic only; human proof still required. |
 | Private decode A/B | `/private/tmp/speaksharp-private-decode-ab-h1_6-real-auth` | h1_6 baseline `75.00%`; anti-hallucination decode options `0.00%`. Candidate rejected; keep current defaults. |
 | Session → Analytics coherence | targeted Vitest + Playwright | Analytics dashboard/page/score math `66/66`; user-facing regression `9/9`; analytics suite/truth `13/13`. Score caveats, transcript quality, filler/readability signals, detail navigation, reload/export, and session-to-analytics parity are currently covered by automated proof. |
 | Browser UX bug hunt | Playwright full-suite subset | Primary journeys, user features, custom filler words, goals, and error states `19/19`. No new automated UX bug surfaced; human STT quality/detail/trust findings remain the controlling blockers. |
@@ -54,8 +55,8 @@ Do not classify Private green on privacy value alone.
 
 | Owner | Work |
 | --- | --- |
-| @dev-agent | Private accuracy/substitution; Private first-visible draft gating; #30 setup CTA; return-timestamps audit; named VAD flag; any Fix-A-v2/VAD/model candidate must be named, flagged, and browser-proven against drop-in and Native baseline. |
-| test-release-agent / Codex | Re-proof current-main Native #29/detail, trust spacing, and truecasing; re-proof current-main Private #29/detail and Fix-A-v2; run v4 containment; then run VAD/model proofs after dev ships named candidates. |
+| @dev-agent | Private accuracy/substitution; Private first-visible/live-draft quality; Private filler normalization (`Umm` -> user-perceived `um`); #30 setup CTA; return-timestamps audit; named VAD flag; any Fix-A-v2/VAD/model candidate must be named, flagged, and browser-proven against drop-in and Native baseline. |
+| test-release-agent / Codex | Re-proof current-main Native #29/detail, trust spacing, and truecasing; re-proof current-main Private #29/detail and Fix-A-v2 with human audio; run v4 containment; then run VAD/model proofs after dev ships named candidates. |
 | product | Keep Cloud baseline only for launch; keep Private formatter local-only; decide whether Native raw-at-Stop plus async formatting is acceptable if quality improves. |
 
 ## Test-Release Agent / Codex Task Queue

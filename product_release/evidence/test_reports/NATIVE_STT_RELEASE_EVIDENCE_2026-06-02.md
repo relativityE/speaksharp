@@ -12,6 +12,10 @@ Native STT: NOT RELEASE-GREEN
 
 Native is still the Free/conversion-funnel path, but the current human proof does not support a polished transcript claim.
 
+## Release-Proof Environment Requirement
+
+Native release proof is real Chrome mic only on `localhost:5174` with real auth. Artifacts must include `environmentProof` and must stop before recording if the target is `5173`, mock auth, `.env.test`, deployed URL, fake audio, or the wrong browser/CDP target. Native injected/fake-audio runs remain diagnostic only and cannot close release parity.
+
 ## DEV→TEST Handoff — @test-agent (2026-06-04, owner: dev-agent)
 
 Merged to `main`, ready for Native real-mic re-proof:
