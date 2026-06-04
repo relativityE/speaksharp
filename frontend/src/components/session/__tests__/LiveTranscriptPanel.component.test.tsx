@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen } from '../../../../tests/support/test-utils';
 import { describe, expect, it } from 'vitest';
-import { LiveTranscriptPanel } from '@/components/session/LiveTranscriptPanel';
+import { LiveTranscriptPanel, splitSettledActiveTranscript } from '@/components/session/LiveTranscriptPanel';
 import { TEST_IDS } from '@/constants/testIds';
 
 describe('LiveTranscriptPanel', () => {
@@ -375,6 +375,62 @@ describe('LiveTranscriptPanel', () => {
         expect(screen.getByTestId(TEST_IDS.TRANSCRIPT_CONTAINER)).toHaveAttribute('data-transcript-state', 'final');
         expect(screen.queryByTestId('live-transcript-finalizing')).not.toBeInTheDocument();
         expect(screen.queryByTestId('live-transcript-current-line')).not.toBeInTheDocument();
+    });
+
+    // --- Option 1: live-view segment finalization (settled vs active) ---
+
+    describe('splitSettledActiveTranscript', () => {
+        it('returns everything as active when there is no sentence terminator', () => {
+            expect(splitSettledActiveTranscript('the quick brown fox')).toEqual({
+                settled: '', active: 'the quick brown fox',
+            });
+        });
+        it('splits completed sentences (settled) from the trailing in-progress sentence (active)', () => {
+            expect(splitSettledActiveTranscript('First point. Second point. And I am still')).toEqual({
+                settled: 'First point. Second point.', active: 'And I am still',
+            });
+        });
+        it('treats a fully-terminated draft as all settled (nothing in progress)', () => {
+            expect(splitSettledActiveTranscript('All done here.')).toEqual({
+                settled: 'All done here.', active: '',
+            });
+        });
+        it('handles empty input', () => {
+            expect(splitSettledActiveTranscript('')).toEqual({ settled: '', active: '' });
+        });
+    });
+
+    it('REGRESSION(Option 1): a multi-sentence draft settles completed sentences while the active one stays Draft', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript=""
+                interimTranscript="First clear point. Then a second point. And I am still speaking"
+                sttMode="private"
+                isListening={true}
+            />
+        );
+        const settled = screen.getByTestId('live-transcript-settled');
+        expect(settled).toHaveTextContent('First clear point. Then a second point.');
+        expect(settled).not.toHaveTextContent('And I am still speaking');
+
+        const active = screen.getByTestId('live-transcript-current-line');
+        expect(active).toHaveTextContent('And I am still speaking');
+        expect(active).toHaveAttribute('data-transcript-draft', 'true');
+        // Saved/committed transcript surface is untouched (still empty during draft).
+        expect(screen.getByTestId('transcript-text-only')).toHaveAttribute('data-transcript-text-only', '');
+    });
+
+    it('Option 1: a single in-progress sentence shows no settled block (unchanged single-Draft behaviour)', () => {
+        render(
+            <LiveTranscriptPanel
+                transcript=""
+                interimTranscript="I am partway through a thought"
+                sttMode="private"
+                isListening={true}
+            />
+        );
+        expect(screen.queryByTestId('live-transcript-settled')).not.toBeInTheDocument();
+        expect(screen.getByTestId('live-transcript-current-line')).toHaveTextContent('I am partway through a thought');
     });
 
     it('reports listening state before any text', () => {
