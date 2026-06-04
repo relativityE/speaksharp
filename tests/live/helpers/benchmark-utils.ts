@@ -41,9 +41,11 @@ type ReleaseProofEnvironment = {
     port: number | null;
     authMode: 'real' | 'mock' | 'unknown';
     mockAuth: boolean;
+    supabaseUrl?: string;
     releaseProofEligible: boolean;
     cdpSameTab: boolean | null;
     invalidReasons: string[];
+    source?: 'app-runtime-config' | 'benchmark-fallback';
 };
 
 export const BENCHMARKS_PATH = path.resolve('tests/STT_BENCHMARKS.json');
@@ -116,6 +118,14 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
         const profileText = document.querySelector('[data-testid="pro-badge"], [data-testid="nav-upgrade-button"]')?.textContent?.replace(/\s+/g, ' ').trim() ?? null;
         const debugWindow = window as Window & {
             __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown>;
+            __APP_RUNTIME_CONFIG__?: {
+                url?: string;
+                port?: number;
+                authMode?: string;
+                mockAuth?: boolean;
+                supabaseUrl?: string;
+                releaseProofEligible?: boolean;
+            };
             SpeechRecognition?: unknown;
             webkitSpeechRecognition?: unknown;
             __E2E_CONTEXT__?: boolean;
@@ -136,19 +146,50 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
             debugWindow.TEST_MODE ||
             speechRecognitionName === 'MockSpeechRecognition'
         );
-        const authMode = mockAuth ? 'mock' : (isLocalhost && port === 5174 ? 'real' : 'unknown');
+        const authMode: ReleaseProofEnvironment['authMode'] = mockAuth ? 'mock' : (isLocalhost && port === 5174 ? 'real' : 'unknown');
         const invalidReasons = [
             ...(!isLocalhost ? ['not_localhost'] : []),
             ...(port !== 5174 ? [`port_${port ?? 'unknown'}_not_5174`] : []),
             ...(authMode !== 'real' ? [`auth_${authMode}`] : []),
             ...(mockAuth ? ['mock_auth_detected'] : []),
         ];
-
-        return {
-            label: snapshotLabel,
-            url: window.location.href,
-            title: document.title,
-            environmentProof: {
+        const appRuntimeConfig = debugWindow.__APP_RUNTIME_CONFIG__;
+        const appRuntimeAuthMode: ReleaseProofEnvironment['authMode'] = appRuntimeConfig?.authMode === 'real' || appRuntimeConfig?.authMode === 'mock'
+            ? appRuntimeConfig.authMode
+            : 'unknown';
+        const appRuntimePort = typeof appRuntimeConfig?.port === 'number' && Number.isFinite(appRuntimeConfig.port)
+            ? appRuntimeConfig.port
+            : port;
+        const appRuntimeSupabaseUrl = typeof appRuntimeConfig?.supabaseUrl === 'string'
+            ? appRuntimeConfig.supabaseUrl
+            : undefined;
+        const appRuntimeIsLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const appRuntimeUsesRealSupabase = appRuntimeSupabaseUrl
+            ? /\.supabase\.co\/?$/.test(appRuntimeSupabaseUrl)
+            : true;
+        const appRuntimeInvalidReasons = appRuntimeConfig
+            ? [
+                ...(!appRuntimeIsLocalhost ? ['not_localhost'] : []),
+                ...(appRuntimePort !== 5174 ? [`port_${appRuntimePort ?? 'unknown'}_not_5174`] : []),
+                ...(appRuntimeAuthMode !== 'real' ? [`auth_${appRuntimeAuthMode}`] : []),
+                ...(appRuntimeConfig.mockAuth ? ['mock_auth_detected'] : []),
+                ...(!appRuntimeUsesRealSupabase ? ['supabase_not_real'] : []),
+                ...(!appRuntimeConfig.releaseProofEligible ? ['app_runtime_releaseProofEligible_false'] : []),
+            ]
+            : [];
+        const environmentProof = appRuntimeConfig
+            ? {
+                url: appRuntimeConfig.url || window.location.href,
+                port: appRuntimePort,
+                authMode: appRuntimeAuthMode,
+                mockAuth: Boolean(appRuntimeConfig.mockAuth),
+                supabaseUrl: appRuntimeSupabaseUrl,
+                releaseProofEligible: Boolean(appRuntimeConfig.releaseProofEligible),
+                cdpSameTab: true,
+                invalidReasons: appRuntimeInvalidReasons,
+                source: 'app-runtime-config' as const,
+            }
+            : {
                 url: window.location.href,
                 port,
                 authMode,
@@ -156,7 +197,14 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
                 releaseProofEligible: invalidReasons.length === 0,
                 cdpSameTab: true,
                 invalidReasons,
-            },
+                source: 'benchmark-fallback' as const,
+            };
+
+        return {
+            label: snapshotLabel,
+            url: window.location.href,
+            title: document.title,
+            environmentProof,
             root: {
                 appReady: root.getAttribute('data-app-ready'),
                 runtimeState: root.getAttribute('data-runtime-state'),
