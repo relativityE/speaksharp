@@ -1,6 +1,6 @@
 # STT Speed, Accuracy, And Market Survival — Current
 
-**Updated:** 2026-06-04T12:44Z  
+**Updated:** 2026-06-04T13:18Z  
 **Purpose:** Keep the release decision focused on product survival: fast visible feedback, accurate final transcript, credible punctuation, and trustworthy analytics.
 
 ## Product Position
@@ -39,6 +39,7 @@ Cloud is the strongest quality path, but product strategy prioritizes getting Na
 | Native | @dev-agent fixes detail-empty, formatter truecasing/readability, and trust-label spacing; test reruns real mic. |
 | Private | @dev-agent investigates content loss/substitution, first-visible draft gate, and detail-empty; test reruns same human script. |
 | Cloud | Keep baseline only; run current-head app-path tail/readability/timeline proof after higher-priority Native/Private work. |
+| Score / Analytics | Coherence proof passed. Continue treating transcript quality as confidence/caveat input; do not use analytics success to excuse weak STT source quality. |
 
 ## Test-Release Agent / Codex Owned Tasks
 
@@ -49,7 +50,7 @@ These seven items are assigned to **test-release-agent / Codex**. Dev agent shou
 | 1 | Private decode-parameter A/B | Browser-worker proof comparing current config vs reversible anti-hallucination/long-form config on guard rows, Washington, and latest human Private script. |
 | 2 | Native raw-first async formatter verification | Real/browser proof separating raw-save timing, formatter-complete timing, formatted detail text, `wordPreserving`, latency, and general truecasing such as `Starts Now`. |
 | 3 | Private VAD prototype test plan | RMS-vs-neural-VAD proof plan and metrics; execute once dev provides a flagged prototype. |
-| 4 | Session-to-Analytics coherence pass | Verify session score, transcript-quality caveats, filler/readability signals, and Analytics theme outputs agree and do not overstate weak STT. |
+| 4 | Session-to-Analytics coherence pass | **Complete 2026-06-04:** targeted analytics/score Vitest `66/66`, user-facing browser regression `9/9`, analytics suite/truth browser proof `13/13`. Session score, transcript-quality caveats, filler/readability signals, detail navigation, reload/export, and analytics outputs agree under automation. |
 | 5 | Browser UX bug hunt | Serial user-like browser testing across signup, session, save/history/detail, analytics, pricing/conversion, and error recovery; document reproducible bugs only. |
 | 6 | Cloud baseline proof | Baseline-only current-head app-path proof with timeline, tail, readability, filler, and save/history/detail. No standard-filler keyterms work. |
 | 7 | Report/backlog hygiene | Keep active STT reports current and pruned; remove stale chatter and preserve only actionable blockers, owners, artifacts, and proof requirements. |
