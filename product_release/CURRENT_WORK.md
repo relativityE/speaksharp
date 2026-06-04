@@ -6,14 +6,15 @@ Backlog priority belongs in `product_release/BACKLOG.md`; evidence belongs in th
 ## Integration Baseline
 
 ```text
-INTEGRATION_MAIN: main@18299067
+INTEGRATION_MAIN: origin/main (latest pushed integration baseline; exact SHA via `git rev-parse --short origin/main`)
 MERGE_LOCK: free
-UPDATED_AT: 2026-06-04T17:05Z
+UPDATED_AT: 2026-06-04T17:09Z
 UPDATED_BY: test-release-agent / Codex
 ```
 
 `main` is the stable integration/evidence baseline. Agents should not experiment directly on
 `main`. Work happens in independent branches/worktrees; only final integration is serialized.
+Branch/proof rows keep exact base or artifact SHAs where they matter.
 
 ## Active Branches And Proofs
 
