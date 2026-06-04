@@ -2409,3 +2409,71 @@ chunk/live final merge, and candidate selection. The fix should make selectedFor
 conv_01 equal the concise truth without repetition. The test harness should separately
 move filler assertions to the clean row selectors.
 ```
+
+---
+
+## TEST UPDATE (2026-06-03T22:42Z) — Private timing branch proof for dev `__PRIVATE_TIMING__`
+
+Purpose: unblock the dev decision tree introduced in commit `c108eaa6`
+(`finalizeWaitMs` / `finalizePrepMs` / `finalizeDecodeMs`). This is a
+short injected-audio Private proof on `conv_01.wav`, not a long human speech
+proof. It is valid for proving the timing fields and short-utterance branch
+selection; long-form/private-human timing still needs the same fields captured
+on a longer run.
+
+Run:
+
+```text
+BASE_URL=https://speaksharp-public.vercel.app
+CI=true
+pnpm exec playwright test tests/live/tester-b-private-native-stt.live.spec.ts \
+  --config=playwright.deployed-live.config.ts \
+  --project=deployed-live-chromium \
+  --grep "Private STT" \
+  --reporter=line \
+  --output=/private/tmp/speaksharp-private-timing-deployed-c108eaa6
+```
+
+Result:
+
+```text
+PASS — setup -> Private model ready -> recording -> Stop -> saveCandidate.
+```
+
+Timing evidence from `window.__PRIVATE_TIMING__`:
+
+| Field | Value | Branch meaning |
+| --- | ---: | --- |
+| `timeToFirstProvisionalMs` | 2743.5 ms | First visible draft was not immediate; still measurable. |
+| `timeToFirstFinalMs` | 9957.5 ms | First committed final came late for this short fixture. |
+| `finalizeWaitMs` | 0.2 ms | Branch 1 drain/cleanup did **not** dominate this proof. |
+| `finalizePrepMs` | 0.9 ms | Branch 2 concat/energy/audio-capture prep did **not** dominate this proof. |
+| `finalizeDecodeMs` | 1878.2 ms | Branch 3 model decode **dominated** post-Stop wait on this fixture. |
+| `utteranceSeconds` | 8.192 s | Short fixture. |
+| `peakBufferedSeconds` | 1.752 s | No long-form buffer cliff measured here. |
+
+Save/result evidence:
+
+| Field | Value |
+| --- | --- |
+| `saveCandidateReason` | `service_result` |
+| `selectedForSaveLength` | 106 |
+| `finalWordCount` | 15 |
+| `frozenStopTranscriptLength` | 85 |
+| selected final | `Basically, we should literally like, "Wait, um, basically, we should literally like, wait, um, basically."` |
+| truth | `Um. Basically, we should literally like, wait.` |
+
+Direct dev answer:
+
+```text
+For short Private conv_01, the post-Stop delay is decode-dominated:
+finalizeDecodeMs=1878.2ms vs finalizeWaitMs=0.2ms and finalizePrepMs=0.9ms.
+Do not spend this short-fixture fix on concat/capture prep or drain. If you are
+optimizing this path, the measured lever is CPU decode / WASM threading. However,
+the same proof still confirms Private final duplication remains in service_result,
+so accuracy/merge correctness is a separate blocker from the timing branch.
+
+Need next proof: repeat this exact __PRIVATE_TIMING__ capture on a longer human
+or washington-style speech before deciding segment-finalization / long-form
+buffering from peakBufferedSeconds.
+```
