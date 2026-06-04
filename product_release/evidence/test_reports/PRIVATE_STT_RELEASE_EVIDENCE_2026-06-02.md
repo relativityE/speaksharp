@@ -522,3 +522,63 @@ Timing context:
 in `service_result` / committed final / store-visible candidates, not merely in a contaminated
 DOM scrape. Next fix should target the service-result/final-candidate repetition path or explicitly
 classify it as an engine decode artifact that needs a separate candidate-selection/filtering guard.
+
+---
+
+## DEV → TEST: STT-P8 — capture resampler parity candidate (2026-06-04, owner: dev-agent)
+
+**Branch:** `dev/private-resampler-parity@58d9ba7d`  **Base:** `main@7656d68d`  **Status:** ready for A/B. Behavior-changing audio → no merge before A/B + product approval.
+
+**Root cause of the Private app-vs-drop-in accuracy parity gap (deterministic, from code — not a guess):**
+The Private final/saved transcript is a single whole-utterance decode of a CONTIGUOUS buffer
+(`commitWholeUtteranceTranscript` → `privateSTT.transcribe`), using the **same** engine
+(`TransformersJSEngine`), **same** model (`whisper-tiny.en`), and **same** decode options
+(`chunk_length_s=30`, `stride_length_s=5`, `return_timestamps=true`) as the Private drop-in
+(`private-browser-dropin.ts` → `engine.transcribe`). I verified the final buffer is contiguous
+(every post-onset frame retained; only trailing silence after the last real-speech frame is
+trimmed) — so it is **not** a cross-utterance-chunking or seam-from-gating problem.
+
+The **one** remaining divergence on the exact audio fed to the decode is the **resampler**:
+- Real-time capture worklet (`pcm-downsampler`, the app's final-decode input) → **box-averaging**.
+- Drop-in reference (`resampleLinear`) **and** the app's own non-realtime helper
+  (`AudioProcessor.downsampleAudio`) → **linear interpolation**.
+
+So the app decodes a spectrally different 16 kHz signal than the drop-in even on identical mic
+audio. This is the most plausible cause of `app(63.22%) < drop-in`, and it explains why the
+test-side **decode-parameter A/B couldn't fix it** (the inputs differ before decode).
+
+**This may also be the STT-P1D save-candidate repetition.** Degraded/box-filtered audio is a
+known trigger for Whisper repetition-hallucination (the `service_result` doubling you measured:
+`…wait, um, basically, we should literally like, wait, um, basically`). The box-vs-linear A/B
+should record **whether linear removes the repetition**, not just whether WER improves.
+
+**Fix shape (flagged candidate, P5/P6 pattern, default OFF = byte-identical):**
+- `pcmResamplers.ts` — pure, unit-tested streaming resamplers. `createStreamingLinearResampler`
+  is phase-continuous across 128-sample blocks and matches the one-shot linear method
+  sample-for-sample; box variant preserves current behaviour.
+- `audio-processor.worklet.ts` + `public/audio/audio-processor.worklet.js` (hand-maintained
+  twin) — add a `resampleMode` processorOption; linear mirrors the pure reference inline.
+- `privateResamplerFlag.ts` — `resolvePrivateResamplerMode()`
+  (`?privateResampler=linear` / `window.__PRIVATE_RESAMPLER__='linear'`) +
+  `__PRIVATE_RESAMPLER_TELEMETRY__` contract.
+- `audioUtils.impl.ts` — thread resolved mode into the worklet + publish telemetry.
+
+**Tests:** frontend `tsc` clean; `pcmResamplers` 4/4 (streaming-linear == one-shot linear parity;
+box ≠ linear contrast; block-size invariance; 44.1 kHz non-integer ratio safe);
+`privateResamplerFlag` 6/6; transcription `utils` 72/72.
+
+**Proof recipe (@test-agent — box-vs-linear A/B on identical audio):**
+
+```text
+1. Serve dev/private-resampler-parity via canonical pnpm dev (5174), real auth.
+2. For each fixture (conv_01, h1_6, human script): run Private twice on the SAME injected audio —
+   (a) default (box), (b) ?privateResampler=linear.
+   Confirm window.__PRIVATE_RESAMPLER_TELEMETRY__.resampleMode is 'box' / 'linear' respectively.
+3. Capture for each: saveCandidate text, WER/accuracy, app-vs-drop-in delta, app-vs-Native delta,
+   firstProgressMs/finalAtMs, and whether the STT-P1D save-candidate repetition is present.
+4. PASS if linear improves or holds WER/accuracy AND narrows the app-vs-drop-in gap with no
+   guard-row regression (h1_6) and no new onset clipping. Linear is the parity fix only if the
+   gap closes; if not, resampler is exonerated and the gap is elsewhere (report it).
+```
+
+**Rollback:** revert `58d9ba7d` (7 files); default-OFF means no rollback needed unless promoted.
