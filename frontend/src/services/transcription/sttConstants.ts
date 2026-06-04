@@ -85,6 +85,10 @@ export const PRIV_STT = {
   FIRST_TRANSCRIPT_MIN_DURATION_SECONDS: 2.0,
   FIRST_TRANSCRIPT_MIN_RMS: 0.05,
   FORCE_FINAL_MIN_SECONDS: 2,
+  // Default local Private model (whisper-tiny.en via transformers.js v2) download size.
+  // Surfaced in the setup CTA so users see the cost before downloading. Single source of
+  // truth: ModelManager.getModelSizeMB('transformers-js') derives from this.
+  DEFAULT_MODEL_DOWNLOAD_MB: 40,
 } as const;
 
 export const PRIV_STT_V4 = {

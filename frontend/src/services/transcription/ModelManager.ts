@@ -1,5 +1,5 @@
 import logger from '@/lib/logger';
-import { PRIV_STT_V4 } from './sttConstants';
+import { PRIV_STT, PRIV_STT_V4 } from './sttConstants';
 
 /**
  * ModelManager
@@ -64,7 +64,7 @@ export class ModelManager {
     public static getModelSizeMB(engineType: 'transformers-js' | 'transformers-js-v4' | 'whisper-turbo'): number {
         // Sizes are based on whisper-tiny (~40MB transformers, ~75MB turbo WASM+Weights)
         if (engineType === 'transformers-js-v4') return PRIV_STT_V4.EXPECTED_Q4_SPLIT_DOWNLOAD_MB;
-        return engineType === 'transformers-js' ? 40 : 75;
+        return engineType === 'transformers-js' ? PRIV_STT.DEFAULT_MODEL_DOWNLOAD_MB : 75;
     }
 
     private static async isTransformersModelDownloaded(): Promise<boolean> {
