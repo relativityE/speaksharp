@@ -2276,6 +2276,7 @@ export class SpeechRuntimeController {
 
     private startWatchdog(service: TranscriptionService): void {
         const version = ++this.watchdogVersion;
+        const watchdogStartedAt = Date.now();
         this.stopWatchdog();
         this.watchdogInterval = setInterval(() => {
             if (version !== this.watchdogVersion) {
@@ -2285,8 +2286,21 @@ export class SpeechRuntimeController {
             const strategy = service.getStrategy();
             if (!strategy || !this.isEngineReady) return;
             if (this.state !== 'INITIATING' && this.state !== 'ENGINE_INITIALIZING' && this.state !== 'RECORDING') return;
+            const now = Date.now();
             const lastHeartbeat = service.getLastHeartbeatTimestamp();
-            const drift = Date.now() - lastHeartbeat;
+            const hasValidHeartbeat =
+                Number.isFinite(lastHeartbeat) &&
+                lastHeartbeat > 0 &&
+                lastHeartbeat <= now + 1000;
+            // Some private/browser engines can briefly report a zero/invalid inner
+            // heartbeat while a ready cached model is being rebound to a fresh mic
+            // start. Treat that as "no pulse yet" for one normal heartbeat window,
+            // not as a dead worker. If it never produces a valid pulse, the same
+            // threshold still trips from watchdog start.
+            const effectiveLastHeartbeat = hasValidHeartbeat
+                ? Math.min(lastHeartbeat, now)
+                : watchdogStartedAt;
+            const drift = now - effectiveLastHeartbeat;
             if (drift > this.HEARTBEAT_THRESHOLD_MS) {
                 this.handleHeartbeatFailure(new Error(`STT_HEARTBEAT_FAILURE: ${drift}ms`));
             }
