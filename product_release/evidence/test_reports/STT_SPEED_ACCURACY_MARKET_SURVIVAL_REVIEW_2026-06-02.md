@@ -1,6 +1,6 @@
 # STT Speed, Accuracy, And Market Survival — Current
 
-**Updated:** 2026-06-04T13:26Z
+**Updated:** 2026-06-04T15:50Z
 **Purpose:** Keep the release decision focused on product survival: fast visible feedback, accurate final transcript, credible punctuation, and trustworthy analytics.
 
 ## Product Position
@@ -8,7 +8,7 @@
 | STT | Role | Current release posture |
 | --- | --- | --- |
 | Native | Free/conversion funnel | Not green. Must be quick and credible or clearly caveated. |
-| Private | Strategic local/privacy differentiator | Not green. Consent is proven; accuracy/detail/live progress are not. |
+| Private | Strategic local/privacy differentiator | Not green. Consent is proven; accuracy/detail/live progress are not. Product bar is stricter now: Private must meet/beat the better of same-model/drop-in and Native human Chrome mic baseline. |
 | Cloud | Paid quality accelerator | Closest to green. Baseline only; keyterms are not launch work. |
 
 ## Current Blocking Truth
@@ -32,12 +32,19 @@ Cloud is the strongest quality path, but product strategy prioritizes getting Na
 | Trust labels | Draft/final/local claims are truthful per engine. |
 | Journey | Save, history, detail, score, and analytics agree on the same transcript. |
 
+Private-specific survival rule:
+
+```text
+Private cannot be merely "private but worse." Private must become private and credible.
+Green requires app-vs-drop-in and app-vs-Native-baseline deltas, not only WER in isolation.
+```
+
 ## Current Actions
 
 | STT | Immediate action |
 | --- | --- |
-| Native | @dev-agent fixes detail-empty, formatter truecasing/readability, and trust-label spacing; test reruns real mic. |
-| Private | @dev-agent investigates content loss/substitution, first-visible draft gate, and detail-empty; test reruns same human script. |
+| Native | Current `main` has detail-empty/cache invalidation, trust-label spacing, and Native formatter/truecasing changes. Test reruns real mic to prove detail, trust label, and formatter quality; DEV acts only on failed re-proof. |
+| Private | @dev-agent investigates content loss/substitution and first-visible draft gating. Test reruns the same human script on current `main` to prove detail/history and Fix-A-v2 behavior before assigning more dev work. |
 | Cloud | Keep baseline only. Local baseline contract proof passed; credentialed current-head app-path tail/readability/timeline proof is still needed before green. |
 | Score / Analytics | Coherence proof passed. Continue treating transcript quality as confidence/caveat input; do not use analytics success to excuse weak STT source quality. |
 | Browser UX | Automated UX sweep passed; no new non-STT browser bug found in primary journey, user features, filler-word management, goals, or error states. |

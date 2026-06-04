@@ -1,5 +1,5 @@
 {
-  "lastUpdatedAt": "2026-06-04T15:28:00Z",
+  "lastUpdatedAt": "2026-06-04T15:50:00Z",
   "purpose": "Current STT release status only. Historical/superseded proof chatter intentionally pruned from active reports.",
   "classifications": {
     "cloud": {
@@ -9,8 +9,8 @@
     },
     "private_v2": {
       "status": "not_release_green",
-      "reason": "2026-06-04 human proof after explicit setup consent produced 56.36% accuracy / 43.64% WER, missed um, substituted expected main idea/every transcript with memory transcript, and detail transcript was empty.",
-      "next": "@dev-agent: fix content loss/substitution, first-visible draft gating, and detail transcript boundary. test-release-agent: rerun same human script after fix."
+      "reason": "2026-06-04 human proof after explicit setup consent produced 56.36% accuracy / 43.64% WER, missed um, substituted expected main idea/every transcript with memory transcript, and detail transcript was empty before the #29 fix was re-proven. Product bar: Private must meet/beat the better of same-model/drop-in and Native human Chrome mic baseline.",
+      "next": "test-release-agent: rerun same human script on current main to verify #29 detail fix and Fix-A-v2 behavior. @dev-agent: fix content loss/substitution and first-visible draft gating; any Fix-A-v2/VAD/model candidate must be named/flagged and browser-proven against drop-in and Native baseline."
     },
     "private_v4": {
       "status": "not_24h_path",
@@ -19,8 +19,8 @@
     },
     "native": {
       "status": "not_release_green",
-      "reason": "2026-06-04 real Chrome mic proof captured and saved full 55-word script; formatter invoked quickly (853ms, no error, word-preserving) but output still had bad truecasing (Starts Now) and detail transcript was empty.",
-      "next": "@dev-agent: fix detail boundary, general truecasing/readability, and trust-label spacing. test-release-agent: rerun real mic after fix."
+      "reason": "2026-06-04 real Chrome mic proof captured and saved full 55-word script; formatter invoked quickly (853ms, no error, word-preserving) but output still had bad truecasing (Starts Now) and detail transcript was empty before current-main fixes were re-proven.",
+      "next": "test-release-agent: rerun real mic on current main to verify #29 detail fix, truecasing/readability, and trust-label spacing."
     }
   },
   "currentArtifacts": {
@@ -42,7 +42,7 @@
       "wordPreserving": true
     },
     "badTruecasing": ["Starts Now"],
-    "trustLabelSpacingBug": "Draft transcriptText may change before the final transcript is saved."
+    "trustLabelSpacingBug": "Prior artifact showed glued copy: Draft transcriptText may change before the final transcript is saved. Current main includes spacing fix cd4b677d and should be re-proofed with data-transcript-text-only."
   },
   "latestNativeFormatterPlumbingProof": {
     "status": "automated_plumbing_verified_quality_still_open",
@@ -227,7 +227,7 @@
         "willSave=true",
         "analytics history rendered"
       ],
-      "newFinding": "Visible transcript evidence included glued trust-copy text: Draft transcriptText may change..., so shared transcript-panel/test-extraction cleanup affects Cloud evidence too."
+      "newFinding": "Pre-fix smoke on 4216b2d1 included glued trust-copy text: Draft transcriptText may change.... Current main includes spacing fix cd4b677d and should be re-proofed using data-transcript-text-only before assigning new dev work."
     },
     "stillRequiredForGreen": [
       "__CLOUD_STT_TIMELINE__",
@@ -251,6 +251,35 @@
       "Kept active STT reports focused on current blockers, owners, artifacts, and proof gates."
     ]
   },
+  "privateProductBar": {
+    "status": "active_release_gate",
+    "rule": "Private is not allowed to be private but worse; Private must become private and credible.",
+    "mustMeetOrBeat": [
+      "same-model/drop-in Private equivalent",
+      "Native human Chrome mic baseline"
+    ],
+    "requiredFields": [
+      "app vs drop-in delta",
+      "app vs Native baseline delta",
+      "WER / accuracy",
+      "filler recall and false filler insertion",
+      "readability",
+      "firstProgressMs",
+      "firstDraftMs",
+      "finalAtMs",
+      "stopFinalizationMs",
+      "save/history/detail equality",
+      "no Cloud fallback"
+    ],
+    "implementationPolicy": {
+      "fixAV2": "Interim RMS/threshold patch only; may ship only with focused browser proof and no h1/human-like guard regression.",
+      "vad": "Intended architecture direction; prototype behind named flag before replacing RMS gating.",
+      "segmentTrust": "Do not ship cosmetic-only segment trust; segment work must move toward real segment-level finalization and saved transcript integrity.",
+      "privateFormatter": "Deferred for release; no Gemini/server formatter and no second local punctuation model unless separately approved.",
+      "modelPolicy": "whisper-tiny.en remains acceptable only if it meets the bar; larger/local models require browser proof of accuracy/timing/download/memory/setup cost.",
+      "setupCta": "Show model size, not estimated setup time."
+    }
+  },
   "trustCopyContract": {
     "private": {
       "allowed": ["Listening locally…", "Processing speech locally…", "Finalizing local transcript…", "Draft transcript for visible provisional words", "normal final transcript styling"],
@@ -263,24 +292,27 @@
   },
   "ownership": {
     "devAgent": [
-      "Native detail empty",
-      "Native general truecasing/readability",
-      "Native trust-label spacing",
       "Private content loss/substitution",
-      "Private detail empty",
-      "Private first-visible draft gating"
+      "Private first-visible draft gating",
+      "#30 Private setup CTA",
+      "return_timestamps audit for >30s final decode",
+      "named VAD prototype flag",
+      "Private Fix-A-v2/VAD/model candidates must be named, flagged, and proven against drop-in plus Native baseline"
     ],
     "testReleaseAgent": [
       "Private decode-parameter A/B h1_6 completed; expand only for a new candidate config",
-      "Native raw-first async formatter plumbing verified; rerun human proof after dev fixes quality/detail",
+      "Native raw-first async formatter plumbing verified; rerun human proof on current main for #29/detail, truecasing/readability, and trust spacing",
       "Private VAD prototype test plan complete; execute after dev ships a named VAD flag",
       "Session-to-Analytics coherence complete under targeted automated proof",
-      "Browser UX bug hunt complete under automated proof; rerun after dev lands STT blockers",
-      "Cloud baseline local contract complete; credentialed app-path proof still required",
+      "Browser UX bug hunt complete under automated proof",
+      "Cloud baseline local contract and deployed smoke complete; richer metrics deferred behind Native/Private",
       "Report/backlog hygiene complete; active files pruned to current release signals",
-      "Rerun Native real mic after dev fixes",
-      "Rerun Private human proof after dev fixes",
-      "Run Cloud baseline current-head proof after higher-priority Native/Private blockers"
+      "Rerun Native real mic on current main",
+      "Rerun Private human proof on current main",
+      "Run v4 containment proof",
+      "Run Fix-A-v2 focused proof",
+      "Run richer Cloud baseline metrics proof only after higher-priority Native/Private blockers move",
+      "Rerun Private app-vs-drop-in and app-vs-Native-baseline comparisons after any named Private candidate lands"
     ],
     "product": [
       "Cloud baseline only for launch; no standard-filler keyterms",
