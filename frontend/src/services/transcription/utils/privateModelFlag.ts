@@ -4,8 +4,8 @@
  * OFF by default — resolves to `PRIV_STT_MODELS.DEFAULT` (current production whisper-tiny.en),
  * so the default Private path is byte-identical. The test agent overrides the model for an
  * A/B run via either:
- *   - `window.__PRIVATE_MODEL__ = 'distil-small.en'`
- *   - URL `?privateModel=distil-small.en`
+ *   - `window.__PRIVATE_MODEL__ = 'whisper-small.en'`
+ *   - URL `?privateModel=whisper-small.en`
  * Unknown values fall back to the default (no blind/unsafe switch). Selection is validated
  * against `PRIV_STT_MODELS.CANDIDATES`.
  *

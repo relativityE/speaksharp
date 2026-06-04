@@ -139,16 +139,18 @@ export const PRIV_STT_V4 = {
  */
 export const PRIV_STT_MODELS = {
   DEFAULT: 'whisper-tiny.en',
-  // Remote ids use the onnx-community family (same as production whisper-tiny.en, MODEL_ID
-  // above), all VERIFIED to exist with quantized ONNX (the worker loads with quantized:true).
-  // The previous Xenova/distil-small.en returned HTTP 401 (does not exist) and would have
-  // failed the model-eval A/B at download. The default tiny still loads from local
-  // public/models/ (flag-off byte-identical); these remoteIds only matter for the candidate
-  // downloads. approxMB are best-effort; the A/B captures the real downloaded size.
+  // Remote ids MUST be the Xenova/* family — these repos are built for transformers.js v2
+  // (@xenova/transformers, the production library). onnx-community/* repos are v3-format and
+  // FAIL to load on v2 with "Unsupported model type: whisper" (test-confirmed). distil-whisper
+  // (distil-small.en) only exists in v3 form, so it is NOT loadable on v2 — replaced here by
+  // whisper-small.en (Xenova/whisper-small.en, v2-native), giving a clean tiny→base→small
+  // accuracy ladder. Default tiny loads from local public/models/ (flag-off byte-identical);
+  // these remoteIds only matter for the candidate downloads. approxMB are best-effort; the A/B
+  // captures the real downloaded size.
   CANDIDATES: {
-    'whisper-tiny.en': { localId: 'whisper-tiny.en', remoteId: 'onnx-community/whisper-tiny.en', approxMB: 40 },
-    'whisper-base.en': { localId: 'whisper-base.en', remoteId: 'onnx-community/whisper-base.en', approxMB: 145 },
-    'distil-small.en': { localId: 'distil-small.en', remoteId: 'onnx-community/distil-small.en', approxMB: 166 },
+    'whisper-tiny.en': { localId: 'whisper-tiny.en', remoteId: 'Xenova/whisper-tiny.en', approxMB: 40 },
+    'whisper-base.en': { localId: 'whisper-base.en', remoteId: 'Xenova/whisper-base.en', approxMB: 145 },
+    'whisper-small.en': { localId: 'whisper-small.en', remoteId: 'Xenova/whisper-small.en', approxMB: 244 },
   },
 } as const;
 
