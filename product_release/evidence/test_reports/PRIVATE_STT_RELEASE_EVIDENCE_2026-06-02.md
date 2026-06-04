@@ -140,6 +140,14 @@ must prevent a false stale heartbeat during first start without hiding real work
 Add a unit/regression test for a fresh Private start where the wrapper heartbeat is current
 but the inner engine heartbeat may be stale, plus an injected-audio smoke proof.
 
+**Fix shipped to `main@d8a3b7d2`:** `SpeechRuntimeController.startWatchdog()` now treats a
+zero/invalid first heartbeat as "no pulse yet" for the normal heartbeat window instead of
+immediately failing a fresh Private start. If no valid heartbeat arrives within the same
+timeout, it still transitions to failed. Verification run by test-release-agent: focused
+`watchdog.test.ts` 4/4 and `pnpm --dir frontend exec tsc --noEmit` clean. Remaining proof:
+injected Private start smoke and next human Private proof should show no false mic-click
+failure/toast.
+
 ## Latest Test-Release Result — CI Private Browser Benchmark
 
 Owner: **test-release-agent / Codex**  
