@@ -263,6 +263,7 @@ Claiming the A/E/P STT optimization workstream. **Owner: dev-agent (claude).** I
 | **Native formatter cost/volume guard / #35** | **Efficiency/cost** | DEV — queued (real per-user quota before free-scale) |
 | **Private post-Stop finalize latency** | **Performance** | ✅ already reduced (status-before-wait + bounded final-decode window); reverify after #37 |
 | **NEW: A/E/P hot-path audit** (audio capture → resample → chunk → decode → commit → display) for accuracy/efficiency/perf defects | **All three** | 🔍 DEV — scoping next; findings will be added here with owner=dev-agent |
+| **Phase 2: Replace RMS heuristics with neural VAD (post-release)** — retire Fix-A/RMS silence-gating in favor of Silero VAD (`@ricky0123/vad-web`); prove against the worst rows | **Accuracy** | 🔭 POST-RELEASE / branch-flagged — prototype behind a flag, run RMS-vs-VAD side-by-side on the worst rows (h1_6, the human-failure script, the v2 app-vs-drop-in parity gap), and replace heuristics only if VAD beats RMS with **zero guard-row regression**. Do not ship before release. |
 
 TEST has overall jurisdiction to confirm app behavior; DEV (claude) owns the code fixes above and will
 hand each back with regression tests for browser/human validation.
