@@ -82,4 +82,28 @@ describe('SpeechRuntimeController: Heartbeat Watchdog', () => {
     expect(handleHeartbeatFailureSpy).not.toHaveBeenCalled();
     expect((controller as { getState: () => string }).getState()).not.toBe('FAILED');
   });
+
+  it('should not fail a fresh start on an invalid initial heartbeat before the normal threshold', async () => {
+    const handleHeartbeatFailureSpy = vi.spyOn(controller as { handleHeartbeatFailure: (e: Error) => void }, 'handleHeartbeatFailure');
+
+    (controller as { startWatchdog: (s: unknown) => void }).startWatchdog(mockService);
+    mockService.getLastHeartbeatTimestamp = vi.fn().mockReturnValue(0);
+
+    await vi.advanceTimersByTimeAsync(5001);
+
+    expect(handleHeartbeatFailureSpy).not.toHaveBeenCalled();
+    expect((controller as { getState: () => string }).getState()).toBe('RECORDING');
+  });
+
+  it('should still fail if an invalid heartbeat never recovers before the normal threshold', async () => {
+    const handleHeartbeatFailureSpy = vi.spyOn(controller as { handleHeartbeatFailure: (e: Error) => void }, 'handleHeartbeatFailure');
+
+    (controller as { startWatchdog: (s: unknown) => void }).startWatchdog(mockService);
+    mockService.getLastHeartbeatTimestamp = vi.fn().mockReturnValue(0);
+
+    await vi.advanceTimersByTimeAsync(STT_CONFIG.HEARTBEAT_TIMEOUT_MS + 5001);
+
+    expect(handleHeartbeatFailureSpy).toHaveBeenCalled();
+    expect((controller as { getState: () => string }).getState()).toBe('FAILED_VISIBLE');
+  });
 });
