@@ -26,6 +26,21 @@ Branch/proof rows keep exact base or artifact SHAs where they matter.
 | STT-V4 | P1 | test-release-agent | `actions@de0e6f1e` run `26966053435`; `actions@18299067` run `26966654691` | listed runs | done | Private v4 containment proof | Browser path produced empty `saveCandidate` / zero saved words in both runs. Keep v4 off release A/B; future work only after a browser decode branch proves non-empty output. |
 | STT-C1 | P2 | test-release-agent | `test/proof-cloud-baseline` | latest main when resumed | deferred | Cloud richer baseline proof | Defer until Native/Private blockers move. Baseline only; keyterms/default-filler A/B is stopped. |
 
+## Assignment Notification Protocol
+
+This board is the notification source of truth. An assignment is considered active only when
+the relevant row has an owner, priority, branch/proof target, status, and next action.
+
+When assigning or changing work:
+
+1. Update the row in this file.
+2. Put detailed instructions and evidence requirements in the relevant STT report.
+3. Tell the other agent to pull `main` and read this file plus the named report section.
+4. The receiving agent claims the work by updating status/branch in this file before writing.
+
+Do not rely on chat-only instructions for release blockers. Chat can announce the change, but
+the durable assignment lives here.
+
 ## Branch Status Values
 
 ```text
