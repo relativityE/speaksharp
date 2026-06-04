@@ -148,6 +148,35 @@ timeout, it still transitions to failed. Verification run by test-release-agent:
 injected Private start smoke and next human Private proof should show no false mic-click
 failure/toast.
 
+## DEV → TEST: STT-P7 extension ready (2026-06-04, owner: dev-agent)
+
+Branch `dev/stt-p7-soft-frozen-trace@30eb264a` (base `6eaa4ba6`), **extends** the shipped
+`d8a3b7d2`. Test the branch pre-merge.
+
+**Root cause split:** `d8a3b7d2` fixed the **controller** watchdog (the hard
+`RECORDING_LIFECYCLE_FAIL`/escalation). But the **`TranscriptionService` soft-"frozen"
+watchdog** *also* computed `drift = now − inner_heartbeat`, so a fresh Private start (inner
+heartbeat `0` during model warmup) raised a **false "Engine Frozen" warning toast** — the
+"mic-click errors/toasts before recording worked" the user reported. `d8a3b7d2` did not touch
+this path; this branch fixes it.
+
+**What changed:**
+- `TranscriptionService.startWatchdog`: same bounded-grace baseline (measure drift from watchdog
+  start until a valid inner pulse arrives) → no false freeze on warmup; a worker that never
+  heartbeats still trips (real death intact). Driven by a shared, unit-tested pure function
+  `evaluateHeartbeatWatchdog`.
+- **Req 6 trace** on BOTH watchdogs: `window.__PRIVATE_HEARTBEAT_TRACE__` = `{ controller, service }`,
+  each `{ source: 'inner-heartbeat' | 'watchdog-grace', lastHeartbeat, effectiveLastHeartbeat,
+  watchdogStartedAt, driftMs, thresholdMs, hasValidHeartbeat, tripped, at }`.
+
+**Requirements:** 1 ✓ regression (6 cases) · 2 ✓ · 3 ✓ real death intact · 4 ✓ no global silence ·
+5 ✓ timeouts unchanged · 6 ✓ trace · 7 → unit done; **injected-audio smoke is yours**.
+
+**Proof (test-agent):** injected Private-start smoke + next human Private proof must show
+**no `RECORDING_LIFECYCLE_FAIL` AND no "Engine Frozen" toast**, and `__PRIVATE_HEARTBEAT_TRACE__`
+should read `source: 'watchdog-grace'` during the warmup window then `'inner-heartbeat'` once the
+engine pulses. Verify a deliberately-killed worker still trips (no masking).
+
 ## Latest Test-Release Result — CI Private Browser Benchmark
 
 Owner: **test-release-agent / Codex**  
