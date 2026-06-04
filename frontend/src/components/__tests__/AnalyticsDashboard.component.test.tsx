@@ -425,6 +425,50 @@ describe('AnalyticsDashboard', () => {
         expect(detail).toHaveAttribute('data-session-detail-transcript', '');
     });
 
+    it('shows a transcript-quality caveat in the detail view for a weak (Native) saved session', () => {
+        renderComponent({
+            sessionId: 'native-weak',
+            sessionHistory: [
+                {
+                    id: 'native-weak',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 36,
+                    wpm: 110,
+                    clarity_score: 80,
+                    engine: 'native',
+                    transcript: 'This is a clear practice sentence. It has proper punctuation throughout. I am speaking about my project update today. There are several distinct sentences here. That should be more than enough words to score this sample.',
+                },
+            ],
+        });
+
+        const caveat = screen.getByTestId('session-detail-quality-caveat');
+        expect(caveat).toBeInTheDocument();
+        expect(caveat).toHaveTextContent(/directional|filler/i);
+    });
+
+    it('does NOT show the quality caveat for a clean, trusted (Private) saved session', () => {
+        renderComponent({
+            sessionId: 'private-clean',
+            sessionHistory: [
+                {
+                    id: 'private-clean',
+                    user_id: 'test-user',
+                    created_at: '2023-01-01T10:00:00Z',
+                    duration: 60,
+                    total_words: 16,
+                    wpm: 120,
+                    clarity_score: 90,
+                    engine: 'private',
+                    transcript: 'This is a clear sentence. Here is another one. And a third, just to be sure.',
+                },
+            ],
+        });
+
+        expect(screen.queryByTestId('session-detail-quality-caveat')).not.toBeInTheDocument();
+    });
+
     it('shows PDF export in saved session detail without script upload controls', () => {
         renderComponent({
             sessionId: 'free-session',

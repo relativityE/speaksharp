@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     calculateSpeakingScore,
+    getTranscriptQualityCaveat,
     maxRunOnWords,
     SPEAKSHARP_CONFIDENCE_THRESHOLDS,
     SPEAKSHARP_SCORE_MODEL_VERSION,
@@ -262,6 +263,37 @@ describe('calculateSpeakingScore', () => {
             });
             expect(result.confidence).toBe('warming-up');
             expect(result.qualityNote).toBeNull();
+        });
+    });
+
+    describe('getTranscriptQualityCaveat (saved-session caveat, Option 2)', () => {
+        it('trusts a clean, well-punctuated Private/Cloud transcript (no caveat)', () => {
+            const clean = 'This is a clear sentence. Here is another one. And a third, just to be sure.';
+            const { trusted, qualityNote } = getTranscriptQualityCaveat(clean, 'private');
+            expect(trusted).toBe(true);
+            expect(qualityNote).toBeNull();
+        });
+
+        it('flags a run-on (under-punctuated) transcript as untrusted with a readability note', () => {
+            const runOn = Array.from({ length: 60 }, (_, i) => `word${i}`).join(' ');
+            const { trusted, qualityNote } = getTranscriptQualityCaveat(runOn, 'private');
+            expect(trusted).toBe(false);
+            expect(qualityNote).toMatch(/runs on|directional/i);
+        });
+
+        it('flags Native (low filler recall) as untrusted with a filler caveat', () => {
+            // >=25 words + sentence breaks: readability is fine, so ONLY the Native
+            // filler-recall signal makes it untrusted.
+            const native = 'This is a clear practice sentence. It has proper punctuation throughout. I am speaking about my project update today. There are several distinct sentences here. That should be more than enough words to score this sample.';
+            const { trusted, qualityNote } = getTranscriptQualityCaveat(native, 'native');
+            expect(trusted).toBe(false);
+            expect(qualityNote).toMatch(/filler/i);
+        });
+
+        it('does not throw on an empty transcript', () => {
+            const { trusted, qualityNote } = getTranscriptQualityCaveat('', 'private');
+            expect(trusted).toBe(true);
+            expect(qualityNote).toBeNull();
         });
     });
 });

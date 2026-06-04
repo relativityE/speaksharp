@@ -234,6 +234,28 @@ const assessTranscriptQuality = (
     };
 };
 
+/**
+ * Transcript-quality caveat for a SAVED session (analytics detail/history), reusing
+ * the exact signals behind the live SpeakSharp Score confidence. Lets the analytics
+ * detail surface the same "this score is directional because…" note instead of
+ * presenting a weak-transcript session's number as a precise grade (Option 2).
+ */
+export const getTranscriptQualityCaveat = (
+    transcript: string,
+    engine?: SpeakingScoreInput['engine'],
+): { trusted: boolean; qualityNote: string | null } => {
+    const safeTranscript = transcript || '';
+    const wordCount = safeTranscript.trim().split(/\s+/).filter(Boolean).length;
+    const transcriptionConfidence = inferTranscriptionConfidence(engine, undefined);
+    const { signals, qualityNote } = assessTranscriptQuality(
+        safeTranscript,
+        wordCount,
+        transcriptionConfidence,
+        engine,
+    );
+    return { trusted: signals.trusted, qualityNote };
+};
+
 const uniqueActions = (actions: string[]): string[] => [...new Set(actions)].slice(0, 3);
 
 const getWeakestCategories = (breakdown: SpeakingScoreBreakdown): (keyof SpeakingScoreBreakdown)[] =>

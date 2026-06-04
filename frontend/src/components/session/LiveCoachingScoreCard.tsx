@@ -57,6 +57,18 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
         : result.confidence === 'directional'
             ? 'Early signal'
             : 'Warming up';
+    // Always-visible, color-coded confidence so the user can never mistake a
+    // weak/uncertain transcript for a precise grade (trust-loop, Option 2).
+    const confidenceText = result.confidence === 'usable'
+        ? 'Confidence: High'
+        : result.confidence === 'directional'
+            ? 'Confidence: Directional'
+            : 'Confidence: Building';
+    const confidenceChipClass = result.confidence === 'usable'
+        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+        : result.confidence === 'directional'
+            ? 'bg-amber-50 text-amber-900 border border-amber-300'
+            : 'bg-muted text-foreground/70 border border-border';
     const formatBreakdown = (value: number) => `${Math.round(value * 10)}%`;
     const trackedCardKeyRef = React.useRef<string | null>(null);
     const trackedNumericKeyRef = React.useRef<string | null>(null);
@@ -121,6 +133,15 @@ export const LiveCoachingScoreCard: React.FC<LiveCoachingScoreCardProps> = ({
                     </div>
                     <div className="mt-1 text-xs font-bold uppercase tracking-wider text-foreground/70">
                         {showNumericScore ? 'out of 10' : 'score soon'}
+                    </div>
+                    <div
+                        className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[11px] font-bold ${confidenceChipClass}`}
+                        data-testid="live-score-confidence"
+                        data-score-confidence={result.confidence}
+                        data-transcript-trusted={result.qualitySignals.trusted ? 'true' : 'false'}
+                        title="Transcript quality affects how confidently the score is shown."
+                    >
+                        {confidenceText}
                     </div>
                 </div>
             </div>
