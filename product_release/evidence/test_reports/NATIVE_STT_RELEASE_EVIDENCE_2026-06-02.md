@@ -1394,3 +1394,57 @@ The bigger remaining Native release blockers are lifecycle/journey:
 Also note test hygiene: this run used the wrong expectedScript field, so do not
 use its WER. Use the transcript/save/formatter/trust/journey fields only.
 ```
+
+---
+
+## TEST / IMPLEMENTATION UPDATE (2026-06-04T06:40Z) — raw-first async formatter path added; 4s fallback data point
+
+Reviewer prescription:
+
+```text
+Native must save raw immediately, then format asynchronously. Stop/save/history/detail
+must not wait on Gemini. Private must never use the server formatter.
+```
+
+Current implementation on branch `test/native-formatter-raw-first-contract`:
+
+| Piece | Current behavior |
+| --- | --- |
+| `NativeBrowser.getTranscript()` | Returns the raw Native transcript immediately; no longer awaits `formatNativeTranscript(...)`. |
+| `SpeechRuntimeController` after `completeSession(...)` | Starts `formatNativeSessionInBackground(...)` only after the raw transcript has been completed/saved. |
+| `formatNativeSessionInBackground(...)` | Publishes `window.__NATIVE_FORMATTING_STATUS__`, runs the existing word-preserving Native formatter in the background, updates the saved transcript only on successful punctuation/casing-only output, and preserves raw on timeout/failure/word-change. |
+| Private guard | Unchanged: Private never calls `format-transcript`; Private formatting remains local-only/caveated. |
+
+Automated proof:
+
+```text
+pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false \
+  frontend/src/services/transcription/__tests__/nativeAsyncFormatter.test.ts \
+  frontend/src/services/transcription/modes/__tests__/nativeTranscriptFormatter.test.ts \
+  frontend/src/services/transcription/modes/__tests__/NativeBrowser.test.ts
+```
+
+Result:
+
+```text
+PASS — 3 files / 67 tests.
+```
+
+4s formatter data point:
+
+| Scenario | Result |
+| --- | --- |
+| Formatter promise resolves after 20s | Background formatter hits `FORMATTER_LATENCY_BUDGET_MS` (~4s), records `FORMATTER_TIMEOUT_CLIENT`, does not call `updateSession`, and raw transcript remains saved. |
+| Formatter succeeds and preserves words/fillers | `updateSession(sessionId, { transcript: formatted })` is called; `window.__NATIVE_FORMATTING_STATUS__` reports `status=complete`, `changed=true`, `savedTranscriptUpdated=true`. |
+| Formatter changes words / drops filler | `updateSession` is not called; telemetry reports `CLIENT_WORDS_CHANGED`; raw transcript remains saved. |
+
+Remaining required browser proof:
+
+| Gate | Expected |
+| --- | --- |
+| Native Stop/save | Raw transcript saves immediately; no 4s or 15s visible Stop wait. |
+| History/detail before formatter completion | Raw transcript is visible quickly. |
+| Formatting status | `window.__NATIVE_FORMATTING_STATUS__` goes `pending` then `complete` or `failed`. |
+| Formatter success | Detail/history/session display updates to formatted text only if word-preserving. |
+| Formatter timeout/failure | Raw remains; no scary blocking error. |
+| Private mode | `__NATIVE_FORMATTER_LAST__` / `__NATIVE_FORMATTING_STATUS__` are not invoked by Private. |
