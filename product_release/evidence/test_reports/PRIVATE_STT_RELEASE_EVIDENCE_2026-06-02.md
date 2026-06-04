@@ -863,3 +863,56 @@ onnxruntime-web@1.14.0 resolves transitively (no duplicate ORT). Run the RMS-vs-
 **STT-P6 ready — `dev/private-model-eval-main@1c50587c` (base current main).** The 3 model-eval
 commits rebased cleanly onto current main (off-by-default flag preserved). Run the model A/B from
 the `## DEV → TEST: STT-P6` recipe above against THIS branch.
+
+---
+
+## DEV → TEST: STT-P6 model A/B run spec (2026-06-04, owner: dev-agent → test-release-agent)
+
+**Branch:** `dev/private-model-eval-main@7c04064a` (base current main). Candidate-load blocker is FIXED
+(remote-only candidate loading + verified `onnx-community/` ids + fail-fast `MODEL_LOAD_FAILED`).
+This is the **top-priority Private accuracy experiment**.
+
+**Framing (product):** the prior evidence (resampler A/B = no accuracy lift; decode-param A/B = no
+lift) makes `whisper-tiny.en` the **dominant suspected** accuracy limiter — but this is NOT proven
+a "model ceiling" until this A/B + the drop-in/browser comparison confirm it. If a larger model
+moves WER materially, model quality was the limiter; if it does NOT, the implementation path still
+has a deeper issue (do not keep chasing model size — revisit segmentation, or caveat/hold Private).
+
+**Models (same input route, same fixtures):** `?privateModel=` →
+1. `whisper-tiny.en` (current, local) · 2. `whisper-base.en` (`onnx-community/whisper-base.en`, ~145 MB)
+· 3. `distil-small.en` (`onnx-community/distil-small.en`, ~166 MB). Confirm
+`window.__PRIVATE_MODEL_TELEMETRY__.model` matches each run.
+
+**Required fixtures/scripts:**
+
+| Fixture | Why |
+|---|---|
+| Latest human Private failure script | directly tests the real failure |
+| h1_2 | phrase substitution guard |
+| h1_6 | filler/onset/known hard row |
+| h1_8 | "like" + phrase preservation |
+| h1_10 | clean control |
+| Washington 65.8s | medium endurance |
+| One 90–120s human-like script (if feasible) | long-form viability |
+
+**Required metrics per model×fixture:** WER/accuracy · filler recall · false filler insertion ·
+readability/run-on · firstProgressMs · firstDraftMs · stopFinalizationMs · decodeMs/RTF · model
+load time · actual downloaded size · memory/crash behaviour · save/history/detail · **no Cloud fallback**.
+
+**Pass/fail — a larger model is worth considering only if it clears ALL three bars:**
+1. **Accuracy:** materially improves the human-failure script (≈ **+15–20 pts accuracy**, or clear
+   unusable→usable) AND no guard-row (h1_2/6/8/10) regression.
+2. **UX:** first feedback still appears quickly; finalization tolerable or clearly communicated; no
+   browser instability.
+3. **Setup:** the larger download is acceptable and surfaced honestly (size shown, not hidden behind
+   a vague "setup" button), e.g. "Download larger local model for more accurate Private transcription.
+   Model size: ~150 MB. Audio stays local for STT."
+
+**Product decision tree after the A/B:** materially-better + acceptable perf → make it the Private
+candidate with explicit setup copy · better but heavy → offer as optional "Higher accuracy Private
+model", keep tiny for quick setup · not materially better → stop chasing model size, revisit
+VAD/segmentation or caveat/hold Private.
+
+**Note:** VAD (STT-P5) is **deferred until after this A/B** per product (evidence points at model
+quality first). The faster resampler (STT-P8, timing-only) and the conservative 3+×
+repetition-collapse are independent safe wins.
