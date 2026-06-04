@@ -1,6 +1,6 @@
 # STT Product Metrics Release Matrix — Current
 
-**Updated:** 2026-06-04T13:06Z  
+**Updated:** 2026-06-04T13:09Z  
 **Purpose:** One-page current STT release status. Older proof history is intentionally removed from this active matrix; use git history only if a prior artifact must be audited.
 
 ## Current Classification
@@ -54,7 +54,7 @@
 | --- | --- | --- |
 | 1 | Private decode-parameter A/B | h1_6 complete: anti-hallucination candidate rejected; expand only for a new dev-proposed candidate |
 | 2 | Native raw-first async formatter verification | Automated plumbing verified; human/browser rerun still needed after dev fixes quality/detail |
-| 3 | Private VAD prototype test plan | Assigned to test-release-agent / Codex |
+| 3 | Private VAD prototype test plan | Plan complete; execution waits for named dev VAD prototype flag |
 | 4 | Session-to-Analytics coherence pass | Assigned to test-release-agent / Codex |
 | 5 | Browser UX bug hunt | Assigned to test-release-agent / Codex |
 | 6 | Cloud baseline proof | Assigned to test-release-agent / Codex |
