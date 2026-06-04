@@ -99,26 +99,49 @@ async function init(id: number, isE2E: boolean, model?: { key: string; localId: 
     const localModelId = model?.localId ?? 'whisper-tiny.en';
     const remoteModelId = model?.remoteId ?? 'Xenova/whisper-tiny.en';
     const loadedModelKey = model?.key ?? 'whisper-tiny.en';
+    // Only the default whisper-tiny.en is bundled in public/models/. Candidate models
+    // (whisper-base.en, distil-small.en) are NOT on disk, so a local-first attempt fetches
+    // /models/<id>/... which the SPA dev server answers with index.html (HTTP 200, not 404)
+    // → the "Unexpected token <" model-load failure the STT-P6 A/B hit. So: the default loads
+    // local-first then remote (unchanged / byte-identical); candidates load REMOTE-ONLY.
+    const isBundledLocalModel = localModelId === 'whisper-tiny.en';
     try {
-        transcriber = await pipeline(
-            'automatic-speech-recognition',
-            localModelId,
-            {
-                quantized: true,
-                progress_callback,
-            },
-        );
-    } catch (localError) {
-        env.allowRemoteModels = true;
-        transcriber = await pipeline(
-            'automatic-speech-recognition',
-            remoteModelId,
-            {
+        if (isBundledLocalModel) {
+            env.allowLocalModels = true;
+            env.allowRemoteModels = false;
+            try {
+                transcriber = await pipeline('automatic-speech-recognition', localModelId, {
+                    quantized: true,
+                    progress_callback,
+                });
+            } catch {
+                env.allowRemoteModels = true;
+                transcriber = await pipeline('automatic-speech-recognition', remoteModelId, {
+                    quantized: true,
+                    revision: 'main',
+                    progress_callback,
+                });
+            }
+        } else {
+            env.allowLocalModels = false;
+            env.allowRemoteModels = true;
+            transcriber = await pipeline('automatic-speech-recognition', remoteModelId, {
                 quantized: true,
                 revision: 'main',
                 progress_callback,
-            },
-        );
+            });
+        }
+    } catch (loadError) {
+        // Fail-fast, NAMED error so the harness/mic isn't left hanging ~180s on a bad model id
+        // or a missing remote asset. Includes the key + remote id for the proof artifact.
+        const detail = loadError instanceof Error ? loadError.message : String(loadError);
+        post({
+            id,
+            type: 'error',
+            errorName: 'MODEL_LOAD_FAILED',
+            errorMessage: `MODEL_LOAD_FAILED [${loadedModelKey} -> ${remoteModelId}]: ${detail}`,
+        });
+        throw loadError;
     }
 
     post({
