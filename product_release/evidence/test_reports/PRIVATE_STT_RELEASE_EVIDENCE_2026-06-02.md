@@ -216,6 +216,33 @@ with a named error such as `MODEL_NOT_FOUND` / `MODEL_MANIFEST_INVALID`. The use
 not leave Private setup in a disabled mic state for 180 seconds when a candidate model URL resolves
 to HTML.
 
+## TEST → DEV: STT-P1 current-main Private proof (2026-06-04, owner: dev-agent)
+
+Current-main proof on `main@cf4886be`.
+
+Artifact: `/private/tmp/stt-p1-current-main-h1_6-conv_01.json`
+
+Environment proof:
+
+```json
+{ "port": 5174, "authMode": "real", "mockAuth": false, "releaseProofEligible": true, "cdpSameTab": true }
+```
+
+Results:
+
+| Fixture | Journey/detail | Accuracy | WER | Saved/detail transcript | Finding |
+|---|---|---:|---:|---|---|
+| `h1_6` | pass | `87.5%` | `0.125` | `Day, Like, Told Wild Tales to Frighten Him.` | Accuracy below parity target but save/history/detail are coherent. |
+| `conv_01` | pass | `85.71%` | `0.142857` | `Umm, basically, we should literally like, wait.` | Saved transcript is coherent, but filler metric reports `um:0` instead of expected `um:1`. |
+
+Conclusion: current-main Private journey is healthier than earlier contaminated artifacts
+(selectedForSave, post-stop transcript, history, and detail match), but SpeakSharp coaching still
+under-counts `Umm` as `um`.
+
+**Next action for @dev-agent:** fix final-session filler normalization / metric derivation so
+`Umm` counts as `um` in saved-session coaching. The already-tested P1D branch improved filler rows,
+but its repetition-collapse output was not green; split or merge only the filler-count fix if safe.
+
 ## TEST → DEV: STT-P7 Private mic-start false failure (2026-06-04, owner: dev-agent)
 
 Human proof on the real manual app (`pnpm dev`, `localhost:5174`, real auth) found a
