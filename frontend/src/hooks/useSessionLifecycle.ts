@@ -202,6 +202,12 @@ export const useSessionLifecycle = () => {
 
                 void queryClient.invalidateQueries({ queryKey: ['usageLimit'] });
                 void queryClient.invalidateQueries({ queryKey: ['sessionHistory'] });
+                // Single-session detail cache: useSession(sessionId) keys on ['session', id]
+                // with a 5-min staleTime and is read by the analytics detail view. Without
+                // this invalidation it keeps serving the record-start placeholder transcript
+                // (' '), so the detail transcript renders empty even though complete_session
+                // wrote the real transcript. Mode-agnostic (affects Native + Private).
+                void queryClient.invalidateQueries({ queryKey: ['session'] });
                 void queryClient.invalidateQueries({ queryKey: ['sessionCount'] });
                 setShowAnalyticsPrompt(true);
 
