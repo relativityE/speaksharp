@@ -1,6 +1,6 @@
 # STT Speed, Accuracy, And Market Survival — Current
 
-**Updated:** 2026-06-04T13:18Z  
+**Updated:** 2026-06-04T13:20Z  
 **Purpose:** Keep the release decision focused on product survival: fast visible feedback, accurate final transcript, credible punctuation, and trustworthy analytics.
 
 ## Product Position
@@ -40,6 +40,7 @@ Cloud is the strongest quality path, but product strategy prioritizes getting Na
 | Private | @dev-agent investigates content loss/substitution, first-visible draft gate, and detail-empty; test reruns same human script. |
 | Cloud | Keep baseline only; run current-head app-path tail/readability/timeline proof after higher-priority Native/Private work. |
 | Score / Analytics | Coherence proof passed. Continue treating transcript quality as confidence/caveat input; do not use analytics success to excuse weak STT source quality. |
+| Browser UX | Automated UX sweep passed; no new non-STT browser bug found in primary journey, user features, filler-word management, goals, or error states. |
 
 ## Test-Release Agent / Codex Owned Tasks
 
@@ -51,7 +52,7 @@ These seven items are assigned to **test-release-agent / Codex**. Dev agent shou
 | 2 | Native raw-first async formatter verification | Real/browser proof separating raw-save timing, formatter-complete timing, formatted detail text, `wordPreserving`, latency, and general truecasing such as `Starts Now`. |
 | 3 | Private VAD prototype test plan | RMS-vs-neural-VAD proof plan and metrics; execute once dev provides a flagged prototype. |
 | 4 | Session-to-Analytics coherence pass | **Complete 2026-06-04:** targeted analytics/score Vitest `66/66`, user-facing browser regression `9/9`, analytics suite/truth browser proof `13/13`. Session score, transcript-quality caveats, filler/readability signals, detail navigation, reload/export, and analytics outputs agree under automation. |
-| 5 | Browser UX bug hunt | Serial user-like browser testing across signup, session, save/history/detail, analytics, pricing/conversion, and error recovery; document reproducible bugs only. |
+| 5 | Browser UX bug hunt | **Complete 2026-06-04:** Playwright full-suite subset `19/19` across primary journey, user features, custom filler words, goal-setting, and error states. No new automated UX bug found; human STT quality/detail/trust issues remain the controlling blockers. |
 | 6 | Cloud baseline proof | Baseline-only current-head app-path proof with timeline, tail, readability, filler, and save/history/detail. No standard-filler keyterms work. |
 | 7 | Report/backlog hygiene | Keep active STT reports current and pruned; remove stale chatter and preserve only actionable blockers, owners, artifacts, and proof requirements. |
 

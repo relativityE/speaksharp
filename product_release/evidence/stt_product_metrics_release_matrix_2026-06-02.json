@@ -1,5 +1,5 @@
 {
-  "lastUpdatedAt": "2026-06-04T13:18:00Z",
+  "lastUpdatedAt": "2026-06-04T13:20:00Z",
   "purpose": "Current STT release status only. Historical/superseded proof chatter intentionally pruned from active reports.",
   "classifications": {
     "cloud": {
@@ -177,6 +177,21 @@
     "bugsFound": [],
     "caveat": "This closes session-to-analytics coherence under automated/mock proofs. It does not close the underlying STT quality blockers: Native/Private detail empties from human proofs, Private substitution, Private missed filler, and Native truecasing/readability."
   },
+  "latestBrowserUxBugHunt": {
+    "status": "automated_ux_sweep_passed_no_new_bug",
+    "owner": "test-release-agent / Codex",
+    "command": "pnpm exec playwright test tests/e2e/primary-journey.e2e.spec.ts tests/e2e/user-features.e2e.spec.ts tests/e2e/user-filler-words.e2e.spec.ts tests/e2e/goal-setting.e2e.spec.ts tests/e2e/error-states.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=/private/tmp/speaksharp-browser-ux-bug-hunt",
+    "testsPassed": 19,
+    "coverage": [
+      "Free/Pro primary session journeys",
+      "user feature matrix and history/detail navigation",
+      "custom filler-word management",
+      "goal-setting analytics",
+      "error-state handling"
+    ],
+    "bugsFound": [],
+    "caveat": "This automated sweep does not replace human real-mic Private/Native proofs. Known human-found STT blockers remain open with dev: Native detail/readability/trust spacing and Private substitution/detail/live progress."
+  },
   "trustCopyContract": {
     "private": {
       "allowed": ["Listening locally…", "Processing speech locally…", "Finalizing local transcript…", "Draft transcript for visible provisional words", "normal final transcript styling"],
@@ -201,6 +216,7 @@
       "Native raw-first async formatter plumbing verified; rerun human proof after dev fixes quality/detail",
       "Private VAD prototype test plan complete; execute after dev ships a named VAD flag",
       "Session-to-Analytics coherence complete under targeted automated proof",
+      "Browser UX bug hunt complete under automated proof; rerun after dev lands STT blockers",
       "Rerun Native real mic after dev fixes",
       "Rerun Private human proof after dev fixes",
       "Run Cloud baseline current-head proof after higher-priority Native/Private blockers"
