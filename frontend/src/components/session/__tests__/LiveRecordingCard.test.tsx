@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '../../../../tests/support/test-utils'
 import { describe, it, expect, vi } from 'vitest';
 import { LiveRecordingCard } from '../LiveRecordingCard';
 import { TEST_IDS } from '@/constants/testIds';
+import { PRIV_STT } from '@/services/transcription/sttConstants';
 
 describe('LiveRecordingCard', () => {
     const defaultProps = {
@@ -206,5 +207,22 @@ describe('LiveRecordingCard', () => {
         fireEvent.click(cloudOption);
 
         expect(onModeChange).toHaveBeenCalledWith('cloud');
+    });
+
+    it('shows model size (not setup time) in the Private setup CTA (#30)', () => {
+        render(
+            <LiveRecordingCard
+                {...defaultProps}
+                mode="private"
+                sttStatusType="download-required"
+                onDownloadModel={vi.fn()}
+            />
+        );
+        const note = screen.getByTestId('private-model-size-note');
+        expect(note).toHaveTextContent(`about ${PRIV_STT.DEFAULT_MODEL_DOWNLOAD_MB} MB`);
+        expect(note).toHaveTextContent('If site storage is cleared');
+        // Approved spec: show model SIZE, never an estimated setup TIME.
+        expect(note.textContent ?? '').not.toMatch(/minute|second|estimat|~\s*\d+\s*(s|m|min)\b/i);
+        expect(screen.getByTestId('download-model-button-inline')).toBeInTheDocument();
     });
 });
