@@ -3,6 +3,10 @@
 This file is the live coordination board. Keep it small, current, and branch-based.
 Backlog priority belongs in `product_release/BACKLOG.md`; evidence belongs in the STT reports.
 
+> **Fast dev⇄test loop:** `product_release/STT_PING.md` (append-only, one line per signal — the
+> current ball-in-court per ID). Read it FIRST each turn. This board is the durable index; the
+> reports hold evidence. Do not rewrite each other's cells — append a ping line instead.
+
 ## Integration Baseline
 
 ```text
