@@ -53,6 +53,7 @@ const CLEAR_PRIVATE_CACHE = process.env.STT_CLEAR_PRIVATE_CACHE === 'true';
 const PRIVATE_ENGINE = process.env.STT_PRIVATE_ENGINE || '';
 const PRIVATE_MIC_CONSTRAINTS = (process.env.STT_PRIVATE_MIC_CONSTRAINTS || '').trim();
 const PRIVATE_VAD = (process.env.STT_PRIVATE_VAD || '').trim();
+const PRIVATE_MODEL = (process.env.STT_PRIVATE_MODEL || '').trim();
 const PRIVATE_RESAMPLER = (process.env.STT_PRIVATE_RESAMPLER || '').trim();
 const CUSTOM_WORD = (process.env.STT_CUSTOM_WORD || '').trim().toLowerCase();
 const NATIVE_CONTINUOUS = process.env.STT_NATIVE_CONTINUOUS || '';
@@ -902,6 +903,9 @@ async function collectTraceSnapshot(page, mode) {
     privateVadTelemetry: currentMode === 'private'
       ? window.__PRIVATE_VAD_TELEMETRY__ ?? null
       : undefined,
+    privateModelTelemetry: currentMode === 'private'
+      ? window.__PRIVATE_MODEL_TELEMETRY__ ?? null
+      : undefined,
     privateResamplerTelemetry: currentMode === 'private'
       ? window.__PRIVATE_RESAMPLER_TELEMETRY__ ?? null
       : undefined,
@@ -1165,6 +1169,9 @@ async function runFixture(page, mode, fixture) {
   if (mode === 'private' && PRIVATE_VAD) {
     sessionUrl.searchParams.set('privateVad', PRIVATE_VAD);
   }
+  if (mode === 'private' && PRIVATE_MODEL) {
+    sessionUrl.searchParams.set('privateModel', PRIVATE_MODEL);
+  }
   if (mode === 'private' && PRIVATE_RESAMPLER) {
     sessionUrl.searchParams.set('privateResampler', PRIVATE_RESAMPLER);
   }
@@ -1312,6 +1319,7 @@ async function runFixture(page, mode, fixture) {
     speechRuntimeDebug: traceSnapshot.speechRuntimeDebug,
     privateRuntimeDuringRecording,
     privateVadTelemetry: traceSnapshot.privateVadTelemetry,
+    privateModelTelemetry: traceSnapshot.privateModelTelemetry,
     privateResamplerTelemetry: traceSnapshot.privateResamplerTelemetry,
     privateRuntimePath: privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath,
     privateRuntime: (privateRuntimeDuringRecording?.runtimePath ?? traceSnapshot.privateRuntimePath)?.runtime ?? null,
@@ -1422,6 +1430,7 @@ const evidence = {
   privateEngine: PRIVATE_ENGINE || 'default',
   privateMicConstraints: PRIVATE_MIC_CONSTRAINTS || 'default-product',
   privateVad: PRIVATE_VAD || 'default-rms',
+  privateModel: PRIVATE_MODEL || 'default-whisper-tiny.en',
   privateResampler: PRIVATE_RESAMPLER || 'default-box',
   nativeConfig: {
     continuous: NATIVE_CONTINUOUS || 'default',

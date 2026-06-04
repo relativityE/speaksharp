@@ -150,14 +150,8 @@ together.
 (or `window.__PRIVATE_MODEL__ = '...'`). Default/absent/unknown → `whisper-tiny.en`
 (production, byte-identical). No new dependency; the larger model downloads on demand.
 
-Test-agent prep update: focused P6 unit/static proof passes (`privateModelFlag`, `PrivateSTT`,
-`PrivateWhisper` = 63/63; frontend typecheck clean). Branch is behind current main; run browser A/B
-from a current-main test branch/rebase before any release/product decision.
-
-**Current next action — @dev-agent:** provide a current-main/rebased model-eval test branch
-with only the off-by-default `?privateModel=` candidate behavior. After that, @test-release-agent
-runs the browser model A/B and captures the telemetry below. Do not use the stale branch for
-release-quality A/B evidence.
+Test-agent update: current-main branch was provided and tested. The default model works; the
+larger candidates do not currently reach recording in the browser.
 
 **Candidate matrix (`PRIV_STT_MODELS`):**
 
@@ -180,6 +174,47 @@ over `whisper-tiny.en` **justifies** the extra download/memory/latency (product 
 trade). Report **WER/accuracy, download MB, load time, decode latency/RTF**, plus
 **app-vs-drop-in** and **app-vs-Native-baseline** deltas. Do not switch the default without
 this evidence (no blind switch).
+
+## TEST → DEV: STT-P6 browser model-eval setup proof (2026-06-04, owner: dev-agent)
+
+Test branch: `test/stt-p6-current-main@2c903463` (`main@6a24984c` +
+`dev/private-model-eval-main` stack). The proof harness now accepts `STT_PRIVATE_MODEL=...` and
+captures `window.__PRIVATE_MODEL_TELEMETRY__`.
+
+Focused static proof passed before browser testing:
+
+- `privateModelFlag.test.ts` + `PrivateSTT.test.ts` + `PrivateWhisper.test.ts`: `63/63`
+- `pnpm --dir frontend exec tsc --noEmit`: clean
+
+Browser model proof on `h1_6`:
+
+| Model | Artifact | Result | Accuracy | WER | Key telemetry / error |
+|---|---|---|---:|---:|---|
+| default `whisper-tiny.en` | `/private/tmp/stt-p6-tiny-h1_6.json` | pass | `87.5%` | `0.125` | `privateModelTelemetry={ model:"whisper-tiny.en", approxMB:40, overridden:false, loadTimeMs:663 }`; runtime `wasm-singlethread` |
+| `whisper-base.en` | `/private/tmp/stt-p6-base-h1_6.json` | fail before recording | n/a | n/a | `page.waitForFunction: Timeout 180000ms exceeded`; UI: `Private / Vault Mode could not finish setup`; console: `Model load failed with "Unexpected token <"` |
+| `distil-small.en` | `/private/tmp/stt-p6-distil-h1_6.json` | fail before recording | n/a | n/a | Same setup timeout and `Unexpected token '<', "<!doctype "... is not valid JSON` model-load failure |
+
+Representative browser console error from both candidates:
+
+```text
+[TransformersJS] Model load failed with "Unexpected token <".
+This suggests a 404 error where the server returned index.html instead of the model file.
+
+[TransformersJS] Failed to initialize engine.
+errorMessage: Unexpected token '<', "<!doctype "... is not valid JSON
+
+[FSM] Transition: ENGINE_INITIALIZING --(INIT_FAILED)--> INIT_FAILED
+```
+
+Conclusion: P6 is **not ready for quality A/B**. The default model still works, but both larger
+candidate models fail setup before audio is captured, so there is no WER/RTF comparison yet.
+
+**Next action for @dev-agent:** fix candidate model resolution before asking for more browser
+model-eval proof. Either correct the `remoteId` values (`Xenova/whisper-base.en`,
+`Xenova/distil-small.en`) / asset URL path, or add a model-manifest preflight that fails quickly
+with a named error such as `MODEL_NOT_FOUND` / `MODEL_MANIFEST_INVALID`. The user experience must
+not leave Private setup in a disabled mic state for 180 seconds when a candidate model URL resolves
+to HTML.
 
 ## TEST → DEV: STT-P7 Private mic-start false failure (2026-06-04, owner: dev-agent)
 
