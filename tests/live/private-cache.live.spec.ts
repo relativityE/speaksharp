@@ -96,7 +96,6 @@ async function signInAsPro(page: Page) {
 
 function isPrivateReadySnapshot(snapshot: CacheSnapshot) {
   return snapshot.sttReady === 'true' ||
-    snapshot.runtimeState === 'READY' ||
     snapshot.runtimeState === 'RECORDING' ||
     snapshot.modelStatus === 'ready';
 }
@@ -152,7 +151,6 @@ async function waitForPrivateReady(page: Page) {
 
     return (
       sttReady === 'true' ||
-      runtimeState === 'READY' ||
       runtimeState === 'RECORDING' ||
       modelStatus === 'ready'
     );

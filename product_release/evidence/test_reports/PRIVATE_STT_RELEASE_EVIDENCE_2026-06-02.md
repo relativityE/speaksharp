@@ -2583,3 +2583,150 @@ WASM threading as the speed lever gated by the existing COOP/COEP + Stripe/third
 party smoke tests. A 120s run would quantify scale, but this 65.8s run is enough
 to reject the drain/prep branches for medium speech.
 ```
+
+## TEST UPDATE (2026-06-04T01:43Z) — dev-requested backlog proofs
+
+Purpose: answer the dev agent's "who closes the other six tests" handoff. I ran
+the automatable proofs and documented which items are still human-only.
+
+### 1. Focused Score/Analytics and journey browser sweep
+
+Run:
+
+```text
+CI=true
+pnpm exec playwright test \
+  tests/e2e/analytics-suite.e2e.spec.ts \
+  tests/e2e/analytics-truth.e2e.spec.ts \
+  tests/e2e/user-facing-regressions.e2e.spec.ts \
+  tests/e2e/primary-journey.e2e.spec.ts \
+  --config=playwright.config.ts \
+  --project=full-suite \
+  --reporter=line \
+  --output=/private/tmp/speaksharp-automatable-backlog-proofs-readyfix
+```
+
+Result:
+
+```text
+PASS — 20/20
+```
+
+What this proves:
+
+| Requested proof | Result | Notes |
+| --- | --- | --- |
+| Score/Analytics confidence proof | Pass in mocked browser flow | Session-to-Analytics surfaces, score/quality caveat, and metric parity paths are covered by the focused sweep. |
+| Onboarding/profile smoke | Pass in mocked browser flow | Included in the primary/user-facing regression paths. |
+| Native/Cloud/Private primary mocked journeys | Pass | This is not a substitute for live STT / real mic / credentialed provider proof. |
+
+### 2. Deployed Private trial journey proof
+
+Before rerun, two harness defects had to be fixed:
+
+| Harness defect | Fix |
+| --- | --- |
+| Signup copy assertion expected stale text: `60-minute Pro trial included`. | Assert `/60-minute Pro trial/i`, matching current product copy: "Start free, with a 60-minute Pro trial". |
+| Private readiness wait accepted `runtimeState=READY` while `data-model-status=loading`. | Private readiness now requires `data-stt-ready=true`, `data-model-status=ready`, or active `RECORDING`; idle controller READY is no longer enough. |
+
+Run:
+
+```text
+BASE_URL=https://speaksharp-public.vercel.app
+CI=true
+pnpm exec playwright test tests/live/first-time-tester-private-trial.live.spec.ts \
+  --config=playwright.deployed-live.config.ts \
+  --project=deployed-live-chromium \
+  --reporter=line \
+  --output=/private/tmp/speaksharp-private-trial-journey-proof-transcript-clean
+```
+
+Result:
+
+```text
+PASS — signup -> Private selected -> setup/model ready -> recording -> Stop/save -> History -> /analytics/:id
+```
+
+Key evidence:
+
+| Field | Value |
+| --- | --- |
+| `firstUseReady.modelStatus` | `ready` |
+| `firstUseReady.statusText` | `Private ready. Nothing leaves your browser.` |
+| `recordingEvidence.transcriptText` | `Basically. we should literally like. "Wait, um, basically."` |
+| `recordingEvidence.fillerCount` | `5` |
+| Filler row text | `basically2`, `um1`, `like1`, `literally1` |
+| `historyEvidence.historyItemVisible` | `true` |
+| `historyEvidence.openedUrl` | `https://speaksharp-public.vercel.app/analytics/83885a61-d60f-4ed3-a3e6-1b4a3d991f4e` |
+
+Important limitation: this proves the automated deployed journey can open the
+saved detail route. It does **not** yet prove `data-session-detail-transcript`
+matches `saveCandidate.selectedForSave`; the first-time live spec should be
+extended for that exact content comparison if we want to close #28 fully without
+a human proof.
+
+### 3. Private setup consent guard
+
+Run:
+
+```text
+BASE_URL=https://speaksharp-public.vercel.app
+CI=true
+PRIVATE_SETUP_USER_CONSENT_REQUIRED=true
+pnpm exec playwright test tests/live/first-time-tester-private-trial.live.spec.ts \
+  --config=playwright.deployed-live.config.ts \
+  --project=deployed-live-chromium \
+  --reporter=line \
+  --output=/private/tmp/speaksharp-private-consent-guard-proof
+```
+
+Result:
+
+```text
+EXPECTED FAIL — INVALID_SETUP setup.model_provider USER_CONSENT_REQUIRED private-setup-download-visible
+```
+
+Evidence summary:
+
+| Field | Value |
+| --- | --- |
+| `modelStatus` | `download-required` |
+| `serviceState` | `DOWNLOAD_REQUIRED` |
+| `startButtonDisabled` | `true` |
+| Visible copy | `Private model required... Set up Private / Vault Mode on this computer. All audio processing remains local.` |
+
+Interpretation: the harness guard is now working. With
+`PRIVATE_SETUP_USER_CONSENT_REQUIRED=true`, automated proof stops at the setup CTA
+instead of auto-clicking. This does not close the human consent proof: a human
+still has to click setup explicitly and verify the CTA/copy feels acceptable.
+
+### Current owner split after these tests
+
+| Item from dev handoff | Status |
+| --- | --- |
+| Native real Chrome mic | Still human/test-agent only; injected audio is diagnostic, not release proof. |
+| Private human trust proof | Still human/test-agent only because setup consent requires the user's click. |
+| Private detail/history journey | Automated route opens history/detail; content equality still needs `saveCandidate` vs `data-session-detail-transcript`. |
+| Score/Analytics confidence proof | Automatable focused browser proof passed 20/20. |
+| Onboarding/profile smoke | Covered in the focused browser sweep; no new failure found. |
+| Private 120s timing | Not run in this pass. We already have a distinct-prose 65.8s Washington proof; the checked-in 120s fixture is repeated corpus and weaker for release accuracy claims. |
+
+### DEV-facing asks
+
+```text
+1. The automatable tests are not blocked now. The live Private proof helpers no
+   longer treat controller READY as model-ready; use this version for future
+   Private parity/timing runs.
+
+2. Do not treat the consent-guard failure as product failure. It is an expected
+   human-proof stop: setup CTA is visible and the harness refuses to click it.
+
+3. If dev wants #28 fully closed without a human, the next small test task is to
+   extend first-time Private proof to read `window.__SPEECH_RUNTIME_DEBUG__().saveCandidate`
+   after Stop and compare it with `[data-testid="session-detail-transcript"]` /
+   `data-session-detail-transcript` on `/analytics/:id`.
+
+4. The long-form timing branch remains as previously measured: 65.8s is decode-
+   dominated and UX-trust dominated; do not chase Stop-drain or prep-copy fixes
+   from the timing numbers.
+```
