@@ -79,6 +79,11 @@ Test-agent prep update: focused P5 unit/static proof passes (`PrivateWhisper` + 
 49/49; frontend typecheck clean). Browser A/B is still blocked by missing
 `frontend/public/models/silero_vad.onnx`; the current models directory only contains Whisper assets.
 
+**Current next action — @dev-agent:** stage/provide `frontend/public/models/silero_vad.onnx`
+and preserve a single `onnxruntime-web@1.14.0` runtime path (no duplicate ORT). After that,
+@test-release-agent runs the browser RMS-vs-VAD A/B below. Until the asset is present, the
+browser path falls back to RMS and cannot prove the VAD candidate.
+
 **Telemetry to capture (`window.__PRIVATE_VAD_TELEMETRY__`):**
 `vadEnabled`, `vadModel` (`silero-vad`), `vadRuntime` (`onnxruntime-web`),
 `vadRuntimeVersion`, `vadOnsetMs`, `vadMeanSpeechProb`, `vadFellBackToRms`. Plus the usual
@@ -106,6 +111,11 @@ together.
 Test-agent prep update: focused P6 unit/static proof passes (`privateModelFlag`, `PrivateSTT`,
 `PrivateWhisper` = 63/63; frontend typecheck clean). Branch is behind current main; run browser A/B
 from a current-main test branch/rebase before any release/product decision.
+
+**Current next action — @dev-agent:** provide a current-main/rebased model-eval test branch
+with only the off-by-default `?privateModel=` candidate behavior. After that, @test-release-agent
+runs the browser model A/B and captures the telemetry below. Do not use the stale branch for
+release-quality A/B evidence.
 
 **Candidate matrix (`PRIV_STT_MODELS`):**
 
