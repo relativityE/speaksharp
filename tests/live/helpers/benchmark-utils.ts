@@ -6,6 +6,7 @@ type BenchmarkPreconditionSnapshot = {
     label: string;
     url: string;
     title?: string;
+    environmentProof?: ReleaseProofEnvironment;
     root?: {
         appReady: string | null;
         runtimeState: string | null;
@@ -33,6 +34,16 @@ type BenchmarkPreconditionSnapshot = {
     };
     runtime?: Record<string, unknown> | null;
     snapshotError?: string;
+};
+
+type ReleaseProofEnvironment = {
+    url: string;
+    port: number | null;
+    authMode: 'real' | 'mock' | 'unknown';
+    mockAuth: boolean;
+    releaseProofEligible: boolean;
+    cdpSameTab: boolean | null;
+    invalidReasons: string[];
 };
 
 export const BENCHMARKS_PATH = path.resolve('tests/STT_BENCHMARKS.json');
@@ -89,6 +100,15 @@ export function assertNoRegression(
 export async function collectBenchmarkPreconditionSnapshot(page: Page, label: string): Promise<BenchmarkPreconditionSnapshot> {
     return page.evaluate((snapshotLabel) => {
         const root = document.documentElement;
+        const readPort = () => {
+            if (window.location.port) {
+                const parsed = Number(window.location.port);
+                return Number.isFinite(parsed) ? parsed : null;
+            }
+            if (window.location.protocol === 'http:') return 80;
+            if (window.location.protocol === 'https:') return 443;
+            return null;
+        };
         const bodyText = document.body?.innerText?.replace(/\s+/g, ' ').trim().slice(0, 500) ?? '';
         const modeSelect = document.querySelector('[data-testid="stt-mode-select"]') as HTMLElement | null;
         const startButton = document.querySelector('[data-testid="session-start-stop-button"]') as HTMLElement | null;
@@ -98,16 +118,45 @@ export async function collectBenchmarkPreconditionSnapshot(page: Page, label: st
             __SPEECH_RUNTIME_DEBUG__?: () => Record<string, unknown>;
             SpeechRecognition?: unknown;
             webkitSpeechRecognition?: unknown;
+            __E2E_CONTEXT__?: boolean;
+            __E2E_MOCK_SESSION__?: boolean;
+            __SS_E2E__?: unknown;
+            TEST_MODE?: boolean;
         };
         const speechRecognition = debugWindow.SpeechRecognition ?? debugWindow.webkitSpeechRecognition;
         const speechRecognitionName = typeof speechRecognition === 'function'
             ? speechRecognition.name
             : null;
+        const port = readPort();
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const mockAuth = Boolean(
+            debugWindow.__E2E_CONTEXT__ ||
+            debugWindow.__E2E_MOCK_SESSION__ ||
+            debugWindow.__SS_E2E__ ||
+            debugWindow.TEST_MODE ||
+            speechRecognitionName === 'MockSpeechRecognition'
+        );
+        const authMode = mockAuth ? 'mock' : (isLocalhost && port === 5174 ? 'real' : 'unknown');
+        const invalidReasons = [
+            ...(!isLocalhost ? ['not_localhost'] : []),
+            ...(port !== 5174 ? [`port_${port ?? 'unknown'}_not_5174`] : []),
+            ...(authMode !== 'real' ? [`auth_${authMode}`] : []),
+            ...(mockAuth ? ['mock_auth_detected'] : []),
+        ];
 
         return {
             label: snapshotLabel,
             url: window.location.href,
             title: document.title,
+            environmentProof: {
+                url: window.location.href,
+                port,
+                authMode,
+                mockAuth,
+                releaseProofEligible: invalidReasons.length === 0,
+                cdpSameTab: true,
+                invalidReasons,
+            },
             root: {
                 appReady: root.getAttribute('data-app-ready'),
                 runtimeState: root.getAttribute('data-runtime-state'),
@@ -148,6 +197,22 @@ export async function logBenchmarkPhase(page: Page, phase: string) {
     const snapshot = await collectBenchmarkPreconditionSnapshot(page, phase);
     console.log(`[STT_BENCHMARK_PHASE] ${JSON.stringify(snapshot)}`);
     return snapshot;
+}
+
+export async function assertManualReleaseProofEnvironment(page: Page, label: string) {
+    const snapshot = await collectBenchmarkPreconditionSnapshot(page, label);
+    const proof = snapshot.environmentProof;
+
+    if (!proof?.releaseProofEligible) {
+        throw new Error(
+            `INVALID_SETUP setup.env RELEASE_PROOF_INELIGIBLE ${label}\n` +
+            `Manual STT release proof must run on localhost:5174 with real auth. ` +
+            `localhost:5173, mock auth, test-mode builds, and wrong CDP tabs are invalid evidence.\n` +
+            `${JSON.stringify(snapshot, null, 2)}`
+        );
+    }
+
+    return proof;
 }
 
 export async function assertNativeSpeechRecognitionIsReal(page: Page, label: string) {

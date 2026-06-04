@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Response, type TestInfo } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { AUDIO_ARGS, assertPreStartMode, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
+import { AUDIO_ARGS, assertManualReleaseProofEnvironment, assertPreStartMode, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
@@ -43,6 +43,7 @@ test.describe.serial('Pro STT artifact path matrix @live', () => {
       await signInAsPro(page);
       await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
       await expect(page.getByTestId('pro-badge')).toBeVisible({ timeout: 30_000 });
+      const environmentProof = await assertManualReleaseProofEnvironment(page, `${mode}-artifact-release-proof-env`);
       await selectBenchmarkMode(page, mode);
       await assertPreStartMode(page, mode);
 
@@ -53,6 +54,7 @@ test.describe.serial('Pro STT artifact path matrix @live', () => {
 
       console.log(`LIVE_PRO_STT_ARTIFACT_EVIDENCE ${JSON.stringify({
         mode,
+        environmentProof,
         detailHref,
         transcriptPreview: transcript.slice(0, 180),
         transcriptLength: transcript.length,
