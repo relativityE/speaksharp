@@ -1,6 +1,6 @@
 # Native STT Release Evidence — Current
 
-**Updated:** 2026-06-04T13:26Z
+**Updated:** 2026-06-04T16:25Z
 **Scope:** Chrome Web Speech Native STT, real human mic, formatter, trust UI, save/history/detail  
 **Canonical matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -56,7 +56,7 @@ Speak sharp microphone proof Starts Now basically I want to make one simple poin
 
 ## Latest Test-Release Result — Formatter Plumbing
 
-Owner: **test-release-agent / Codex**  
+Owner: **test-release-agent / Codex**
 Automated checks:
 
 ```text
@@ -74,6 +74,20 @@ pnpm test:edge
 | Edge functions | `73/73` steps passed | `format-transcript` validates auth, engine, quota, word preservation, errors, and no transcript text in logs. |
 
 Conclusion: formatter plumbing is verified. Native is still **not release-green** until current-main real-mic re-proof verifies the detail cache fix, truecasing/readability, and trust-label spacing.
+
+## Latest Test-Release Result — Current-Main Non-Human Validation
+
+Owner: **test-release-agent / Codex**
+Head: `82be4993`
+
+| Check | Result | Meaning |
+| --- | --- | --- |
+| `pnpm typecheck` | passed | Current Native/Private STT code type-checks. |
+| `LiveTranscriptPanel` + Native formatter suites | `68/68` passed | Trust-banner spacing/copy hooks and Native raw-first formatter plumbing remain green. |
+| Score/Analytics coherence subset | `31/31` passed | Transcript-quality caveats, filler/STT benchmark components, and analytics math remain green. |
+| Static trust-copy sweep | no new bug candidate | Native/Cloud transcript finalization paths use generic processing copy; Private-only local copy remains confined to Private paths. |
+
+This does **not** replace the required real Chrome mic proof. It only clears current-main non-human smoke before the next Native human proof.
 
 ## Trust-Copy Contract
 
