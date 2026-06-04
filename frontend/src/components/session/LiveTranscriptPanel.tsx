@@ -36,6 +36,30 @@ interface LiveTranscriptPanelProps {
 /** Discrete UI state for the live transcript, exposed via data-transcript-state. */
 type LiveTranscriptUiState = 'listening' | 'drafting' | 'finalizing' | 'final' | 'idle';
 
+/**
+ * Split live draft text into completed sentences ("settled" — render calm/recognized)
+ * and the trailing in-progress sentence ("active" — render as Draft). Live-view only:
+ * the SAVED transcript still comes from the whole-utterance final decode, so this never
+ * affects saved accuracy (Quality-Push Option 1). When there is no sentence terminator
+ * the whole thing is "active" — identical to the prior single-Draft behaviour.
+ */
+export function splitSettledActiveTranscript(text: string): { settled: string; active: string } {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return { settled: '', active: '' };
+    // Last sentence-ending punctuation (. ! ?), allowing a trailing closing quote/bracket.
+    const terminator = /[.!?]+["'’”)\]]?/g;
+    let lastEnd = -1;
+    let match: RegExpExecArray | null;
+    while ((match = terminator.exec(trimmed)) !== null) {
+        lastEnd = match.index + match[0].length;
+    }
+    if (lastEnd <= 0) return { settled: '', active: trimmed };
+    return {
+        settled: trimmed.slice(0, lastEnd).trim(),
+        active: trimmed.slice(lastEnd).trim(),
+    };
+}
+
 const WaveformMeter: React.FC<{ level: number; isProcessing: boolean }> = ({ level, isProcessing }) => {
     const visibleLevel = Math.max(0.08, Math.min(level, 1));
     const bars = [0.35, 0.62, 0.9, 0.5, 0.74];
@@ -78,6 +102,15 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
     const displayInterimTranscript =
         transcript.trim() === interimTranscript.trim() ? '' : interimTranscript;
     const hasInterimTranscript = displayInterimTranscript.trim() !== '';
+    // Option 1 (live-view segment finalization): show completed draft sentences as
+    // settled/recognized so a long speech is not one giant Draft block, while the
+    // trailing in-progress sentence stays clearly Draft. Display only — saved path
+    // (whole-utterance final) is untouched.
+    const { settled: settledDraft, active: activeDraft } = splitSettledActiveTranscript(displayInterimTranscript);
+    const hasSettledDraft = settledDraft !== '';
+    // What the trailing Draft line shows: the in-progress sentence when we have
+    // settled sentences, else the whole draft (prior single-Draft behaviour).
+    const draftLineText = hasSettledDraft ? activeDraft : displayInterimTranscript;
 
     // Discrete UI state for styling + browser-test assertions.
     const uiState: LiveTranscriptUiState = isFinalizing
@@ -295,15 +328,29 @@ export const LiveTranscriptPanel: React.FC<LiveTranscriptPanelProps> = ({
                             }
                             return <span key={token.id}>{token.transcript}</span>;
                         })}
-                        {isListening && hasInterimTranscript && (
+                        {/* Settled: completed draft sentences read as recognized, not
+                            a wall of Draft. Display only — saved path is unchanged. */}
+                        {isListening && hasSettledDraft && (
+                            <span
+                                className="text-foreground/80"
+                                data-testid="live-transcript-settled"
+                                data-transcript-settled="true"
+                                aria-label="Recognized so far"
+                            >
+                                {hasTranscript ? ' ' : ''}
+                                {settledDraft}
+                            </span>
+                        )}
+                        {/* Active: the in-progress sentence stays clearly Draft. */}
+                        {isListening && draftLineText.trim() !== '' && (
                             <span
                                 className="italic text-foreground/60"
                                 data-testid="live-transcript-current-line"
                                 data-transcript-draft="true"
                                 aria-label="Draft transcript, still being recognized"
                             >
-                                {hasTranscript ? ' ' : ''}
-                                {displayInterimTranscript}
+                                {(hasTranscript || hasSettledDraft) ? ' ' : ''}
+                                {draftLineText}
                             </span>
                         )}
                     </div>
