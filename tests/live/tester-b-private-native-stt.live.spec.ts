@@ -144,7 +144,7 @@ async function preparePrivateModelIfPrompted(page: Page) {
     const root = document.documentElement;
     return (
       root.getAttribute('data-stt-ready') === 'true' ||
-      root.getAttribute('data-runtime-state') === 'READY' ||
+      root.getAttribute('data-runtime-state') === 'RECORDING' ||
       root.getAttribute('data-model-status') === 'ready'
     );
   }, { timeout: 180_000 });

@@ -260,11 +260,12 @@ export async function waitForPrivateEngineReady(page: Page, timeout = 180_000) {
             const root = document.documentElement;
             const runtimeState = root.getAttribute('data-runtime-state');
             const sttReady = root.getAttribute('data-stt-ready');
+            const modelStatus = root.getAttribute('data-model-status');
 
             return (
                 sttReady === 'true' ||
-                runtimeState === 'READY' ||
-                runtimeState === 'RECORDING'
+                runtimeState === 'RECORDING' ||
+                modelStatus === 'ready'
             );
         }, undefined, { timeout });
         await logBenchmarkPhase(page, 'SETUP_MODEL_PROVIDER_READY');

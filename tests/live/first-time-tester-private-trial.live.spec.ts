@@ -81,7 +81,7 @@ test.describe('First-time tester automatic trial Private STT path @live', () => 
 
     await test.step('Create a fresh tester account with automatic trial copy visible', async () => {
       console.log('FIRST_TIME_TESTER_STEP signup_start');
-      await expect(page.getByText('60-minute Pro trial included')).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText(/60-minute Pro trial/i)).toBeVisible({ timeout: 10_000 });
       await page.getByTestId('email-input').fill(email);
       await page.getByTestId('password-input').fill(password);
       await page.getByTestId('sign-up-submit').click();
@@ -198,7 +198,6 @@ async function waitForPrivateReady(page: Page) {
 
     return (
       sttReady === 'true' ||
-      runtimeState === 'READY' ||
       runtimeState === 'RECORDING' ||
       modelStatus === 'ready'
     );
@@ -228,7 +227,7 @@ async function startAndStopPrivateRecording(page: Page): Promise<RecordingEviden
 
   let transcriptText = '';
   await expect(async () => {
-    transcriptText = normalizeText(await page.getByTestId('transcript-container').textContent());
+    transcriptText = await readTranscriptTextOnly(page);
     expect(transcriptText).not.toMatch(/words appear here|listening|no speech/i);
     expect(transcriptText.split(/\s+/).filter(Boolean).length).toBeGreaterThanOrEqual(3);
   }).toPass({ timeout: 120_000, intervals: [1_000, 2_000, 5_000] });
@@ -248,6 +247,14 @@ async function startAndStopPrivateRecording(page: Page): Promise<RecordingEviden
     saved: true,
     beforeStop,
   };
+}
+
+async function readTranscriptTextOnly(page: Page) {
+  const transcriptTextOnly = page.getByTestId('transcript-text-only');
+  if (await transcriptTextOnly.isVisible({ timeout: 250 }).catch(() => false)) {
+    return normalizeText(await transcriptTextOnly.textContent());
+  }
+  return normalizeText(await page.getByTestId('transcript-container').textContent());
 }
 
 async function confirmHistoryOpens(page: Page): Promise<HistoryEvidence> {

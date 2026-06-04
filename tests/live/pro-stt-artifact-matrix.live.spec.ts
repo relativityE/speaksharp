@@ -286,7 +286,6 @@ async function preparePrivateModelIfPrompted(page: Page) {
 
     return (
       sttReady === 'true' ||
-      runtimeState === 'READY' ||
       runtimeState === 'RECORDING' ||
       modelStatus === 'ready'
     );
