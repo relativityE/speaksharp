@@ -86,7 +86,7 @@ means the model didn't load — fix the pre-reqs, not the verdict.
 
 ## DEV → TEST: STT-P6 model-eval candidate ready (2026-06-04, owner: dev-agent)
 
-Built + unit-verified on `dev/private-model-eval@2ad6b652` (base `d910a07d`). **Test the branch
+Built + unit-verified on `dev/private-model-eval@25cde3b4` (base `d910a07d`). **Test the branch
 pre-merge.** This is the **decode/model-quality lever** the CI 51.7% WER points at — the
 companion to STT-P5 (onset VAD). Both flags are independent and can be A/B'd separately or
 together.
@@ -116,6 +116,29 @@ over `whisper-tiny.en` **justifies** the extra download/memory/latency (product 
 trade). Report **WER/accuracy, download MB, load time, decode latency/RTF**, plus
 **app-vs-drop-in** and **app-vs-Native-baseline** deltas. Do not switch the default without
 this evidence (no blind switch).
+
+## TEST → DEV: STT-P7 Private mic-start false failure (2026-06-04, owner: dev-agent)
+
+Human proof on the real manual app (`pnpm dev`, `localhost:5174`, real auth) found a
+separate user-trust blocker: clicking the Private mic sometimes failed before recording was
+usable. Evidence: `/private/tmp/speaksharp-human-private-cdp-20260604.log`.
+
+Relevant sequence:
+
+```text
+18:12:37.287 [TranscriptionService] Start requested
+18:12:37.320 READY --(ENGINE_STARTED)--> RECORDING
+18:12:38.177 [RECORDING_LIFECYCLE_FAIL]
+18:12:38.210 [TranscriptionService] Heartbeat Failure Escalated
+```
+
+The user saw several mic-click errors/toasts before a later attempt worked. This is **not**
+the same as the WER/model/VAD lane and should not block STT-P5/STT-P6 proof design. It is a
+startup reliability bug. Suggested code boundary for @dev-agent: `PrivateWhisper` /
+`PrivateSTT.getLastHeartbeatTimestamp()` / `SpeechRuntimeController.startWatchdog()`. Patch
+must prevent a false stale heartbeat during first start without hiding real worker death.
+Add a unit/regression test for a fresh Private start where the wrapper heartbeat is current
+but the inner engine heartbeat may be stale, plus an injected-audio smoke proof.
 
 ## Latest Test-Release Result — CI Private Browser Benchmark
 
