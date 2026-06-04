@@ -1,6 +1,6 @@
 # Cloud STT Release Evidence — Current
 
-**Updated:** 2026-06-04T13:23Z  
+**Updated:** 2026-06-04T13:26Z
 **Scope:** AssemblyAI Cloud STT baseline, app journey, timing, tail/readability proof  
 **Canonical matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -60,12 +60,13 @@ save/history/detail equality
 
 ## Test-Release Agent / Codex Owned Work
 
-| # | Task |
-| --- | --- |
-| 4 | Session-to-Analytics coherence for Cloud-derived score/quality signals. |
-| 5 | Browser UX bug hunt covering Cloud mode selection, save/history/detail, and generic trust copy. |
-| 6 | Cloud baseline-only current-head app-path proof with timeline, tail, readability, filler, and save/history/detail. Local contract proof complete; credentialed app-path proof remains required. |
-| 7 | Keep this report pruned to current artifacts, owners, and proof requirements. |
+Completed cross-cutting proof is recorded in the canonical matrix: session-to-analytics coherence, browser UX sweep, Cloud local contract proof, and report hygiene.
+
+Remaining Cloud action:
+
+```text
+Run the credentialed baseline-only app-path proof when deployed BASE_URL, Pro credentials, and a real AssemblyAI key are available.
+```
 
 ## Dev Boundary
 

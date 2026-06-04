@@ -1,6 +1,6 @@
 # Private STT Release Evidence — Current
 
-**Updated:** 2026-06-04T13:09Z  
+**Updated:** 2026-06-04T13:26Z
 **Scope:** Private v2 local/browser STT, explicit setup consent, accuracy, trust UI, save/history/detail  
 **Canonical matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -106,15 +106,14 @@ Private may use local language only for actual local processing states.
 
 Owner: **test-release-agent / Codex** after `@dev-agent` lands a fix.
 
-Additional **test-release-agent / Codex** owned work that can proceed without taking dev implementation lanes:
+Completed **test-release-agent / Codex** work is recorded in the canonical matrix: decode-parameter A/B, VAD prototype proof plan, session-to-analytics coherence, browser UX sweep, and report hygiene.
 
-| # | Task |
-| --- | --- |
-| 1 | Private decode-parameter A/B on h1_6 completed; anti-hallucination options rejected. Expand to other fixtures only if dev proposes a new candidate config. |
-| 3 | Private VAD prototype test plan complete; execute only when dev ships a named VAD prototype flag. |
-| 4 | Session-to-Analytics coherence for Private-derived score/quality signals. |
-| 5 | Browser UX bug hunt covering Private setup consent, recording, stop, save/history/detail, and error recovery. |
-| 7 | Keep this report pruned to current artifacts, owners, and proof requirements. |
+Current **test-release-agent / Codex** action after `@dev-agent` lands fixes:
+
+```text
+Rerun the same Private human script and capture the fields below.
+If dev ships a named VAD prototype flag or a new decode candidate, run the predeclared proof gates from the canonical matrix.
+```
 
 Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and keep reports/backlog updated with the merge commit. Do not leave release fixes stranded on long-lived branches.
 
