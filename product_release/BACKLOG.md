@@ -129,9 +129,8 @@ This section captures the review request that should guide the next product UX p
 ## Current STT Coordination
 
 This is the current owner split. Old proof chatter has been removed from the
-active reports; use git history only for audit.
-
-**Tree status:** FREE for @dev-agent Phase B as of `main` `0915a34e`; test-release docs branch is merged and deleted.
+active reports; use git history only for audit. Live tree lock and queue state
+belong in `product_release/CURRENT_WORK.md`.
 
 | Owner | Current tasks |
 |---|---|
