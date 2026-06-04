@@ -180,7 +180,9 @@ Test-agent note: focused branch proof was re-run (`watchdog.test.ts` +
 `heartbeatTrace.test.ts` = 10/10; frontend typecheck clean). The first browser smoke attempt is
 **invalid evidence** because it launched direct Vite on `5178` and `/auth/signup` returned blank
 404. Valid P7 browser proof must serve this branch through canonical `pnpm dev` on
-`localhost:5174`.
+`localhost:5174`. As of the latest check, `5174` is occupied by a different worktree
+(`dev/config-discipline-modes@a3bf3132`), so do not score P7 from that running app; get a deliberate
+5174 branch slot for `dev/stt-p7-soft-frozen-trace` first.
 
 **Proof (test-agent):** injected Private-start smoke + next human Private proof must show
 **no `RECORDING_LIFECYCLE_FAIL` AND no "Engine Frozen" toast**, and `__PRIVATE_HEARTBEAT_TRACE__`
