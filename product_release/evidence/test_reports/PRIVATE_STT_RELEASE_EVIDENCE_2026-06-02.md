@@ -916,3 +916,40 @@ VAD/segmentation or caveat/hold Private.
 **Note:** VAD (STT-P5) is **deferred until after this A/B** per product (evidence points at model
 quality first). The faster resampler (STT-P8, timing-only) and the conservative 3+×
 repetition-collapse are independent safe wins.
+
+## TEST → DEV: STT-P6 model A/B blocked by unsupported model type (2026-06-04, owner: dev-agent)
+
+Test branch: `test/stt-p6-model-ab` (`main@b993ad74` + `dev/private-model-eval-main@7c04064a`).
+
+Static proof before browser run:
+
+- `privateModelFlag.test.ts` + `PrivateSTT.test.ts` + `PrivateWhisper.test.ts`: `63/63`
+- `pnpm --dir frontend exec tsc --noEmit`: clean
+
+Browser proof on `h1_6`:
+
+| Model | Artifact | Result | Accuracy | WER | Key telemetry / error |
+|---|---|---|---:|---:|---|
+| default `whisper-tiny.en` | `/private/tmp/stt-p6-ab-tiny-h1_6.json` | pass | `87.5%` | `0.125` | `privateModelTelemetry={ model:"whisper-tiny.en", approxMB:40, overridden:false, loadTimeMs:739 }`; transcript `Day. Like, told Wild Tales to frighten him.` |
+| `whisper-base.en` | `/private/tmp/stt-p6-ab-base-h1_6.json` | fail before recording | n/a | n/a | `MODEL_LOAD_FAILED [whisper-base.en -> onnx-community/whisper-base.en]: Unsupported model type: whisper`; UI remained `Private / Vault Mode could not finish setup` until harness timeout |
+| `distil-small.en` | `/private/tmp/stt-p6-ab-distil-h1_6.json` | fail before recording | n/a | n/a | `MODEL_LOAD_FAILED [distil-small.en -> onnx-community/distil-small.en]: Unsupported model type: whisper`; same setup failure |
+
+Representative browser console error:
+
+```text
+[TransformersJS] Failed to initialize engine.
+errorMessage: MODEL_LOAD_FAILED [whisper-base.en -> onnx-community/whisper-base.en]:
+Unsupported model type: whisper
+
+[FSM] Transition: ENGINE_INITIALIZING --(INIT_FAILED)--> INIT_FAILED
+```
+
+Conclusion: dev's branch fixed the old HTML/index fallback into a named error, but the A/B is
+still blocked. The `onnx-community` candidate repositories/configs are not accepted by the current
+Transformers.js v2 browser loader path (`@xenova/transformers@2.17.2`) because the model config type
+is rejected as `whisper`.
+
+**Next action for @dev-agent:** provide a browser-compatible larger Whisper candidate for the
+current loader/runtime, or intentionally change the loader/runtime with a focused compatibility
+proof. Also surface the named `MODEL_LOAD_FAILED` immediately to the harness/user; the current UI
+still waits until the 180s proof timeout even though the console has a clear init failure.
