@@ -67,7 +67,7 @@ Current 24-hour gates:
 |---|---|---|
 | Native front-door proof | Test/release with human mic; dev only if artifact proves product bug | Clean/filler/realistic scripts captured with first visible text, visible-at-stop, post-stop final, `selectedForSave`, saved/history/detail, duplication flag, formatter telemetry, and readability. |
 | Private trust proof | Test/release; dev fixes concrete boundaries | Setup consent honored; live text cumulative; Private Draft/Processing/Final states correct; no duplication/truncation in `saveCandidate`; short/medium scripts at or near drop-in parity. |
-| Cloud baseline proof | Test/release; dev only for provider/request/tail bug | Baseline app path preserves tail, passes save/history/detail, has strong readability/filler metrics, and exports `__CLOUD_STT_TIMELINE__`. No default keyterms work. |
+| Cloud baseline proof | Test/release; dev only for provider/request/tail bug | Current-head deployed smoke passed on run `26960691857`; richer tail/readability/WER metrics are deferred behind Native/Private. No default keyterms work. |
 | Score/Analytics trust | Dev + test | Weak transcript quality lowers confidence/copy, not necessarily the numeric formula; Analytics exposes Transcript Quality as a first-class guardrail. |
 
 Test/release validation standard from reviewer:
@@ -177,7 +177,7 @@ DEV merged to `main` and tagged re-proof tasks in the evidence reports (NATIVE_S
 | 2026-06-03 | Startup diagnostic E2E bridge contract | Closed. The standalone startup diagnostic used bare `page` and loaded the test build without the centralized E2E manifest, correctly triggering the app guard `Mock auth is not available from the runtime app`. The diagnostic now installs `programmaticLoginWithRoutes` before exercising the canonical readiness path, so it validates boot readiness without weakening the runtime guard. | Isolated diagnostic rerun 6/6 passed; full `tests/e2e` browser sweep passed 38/38 after the fix. |
 | 2026-06-04 | Session-to-Analytics coherence proof | Closed under automation. Session score, transcript-quality caveats, filler/readability signals, detail navigation, reload/export, and analytics outputs agree in targeted component/math and browser proofs. | Test-release branch merged; targeted Vitest 66/66, user-facing browser regression 9/9, analytics suite/truth 13/13. Human STT quality blockers still remain separate. |
 | 2026-06-04 | Browser UX bug hunt | Closed under automation. Primary journeys, user features/history/detail, custom filler-word management, goal-setting analytics, and error states passed without a new reproducible automated UX bug. | Playwright subset 19/19. Known human-found STT issues remain active in the STT backlog. |
-| 2026-06-04 | Cloud baseline local contract proof | Closed locally. Baseline request/timing/provider contracts are verified; live app-path proof remains credential-gated before Cloud can be green. | Cloud local stack 44/44. Live Cloud app-path spec skipped because local env lacks deployed BASE_URL/Pro credentials and a real AssemblyAI key. |
+| 2026-06-04 | Cloud baseline local + deployed smoke proof | Closed for smoke. Baseline request/timing/provider contracts are verified, and current-head deployed app-path smoke passed. Full WER/tail/readability metrics are intentionally deferred behind Native/Private. | Cloud local stack 44/44. GitHub Actions run `26960691857` passed `1/1` against deployed Pro Cloud, with provider partial/final/terminated events, save, and analytics history. |
 
 ## Current Backlog
 
@@ -233,10 +233,10 @@ product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json
 | P0 | Fix Private content loss/substitution | Private | Human proof: 56.36% accuracy; expected `the main idea is that every transcript`, saved `the memory transcript`; saved 39/55 words. | @dev-agent |
 | P0 | Fix Private first-visible draft/progress gating | Private | Chunks decoded every ~1.4-2.1s, but logs repeatedly showed `Holding first transcript until it has speech-like substance`; useful text appeared at Stop. | @dev-agent |
 | P1 | Fix Native truecasing/readability or keep caveated | Native | Formatter invoked quickly and word-preserving (`853ms`, no error), but saved text still had `Starts Now` and weak punctuation. | @dev-agent |
-| P1 | Fix trust-label spacing/accessibility | Native + shared transcript panel | Trust copy policy is correct, but extracted text glues words: `Draft transcriptText may change...`. | @dev-agent |
+| P1 | Fix trust-label spacing/accessibility | Native/Cloud + shared transcript panel | Trust copy policy is correct, but extracted text glues words: `Draft transcriptText may change...`; latest Cloud smoke showed the same contamination in visible transcript evidence. | @dev-agent |
 | P1 | Rerun Native real-mic proof after fixes | Native | Must verify save/detail equality, formatter quality, trust labels, no false local copy. | test-release-agent / Codex |
 | P1 | Rerun Private human proof after fixes | Private | Must verify explicit setup remains, cumulative draft text, improved accuracy, filler recall, and detail equality. | test-release-agent / Codex |
-| P1 | Run Cloud baseline app-path proof | Cloud | Baseline only; collect timeline, tail/readability, and save/history/detail once Native/Private are less blocked. | test-release-agent / Codex |
+| P2 | Run richer Cloud baseline metrics proof | Cloud | Current-head deployed smoke passed (`26960691857`, `1/1`); collect full timeline, tail/readability, WER, and clean transcript-only evidence after Native/Private are less blocked. | test-release-agent / Codex |
 | P2 | Keep stale deploy chunk recovery on radar | Whole app / STT funnel | Prior proof showed generic `Oops` for stale dynamic import chunk; not retested in current human proofs. | @dev-agent if still reproducible |
 
 ## May 30 Manual STT Live-Test Ledger

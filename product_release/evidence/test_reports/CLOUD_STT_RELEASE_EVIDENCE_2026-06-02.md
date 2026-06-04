@@ -1,6 +1,6 @@
 # Cloud STT Release Evidence — Current
 
-**Updated:** 2026-06-04T13:26Z
+**Updated:** 2026-06-04T15:28Z
 **Scope:** AssemblyAI Cloud STT baseline, app journey, timing, tail/readability proof  
 **Canonical matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -30,7 +30,9 @@ Do not keep testing keyterms for default fillers (`uh`, `um`, `like`, `basically
 | Latest subset after request/session fixes | baseline valid and safest; keyterms valid but not better as launch default |
 | Known policy | baseline only for launch |
 | Local baseline contract/timing proof | `44/44` passed: Cloud engine tail/termination, AssemblyAI provider parsing/auth/request contract, baseline URL builder, and `readCloudStreamTiming` |
-| Live Cloud app-path proof on this machine | skipped: missing deployed `BASE_URL`/Pro credentials and no real `ASSEMBLYAI_API_KEY` in local env |
+| Current-head deployed Cloud app-path smoke | GitHub Actions run `26960691857`, job `79549905302`, commit `4216b2d1`: `1 passed` in `46.2s`; artifact `live-cloud-artifacts` ID `7415247192`. |
+| Cloud provider/session behavior in that smoke | Provider emitted partials, finals, and `terminated`; stop selected transcript length `362`, duration `25.062s`, final word count `67`, filler count `6`, `willSave=true`, and analytics history rendered. |
+| New finding from that smoke | Visible transcript evidence was contaminated by glued trust-copy text: `Draft transcriptText may change...`. This is shared transcript-panel/test-extraction UX debt, not a Cloud provider failure; dev-owned trust-label spacing now affects Cloud evidence too. |
 
 Artifacts previously used for baseline context:
 
@@ -43,7 +45,8 @@ Artifacts previously used for baseline context:
 
 | Priority | Blocker | Owner |
 | --- | --- | --- |
-| P1 | Current-head app-path baseline proof with timeline/readability/tail fields is still needed before Cloud is fully green. | test-release-agent / Codex |
+| P1 | Full baseline release proof with structured timing/readability/tail/WER fields is still needed before Cloud is fully green. The current deployed smoke proves app-path viability but not the full metric table. | test-release-agent / Codex |
+| P1 | Shared trust-label spacing/test-extraction bug should be fixed so visible transcript evidence does not glue labels into the transcript text. | @dev-agent |
 
 Required proof fields:
 
@@ -65,11 +68,11 @@ Completed cross-cutting proof is recorded in the canonical matrix: session-to-an
 Remaining Cloud action:
 
 ```text
-Run the credentialed baseline-only app-path proof when deployed BASE_URL, Pro credentials, and a real AssemblyAI key are available.
+Cloud app-path smoke has passed on current head. Keep Cloud baseline-only for launch, but do not spend more release oxygen here until Native/Private blockers are fixed. Later, run a richer Cloud baseline proof that exports structured timeline/tail/readability/WER fields and clean transcript-only evidence.
 ```
 
 ## Dev Boundary
 
-No current Cloud dev work is requested unless the baseline proof fails with provider invalid rows, tail loss, save/detail mismatch, or timing regression.
+No Cloud-provider dev work is requested. The only Cloud-adjacent dev ask from the latest smoke is shared transcript-panel evidence cleanliness: trust labels must not glue into transcript text.
 
 Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and keep reports/backlog updated with the merge commit. Do not leave release fixes stranded on long-lived branches.
