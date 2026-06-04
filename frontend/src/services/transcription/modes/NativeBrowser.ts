@@ -8,7 +8,6 @@ import { STTEngine } from '../../../contracts/STTEngine';
 import { ENV } from '../../../config/TestFlags';
 import { NATIVE_STT } from '../sttConstants';
 import { NativeBrowserStrategy, resolveNativeBrowserStrategy } from './nativeBrowserStrategies';
-import { formatNativeTranscript } from './nativeTranscriptFormatter';
 import { registerNativeProductionFormatter } from './nativeGeminiFormatter';
 
 declare global {
@@ -1671,10 +1670,11 @@ export default class NativeBrowser extends STTEngine implements ITranscriptionEn
     }
     const transcript = await super.getTranscript();
     const saved = transcript || this.lastMeaningfulInterim || this.interimTranscriptBuffer;
-    // Apply the trusted punctuation/casing restoration formatter to the SAVED
-    // transcript only (never live partials). Identity no-op until a trusted
-    // formatter is registered; failures fall back to the unformatted text.
-    return formatNativeTranscript(saved);
+    // RAW-FIRST (Native async formatting): return the raw transcript so Stop/save
+    // are never blocked on the network formatter. The trusted punctuation/casing
+    // formatter runs ASYNCHRONOUSLY after save (see formatNativeSessionInBackground),
+    // and only replaces the saved transcript when it succeeds word-preservingly.
+    return saved;
   }
 
   public getLastHeartbeatTimestamp(): number {
