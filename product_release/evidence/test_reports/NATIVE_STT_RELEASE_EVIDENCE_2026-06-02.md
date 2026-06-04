@@ -1330,3 +1330,67 @@ Current Native status:
 | Stop lifecycle | Prior proof appended post-stop speech (`Hey Dad.`) after explicit Stop. | Rerun must verify no speech after Stop enters visible text, `saveCandidate`, history, or detail. |
 | Trust state | Prior proof lost persistent trust banner while finalizing/non-final. | Rerun must capture `__SS_TRUST_TRACE__` and visible generic copy from mic-on through final acceptance. Native must never say `locally`. |
 | Detail transcript | Prior proof had `detailTranscript=""` while `saveCandidate` was full. | Rerun must capture detail text and saved-row source; product/harness boundary must be identified if still empty. |
+
+---
+
+## TEST UPDATE (2026-06-04T02:00Z) — real-mic Native proof after formatter/default-model changes
+
+Artifact:
+
+```text
+/private/tmp/speaksharp-native-human-final-proof.json
+```
+
+Result:
+
+```text
+FAIL — Native is still not release-green, but the formatter path is now proven functional.
+```
+
+Important caveat:
+
+```text
+This run accidentally used the script harness default `expectedScript` field
+("Native Chrome microphone proof...") while the human read the fuller SpeakSharp
+script. Therefore any WER / transcriptMatchesScript field from this artifact is
+invalid. The actual transcript, saveCandidate, formatter telemetry, trust-state
+evidence, Stop behavior, and detail evidence are still valid.
+```
+
+What passed:
+
+| Gate | Evidence |
+| --- | --- |
+| Real human mic path | `microphonePath="real browser getUserMedia, no fake audio flags"`, `recordingStarted=true`, `transcriptVisible=true`. |
+| Native formatter invocation | `nativeFormatterLast.attempted=true`, `provider="gemini"`, `functionName="format-transcript"`. |
+| Formatter output accepted | `fallbackToRaw=false`, `wordPreserving=true`, `serverWordPreserving=true`, `errorCode=null`. |
+| Formatter punctuation/casing effect | `selectedForSave` contains sentence punctuation and casing: `Speak sharp microphone proof Starts Now. Basically, ... Like, ... Keep prior sentences ... The next step ... This session, ...`. |
+| Authoritative save candidate | `saveCandidateReason="service_result"`, `selectedForSaveLength=344`, `finalWordCount=58`, `candidateLengths` include full service/store/visible candidates. |
+| No duplicate transcript loop | `duplicateFullTranscript=false`, `repeatedFourWordSequence=""`. |
+| History / analytics navigation | `historyVisible=true`, `analyticsVisible=true`. |
+
+Current blockers:
+
+| Bug / risk | Evidence | Owner / ask |
+| --- | --- | --- |
+| Formatter is functional but too slow for Native quick-start | `nativeFormatterLast.latencyMs=15154`, `fallbackToRaw=false`, `errorCode=null`. This proves the provider path can work, but 15.2s is too slow for a funnel STT path unless the UX is async/deferred. | DEV: optimize or redesign the Native formatter path. Options: faster model/config, shorter prompt, async formatting after raw save, or UI state that makes delayed formatting explicit. TEST reruns and records `latencyMs` target. |
+| Stop did not settle cleanly | Blocker: `stop did not settle: page.waitForFunction: Timeout 60000ms exceeded.` Trust state after the wait returned to `transcriptState="listening"` with Draft banner visible, and trace shows a new `controller_start_requested` / recognition cycle after the completed session. | DEV: investigate explicit-Stop lifecycle. Native must not restart recording after user Stop or leave the button/root in a recording/listening state. TEST reruns with real mic and verifies `data-recording=false`, no post-stop recording cycle, and stable final state. |
+| Saved marker still unreliable | `saved=false` despite `saveCandidate` full and `historyVisible=true` / `analyticsVisible=true`. | DEV/TEST: identify whether `data-session-persisted` marker is wrong or save lifecycle is actually incomplete. Release proof needs a reliable marker or direct DB/detail evidence. |
+| Detail transcript still empty | `detailTranscript=""`, `detailTranscriptMatchesSelected=false`, while `saveCandidate.selectedForSave` is 344 chars. | DEV: inspect detail route/rendering or saved-row boundary. TEST: rerun with corrected expected script and capture `data-session-detail-transcript`, selected save candidate, and current URL after clicking the history item. |
+| Trust-state assertion still fails during finalizing/post-stop | Start state had Draft banner; visible Stop had generic `Processing transcript…`; post-stop state reverted to Draft/Listening. Artifact blocker: `Native Draft trust banner was not visible while transcript was still non-final.` | DEV/TEST: clarify accepted Native finalizing copy and assert from mic-on → final. Native must never say `processing locally`; generic `Processing transcript…` is correct, but it must not revert to Listening after Stop. |
+
+Direct dev note:
+
+```text
+Native formatter is no longer a 502/504 failure in this proof. It succeeded:
+attempted=true, fallbackToRaw=false, errorCode=null, wordPreserving=true.
+But latencyMs=15154, so it is not quick-start quality yet.
+
+The bigger remaining Native release blockers are lifecycle/journey:
+1. Stop did not settle within 60s and a new recognition cycle appears after Stop.
+2. data-session-persisted marker was false even though history/analytics existed.
+3. detail transcript was still empty while saveCandidate was full.
+
+Also note test hygiene: this run used the wrong expectedScript field, so do not
+use its WER. Use the transcript/save/formatter/trust/journey fields only.
+```
