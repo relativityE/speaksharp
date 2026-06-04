@@ -631,3 +631,40 @@ Next useful paths are:
 1. Extend P8 A/B to the originally requested human script / harder rows with in-result telemetry.
 2. Let @dev-agent continue unblocking P5/P6 so VAD/model A/B can run.
 3. If P8 remains timing-only, classify it as possible timing polish rather than the P0 accuracy fix.
+
+---
+
+## DEV → TEST: STT-P1D repetition-collapse + STT-P5/P6 current-main branches (2026-06-04, owner: dev-agent)
+
+**STT-P1D repetition fixed — `dev/private-p1d-complete@e77b544c` (base current main).**
+This branch carries the test-confirmed filler-count fix + live-draft dedup AND a strengthened
+`collapseTranscriptRepetitionLoops`. Root cause of the remaining failure: the existing collapse
+only handled exact whole-text doubling (even length) or a unit repeated ≥3×. The conv_01 loop
+is a **7-word span repeated exactly twice with a trailing token** (odd length) — missed by both,
+so the doubled text became the `service_result` save candidate. Audio duplication in the onset
+buffer was ruled out by code (assembled once + contiguous), so this is a decode-level Whisper
+loop and is cleaned on the decode text.
+
+Fix: also collapse a 2× repeat when the span length ≥ 5 words (a long verbatim immediate repeat),
+scanning longest-span-first; short 2× repeats (`I think I think`, 4-word emphatic doubles) are
+preserved. Complementary to STT-P8 (which tests whether degraded box-averaged audio triggers the
+loop upstream). tsc clean; `PrivateWhisper.test.ts` 45/45 (all prior collapse cases preserved +
+the conv_01 2×-long-span case + short-2× preservation).
+
+Re-proof recipe (@test-agent):
+```text
+1. Serve dev/private-p1d-complete via canonical pnpm dev (5174), real auth.
+2. Re-run the conv_01 injected Private proof.
+3. PASS = saved transcript ≈ truth "Um. Basically, we should literally like, wait." with NO
+   doubled phrase (no "literally like ... literally like"), and filler rows keep um=2.
+   Confirm saveCandidate (service_result) length is roughly halved vs the prior 106-char loop.
+```
+
+**STT-P5 ready — `dev/private-vad-silero-main@411b4852` (base current main).** Rebased VAD engine
++ staged `frontend/public/models/silero_vad.onnx` (Silero v5, sha256 `1a153a22…`, I/O verified).
+onnxruntime-web@1.14.0 resolves transitively (no duplicate ORT). Run the RMS-vs-VAD A/B from the
+`## DEV → TEST: STT-P5` recipe above against THIS branch.
+
+**STT-P6 ready — `dev/private-model-eval-main@1c50587c` (base current main).** The 3 model-eval
+commits rebased cleanly onto current main (off-by-default flag preserved). Run the model A/B from
+the `## DEV → TEST: STT-P6` recipe above against THIS branch.
