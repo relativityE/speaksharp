@@ -767,46 +767,56 @@ describe('PrivateWhisper (Facade Wrapper)', () => {
         });
     });
 
-    it('FIX A: low-energy post-speech chatter past the tail cap is excluded from the whole-utterance buffer', async () => {
-        // h1_6 root cause: the tail-cap reset used the silence floor (0.01), so
-        // low/mid-energy "chatter" (rms 0.02-0.09) kept resetting the cap and the
-        // final-decode buffer grew unbounded. The reset bar is now the partial-speech
-        // threshold (FIRST_TRANSCRIPT_PARTIAL_MIN_RMS) — chatter accrues toward the
-        // bounded tail and is dropped past UTTERANCE_SILENCE_TAIL_SAMPLES.
+    it('FIX A v2: mid-utterance SOFT speech is retained (not dropped) so the second half is never lost', async () => {
+        // Bug fixed: the per-frame drop deleted any continuous sub-partial-speech run
+        // longer than the tail allowance, so a softly-spoken second half of a sentence
+        // was lost from the buffer -> content loss. v2 keeps ALL frames during recording
+        // and only trims TRAILING silence at finalize.
         await privateWhisper.init();
         const engine = privateWhisper as unknown as {
             utteranceSampleCount: number;
-            appendFrameToUtteranceAudio: (
-                frame: Float32Array,
-                energy: { rms: number; peak: number },
-            ) => void;
+            utteranceLastRealSpeechSamples: number;
+            appendFrameToUtteranceAudio: (frame: Float32Array, energy: { rms: number; peak: number }) => void;
         };
-
         const FRAME = 1024;
         const realSpeech = { rms: PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS + 0.02, peak: 0.4 };
-        // "chatter": above the silence floor (0.01) but below the partial-speech bar.
+        const soft = { rms: SESSION_PAUSE.SILENCE_RMS_THRESHOLD + 0.01, peak: 0.1 }; // below the partial-speech bar
+
+        // real speech -> long SOFT passage (>tail) -> real speech again.
+        for (let i = 0; i < 5; i += 1) engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.3), realSpeech);
+        const softFrames = Math.ceil(PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES / FRAME) + 20;
+        for (let i = 0; i < softFrames; i += 1) engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.02), soft);
+        for (let i = 0; i < 5; i += 1) engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.3), realSpeech);
+
+        // The soft middle is fully retained (would have been dropped by the old code).
+        expect(engine.utteranceSampleCount).toBe((10 + softFrames) * FRAME);
+        // Last real speech is the final block, so finalize keeps the whole utterance.
+        expect(engine.utteranceLastRealSpeechSamples).toBe((10 + softFrames) * FRAME);
+    });
+
+    it('FIX A v2: TRAILING silence after the last real speech is bounded at finalize (h1_6 stays fixed)', async () => {
+        await privateWhisper.init();
+        const engine = privateWhisper as unknown as {
+            utteranceSampleCount: number;
+            utteranceLastRealSpeechSamples: number;
+            appendFrameToUtteranceAudio: (frame: Float32Array, energy: { rms: number; peak: number }) => void;
+        };
+        const FRAME = 1024;
+        const realSpeech = { rms: PRIV_STT.FIRST_TRANSCRIPT_PARTIAL_MIN_RMS + 0.02, peak: 0.4 };
         const chatter = { rms: SESSION_PAUSE.SILENCE_RMS_THRESHOLD + 0.01, peak: 0.1 };
 
-        // 5 frames of real speech are always retained.
-        for (let i = 0; i < 5; i += 1) {
-            engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.3), realSpeech);
-        }
-        const afterSpeech = engine.utteranceSampleCount;
-        expect(afterSpeech).toBe(5 * FRAME);
+        for (let i = 0; i < 5; i += 1) engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.3), realSpeech);
+        const chatterFrames = Math.ceil(PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES / FRAME) + 20;
+        for (let i = 0; i < chatterFrames; i += 1) engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.02), chatter);
 
-        // Now feed far more chatter than the tail allowance; only the bounded tail
-        // should be retained, NOT all of it (the old bug retained all of it).
-        const tailAllowanceFrames = Math.ceil(PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES / FRAME);
-        const chatterFrames = tailAllowanceFrames + 20;
-        for (let i = 0; i < chatterFrames; i += 1) {
-            engine.appendFrameToUtteranceAudio(new Float32Array(FRAME).fill(0.03), chatter);
-        }
-
-        const retainedChatter = engine.utteranceSampleCount - afterSpeech;
-        // Bounded: retained chatter must not exceed the tail allowance + one frame.
-        expect(retainedChatter).toBeLessThanOrEqual(PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES + FRAME);
-        // And must be far below the total chatter fed (proves it did not grow unbounded).
-        expect(retainedChatter).toBeLessThan(chatterFrames * FRAME);
+        // Last real speech is the 5-frame block; finalize trims chatter past last-speech + tail.
+        expect(engine.utteranceLastRealSpeechSamples).toBe(5 * FRAME);
+        const finalizeKeptSamples = Math.min(
+            engine.utteranceSampleCount,
+            engine.utteranceLastRealSpeechSamples + PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES,
+        );
+        expect(finalizeKeptSamples).toBeLessThanOrEqual(5 * FRAME + PRIV_STT_DERIVED.UTTERANCE_SILENCE_TAIL_SAMPLES);
+        expect(finalizeKeptSamples).toBeLessThan(engine.utteranceSampleCount); // trailing chatter trimmed
     });
 
     it('FIX A: a real-speech frame after chatter resets the tail allowance (quiet-but-real endings preserved)', async () => {
