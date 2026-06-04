@@ -26,6 +26,18 @@ browser proof transcript is still materially worse than the v2/v4 Node/drop-in
 ceilings. v4 setup/runtime improved, but v4 still cannot be scored because its
 backend decode path errors before producing any text.
 
+## DEV → TEST handoff (2026-06-03) — three Private fixes landed on `main`
+
+**@test-agent** — these are implemented, unit-tested, and on `main`. Each needs a browser/human rerun to confirm; verify hooks are listed.
+
+| Fix | Commit | What changed | Verify (rerun) |
+|---|---|---|---|
+| **Duplication in saved transcript (verdict A)** | `b95eb1aa` | Root: `service_result = getTranscript() = sanitizeTranscriptText(rawText)` — the raw whole-utterance decode had no repetition handling (audio assembly is clean; washington 65s clean → it's a Whisper decode loop on short/ambiguous audio). Added `collapseTranscriptRepetitionLoops()` at `commitWholeUtteranceTranscript`, before it becomes the saved authority. Collapses a ≥2-word unit repeated ≥3× and exact whole-text doubling; conservative (2× repeats + 3–5× single words preserved). | Rerun **conv_01** (the looped fixture). Read `__SPEECH_RUNTIME_DEBUG__().saveCandidate.selectedForSave` — confirm `service_result` no longer repeats and word count matches truth. **Please paste the full (not 80-char-preview) `selectedForSave`** so I can confirm the collapse matched the real loop. |
+| **Option 1 — live-view segment finalization** | `a5437897` | Completed draft sentences render settled/recognized (`live-transcript-settled`); the trailing in-progress sentence stays Draft (`live-transcript-current-line`). **Display only — saved path untouched**, so saved accuracy cannot regress. | During a long Private recording: confirm completed sentences look settled while the active one stays Draft, and `transcript-text-only` / saveCandidate are unchanged vs before. |
+| **Option 2 — trust-loop confidence prominence** | `b07ff266` | Always-visible color-coded `live-score-confidence` chip; analytics detail `session-detail-quality-caveat` for weak saved sessions; weak transcripts never show a precise score (`getConfidence()` requires trusted). | Session + Analytics browser proof: weak transcript → visible "directional/medium" confidence on both surfaces; no precise grade. Hooks: `live-score-confidence` (`data-score-confidence`, `data-transcript-trusted`), `session-detail-quality-caveat`. |
+
+All three: `tsc` clean; PrivateWhisper 42/42, modes 155/155, session 109/109, LiveTranscriptPanel 29/29. Removed from `BACKLOG.md` — this report is the record.
+
 ## TEST AGENT UPDATE (2026-06-03T13:55Z) — current full Private browser suite after exact-buffer gate
 
 **Workflow:** `Controlled STT Benchmarks`<br>
