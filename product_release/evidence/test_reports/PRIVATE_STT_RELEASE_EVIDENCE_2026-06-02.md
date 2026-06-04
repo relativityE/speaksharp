@@ -12,6 +12,10 @@ Private STT: NOT RELEASE-GREEN
 
 Explicit local model setup consent is now proven, but the current human transcript is too inaccurate and the detail journey still fails. Product has clarified a stricter bar: Private is not allowed to be "private but worse"; it must become a credible front-door STT path.
 
+## Release-Proof Environment Requirement
+
+Private release proof must run on `localhost:5174` with real auth and explicit user setup consent when a model download is needed. Artifacts must include `environmentProof` and must stop before recording if the target is `5173`, mock auth, `.env.test`, deployed URL, or the wrong browser/CDP target. Injected-audio Private runs can buy down risk, but they must be labeled diagnostic unless they pass this release-proof gate.
+
 ## Product Bar — Private Must Be Credible
 
 Private STT must meet or beat the better of:

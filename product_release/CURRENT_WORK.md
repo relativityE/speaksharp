@@ -8,7 +8,7 @@ Backlog priority belongs in `product_release/BACKLOG.md`; evidence belongs in th
 ```text
 INTEGRATION_MAIN: origin/main (latest pushed integration baseline; exact SHA via `git rev-parse --short origin/main`)
 MERGE_LOCK: free
-UPDATED_AT: 2026-06-04T18:55Z
+UPDATED_AT: 2026-06-04T19:40Z
 UPDATED_BY: test-release-agent / Codex
 ```
 
@@ -23,6 +23,7 @@ Branch/proof rows keep exact base or artifact SHAs where they matter.
 | STT-P5 | P0 | dev-agent | `dev/private-vad-silero-engine@10ba21ca` | `01933f91` | ready | VAD engine: Silero VAD via the **existing onnxruntime-web** (NO @ricky0123/vad-web → no duplicate ORT) injected at the `PrivateWhisper` **onset** gate behind `?privateVad=1` / `window.__PRIVATE_VAD_PROTOTYPE__`. Off by default. | **READY for @test-agent A/B** (test the branch pre-merge). tsc clean; PrivateWhisper 43/43 (flag-OFF byte-identical). Proof recipe: PRIVATE_STT report `## DEV → TEST: STT-P5`. Browser pre-reqs: add `silero_vad.onnx` to `/models/` + declare `onnxruntime-web@1.14.0` in frontend deps. Silence-gate VAD is a fast-follow (onset-only this iteration). Do not merge until A/B + product approval. |
 | STT-P6 | P0 | dev-agent | `dev/private-model-eval@25cde3b4` | `d910a07d` | ready | Model-eval: flag-selected Private model (`whisper-tiny.en` default / `whisper-base.en` / `distil-small.en`) threaded through worker `init`, behind `?privateModel=` / `window.__PRIVATE_MODEL__`. Off by default. Directly attacks the CI **51.7% WER** decode/model-quality gap. | **READY for @test-agent A/B** (test branch pre-merge). Dev reports tsc clean + 413/413 transcription suite; proof recipe: PRIVATE_STT report `## DEV → TEST: STT-P6`. Capture `__PRIVATE_MODEL_TELEMETRY__`, WER/accuracy, download MB, load time, decode latency/RTF, app-vs-drop-in, and app-vs-Native-baseline. Do not merge until A/B + product approval. |
 | STT-P7 | P0 | test-release-agent | `main@d8a3b7d2` | `main@1316ae4a` | testing | Private mic-start reliability: human proof hit `RECORDING_LIFECYCLE_FAIL` about 857 ms after entering `RECORDING`, followed by `[TranscriptionService] Heartbeat Failure Escalated`; user saw multiple mic-click errors/toasts before recording finally worked. | **FIX SHIPPED:** watchdog now treats zero/invalid first heartbeat as "no pulse yet" for the normal heartbeat window, then still fails if it never recovers. Unit proof: `watchdog.test.ts` 4/4; typecheck clean. **Next:** injected Private start smoke + next human Private proof should show no false mic-click failure/toast. |
+| STT-E1 | P0 | test-release-agent | `test/release-proof-environment-preflight` | `main@6eaa4ba6` | coding | Release-proof environment preflight for Native/Private/Cloud STT evidence. | Add shared `environmentProof` to benchmark snapshots, hard-stop release proof on anything except `localhost:5174` + real auth, and update manual STT proof launchers so `5173`/mock/deployed/manual confusion cannot produce release evidence. |
 | STT-P1 | P0 | test-release-agent | `test/proof-private-current-main` or workflow artifacts | `main@18299067` | ready | Private current-main human/browser proof | Capture setup consent, `__PRIVATE_TIMING__`, trust trace, `saveCandidate`, detail equality, filler rows, app-vs-drop-in/app-vs-Native deltas. |
 | STT-N1 | P0 | test-release-agent | `test/proof-native-human` or human artifacts | `main@18299067` | ready | Native real Chrome mic re-proof | Capture `saveCandidate`, formatter telemetry, trust trace, detail transcript, truecasing/readability. |
 | STT-V4 | P1 | test-release-agent | `actions@de0e6f1e` run `26966053435`; `actions@18299067` run `26966654691` | listed runs | done | Private v4 containment proof | Browser path produced empty `saveCandidate` / zero saved words in both runs. Keep v4 off release A/B; future work only after a browser decode branch proves non-empty output. |
@@ -57,6 +58,22 @@ Forbidden for human proof: pnpm exec vite, direct vite launch, pnpm dev:test, lo
 `5173`, with mock auth, or from a direct Vite launch is invalid for release evidence. CDP/browser
 monitoring must attach to the same `5174` tab before recording when possible; otherwise the artifact
 must explicitly say CDP was unavailable and rely on user observation plus app/server logs.
+
+Implementation status: STT-E1 wires this into shared benchmark snapshots and manual proof launchers.
+Expected artifact block:
+
+```json
+{
+  "environmentProof": {
+    "url": "http://localhost:5174/session",
+    "port": 5174,
+    "authMode": "real",
+    "mockAuth": false,
+    "releaseProofEligible": true,
+    "cdpSameTab": true
+  }
+}
+```
 
 ## Branch Status Values
 

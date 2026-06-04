@@ -21,6 +21,10 @@ Stop standard-filler keyterms work.
 
 Do not keep testing keyterms for default fillers (`uh`, `um`, `like`, `basically`). Keyterms/custom-word boosting is backlog/custom-word experimentation only, not launch-default Cloud.
 
+## Release-Proof Environment Requirement
+
+Current release proof must run on `localhost:5174` with real auth. Cloud app-path artifacts now need a compact `environmentProof` block and must stop before recording if the proof target is `5173`, mock auth, `.env.test`, or the wrong browser/CDP target. Deployed or mocked Cloud smoke can still be diagnostic, but it is not release evidence unless explicitly labeled outside this release-proof gate.
+
 ## Current Evidence
 
 | Evidence | Result |

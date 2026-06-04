@@ -5,12 +5,12 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import dotenv from 'dotenv';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env.test') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: false });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local'), override: true });
 
 const execFileAsync = promisify(execFile);
 
-const BASE_URL = process.env.BASE_URL || 'https://speaksharp-public.vercel.app';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:5174';
 const EMAIL = process.env.PRO_TEST_EMAIL ?? process.env.E2E_PRO_EMAIL;
 const PASSWORD = process.env.PRO_TEST_PASSWORD ?? process.env.E2E_PRO_PASSWORD;
 const SIGNUP_EMAIL = process.env.NATIVE_PROOF_EMAIL || `native-proof-${Date.now()}@example.com`;
@@ -34,6 +34,37 @@ const MANUAL_SPEAK_MS = Number(process.env.NATIVE_PROOF_MANUAL_SPEAK_MS || 0);
 const NATIVE_AUDIO_READY_TIMEOUT_MS = Number(process.env.NATIVE_AUDIO_READY_TIMEOUT_MS || 12_000);
 const NATIVE_AUDIO_READY_GRACE_MS = Number(process.env.NATIVE_AUDIO_READY_GRACE_MS || 300);
 const POST_AUDIO_WAIT_MS = Number(process.env.NATIVE_PROOF_POST_AUDIO_WAIT_MS || (AUDIO_FILE ? 500 : 8_000));
+
+function buildEnvironmentProof(baseUrl) {
+  const url = new URL(baseUrl);
+  const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+  const hostname = url.hostname;
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  const mockAuth = (
+    process.env.VITE_AUTH_MODE === 'mock' ||
+    process.env.VITE_USE_MOCK_AUTH === 'true' ||
+    /mock\.supabase\.co/i.test(supabaseUrl)
+  );
+  const authMode = mockAuth ? 'mock' : 'real';
+  const invalidReasons = [
+    ...(!isLocalhost ? ['not_localhost'] : []),
+    ...(port !== 5174 ? [`port_${Number.isFinite(port) ? port : 'unknown'}_not_5174`] : []),
+    ...(authMode !== 'real' ? [`auth_${authMode}`] : []),
+    ...(mockAuth ? ['mock_auth_detected'] : []),
+    ...(USE_FAKE_AUDIO_CAPTURE ? ['fake_audio_capture'] : []),
+  ];
+
+  return {
+    url: `${url.origin}/session`,
+    port: Number.isFinite(port) ? port : null,
+    authMode,
+    mockAuth,
+    releaseProofEligible: invalidReasons.length === 0,
+    cdpSameTab: true,
+    invalidReasons,
+  };
+}
 
 function compact(text) {
   return String(text ?? '').replace(/\s+/g, ' ').trim();
@@ -323,6 +354,7 @@ async function waitForNativeAudioReady(page) {
 
 const evidence = {
   baseUrl: BASE_URL,
+  environmentProof: buildEnvironmentProof(BASE_URL),
   browser: 'Google Chrome via Playwright channel=chrome, headed',
   microphonePath: USE_FAKE_AUDIO_CAPTURE
     ? 'SpeakSharp app with Chrome --use-file-for-fake-audio-capture'
@@ -345,6 +377,19 @@ const evidence = {
   analyticsVisible: false,
   blockers: [],
 };
+
+if (!evidence.environmentProof.releaseProofEligible) {
+  evidence.blockers.push(
+    `INVALID_SETUP setup.env RELEASE_PROOF_INELIGIBLE manual-native-chrome-proof ` +
+    `Manual Native release proof must run on localhost:5174 with real auth and a real microphone. ` +
+    `localhost:5173, .env.test/mock auth, deployed URLs, and fake audio are invalid evidence.`
+  );
+  evidence.completedAt = new Date().toISOString();
+  evidence.pass = false;
+  await writeFile(OUT, JSON.stringify(evidence, null, 2));
+  console.error(`NATIVE_CHROME_MIC_EVIDENCE ${JSON.stringify(evidence)}`);
+  process.exit(1);
+}
 
 const browser = await chromium.launch({
   channel: 'chrome',

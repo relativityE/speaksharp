@@ -9,14 +9,14 @@ import {
   isSandboxProcessControlEperm,
 } from './sandbox-eperm-evidence.mjs';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env.test') });
-dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: false });
-dotenv.config({ path: path.resolve(process.cwd(), 'frontend/.env.test'), override: false });
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local'), override: true });
 dotenv.config({ path: path.resolve(process.cwd(), 'frontend/.env'), override: false });
+dotenv.config({ path: path.resolve(process.cwd(), 'frontend/.env.local'), override: true });
 
 const execFileAsync = promisify(execFile);
 
-const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:4173';
+const BASE_URL = process.env.BASE_URL || 'http://localhost:5174';
 const AUTH_MODE = process.env.STT_AUTH || 'existing';
 const EMAIL = process.env.PRO_TEST_EMAIL
   ?? process.env.E2E_PRO_EMAIL
@@ -63,6 +63,36 @@ const DISABLE_WEBGPU = process.env.STT_DISABLE_WEBGPU === 'true';
 const INCLUDE_AUDIO_DATA_URL = process.env.STT_INCLUDE_AUDIO_DATA_URL === 'true';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+
+function buildEnvironmentProof(baseUrl) {
+  const url = new URL(baseUrl);
+  const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
+  const hostname = url.hostname;
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  const mockAuth = (
+    process.env.VITE_AUTH_MODE === 'mock' ||
+    process.env.VITE_USE_MOCK_AUTH === 'true' ||
+    /mock\.supabase\.co/i.test(SUPABASE_URL) ||
+    /^mock_/i.test(SUPABASE_ANON_KEY)
+  );
+  const authMode = mockAuth ? 'mock' : 'real';
+  const invalidReasons = [
+    ...(!isLocalhost ? ['not_localhost'] : []),
+    ...(port !== 5174 ? [`port_${Number.isFinite(port) ? port : 'unknown'}_not_5174`] : []),
+    ...(authMode !== 'real' ? [`auth_${authMode}`] : []),
+    ...(mockAuth ? ['mock_auth_detected'] : []),
+  ];
+
+  return {
+    url: `${url.origin}/session`,
+    port: Number.isFinite(port) ? port : null,
+    authMode,
+    mockAuth,
+    releaseProofEligible: invalidReasons.length === 0,
+    cdpSameTab: true,
+    invalidReasons,
+  };
+}
 
 function compact(text) {
   return (text || '').replace(/\s+/g, ' ').trim();
@@ -1364,6 +1394,7 @@ async function runFixture(page, mode, fixture) {
 
 const evidence = {
   baseUrl: BASE_URL,
+  environmentProof: buildEnvironmentProof(BASE_URL),
   modes: MODE_LIST,
   fixtures: FIXTURE_LIST,
   maxWer: MAX_WER,
@@ -1403,6 +1434,19 @@ const evidence = {
   failedRequests: [],
   results: [],
 };
+
+if (!evidence.environmentProof.releaseProofEligible) {
+  evidence.blockers = [
+    `INVALID_SETUP setup.env RELEASE_PROOF_INELIGIBLE manual-stt-corpus-proof ` +
+    `Manual STT corpus proof must run on localhost:5174 with real auth. ` +
+    `localhost:5173, .env.test/mock auth, deployed URLs, and wrong CDP tabs are invalid evidence.`,
+  ];
+  evidence.completedAt = new Date().toISOString();
+  evidence.pass = false;
+  await writeFile(OUT, JSON.stringify(evidence, null, 2));
+  console.error(`STT_CORPUS_EVIDENCE ${JSON.stringify(evidence)}`);
+  process.exit(1);
+}
 
 let browser = null;
 try {
