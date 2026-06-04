@@ -168,6 +168,35 @@ export function isWordPreserving(raw: string, formatted: string): boolean {
  * Only punctuation/casing/spacing-only reformatting is accepted. Applied to SAVED
  * text only (never live partials).
  */
+/**
+ * Funnel latency budget for the Native saved-transcript formatter. Native is the
+ * zero-setup quick-start path, so the user must not wait many seconds at Stop for
+ * the (network) formatter. If the formatter exceeds this budget we fall back to the
+ * raw transcript (still word-correct, just less polished) and record it in
+ * telemetry (errorCode FORMATTER_TIMEOUT_CLIENT). Env/ops can tune the deployed
+ * model; this bounds the user-visible wait regardless of provider speed.
+ */
+export const FORMATTER_LATENCY_BUDGET_MS = 4000;
+
+class FormatterTimeoutError extends Error {
+  readonly code = 'FORMATTER_TIMEOUT_CLIENT';
+  constructor(ms: number) {
+    super(`Native formatter exceeded ${ms}ms budget`);
+    this.name = 'FormatterTimeoutError';
+  }
+}
+
+function withFormatterLatencyBudget<T>(promise: Promise<T>, budgetMs: number): Promise<T> {
+  if (!budgetMs || budgetMs <= 0) return promise;
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new FormatterTimeoutError(budgetMs)), budgetMs);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 export async function formatNativeTranscript(raw: string): Promise<string> {
   const text = raw ?? '';
   if (!text.trim()) return text;
@@ -217,7 +246,9 @@ export async function formatNativeTranscript(raw: string): Promise<string> {
   };
 
   try {
-    const formatted = await activeFormatter(text);
+    // Bound the user-visible wait: a slow formatter falls back to raw (the catch
+    // below records FORMATTER_TIMEOUT_CLIENT) instead of blocking Stop for seconds.
+    const formatted = await withFormatterLatencyBudget(Promise.resolve(activeFormatter(text)), FORMATTER_LATENCY_BUDGET_MS);
     const result = (formatted ?? '').trim();
     if (result.length === 0) {
       finalize({ fallbackToRaw: true, wordPreserving: null, errorCode: 'EMPTY_RESULT' }, 0);

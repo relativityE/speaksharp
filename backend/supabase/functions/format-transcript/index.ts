@@ -37,12 +37,13 @@ import { corsHeaders as buildCorsHeaders } from '../_shared/cors.ts';
 // --- Configuration ----------------------------------------------------------
 const PROVIDER = 'gemini';
 // Model is env-overridable (Supabase secret) so it can be swapped with NO code redeploy.
-// Default = gemini-3.5-flash (current stable flash per Gemini docs). History: the original
-// gemini-3-flash-preview HUNG (~15.9s -> 504) on the 2026-06 Native proof; gemini-2.0-flash
-// is now deprecated. Funnel-quality requirement: real formatter latency must be < ~3s; if
-// gemini-3.5-flash is too slow/expensive, fall back to gemini-2.5-flash-lite (fastest 2.5).
-// The 28s PROVIDER_TIMEOUT_MS below is a DIAGNOSTIC CEILING only, not the target latency.
-const FORMATTER_MODEL = Deno.env.get('FORMATTER_MODEL') || 'gemini-3.5-flash';
+// Default = gemini-2.5-flash-lite (fastest 2.5). History: gemini-3-flash-preview HUNG
+// (~15.9s -> 504); gemini-2.0-flash deprecated; gemini-3.5-flash RAN and was word-preserving
+// in the 2026-06-03 Native real-mic proof but at latencyMs=15154 — far over the funnel target.
+// Per that proof we move the default to the fastest 2.5 model. The CLIENT also enforces a
+// ~4s budget (FORMATTER_LATENCY_BUDGET_MS) so a slow provider falls back to raw rather than
+// blocking Stop. The 28s PROVIDER_TIMEOUT_MS below is a DIAGNOSTIC CEILING only.
+const FORMATTER_MODEL = Deno.env.get('FORMATTER_MODEL') || 'gemini-2.5-flash-lite';
 const GEMINI_API_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/${FORMATTER_MODEL}:generateContent`;
 export const FORMATTER_VERSION = 'format-transcript@1.0.0';

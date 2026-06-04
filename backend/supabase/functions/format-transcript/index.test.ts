@@ -136,7 +136,7 @@ Deno.test('format-transcript edge function', async (t) => {
     assertEquals(res.status, 200);
     assertEquals(json.formatted, 'Hello world.');
     assertEquals(json.metadata.provider, 'gemini');
-    assertEquals(json.metadata.model, 'gemini-3.5-flash');
+    assertEquals(json.metadata.model, 'gemini-2.5-flash-lite');
     assertEquals(json.metadata.wordPreservingServerCheck, true);
     assertEquals(json.metadata.inputChars, 11);
     assert(typeof json.metadata.latencyMs === 'number');

@@ -10,11 +10,36 @@ import {
   hasNativeTranscriptFormatter,
   isWordPreserving,
   transcriptWordSequence,
+  FORMATTER_LATENCY_BUDGET_MS,
 } from '../nativeTranscriptFormatter';
 
 afterEach(() => {
   // Always restore identity behavior between tests.
   registerNativeTranscriptFormatter(null);
+});
+
+describe('nativeTranscriptFormatter latency budget (Native quick-start)', () => {
+  it('falls back to raw with FORMATTER_TIMEOUT_CLIENT when the formatter exceeds the budget', async () => {
+    vi.useFakeTimers();
+    registerNativeTranscriptFormatter(
+      (raw) => new Promise<string>((resolve) => setTimeout(() => resolve(`${raw}.`), 20_000)),
+    );
+    const pending = formatNativeTranscript('hello world');
+    await vi.advanceTimersByTimeAsync(FORMATTER_LATENCY_BUDGET_MS + 10);
+    const result = await pending;
+
+    expect(result).toBe('hello world'); // raw fallback, words unchanged
+    const telemetry = getNativeFormatterTelemetry();
+    expect(telemetry?.fallbackToRaw).toBe(true);
+    expect(telemetry?.errorCode).toBe('FORMATTER_TIMEOUT_CLIENT');
+    vi.useRealTimers();
+  });
+
+  it('does NOT time out a fast formatter (formats within budget)', async () => {
+    registerNativeTranscriptFormatter(async (raw) => `${raw.trim()}.`);
+    expect(await formatNativeTranscript('hello world')).toBe('hello world.');
+    expect(getNativeFormatterTelemetry()?.fallbackToRaw).toBe(false);
+  });
 });
 
 describe('nativeTranscriptFormatter', () => {
