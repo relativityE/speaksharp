@@ -32,7 +32,7 @@ Do not keep testing keyterms for default fillers (`uh`, `um`, `like`, `basically
 | Local baseline contract/timing proof | `44/44` passed: Cloud engine tail/termination, AssemblyAI provider parsing/auth/request contract, baseline URL builder, and `readCloudStreamTiming` |
 | Current-head deployed Cloud app-path smoke | GitHub Actions run `26960691857`, job `79549905302`, commit `4216b2d1`: `1 passed` in `46.2s`; artifact `live-cloud-artifacts` ID `7415247192`. |
 | Cloud provider/session behavior in that smoke | Provider emitted partials, finals, and `terminated`; stop selected transcript length `362`, duration `25.062s`, final word count `67`, filler count `6`, `willSave=true`, and analytics history rendered. |
-| New finding from that smoke | Visible transcript evidence was contaminated by glued trust-copy text: `Draft transcriptText may change...`. This is shared transcript-panel/test-extraction UX debt, not a Cloud provider failure; dev-owned trust-label spacing now affects Cloud evidence too. |
+| New finding from that smoke | Visible transcript evidence was contaminated by glued trust-copy text: `Draft transcriptText may change...`, but this smoke ran on pre-fix commit `4216b2d1`. Current `main` includes trust-spacing fix `cd4b677d` and clean scrape surface `data-transcript-text-only`; re-proof should scrape that surface before treating this as an active bug. |
 
 Artifacts previously used for baseline context:
 
@@ -46,7 +46,7 @@ Artifacts previously used for baseline context:
 | Priority | Blocker | Owner |
 | --- | --- | --- |
 | P1 | Full baseline release proof with structured timing/readability/tail/WER fields is still needed before Cloud is fully green. The current deployed smoke proves app-path viability but not the full metric table. | test-release-agent / Codex |
-| P1 | Shared trust-label spacing/test-extraction bug should be fixed so visible transcript evidence does not glue labels into the transcript text. | @dev-agent |
+| P1 | If Cloud is revisited, re-proof current `main` using `data-transcript-text-only` so visible trust labels do not contaminate transcript evidence. | test-release-agent / Codex |
 
 Required proof fields:
 
@@ -73,6 +73,6 @@ Cloud app-path smoke has passed on current head. Keep Cloud baseline-only for la
 
 ## Dev Boundary
 
-No Cloud-provider dev work is requested. The only Cloud-adjacent dev ask from the latest smoke is shared transcript-panel evidence cleanliness: trust labels must not glue into transcript text.
+No Cloud-provider dev work is requested. The latest smoke's trust-label glue was captured on pre-fix commit `4216b2d1`; current `main` should be re-proofed with `data-transcript-text-only` before assigning any new dev work.
 
 Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and keep reports/backlog updated with the merge commit. Do not leave release fixes stranded on long-lived branches.
