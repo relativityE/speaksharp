@@ -177,12 +177,19 @@ this path; this branch fixes it.
 5 ✓ timeouts unchanged · 6 ✓ trace · 7 → unit done; **injected-audio smoke still open**.
 
 Test-agent note: focused branch proof was re-run (`watchdog.test.ts` +
-`heartbeatTrace.test.ts` = 10/10; frontend typecheck clean). The first browser smoke attempt is
+`heartbeatTrace.test.ts` = 10/10; frontend typecheck clean). The first browser smoke attempt was
 **invalid evidence** because it launched direct Vite on `5178` and `/auth/signup` returned blank
-404. Valid P7 browser proof must serve this branch through canonical `pnpm dev` on
-`localhost:5174`. As of the latest check, `5174` is occupied by a different worktree
-(`dev/config-discipline-modes@a3bf3132`), so do not score P7 from that running app; get a deliberate
-5174 branch slot for `dev/stt-p7-soft-frozen-trace` first.
+404. The valid rerun used a current-main test branch with the P7 fix cherry-picked
+(`test/stt-p7-current-main-smoke@f98987c3`) served through canonical `pnpm dev` on
+`localhost:5174`.
+
+Valid injected-start smoke result: **passed**. Private reached `RECORDING`, stopped, saved, and the
+captured console stream contained no `RECORDING_LIFECYCLE_FAIL` and no "Engine Frozen" toast/error.
+Runtime proof was valid (`environmentProof.source=app-runtime-config`, `port=5174`, `authMode=real`,
+`mockAuth=false`, `releaseProofEligible=true`). Artifact trace:
+`/private/tmp/stt-p7-private-smoke-current/live-tester-b-private-nati-a0965-1-audio-and-detects-fillers-deployed-live-chromium/trace.zip`.
+Residual capture gap: this helper does not emit `window.__PRIVATE_HEARTBEAT_TRACE__`, so the next
+human Private proof should capture it if available.
 
 **Proof (test-agent):** injected Private-start smoke + next human Private proof must show
 **no `RECORDING_LIFECYCLE_FAIL` AND no "Engine Frozen" toast**, and `__PRIVATE_HEARTBEAT_TRACE__`
