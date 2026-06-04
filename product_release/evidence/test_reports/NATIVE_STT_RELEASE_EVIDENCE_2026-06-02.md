@@ -46,13 +46,13 @@ Saved transcript:
 Speak sharp microphone proof Starts Now basically I want to make one simple point before we move on like the main idea is that every transcript should stay readable keep prior sentences and preserve the final words next step is to save this session open the detail page and confirm the score explains transcript quality.
 ```
 
-## Open Blockers
+## Current Re-Proof Items
 
-| Priority | Blocker | Evidence | Owner |
+| Priority | Item | Evidence / current-main status | Owner |
 | --- | --- | --- | --- |
-| P0 | Detail transcript empty | `detailTranscript=""`, `detailTranscriptMatchesSelected=false`, while save/history/analytics were true and `saveCandidate` was non-empty. | @dev-agent |
-| P1 | Formatter quality still weak | Formatter returned quickly and word-preserving, but transcript still has bad truecasing (`Starts Now`) and weak punctuation. Do not special-case this phrase. | @dev-agent |
-| P1 | Trust-label spacing bug | Extracted banner text glues words: `Draft transcriptText may change...`. | @dev-agent |
+| P0 | Re-proof detail transcript empty (#29) | Prior human proof had `detailTranscript=""`, but current `main` includes cache-invalidation fix `72cabe45`. Verify `/analytics/:id` `data-session-detail-transcript` is non-empty and matches `saveCandidate`. | test-release-agent / Codex |
+| P1 | Re-proof formatter truecasing/readability | Prior human proof still showed `Starts Now`. Dev reports true-casing instruction is shipped; verify current-main saved/detail text without special-casing that phrase. | test-release-agent / Codex |
+| P1 | Re-proof trust-label spacing | Prior extraction showed `Draft transcriptText may change...`, but current `main` includes spacing fix `cd4b677d`. Verify `live-transcript-trust-banner` has real spacing and scrape user speech from `data-transcript-text-only`. | test-release-agent / Codex |
 
 ## Latest Test-Release Result — Formatter Plumbing
 
@@ -73,7 +73,7 @@ pnpm test:edge
 | Frontend Native formatter suites | `35/35` passed | Raw-first async update, 4s timeout fallback, word-preservation guard, `__NATIVE_FORMATTER_LAST__`, and Private privacy guard are wired. |
 | Edge functions | `73/73` steps passed | `format-transcript` validates auth, engine, quota, word preservation, errors, and no transcript text in logs. |
 
-Conclusion: formatter plumbing is verified. Native is still **not release-green** because the current human proof showed weak formatter output (`Starts Now`) and empty detail. The remaining work is dev-owned quality/detail behavior, not missing formatter test coverage.
+Conclusion: formatter plumbing is verified. Native is still **not release-green** until current-main real-mic re-proof verifies the detail cache fix, truecasing/readability, and trust-label spacing.
 
 ## Trust-Copy Contract
 
@@ -86,13 +86,13 @@ Native and Cloud must use generic trust language only.
 | Final accepted | normal final transcript styling |
 | Forbidden | `local`, `locally`, `on this device` for Native/Cloud STT processing |
 
-## Next Test After Dev Fix
+## Next Test On Current Main
 
-Owner: **test-release-agent / Codex** after `@dev-agent` lands a fix.
+Owner: **test-release-agent / Codex**.
 
 Completed **test-release-agent / Codex** work is recorded in the canonical matrix: formatter plumbing verification, session-to-analytics coherence, browser UX sweep, and report hygiene.
 
-Current **test-release-agent / Codex** action after `@dev-agent` lands fixes:
+Current **test-release-agent / Codex** action:
 
 ```text
 Rerun the same real Chrome mic proof and capture the fields below.
