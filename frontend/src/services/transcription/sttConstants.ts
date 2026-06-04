@@ -129,6 +129,23 @@ export const PRIV_STT_V4 = {
   WORKER_REQUEST_TIMEOUT_MS: 90_000,
 } as const;
 
+/**
+ * Private model-eval candidates (flag-gated A/B). The CI Private v2 benchmark showed
+ * ~51.7% WER vs a 6.1% ceiling, so decode/model quality — not just onset detection — is
+ * the dominant gap. This lets the test agent A/B larger local models against the default
+ * whisper-tiny.en WITHOUT a blind switch. Selection is via `?privateModel=` /
+ * `window.__PRIVATE_MODEL__`; DEFAULT keeps current production behavior byte-identical.
+ * Download sizes are approximate (quantized) and confirmed by the browser proof.
+ */
+export const PRIV_STT_MODELS = {
+  DEFAULT: 'whisper-tiny.en',
+  CANDIDATES: {
+    'whisper-tiny.en': { localId: 'whisper-tiny.en', remoteId: 'Xenova/whisper-tiny.en', approxMB: 40 },
+    'whisper-base.en': { localId: 'whisper-base.en', remoteId: 'Xenova/whisper-base.en', approxMB: 145 },
+    'distil-small.en': { localId: 'distil-small.en', remoteId: 'Xenova/distil-small.en', approxMB: 166 },
+  },
+} as const;
+
 const ASSEMBLYAI_PACKET_MS_BOUNDS = {
   min: STT_PROVIDER_REQUIREMENTS.CLOUD_ASSEMBLYAI.MIN_PACKET_MS,
   max: STT_PROVIDER_REQUIREMENTS.CLOUD_ASSEMBLYAI.MAX_PACKET_MS,
