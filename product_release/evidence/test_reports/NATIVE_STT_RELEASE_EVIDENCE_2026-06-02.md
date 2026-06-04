@@ -1463,3 +1463,79 @@ Remaining required browser proof:
 | Formatter success | Detail/history/session display updates to formatted text only if word-preserving. |
 | Formatter timeout/failure | Raw remains; no scary blocking error. |
 | Private mode | `__NATIVE_FORMATTER_LAST__` / `__NATIVE_FORMATTING_STATUS__` are not invoked by Private. |
+
+---
+
+## TEST UPDATE (2026-06-04T11:05Z) — Native rerun blocked by deployed dynamic-chunk crash before STT
+
+Artifacts:
+
+```text
+/private/tmp/speaksharp-native-human-20260604-rerun.json
+/private/tmp/speaksharp-native-human-20260604-rerun-app-crash.json
+```
+
+Result:
+
+```text
+INVALID STT PROOF — app crashed before Native mode selection.
+```
+
+User-visible failure:
+
+```text
+Oops! Something went wrong.
+The page hit a temporary problem. Go home, then open the page again.
+```
+
+Browser logs captured during the proof:
+
+```text
+[browser:error] Failed to load module script: Expected a JavaScript-or-Wasm module script
+but the server responded with a MIME type of "text/html". Strict MIME type checking is
+enforced for module scripts per HTML spec.
+
+[browser:error] TypeError: Failed to fetch dynamically imported module:
+https://speaksharp-public.vercel.app/assets/TranscriptionProvider-4QY4v-QN-1780569747155.js
+
+[browser:error] {error: TypeError: Failed to fetch dynamically imported module: ...,
+errorInfo: Object} Uncaught error:
+```
+
+Proof impact:
+
+| Field | Value |
+| --- | --- |
+| `modeSelected` | `false` |
+| `recordingStarted` | `false` |
+| `transcriptVisible` | `false` |
+| blocker | `waiting for getByTestId('stt-mode-select') to be visible` |
+
+Classification:
+
+```text
+P0 deployed-app/runtime cache or missing-asset bug. Not an STT accuracy result.
+```
+
+Dev ask:
+
+```text
+Users should never encounter this dead-end generic Oops page for a stale or missing
+dynamic import chunk.
+
+Please implement chunk-load recovery:
+1. Detect dynamic import / module-script MIME failures in the app error boundary or
+   global error handler.
+2. Perform exactly one guarded hard reload with a cache-busting marker so stale
+   deploy chunks self-heal.
+3. If the reload still fails, show targeted copy such as "The app was updated.
+   Refresh to load the latest version" rather than generic Oops.
+4. Verify deploy asset integrity: stale /assets/*.js URLs must not return HTML
+   fallback; add a canary that fetches script/modulepreload asset URLs and asserts
+   200 + JavaScript MIME.
+5. Log a specific diagnostic code (for example CHUNK_LOAD_ERROR) without transcript
+   content.
+
+After fix, TEST reruns Native and Private human proofs from a fresh browser and
+confirms no generic Oops page appears before STT mode selection.
+```
