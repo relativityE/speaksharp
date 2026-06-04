@@ -1,5 +1,5 @@
 {
-  "lastUpdatedAt": "2026-06-04T13:09:00Z",
+  "lastUpdatedAt": "2026-06-04T13:18:00Z",
   "purpose": "Current STT release status only. Historical/superseded proof chatter intentionally pruned from active reports.",
   "classifications": {
     "cloud": {
@@ -148,6 +148,35 @@
     ],
     "passRule": "Improve or preserve baseline accuracy on h1_6 and the human script, preserve onset/tail words and fillers, and avoid >10% timing regression. Onset clipping, tail loss, or worse semantic substitution fails."
   },
+  "latestSessionAnalyticsCoherenceProof": {
+    "status": "automated_coherence_verified",
+    "owner": "test-release-agent / Codex",
+    "targetedVitest": {
+      "command": "pnpm exec vitest run --config frontend/vitest.config.mjs --coverage.enabled=false frontend/src/components/__tests__/AnalyticsDashboard.component.test.tsx frontend/src/components/session/__tests__/LiveCoachingScoreCard.test.tsx frontend/src/pages/__tests__/AnalyticsPage.component.test.tsx frontend/src/hooks/__tests__/useAnalytics.test.tsx frontend/src/utils/__tests__/speakingScore.test.ts",
+      "testFilesPassed": 5,
+      "testsPassed": 66
+    },
+    "browserProof": [
+      {
+        "command": "pnpm exec playwright test tests/e2e/user-facing-regressions.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=/private/tmp/speaksharp-session-analytics-coherence",
+        "testsPassed": 9
+      },
+      {
+        "command": "pnpm exec playwright test tests/e2e/analytics-suite.e2e.spec.ts tests/e2e/analytics-truth.e2e.spec.ts --config=playwright.config.ts --project=full-suite --reporter=line --output=/private/tmp/speaksharp-analytics-theme-proof",
+        "testsPassed": 13
+      }
+    ],
+    "verified": [
+      "SpeakSharp Score explanation and transcript-quality confidence caveat",
+      "Analytics dashboard/page renders coherent tool groups",
+      "Filler/readability/transcript-quality signals are present in analytics",
+      "Session metrics persist into analytics detail after save and reload",
+      "Analytics truth values change from transcript events and survive reload/export",
+      "Detail navigation returns to dashboard"
+    ],
+    "bugsFound": [],
+    "caveat": "This closes session-to-analytics coherence under automated/mock proofs. It does not close the underlying STT quality blockers: Native/Private detail empties from human proofs, Private substitution, Private missed filler, and Native truecasing/readability."
+  },
   "trustCopyContract": {
     "private": {
       "allowed": ["Listening locally…", "Processing speech locally…", "Finalizing local transcript…", "Draft transcript for visible provisional words", "normal final transcript styling"],
@@ -171,6 +200,7 @@
       "Private decode-parameter A/B h1_6 completed; expand only for a new candidate config",
       "Native raw-first async formatter plumbing verified; rerun human proof after dev fixes quality/detail",
       "Private VAD prototype test plan complete; execute after dev ships a named VAD flag",
+      "Session-to-Analytics coherence complete under targeted automated proof",
       "Rerun Native real mic after dev fixes",
       "Rerun Private human proof after dev fixes",
       "Run Cloud baseline current-head proof after higher-priority Native/Private blockers"
