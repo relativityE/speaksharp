@@ -878,9 +878,11 @@ a "model ceiling" until this A/B + the drop-in/browser comparison confirm it. If
 moves WER materially, model quality was the limiter; if it does NOT, the implementation path still
 has a deeper issue (do not keep chasing model size — revisit segmentation, or caveat/hold Private).
 
-**Models (same input route, same fixtures):** `?privateModel=` →
-1. `whisper-tiny.en` (current, local) · 2. `whisper-base.en` (`onnx-community/whisper-base.en`, ~145 MB)
-· 3. `distil-small.en` (`onnx-community/distil-small.en`, ~166 MB). Confirm
+**Models (same input route, same fixtures), branch `@6defae00`:** `?privateModel=` →
+1. `whisper-tiny.en` (current, local) · 2. `whisper-base.en` (`Xenova/whisper-base.en`, ~145 MB)
+· 3. `whisper-small.en` (`Xenova/whisper-small.en`, ~244 MB). **Use the Xenova/\* (transformers.js
+v2) family — `onnx-community/*` is v3 and fails on the production library with "Unsupported model
+type". distil-small.en is v3-only and was replaced with whisper-small.en.** Confirm
 `window.__PRIVATE_MODEL_TELEMETRY__.model` matches each run.
 
 **Required fixtures/scripts:**
