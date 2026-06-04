@@ -140,10 +140,31 @@ These are accepted product directions used to vet the current offering and futur
 
 SpeakSharp is not just a transcription app. It is a privacy-first speech practice coach.
 
+Reviewer framing accepted:
+
+```text
+STT is infrastructure.
+SpeakSharp is the coach.
+```
+
+STT still matters because the transcript is the evidence layer for coaching,
+score confidence, analytics, and user trust. The release promise is not "perfect
+transcription"; it is:
+
+```text
+Practice privately, get trustworthy feedback, improve one thing at a time.
+```
+
 The product should move users through this loop:
 
 ```text
 Practice -> See useful feedback -> Try one focused improvement -> See progress -> Come back
+```
+
+The conversion journey should preserve this trust loop:
+
+```text
+Try -> Trust -> Improve -> Save -> Compare -> Upgrade
 ```
 
 The most important current product shift is from raw metric display to useful coaching:
