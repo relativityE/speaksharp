@@ -1,6 +1,6 @@
 # STT Product Metrics Release Matrix — Current
 
-**Updated:** 2026-06-04T11:45Z  
+**Updated:** 2026-06-04T12:44Z  
 **Purpose:** One-page current STT release status. Older proof history is intentionally removed from this active matrix; use git history only if a prior artifact must be audited.
 
 ## Current Classification
@@ -43,7 +43,19 @@
 | Owner | Work |
 | --- | --- |
 | @dev-agent | Native detail empty; Native truecasing/readability; Native trust-label spacing; Private accuracy/substitution; Private detail empty; Private first-visible draft gating. |
-| test-release-agent / Codex | Rerun Native real mic and Private human proof after dev fixes; run Cloud baseline current-head proof after higher-priority Native/Private blockers. |
+| test-release-agent / Codex | Own tasks #1-#7 below: Private decode-parameter A/B; Native formatter verification; Private VAD test plan; Session-to-Analytics coherence; browser UX bug hunt; Cloud baseline proof; report/backlog hygiene. |
 | product | Keep Cloud baseline only for launch; keep Private formatter local-only; decide whether Native raw-at-Stop plus async formatting is acceptable if quality improves. |
+
+## Test-Release Agent / Codex Task Queue
+
+| # | Task | Status |
+| --- | --- | --- |
+| 1 | Private decode-parameter A/B | Assigned to test-release-agent / Codex |
+| 2 | Native raw-first async formatter verification | Assigned to test-release-agent / Codex |
+| 3 | Private VAD prototype test plan | Assigned to test-release-agent / Codex |
+| 4 | Session-to-Analytics coherence pass | Assigned to test-release-agent / Codex |
+| 5 | Browser UX bug hunt | Assigned to test-release-agent / Codex |
+| 6 | Cloud baseline proof | Assigned to test-release-agent / Codex |
+| 7 | Report/backlog hygiene | Assigned to test-release-agent / Codex |
 
 Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and update the owning evidence file with the merge commit. Do not leave release fixes stranded on long-lived branches.

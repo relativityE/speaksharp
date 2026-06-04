@@ -1,6 +1,6 @@
 # Private STT Release Evidence — Current
 
-**Updated:** 2026-06-04T11:40Z  
+**Updated:** 2026-06-04T12:44Z  
 **Scope:** Private v2 local/browser STT, explicit setup consent, accuracy, trust UI, save/history/detail  
 **Canonical matrix:** `product_release/evidence/stt_product_metrics_release_matrix_2026-06-02.json`
 
@@ -65,6 +65,16 @@ Private may use local language only for actual local processing states.
 ## Next Test After Dev Fix
 
 Owner: **test-release-agent / Codex** after `@dev-agent` lands a fix.
+
+Additional **test-release-agent / Codex** owned work that can proceed without taking dev implementation lanes:
+
+| # | Task |
+| --- | --- |
+| 1 | Private decode-parameter A/B on current browser worker config vs reversible anti-hallucination/long-form config. |
+| 3 | Private VAD prototype test plan and metrics, to execute when a flagged VAD prototype exists. |
+| 4 | Session-to-Analytics coherence for Private-derived score/quality signals. |
+| 5 | Browser UX bug hunt covering Private setup consent, recording, stop, save/history/detail, and error recovery. |
+| 7 | Keep this report pruned to current artifacts, owners, and proof requirements. |
 
 Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and keep reports/backlog updated with the merge commit. Do not leave release fixes stranded on long-lived branches.
 
