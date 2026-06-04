@@ -1,6 +1,6 @@
 # STT Product Metrics Release Matrix — Current
 
-**Updated:** 2026-06-04T13:20Z  
+**Updated:** 2026-06-04T13:23Z  
 **Purpose:** One-page current STT release status. Older proof history is intentionally removed from this active matrix; use git history only if a prior artifact must be audited.
 
 ## Current Classification
@@ -22,6 +22,7 @@
 | Private decode A/B | `/private/tmp/speaksharp-private-decode-ab-h1_6-real-auth` | h1_6 baseline `75.00%`; anti-hallucination decode options `0.00%`. Candidate rejected; keep current defaults. |
 | Session → Analytics coherence | targeted Vitest + Playwright | Analytics dashboard/page/score math `66/66`; user-facing regression `9/9`; analytics suite/truth `13/13`. Score caveats, transcript quality, filler/readability signals, detail navigation, reload/export, and session-to-analytics parity are currently covered by automated proof. |
 | Browser UX bug hunt | Playwright full-suite subset | Primary journeys, user features, custom filler words, goals, and error states `19/19`. No new automated UX bug surfaced; human STT quality/detail/trust findings remain the controlling blockers. |
+| Cloud baseline local contract | Vitest + live gate check | Local contract/timing stack `44/44`; live Cloud app-path spec skipped because this environment lacks deployed `BASE_URL`/Pro credentials and a real `ASSEMBLYAI_API_KEY`. Cloud remains closest, but not fully green. |
 
 ## Release Metrics Required Per STT
 
@@ -59,7 +60,7 @@
 | 3 | Private VAD prototype test plan | Plan complete; execution waits for named dev VAD prototype flag |
 | 4 | Session-to-Analytics coherence pass | Complete: `66/66` targeted Vitest, `9/9` user-facing browser regressions, `13/13` analytics suite/truth |
 | 5 | Browser UX bug hunt | Complete: `19/19` Playwright across primary journey, user features, filler words, goals, and error states; no new automated UX bug found |
-| 6 | Cloud baseline proof | Assigned to test-release-agent / Codex |
+| 6 | Cloud baseline proof | Local contract complete: `44/44`; live app-path proof credential-gated and still required before green |
 | 7 | Report/backlog hygiene | Assigned to test-release-agent / Codex |
 
 Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and update the owning evidence file with the merge commit. Do not leave release fixes stranded on long-lived branches.

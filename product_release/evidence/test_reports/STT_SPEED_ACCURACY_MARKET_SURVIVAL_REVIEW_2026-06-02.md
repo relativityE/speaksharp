@@ -1,6 +1,6 @@
 # STT Speed, Accuracy, And Market Survival — Current
 
-**Updated:** 2026-06-04T13:20Z  
+**Updated:** 2026-06-04T13:23Z  
 **Purpose:** Keep the release decision focused on product survival: fast visible feedback, accurate final transcript, credible punctuation, and trustworthy analytics.
 
 ## Product Position
@@ -38,7 +38,7 @@ Cloud is the strongest quality path, but product strategy prioritizes getting Na
 | --- | --- |
 | Native | @dev-agent fixes detail-empty, formatter truecasing/readability, and trust-label spacing; test reruns real mic. |
 | Private | @dev-agent investigates content loss/substitution, first-visible draft gate, and detail-empty; test reruns same human script. |
-| Cloud | Keep baseline only; run current-head app-path tail/readability/timeline proof after higher-priority Native/Private work. |
+| Cloud | Keep baseline only. Local baseline contract proof passed; credentialed current-head app-path tail/readability/timeline proof is still needed before green. |
 | Score / Analytics | Coherence proof passed. Continue treating transcript quality as confidence/caveat input; do not use analytics success to excuse weak STT source quality. |
 | Browser UX | Automated UX sweep passed; no new non-STT browser bug found in primary journey, user features, filler-word management, goals, or error states. |
 
@@ -53,7 +53,7 @@ These seven items are assigned to **test-release-agent / Codex**. Dev agent shou
 | 3 | Private VAD prototype test plan | RMS-vs-neural-VAD proof plan and metrics; execute once dev provides a flagged prototype. |
 | 4 | Session-to-Analytics coherence pass | **Complete 2026-06-04:** targeted analytics/score Vitest `66/66`, user-facing browser regression `9/9`, analytics suite/truth browser proof `13/13`. Session score, transcript-quality caveats, filler/readability signals, detail navigation, reload/export, and analytics outputs agree under automation. |
 | 5 | Browser UX bug hunt | **Complete 2026-06-04:** Playwright full-suite subset `19/19` across primary journey, user features, custom filler words, goal-setting, and error states. No new automated UX bug found; human STT quality/detail/trust issues remain the controlling blockers. |
-| 6 | Cloud baseline proof | Baseline-only current-head app-path proof with timeline, tail, readability, filler, and save/history/detail. No standard-filler keyterms work. |
+| 6 | Cloud baseline proof | **Partially complete 2026-06-04:** local baseline contract/timing proof `44/44`; live app-path spec skipped due missing deployed `BASE_URL`/Pro credentials and no real `ASSEMBLYAI_API_KEY` locally. No standard-filler keyterms work. |
 | 7 | Report/backlog hygiene | Keep active STT reports current and pruned; remove stale chatter and preserve only actionable blockers, owners, artifacts, and proof requirements. |
 
 Coordination protocol: do work on a temporary branch; when complete and verified, merge to `main`, delete the temp branch, and update the relevant report/backlog entry with the merge commit. Do not leave release fixes stranded on long-lived branches.
