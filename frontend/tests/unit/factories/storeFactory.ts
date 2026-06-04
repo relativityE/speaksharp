@@ -33,6 +33,7 @@ const initialState: SessionState = {
         extendedPauses: 0,
     },
     sessionSaved: false,
+    nativeFormatting: { status: 'idle', startedAt: null },
     sunsetModal: { type: 'daily', open: false },
     isBooting: false,
 };
@@ -141,6 +142,11 @@ export function createTestSessionStore(
         setSessionSaved: vi.fn((saved) =>
             set({
                 sessionSaved: saved,
+            })),
+
+        setNativeFormatting: vi.fn((nativeFormatting) =>
+            set({
+                nativeFormatting,
             })),
 
         setSunsetModal: vi.fn((sunsetModal) =>
