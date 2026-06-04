@@ -2477,3 +2477,27 @@ Need next proof: repeat this exact __PRIVATE_TIMING__ capture on a longer human
 or washington-style speech before deciding segment-finalization / long-form
 buffering from peakBufferedSeconds.
 ```
+
+Dev interpretation accepted:
+
+| Signal | Current conclusion | What remains open |
+| --- | --- | --- |
+| Short `conv_01` post-Stop wait | Decode-dominated and acceptable: ~1.9s decode, ~0ms drain/prep. | Does not explain the earlier ~10s wait on the longer 79-word artifact. |
+| `timeToFirstFinalMs` on short `conv_01` | ~10s, meaning this short recording showed draft text but did not settle a committed final until Stop/finalize. | For long speeches, this may become the "draft never settles / stop dump" UX problem. |
+| Earlier longer artifact | Suggested large pre-decode wait, but lacked `finalizeWaitMs` / `finalizePrepMs` split. | Needs rerun with the new timing fields before any branch fix. |
+
+Required next evidence before dev changes long-form architecture:
+
+| Run | Required fields | Decision it unlocks |
+| --- | --- | --- |
+| ~60s distinct-prose Private run | `timeToFirstProvisionalMs`, `timeToFirstFinalMs`, `finalizeWaitMs`, `finalizePrepMs`, `finalizeDecodeMs`, `utteranceSeconds`, `peakBufferedSeconds`, `saveCandidate`, transcript completeness/readability | Distinguish drain-vs-decode-vs-segmentation for medium speech. |
+| ~120s distinct-prose Private run | Same fields, plus `RTF = finalizeDecodeMs / (utteranceSeconds * 1000)` | Decide whether long-form needs segment-level finalization, worker drain cap/skip, or WASM threading. |
+
+Decision rule for dev:
+
+```text
+If finalizeWaitMs grows on long runs -> fix Stop drain / cap discarded in-flight live decode.
+If finalizeDecodeMs scales linearly and Stop wait is still unacceptable -> segment-level finalization is the UX lever.
+If RTF is high and decode dominates -> WASM threads / cross-origin isolation is the throughput lever, subject to third-party smoke tests.
+If timeToFirstFinalMs stays beyond Stop on long runs -> segment-level finalization is needed for trust/smoothness even if raw decode speed is acceptable.
+```
