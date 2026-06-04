@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { AUDIO_ARGS, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
+import { AUDIO_ARGS, assertManualReleaseProofEnvironment, collectBenchmarkPreconditionSnapshot, selectBenchmarkMode } from './helpers/benchmark-utils';
 import { HARVARD_BENCHMARK_LONG_AUDIO } from './helpers/audio-fixtures';
 
 const BASE_URL = process.env.BASE_URL;
@@ -43,9 +43,10 @@ test('Pro Cloud live STT can transcribe, save, and show analytics history', asyn
   await signInAsPro(page);
   await expect(page).toHaveURL(/\/session/, { timeout: 30_000 });
   await expect(page.getByTestId('pro-badge')).toBeVisible({ timeout: 20_000 });
+  const environmentProof = await assertManualReleaseProofEnvironment(page, 'cloud-baseline-release-proof-env');
 
   await selectCloudMode(page);
-  await recordCloudSessionUntilTranscript(page, cloudConsoleEvents);
+  await recordCloudSessionUntilTranscript(page, cloudConsoleEvents, environmentProof);
 
   await page.goto('/analytics');
   await page.locator('html[data-app-visible-ready="true"]').waitFor({ timeout: 45_000 });
@@ -64,7 +65,11 @@ async function selectCloudMode(page: Page) {
   await selectBenchmarkMode(page, 'cloud');
 }
 
-async function recordCloudSessionUntilTranscript(page: Page, cloudConsoleEvents: string[]) {
+async function recordCloudSessionUntilTranscript(
+  page: Page,
+  cloudConsoleEvents: string[],
+  environmentProof: Awaited<ReturnType<typeof assertManualReleaseProofEnvironment>>
+) {
   const startStopButton = page.getByTestId('session-start-stop-button');
   await expect(startStopButton).toBeVisible({ timeout: 30_000 });
   await expect(startStopButton).toBeEnabled({ timeout: 60_000 });
@@ -85,6 +90,7 @@ async function recordCloudSessionUntilTranscript(page: Page, cloudConsoleEvents:
   const transcriptContainer = page.getByTestId('transcript-container');
   const transcript = await waitForLiveFixtureTranscript(page, transcriptContainer, cloudConsoleEvents);
   console.log(`LIVE_CLOUD_TRANSCRIPT_EVIDENCE ${JSON.stringify({
+    environmentProof,
     fixture: 'harvard_benchmark_16k_loop_120s.wav',
     transcriptPreview: transcript.slice(0, 180),
     transcriptLength: transcript.length,
